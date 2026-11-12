@@ -41,6 +41,7 @@ use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus, MAX_DAYS_PER_WEEK,
 };
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
+use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_services::plan_fueling::FuelingDisclosure;
@@ -960,7 +961,10 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 .map_or(0, Vec::len);
             check_phase_indexes(&weeks, phase_count)?;
             check_template_slugs(&catalogue, repos, tenant, scope.user_id, &mut weeks).await?;
-            instantiate_template_days(&catalogue, &mut weeks)?;
+            // Measured on the athlete's own anchors, a coach's save included:
+            // the plan is the athlete's, so are the numbers its targets sit on.
+            let anchors = stored_athlete_anchors(repos, tenant, scope.user_id).await?;
+            instantiate_template_days(&catalogue, &mut weeks, anchors.as_ref())?;
             let envelope = PlanEnvelopeReport::from_days(weeks.iter().flat_map(|w| &w.days));
             let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
             fueling.refuse_figures(weeks.iter().flat_map(|week| &week.days))?;

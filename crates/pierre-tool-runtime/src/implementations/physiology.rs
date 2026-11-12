@@ -43,7 +43,6 @@ use chrono::{NaiveDate, Utc};
 use dravr_cageux::physiological_constants::physiological_defaults::{
     LACTATE_THRESHOLD_MAX, LACTATE_THRESHOLD_MIN,
 };
-use serde::Serialize;
 use serde_json::{json, Map, Value};
 use tracing::info;
 use uuid::Uuid;
@@ -54,7 +53,9 @@ use crate::implementations::configuration::{
     validate_parameter_ranges, validate_parameter_relationships,
 };
 use crate::implementations::lactate_thresholds::EstimateLactateThresholdsTool;
+use crate::implementations::physiology_anchors::{self, SportAnchorUpdate};
 use crate::implementations::physiology_import::ImportProviderThresholdsTool;
+use crate::implementations::physiology_output::{profile_payload, SetPhysiologyResult};
 use crate::implementations::plan_flavour::RecommendPlanFlavourTool;
 use crate::implementations::vo2max_estimate::EstimateVo2maxTool;
 use crate::runtime::ToolRuntime;
@@ -65,9 +66,8 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    AnchorProvenance, AnchorStamp, HrZoneSet, MeasurementKind, MetricProvenance, PhysiologicalSex,
-    PowerZoneSet, ProvenancedValue, SportType, TenantId, ThresholdProvenance,
-    UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
+    AnchorStamp, MeasurementKind, MetricProvenance, PhysiologicalSex, ProvenancedValue, SportType,
+    TenantId, UserPhysiologicalProfile, ATHLETE_REPORTED_ORIGIN,
 };
 use pierre_fitness_compute::AthleteInputs;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
@@ -97,21 +97,21 @@ const TRAINING_EXPERIENCE_YEARS_MAX: u64 = 80;
 /// Fastest threshold pace accepted, in seconds per kilometre. 2:00/km is
 /// quicker than the men's 10 km world-record pace, so a smaller number means
 /// the athlete gave seconds per mile or minutes per kilometre by mistake.
-const THRESHOLD_PACE_SEC_PER_KM_MIN: f64 = 120.0;
+pub(crate) const THRESHOLD_PACE_SEC_PER_KM_MIN: f64 = 120.0;
 
 /// Slowest threshold pace accepted, in seconds per kilometre. 15:00/km is
 /// slower than a walk, which is no longer a threshold effort.
-const THRESHOLD_PACE_SEC_PER_KM_MAX: f64 = 900.0;
+pub(crate) const THRESHOLD_PACE_SEC_PER_KM_MAX: f64 = 900.0;
 
 /// Lowest critical power accepted, in watts. Below FTP's 50 W floor on
 /// purpose: patients with COPD measure 46 ± 22 W (Tiller 2023), and a
 /// floor at 50 would refuse half of such a cohort. Sources for every bound
 /// below: `Methodology/Intelligence/Critical Power and Critical Speed`.
-const CRITICAL_POWER_WATTS_MIN: u32 = 30;
+pub(crate) const CRITICAL_POWER_WATTS_MIN: u32 = 30;
 
 /// Highest critical power accepted, in watts — above the 402 ± 33 W elite
 /// track riders reach on a 3-minute all-out test (Bartram 2017).
-const CRITICAL_POWER_WATTS_MAX: u32 = 600;
+pub(crate) const CRITICAL_POWER_WATTS_MAX: u32 = 600;
 
 /// Smallest W′ accepted, in joules. Habitually active adults hold 15-16 kJ
 /// (Vanhatalo 2007), so anything below 2 kJ is a kilojoules-for-joules slip.
@@ -122,12 +122,12 @@ const W_PRIME_JOULES_MIN: u32 = 2_000;
 const W_PRIME_JOULES_MAX: u32 = 60_000;
 
 /// Slowest critical speed accepted, in metres per second (11:07/km).
-const CRITICAL_SPEED_MPS_MIN: f64 = 1.5;
+pub(crate) const CRITICAL_SPEED_MPS_MIN: f64 = 1.5;
 
 /// Fastest critical speed accepted, in metres per second (2:23/km). Critical
 /// speed sits below 5000 m race speed, and the world record is about
 /// 6.6 m/s; Kipchoge's is 6.04 m/s (Jones & Vanhatalo 2017).
-const CRITICAL_SPEED_MPS_MAX: f64 = 7.0;
+pub(crate) const CRITICAL_SPEED_MPS_MAX: f64 = 7.0;
 
 /// Smallest D′ accepted, in metres.
 const D_PRIME_METERS_MIN: f64 = 30.0;
@@ -136,9 +136,10 @@ const D_PRIME_METERS_MIN: f64 = 30.0;
 /// Vanhatalo 2017, Table 1) and middle-distance runners plausibly more.
 const D_PRIME_METERS_MAX: f64 = 1_000.0;
 
-/// Longest `measurement_source` accepted, in characters: room for "3-min
-/// all-out test on the velodrome", short of a pasted paragraph.
-const MEASUREMENT_SOURCE_MAX_CHARS: usize = 80;
+/// Longest `measurement_source`, or sport anchor `source` or `method`,
+/// accepted, in characters: room for "3-min all-out test on the velodrome",
+/// short of a pasted paragraph.
+pub(crate) const MEASUREMENT_SOURCE_MAX_CHARS: usize = 80;
 
 /// The fields one call's `measurement_kind`, `measurement_source` and
 /// `measured_on` describe, as the error messages name them.
@@ -482,22 +483,25 @@ impl PhysiologyUpdate {
 
     /// Overlay the supplied fields onto the stored profile, leaving every
     /// field this call did not mention exactly as it was. A threshold the
-    /// call sets becomes the athlete's own: its provider provenance, if any,
-    /// is cleared; one it does not set keeps its own. A resting heart rate,
-    /// `VO2max` or weight the call sets is stamped as the athlete's, stated on
-    /// `today`, so the weekly promotion never replaces it.
+    /// call sets becomes the athlete's own, stated on `today`: its provider
+    /// provenance, if any, is cleared; one it does not set keeps its own. A
+    /// resting heart rate, `VO2max` or weight the call sets is stamped as the
+    /// athlete's, stated on `today`, so the weekly promotion never replaces it.
     fn apply_to(&self, profile: &mut UserPhysiologicalProfile, today: NaiveDate) {
         if let Some(v) = self.ftp_watts {
             profile.ftp_watts = Some(v);
             profile.threshold_provenance.ftp_watts = None;
+            profile.threshold_stated_on.ftp_watts = Some(today);
         }
         if let Some(v) = self.threshold_pace_sec_per_km {
             profile.threshold_pace_sec_per_km = Some(v);
             profile.threshold_provenance.threshold_pace_sec_per_km = None;
+            profile.threshold_stated_on.threshold_pace_sec_per_km = Some(today);
         }
         if let Some(v) = self.max_hr {
             profile.max_hr = Some(v);
             profile.threshold_provenance.max_hr = None;
+            profile.threshold_stated_on.max_hr = Some(today);
         }
         if let Some(v) = self.resting_hr {
             profile.resting_hr = Some(v);
@@ -506,6 +510,7 @@ impl PhysiologyUpdate {
         if let Some(v) = self.threshold_hr {
             profile.threshold_hr = Some(v);
             profile.threshold_provenance.threshold_hr = None;
+            profile.threshold_stated_on.threshold_hr = Some(today);
         }
         if let Some(v) = self.lactate_threshold_percentage {
             profile.lactate_threshold_percentage = Some(v);
@@ -789,132 +794,6 @@ pub(crate) async fn store_profile(
     Ok((stored, training_history))
 }
 
-/// Render a profile for the tool response.
-pub(crate) fn profile_payload(profile: &UserPhysiologicalProfile) -> PhysiologyProfile {
-    PhysiologyProfile {
-        ftp_watts: profile.ftp_watts,
-        threshold_pace_sec_per_km: profile.threshold_pace_sec_per_km,
-        max_hr: profile.max_hr,
-        resting_hr: profile.resting_hr,
-        threshold_hr: profile.threshold_hr,
-        lactate_threshold_percentage: profile.lactate_threshold_percentage,
-        vo2_max: profile.vo2_max,
-        weight: profile.weight,
-        age: profile.age,
-        fitness_level: profile.fitness_level,
-        primary_sport: profile.primary_sport.clone(),
-        training_experience_years: profile.training_experience_years,
-        sex: profile.sex,
-        hr_zones: profile.hr_zones,
-        power_zones: profile.power_zones,
-        critical_power_watts: profile.critical_power_watts.clone(),
-        w_prime_joules: profile.w_prime_joules.clone(),
-        critical_speed_mps: profile.critical_speed_mps.clone(),
-        d_prime_meters: profile.d_prime_meters.clone(),
-        threshold_provenance: profile.threshold_provenance.clone(),
-        anchor_provenance: profile.anchor_provenance,
-    }
-}
-
-/// The athlete's physiological profile as the tools echo it back.
-///
-/// Every measurement is optional: a profile is built up over time, and an
-/// athlete who has only ever given a resting heart rate has a profile with
-/// one field set. Reporting the absent ones as absent rather than as zero is
-/// what keeps an agent from reasoning off a fabricated number.
-///
-/// `fitness_level` and `primary_sport` are NOT optional — they carry their
-/// own defaults — which is why they are the enums rather than strings.
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct PhysiologyProfile {
-    /// Functional threshold power, in watts.
-    pub ftp_watts: Option<u32>,
-    /// Threshold pace, in seconds per kilometre.
-    pub threshold_pace_sec_per_km: Option<f64>,
-    /// Maximum heart rate, in bpm.
-    pub max_hr: Option<u16>,
-    /// Resting heart rate, in bpm.
-    pub resting_hr: Option<u16>,
-    /// Measured lactate threshold heart rate, in bpm — what heart-rate
-    /// training stress is scored against.
-    pub threshold_hr: Option<u16>,
-    /// Lactate threshold as a fraction of `VO2max`. Sets threshold pace, and
-    /// estimates the LTHR when none is measured.
-    pub lactate_threshold_percentage: Option<f64>,
-    /// `VO2max`, in ml/kg/min.
-    pub vo2_max: Option<f64>,
-    /// Body mass, in kilograms.
-    pub weight: Option<f64>,
-    /// Age in years.
-    pub age: Option<u16>,
-    /// Self-reported level: beginner, intermediate, advanced.
-    pub fitness_level: FitnessLevel,
-    /// The sport the athlete mostly trains. Open-ended: a provider-specific
-    /// sport no enum anticipated arrives as `Other`.
-    pub primary_sport: SportType,
-    /// Years of structured training.
-    pub training_experience_years: Option<u8>,
-    /// Physiological sex, as the athlete stated it or a provider reported it;
-    /// absent when neither did. It selects the published equations that take
-    /// one.
-    pub sex: Option<PhysiologicalSex>,
-    /// Heart-rate zone boundaries, cageux's `VO2max`-tiered Karvonen zones
-    /// (zone 6 when the tier has one). Absent until both a resting and a
-    /// maximum heart rate are on the profile, because they are cut from the
-    /// reserve between the pair.
-    pub hr_zones: Option<HrZoneSet>,
-    /// Power zone boundaries, Coggan's seven levels from the FTP (zone 7 is
-    /// everything above `z6_max`). Absent for an athlete with no saved FTP.
-    pub power_zones: Option<PowerZoneSet>,
-    /// Critical power, in watts, with whether it was measured or estimated
-    /// and by whom. Quote an estimated value as an estimate, attributed to
-    /// its origin ("Vekta estimates your CP at 312 W"), never as a
-    /// measurement.
-    pub critical_power_watts: Option<ProvenancedValue<u32>>,
-    /// W′, in joules, with its provenance. Quoted the same way as
-    /// `critical_power_watts`.
-    pub w_prime_joules: Option<ProvenancedValue<u32>>,
-    /// Critical speed, in metres per second, with its provenance. Quoted the
-    /// same way as `critical_power_watts`.
-    pub critical_speed_mps: Option<ProvenancedValue<f64>>,
-    /// D′, in metres, with its provenance. Quoted the same way as
-    /// `critical_power_watts`.
-    pub d_prime_meters: Option<ProvenancedValue<f64>>,
-    /// Where `ftp_watts`, `threshold_hr`, `max_hr` and
-    /// `threshold_pace_sec_per_km` came from, for the ones a provider supplied
-    /// (`import_provider_thresholds`). Each listed value is that provider's
-    /// estimate: quote it with its origin ("intervals.icu has your FTP at
-    /// 285 W"), never as a measurement. A threshold not listed is the
-    /// athlete's own, and the field is absent when all of them are.
-    #[serde(skip_serializing_if = "ThresholdProvenance::is_empty")]
-    pub threshold_provenance: ThresholdProvenance,
-    /// Where `resting_hr`, `vo2_max` and `weight` came from, for the ones with
-    /// a recorded origin. `promoted` is filled weekly from the athlete's own
-    /// device readings (resting heart rate: the 7-day median of morning
-    /// readings): say it came from their devices, not that they set it.
-    /// Absent when none is recorded.
-    #[serde(skip_serializing_if = "AnchorProvenance::is_empty")]
-    pub anchor_provenance: AnchorProvenance,
-}
-
-/// What `set_physiology` answers with.
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct SetPhysiologyResult {
-    /// Always true: the tool errors rather than reporting a failed save.
-    pub saved: bool,
-    /// Whether this call created the profile rather than updating one.
-    pub created: bool,
-    /// Which fields this call set, by name. Names only — the measurements
-    /// themselves are health data and do not belong in a field list.
-    pub updated_fields: Vec<&'static str>,
-    /// The profile as it now stands, so the agent need not read it back.
-    pub profile: PhysiologyProfile,
-    /// What the save did to the stored daily training history
-    /// (`get_training_history`): recomputed when it moved a number training
-    /// load is scored against.
-    pub training_history: HistoryRefresh,
-}
-
 // ============================================================================
 // SetPhysiologyTool
 // ============================================================================
@@ -923,6 +802,112 @@ pub struct SetPhysiologyResult {
 /// personalised computation reads.
 #[derive(Debug)]
 pub struct SetPhysiologyTool;
+
+/// The `sport_anchors` property: one object per anchor, each field declared
+/// here beside the tool so its schema names every key the parser reads
+/// ([`physiology_anchors::SportAnchorUpdate`]).
+fn sport_anchors_property() -> PropertySchema {
+    let item = PropertySchema {
+        property_type: "object".to_owned(),
+        properties: Some(BTreeMap::from([
+            (
+                "sport".to_owned(),
+                PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("ride, run or swim.".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "anchor".to_owned(),
+                PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("ftp, critical_power, map (W); critical_speed, vvo2max, threshold_speed (m/s); max_heart_rate, threshold_heart_rate (bpm).".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "value".to_owned(),
+                PropertySchema {
+                    property_type: "number".to_owned(),
+                    description: Some("In its unit.".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "low".to_owned(),
+                PropertySchema {
+                    property_type: "number".to_owned(),
+                    description: Some("Range low.".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "high".to_owned(),
+                PropertySchema {
+                    property_type: "number".to_owned(),
+                    description: Some("Range high.".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "kind".to_owned(),
+                PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("measured (named test) or estimated.".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "confidence".to_owned(),
+                PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("high: protocol test under 6 wk old; medium: 6-12 wk, or a 2-effort model; low otherwise (default).".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "method".to_owned(),
+                PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Test used; for map its definition (ramp peak, VO2peak power, extrapolated).".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "source".to_owned(),
+                PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("Who produced it.".to_owned()),
+                    ..Default::default()
+                },
+            ),
+            (
+                "measured_on".to_owned(),
+                PropertySchema {
+                    property_type: "string".to_owned(),
+                    description: Some("YYYY-MM-DD.".to_owned()),
+                    ..Default::default()
+                },
+            ),
+        ])),
+        required: Some(vec![
+            "sport".to_owned(),
+            "anchor".to_owned(),
+            "value".to_owned(),
+            "kind".to_owned(),
+        ]),
+        ..Default::default()
+    };
+    PropertySchema {
+        property_type: "array".to_owned(),
+        description: Some(
+            "Per-sport anchors; a ride ftp or critical_power, run critical_speed or threshold_speed, or main-sport heart rate also sets that field.".to_owned(),
+        ),
+        items: Some(Box::new(item)),
+        ..Default::default()
+    }
+}
 
 impl SetPhysiologyTool {
     /// Field descriptions for the tool schema, kept beside the parser.
@@ -1024,6 +1009,10 @@ impl SetPhysiologyTool {
             },
         );
         properties.insert(
+            physiology_anchors::SPORT_ANCHORS_ARG.to_owned(),
+            sport_anchors_property(),
+        );
+        properties.insert(
             "measurement_kind".to_owned(),
             PropertySchema {
                 property_type: "string".to_owned(),
@@ -1050,7 +1039,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
         };
         answers_with::<SetPhysiologyResult>(tool_definition(
             "set_physiology",
-            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′ — so load, zones and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
+            "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′, and per-sport anchors — so load, zones, workout targets and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
             schema,
             annotations("Set physiology", Effect::AdditiveWrite, Reach::Internal),
         ))
@@ -1080,10 +1069,11 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             let user_id = context.user_id;
 
             let update = PhysiologyUpdate::from_args(&args)?;
-            let updated_fields = update.field_names();
-            if updated_fields.is_empty() {
+            let anchor_update = SportAnchorUpdate::from_args(&args)?;
+            let mut updated_fields = update.field_names();
+            if updated_fields.is_empty() && anchor_update.is_empty() {
                 return Err(AppError::invalid_input(
-                    "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport, training_experience_years, critical_power_watts, w_prime_joules, critical_speed_mps or d_prime_meters",
+                    "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport, training_experience_years, critical_power_watts, w_prime_joules, critical_speed_mps, d_prime_meters or sport_anchors",
                 ));
             }
 
@@ -1099,7 +1089,23 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             profile.user_id = user_id;
             let today = athlete_today(context.resources.repos(), user_id).await;
             update.apply_to(&mut profile, today);
+            let repos = context.resources.repos();
+            let stored_anchors = if created {
+                Vec::new()
+            } else {
+                repos
+                    .user_physiological_profile
+                    .list_sport_anchors(tenant_id, user_id)
+                    .await?
+            };
+            let anchor_writes = physiology_anchors::reconcile(
+                &mut profile,
+                &updated_fields,
+                anchor_update.anchors(today),
+                &stored_anchors,
+            )?;
             validate_merged(&profile)?;
+            physiology_anchors::check_relationships(&profile, &anchor_writes.merged)?;
             // A resting heart rate or weight the athlete states is also that
             // day's measurement, which trends and merged reads see. Filed
             // before the profile: no transaction spans the two, and a row
@@ -1117,6 +1123,20 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
             .await?;
             let (stored, training_history) =
                 store_profile(&context.resources, tenant_id, profile, &load_inputs_before).await?;
+            // After the profile row: an anchor row needs its profile beside it.
+            let anchors = &repos.user_physiological_profile;
+            for (sport, anchor) in &anchor_writes.deletes {
+                anchors
+                    .delete_sport_anchor(tenant_id, user_id, *sport, *anchor)
+                    .await?;
+            }
+            for anchor in &anchor_writes.upserts {
+                anchors.upsert_sport_anchor(tenant_id, user_id, anchor).await?;
+            }
+            let sport_anchors = anchors.list_sport_anchors(tenant_id, user_id).await?;
+            if !anchor_update.is_empty() {
+                updated_fields.push(physiology_anchors::SPORT_ANCHORS_ARG);
+            }
 
             info!(
                 user_id = %user_id,
@@ -1133,7 +1153,7 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
                     saved: true,
                     created,
                     updated_fields,
-                    profile: profile_payload(&stored),
+                    profile: profile_payload(&stored, sport_anchors),
                     training_history,
                 },
             )

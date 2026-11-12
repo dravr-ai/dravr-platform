@@ -254,6 +254,7 @@ account_reset_tables!(
     "use_case_exposures",
     "platform_post_claims",
     "feedback_messages",
+    "user_physiology_sport_anchors",
     "user_physiological_profiles",
     "user_profiles",
     "user_configurations",

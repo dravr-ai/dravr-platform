@@ -1238,6 +1238,61 @@ async fn a_prescribed_session_keeps_adjacent_sets_apart_by_their_group() -> Resu
     Ok(())
 }
 
+/// A family session is measured on the athlete's stored anchors (carnet#1496):
+/// a ride MAP stated with no definition is named on the envelope of a session
+/// whose targets are a share of MAP, and the result names that anchor with its
+/// origin and confidence. With no anchors stored, no anchor is named.
+#[tokio::test]
+async fn a_family_prescription_is_measured_on_the_athletes_stored_anchors() -> Result<()> {
+    let stub = stub_live(5_200).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let thirty_fifteen = |date: &str| {
+        json!({
+            "template_slug": "vo2max_short", "preset": "30_15", "sport": "ride", "date": date
+        })
+    };
+
+    let before = fixture
+        .ok("prescribe_workout", thirty_fifteen("2026-09-26"))
+        .await?;
+    assert!(
+        before.get("envelope_anchor").is_none(),
+        "bug: an anchor was named for an athlete with none stored: {before}"
+    );
+
+    fixture
+        .ok(
+            "set_physiology",
+            json!({ "sport_anchors": [
+                { "sport": "ride", "anchor": "map", "value": 380, "kind": "estimated" }
+            ]}),
+        )
+        .await?;
+    let result = fixture
+        .ok("prescribe_workout", thirty_fifteen("2026-09-27"))
+        .await?;
+
+    assert_eq!(result["status"].as_str(), Some("pushed"), "got: {result}");
+    let flags_map_definition = result["envelope"]["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|finding| finding["code"] == "map_without_definition");
+    assert!(
+        flags_map_definition,
+        "bug: prescribe_workout did not read the stored MAP anchor; got: {result}"
+    );
+    let anchor = &result["envelope_anchor"];
+    assert_eq!(anchor["anchor"], "map", "the targets sit on MAP: {result}");
+    assert_eq!(anchor["value"], 380.0, "the stored value: {result}");
+    assert_eq!(anchor["origin"], "athlete", "no source was named: {result}");
+    assert_eq!(
+        anchor["confidence"], "low",
+        "no confidence was stated: {result}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn an_athlete_without_intervals_icu_is_told_to_connect_it() -> Result<()> {
     let stub = stub_live(1).await;

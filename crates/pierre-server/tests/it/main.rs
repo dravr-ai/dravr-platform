@@ -602,6 +602,7 @@ mod personas_endpoint_test;
 mod phase0_tenant_oauth_isolation_test;
 mod physiology_critical_power_test;
 mod physiology_sex_test;
+mod physiology_sport_anchors_test;
 mod physiology_threshold_migration_test;
 mod physiology_threshold_source_test;
 mod pillar_context_prompt_test;

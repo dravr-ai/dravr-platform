@@ -166,6 +166,16 @@ pub mod fitness_config;
 #[cfg(feature = "tools-config")]
 pub mod physiology;
 
+/// `set_physiology`'s per-sport anchors: each one parsed and range-checked,
+/// and a twin mirrored onto the profile field it stands for (carnet#1496).
+#[cfg(feature = "tools-config")]
+pub(crate) mod physiology_anchors;
+
+/// What the physiology tools echo back: the stored profile with its
+/// per-sport anchors (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub mod physiology_output;
+
 /// `import_provider_thresholds` — the athlete's FTP, heart-rate thresholds
 /// and threshold pace from a provider's settings, filled only where the
 /// athlete has not set their own (`tools-config` feature).

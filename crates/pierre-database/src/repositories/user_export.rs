@@ -388,6 +388,7 @@ user_export_tables_sql!(
     "user_onboarding" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "user_id", text "step_id"] },
     "calendar_preferences" { rows: [uuid "user_id"], tenant: "tenant_id", except: ["set_by"], page: 5, key: [text "tenant_id", uuid "user_id"] },
     "user_physiological_profiles" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 5, key: [uuid "tenant_id", uuid "user_id"] },
+    "user_physiology_sport_anchors" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 50, key: [uuid "tenant_id", uuid "user_id", text "sport", text "anchor"] },
     "fitness_configurations" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 20, key: [text "id"] },
     "goals" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: [text "id"] },
     "user_agent_preferences" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [text "id"] },

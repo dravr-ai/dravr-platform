@@ -19,7 +19,7 @@ use pierre_core::models::periodization::{
     EnvelopeReport, EvidenceStatus, EvidenceTier, IntensityDistribution, PhaseKind,
     ProgressionLever, ReadinessLevel, WorkoutPurpose,
 };
-use pierre_core::models::{SportType, WorkoutTemplate};
+use pierre_core::models::{SportType, TargetAnchor, WorkoutTemplate};
 use serde::Serialize;
 use serde_json::Value;
 use uuid::Uuid;
@@ -185,6 +185,12 @@ pub struct PrescribeWorkoutResult {
     /// Structured, never prose; absent when nothing was found.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub envelope: Option<EnvelopeReport>,
+    /// The athlete's anchor the session's targets are written on, with its
+    /// origin, day and confidence, beside `envelope`: name it with a finding,
+    /// as a range or an estimate when its confidence is low. Absent with no
+    /// envelope, or when the targets name no anchor the athlete holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope_anchor: Option<TargetAnchor>,
 }
 
 /// What `withdraw_prescribed_workout` answers with.

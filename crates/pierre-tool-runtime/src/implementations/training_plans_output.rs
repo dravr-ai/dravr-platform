@@ -19,7 +19,7 @@ use std::collections::BTreeSet;
 use pierre_core::models::periodization::{
     DaySubstitution, EnvelopeFinding, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
 };
-use pierre_core::models::CalendarEventSource;
+use pierre_core::models::{CalendarEventSource, TargetAnchor};
 use pierre_memory::training_plans::{GoalRace, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_calendar_push::PushPreview;
@@ -435,6 +435,13 @@ pub struct DayEnvelopeNotice {
     pub relabelled_purpose: Option<WorkoutPurpose>,
     /// What the check found.
     pub findings: Vec<EnvelopeFinding>,
+    /// The athlete's anchor the day's targets are written on, with its
+    /// origin, day and confidence: name it with the finding ("against your
+    /// FTP of 285 W from intervals.icu"), as a range or an estimate when its
+    /// confidence is low. Absent when the targets name no anchor the athlete
+    /// holds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<TargetAnchor>,
     /// Why the save could not build the day's steps from its preset; the day
     /// carries no steps until the agent writes them or shortens the day.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -459,6 +466,7 @@ impl PlanEnvelopeReport {
                     preset: envelope.preset.clone(),
                     relabelled_purpose: envelope.relabelled_purpose,
                     findings: envelope.findings.clone(),
+                    anchor: envelope.anchor.clone(),
                     not_generated: envelope.not_generated.clone(),
                 })
             })

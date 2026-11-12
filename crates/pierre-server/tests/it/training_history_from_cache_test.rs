@@ -38,7 +38,7 @@ use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
     ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType, TenantId,
-    ThresholdProvenance, UserPhysiologicalProfile,
+    ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
 };
 use pierre_fitness_compute::training_history_compute::{warmup_days, CTL_WINDOW_DAYS};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -114,6 +114,7 @@ async fn fixture() -> Fixture {
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
+        threshold_stated_on: ThresholdStatedOn::default(),
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,

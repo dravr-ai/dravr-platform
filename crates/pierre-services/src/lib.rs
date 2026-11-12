@@ -56,6 +56,9 @@ pub mod auth;
 /// Product analytics (`PostHog`) for messaging funnel, tool usage, and command tracking
 pub mod analytics;
 
+/// The anchors an athlete's workout families resolve on, from their stored physiology.
+pub mod athlete_anchors;
+
 /// The athlete's civil date, from the timezone on their user row.
 pub mod athlete_clock;
 

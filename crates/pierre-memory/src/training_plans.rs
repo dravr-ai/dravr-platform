@@ -43,7 +43,7 @@ use pierre_core::models::periodization::{
     FlavourVerdict, LoadingPattern, Modifier, Pacing, PhaseKind, PresetParams, Sequencing, Share,
     TidTarget, WorkoutPurpose,
 };
-use pierre_core::models::{FuelingProtocol, WorkoutStep};
+use pierre_core::models::{FuelingProtocol, TargetAnchor, WorkoutStep};
 use serde::{Deserialize, Serialize};
 
 /// Lifecycle of a [`TrainingPlan`] outline.
@@ -438,12 +438,23 @@ pub struct DayEnvelope {
     /// The day then carries no steps and the agent is told so.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub not_generated: Option<String>,
+    /// The athlete's anchor the day's targets are written on, as it stood
+    /// when the day was saved: what a notice about the day names ("FTP 285 W
+    /// from intervals.icu"), with how far to trust it (carnet#1496). Absent
+    /// when the targets name no anchor the athlete holds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<TargetAnchor>,
 }
 
 impl DayEnvelope {
-    /// The stored part of a kernel report.
+    /// The stored part of a kernel report, with the anchor the measured
+    /// steps are written on.
     #[must_use]
-    pub fn from_report(report: EnvelopeReport, generated: bool) -> Self {
+    pub fn from_report(
+        report: EnvelopeReport,
+        generated: bool,
+        anchor: Option<TargetAnchor>,
+    ) -> Self {
         Self {
             preset: report.preset,
             relabelled_purpose: report.relabelled_purpose,
@@ -451,6 +462,7 @@ impl DayEnvelope {
             generated,
             findings: report.findings,
             not_generated: None,
+            anchor,
         }
     }
 }

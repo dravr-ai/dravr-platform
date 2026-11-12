@@ -593,7 +593,7 @@ pub(crate) mod tests {
     use pierre_core::constants::oauth_providers;
     use pierre_core::models::{
         ActivityBuilder, AnchorProvenance, ConnectionType, SportType, ThresholdProvenance,
-        UserPhysiologicalProfile,
+        ThresholdStatedOn, UserPhysiologicalProfile,
     };
     use pierre_core::transport::{Transport, TransportPolicy};
     use pierre_database::backends::factory::Database;
@@ -663,6 +663,7 @@ pub(crate) mod tests {
             critical_speed_mps: None,
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
+            threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance::default(),
             transport_policy: TransportPolicy::AnyTransport,
             sex: None,

@@ -28,7 +28,7 @@ use chrono::{DateTime, Duration, NaiveTime, TimeZone, Utc};
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::{
     Activity, ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType,
-    TenantId, ThresholdProvenance, UserPhysiologicalProfile,
+    TenantId, ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_fitness_compute::training_history_compute::CTL_WINDOW_DAYS;
@@ -86,6 +86,7 @@ async fn athlete(resources: &Arc<ServerContext>) -> Athlete {
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
+        threshold_stated_on: ThresholdStatedOn::default(),
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,

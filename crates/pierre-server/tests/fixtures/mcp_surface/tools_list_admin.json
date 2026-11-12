@@ -6167,6 +6167,26 @@
               }
             ]
           },
+          "AnchorConfidence": {
+            "description": "How far to trust an anchor value.",
+            "oneOf": [
+              {
+                "const": "low",
+                "description": "A conversion, a default, an old test or a single effort.",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
+                "type": "string"
+              }
+            ]
+          },
           "AnchorOrigin": {
             "description": "Who set one of the profile's training anchors: its resting heart rate,\n`VO2max` or weight (Athlete Data Consolidation §5, DECISION 5).\n\nThe anchors are what stored training load and the heart-rate zones are\nscored against, so which number fills one is decided once and recorded:\nonly an anchor nobody vouches for — an estimate, or one an earlier\npromotion wrote — is ever refreshed from the athlete's measurements.",
             "oneOf": [
@@ -6687,6 +6707,143 @@
             ],
             "type": "object"
           },
+          "SportAnchor": {
+            "description": "One stored anchor: one athlete's value of one anchor in one sport family.",
+            "properties": {
+              "anchor": {
+                "$ref": "#/$defs/SportAnchorName",
+                "description": "Which anchor it is."
+              },
+              "as_of": {
+                "description": "When it was measured or set.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "$ref": "#/$defs/AnchorConfidence",
+                "description": "How far to trust it."
+              },
+              "high": {
+                "description": "Upper bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "kind": {
+                "$ref": "#/$defs/MeasurementKind",
+                "description": "Measured by a named test, or estimated: how it may be framed."
+              },
+              "low": {
+                "description": "Lower bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "Who set it: `athlete`, a provider name, `estimate`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sport": {
+                "$ref": "#/$defs/SportFamily",
+                "description": "The sport family it belongs to."
+              },
+              "value": {
+                "description": "The value: watts, metres per second, or beats per minute.",
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "sport",
+              "anchor",
+              "kind",
+              "value",
+              "confidence"
+            ],
+            "type": "object"
+          },
+          "SportAnchorName": {
+            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
+            "oneOf": [
+              {
+                "const": "ftp",
+                "description": "Functional threshold power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_speed",
+                "description": "Threshold pace as a speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate reached in this sport, bpm.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate in this sport, bpm.",
+                "type": "string"
+              }
+            ]
+          },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
+          },
           "SportType": {
             "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
             "oneOf": [
@@ -7006,6 +7163,44 @@
               }
             ]
           },
+          "ThresholdStatedOn": {
+            "description": "The day the athlete stated each of the profile's four scalar thresholds.\n\n[`ThresholdProvenance`] describes only a provider's import, and its absence\nis what marks a value as the athlete's own, which an import never replaces.\nSo the day an athlete-set value was stated is kept apart: an entry here\nexists exactly when the value is the athlete's own and was stated after\nthis was recorded (carnet#1496). A threshold with neither entry predates\nboth records, and its day is unknown.",
+            "properties": {
+              "ftp_watts": {
+                "description": "The day the athlete stated their functional threshold power.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "max_hr": {
+                "description": "The day the athlete stated their maximum heart rate.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "threshold_hr": {
+                "description": "The day the athlete stated their lactate threshold heart rate.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "threshold_pace_sec_per_km": {
+                "description": "The day the athlete stated their threshold pace.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "UserPhysiologicalProfile": {
             "description": "User physiological profile for personalized analysis\n\nContains physiological data used for calculating personalized heart rate zones,\npace zones, and other performance thresholds based on individual fitness metrics.",
             "properties": {
@@ -7156,6 +7351,10 @@
                 "$ref": "#/$defs/ThresholdProvenance",
                 "description": "Where [`Self::ftp_watts`], [`Self::threshold_hr`], [`Self::max_hr`]\nand [`Self::threshold_pace_sec_per_km`] came from, for the ones a\nprovider supplied: each such value is that provider's estimate, quoted\nwith its origin (\"intervals.icu has your FTP at 285 W\"). A threshold\nnot listed is the athlete's own. Serialized with the profile — the\ndossier and every tool that echoes the profile carry it — and left out\nwhen every threshold is the athlete's own, so a profile no import\ntouched reads exactly as before."
               },
+              "threshold_stated_on": {
+                "$ref": "#/$defs/ThresholdStatedOn",
+                "description": "The day the athlete stated each of those four thresholds, for the ones\nthat are their own and were stated since the day was recorded: what\ndates an athlete-set anchor, which [`Self::threshold_provenance`]\ncannot without reading as an import. Left out when none is recorded."
+              },
               "training_experience_years": {
                 "description": "Years of training experience",
                 "format": "uint8",
@@ -7296,6 +7495,13 @@
               }
             ],
             "description": "Power zone definitions (cycling / running power).\n`None` for athletes without a power meter or saved FTP."
+          },
+          "sport_anchors": {
+            "description": "Per-sport anchors stored beside the profile, each with the range it\nstands for, kind, origin, day, method and confidence (carnet#1496).\nRead only beside a profile the caller may see; empty when none is\nstored. Quote a low-confidence one as a range or an estimate.",
+            "items": {
+              "$ref": "#/$defs/SportAnchor"
+            },
+            "type": "array"
           },
           "tenant_id": {
             "description": "Tenant scope.",
@@ -15681,6 +15887,26 @@
               }
             ]
           },
+          "AnchorConfidence": {
+            "description": "How far to trust an anchor value.",
+            "oneOf": [
+              {
+                "const": "low",
+                "description": "A conversion, a default, an old test or a single effort.",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
+                "type": "string"
+              }
+            ]
+          },
           "CalendarBlock": {
             "description": "Dravr's record of what Dravr pushed to the athlete's calendar provider.\n\nNot a view of their calendar. Nothing here reads what the athlete entered\nthemselves, so an empty `entries` says nothing about whether they have a\nrace — which is exactly what `scope` exists to say out loud.",
             "properties": {
@@ -15851,6 +16077,17 @@
           "DayEnvelope": {
             "description": "What the envelope check found on one planned day — the session measured\nagainst its family's evidence envelope, stamped by the save.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which compliance and readiness read in place of the template's.",
             "properties": {
+              "anchor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TargetAnchor"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The athlete's anchor the day's targets are written on, as it stood\nwhen the day was saved: what a notice about the day names (\"FTP 285 W\nfrom intervals.icu\"), with how far to trust it (carnet#1496). Absent\nwhen the targets name no anchor the athlete holds."
+              },
               "badge": {
                 "anyOf": [
                   {
@@ -17762,6 +17999,51 @@
             ],
             "type": "object"
           },
+          "SportAnchorName": {
+            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
+            "oneOf": [
+              {
+                "const": "ftp",
+                "description": "Functional threshold power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_speed",
+                "description": "Threshold pace as a speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate reached in this sport, bpm.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate in this sport, bpm.",
+                "type": "string"
+              }
+            ]
+          },
           "SportMix": {
             "description": "The sports the athlete trains (python `VOCAB[\"sport_mix\"]`).",
             "oneOf": [
@@ -17806,6 +18088,73 @@
                 "type": "string"
               }
             ]
+          },
+          "TargetAnchor": {
+            "description": "The athlete's anchor a session's targets are written on, as it stood when\nthe session was measured: what a notice about the session names (\"FTP\n285 W from intervals.icu\"), with how far to trust it.",
+            "properties": {
+              "anchor": {
+                "$ref": "#/$defs/SportAnchorName",
+                "description": "Which anchor the targets are a percentage of."
+              },
+              "as_of": {
+                "description": "When it was measured or set.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "$ref": "#/$defs/AnchorConfidence",
+                "description": "How far to trust it."
+              },
+              "high": {
+                "description": "Upper bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "low": {
+                "description": "Lower bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "Who set it: `athlete`, a provider name, `estimate`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "own_conversions": {
+                "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
+                "type": "boolean"
+              },
+              "value": {
+                "description": "The value: watts, metres per second, or beats per minute.",
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "anchor",
+              "value",
+              "confidence",
+              "own_conversions"
+            ],
+            "type": "object"
           },
           "TemplateParams": {
             "description": "The parameters a planned day fills in on its template, inside the\ntemplate's ranges — what makes template use measurable at save time.",
@@ -19266,6 +19615,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorConfidence": {
+            "description": "How far to trust an anchor value.",
+            "oneOf": [
+              {
+                "const": "low",
+                "description": "A conversion, a default, an old test or a single effort.",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
+                "type": "string"
+              }
+            ]
+          },
           "AnchorOrigin": {
             "description": "Who set one of the profile's training anchors: its resting heart rate,\n`VO2max` or weight (Athlete Data Consolidation §5, DECISION 5).\n\nThe anchors are what stored training load and the heart-rate zones are\nscored against, so which number fills one is decided once and recorded:\nonly an anchor nobody vouches for — an estimate, or one an earlier\npromotion wrote — is ever refreshed from the athlete's measurements.",
             "oneOf": [
@@ -19795,6 +20164,13 @@
                 ],
                 "description": "Physiological sex, as the athlete stated it or a provider reported it;\nabsent when neither did. It selects the published equations that take\none."
               },
+              "sport_anchors": {
+                "description": "The per-sport anchors stored, each with the range it stands for, kind,\norigin, day, method (for `map`, its definition) and confidence. Quote\na low-confidence anchor as a range or an estimate, never as one precise\nnumber, and an estimated one with its source. Absent when none is\nstored.",
+                "items": {
+                  "$ref": "#/$defs/SportAnchor"
+                },
+                "type": "array"
+              },
               "threshold_hr": {
                 "description": "Measured lactate threshold heart rate, in bpm — what heart-rate\ntraining stress is scored against.",
                 "format": "uint16",
@@ -19816,6 +20192,10 @@
               "threshold_provenance": {
                 "$ref": "#/$defs/ThresholdProvenance",
                 "description": "Where `ftp_watts`, `threshold_hr`, `max_hr` and\n`threshold_pace_sec_per_km` came from, for the ones a provider supplied\n(`import_provider_thresholds`). Each listed value is that provider's\nestimate: quote it with its origin (\"intervals.icu has your FTP at\n285 W\"), never as a measurement. A threshold not listed is the\nathlete's own, and the field is absent when all of them are."
+              },
+              "threshold_stated_on": {
+                "$ref": "#/$defs/ThresholdStatedOn",
+                "description": "The day the athlete stated each of those four thresholds, for the ones\nthat are their own and were stated since the day was recorded. Absent\nwhen none is."
               },
               "training_experience_years": {
                 "description": "Years of structured training.",
@@ -20021,6 +20401,143 @@
               "kind"
             ],
             "type": "object"
+          },
+          "SportAnchor": {
+            "description": "One stored anchor: one athlete's value of one anchor in one sport family.",
+            "properties": {
+              "anchor": {
+                "$ref": "#/$defs/SportAnchorName",
+                "description": "Which anchor it is."
+              },
+              "as_of": {
+                "description": "When it was measured or set.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "$ref": "#/$defs/AnchorConfidence",
+                "description": "How far to trust it."
+              },
+              "high": {
+                "description": "Upper bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "kind": {
+                "$ref": "#/$defs/MeasurementKind",
+                "description": "Measured by a named test, or estimated: how it may be framed."
+              },
+              "low": {
+                "description": "Lower bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "Who set it: `athlete`, a provider name, `estimate`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sport": {
+                "$ref": "#/$defs/SportFamily",
+                "description": "The sport family it belongs to."
+              },
+              "value": {
+                "description": "The value: watts, metres per second, or beats per minute.",
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "sport",
+              "anchor",
+              "kind",
+              "value",
+              "confidence"
+            ],
+            "type": "object"
+          },
+          "SportAnchorName": {
+            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
+            "oneOf": [
+              {
+                "const": "ftp",
+                "description": "Functional threshold power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_speed",
+                "description": "Threshold pace as a speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate reached in this sport, bpm.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate in this sport, bpm.",
+                "type": "string"
+              }
+            ]
+          },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
           },
           "SportType": {
             "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
@@ -20705,6 +21222,44 @@
                   }
                 ],
                 "description": "Where the threshold pace came from."
+              }
+            },
+            "type": "object"
+          },
+          "ThresholdStatedOn": {
+            "description": "The day the athlete stated each of the profile's four scalar thresholds.\n\n[`ThresholdProvenance`] describes only a provider's import, and its absence\nis what marks a value as the athlete's own, which an import never replaces.\nSo the day an athlete-set value was stated is kept apart: an entry here\nexists exactly when the value is the athlete's own and was stated after\nthis was recorded (carnet#1496). A threshold with neither entry predates\nboth records, and its day is unknown.",
+            "properties": {
+              "ftp_watts": {
+                "description": "The day the athlete stated their functional threshold power.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "max_hr": {
+                "description": "The day the athlete stated their maximum heart rate.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "threshold_hr": {
+                "description": "The day the athlete stated their lactate threshold heart rate.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "threshold_pace_sec_per_km": {
+                "description": "The day the athlete stated their threshold pace.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "type": "object"
@@ -25033,6 +25588,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorConfidence": {
+            "description": "How far to trust an anchor value.",
+            "oneOf": [
+              {
+                "const": "low",
+                "description": "A conversion, a default, an old test or a single effort.",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
+                "type": "string"
+              }
+            ]
+          },
           "ConstraintAction": {
             "description": "What a rule does when it fires. There is no block (founder decision D3).",
             "oneOf": [
@@ -25496,6 +26071,51 @@
               }
             ]
           },
+          "SportAnchorName": {
+            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
+            "oneOf": [
+              {
+                "const": "ftp",
+                "description": "Functional threshold power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_speed",
+                "description": "Threshold pace as a speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate reached in this sport, bpm.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate in this sport, bpm.",
+                "type": "string"
+              }
+            ]
+          },
           "SportType": {
             "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
             "oneOf": [
@@ -25689,6 +26309,73 @@
               }
             ]
           },
+          "TargetAnchor": {
+            "description": "The athlete's anchor a session's targets are written on, as it stood when\nthe session was measured: what a notice about the session names (\"FTP\n285 W from intervals.icu\"), with how far to trust it.",
+            "properties": {
+              "anchor": {
+                "$ref": "#/$defs/SportAnchorName",
+                "description": "Which anchor the targets are a percentage of."
+              },
+              "as_of": {
+                "description": "When it was measured or set.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "$ref": "#/$defs/AnchorConfidence",
+                "description": "How far to trust it."
+              },
+              "high": {
+                "description": "Upper bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "low": {
+                "description": "Lower bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "Who set it: `athlete`, a provider name, `estimate`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "own_conversions": {
+                "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
+                "type": "boolean"
+              },
+              "value": {
+                "description": "The value: watts, metres per second, or beats per minute.",
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "anchor",
+              "value",
+              "confidence",
+              "own_conversions"
+            ],
+            "type": "object"
+          },
           "WorkoutPurpose": {
             "description": "What a session is for — the 21-word vocabulary every `session_mix`,\n`key_sessions`, `readiness_substitution` and workout `purpose` draws\nfrom (python `VOCAB[\"purpose\"]`).\n\nDeclaration order is the wire order of every purpose-keyed map and of\n[`Self::ALL`], so a purpose joins the vocabulary at the end.",
             "oneOf": [
@@ -25828,6 +26515,17 @@
                 ],
                 "description": "What the envelope check found on a family session: each finding\nwarns, and a relabel names the purpose the session now trains.\nStructured, never prose; absent when nothing was found."
               },
+              "envelope_anchor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TargetAnchor"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The athlete's anchor the session's targets are written on, with its\norigin, day and confidence, beside `envelope`: name it with a finding,\nas a range or an estimate when its confidence is low. Absent with no\nenvelope, or when the targets name no anchor the athlete holds."
+              },
               "name": {
                 "description": "Its display name.",
                 "type": "string"
@@ -25961,6 +26659,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorConfidence": {
+            "description": "How far to trust an anchor value.",
+            "oneOf": [
+              {
+                "const": "low",
+                "description": "A conversion, a default, an old test or a single effort.",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
+                "type": "string"
+              }
+            ]
+          },
           "CalendarPreview": {
             "description": "What a push would change, without the entry list.\n\nThe save reply reports the counts only: the athlete has just written the\nplan and needs to know whether the calendar is behind, not to re-read\nevery entry they already have.",
             "properties": {
@@ -26113,6 +26831,17 @@
           "DayEnvelopeNotice": {
             "description": "One day's envelope findings.",
             "properties": {
+              "anchor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TargetAnchor"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The athlete's anchor the day's targets are written on, with its\norigin, day and confidence: name it with the finding (\"against your\nFTP of 285 W from intervals.icu\"), as a range or an estimate when its\nconfidence is low. Absent when the targets name no anchor the athlete\nholds."
+              },
               "date": {
                 "description": "The day, `YYYY-MM-DD`.",
                 "type": "string"
@@ -26610,6 +27339,118 @@
               "from",
               "to",
               "hours"
+            ],
+            "type": "object"
+          },
+          "SportAnchorName": {
+            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
+            "oneOf": [
+              {
+                "const": "ftp",
+                "description": "Functional threshold power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_speed",
+                "description": "Threshold pace as a speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate reached in this sport, bpm.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate in this sport, bpm.",
+                "type": "string"
+              }
+            ]
+          },
+          "TargetAnchor": {
+            "description": "The athlete's anchor a session's targets are written on, as it stood when\nthe session was measured: what a notice about the session names (\"FTP\n285 W from intervals.icu\"), with how far to trust it.",
+            "properties": {
+              "anchor": {
+                "$ref": "#/$defs/SportAnchorName",
+                "description": "Which anchor the targets are a percentage of."
+              },
+              "as_of": {
+                "description": "When it was measured or set.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "$ref": "#/$defs/AnchorConfidence",
+                "description": "How far to trust it."
+              },
+              "high": {
+                "description": "Upper bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "low": {
+                "description": "Lower bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "Who set it: `athlete`, a provider name, `estimate`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "own_conversions": {
+                "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
+                "type": "boolean"
+              },
+              "value": {
+                "description": "The value: watts, metres per second, or beats per minute.",
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "anchor",
+              "value",
+              "confidence",
+              "own_conversions"
             ],
             "type": "object"
           },
@@ -28942,6 +29783,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorConfidence": {
+            "description": "How far to trust an anchor value.",
+            "oneOf": [
+              {
+                "const": "low",
+                "description": "A conversion, a default, an old test or a single effort.",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
+                "type": "string"
+              }
+            ]
+          },
           "CalendarPreview": {
             "description": "What a push would change, without the entry list.\n\nThe save reply reports the counts only: the athlete has just written the\nplan and needs to know whether the calendar is behind, not to re-read\nevery entry they already have.",
             "properties": {
@@ -29094,6 +29955,17 @@
           "DayEnvelopeNotice": {
             "description": "One day's envelope findings.",
             "properties": {
+              "anchor": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/TargetAnchor"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The athlete's anchor the day's targets are written on, with its\norigin, day and confidence: name it with the finding (\"against your\nFTP of 285 W from intervals.icu\"), as a range or an estimate when its\nconfidence is low. Absent when the targets name no anchor the athlete\nholds."
+              },
               "date": {
                 "description": "The day, `YYYY-MM-DD`.",
                 "type": "string"
@@ -29534,6 +30406,118 @@
               "from",
               "to",
               "hours"
+            ],
+            "type": "object"
+          },
+          "SportAnchorName": {
+            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
+            "oneOf": [
+              {
+                "const": "ftp",
+                "description": "Functional threshold power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_speed",
+                "description": "Threshold pace as a speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate reached in this sport, bpm.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate in this sport, bpm.",
+                "type": "string"
+              }
+            ]
+          },
+          "TargetAnchor": {
+            "description": "The athlete's anchor a session's targets are written on, as it stood when\nthe session was measured: what a notice about the session names (\"FTP\n285 W from intervals.icu\"), with how far to trust it.",
+            "properties": {
+              "anchor": {
+                "$ref": "#/$defs/SportAnchorName",
+                "description": "Which anchor the targets are a percentage of."
+              },
+              "as_of": {
+                "description": "When it was measured or set.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "$ref": "#/$defs/AnchorConfidence",
+                "description": "How far to trust it."
+              },
+              "high": {
+                "description": "Upper bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "low": {
+                "description": "Lower bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "Who set it: `athlete`, a provider name, `estimate`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "own_conversions": {
+                "description": "Whether the conversions between this sport's anchors (MAP to CP, CP\nto FTP, `vVO2max` to CS) were the athlete's own rather than the\ndefault ratios.",
+                "type": "boolean"
+              },
+              "value": {
+                "description": "The value: watts, metres per second, or beats per minute.",
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "anchor",
+              "value",
+              "confidence",
+              "own_conversions"
             ],
             "type": "object"
           },
@@ -30482,7 +31466,7 @@
     },
     {
       "name": "set_physiology",
-      "description": "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′ — so load, zones and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
+      "description": "Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′, and per-sport anchors — so load, zones, workout targets and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.",
       "inputSchema": {
         "properties": {
           "age": {
@@ -30541,6 +31525,61 @@
             "description": "Physiological sex, only as the athlete states it: male or female. It selects sex-specific published equations (Keytel's energy estimate, the LT1 pace ratio); never infer it from a name. Omit it when the athlete has not said.",
             "type": "string"
           },
+          "sport_anchors": {
+            "description": "Per-sport anchors; a ride ftp or critical_power, run critical_speed or threshold_speed, or main-sport heart rate also sets that field.",
+            "items": {
+              "properties": {
+                "anchor": {
+                  "description": "ftp, critical_power, map (W); critical_speed, vvo2max, threshold_speed (m/s); max_heart_rate, threshold_heart_rate (bpm).",
+                  "type": "string"
+                },
+                "confidence": {
+                  "description": "high: protocol test under 6 wk old; medium: 6-12 wk, or a 2-effort model; low otherwise (default).",
+                  "type": "string"
+                },
+                "high": {
+                  "description": "Range high.",
+                  "type": "number"
+                },
+                "kind": {
+                  "description": "measured (named test) or estimated.",
+                  "type": "string"
+                },
+                "low": {
+                  "description": "Range low.",
+                  "type": "number"
+                },
+                "measured_on": {
+                  "description": "YYYY-MM-DD.",
+                  "type": "string"
+                },
+                "method": {
+                  "description": "Test used; for map its definition (ramp peak, VO2peak power, extrapolated).",
+                  "type": "string"
+                },
+                "source": {
+                  "description": "Who produced it.",
+                  "type": "string"
+                },
+                "sport": {
+                  "description": "ride, run or swim.",
+                  "type": "string"
+                },
+                "value": {
+                  "description": "In its unit.",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "sport",
+                "anchor",
+                "value",
+                "kind"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
           "threshold_hr": {
             "description": "Lactate threshold heart rate (LTHR) in bpm, from a field, ramp or lab test. Heart-rate training load is scored against it.",
             "type": "integer"
@@ -30570,6 +31609,26 @@
       },
       "outputSchema": {
         "$defs": {
+          "AnchorConfidence": {
+            "description": "How far to trust an anchor value.",
+            "oneOf": [
+              {
+                "const": "low",
+                "description": "A conversion, a default, an old test or a single effort.",
+                "type": "string"
+              },
+              {
+                "const": "medium",
+                "description": "A test 6–12 weeks old, or a model with two qualifying efforts.",
+                "type": "string"
+              },
+              {
+                "const": "high",
+                "description": "A named, protocol-compliant test at most 6 weeks old, or a model\nwith three maximal efforts spanning ~2–20 min.",
+                "type": "string"
+              }
+            ]
+          },
           "AnchorOrigin": {
             "description": "Who set one of the profile's training anchors: its resting heart rate,\n`VO2max` or weight (Athlete Data Consolidation §5, DECISION 5).\n\nThe anchors are what stored training load and the heart-rate zones are\nscored against, so which number fills one is decided once and recorded:\nonly an anchor nobody vouches for — an estimate, or one an earlier\npromotion wrote — is ever refreshed from the athlete's measurements.",
             "oneOf": [
@@ -31099,6 +32158,13 @@
                 ],
                 "description": "Physiological sex, as the athlete stated it or a provider reported it;\nabsent when neither did. It selects the published equations that take\none."
               },
+              "sport_anchors": {
+                "description": "The per-sport anchors stored, each with the range it stands for, kind,\norigin, day, method (for `map`, its definition) and confidence. Quote\na low-confidence anchor as a range or an estimate, never as one precise\nnumber, and an estimated one with its source. Absent when none is\nstored.",
+                "items": {
+                  "$ref": "#/$defs/SportAnchor"
+                },
+                "type": "array"
+              },
               "threshold_hr": {
                 "description": "Measured lactate threshold heart rate, in bpm — what heart-rate\ntraining stress is scored against.",
                 "format": "uint16",
@@ -31120,6 +32186,10 @@
               "threshold_provenance": {
                 "$ref": "#/$defs/ThresholdProvenance",
                 "description": "Where `ftp_watts`, `threshold_hr`, `max_hr` and\n`threshold_pace_sec_per_km` came from, for the ones a provider supplied\n(`import_provider_thresholds`). Each listed value is that provider's\nestimate: quote it with its origin (\"intervals.icu has your FTP at\n285 W\"), never as a measurement. A threshold not listed is the\nathlete's own, and the field is absent when all of them are."
+              },
+              "threshold_stated_on": {
+                "$ref": "#/$defs/ThresholdStatedOn",
+                "description": "The day the athlete stated each of those four thresholds, for the ones\nthat are their own and were stated since the day was recorded. Absent\nwhen none is."
               },
               "training_experience_years": {
                 "description": "Years of structured training.",
@@ -31325,6 +32395,143 @@
               "kind"
             ],
             "type": "object"
+          },
+          "SportAnchor": {
+            "description": "One stored anchor: one athlete's value of one anchor in one sport family.",
+            "properties": {
+              "anchor": {
+                "$ref": "#/$defs/SportAnchorName",
+                "description": "Which anchor it is."
+              },
+              "as_of": {
+                "description": "When it was measured or set.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "confidence": {
+                "$ref": "#/$defs/AnchorConfidence",
+                "description": "How far to trust it."
+              },
+              "high": {
+                "description": "Upper bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "kind": {
+                "$ref": "#/$defs/MeasurementKind",
+                "description": "Measured by a named test, or estimated: how it may be framed."
+              },
+              "low": {
+                "description": "Lower bound of the range the value stands for.",
+                "format": "float",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "method": {
+                "description": "How it was measured: `20min_test`, `ramp`, `3min_all_out`, …; for\nMAP, the definition the value follows.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "origin": {
+                "description": "Who set it: `athlete`, a provider name, `estimate`.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sport": {
+                "$ref": "#/$defs/SportFamily",
+                "description": "The sport family it belongs to."
+              },
+              "value": {
+                "description": "The value: watts, metres per second, or beats per minute.",
+                "format": "float",
+                "type": "number"
+              }
+            },
+            "required": [
+              "sport",
+              "anchor",
+              "kind",
+              "value",
+              "confidence"
+            ],
+            "type": "object"
+          },
+          "SportAnchorName": {
+            "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
+            "oneOf": [
+              {
+                "const": "ftp",
+                "description": "Functional threshold power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "critical_power",
+                "description": "Critical power, watts.",
+                "type": "string"
+              },
+              {
+                "const": "map",
+                "description": "Maximal aerobic power, watts; its `method` names the definition it\nfollows.",
+                "type": "string"
+              },
+              {
+                "const": "critical_speed",
+                "description": "Critical speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "vvo2max",
+                "description": "Speed at `VO2max`, or maximal aerobic speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_speed",
+                "description": "Threshold pace as a speed, metres per second.",
+                "type": "string"
+              },
+              {
+                "const": "max_heart_rate",
+                "description": "Maximum heart rate reached in this sport, bpm.",
+                "type": "string"
+              },
+              {
+                "const": "threshold_heart_rate",
+                "description": "Lactate-threshold heart rate in this sport, bpm.",
+                "type": "string"
+              }
+            ]
+          },
+          "SportFamily": {
+            "description": "The three sport families a family file writes realizations for.",
+            "oneOf": [
+              {
+                "const": "ride",
+                "description": "Cycling, indoor and out.",
+                "type": "string"
+              },
+              {
+                "const": "run",
+                "description": "Running, road and trail.",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming.",
+                "type": "string"
+              }
+            ]
           },
           "SportType": {
             "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
@@ -31565,6 +32772,44 @@
                   }
                 ],
                 "description": "Where the threshold pace came from."
+              }
+            },
+            "type": "object"
+          },
+          "ThresholdStatedOn": {
+            "description": "The day the athlete stated each of the profile's four scalar thresholds.\n\n[`ThresholdProvenance`] describes only a provider's import, and its absence\nis what marks a value as the athlete's own, which an import never replaces.\nSo the day an athlete-set value was stated is kept apart: an entry here\nexists exactly when the value is the athlete's own and was stated after\nthis was recorded (carnet#1496). A threshold with neither entry predates\nboth records, and its day is unknown.",
+            "properties": {
+              "ftp_watts": {
+                "description": "The day the athlete stated their functional threshold power.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "max_hr": {
+                "description": "The day the athlete stated their maximum heart rate.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "threshold_hr": {
+                "description": "The day the athlete stated their lactate threshold heart rate.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "threshold_pace_sec_per_km": {
+                "description": "The day the athlete stated their threshold pace.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
               }
             },
             "type": "object"

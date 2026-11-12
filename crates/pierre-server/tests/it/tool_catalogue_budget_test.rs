@@ -55,7 +55,14 @@ use crate::common;
 /// `template_params`, and `save_training_plan`'s `template_preset` plus three
 /// `template_params` keys (`set_rest_seconds`, `pacing`, `anchor`), each cut to
 /// a few words before measuring. Measured 93,810 (~440 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 93_850;
+///
+/// 2026-11-11: 93,850 → 95,000 for per-sport physiology anchors
+/// (carnet#1496): `set_physiology`'s `sport_anchors`, one array of objects
+/// whose ten fields carry the value, its range, kind, method (MAP's
+/// definition), source, day and confidence the workout families resolve on.
+/// Every field was cut to a few words before measuring, which saved 231
+/// bytes. Measured 94,967 (~1,160 bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 95_000;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

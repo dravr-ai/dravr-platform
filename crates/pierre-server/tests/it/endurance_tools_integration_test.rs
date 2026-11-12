@@ -36,7 +36,7 @@ use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{ReadinessLevel, WorkoutPurpose};
 use pierre_core::models::{
-    AnchorProvenance, ConnectionType, SportType, TenantId, ThresholdProvenance,
+    AnchorProvenance, ConnectionType, SportType, TenantId, ThresholdProvenance, ThresholdStatedOn,
     UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
@@ -189,6 +189,7 @@ async fn seed_physiology_with_pace(
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
+        threshold_stated_on: ThresholdStatedOn::default(),
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,

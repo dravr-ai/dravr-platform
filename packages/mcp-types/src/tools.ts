@@ -1812,7 +1812,7 @@ export interface SetGoalParams {
 
 
 /**
- * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′ — so load, zones and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.
+ * Save the athlete's physiological measurements — FTP, threshold pace, max, resting and threshold heart rate, lactate threshold, VO2 max, weight, age, sex, and critical power, W′, critical speed and D′, and per-sport anchors — so load, zones, workout targets and every personalised calculation use their real numbers instead of generic estimates. Training load is scored against what is saved here and nowhere else (power against the FTP, heart rate against the threshold heart rate). Call this whenever the athlete states one of these values, e.g. 'my FTP is 285'. Pass only the fields they gave you; the rest keep their stored values. An estimated CP, W′, CS or D′ is quoted as an estimate with its source, never as a measurement. The result is the profile re-read after the write: report back only what it contains.
  */
 export interface SetPhysiologyParams {
 
@@ -1857,6 +1857,40 @@ export interface SetPhysiologyParams {
 
   /** Physiological sex, only as the athlete states it: male or female. It selects sex-specific published equations (Keytel's energy estimate, the LT1 pace ratio); never infer it from a name. Omit it when the athlete has not said. */
   sex?: string;
+
+  /** Per-sport anchors; a ride ftp or critical_power, run critical_speed or threshold_speed, or main-sport heart rate also sets that field. */
+  sport_anchors?: {
+
+  /** ftp, critical_power, map (W); critical_speed, vvo2max, threshold_speed (m/s); max_heart_rate, threshold_heart_rate (bpm). */
+  anchor: string;
+
+  /** high: protocol test under 6 wk old; medium: 6-12 wk, or a 2-effort model; low otherwise (default). */
+  confidence?: string;
+
+  /** Range high. */
+  high?: number;
+
+  /** measured (named test) or estimated. */
+  kind: string;
+
+  /** Range low. */
+  low?: number;
+
+  /** YYYY-MM-DD. */
+  measured_on?: string;
+
+  /** Test used; for map its definition (ramp peak, VO2peak power, extrapolated). */
+  method?: string;
+
+  /** Who produced it. */
+  source?: string;
+
+  /** ride, run or swim. */
+  sport: string;
+
+  /** In its unit. */
+  value: number;
+}[];
 
   /** Lactate threshold heart rate (LTHR) in bpm, from a field, ramp or lab test. Heart-rate training load is scored against it. */
   threshold_hr?: number;

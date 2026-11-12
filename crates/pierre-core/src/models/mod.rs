@@ -64,6 +64,9 @@ mod provider_thresholds;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
 mod sleep;
+/// An athlete's physiology anchors per sport family, and the `AthleteAnchors`
+/// the workout families resolve on.
+pub mod sport_anchors;
 /// The coarse sport family a provider sport type belongs to.
 pub mod sport_family;
 mod tenant;
@@ -159,9 +162,10 @@ pub use check_in::CheckInCadence;
 // Physiology provenance domain
 pub use measurement::{
     AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance,
-    ProvenancedValue, ThresholdProvenance, ATHLETE_REPORTED_ORIGIN,
+    ProvenancedValue, ThresholdProvenance, ThresholdStatedOn, ATHLETE_REPORTED_ORIGIN,
 };
 pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
+pub use sport_anchors::{AnchorUnit, ProfileTwin, SportAnchor, SportAnchorName, TargetAnchor};
 
 // User domain
 pub use user::{

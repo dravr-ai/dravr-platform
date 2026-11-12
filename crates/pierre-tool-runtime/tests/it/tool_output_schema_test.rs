@@ -24,9 +24,11 @@ use dravr_meteo::{
 };
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{
     AnchorProvenance, AnchorStamp, MeasurementKind, Merged, MetricProvenance, ProvenancedValue,
-    SportType, StoredDailyActivity, ThresholdProvenance,
+    SportAnchor, SportAnchorName, SportType, StoredDailyActivity, ThresholdProvenance,
+    ThresholdStatedOn,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_providers::precedence::wellness_source;
@@ -155,12 +157,13 @@ use pierre_tool_runtime::implementations::nutrition::{
     PreWorkoutTiming, ProteinDistribution, SearchFoodResult, SearchFoodTool,
 };
 use pierre_tool_runtime::implementations::nutrition_gate::{FiguresWithheld, NutritionAnswer};
-use pierre_tool_runtime::implementations::physiology::{
-    PhysiologyProfile, SetPhysiologyResult, SetPhysiologyTool,
-};
+use pierre_tool_runtime::implementations::physiology::SetPhysiologyTool;
 use pierre_tool_runtime::implementations::physiology_import::{
     ImportProviderThresholdsResult, ImportProviderThresholdsTool, ThresholdImport,
     ThresholdImports, WPrimeImport,
+};
+use pierre_tool_runtime::implementations::physiology_output::{
+    PhysiologyProfile, SetPhysiologyResult,
 };
 use pierre_tool_runtime::implementations::plan_flavour_output::PlanFlavourResult;
 use pierre_tool_runtime::implementations::planned_workouts::{
@@ -4828,7 +4831,9 @@ fn an_almost_empty_physiology_profile_still_validates() {
             critical_speed_mps: None,
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
+            threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance::default(),
+            sport_anchors: Vec::new(),
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4890,7 +4895,22 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
             )),
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
+            threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance::default(),
+            sport_anchors: vec![SportAnchor {
+                sport: SportFamily::Ride,
+                anchor: SportAnchorName::Map,
+                kind: MeasurementKind::Measured,
+                value: AnchorValue {
+                    value: 380.0,
+                    low: Some(365.0),
+                    high: Some(395.0),
+                    origin: Some("lab".to_owned()),
+                    as_of: NaiveDate::from_ymd_opt(2026, 11, 2),
+                    method: Some("ramp peak".to_owned()),
+                    confidence: AnchorConfidence::High,
+                },
+            }],
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4969,10 +4989,12 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
                 }),
                 ..ThresholdProvenance::default()
             },
+            threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance {
                 resting_hr: NaiveDate::from_ymd_opt(2026, 10, 30).map(AnchorStamp::promoted),
                 ..AnchorProvenance::default()
             },
+            sport_anchors: Vec::new(),
         }),
         training_history: HistoryRefresh::NothingStored,
     })
@@ -5693,6 +5715,7 @@ fn prescribing_reports_the_calendar_entry_it_created() {
         status: "pushed".to_owned(),
         calendar_note: None,
         envelope: None,
+        envelope_anchor: None,
     })
     .expect("serializes");
     assert!(

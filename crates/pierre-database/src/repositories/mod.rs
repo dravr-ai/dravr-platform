@@ -242,6 +242,8 @@ pub mod user_oauth_tokens;
 pub mod user_onboarding;
 /// `UserPhysiologicalProfileRepository` + `DossierRepository`: physiology row and the read-time dossier composer
 pub mod user_physiological_profiles;
+/// Statements and row decoder for an athlete's per-sport anchors, emitted by the profile repository's macro.
+pub(crate) mod user_physiology_sport_anchors;
 /// Shared statements and bodies for the single-column preference writes on the users row.
 pub mod user_preferences;
 /// Shared statements and body for the profile document, goals and user configuration.

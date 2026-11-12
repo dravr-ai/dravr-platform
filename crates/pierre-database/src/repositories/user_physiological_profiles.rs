@@ -8,11 +8,12 @@ use async_trait::async_trait;
 use chrono::NaiveDate;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::periodization::SportFamily;
 use pierre_core::models::zones::{HrZoneSet, PowerZoneSet};
 use pierre_core::models::{
     AnchorOrigin, AnchorProvenance, AnchorStamp, Dossier, MeasurementKind, MetricProvenance,
-    PhysiologicalSex, ProvenancedValue, SportType, TenantId, ThresholdProvenance,
-    UserPhysiologicalProfile,
+    PhysiologicalSex, ProvenancedValue, SportAnchor, SportAnchorName, SportType, TenantId,
+    ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
 };
 use pierre_core::transport::TransportPolicy;
 use serde_json::Value;
@@ -62,6 +63,38 @@ pub trait UserPhysiologicalProfileRepository: Send + Sync {
     /// every read and write the promotion makes for one of them is scoped to
     /// that user in that tenant.
     async fn profile_holders(&self) -> AppResult<Vec<(TenantId, Uuid)>>;
+
+    /// The per-sport anchors stored for `(tenant_id, user_id)`, in sport then
+    /// anchor order; empty when there are none.
+    ///
+    /// They sit beside the profile row and are read under its transport
+    /// policy: a caller that may not see the profile does not read them.
+    async fn list_sport_anchors(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Vec<SportAnchor>>;
+
+    /// Write or replace one per-sport anchor for `(tenant_id, user_id)`.
+    ///
+    /// The profile row must already exist, and the anchor must carry its
+    /// origin and day; either missing is refused.
+    async fn upsert_sport_anchor(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        anchor: &SportAnchor,
+    ) -> AppResult<()>;
+
+    /// Remove one per-sport anchor for `(tenant_id, user_id)`. Returns
+    /// whether one was stored.
+    async fn delete_sport_anchor(
+        &self,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        sport: SportFamily,
+        anchor: SportAnchorName,
+    ) -> AppResult<bool>;
 }
 
 /// Read-time composer for the Endurance [`Dossier`] aggregate.
@@ -128,13 +161,15 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 sex,
                 resting_hr_origin, resting_hr_as_of,
                 vo2_max_origin, vo2_max_as_of,
-                weight_origin, weight_as_of
+                weight_origin, weight_as_of,
+                ftp_watts_stated_on, threshold_hr_stated_on, max_hr_stated_on,
+                threshold_pace_sec_per_km_stated_on
             )
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
                     $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28,
                     $29, $30, $31, $32, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, $33,
                     $34, $35, $36, $37, $38, $39, $40, $41, $42, $43, $44, $45, $46,
-                    $47, $48, $49, $50, $51, $52)
+                    $47, $48, $49, $50, $51, $52, $53, $54, $55, $56)
             ON CONFLICT (tenant_id, user_id) DO UPDATE SET
                 vo2_max = EXCLUDED.vo2_max,
                 resting_hr = EXCLUDED.resting_hr,
@@ -186,7 +221,11 @@ pub(crate) const UPSERT_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                 vo2_max_origin = EXCLUDED.vo2_max_origin,
                 vo2_max_as_of = EXCLUDED.vo2_max_as_of,
                 weight_origin = EXCLUDED.weight_origin,
-                weight_as_of = EXCLUDED.weight_as_of
+                weight_as_of = EXCLUDED.weight_as_of,
+                ftp_watts_stated_on = EXCLUDED.ftp_watts_stated_on,
+                threshold_hr_stated_on = EXCLUDED.threshold_hr_stated_on,
+                max_hr_stated_on = EXCLUDED.max_hr_stated_on,
+                threshold_pace_sec_per_km_stated_on = EXCLUDED.threshold_pace_sec_per_km_stated_on
             ";
 
 /// Read the one profile row for `(tenant_id, user_id)`.
@@ -208,7 +247,9 @@ pub(crate) const GET_PHYSIOLOGICAL_PROFILE_SQL: &str = r"
                    sex,
                    resting_hr_origin, resting_hr_as_of,
                    vo2_max_origin, vo2_max_as_of,
-                   weight_origin, weight_as_of
+                   weight_origin, weight_as_of,
+                   ftp_watts_stated_on, threshold_hr_stated_on, max_hr_stated_on,
+                   threshold_pace_sec_per_km_stated_on
             FROM user_physiological_profiles
             WHERE tenant_id = $1 AND user_id = $2
             LIMIT 1
@@ -255,6 +296,21 @@ pub(crate) struct ProfileBinds {
     pub(crate) resting_hr_stamp: AnchorStampBinds,
     pub(crate) vo2_max_stamp: AnchorStampBinds,
     pub(crate) weight_stamp: AnchorStampBinds,
+    pub(crate) ftp_watts_stated_on: Option<NaiveDate>,
+    pub(crate) threshold_hr_stated_on: Option<NaiveDate>,
+    pub(crate) max_hr_stated_on: Option<NaiveDate>,
+    pub(crate) threshold_pace_stated_on: Option<NaiveDate>,
+}
+
+/// The day an athlete-set threshold was stated, bound only beside a value
+/// that is the athlete's own: a threshold an import wrote is dated by its
+/// provenance, and a day with no value to date is never stored.
+fn stated_on_bind(
+    has_value: bool,
+    import: Option<&MetricProvenance>,
+    stated_on: Option<NaiveDate>,
+) -> Option<NaiveDate> {
+    stated_on.filter(|_| has_value && import.is_none())
 }
 
 /// The two columns one anchor's [`AnchorStamp`] is stored in: both `None` for
@@ -418,6 +474,29 @@ pub(crate) fn profile_binds(profile: &UserPhysiologicalProfile) -> AppResult<Pro
             profile.weight.is_some(),
             profile.anchor_provenance.weight.as_ref(),
         ),
+        ftp_watts_stated_on: stated_on_bind(
+            profile.ftp_watts.is_some(),
+            profile.threshold_provenance.ftp_watts.as_ref(),
+            profile.threshold_stated_on.ftp_watts,
+        ),
+        threshold_hr_stated_on: stated_on_bind(
+            profile.threshold_hr.is_some(),
+            profile.threshold_provenance.threshold_hr.as_ref(),
+            profile.threshold_stated_on.threshold_hr,
+        ),
+        max_hr_stated_on: stated_on_bind(
+            profile.max_hr.is_some(),
+            profile.threshold_provenance.max_hr.as_ref(),
+            profile.threshold_stated_on.max_hr,
+        ),
+        threshold_pace_stated_on: stated_on_bind(
+            profile.threshold_pace_sec_per_km.is_some(),
+            profile
+                .threshold_provenance
+                .threshold_pace_sec_per_km
+                .as_ref(),
+            profile.threshold_stated_on.threshold_pace_sec_per_km,
+        ),
     })
 }
 
@@ -497,6 +576,29 @@ where
             threshold_pace_sec_per_km.is_some(),
         )?,
     };
+    let threshold_stated_on = ThresholdStatedOn {
+        ftp_watts: stated_on_from_row(
+            row,
+            "ftp_watts",
+            ftp_watts.is_some() && threshold_provenance.ftp_watts.is_none(),
+        )?,
+        threshold_hr: stated_on_from_row(
+            row,
+            "threshold_hr",
+            threshold_hr.is_some() && threshold_provenance.threshold_hr.is_none(),
+        )?,
+        max_hr: stated_on_from_row(
+            row,
+            "max_hr",
+            max_hr.is_some() && threshold_provenance.max_hr.is_none(),
+        )?,
+        threshold_pace_sec_per_km: stated_on_from_row(
+            row,
+            "threshold_pace_sec_per_km",
+            threshold_pace_sec_per_km.is_some()
+                && threshold_provenance.threshold_pace_sec_per_km.is_none(),
+        )?,
+    };
 
     let resting_hr = resting_hr.and_then(|v| u16::try_from(v).ok());
     let vo2_max = row.try_get::<Option<f64>, _>("vo2_max").ok().flatten();
@@ -535,6 +637,7 @@ where
         critical_speed_mps: provenanced_from_row(row, "critical_speed_mps", Some::<f64>)?,
         d_prime_meters: provenanced_from_row(row, "d_prime_meters", Some::<f64>)?,
         threshold_provenance,
+        threshold_stated_on,
         anchor_provenance,
         sex: row
             .try_get::<Option<String>, _>("sex")
@@ -594,6 +697,26 @@ where
         origin,
         as_of,
     }))
+}
+
+/// Read the day the athlete stated the threshold in `column` from
+/// `<column>_stated_on`, when the threshold is their own: `athlete_owned` is
+/// false for a missing value or one an import wrote, and either reads as no
+/// day, whatever the column holds.
+///
+/// # Errors
+/// Returns a database error when the column cannot be decoded.
+fn stated_on_from_row<R>(row: &R, column: &str, athlete_owned: bool) -> AppResult<Option<NaiveDate>>
+where
+    R: Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    NaiveDate: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let stated_column = format!("{column}_stated_on");
+    let stated: Option<NaiveDate> = row
+        .try_get(stated_column.as_str())
+        .map_err(|e| AppError::database(format!("read {stated_column}: {e}")))?;
+    Ok(stated.filter(|_| athlete_owned))
 }
 
 /// Read the stamp of the anchor stored in `column` from `<column>_origin` and
@@ -770,6 +893,10 @@ macro_rules! impl_user_physiological_profile_repository {
                     .bind(binds.vo2_max_stamp.as_of)
                     .bind(binds.weight_stamp.origin)
                     .bind(binds.weight_stamp.as_of)
+                    .bind(binds.ftp_watts_stated_on)
+                    .bind(binds.threshold_hr_stated_on)
+                    .bind(binds.max_hr_stated_on)
+                    .bind(binds.threshold_pace_stated_on)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -830,6 +957,70 @@ macro_rules! impl_user_physiological_profile_repository {
                     })
                     .collect()
             }
+
+            async fn list_sport_anchors(
+                &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
+            ) -> AppResult<Vec<SportAnchor>> {
+                let rows = sqlx::query(LIST_SPORT_ANCHORS_SQL)
+                    .bind(tenant_id)
+                    .bind(UserId::from_uuid(user_id))
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("list_sport_anchors: {e}")))?;
+                let mut anchors = Vec::with_capacity(rows.len());
+                for row in &rows {
+                    if let Some(anchor) = sport_anchor_from_row(row)? {
+                        anchors.push(anchor);
+                    }
+                }
+                Ok(anchors)
+            }
+
+            async fn upsert_sport_anchor(
+                &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
+                anchor: &SportAnchor,
+            ) -> AppResult<()> {
+                let (origin, as_of) = sport_anchor_stamp(anchor)?;
+                sqlx::query(UPSERT_SPORT_ANCHOR_SQL)
+                    .bind(tenant_id)
+                    .bind(UserId::from_uuid(user_id))
+                    .bind(anchor.sport.as_str())
+                    .bind(anchor.anchor.as_str())
+                    .bind(f64::from(anchor.value.value))
+                    .bind(anchor.value.low.map(f64::from))
+                    .bind(anchor.value.high.map(f64::from))
+                    .bind(anchor.kind.as_str())
+                    .bind(origin)
+                    .bind(as_of)
+                    .bind(anchor.value.method.as_deref())
+                    .bind(anchor.value.confidence.as_str())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("upsert_sport_anchor: {e}")))?;
+                Ok(())
+            }
+
+            async fn delete_sport_anchor(
+                &self,
+                tenant_id: TenantId,
+                user_id: Uuid,
+                sport: SportFamily,
+                anchor: SportAnchorName,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(DELETE_SPORT_ANCHOR_SQL)
+                    .bind(tenant_id)
+                    .bind(UserId::from_uuid(user_id))
+                    .bind(sport.as_str())
+                    .bind(anchor.as_str())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("delete_sport_anchor: {e}")))?;
+                Ok(result.rows_affected() > 0)
+            }
         }
 
         #[async_trait::async_trait]
@@ -845,6 +1036,11 @@ macro_rules! impl_user_physiological_profile_repository {
                     .get_user_physiological_profile(tenant_id, user_id)
                     .await?
                     .filter(|profile| admit(profile.transport_policy));
+                let sport_anchors = if physiology.is_some() {
+                    self.list_sport_anchors(tenant_id, user_id).await?
+                } else {
+                    Vec::new()
+                };
                 let hr_zones = physiology.as_ref().and_then(|p| p.hr_zones);
                 let power_zones = physiology.as_ref().and_then(|p| p.power_zones);
 
@@ -934,6 +1130,7 @@ macro_rules! impl_user_physiological_profile_repository {
                     user_id,
                     tenant_id: tenant_id.as_uuid(),
                     physiology,
+                    sport_anchors,
                     hr_zones,
                     power_zones,
                     goals,
