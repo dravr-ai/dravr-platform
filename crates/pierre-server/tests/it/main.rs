@@ -892,6 +892,7 @@ mod whoop_own_app_connect_test;
 mod whoop_owner_authorization_test;
 mod whoop_provider_test;
 mod whoop_terms_ingestion_test;
+mod withheld_reply_envelope_notice_test;
 mod withheld_turn_learning_pipeline_test;
 mod workout_push_test;
 mod workout_templates_repo_test;

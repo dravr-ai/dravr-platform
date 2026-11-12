@@ -233,10 +233,11 @@ pub struct ToolLoopResult {
     /// `coverage.complete` false): a count or total the reply states from it
     /// is not a fact, and capability recovery re-asks a reply that states one.
     pub window_incomplete: bool,
-    /// The sessions this turn's plan saves, publishes and prescriptions found
-    /// outside their family's evidence envelope, in the order written; a day
-    /// written twice keeps its latest report. The chat pipeline renders them
-    /// itself under the reply (carnet#1495).
+    /// The sessions this turn's plan saves, publishes and prescriptions
+    /// reported, in the order written: those found outside their family's
+    /// evidence envelope, and the plan days stored clean, which show nothing.
+    /// A session written twice keeps its latest report. The chat pipeline
+    /// renders the findings itself under the reply (carnet#1495).
     pub envelope_days: Vec<NoticeDay>,
     /// The first tool the runtime Guardian blocked this turn (`enforce` mode).
     /// The chat pipeline detects this and short-circuits with a localized reply
@@ -276,7 +277,7 @@ pub(crate) struct ToolLoopTally {
     pub served_without_provider: Option<String>,
     /// Whether a window read this turn was incomplete.
     pub window_incomplete: bool,
-    /// Sessions with envelope findings this turn's writes reported.
+    /// Sessions this turn's writes reported, plan days stored clean included.
     pub envelope_days: Vec<NoticeDay>,
     /// Provider warnings seen so far, deduplicated in first-seen order.
     pub provider_warnings: Vec<String>,

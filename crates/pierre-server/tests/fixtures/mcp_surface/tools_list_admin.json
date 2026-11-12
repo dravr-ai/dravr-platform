@@ -27267,7 +27267,7 @@
             ]
           },
           "PlanEnvelopeReport": {
-            "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. Structured, never prose — the athlete-facing\nwording is the agent's, under the same framing rules as `safety`.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
+            "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. In Dravr's chat the platform shows every\nfinding and relabel under your reply in its own sentences, so do not\nrestate them there; explain or disagree with one only when asked. Where a\nclient shows the athlete only your words, relay them yourself, as plain\nwords about the work. A day with `not_generated` has no steps until you\nwrite them or shorten the day.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
             "properties": {
               "days": {
                 "description": "The days with findings, in plan order.",
@@ -30583,7 +30583,7 @@
             ]
           },
           "PlanEnvelopeReport": {
-            "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. Structured, never prose — the athlete-facing\nwording is the agent's, under the same framing rules as `safety`.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
+            "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. In Dravr's chat the platform shows every\nfinding and relabel under your reply in its own sentences, so do not\nrestate them there; explain or disagree with one only when asked. Where a\nclient shows the athlete only your words, relay them yourself, as plain\nwords about the work. A day with `not_generated` has no steps until you\nwrite them or shorten the day.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
             "properties": {
               "days": {
                 "description": "The days with findings, in plan order.",

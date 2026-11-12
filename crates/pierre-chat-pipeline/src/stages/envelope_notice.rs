@@ -34,11 +34,14 @@ use pierre_core::models::periodization::{
 use pierre_core::models::{
     AnchorOrigin, AnchorUnit, TargetAnchor, ATHLETE_REPORTED_ORIGIN, ENVELOPE_NOTICE_BLOCK_TYPE,
 };
+use pierre_database::database::ConversationRecord;
 use pierre_memory::training_plans;
 use pierre_services::notification_text;
 use pierre_tool_runtime::envelope_notices::NoticeDay;
 use serde_json::{json, Value};
 use tracing::warn;
+
+use super::plan_block::append_block;
 
 /// The preset parameters a stated value can leave the range of, each with its
 /// own sentence; any other key reads through the generic one.
@@ -67,6 +70,31 @@ pub(crate) enum NoticeReader {
     Athlete,
     /// A coach, in a thread about one athlete: "the athlete's own value".
     Coach,
+}
+
+impl NoticeReader {
+    /// Who reads a reply in `conv`: a coach in a thread about one athlete,
+    /// the athlete otherwise.
+    pub(crate) fn of(conv: &ConversationRecord) -> Self {
+        if conv.subject().is_some() {
+            Self::Coach
+        } else {
+            Self::Athlete
+        }
+    }
+}
+
+/// The blocks of a reply the platform wrote in the model's place: a Guardian
+/// block, a reconnect prompt, or a withheld reply. Every edit earns its
+/// warning (D3) whatever answered the turn, so they carry the notice alone;
+/// `None` when this turn's writes found nothing.
+pub(crate) fn notice_only_blocks(
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+    reader: NoticeReader,
+    days: &[NoticeDay],
+) -> Option<String> {
+    envelope_notice_block(strings, locale, reader, days).and_then(|block| append_block(None, block))
 }
 
 /// The notice for this turn's `days`, as the stored entry the reply carries;
@@ -287,6 +315,7 @@ mod tests {
     use super::*;
     use pierre_core::models::periodization::{AnchorValue, WorkoutPurpose};
     use pierre_core::models::SportAnchorName;
+    use pierre_tool_runtime::envelope_notices::NoticeSource;
     use serde_json::json;
 
     type TestResult = Result<(), Box<dyn Error>>;
@@ -308,6 +337,7 @@ mod tests {
             findings,
             relabelled_purpose: None,
             anchor: None,
+            source: NoticeSource::PlanDay,
         }
     }
 
@@ -502,6 +532,34 @@ mod tests {
         assert!(
             envelope_notice_block(&strings, "en", NoticeReader::Athlete, &[missing]).is_none(),
             "a sentence with an unfilled slot is withheld, never shown with {{0}}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_reply_written_in_the_models_place_carries_the_notice_alone() -> TestResult {
+        let strings = MessagingStringsRegistry::new();
+        let warned = day(vec![finding("cycle_mean_floor", Some(71.6), Some(80.0))?]);
+        let blocks = notice_only_blocks(
+            &strings,
+            "en",
+            NoticeReader::Athlete,
+            slice::from_ref(&warned),
+        )
+        .ok_or("a notice for a day with a finding")?;
+        let stored: Vec<Value> = serde_json::from_str(&blocks)?;
+        assert_eq!(
+            stored.len(),
+            1,
+            "bug: a Guardian block, a reconnect prompt or a withheld reply carries the notice alone"
+        );
+        assert_eq!(
+            stored[0]["type"], ENVELOPE_NOTICE_BLOCK_TYPE,
+            "bug: stored as the entry Stage 15.8 stores, so a reload and every surface read it"
+        );
+        assert!(
+            notice_only_blocks(&strings, "en", NoticeReader::Athlete, &[day(Vec::new())]).is_none(),
+            "bug: a turn whose writes found nothing adds no block to a reply the platform wrote"
         );
         Ok(())
     }

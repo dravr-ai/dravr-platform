@@ -27,7 +27,7 @@ use pierre_llm::provider_stop::ProviderStop;
 use super::provider_stop;
 
 use super::acronym_expansion::expand_acronyms_first_use;
-use super::envelope_notice::{envelope_notice_block, NoticeReader};
+use super::envelope_notice::{envelope_notice_block, notice_only_blocks, NoticeReader};
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
     apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
@@ -106,8 +106,9 @@ pub(crate) struct PostProcessInputs<'a> {
     /// a `source_tool` outside this set is rejected, which is what makes the
     /// attribution verified rather than asserted.
     pub tools_called: &'a [String],
-    /// The sessions this turn's writes found outside their family's evidence
-    /// envelope, which the reply carries as a platform-written notice.
+    /// The sessions this turn's writes reported. Those found outside their
+    /// family's evidence envelope are the platform-written notice the reply
+    /// carries; a plan day stored clean shows nothing.
     pub envelope_days: &'a [NoticeDay],
     /// Whether this turn stands on evidence gathered for it — a tool ran, or
     /// the prefetch injected an activity block.
@@ -382,6 +383,16 @@ pub(crate) async fn post_process_assistant_reply(
         input.conversation_tenant_id,
         input.turn_agent_id(conv),
     );
+    // A withheld reply still carries this turn's envelope notice: the writes
+    // went through, and each earns its warning (D3).
+    let notice_alone = || {
+        notice_only_blocks(
+            &ctx.messaging_strings_registry,
+            locale,
+            NoticeReader::of(conv),
+            envelope_days,
+        )
+    };
     if leak_report.canary_hit {
         return PostProcessedReply {
             content: ctx
@@ -389,7 +400,7 @@ pub(crate) async fn post_process_assistant_reply(
                 .get(KEY_REPLY_WITHHELD, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            content_blocks: None,
+            content_blocks: notice_alone(),
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
@@ -416,7 +427,7 @@ pub(crate) async fn post_process_assistant_reply(
                 .get(KEY_REPLY_WITHHELD, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            content_blocks: None,
+            content_blocks: notice_alone(),
             leak_replaced: true,
             identity_leak: leak_report.identity_leak,
             verdict_chips: Vec::new(),
@@ -452,7 +463,7 @@ pub(crate) async fn post_process_assistant_reply(
             content: ctx.messaging_strings_registry.get(KEY_EMPTY_REPLY, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            content_blocks: None,
+            content_blocks: notice_alone(),
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
@@ -547,15 +558,10 @@ pub(crate) async fn post_process_assistant_reply(
     // turn's sessions, in the platform's own sentences, beside the plan card:
     // the model can explain a warning, but nothing it wrote can drop it.
     // A coach's thread about one athlete reads the athlete's anchors as theirs.
-    let reader = if conv.subject().is_some() {
-        NoticeReader::Coach
-    } else {
-        NoticeReader::Athlete
-    };
     let content_blocks = match envelope_notice_block(
         &ctx.messaging_strings_registry,
         locale,
-        reader,
+        NoticeReader::of(conv),
         envelope_days,
     ) {
         Some(block) => append_block(content_blocks, block),

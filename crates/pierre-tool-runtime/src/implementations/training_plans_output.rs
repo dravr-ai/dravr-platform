@@ -412,8 +412,12 @@ impl PlanSafetyReport {
 /// What the envelope check found on the days a save or publish wrote.
 ///
 /// It sits beside `safety`: each templated session measured against its
-/// family's evidence envelope. Structured, never prose — the athlete-facing
-/// wording is the agent's, under the same framing rules as `safety`.
+/// family's evidence envelope. In Dravr's chat the platform shows every
+/// finding and relabel under your reply in its own sentences, so do not
+/// restate them there; explain or disagree with one only when asked. Where a
+/// client shows the athlete only your words, relay them yourself, as plain
+/// words about the work. A day with `not_generated` has no steps until you
+/// write them or shorten the day.
 ///
 /// Every finding warns; a relabel also names the purpose the session now
 /// trains, which is what compliance and readiness read for that day. Absent
