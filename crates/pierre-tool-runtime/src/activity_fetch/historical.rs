@@ -1,4 +1,4 @@
-// ABOUTME: A covered historical window as get_activities serves it: the cached window, its head slice, a stale head topped up
+// ABOUTME: A covered historical window as get_activities serves it: covered under any history key, its head slice, a stale head topped up
 // ABOUTME: The top-up is a budgeted live read, so a slow scrape answers from the cache and lands for the next turn
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -8,10 +8,13 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::Utc;
+use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
+use pierre_database::repositories::historical_depth_covered;
+use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::budgeted_read::refresh_head_within_budget;
@@ -164,6 +167,89 @@ pub async fn serve_historical_window(
         activities: served,
         behind,
     }
+}
+
+/// Serve the historical `window` of `provider_slug` from the store when the
+/// store holds it to its depth, or `None` when a read must fetch it.
+///
+/// `window` is the coverage read: the asked window, its open `before`
+/// bounded a year above `after` so recent rows cannot mask missing depth.
+/// The window is read once, every history key's rows merged
+/// ([`read_cached_window`]), and it is covered when a walk or a backfill
+/// under ANY of those keys reached `after` at its key's current capture
+/// ([`history_depth_covered`]): a Strava athlete walked through the session
+/// holds the depth under `sciotte`, one walked through the API under
+/// `strava`, and both are read whichever backend the ask resolved to
+/// (carnet#1482). A covered window that holds no rows is not served, so an
+/// empty answer is never taken from the store alone. The served list is
+/// [`serve_historical_window`]'s, `before` the athlete's own bound.
+pub async fn serve_covered_history(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    window: &ActivityQueryParams,
+    before: Option<i64>,
+) -> Option<HistoricalServe> {
+    let cached = read_cached_window(runtime, provider_slug, user_id, tenant_id, window).await;
+    let after_ts = window.after.unwrap_or(0);
+    let depth_covered =
+        history_depth_covered(runtime, provider_slug, user_id, tenant_id, after_ts).await;
+    info!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        after = ?window.after,
+        ?before,
+        covered = cached.is_some() && depth_covered,
+        depth_covered,
+        window_len = cached.as_ref().map_or(0, Vec::len),
+        "get_activities historical gate decision"
+    );
+    let served = cached.filter(|_| depth_covered)?;
+    Some(
+        serve_historical_window(
+            runtime,
+            provider_slug,
+            user_id,
+            tenant_id,
+            before,
+            window.before,
+            served,
+        )
+        .await,
+    )
+}
+
+/// Whether a walk or a backfill under any of `provider_slug`'s history keys
+/// ([`backend_resolver::history_keys`]) reached `after_ts`, each record
+/// judged at its own key's current capture ([`historical_depth_covered`]).
+/// A record that cannot be read counts as absent.
+async fn history_depth_covered(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    after_ts: i64,
+) -> bool {
+    let cache = &runtime.repos().activity_cache;
+    for key in backend_resolver::history_keys(provider_slug) {
+        let coverage = match cache.get_backfill_coverage(user_id, &tenant_id, key).await {
+            Ok(coverage) => coverage,
+            Err(e) => {
+                warn!(
+                    user_id = %user_id,
+                    provider = %key,
+                    error = %e,
+                    "backfill coverage read failed; the key counts as not covered"
+                );
+                None
+            }
+        };
+        if historical_depth_covered(coverage, after_ts, current_capture_version(key)) {
+            return true;
+        }
+    }
+    false
 }
 
 /// A covered historical window as [`serve_historical_window`] serves it.

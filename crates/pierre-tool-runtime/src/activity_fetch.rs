@@ -62,7 +62,9 @@ pub(crate) use fallback::flag_refusal;
 pub(crate) use fallback::grant_window;
 pub use fallback::{serve_without_primary, FallbackServe};
 #[cfg(feature = "tools-data")]
-pub use historical::{refresh_stale_head, serve_historical_window, HistoricalServe};
+pub use historical::{
+    refresh_stale_head, serve_covered_history, serve_historical_window, HistoricalServe,
+};
 pub(crate) use pushed::connection_grant_beside_session;
 use pushed::{pushed_head, pushed_window, reads_pushed_store, serving_slug};
 use sync_verdict::{

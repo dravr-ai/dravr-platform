@@ -1,5 +1,5 @@
 // ABOUTME: A Strava athlete holding a session beside a live grant reads old windows sciotte first, never the API
-// ABOUTME: A walked window is served from the store, both keys merged; an unwalked one goes to the session's backfill
+// ABOUTME: A walked window is served from the store under any key a walk covered, both keys merged; an unwalked one is read live
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,6 +18,12 @@
 // the grant's (`backend_resolver::history_keys`), a ride recorded under both
 // keys once; an old window no walk covered goes to the session's background
 // backfill, never inline to the API.
+//
+// The depth is read under every history key of the backend the ask
+// resolved to, never that backend's alone: a window a walk covered under
+// either key is served from the store when the ask resolves to the session
+// and when it resolves to the grant (a session the athlete no longer
+// holds), and a grant's uncovered window is still the API's.
 //
 // Strava is the loopback stand-in of `history_walk_api_test`, which counts
 // every listing it answers.
@@ -114,6 +120,18 @@ async fn walked_to(
     tenant: TenantId,
     reached: DateTime<Utc>,
 ) {
+    walked_through(resources, user_id, tenant, oauth_providers::SCIOTTE, reached).await;
+}
+
+/// Record that a walk through `key` reached `reached`, under `key` and at
+/// its current capture.
+async fn walked_through(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    key: &str,
+    reached: DateTime<Utc>,
+) {
     resources
         .common
         .repos
@@ -121,15 +139,25 @@ async fn walked_to(
         .upsert_backfill_coverage(
             user_id,
             &tenant,
-            oauth_providers::SCIOTTE,
+            key,
             BackfillCoverage {
                 oldest_reached_ts: reached.timestamp(),
                 hit_feed_end: false,
-                capture_version: current_capture_version(oauth_providers::SCIOTTE),
+                capture_version: current_capture_version(key),
             },
         )
         .await
         .unwrap();
+}
+
+/// A Strava athlete who holds only the grant now, on a server whose Strava
+/// API is the counting stand-in: the session a walk went through is gone,
+/// so the ask resolves to the grant.
+async fn grant_athlete() -> (Arc<ServerContext>, Arc<MockStrava>, Uuid, TenantId) {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    (resources, mock, user_id, tenant)
 }
 
 /// `get_activities` for the closed window `[after, before]`, with no
@@ -350,5 +378,134 @@ async fn a_stored_strava_window_serves_both_keys_and_merges_twins() {
         mock.listing_count(),
         0,
         "bug: a covered window was read from the Strava API"
+    );
+}
+
+/// A walk through the grant, before the athlete signed a session in,
+/// recorded its depth under `strava`; the session's read of an old window
+/// that walk covered is answered from the store, never sent to the
+/// session's background backfill.
+#[tokio::test]
+async fn a_window_the_api_walked_is_served_to_the_session_from_the_store() {
+    let (resources, mock, user_id, tenant) = walked_athlete().await;
+    let now = Utc::now();
+    store(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[
+            ride("15550000001", now - Duration::days(700), "strava"),
+            ride("15550000002", now - Duration::days(720), "strava"),
+        ],
+    )
+    .await;
+    mock.serve(vec![
+        (now - Duration::days(700)).timestamp(),
+        (now - Duration::days(720)).timestamp(),
+    ]);
+    walked_through(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        now - Duration::days(1_000),
+    )
+    .await;
+
+    let payload = ask_window(
+        &resources,
+        user_id,
+        tenant,
+        now - Duration::days(800),
+        now - Duration::days(600),
+    )
+    .await;
+
+    assert_eq!(
+        served_ids(&payload),
+        vec!["15550000001".to_owned(), "15550000002".to_owned()],
+        "bug: the grant's walked rows answer the session's window"
+    );
+    assert_eq!(
+        mock.listing_count(),
+        0,
+        "bug: a window the grant's walk covered was read from the Strava API"
+    );
+}
+
+/// The walk went through a session the athlete no longer holds, so its
+/// depth is under `sciotte` and the ask resolves to the grant: an old
+/// window that walk covered is answered from the store, with no request to
+/// the Strava API.
+#[tokio::test]
+async fn a_window_the_session_walked_is_served_to_the_grant_from_the_store() {
+    let (resources, mock, user_id, tenant) = grant_athlete().await;
+    let now = Utc::now();
+    store(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE,
+        &[
+            ride("15550000001", now - Duration::days(700), "sciotte"),
+            ride("15550000002", now - Duration::days(720), "sciotte"),
+        ],
+    )
+    .await;
+    mock.serve(vec![
+        (now - Duration::days(700)).timestamp(),
+        (now - Duration::days(720)).timestamp(),
+    ]);
+    walked_to(&resources, user_id, tenant, now - Duration::days(1_000)).await;
+
+    let payload = ask_window(
+        &resources,
+        user_id,
+        tenant,
+        now - Duration::days(800),
+        now - Duration::days(600),
+    )
+    .await;
+
+    assert_eq!(
+        served_ids(&payload),
+        vec!["15550000001".to_owned(), "15550000002".to_owned()],
+        "bug: the session's walked rows answer the grant's window"
+    );
+    assert_eq!(
+        mock.listing_count(),
+        0,
+        "bug: a window the session's walk covered was read from the Strava API"
+    );
+}
+
+/// No walk covered the window and no session stands beside the grant: the
+/// old window is still read inline from the Strava API, as any grant's
+/// window is.
+#[tokio::test]
+async fn a_window_no_walk_covered_is_read_from_the_api_by_the_grant() {
+    let (resources, mock, user_id, tenant) = grant_athlete().await;
+    let now = Utc::now();
+    let start = now - Duration::days(700);
+    mock.serve(vec![start.timestamp()]);
+
+    let payload = ask_window(
+        &resources,
+        user_id,
+        tenant,
+        now - Duration::days(800),
+        now - Duration::days(600),
+    )
+    .await;
+
+    assert_eq!(
+        served_ids(&payload),
+        vec![start.timestamp().to_string()],
+        "the grant's uncovered window is the API's answer"
+    );
+    assert!(
+        mock.listing_count() > 0,
+        "bug: an uncovered old window of a grant alone was never read from the Strava API"
     );
 }
