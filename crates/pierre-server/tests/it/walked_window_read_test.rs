@@ -35,6 +35,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::helpers::history_walk_ledger::owe_history_walk;
 use crate::helpers::sciotte_mock::seed_scrape_session;
 use crate::history_walk_api_test::{mock_strava, server, strava_athlete, MockStrava};
 
@@ -45,7 +46,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionType, SportType, TenantId};
-use pierre_database::repositories::BackfillCoverage;
+use pierre_database::repositories::{BackfillCoverage, BackfillJobKind};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -321,6 +322,74 @@ async fn a_window_no_walk_covered_goes_to_the_session_not_the_api() {
         mock.listing_count(),
         0,
         "bug: an uncovered old window was read inline from the Strava API beside a live session"
+    );
+}
+
+/// The session's walk is running and has not reached the window yet: the
+/// store answers with what it holds and says the walk is still filling it
+/// (`history_walk_running`, a reason the turn's count guard re-asks on), and
+/// nothing else pages the window: no backfill of its own, no API listing.
+#[tokio::test]
+async fn a_window_the_running_walk_has_not_reached_is_served_as_incomplete() {
+    let (resources, mock, user_id, tenant) = walked_athlete().await;
+    let now = Utc::now();
+    let start = now - Duration::days(700);
+    store(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE,
+        &[ride("15550000001", start, "sciotte")],
+    )
+    .await;
+    mock.serve(vec![start.timestamp()]);
+    let repos = &resources.common.repos;
+    owe_history_walk(repos, user_id, tenant, oauth_providers::SCIOTTE).await;
+
+    let payload = ask_window(
+        &resources,
+        user_id,
+        tenant,
+        now - Duration::days(800),
+        now - Duration::days(600),
+    )
+    .await;
+
+    assert_eq!(
+        served_ids(&payload),
+        vec!["15550000001".to_owned()],
+        "bug: the store answers what the running walk has landed"
+    );
+    let coverage = &payload["coverage"];
+    assert_eq!(coverage["complete"], false, "bug: {payload}");
+    assert_eq!(
+        coverage["incomplete_reason"], "history_walk_running",
+        "bug: the window must say the walk is still filling it: {payload}"
+    );
+    assert!(
+        coverage["note"]
+            .as_str()
+            .is_some_and(|note| note.contains("Do not state a count")),
+        "bug: an incomplete window forbids stating a count: {payload}"
+    );
+    assert_eq!(
+        repos
+            .activity_backfill_jobs
+            .backfill_job_state(
+                user_id,
+                tenant,
+                oauth_providers::SCIOTTE,
+                BackfillJobKind::Backfill
+            )
+            .await
+            .unwrap(),
+        None,
+        "bug: a window the walk is filling started a backfill of its own"
+    );
+    assert_eq!(
+        mock.listing_count(),
+        0,
+        "bug: a window the walk is filling was read from the Strava API"
     );
 }
 

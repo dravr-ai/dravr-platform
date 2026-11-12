@@ -11,7 +11,7 @@ use chrono::Utc;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
-use pierre_database::repositories::historical_depth_covered;
+use pierre_database::repositories::{historical_depth_covered, BackfillJobKind, BackfillJobState};
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
@@ -166,6 +166,7 @@ pub async fn serve_historical_window(
     HistoricalServe {
         activities: served,
         behind,
+        walk_running: false,
     }
 }
 
@@ -183,6 +184,11 @@ pub async fn serve_historical_window(
 /// (carnet#1482). A covered window that holds no rows is not served, so an
 /// empty answer is never taken from the store alone. The served list is
 /// [`serve_historical_window`]'s, `before` the athlete's own bound.
+///
+/// A window the athlete's history walk has not reached yet, while that walk
+/// runs under one of those keys, is served from what the store already holds
+/// and says so ([`HistoricalServe::walk_running`]): the walk is filling it,
+/// so a read of its own would page the same months twice.
 pub async fn serve_covered_history(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -194,9 +200,11 @@ pub async fn serve_covered_history(
     let after_ts = window.after.unwrap_or(0);
     let depth_covered =
         history_depth_covered(runtime, provider_slug, user_id, tenant_id, after_ts).await;
-    // A window no record vouches for is fetched whatever the store holds, so
-    // it is not read.
-    let cached = if depth_covered {
+    let walk_running =
+        !depth_covered && history_walk_owed(runtime, provider_slug, user_id, tenant_id).await;
+    // A window no record vouches for, and no walk is filling, is fetched
+    // whatever the store holds, so it is not read.
+    let cached = if depth_covered || walk_running {
         read_cached_window(runtime, provider_slug, user_id, tenant_id, window).await
     } else {
         None
@@ -208,22 +216,53 @@ pub async fn serve_covered_history(
         ?before,
         covered = cached.is_some(),
         depth_covered,
+        walk_running,
         window_len = cached.as_ref().map_or(0, Vec::len),
         "get_activities historical gate decision"
     );
     let served = cached?;
-    Some(
-        serve_historical_window(
-            runtime,
-            provider_slug,
-            user_id,
-            tenant_id,
-            before,
-            window.before,
-            served,
-        )
-        .await,
+    let serve = serve_historical_window(
+        runtime,
+        provider_slug,
+        user_id,
+        tenant_id,
+        before,
+        window.before,
+        served,
     )
+    .await;
+    Some(HistoricalServe {
+        walk_running,
+        ..serve
+    })
+}
+
+/// Whether a history walk under any of `provider_slug`'s history keys is
+/// owed: recorded, running or waiting for the resume sweep. A ledger that
+/// cannot be read counts as no walk, so the window is read as before.
+async fn history_walk_owed(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> bool {
+    let jobs = &runtime.repos().activity_backfill_jobs;
+    for key in backend_resolver::history_keys(provider_slug) {
+        match jobs
+            .backfill_job_state(user_id, tenant_id, key, BackfillJobKind::HistoryWalk)
+            .await
+        {
+            Ok(Some(BackfillJobState::Owed)) => return true,
+            Ok(_) => {}
+            Err(e) => warn!(
+                user_id = %user_id,
+                provider = %key,
+                error = %e,
+                "history walk state read failed; the key counts as not walking"
+            ),
+        }
+    }
+    false
 }
 
 /// Whether a walk or a backfill under any of `provider_slug`'s history keys
@@ -266,4 +305,7 @@ pub struct HistoricalServe {
     /// Why the head is stale and was not refreshed this turn, so the newest
     /// sessions may be missing; `None` when it is current.
     pub behind: Option<StaleReason>,
+    /// Whether the window was served before the athlete's history walk
+    /// reached it, so older activities of it are still to land.
+    pub walk_running: bool,
 }

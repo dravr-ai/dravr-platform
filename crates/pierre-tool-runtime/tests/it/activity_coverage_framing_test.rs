@@ -10,14 +10,31 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use chrono::{TimeZone, Utc};
+use chrono::{NaiveDate, TimeZone, Utc};
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_tool_runtime::activity_fetch::{activity_date_span, activity_window_totals};
 use pierre_tool_runtime::implementations::data_helpers::{
-    activity_coverage_note, historical_backfill_fetch_limit, pagination_has_more,
-    window_fetch_limit, AskedWindow, HISTORICAL_WINDOW_READ_LIMIT,
+    activity_coverage, historical_backfill_fetch_limit, pagination_has_more, window_fetch_limit,
+    AskedWindow, HISTORICAL_WINDOW_READ_LIMIT,
 };
+use serde_json::Value;
+
+fn day(year: i32, month: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(year, month, d).unwrap()
+}
+
+/// The `coverage` sidecar as the model reads it, totals left unsummed.
+fn coverage_json(
+    window_total: Option<usize>,
+    returned: usize,
+    span: Option<(NaiveDate, NaiveDate)>,
+    asked: AskedWindow,
+    completeness: Completeness,
+) -> Option<Value> {
+    activity_coverage(window_total, returned, span, asked, completeness, None)
+        .map(|coverage| serde_json::to_value(coverage).unwrap())
+}
 
 fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {
     ActivityBuilder::new(
@@ -36,20 +53,20 @@ fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {
 
 #[test]
 fn coverage_note_present_when_window_exceeds_returned() {
-    let span = ("2024-01-15".to_owned(), "2024-12-28".to_owned());
-    let note = activity_coverage_note(
+    let span = (day(2024, 1, 15), day(2024, 12, 28));
+    let note = coverage_json(
         Some(552),
         200,
-        Some(&span),
+        Some(span),
         AskedWindow::default(),
         Completeness::Complete,
     )
     .expect("a truncated window must emit a coverage note");
 
-    assert_eq!(note["window_total"], 552);
-    assert_eq!(note["returned"], 200);
-    assert_eq!(note["window_oldest"], "2024-01-15");
-    assert_eq!(note["window_newest"], "2024-12-28");
+    assert_eq!(note["window"]["total"], 552);
+    assert_eq!(note["window"]["returned"], 200);
+    assert_eq!(note["window"]["oldest"], "2024-01-15");
+    assert_eq!(note["window"]["newest"], "2024-12-28");
     // The note must steer the model toward the full count, not the shown slice.
     let text = note["note"].as_str().unwrap();
     assert!(text.contains("552"), "note cites the full total: {text}");
@@ -73,21 +90,21 @@ fn coverage_note_present_when_window_exceeds_returned() {
 
 #[test]
 fn coverage_note_absent_when_whole_window_returned() {
-    let span = ("2024-01-15".to_owned(), "2024-12-28".to_owned());
+    let span = (day(2024, 1, 15), day(2024, 12, 28));
     // returned == total → nothing was hidden, so no framing.
-    assert!(activity_coverage_note(
+    assert!(coverage_json(
         Some(200),
         200,
-        Some(&span),
+        Some(span),
         AskedWindow::default(),
         Completeness::Complete
     )
     .is_none());
     // returned > total can't happen, but treat it as "nothing hidden" too.
-    assert!(activity_coverage_note(
+    assert!(coverage_json(
         Some(150),
         200,
-        Some(&span),
+        Some(span),
         AskedWindow::default(),
         Completeness::Complete
     )
@@ -96,12 +113,12 @@ fn coverage_note_absent_when_whole_window_returned() {
 
 #[test]
 fn coverage_note_absent_when_window_total_unknown() {
-    let span = ("2024-01-15".to_owned(), "2024-12-28".to_owned());
+    let span = (day(2024, 1, 15), day(2024, 12, 28));
     // The cached-snapshot path passes None — no coverage sidecar.
-    assert!(activity_coverage_note(
+    assert!(coverage_json(
         None,
         200,
-        Some(&span),
+        Some(span),
         AskedWindow::default(),
         Completeness::Complete
     )
@@ -110,7 +127,7 @@ fn coverage_note_absent_when_window_total_unknown() {
 
 #[test]
 fn coverage_note_is_count_only_without_a_span() {
-    let note = activity_coverage_note(
+    let note = coverage_json(
         Some(552),
         200,
         None,
@@ -118,10 +135,10 @@ fn coverage_note_is_count_only_without_a_span() {
         Completeness::Complete,
     )
     .expect("a truncated window still emits a count-only note");
-    assert_eq!(note["window_total"], 552);
-    assert_eq!(note["returned"], 200);
+    assert_eq!(note["window"]["total"], 552);
+    assert_eq!(note["window"]["returned"], 200);
     assert!(
-        note.get("window_oldest").is_none(),
+        note["window"].get("oldest").is_none(),
         "no span fields without dates"
     );
     let text = note["note"].as_str().unwrap();
@@ -137,18 +154,19 @@ fn coverage_note_is_count_only_without_a_span() {
 fn coverage_note_frames_count_as_lower_bound_when_read_is_capped() {
     // A window that fills HISTORICAL_WINDOW_READ_LIMIT was truncated by the
     // durable read cap, so window_total is a LOWER BOUND, not the true total.
-    let span = ("2019-01-01".to_owned(), "2024-12-28".to_owned());
-    let note = activity_coverage_note(
+    let span = (day(2019, 1, 1), day(2024, 12, 28));
+    let note = coverage_json(
         Some(HISTORICAL_WINDOW_READ_LIMIT),
         200,
-        Some(&span),
+        Some(span),
         AskedWindow::default(),
         Completeness::Complete,
     )
     .expect("a capped, truncated window must emit a coverage note");
 
-    // The numeric key stays the exact figure read; only the prose hedges.
-    assert_eq!(note["window_total"], HISTORICAL_WINDOW_READ_LIMIT);
+    // The numeric key stays the exact figure read; the bound and the prose hedge.
+    assert_eq!(note["window"]["total"], HISTORICAL_WINDOW_READ_LIMIT);
+    assert_eq!(note["window"]["total_is_lower_bound"], true, "bug: {note}");
     let text = note["note"].as_str().unwrap();
     let lower_bound = format!("at least {HISTORICAL_WINDOW_READ_LIMIT}");
     assert!(
@@ -160,7 +178,7 @@ fn coverage_note_frames_count_as_lower_bound_when_read_is_capped() {
 #[test]
 fn coverage_note_count_only_is_lower_bound_when_read_is_capped() {
     // Same lower-bound framing on the span-less (count-only) branch.
-    let note = activity_coverage_note(
+    let note = coverage_json(
         Some(HISTORICAL_WINDOW_READ_LIMIT),
         200,
         None,
@@ -185,8 +203,8 @@ fn date_span_spans_oldest_to_newest_regardless_of_order() {
         act_on("c", 2024, 6, 1),
     ];
     let (oldest, newest) = activity_date_span(&activities, None).expect("non-empty span");
-    assert_eq!(oldest, "2024-01-15");
-    assert_eq!(newest, "2024-12-28");
+    assert_eq!(oldest, day(2024, 1, 15));
+    assert_eq!(newest, day(2024, 12, 28));
 }
 
 #[test]
@@ -276,7 +294,7 @@ fn window_totals_sum_the_whole_window() {
     assert_eq!(totals.duration_seconds, 13 * 3_600);
     assert!((totals.elevation_gain_m - 1500.0).abs() < f64::EPSILON);
     assert_eq!(
-        totals.to_json(),
+        serde_json::to_value(&totals).unwrap(),
         serde_json::json!({
             "count": 13,
             "distance_km": 120.0,
@@ -290,11 +308,11 @@ fn window_totals_sum_the_whole_window() {
 /// on, for a question back to 2020. It must say it is incomplete, and why.
 #[test]
 fn a_window_served_while_the_live_read_runs_is_incomplete() {
-    let span = ("2026-07-21".to_owned(), "2026-11-09".to_owned());
-    let note = activity_coverage_note(
+    let span = (day(2026, 7, 21), day(2026, 11, 9));
+    let note = coverage_json(
         Some(43),
         43,
-        Some(&span),
+        Some(span),
         AskedWindow {
             after: Some(1_577_836_800),
             before: None,
@@ -307,7 +325,7 @@ fn a_window_served_while_the_live_read_runs_is_incomplete() {
         note["incomplete_reason"], "live_read_running",
         "bug: {note}"
     );
-    assert_eq!(note["asked_from"], "2020-01-01", "bug: {note}");
+    assert_eq!(note["window"]["asked_from"], "2020-01-01", "bug: {note}");
     assert!(
         note["note"]
             .as_str()
@@ -320,11 +338,11 @@ fn a_window_served_while_the_live_read_runs_is_incomplete() {
 /// A complete window that answers a dated ask says so.
 #[test]
 fn a_complete_dated_window_says_complete() {
-    let span = ("2020-01-03".to_owned(), "2026-11-09".to_owned());
-    let note = activity_coverage_note(
+    let span = (day(2020, 1, 3), day(2026, 11, 9));
+    let note = coverage_json(
         Some(639),
         400,
-        Some(&span),
+        Some(span),
         AskedWindow {
             after: Some(1_577_836_800),
             before: None,
@@ -334,4 +352,27 @@ fn a_complete_dated_window_says_complete() {
     .expect("bug: a truncated window carries coverage");
     assert_eq!(note["complete"], true, "bug: {note}");
     assert!(note.get("incomplete_reason").is_none(), "bug: {note}");
+}
+
+/// The whole window's totals ride in the window, and the note sends the
+/// model to them for a comparison (carnet#874).
+#[test]
+fn window_totals_ride_in_the_window_and_the_note_names_them() {
+    let window = vec![act_on("a", 2011, 3, 1), act_on("b", 2011, 9, 1)];
+    let coverage = activity_coverage(
+        Some(2),
+        1,
+        activity_date_span(&window, None),
+        AskedWindow::default(),
+        Completeness::Complete,
+        Some(activity_window_totals(&window)),
+    )
+    .expect("a truncated window carries coverage");
+    let note = serde_json::to_value(coverage).unwrap();
+    assert_eq!(note["window"]["totals"]["count"], 2, "bug: {note}");
+    assert_eq!(note["window"]["totals"]["distance_km"], 20.0, "bug: {note}");
+    assert!(
+        note["note"].as_str().unwrap().contains("use window.totals"),
+        "bug: the note must send a comparison to the totals: {note}"
+    );
 }

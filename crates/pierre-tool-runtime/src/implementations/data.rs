@@ -492,6 +492,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // the fold below does not merge the same window twice.
             let mut stand_in_merge: Option<FragmentReport> = None;
             let mut served_by: Vec<String> = Vec::new();
+            // The store answered a deep window the history walk is still filling.
+            let mut walk_running = false;
             // An explicit `provider` argument pins the ask to ONE source — the
             // same rule `maybe_merge_other_connections` follows. A pinned
             // provider that cannot authenticate stays the whole answer:
@@ -551,6 +553,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 let pinned_key = provider_pinned.then_some(provider_name.as_str());
                 (user_provided_rows(&context, pinned_key, &query_params).await, None)
             } else if let Some(served) = covered_history {
+                walk_running = served.walk_running;
                 stood_in = served
                     .behind
                     .map(|why| PrimaryStandIn::Stale(provider_name.clone(), why));
@@ -1063,13 +1066,17 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 window_span,
                 window_totals: Some(window_totals),
                 asked: AskedWindow { after, before },
-                completeness: stood_in.as_ref().and_then(PrimaryStandIn::completeness).unwrap_or(
-                    if provider_filled_page {
-                        Completeness::Incomplete(IncompleteReason::ReadCapped)
-                    } else {
-                        Completeness::Complete
-                    },
-                ),
+                completeness: if walk_running {
+                    Completeness::Incomplete(IncompleteReason::HistoryWalkRunning)
+                } else {
+                    stood_in.as_ref().and_then(PrimaryStandIn::completeness).unwrap_or(
+                        if provider_filled_page {
+                            Completeness::Incomplete(IncompleteReason::ReadCapped)
+                        } else {
+                            Completeness::Complete
+                        },
+                    )
+                },
                 merge_report: Some(&merge_report),
             });
 

@@ -15,7 +15,7 @@ use std::cmp::{Ordering, Reverse};
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
@@ -34,7 +34,7 @@ use crate::reauth_retry;
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
-use serde_json::{json, Value};
+use serde_json::Value;
 
 /// A live list read that answers its turn inside the refresh budget; it runs
 /// as an `activity_backfill` job, so it is gated with that module.
@@ -76,6 +76,7 @@ use write_through::{write_through_activity_cache, write_through_served_window, W
 /// backfill path. Defined beside the training-history read, which reads the
 /// same windows; `pub` so the cap boundary is exercisable by the coverage-note
 /// tests (re-exported through `implementations::data`, its original home).
+pub use pierre_core::models::coverage::WindowTotals;
 pub use pierre_services::training_history_read::HISTORICAL_WINDOW_READ_LIMIT;
 
 /// Cache fallback window when the request carries no `after` lower bound.
@@ -1009,7 +1010,7 @@ pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
 /// août") instead of the window's real start.
 ///
 /// Rendered in the athlete's timezone, because this span reaches them as prose:
-/// `activity_coverage_note` interpolates it into "spanning …". A bare date has no
+/// the coverage note interpolates it into "spanning …". A bare date has no
 /// offset to disambiguate it, so rendering the UTC day moves an evening session
 /// to the next one — the same defect that had a 22:59 hike reported as "ce
 /// matin" (2026-08-28). An absent or unparseable zone falls back to UTC.
@@ -1017,47 +1018,14 @@ pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
 pub fn activity_date_span(
     activities: &[Activity],
     user_timezone: Option<&str>,
-) -> Option<(String, String)> {
+) -> Option<(NaiveDate, NaiveDate)> {
     let zone = resolve_zone(user_timezone);
     let oldest = activities.iter().map(Activity::start_date).min()?;
     let newest = activities.iter().map(Activity::start_date).max()?;
     Some((
-        oldest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
-        newest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
+        oldest.with_timezone(&zone).date_naive(),
+        newest.with_timezone(&zone).date_naive(),
     ))
-}
-
-/// Totals across a served window, taken before the display limit truncates it.
-///
-/// A year-against-year question is answered from these, not from the shown
-/// slice: with a display limit of 20, a 63-ride 2011 read as its last three
-/// December rides (carnet#874).
-#[derive(Debug, Clone, PartialEq)]
-pub struct WindowTotals {
-    /// Activities in the window.
-    pub count: usize,
-    /// Summed distance in kilometres, over the activities that report one.
-    pub distance_km: f64,
-    /// Summed duration in seconds, exact: the agent quotes it and derives
-    /// pace from it, so it is never rounded (carnet#1015).
-    pub duration_seconds: u64,
-    /// Summed elevation gain in metres, over the activities that report one.
-    pub elevation_gain_m: f64,
-}
-
-impl WindowTotals {
-    /// The totals as the `window_totals` object of the `coverage` sidecar:
-    /// distance and elevation to one decimal, duration exact in seconds.
-    #[must_use]
-    pub fn to_json(&self) -> Value {
-        let round = |v: f64| (v * 10.0).round() / 10.0;
-        json!({
-            "count": self.count,
-            "distance_km": round(self.distance_km),
-            "duration_seconds": self.duration_seconds,
-            "elevation_gain_m": round(self.elevation_gain_m),
-        })
-    }
 }
 
 /// Sum a window's count, distance, duration and elevation gain.
@@ -1070,7 +1038,7 @@ pub fn activity_window_totals(activities: &[Activity]) -> WindowTotals {
     let seconds: u64 = activities.iter().map(Activity::duration_seconds).sum();
     let elevation_m: f64 = activities.iter().filter_map(Activity::elevation_gain).sum();
     WindowTotals {
-        count: activities.len(),
+        count: u64::try_from(activities.len()).unwrap_or(u64::MAX),
         distance_km: distance_m / 1000.0,
         duration_seconds: seconds,
         elevation_gain_m: elevation_m,
