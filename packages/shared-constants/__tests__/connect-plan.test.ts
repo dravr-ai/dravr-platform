@@ -271,7 +271,7 @@ describe('a refused connect', () => {
 
   it('reads the cards again when the seat it was shown went', () => {
     expect(refusalReloadsCards(OAUTH_NO_SEAT)).toBe(true);
-    expect(refusalReloadsCards('oauth_required')).toBe(false);
+    expect(refusalReloadsCards('login_flow_expired')).toBe(false);
     expect(refusalReloadsCards('login_challenge')).toBe(false);
     expect(refusalReloadsCards(undefined)).toBe(false);
   });
@@ -303,7 +303,7 @@ describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
   it('falls back on a sign-in that could not complete or met a challenge, never on any other refusal', () => {
     expect(signInFallsBackToOAuth(SIGN_IN_UNAVAILABLE)).toBe(true);
     expect(signInFallsBackToOAuth('login_challenge')).toBe(true);
-    for (const reason of ['oauth_required', 'login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
+    for (const reason of ['login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
       expect(signInFallsBackToOAuth(reason)).toBe(false);
     }
   });
