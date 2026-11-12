@@ -237,36 +237,6 @@ pub async fn read_history_from_cache(
     })
 }
 
-/// How much of `[from, to]` the stored history stands behind, for a series
-/// of `returned` rows read from the persisted rollup: the
-/// [`read_history_from_cache`] coverage, without computing a row.
-///
-/// The rollup only holds days a compute vouched for, so its rows alone
-/// cannot say whether a window they start late in is short of history or
-/// was never computed; the stored activities can.
-///
-/// # Errors
-///
-/// Returns [`AppError`] when the window is invalid or a repository read fails.
-pub async fn stored_history_coverage(
-    sources: HistoryHandles<'_>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    (from, to): (NaiveDate, NaiveDate),
-    returned: usize,
-) -> AppResult<Coverage> {
-    validate_window(from, to)?;
-    let backends = resolve_compute_backends(sources.repos, tenant_id, user_id).await?;
-    if backends.is_empty() {
-        return Ok(series_coverage(from, to, None, returned));
-    }
-    let window = load_stored_window(sources, tenant_id, user_id, backends, from, to).await?;
-    let stored = window
-        .oldest_stored
-        .map(|oldest| (oldest, first_vouched_day(from, oldest, window.warmup)));
-    Ok(series_coverage(from, to, stored, returned))
-}
-
 /// Read-only fetch of persisted rows in `[from, to]`.
 ///
 /// The read side of the rollup: no cache read, no compute, no provider.

@@ -34,8 +34,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tool_runtime::training_history_compute::{
     compute_and_persist_history, default_window, history_rows_for_model, history_walk_pending,
-    read_history_from_cache, stored_history_coverage, TrainingHistoryComputed,
-    DEFAULT_BACKFILL_DAYS,
+    read_history_from_cache, TrainingHistoryComputed, DEFAULT_BACKFILL_DAYS,
 };
 use pierre_tools_core::ToolResult;
 
@@ -228,34 +227,6 @@ impl From<TrainingHistoryComputed> for ComputeTrainingHistoryResult {
             capture_requested: c.capture_requested,
         }
     }
-}
-
-/// How much of `[from, to]` the `rows` read from the rollup answer, with the
-/// history walk still owed when they fall short.
-///
-/// Rows that start on `from` answer the whole ask. Rows that start later, or
-/// none, are measured against the stored activities: the rollup only holds
-/// days a compute vouched for, so its first row cannot tell a history too
-/// short to warm the window from a window never computed. A window short of
-/// history reads the walk owed for it, and asks one of every connection that
-/// never had one ([`history_walk_pending`]).
-async fn rows_coverage(
-    resources: &Arc<dyn ToolRuntime>,
-    (tenant_id, user_id): (TenantId, Uuid),
-    (from, to): (NaiveDate, NaiveDate),
-    rows: &[DailyTrainingState],
-) -> AppResult<Coverage> {
-    if rows.first().is_some_and(|row| row.date <= from) {
-        return Ok(Coverage::complete(CoverageWindow {
-            asked_from: Some(from),
-            asked_to: Some(to),
-            returned: u64::try_from(rows.len()).unwrap_or(u64::MAX),
-            ..CoverageWindow::default()
-        }));
-    }
-    let coverage =
-        stored_history_coverage(resources, tenant_id, user_id, (from, to), rows.len()).await?;
-    with_pending(resources, (tenant_id, user_id), coverage).await
 }
 
 /// `coverage` with the history walk still owed for it, when it falls short.
@@ -465,23 +436,40 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                 rows = history_rows_for_model(&context.resources, tenant_id, user_id, from, to)
                     .await?;
             }
-            // No persisted row: the read a page makes says why, and answers
-            // from the stored sessions when they do warm the window. It writes
-            // no row, so a read-only grant stays one. Without it, an athlete
-            // with too short a history read `days: []` beside a fitness score
-            // computed from the same sessions. A window short of history then
-            // reads the walk owed for it, and asks one where none ever ran:
-            // a background capture of the athlete's account, as
-            // `get_activities` asks for a deep window it does not hold.
-            let scope = (tenant_id, user_id);
-            let coverage = if rows.is_empty() {
+            // No persisted row, or rows that start after `from`: the read a
+            // page makes says why, and answers from the stored sessions when
+            // they do warm the window. The rollup holds only the days some
+            // compute vouched for, so rows that start late cannot tell a
+            // history too short to warm the window from a window never
+            // computed; the stored sessions can, and the rows and their
+            // coverage then come from that one read, unless it warms no day
+            // the rollup does. It writes no row, so a
+            // read-only grant stays one. Without it, an athlete with too short
+            // a history read `days: []` beside a fitness score computed from
+            // the same sessions. A window short of history then reads the walk
+            // owed for it, and asks one where none ever ran: a background
+            // capture of the athlete's account, as `get_activities` asks for a
+            // deep window it does not hold.
+            let coverage = if rows.first().is_some_and(|row| row.date <= from) {
+                Coverage::complete(CoverageWindow {
+                    asked_from: Some(from),
+                    asked_to: Some(to),
+                    returned: u64::try_from(rows.len()).unwrap_or(u64::MAX),
+                    ..CoverageWindow::default()
+                })
+            } else {
                 let read =
                     read_history_from_cache(&context.resources, tenant_id, user_id, from, to)
                         .await?;
-                rows = read.states;
-                with_pending(&context.resources, scope, read.coverage).await?
-            } else {
-                rows_coverage(&context.resources, scope, (from, to), &rows).await?
+                // Rows the stored sessions do warm answer the window; when they
+                // warm none, what the rollup holds still answers, beside the
+                // reason the window is short.
+                if rows.is_empty() || !read.states.is_empty() {
+                    rows = read.states;
+                }
+                let mut coverage = read.coverage;
+                coverage.window.returned = u64::try_from(rows.len()).unwrap_or(u64::MAX);
+                with_pending(&context.resources, (tenant_id, user_id), coverage).await?
             };
 
             // Every row carries its own form reading, and the payload carries

@@ -335,31 +335,6 @@ pub async fn read_history_from_cache(
     .await
 }
 
-/// How much of `[from, to]` the stored history stands behind, for `returned`
-/// rows of the persisted rollup: the runtime's binding of
-/// [`history_read::stored_history_coverage`].
-///
-/// # Errors
-///
-/// Returns [`AppError`] when the window is invalid or a repository read fails.
-pub async fn stored_history_coverage(
-    resources: &Arc<dyn ToolRuntime>,
-    tenant_id: TenantId,
-    user_id: Uuid,
-    window: (NaiveDate, NaiveDate),
-    returned: usize,
-) -> AppResult<Coverage> {
-    let config = resources.cageux_config();
-    history_read::stored_history_coverage(
-        history_handles(resources, &config),
-        tenant_id,
-        user_id,
-        window,
-        returned,
-    )
-    .await
-}
-
 /// The athlete's connection slugs, for a log line.
 fn provider_slugs(backends: &[ComputeBackend]) -> String {
     backends

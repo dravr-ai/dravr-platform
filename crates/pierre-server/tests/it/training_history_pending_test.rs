@@ -205,12 +205,9 @@ async fn a_history_never_walked_asks_a_walk_and_says_so() {
     );
 }
 
-/// The window's own rows are on file but start late: the persisted rollup
-/// cannot say why, so the stored activities are read, and the walk is asked.
-#[tokio::test]
-async fn persisted_rows_that_start_late_ask_the_walk_too() {
-    let fx = fixture().await;
-    store_runs(&fx, 40).await;
+/// Persist ten rollup rows ending on the default window's last day, as a
+/// compute over a narrower window would have left them.
+async fn persist_last_ten_days(fx: &Fixture) {
     let (_, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
     let rows: Vec<DailyTrainingState> = (0..10)
         .map(|back| DailyTrainingState::zero(to - Duration::days(back)))
@@ -221,16 +218,59 @@ async fn persisted_rows_that_start_late_ask_the_walk_too() {
         .upsert_training_history_batch(fx.tenant, fx.user_id, &rows)
         .await
         .unwrap();
+}
+
+/// The rollup holds only the last ten days, as a narrower compute left it,
+/// but the store warms the whole window: the read answers every day of it
+/// from the stored sessions, never `complete` beside days that start late.
+#[tokio::test]
+async fn rows_that_start_late_over_a_deep_store_answer_the_whole_window() {
+    let fx = fixture().await;
+    store_runs(&fx, 200).await;
+    persist_last_ten_days(&fx).await;
+    let (from, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
+
+    let result = read_history(&fx).await;
+
+    let days = result["days"].as_array().expect("days");
+    assert_eq!(
+        days.first().and_then(|day| day["date"].as_str()),
+        Some(from.format("%Y-%m-%d").to_string().as_str()),
+        "bug: a complete window starts on `from`: {result}"
+    );
+    assert_eq!(
+        i64::try_from(days.len()).unwrap(),
+        (to - from).num_days() + 1,
+        "{result}"
+    );
+    assert_eq!(result["coverage"]["complete"], true, "{result}");
+    assert_eq!(
+        walk_state(&fx).await,
+        None,
+        "bug: a complete read asked a walk"
+    );
+}
+
+/// The rollup's rows start late and the store is short too: the stored
+/// sessions warm no day, so the rollup's rows still answer, the stored
+/// sessions say why the window is short, and the walk is asked.
+#[tokio::test]
+async fn rows_that_start_late_over_a_short_store_ask_the_walk() {
+    let fx = fixture().await;
+    store_runs(&fx, 40).await;
+    persist_last_ten_days(&fx).await;
 
     let result = read_history(&fx).await;
 
     assert_eq!(
         result["days"].as_array().map(Vec::len),
         Some(10),
-        "the persisted rows are served: {result}"
+        "the rollup's rows still answer: {result}"
     );
     let coverage = &result["coverage"];
+    assert_eq!(coverage["complete"], false, "{result}");
     assert_eq!(coverage["incomplete_reason"], "shallow_history", "{result}");
+    assert_eq!(coverage["window"]["returned"], 10, "{result}");
     assert_eq!(
         coverage["pending"],
         json!({ "kind": "history_not_walked" }),
