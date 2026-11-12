@@ -404,11 +404,13 @@ mod tests {
     fn names_come_in_flag_order() {
         assert_eq!(
             (ActivityFields::TRAINER | ActivityFields::DESCRIPTION).names(),
-            ["description", "trainer"]
+            ["description", "trainer"],
+            "bug: field names are not listed in flag order"
         );
         assert_eq!(
             (StreamChannels::LATLNG | StreamChannels::TIME).names(),
-            ["timestamps", "gps_coordinates"]
+            ["timestamps", "gps_coordinates"],
+            "bug: stream channel names are not listed in flag order"
         );
     }
 }

@@ -579,6 +579,7 @@ async fn a_session_beside_a_live_grant_is_told_once_that_its_provider_still_sync
         "fallback-served {0}",
     );
     let f = fixture_with(strings).await;
+    reconnect_strings(&f);
     f.hold_token("sciotte_garmin").await;
     f.connect("sciotte_garmin").await;
     f.hold_token("garmin").await;
@@ -610,6 +611,13 @@ async fn a_session_beside_a_live_grant_is_told_once_that_its_provider_still_sync
     let (target, _) = signed_in_target(&f, body).await;
     assert_eq!(target, "garmin");
     assert_eq!(f.app_notices().await.len(), 1, "one notice in the app");
+    // The app's copy asks for the reconnect "to keep your data coming",
+    // which holds while the grant syncs: no outage is claimed there.
+    assert_eq!(
+        f.app_titles().await,
+        ["reconnect-title"],
+        "the app's one notice is the ordinary reconnect, never the grant-writes one"
+    );
 
     let repeat = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, "sciotte_garmin").await;
     assert!(
