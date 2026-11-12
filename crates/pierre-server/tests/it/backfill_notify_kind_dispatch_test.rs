@@ -16,8 +16,8 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
-use pierre_contremaitre::messaging_strings::KEY_LIVE_READ_OVERTAKEN;
+use chrono::{Duration, TimeZone, Utc};
+use pierre_contremaitre::messaging_strings::{KEY_HISTORY_WALK_COMPLETE, KEY_LIVE_READ_OVERTAKEN};
 use pierre_core::models::messaging::MessageContent;
 use pierre_core::models::{AddMessageParams, TenantId, COMMAND_FINISH_REASON};
 use pierre_core::transport::TransportPolicy;
@@ -25,7 +25,7 @@ use pierre_database::repositories::BackfillJobKind;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_mcp_server::services::platform_post::{PlatformPost, PlatformPostRequest, PostedReply};
-use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier};
+use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier, HistoryWalkCompletion};
 use uuid::Uuid;
 
 use crate::messaging_fixtures;
@@ -280,5 +280,74 @@ async fn the_newest_user_message_skips_commands_and_other_tenants() {
             .unwrap(),
         None,
         "another tenant reads nothing of the thread"
+    );
+}
+
+/// A walk no conversation asked for ends with one line in the athlete's
+/// personal thread naming the oldest year and the count (B4) — once, however
+/// many replicas finish it. An athlete with no thread yet hears nothing, and
+/// gets no thread forged for it.
+#[tokio::test]
+async fn a_walk_end_posts_one_line_in_the_personal_thread() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+    let (user, tenant) = seed_user(&db).await;
+    repos.users.update_locale(user, "en").await.unwrap();
+    let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
+        Arc::clone(&repos),
+        strings(),
+        Arc::new(FakeResolver::new(Arc::new(CapturingChannel::default()))),
+        Arc::new(RecordingPost::default()),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
+    let completion = HistoryWalkCompletion {
+        user_id: user,
+        tenant_id: tenant,
+        provider: "sciotte_garmin",
+        oldest: Utc.with_ymd_and_hms(2014, 6, 2, 8, 0, 0).unwrap(),
+        activity_count: 412,
+    };
+
+    notifier.push_history_walk_complete(completion).await;
+    notifier.push_history_walk_complete(completion).await;
+
+    let expected = strings().render(KEY_HISTORY_WALK_COMPLETE, "en", &["2014", "412"]);
+    assert!(
+        expected.contains("2014") && expected.contains("412"),
+        "the catalogue's line names the year and the count: {expected}"
+    );
+    let posted: Vec<String> = repos
+        .chat
+        .get_messages(&conversation, &user.to_string(), tenant)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|message| message.role == "assistant")
+        .map(|message| message.content)
+        .collect();
+    assert_eq!(
+        posted,
+        vec![expected],
+        "bug: the walk's end is one line in the personal thread, sent once"
+    );
+
+    let (stranger, stranger_tenant) = seed_user(&db).await;
+    notifier
+        .push_history_walk_complete(HistoryWalkCompletion {
+            user_id: stranger,
+            tenant_id: stranger_tenant,
+            ..completion
+        })
+        .await;
+    assert!(
+        repos
+            .chat
+            .personal_conversation(&stranger.to_string(), stranger_tenant)
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: an athlete with no thread gets none forged for a walk's end"
     );
 }
