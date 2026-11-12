@@ -67,9 +67,10 @@
 //! provider, the backend of its history order ([`history_sources_for`]) whose
 //! field dictionary ([`field_support`](pierre_providers::field_support))
 //! declares the channels a best effort is read from: time and cumulative
-//! distance ([`BEST_EFFORT_CHANNELS`]). A session declares only its route, so
-//! a Strava history read through it is measured through the grant, by the
-//! activity id both share.
+//! distance ([`BEST_EFFORT_CHANNELS`]), and that holds the walked history. A
+//! session declares only its route, so a Strava history read through it is
+//! measured through the grant, by the activity id both share; a push holds
+//! no samples from before the athlete connected it, so Garmin is not seeded.
 //!
 //! Only runs are measured, as cageux's own record detection does: `Run`,
 //! `VirtualRun` and `TrailRunning`.
@@ -106,7 +107,7 @@ use uuid::Uuid;
 use crate::notification_text::{
     PR_DISTANCE_10K, PR_DISTANCE_5K, PR_DISTANCE_HALF_MARATHON, PR_DISTANCE_MARATHON,
 };
-use crate::training_history_read::history_sources_for;
+use crate::training_history_read::{history_sources_for, HistorySourceRole};
 
 /// The catalogue code of each standard distance, index-aligned with
 /// [`STANDARD_RUNNING_DISTANCES_METERS`]; the array length ties the two.
@@ -128,19 +129,25 @@ pub const SEED_PAGE_SIZE: usize = 200;
 pub const BEST_EFFORT_CHANNELS: StreamChannels =
     StreamChannels::TIME.union(StreamChannels::DISTANCE);
 
-/// The backend whose samples the seed of `provider`'s history is measured
-/// on: the first of [`history_sources_for`] `provider` whose descriptor
-/// declares every one of [`BEST_EFFORT_CHANNELS`] in its field dictionary.
+/// The backend whose samples the seed of `provider`'s history is measured on.
+///
+/// The first of [`history_sources_for`] `provider` that holds the walked
+/// history and whose descriptor declares every one of
+/// [`BEST_EFFORT_CHANNELS`] in its field dictionary.
 ///
 /// A backend that declares fewer is skipped: a usr/pwd session declares
-/// only its route, so Strava's history is measured through the grant. `None`
-/// when no backend of the provider serves them (COROS, TrainingPeaks,
-/// Intervals.icu, which sends no distance channel): its history is never
-/// seeded, rather than recorded scanned without a best.
+/// only its route, so Strava's history is measured through the grant. So is
+/// a push ([`HistorySourceRole::Pushed`]): it holds the samples of what
+/// arrived after the athlete connected it, none of the history a walk
+/// copied, and would record every older run scanned without a best (Garmin).
+/// `None` when no backend of the provider serves them (Garmin, COROS,
+/// TrainingPeaks, and Intervals.icu, which sends no distance channel): its
+/// history is never seeded, rather than recorded scanned without a best.
 #[must_use]
 pub fn seed_stream_source(registry: &ProviderRegistry, provider: &str) -> Option<&'static str> {
     history_sources_for(provider)
         .into_iter()
+        .filter(|(_, role)| *role != HistorySourceRole::Pushed)
         .filter_map(|(backend, _)| registry.get_descriptor(backend))
         .find(|descriptor| {
             descriptor
@@ -166,8 +173,10 @@ pub fn seed_stream_sources(registry: &ProviderRegistry) -> Vec<&'static str> {
     sources
 }
 
-/// The key a scan of `activity` is recorded under: the service that recorded
-/// it, so the session's copy of a run and the grant's are one scan.
+/// The key a scan of `activity`, and every best it sets, is recorded under:
+/// the service that recorded it, so the session's copy of a run and the
+/// grant's are one scan, and a purge of that service's data removes the
+/// bests and the scans that would re-measure them together.
 fn scan_key(activity: &Activity) -> &str {
     activity_origin(activity.provider(), activity.source())
 }
@@ -231,7 +240,8 @@ pub struct DistanceResult {
 pub enum SeedPause {
     /// The shared request budget said stop; the rest waits for its next window.
     Budget,
-    /// The provider refused a listing, or two samples requests in a row.
+    /// The provider refused two samples requests in a row, or the profile
+    /// read that was to resolve a held run.
     Refused,
 }
 
@@ -729,7 +739,7 @@ impl PersonalBests {
                     &PersonalBest {
                         distance: result.distance.to_owned(),
                         elapsed_seconds: result.elapsed_seconds,
-                        provider: run.provider().to_owned(),
+                        provider: scan_key(run).to_owned(),
                         activity_id: run.id().to_owned(),
                         achieved_at: run.start_date(),
                     },

@@ -144,6 +144,27 @@ async fn a_strava_history_is_measured_on_the_grants_streams() {
     );
 }
 
+/// A push holds no samples of the history a walk copied, so Garmin, whose
+/// grant only receives pushes beside a route-only session, is never seeded:
+/// its older runs would be recorded scanned without a best.
+#[cfg(feature = "provider-garmin")]
+#[tokio::test]
+async fn a_pushed_grant_is_never_a_stream_source() {
+    let (api_base, _mock) = mock_strava().await;
+    let resources = context_pointed_at(&api_base, 100).await;
+    let registry = resources.fitness.provider_registry.as_ref();
+    assert!(
+        registry.get_descriptor(oauth_providers::GARMIN).is_some(),
+        "the Garmin descriptor is registered, so its absence below is the rule's"
+    );
+    assert_eq!(seed_stream_source(registry, oauth_providers::GARMIN), None);
+    assert_eq!(
+        seed_stream_source(registry, oauth_providers::SCIOTTE_GARMIN),
+        None
+    );
+    assert!(!seed_stream_sources(registry).contains(&oauth_providers::GARMIN));
+}
+
 /// After a walk through the session ended, the seed reads the history the
 /// session stored, never listing it at Strava, and asks the grant for each
 /// run's streams once: a run stored under both keys is one workout. A sync
@@ -208,6 +229,20 @@ async fn after_the_walk_the_seed_reads_the_store_and_streams_through_the_grant()
         .find(|best| best.distance == "5k")
         .map(|best| best.elapsed_seconds);
     assert_eq!(best, Some(1400.0), "run 9002's 5 km at 4:40/km");
+    let keys: Vec<String> = resources
+        .common
+        .repos
+        .personal_bests
+        .personal_bests(athlete.user_id, athlete.tenant_id)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|best| best.provider)
+        .collect();
+    assert!(
+        keys.iter().all(|key| key == oauth_providers::STRAVA),
+        "a best set from the session's copy is the service's, as its scan is: {keys:?}"
+    );
 
     sync_scan(&resources, &athlete, &[synced(twin)]).await;
     assert_eq!(
