@@ -61,10 +61,9 @@ use crate::implementations::activity_detail_promotion::{
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
-    attach_stand_in_caveat, backfill_placeholder_message, deep_window_grant,
-    historical_backfill_fetch_limit, historical_window_read_limit, pagination_has_more,
-    response_cache_eligible, serve_in_place, window_fetch_limit, AskedWindow, PrimaryStandIn,
-    HISTORICAL_COVERAGE_BOUND_SECS,
+    attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
+    historical_window_read_limit, pagination_has_more, response_cache_eligible, serve_in_place,
+    window_fetch_limit, AskedWindow, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -476,12 +475,10 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // `provider_name` is already canonicalized to the backend above, so
             // route on it directly: a deep window on a scrape-backed mirror
             // (sciotte / sciotte_garmin) goes to background backfill; a fast OAuth
-            // API provider fetches inline. A deep window on a session whose live
-            // grant reads history on request goes to that grant instead, read
-            // exactly as named (`deep_window_grant`, carnet#1494).
-            let deep_grant = deep_window_grant(&context, &provider_name, is_historical).await;
-            let read_exactly = deep_grant.is_some();
-            let provider_name = deep_grant.unwrap_or(provider_name);
+            // API provider fetches inline. A deep window is history, so it keeps
+            // the history walk's order even while a live grant stands behind the
+            // session: the session first, the grant only where the session
+            // cannot serve (`history_source_order`, carnet#1482).
             let route_to_backfill =
                 is_historical && backend_resolver::is_mirror_backend(&provider_name);
             // Set when the elected provider could not answer and a sibling
@@ -737,25 +734,14 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // cached window with a caveat, never as "no activities".
                 let executor = UniversalExecutor::new(context.resources.clone());
                 let attempt_started_at = Utc::now();
-                let authenticated = if read_exactly {
-                    executor
-                        .auth_service
-                        .create_exact_provider(
-                            &provider_name,
-                            context.user_id,
-                            tenant_id_str.as_deref(),
-                        )
-                        .await
-                } else {
-                    executor
-                        .auth_service
-                        .create_authenticated_provider(
-                            &provider_name,
-                            context.user_id,
-                            tenant_id_str.as_deref(),
-                        )
-                        .await
-                };
+                let authenticated = executor
+                    .auth_service
+                    .create_authenticated_provider(
+                        &provider_name,
+                        context.user_id,
+                        tenant_id_str.as_deref(),
+                    )
+                    .await;
 
                 match authenticated {
                     Ok(provider) => 'live: {

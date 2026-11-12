@@ -1,5 +1,5 @@
-// ABOUTME: A Strava window the usr/pwd session walked is served from the store, never the API
-// ABOUTME: The stored read serves the session's rows beside the grant's, each ride recorded under both keys once
+// ABOUTME: A Strava athlete holding a session beside a live grant reads old windows sciotte first, never the API
+// ABOUTME: A walked window is served from the store, both keys merged; an unwalked one goes to the session's backfill
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,12 +11,13 @@
 //
 // A Strava athlete holding the grant and the usr/pwd session is walked
 // through the session, so the walk's depth is recorded under `sciotte`. The
-// live read still resolves to the grant (B2), and its historical gate must
-// read that depth across every key the grant's stored window serves
-// (`history_read_keys`): a covered old window is answered from the store
-// without one request to the API, and the window serves the session's rows
-// beside the grant's, a ride recorded under both keys once. An old window no
-// walk covered is still read from the API.
+// read plan puts the session first and the grant behind it (carnet#1494),
+// and an old window is history, so it keeps the walk's order even while the
+// grant is alive (carnet#1482): a covered old window is answered from the
+// store without one request to the API, serving the session's rows beside
+// the grant's (`backend_resolver::history_keys`), a ride recorded under both
+// keys once; an old window no walk covered goes to the session's background
+// backfill, never inline to the API.
 //
 // Strava is the loopback stand-in of `history_walk_api_test`, which counts
 // every listing it answers.
@@ -47,12 +48,7 @@ use uuid::Uuid;
 
 /// A Strava athlete, on a server whose Strava API is the counting stand-in,
 /// who also holds a live usr/pwd session the walk went through.
-async fn walked_athlete() -> (
-    Arc<ServerContext>,
-    Arc<MockStrava>,
-    Uuid,
-    TenantId,
-) {
+async fn walked_athlete() -> (Arc<ServerContext>, Arc<MockStrava>, Uuid, TenantId) {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
@@ -137,8 +133,9 @@ async fn walked_to(
 }
 
 /// `get_activities` for the closed window `[after, before]`, with no
-/// provider argument: the ask resolves to the Strava grant. A closed window
-/// has no head a stale-head top-up could read from the API.
+/// provider argument: the ask resolves to the read plan's primary, the
+/// session. A closed window has no head a stale-head top-up could read from
+/// the API.
 async fn ask_window(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
@@ -176,7 +173,7 @@ fn served_ids(payload: &Value) -> Vec<String> {
     assert_ne!(
         payload.get("status").and_then(Value::as_str),
         Some("backfilling"),
-        "a Strava window never waits on a background backfill, got: {payload}"
+        "a walked window never waits on a background backfill, got: {payload}"
     );
     let mut ids: Vec<String> = payload
         .get("activities")
@@ -235,10 +232,13 @@ async fn a_window_the_session_walked_is_served_without_the_api() {
     );
 }
 
-/// The control: no walk covered the window, so the grant reads it from the
-/// API, as a Strava read always did.
+/// No walk covered the window: a Strava athlete with a live grant and a
+/// session still reads it sciotte first (carnet#1482, overriding the
+/// carnet#1494 rule that kept deep windows on the API while a grant is
+/// alive): the window goes to the session's background backfill, and the
+/// Strava API is never listed.
 #[tokio::test]
-async fn a_window_no_walk_covered_is_read_from_the_api() {
+async fn a_window_no_walk_covered_goes_to_the_session_not_the_api() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;
     let now = Utc::now();
     let start = now - Duration::days(700);
@@ -263,16 +263,22 @@ async fn a_window_no_walk_covered_is_read_from_the_api() {
 
     assert!(
         payload.get("error").is_none(),
-        "the window must be served, got: {payload}"
+        "the window must be answered, got: {payload}"
     );
-    assert!(
-        mock.listing_count() > 0,
-        "bug: an uncovered Strava window must be read from the API"
+    assert_eq!(
+        payload.get("status").and_then(Value::as_str),
+        Some("backfilling"),
+        "bug: an uncovered old window goes to the session's backfill, got: {payload}"
+    );
+    assert_eq!(
+        mock.listing_count(),
+        0,
+        "bug: an uncovered old window was read inline from the Strava API beside a live session"
     );
 }
 
-/// The stored window of the grant serves the session's rows beside its own,
-/// and a ride recorded under both keys is one session.
+/// The stored window serves the session's rows beside the grant's, and a
+/// ride recorded under both keys is one session.
 #[tokio::test]
 async fn a_stored_strava_window_serves_both_keys_and_merges_twins() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;

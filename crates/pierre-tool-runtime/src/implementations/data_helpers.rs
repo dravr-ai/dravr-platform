@@ -23,7 +23,6 @@ use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
 #[cfg(feature = "tools-data")]
-use pierre_providers::backend_resolver;
 use pierre_providers::backend_resolver::user_facing_name;
 #[cfg(feature = "tools-data")]
 use pierre_providers::core::ActivityQueryParams;
@@ -573,32 +572,6 @@ pub fn backfill_placeholder_message(
              {delivery}"
         )
     }
-}
-
-/// The live grant a deep historical window of `primary` is read through
-/// instead of the mirror backfill, or `None` when it stays on `primary`.
-///
-/// A deep window
-/// ([`is_historical_backfill_window`](crate::activity_backfill::is_historical_backfill_window))
-/// stays on the API while a grant is alive (carnet#1494): when `primary` is
-/// the athlete's session and their read plan names a live grant behind it
-/// whose API reads history on request (Strava), the window is read inline
-/// through that grant, exactly as named. A push-fed grant (Garmin) holds only
-/// what it pushed, so the session's backfill pages its history as before.
-#[cfg(feature = "tools-data")]
-pub(super) async fn deep_window_grant(
-    context: &ToolExecutionContext,
-    primary: &str,
-    is_historical: bool,
-) -> Option<String> {
-    if !is_historical || !backend_resolver::is_mirror_backend(primary) {
-        return None;
-    }
-    let tenant = TenantId::from_uuid(context.tenant_id?);
-    backend_resolver::read_plan(context.resources.repos(), context.user_id, tenant, primary)
-        .await
-        .fallback
-        .filter(|grant| !context.resources.provider_registry().is_push_only(grant))
 }
 
 #[cfg(test)]

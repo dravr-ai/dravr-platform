@@ -62,8 +62,7 @@ use uuid::Uuid;
 mod source_order;
 
 pub use source_order::{
-    history_read_keys, history_source_order, history_sources_for, walk_only_session, walk_source,
-    HistorySource, HistorySourceRole,
+    history_source_order, history_sources_for, walk_source, HistorySource, HistorySourceRole,
 };
 
 /// Read limit for a single deterministic read of a historical window from the
@@ -338,11 +337,11 @@ pub async fn load_stored_window(
 
     let warmup = warmup_days(sources.algorithms.params.training_load_ctl_days);
     // One copy of each workout per key the backends' reads serve: a grant's
-    // window carries its usr/pwd session's key too ([`history_read_keys`]),
-    // so both copies still fit the cap.
+    // window carries its usr/pwd session's key too
+    // (`backend_resolver::history_keys`), so both copies still fit the cap.
     let stored_keys: usize = backends
         .iter()
-        .map(|backend| history_read_keys(&backend.slug).len())
+        .map(|backend| backend_resolver::history_keys(&backend.slug).len())
         .sum();
     let read = read_cached_window(
         sources,

@@ -43,8 +43,8 @@ use crate::runtime::ToolRuntime;
 /// plan's fallback, when `backend` is that plan's primary.
 ///
 /// `None` for a backend that is not its pair's primary — a grant read
-/// exactly as named (a Strava webhook, a deep window, the grant's own
-/// fallback read) has nothing behind it — and for a session with no live
+/// exactly as named (a Strava webhook, the grant's own fallback read) has
+/// nothing behind it — and for a session with no live
 /// grant beside it.
 pub(super) async fn pair_grant(
     runtime: &Arc<dyn ToolRuntime>,

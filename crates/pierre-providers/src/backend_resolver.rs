@@ -376,11 +376,12 @@ pub async fn holds_activities(
 ///   API stored before the session became the primary (carnet#1494) stay
 ///   served, and the pushes a live Garmin grant keeps storing merge into the
 ///   session's window.
-/// - A push-fed OAuth backend ([`pushed_backend_for`]: `garmin`) serves its
-///   mirror's key too, the history a usr/pwd session imported before the
-///   grant retired it (carnet#1386).
-/// - Every other backend has its one key: Strava's API reads history on
-///   request, so a read naming it exactly serves what it stored.
+/// - An OAuth backend that serves beside its mirror (`strava`, `garmin`)
+///   serves its mirror's key too: a history walk reads the session first
+///   even while the grant is alive (carnet#1482), so what the session walked
+///   stays served when the grant serves alone, and what a usr/pwd session
+///   imported before a Garmin grant retired it does too (carnet#1386).
+/// - Every other backend has its one key.
 ///
 /// Rows of both keys are one window: the readers merge every recording of a
 /// workout into one session. The athlete's own uploads
@@ -390,7 +391,7 @@ pub async fn holds_activities(
 pub fn history_keys(backend: &str) -> Vec<&str> {
     let other = if is_mirror_backend(backend) {
         Some(user_facing_name(backend)).filter(|grant| oauth_serves(grant))
-    } else if pushed_backend_for(backend) == Some(backend) {
+    } else if oauth_serves(backend) {
         mirror_backend_for(backend)
     } else {
         None
@@ -907,11 +908,11 @@ mod tests {
     use pierre_auth::connect_order::CONNECT_ORDER_PROVIDERS;
     use pierre_core::models::ConnectionType;
 
-    /// A session's window serves its grant's key too, a Garmin grant's
-    /// window serves its session's, and every other backend has one key
-    /// (carnet#1494, carnet#1386).
+    /// A session's window serves its grant's key too, a grant's window
+    /// serves its session's, and every other backend has one key
+    /// (carnet#1494, carnet#1482, carnet#1386).
     #[test]
-    fn a_session_serves_its_grants_rows_and_a_push_fed_grant_its_sessions() {
+    fn each_half_of_a_pair_serves_the_other_halfs_rows() {
         assert_eq!(
             history_keys(oauth_providers::SCIOTTE),
             vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA],
@@ -929,8 +930,8 @@ mod tests {
         );
         assert_eq!(
             history_keys(oauth_providers::STRAVA),
-            vec![oauth_providers::STRAVA],
-            "bug: a Strava grant's window serves only its own key"
+            vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE],
+            "bug: a Strava grant's window drops the history its session walked"
         );
         for single in [
             oauth_providers::COROS,
@@ -1052,8 +1053,8 @@ mod tests {
             "bug: a Garmin grant's window serves its session's copy"
         );
         assert!(
-            !history_keys(oauth_providers::STRAVA).contains(&oauth_providers::SCIOTTE),
-            "bug: a Strava grant never serves its session's rows"
+            history_keys(oauth_providers::STRAVA).contains(&oauth_providers::SCIOTTE),
+            "bug: a Strava grant's window serves what its session walked"
         );
     }
 
