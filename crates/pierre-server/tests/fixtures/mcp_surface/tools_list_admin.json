@@ -4410,6 +4410,332 @@
         "type": "object"
       },
       "outputSchema": {
+        "$defs": {
+          "Coverage": {
+            "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
+            "properties": {
+              "complete": {
+                "description": "Whether every activity of the asked window was read.",
+                "type": "boolean"
+              },
+              "incomplete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/IncompleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why the window is incomplete; absent when it is complete."
+              },
+              "note": {
+                "description": "What may and may not be claimed from the window; absent when nothing\nqualifies it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pending": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pending"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history walk still owed for the window, when one is."
+              },
+              "trustworthy_from": {
+                "description": "The first day the stored history stands behind, `YYYY-MM-DD`, when it\nstarts later than the window asked.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "$ref": "#/$defs/CoverageWindow",
+                "description": "What the window spans."
+              }
+            },
+            "required": [
+              "complete",
+              "window"
+            ],
+            "type": "object"
+          },
+          "CoverageWindow": {
+            "description": "What a served window spans.",
+            "properties": {
+              "asked_from": {
+                "description": "First day asked for, `YYYY-MM-DD`; absent when the ask had no start.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "asked_to": {
+                "description": "Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "newest": {
+                "description": "The newest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "description": "The oldest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "default": 0,
+                "description": "Entries this payload returns: activities, or days of a daily series.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/WindowScope",
+                "default": {
+                  "kind": "asked"
+                },
+                "description": "Which activities the window spans."
+              },
+              "total": {
+                "description": "Activities the window holds, before any display limit; absent when\nthe reader does not count them.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_is_lower_bound": {
+                "description": "Whether `total` is only a lower bound: the read filled its row cap, so\nthe window may hold more.",
+                "type": "boolean"
+              },
+              "totals": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WindowTotals"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The window's totals, when the reader summed them."
+              }
+            },
+            "required": [
+              "scope",
+              "returned"
+            ],
+            "type": "object"
+          },
+          "IncompleteReason": {
+            "description": "Why a served window is not the whole truth for the window asked.",
+            "oneOf": [
+              {
+                "const": "live_read_running",
+                "description": "The live read outlived the turn's budget; the cached window answered\nand the read runs on.",
+                "type": "string"
+              },
+              {
+                "const": "read_capped",
+                "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "provider_unavailable",
+                "description": "The provider could not be read; what it last synced answered.",
+                "type": "string"
+              },
+              {
+                "const": "history_walk_running",
+                "description": "The athlete's history walk has not reached the start of the window\nyet; the store answered with what it holds so far.",
+                "type": "string"
+              },
+              {
+                "const": "shallow_history",
+                "description": "The stored history begins too late to stand behind the whole window:\nonly `[trustworthy_from, asked_to]` is answered.",
+                "type": "string"
+              },
+              {
+                "const": "no_stored_activities",
+                "description": "Nothing stored covers the window, so nothing was computed.",
+                "type": "string"
+              }
+            ]
+          },
+          "Pending": {
+            "description": "What is still owed for a window: the history walk that would fill it.",
+            "oneOf": [
+              {
+                "description": "No walk of the athlete's history has run yet; one has been asked for.",
+                "properties": {
+                  "kind": {
+                    "const": "history_not_walked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A walk of the athlete's history is running.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk reaches its floor at the pace its steps\nmeasured; absent until a step measured one or the floor is known.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "history_walk_running",
+                    "type": "string"
+                  },
+                  "months_done": {
+                    "description": "Months of history walked so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "months_total": {
+                    "description": "Months the walk has to cover; absent while its floor is not known.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "months_done"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WindowScope": {
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "oneOf": [
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`.",
+                "properties": {
+                  "kind": {
+                    "const": "asked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The athlete's whole history, as the provider's aggregate reports it.",
+                "properties": {
+                  "kind": {
+                    "const": "lifetime",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
+                "properties": {
+                  "kind": {
+                    "const": "recent_activities",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the activities of the last `days` days, ending now.",
+                "properties": {
+                  "days": {
+                    "description": "Length of the window, in days.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "const": "last_days",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "days"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WindowTotals": {
+            "description": "Count, distance, duration and climb summed over a whole window, taken\nbefore a display limit truncates it.\n\nA year-against-year question is answered from these, not from the shown\nslice: with a display limit of 20, a 63-ride 2011 read as its last three\nDecember rides (carnet#874). Serialized with distance and elevation to one\ndecimal and the duration exact, which the agent quotes and derives pace\nfrom (carnet#1015).",
+            "properties": {
+              "count": {
+                "description": "Activities in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "distance_km": {
+                "description": "Summed distance in kilometres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              },
+              "duration_seconds": {
+                "description": "Summed duration in seconds, exact.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Summed elevation gain in metres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m"
+            ],
+            "type": "object"
+          }
+        },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "anyOf": [
           {
@@ -4418,16 +4744,9 @@
                 "description": "Whether a background capture of the missing history was started.",
                 "type": "boolean"
               },
-              "complete": {
-                "description": "Whether every requested day was backed by enough stored history.",
-                "type": "boolean"
-              },
-              "coverage_note": {
-                "description": "What the agent may and may not claim when coverage fell short. `None`\nwhen the whole window was computed.",
-                "type": [
-                  "string",
-                  "null"
-                ]
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "Whether every requested day was backed by enough stored history, the\nhistory walk still owed when not (`pending`), and the `note` saying\nwhat the agent may and may not claim."
               },
               "from": {
                 "description": "First day actually recomputed, as `YYYY-MM-DD`.",
@@ -4453,8 +4772,7 @@
               "to",
               "rows_upserted",
               "requested_from",
-              "complete",
-              "coverage_note",
+              "coverage",
               "capture_requested"
             ],
             "type": "object"
@@ -9588,7 +9906,15 @@
                 "type": "integer"
               },
               "coverage": {
-                "description": "Present when the served slice was truncated: how many are really in\nthe window and over what dates, so the reply says \"552 in this window,\nshowing the most recent 200\" rather than letting the model anchor on\nthe oldest activity it can see."
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Coverage"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Present when the served slice was truncated, or the window was asked\nby date or is incomplete: how many are really in the window and over\nwhat dates, so the reply says \"552 in this window, showing the most\nrecent 200\" rather than letting the model anchor on the oldest\nactivity it can see, and whether the window is the whole truth."
               },
               "field_support": {
                 "anyOf": [
@@ -9803,6 +10129,141 @@
             ],
             "type": "object"
           },
+          "Coverage": {
+            "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
+            "properties": {
+              "complete": {
+                "description": "Whether every activity of the asked window was read.",
+                "type": "boolean"
+              },
+              "incomplete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/IncompleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why the window is incomplete; absent when it is complete."
+              },
+              "note": {
+                "description": "What may and may not be claimed from the window; absent when nothing\nqualifies it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pending": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pending"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history walk still owed for the window, when one is."
+              },
+              "trustworthy_from": {
+                "description": "The first day the stored history stands behind, `YYYY-MM-DD`, when it\nstarts later than the window asked.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "$ref": "#/$defs/CoverageWindow",
+                "description": "What the window spans."
+              }
+            },
+            "required": [
+              "complete",
+              "window"
+            ],
+            "type": "object"
+          },
+          "CoverageWindow": {
+            "description": "What a served window spans.",
+            "properties": {
+              "asked_from": {
+                "description": "First day asked for, `YYYY-MM-DD`; absent when the ask had no start.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "asked_to": {
+                "description": "Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "newest": {
+                "description": "The newest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "description": "The oldest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "default": 0,
+                "description": "Entries this payload returns: activities, or days of a daily series.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/WindowScope",
+                "default": {
+                  "kind": "asked"
+                },
+                "description": "Which activities the window spans."
+              },
+              "total": {
+                "description": "Activities the window holds, before any display limit; absent when\nthe reader does not count them.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_is_lower_bound": {
+                "description": "Whether `total` is only a lower bound: the read filled its row cap, so\nthe window may hold more.",
+                "type": "boolean"
+              },
+              "totals": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WindowTotals"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The window's totals, when the reader summed them."
+              }
+            },
+            "required": [
+              "scope",
+              "returned"
+            ],
+            "type": "object"
+          },
           "DataSufficiency": {
             "description": "Data sufficiency assessment for activity retrieval\nGuides LLMs on whether they have enough data for analysis",
             "properties": {
@@ -9994,6 +10455,97 @@
             ],
             "type": "object"
           },
+          "IncompleteReason": {
+            "description": "Why a served window is not the whole truth for the window asked.",
+            "oneOf": [
+              {
+                "const": "live_read_running",
+                "description": "The live read outlived the turn's budget; the cached window answered\nand the read runs on.",
+                "type": "string"
+              },
+              {
+                "const": "read_capped",
+                "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "provider_unavailable",
+                "description": "The provider could not be read; what it last synced answered.",
+                "type": "string"
+              },
+              {
+                "const": "history_walk_running",
+                "description": "The athlete's history walk has not reached the start of the window\nyet; the store answered with what it holds so far.",
+                "type": "string"
+              },
+              {
+                "const": "shallow_history",
+                "description": "The stored history begins too late to stand behind the whole window:\nonly `[trustworthy_from, asked_to]` is answered.",
+                "type": "string"
+              },
+              {
+                "const": "no_stored_activities",
+                "description": "Nothing stored covers the window, so nothing was computed.",
+                "type": "string"
+              }
+            ]
+          },
+          "Pending": {
+            "description": "What is still owed for a window: the history walk that would fill it.",
+            "oneOf": [
+              {
+                "description": "No walk of the athlete's history has run yet; one has been asked for.",
+                "properties": {
+                  "kind": {
+                    "const": "history_not_walked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A walk of the athlete's history is running.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk reaches its floor at the pace its steps\nmeasured; absent until a step measured one or the floor is known.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "history_walk_running",
+                    "type": "string"
+                  },
+                  "months_done": {
+                    "description": "Months of history walked so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "months_total": {
+                    "description": "Months the walk has to cover; absent while its floor is not known.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "months_done"
+                ],
+                "type": "object"
+              }
+            ]
+          },
           "ServedFields": {
             "description": "What one connection that served the rows never supplies.",
             "properties": {
@@ -10061,6 +10613,104 @@
               "usable_context_percent",
               "context_warning",
               "guidance"
+            ],
+            "type": "object"
+          },
+          "WindowScope": {
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "oneOf": [
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`.",
+                "properties": {
+                  "kind": {
+                    "const": "asked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The athlete's whole history, as the provider's aggregate reports it.",
+                "properties": {
+                  "kind": {
+                    "const": "lifetime",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
+                "properties": {
+                  "kind": {
+                    "const": "recent_activities",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the activities of the last `days` days, ending now.",
+                "properties": {
+                  "days": {
+                    "description": "Length of the window, in days.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "const": "last_days",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "days"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WindowTotals": {
+            "description": "Count, distance, duration and climb summed over a whole window, taken\nbefore a display limit truncates it.\n\nA year-against-year question is answered from these, not from the shown\nslice: with a display limit of 20, a 63-ride 2011 read as its last three\nDecember rides (carnet#874). Serialized with distance and elevation to one\ndecimal and the duration exact, which the agent quotes and derives pace\nfrom (carnet#1015).",
+            "properties": {
+              "count": {
+                "description": "Activities in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "distance_km": {
+                "description": "Summed distance in kilometres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              },
+              "duration_seconds": {
+                "description": "Summed duration in seconds, exact.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Summed elevation gain in metres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m"
             ],
             "type": "object"
           }
@@ -10645,8 +11295,16 @@
       "outputSchema": {
         "$defs": {
           "Athlete": {
-            "description": "Represents an athlete/user profile from any provider\n\nContains the essential profile information that's commonly available\nacross fitness platforms.\n\n# Examples\n\n```rust\nuse pierre_core::models::Athlete;\n\nlet athlete = Athlete {\n    id: \"12345\".into(),\n    username: \"runner123\".into(),\n    firstname: Some(\"John\".into()),\n    lastname: Some(\"Doe\".into()),\n    profile_picture: Some(\"https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg\".into()),\n    provider: \"strava\".into(),\n    sex: None,\n};\n```",
+            "description": "Represents an athlete/user profile from any provider\n\nContains the essential profile information that's commonly available\nacross fitness platforms.\n\n# Examples\n\n```rust\nuse pierre_core::models::Athlete;\n\nlet athlete = Athlete {\n    id: \"12345\".into(),\n    username: \"runner123\".into(),\n    firstname: Some(\"John\".into()),\n    lastname: Some(\"Doe\".into()),\n    profile_picture: Some(\"https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg\".into()),\n    provider: \"strava\".into(),\n    sex: None,\n    created_at: None,\n};\n```",
             "properties": {
+              "created_at": {
+                "description": "When the athlete's account was created at the provider, when the\nprovider reports it (Strava's athlete `created_at`): no activity is\nrecorded before it, so a history walk stops there.",
+                "format": "date-time",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
               "firstname": {
                 "description": "First name (may not be public on some providers)",
                 "type": [
@@ -15202,7 +15860,7 @@
     },
     {
       "name": "get_stats",
-      "description": "Aggregated activity totals from a connected provider. Read `coverage` before quoting any total_*: `coverage.kind` is `lifetime` (ALL-TIME), `recent_activities` (only the `coverage.count` most recent activities, oldest at `coverage.oldest`; e.g. Wahoo, WHOOP) or `window` (only the last `coverage.days` days). Report a `recent_activities` or `window` total as that sample or window ('your last N workouts since <date>', 'the last N days'), never as lifetime, all-time, career or total-ever. `year_to_date` (Strava) holds CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT report them: call get_activities for the period and sum distance across all related sport types.",
+      "description": "Aggregated activity totals from a connected provider. Read `coverage` before quoting any total_*: `coverage.window.scope.kind` is `lifetime` (ALL-TIME), `recent_activities` (only the `coverage.window.total` most recent activities, oldest on `coverage.window.oldest`; e.g. Wahoo, WHOOP) or `last_days` (only the last `coverage.window.scope.days` days). Report a `recent_activities` or `last_days` total as that sample or window ('your last N workouts since <date>', 'the last N days'), never as lifetime, all-time, career or total-ever. `year_to_date` (Strava) holds CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT report them: call get_activities for the period and sum distance across all related sport types.",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -15222,6 +15880,141 @@
       },
       "outputSchema": {
         "$defs": {
+          "Coverage": {
+            "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
+            "properties": {
+              "complete": {
+                "description": "Whether every activity of the asked window was read.",
+                "type": "boolean"
+              },
+              "incomplete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/IncompleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why the window is incomplete; absent when it is complete."
+              },
+              "note": {
+                "description": "What may and may not be claimed from the window; absent when nothing\nqualifies it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pending": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pending"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history walk still owed for the window, when one is."
+              },
+              "trustworthy_from": {
+                "description": "The first day the stored history stands behind, `YYYY-MM-DD`, when it\nstarts later than the window asked.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "$ref": "#/$defs/CoverageWindow",
+                "description": "What the window spans."
+              }
+            },
+            "required": [
+              "complete",
+              "window"
+            ],
+            "type": "object"
+          },
+          "CoverageWindow": {
+            "description": "What a served window spans.",
+            "properties": {
+              "asked_from": {
+                "description": "First day asked for, `YYYY-MM-DD`; absent when the ask had no start.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "asked_to": {
+                "description": "Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "newest": {
+                "description": "The newest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "description": "The oldest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "default": 0,
+                "description": "Entries this payload returns: activities, or days of a daily series.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/WindowScope",
+                "default": {
+                  "kind": "asked"
+                },
+                "description": "Which activities the window spans."
+              },
+              "total": {
+                "description": "Activities the window holds, before any display limit; absent when\nthe reader does not count them.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_is_lower_bound": {
+                "description": "Whether `total` is only a lower bound: the read filled its row cap, so\nthe window may hold more.",
+                "type": "boolean"
+              },
+              "totals": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WindowTotals"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The window's totals, when the reader summed them."
+              }
+            },
+            "required": [
+              "scope",
+              "returned"
+            ],
+            "type": "object"
+          },
           "GetStatsResult": {
             "description": "What `get_stats` answers with.\n\nSame shape of contract as [`GetAthleteResult`]: the totals live under a\n`stats` key that the SDK schema reads by name.",
             "properties": {
@@ -15234,6 +16027,97 @@
               "stats"
             ],
             "type": "object"
+          },
+          "IncompleteReason": {
+            "description": "Why a served window is not the whole truth for the window asked.",
+            "oneOf": [
+              {
+                "const": "live_read_running",
+                "description": "The live read outlived the turn's budget; the cached window answered\nand the read runs on.",
+                "type": "string"
+              },
+              {
+                "const": "read_capped",
+                "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "provider_unavailable",
+                "description": "The provider could not be read; what it last synced answered.",
+                "type": "string"
+              },
+              {
+                "const": "history_walk_running",
+                "description": "The athlete's history walk has not reached the start of the window\nyet; the store answered with what it holds so far.",
+                "type": "string"
+              },
+              {
+                "const": "shallow_history",
+                "description": "The stored history begins too late to stand behind the whole window:\nonly `[trustworthy_from, asked_to]` is answered.",
+                "type": "string"
+              },
+              {
+                "const": "no_stored_activities",
+                "description": "Nothing stored covers the window, so nothing was computed.",
+                "type": "string"
+              }
+            ]
+          },
+          "Pending": {
+            "description": "What is still owed for a window: the history walk that would fill it.",
+            "oneOf": [
+              {
+                "description": "No walk of the athlete's history has run yet; one has been asked for.",
+                "properties": {
+                  "kind": {
+                    "const": "history_not_walked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A walk of the athlete's history is running.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk reaches its floor at the pace its steps\nmeasured; absent until a step measured one or the floor is known.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "history_walk_running",
+                    "type": "string"
+                  },
+                  "months_done": {
+                    "description": "Months of history walked so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "months_total": {
+                    "description": "Months the walk has to cover; absent while its floor is not known.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "months_done"
+                ],
+                "type": "object"
+              }
+            ]
           },
           "PeriodTotals": {
             "description": "Aggregated activity totals scoped to a single time period.\n\nUsed for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the\nlifetime totals so a period can be reported with the same fields.",
@@ -15270,11 +16154,11 @@
             "type": "object"
           },
           "Stats": {
-            "description": "Aggregated fitness statistics for an athlete\n\nThe top-level `total_*` fields cover exactly what `coverage` says: the\nathlete's whole history only when it is [`StatsCoverage::Lifetime`]. A\nprovider with no aggregate endpoint sums a recent page of workouts or a\nwindow of days, and says so there, so a sample is never read as a lifetime\nfigure (carnet#919). When the provider also exposes calendar-year figures,\n`year_to_date` carries the current-year totals so a consumer can\ndistinguish \"annual\" from \"lifetime\" without inferring it from the numbers.\n\n# Examples\n\n```rust\nuse pierre_core::models::{Stats, StatsCoverage};\n\nlet stats = Stats {\n    total_activities: 150,\n    total_distance: 1500000.0, // 1500 km in meters\n    total_duration: 540000, // 150 hours in seconds\n    total_elevation_gain: 25000.0, // 25km of elevation\n    coverage: StatsCoverage::Lifetime,\n    year_to_date: None,\n};\n```",
+            "description": "Aggregated fitness statistics for an athlete\n\nThe top-level `total_*` fields cover exactly what `coverage` says: the\nathlete's whole history only when its window's scope is\n[`WindowScope::Lifetime`]. A provider with no aggregate endpoint sums a\nrecent page of workouts or a window of days, and says so there, so a\nsample is never read as a lifetime figure (carnet#919). When the provider also exposes calendar-year figures,\n`year_to_date` carries the current-year totals so a consumer can\ndistinguish \"annual\" from \"lifetime\" without inferring it from the numbers.\n\n# Examples\n\n```rust\nuse pierre_core::models::coverage::Coverage;\nuse pierre_core::models::Stats;\n\nlet stats = Stats {\n    total_activities: 150,\n    total_distance: 1500000.0, // 1500 km in meters\n    total_duration: 540000, // 150 hours in seconds\n    total_elevation_gain: 25000.0, // 25km of elevation\n    coverage: Coverage::lifetime(150),\n    year_to_date: None,\n};\n```",
             "properties": {
               "coverage": {
-                "$ref": "#/$defs/StatsCoverage",
-                "description": "Which activities the `total_*` fields were summed over"
+                "$ref": "#/$defs/Coverage",
+                "description": "Which activities the `total_*` fields were summed over: the scope of\nits window (`lifetime`, `recent_activities` or `last_days`), how many\nand from which day"
               },
               "total_activities": {
                 "description": "Number of recorded activities `coverage` spans",
@@ -15319,11 +16203,24 @@
             ],
             "type": "object"
           },
-          "StatsCoverage": {
-            "description": "Which activities a [`Stats`]' `total_*` fields were summed over.\n\nSerialized with a `kind` tag (`lifetime`, `recent_activities`, `window`),\nthe field the `get_stats` tool description tells the model to read before\nquoting a total.",
+          "WindowScope": {
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
             "oneOf": [
               {
-                "description": "The athlete's whole history, as the provider's aggregate reports it",
+                "description": "The window the caller asked for, `[asked_from, asked_to]`.",
+                "properties": {
+                  "kind": {
+                    "const": "asked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The athlete's whole history, as the provider's aggregate reports it.",
                 "properties": {
                   "kind": {
                     "const": "lifetime",
@@ -15336,44 +16233,29 @@
                 "type": "object"
               },
               {
-                "description": "Only the provider's `count` most recent activities, the oldest of\nwhich started at `oldest` (absent when there were none)",
+                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
                 "properties": {
-                  "count": {
-                    "description": "How many activities the totals were summed over",
-                    "format": "uint64",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
                   "kind": {
                     "const": "recent_activities",
                     "type": "string"
-                  },
-                  "oldest": {
-                    "description": "Start of the oldest activity counted",
-                    "format": "date-time",
-                    "type": [
-                      "string",
-                      "null"
-                    ]
                   }
                 },
                 "required": [
-                  "kind",
-                  "count"
+                  "kind"
                 ],
                 "type": "object"
               },
               {
-                "description": "Only the activities of the last `days` days",
+                "description": "Only the activities of the last `days` days, ending now.",
                 "properties": {
                   "days": {
-                    "description": "Length of the window, in days, ending now",
+                    "description": "Length of the window, in days.",
                     "format": "uint32",
                     "minimum": 0,
                     "type": "integer"
                   },
                   "kind": {
-                    "const": "window",
+                    "const": "last_days",
                     "type": "string"
                   }
                 },
@@ -15384,6 +16266,40 @@
                 "type": "object"
               }
             ]
+          },
+          "WindowTotals": {
+            "description": "Count, distance, duration and climb summed over a whole window, taken\nbefore a display limit truncates it.\n\nA year-against-year question is answered from these, not from the shown\nslice: with a display limit of 20, a 63-ride 2011 read as its last three\nDecember rides (carnet#874). Serialized with distance and elevation to one\ndecimal and the duration exact, which the agent quotes and derives pace\nfrom (carnet#1015).",
+            "properties": {
+              "count": {
+                "description": "Activities in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "distance_km": {
+                "description": "Summed distance in kilometres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              },
+              "duration_seconds": {
+                "description": "Summed duration in seconds, exact.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Summed elevation gain in metres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m"
+            ],
+            "type": "object"
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -15672,6 +16588,141 @@
       },
       "outputSchema": {
         "$defs": {
+          "Coverage": {
+            "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
+            "properties": {
+              "complete": {
+                "description": "Whether every activity of the asked window was read.",
+                "type": "boolean"
+              },
+              "incomplete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/IncompleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why the window is incomplete; absent when it is complete."
+              },
+              "note": {
+                "description": "What may and may not be claimed from the window; absent when nothing\nqualifies it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pending": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pending"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history walk still owed for the window, when one is."
+              },
+              "trustworthy_from": {
+                "description": "The first day the stored history stands behind, `YYYY-MM-DD`, when it\nstarts later than the window asked.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "$ref": "#/$defs/CoverageWindow",
+                "description": "What the window spans."
+              }
+            },
+            "required": [
+              "complete",
+              "window"
+            ],
+            "type": "object"
+          },
+          "CoverageWindow": {
+            "description": "What a served window spans.",
+            "properties": {
+              "asked_from": {
+                "description": "First day asked for, `YYYY-MM-DD`; absent when the ask had no start.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "asked_to": {
+                "description": "Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "newest": {
+                "description": "The newest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "description": "The oldest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "default": 0,
+                "description": "Entries this payload returns: activities, or days of a daily series.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/WindowScope",
+                "default": {
+                  "kind": "asked"
+                },
+                "description": "Which activities the window spans."
+              },
+              "total": {
+                "description": "Activities the window holds, before any display limit; absent when\nthe reader does not count them.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_is_lower_bound": {
+                "description": "Whether `total` is only a lower bound: the read filled its row cap, so\nthe window may hold more.",
+                "type": "boolean"
+              },
+              "totals": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WindowTotals"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The window's totals, when the reader summed them."
+              }
+            },
+            "required": [
+              "scope",
+              "returned"
+            ],
+            "type": "object"
+          },
           "DeepFatigueMorning": {
             "description": "One day of a deep-fatigue run.",
             "properties": {
@@ -15800,6 +16851,97 @@
             ],
             "type": "object"
           },
+          "IncompleteReason": {
+            "description": "Why a served window is not the whole truth for the window asked.",
+            "oneOf": [
+              {
+                "const": "live_read_running",
+                "description": "The live read outlived the turn's budget; the cached window answered\nand the read runs on.",
+                "type": "string"
+              },
+              {
+                "const": "read_capped",
+                "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "provider_unavailable",
+                "description": "The provider could not be read; what it last synced answered.",
+                "type": "string"
+              },
+              {
+                "const": "history_walk_running",
+                "description": "The athlete's history walk has not reached the start of the window\nyet; the store answered with what it holds so far.",
+                "type": "string"
+              },
+              {
+                "const": "shallow_history",
+                "description": "The stored history begins too late to stand behind the whole window:\nonly `[trustworthy_from, asked_to]` is answered.",
+                "type": "string"
+              },
+              {
+                "const": "no_stored_activities",
+                "description": "Nothing stored covers the window, so nothing was computed.",
+                "type": "string"
+              }
+            ]
+          },
+          "Pending": {
+            "description": "What is still owed for a window: the history walk that would fill it.",
+            "oneOf": [
+              {
+                "description": "No walk of the athlete's history has run yet; one has been asked for.",
+                "properties": {
+                  "kind": {
+                    "const": "history_not_walked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A walk of the athlete's history is running.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk reaches its floor at the pace its steps\nmeasured; absent until a step measured one or the floor is known.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "history_walk_running",
+                    "type": "string"
+                  },
+                  "months_done": {
+                    "description": "Months of history walked so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "months_total": {
+                    "description": "Months the walk has to cover; absent while its floor is not known.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "months_done"
+                ],
+                "type": "object"
+              }
+            ]
+          },
           "TrainingHistoryDay": {
             "description": "One day of training state, with its form reading attached.\n\nThe stored row is flattened in rather than nested: this is what\n`get_training_history` has always sent, and an agent reading `ctl` should\nnot have to know whether it sits under a `state` key.",
             "properties": {
@@ -15889,17 +17031,112 @@
               "form_band"
             ],
             "type": "object"
+          },
+          "WindowScope": {
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "oneOf": [
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`.",
+                "properties": {
+                  "kind": {
+                    "const": "asked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The athlete's whole history, as the provider's aggregate reports it.",
+                "properties": {
+                  "kind": {
+                    "const": "lifetime",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
+                "properties": {
+                  "kind": {
+                    "const": "recent_activities",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the activities of the last `days` days, ending now.",
+                "properties": {
+                  "days": {
+                    "description": "Length of the window, in days.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "const": "last_days",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "days"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WindowTotals": {
+            "description": "Count, distance, duration and climb summed over a whole window, taken\nbefore a display limit truncates it.\n\nA year-against-year question is answered from these, not from the shown\nslice: with a display limit of 20, a 63-ride 2011 read as its last three\nDecember rides (carnet#874). Serialized with distance and elevation to one\ndecimal and the duration exact, which the agent quotes and derives pace\nfrom (carnet#1015).",
+            "properties": {
+              "count": {
+                "description": "Activities in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "distance_km": {
+                "description": "Summed distance in kilometres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              },
+              "duration_seconds": {
+                "description": "Summed duration in seconds, exact.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Summed elevation gain in metres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m"
+            ],
+            "type": "object"
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "description": "What `get_training_history` answers with.\n\nEvery row carries its own form reading, and the payload carries the method\nthat produced it. This is the tool the endurance agent prompt calls first;\nshipping bare ctl/atl/tsb floats is how a raw `-77` reached an athlete as a\ndiagnosis nobody could explain (registre#199). Beside the rows ride the\nevidence a \"why\" traces them to: the services whose sessions they are\ncomputed from, and the run of deep-fatigue days a reading closes\n(carnet#1387).",
         "properties": {
-          "coverage_note": {
-            "description": "Why `days` stops short of the window, when it does: the stored history\ndoes not reach far enough to warm those days. `None` when the rows\nanswer the whole ask.",
-            "type": [
-              "string",
-              "null"
-            ]
+          "coverage": {
+            "$ref": "#/$defs/Coverage",
+            "description": "How much of the window `days` answers: `complete` when the rows\nanswer the whole ask; otherwise why not (the stored history does not\nreach far enough to warm the earlier days, or nothing is stored), the\nfirst day the rows stand behind, the history walk still owed for the\nmissing depth (`pending`), and the `note` saying what may be cited."
           },
           "days": {
             "description": "One entry per day that has a rollup.",
@@ -15941,7 +17178,7 @@
           "days",
           "sources",
           "deep_fatigue_mornings",
-          "coverage_note",
+          "coverage",
           "interpretation"
         ],
         "title": "TrainingHistoryResult",
