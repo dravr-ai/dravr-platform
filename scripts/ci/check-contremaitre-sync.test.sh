@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-contremaitre-sync.sh — Check 3's tool list from the one registry scan,
-# ABOUTME: Check 1's server-rendered keys read from contremaitre, Check 8's bot-only pin, and Check 4's framing scan in all five locales
+# ABOUTME: Check 1's server-rendered keys read from contremaitre, Check 8's bot-only pin, and Check 4's framing scan of every catalogue string in all five locales
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -92,6 +92,18 @@ expect_absent() { # $1 = label, $2 = literal the last run must NOT print
 }
 
 echo "==== check-contremaitre-sync.sh fixture test ===="
+
+# 0. The script parses under /bin/bash, the shell its shebang names. Every case
+# below runs it through `bash`, which on a Mac is Homebrew's 5.x when that is
+# first on PATH, while pre-push runs the shebang's 3.2: an unpaired quote
+# inside a heredoc passes one and fails the other. On Linux /bin/bash is 5.x
+# and this proves the same as the cases below.
+if /bin/bash -n "$UNDER_TEST" 2>"$OUT"; then
+    pass "the script parses under /bin/bash"
+else
+    fail "the script parses under /bin/bash"
+    sed 's/^/      /' "$OUT"
+fi
 
 # 1. The baseline: two tools, three mirrors in agreement.
 root="$(tree baseline)"
@@ -339,6 +351,36 @@ expect_framing_hit "a Spanish 'no' does not excuse English framing" "ACWR above 
 expect_framing_hit "French framing still fails" "Un ACWR élevé est un risque de blessure." fr fr_hit
 expect_framing_clean "French negated framing still passes" "Ne présente jamais l'ACWR comme un risque de blessure." fr fr_clean
 expect_framing_clean "an injury word with no load word passes" "La fuerza reduce el riesgo de lesión." es es_noload
+
+# 14. Check 4 reads every string in the catalogue: a messaging string is the
+# platform's own voice — the envelope notice under an edited session among them
+# (carnet#1495) — and answers to the same framing as a use case.
+catalogue_framing() { # <text> <name> — the text as messaging.notice in every locale
+    local saved="$TMP/strings_saved_$2"
+    mkdir -p "$saved"
+    cp "$CM"/strings/*.json "$saved/"
+    for l in "${LOCALES[@]}"; do
+        printf '{"common": {"greet": "Hi {0}", "cancel": "Cancel {{name}}"}, "messaging": {"notice": "%s"}}\n' \
+            "$1" > "$CM/strings/$l.json"
+    done
+    run_override "$(catalogue_tree "catalogue_framing_$2")" "$CM"
+    cp "$saved"/*.json "$CM/strings/"
+}
+catalogue_framing "This load spike raises your injury risk." msg_hit
+expect_output "a messaging string framing load as injury risk fails" "[ACWR presented as injury risk]"
+expect_output "the hit names the messaging key it read" "strings/en.json:messaging.notice"
+catalogue_framing "Saved as written, outside what the evidence supports." msg_clean
+expect_output "a messaging string without the framing passes" "Contremaitre catalogues carry no retired ACWR/TSB framing"
+
+# 14b. A strings/ directory holding no catalogue fails Check 4 closed: a scan
+# that read no string would otherwise report the same green as a clean one.
+root="$(catalogue_tree catalogue_framing_none)"
+mkdir -p "$TMP/strings_saved_none"
+mv "$CM"/strings/*.json "$TMP/strings_saved_none/"
+run_override "$root" "$CM"
+mv "$TMP/strings_saved_none"/*.json "$CM/strings/"
+expect_output "a strings directory with no catalogue fails Check 4 closed" "SCAN-INCOMPLETE: no string read from $CM/strings/*.json"
+expect_absent "no clean framing scan over an unread catalogue" "Contremaitre catalogues carry no retired ACWR/TSB framing"
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

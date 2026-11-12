@@ -24,8 +24,9 @@
 #      EXPECTED_TOOLS (contremaitre_test), the hardcoded count assertion
 #      (configuration_mcp_integration_test), and the generated TS SDK types
 #      (packages/mcp-types/src/tools.ts, whose staleness reds CI: Server E2E's SDK Types Up-to-Date).
-#   4. Framing — the shipped tool descriptions and coach prompts carry no
-#      retired ACWR-as-injury-risk or absolute-TSB framing.
+#   4. Framing — the shipped tool descriptions, coach prompts and every string
+#      in strings/*.json carry no retired ACWR-as-injury-risk or absolute-TSB
+#      framing.
 #   5. Tool overlays — every tools/<name>.yaml in the pinned rev names a tool the
 #      registry actually registers, so no overlay is keyed to nothing.
 #   6. String copy — packages/i18n/src/locales/<l>/translation.json is
@@ -453,6 +454,11 @@ else
     # citing Lauersen on resistance training reducing injury risk, and a mobility
     # coach on warm-ups, are unrelated to the ratio. Lines that *forbid* the
     # framing ("never present it as an injury risk") are excluded too.
+    #
+    # Every single quote in the Python below is paired: stock macOS bash (3.2),
+    # which runs this script through its shebang at pre-push, reads an unpaired
+    # one (an apostrophe in a comment) as an open quote inside $( ) and rejects
+    # the rest of the file as a syntax error.
     FRAMING_HITS="$(python3 - "$CM_ROOT" <<'PYCHECK'
 import json, pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
@@ -515,22 +521,32 @@ for sub in ("tools", "prompts/personas", *PERSONAS):
             if why:
                 hits.append(f"{f}:{n}: [{why}] {line.strip()[:160]}")
 
-# The label and prompt of a use case are offered to the athlete as their own words
-# and sent to the model as their question (carnet#828), so they answer to the
-# same framing as a prompt -- in every locale.
+# Every string the catalogue ships reaches the athlete: the label and prompt of
+# a use case are offered as their own words and sent to the model as their
+# question (carnet#828), and the messaging strings are what the platform writes
+# in its own voice -- the envelope notice under an edited session among them
+# (carnet#1495). So the whole catalogue answers to the same framing as a
+# prompt, in every locale.
 def leaves(node, path):
     if isinstance(node, dict):
         for key, value in node.items():
-            yield from leaves(value, f"{path}.{key}")
+            yield from leaves(value, f"{path}.{key}" if path else key)
     elif isinstance(node, str):
         yield path, node
 
+scanned = 0
 for f in sorted((root / "strings").glob("*.json")):
     catalogue = json.loads(f.read_text(encoding="utf-8"))
-    for key, value in leaves(catalogue.get("use_cases", {}), "use_cases"):
+    for key, value in leaves(catalogue, ""):
+        scanned += 1
         why = classify(value)
         if why:
             hits.append(f"{f}:{key}: [{why}] {value.strip()[:160]}")
+# A scan that read no string reports the same green as one that read them
+# all and found nothing.
+if scanned == 0:
+    print(f"SCAN-INCOMPLETE: no string read from {root / 'strings'}/*.json", file=sys.stderr)
+    sys.exit(2)
 print("\n".join(hits))
 PYCHECK
 )"
