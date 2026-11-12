@@ -29,8 +29,8 @@ pub struct WahooDescriptor;
 
 impl ProviderDescriptor for WahooDescriptor {
     /// A workout's summary on every row; its FIT file's samples on a detail
-    /// read, never its GPS track. Wahoo's workout carries no
-    /// description or notes.
+    /// read, never its GPS track. No measured workout payload carries a
+    /// description or notes, so neither is declared ([`crate::field_support`]).
     fn activity_fields(&self) -> ActivityFieldSupport {
         ActivityFieldSupport {
             list: F::AVERAGE_HEART_RATE

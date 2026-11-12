@@ -24,6 +24,22 @@
 //! The names are the keys the [`Activity`](crate::models::Activity) and its
 //! [`TimeSeriesData`](crate::models::TimeSeriesData) serialize under, so the
 //! model reads the dictionary in the words the rows use.
+//!
+//! A declaration follows the payloads a backend's mapper is measured against,
+//! never what its provider's app shows. Two fields the athlete can write are
+//! therefore declared absent, because no measured payload carries them:
+//!
+//! - Garmin's push (`garmin`) declares no description: the pushed activity
+//!   summaries the ingest is measured against (the `tests/fixtures/garmin`
+//!   payloads of `pierre-server`) carry none, so its mapper has nothing to
+//!   fill. Garmin's mirror (`sciotte_garmin`) is where an athlete's Garmin
+//!   description would come from.
+//! - Wahoo (`wahoo`) declares neither a description nor notes: the Cloud API
+//!   reference's workout sample its field guard is measured against carries
+//!   neither, in the workout or its `workout_summary`.
+//!
+//! When a measured payload carries one, the mapper fills it and the
+//! declaration gains it in the same change.
 
 use crate::backend_resolver::{
     activity_origin, hosted_login_target, is_mirror_backend, mirror_backend_for, user_facing_name,

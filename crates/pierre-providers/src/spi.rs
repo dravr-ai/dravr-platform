@@ -666,7 +666,8 @@ pub struct GarminDescriptor;
 impl ProviderDescriptor for GarminDescriptor {
     /// What Garmin pushes: the summary's readings on every activity, and the
     /// samples, laps and the power derived from them once its details arrive.
-    /// Garmin's push carries no description, workout tag or trainer flag.
+    /// No measured push payload carries a description, workout tag or trainer
+    /// flag, so none is declared ([`crate::field_support`]).
     fn activity_fields(&self) -> ActivityFieldSupport {
         ActivityFieldSupport {
             list: F::AVERAGE_HEART_RATE
