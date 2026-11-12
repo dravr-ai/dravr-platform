@@ -624,6 +624,48 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_gets_its_authorization_
     );
 }
 
+/// A workout prescribed for an athlete whose only Garmin connection is a dead
+/// grant, with no session, is refused, and the refusal is never Garmin's bare
+/// authorization: an athlete with no session reconnects through the hosted
+/// sign-in first, which goes on to the grant (JF's directives 1 and 8).
+#[tokio::test]
+async fn an_unnamed_prescription_for_a_dead_garmin_grant_alone_is_refused() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&scraper).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
+    hold_grant(&resources, user_id, tenant).await;
+    kill_grant(&resources, user_id, tenant).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let executor = UniversalToolExecutor::new(runtime).with_scopes(OAuthScope::self_grant());
+    let date = (Utc::now() + chrono::Duration::days(3))
+        .date_naive()
+        .to_string();
+    let response = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "prescribe_workout".to_owned(),
+            parameters: serde_json::json!({ "template_slug": "long_run_z2", "date": date }),
+            user_id: user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+        })
+        .await;
+    let rendered = match response {
+        Ok(response) => {
+            assert!(
+                !response.success,
+                "bug: a workout was pushed through a dead grant: {response:?}"
+            );
+            format!("{:?} {:?}", response.error, response.result)
+        }
+        Err(e) => format!("{e:?}"),
+    };
+    assert!(
+        !rendered.contains("grant_owed"),
+        "bug: an athlete with no Garmin session was pointed at the grant alone: {rendered}"
+    );
+}
+
 /// A Garmin sign-in repeated moments later, answered from the session it
 /// stored, still goes on to the grant it owes: an authorization left
 /// unfinished is offered again.

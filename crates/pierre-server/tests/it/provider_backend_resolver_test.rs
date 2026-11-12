@@ -2700,11 +2700,12 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
         None,
         "bug: an athlete with no Garmin session is pointed at the grant alone"
     );
-    assert!(
+    assert_eq!(
         write(neither, neither_tenant, oauth_providers::GARMIN, calendar)
             .await
-            .is_ok(),
-        "bug: an unconnected Garmin write was refused as an owed grant"
+            .expect("bug: an unconnected Garmin write was refused as an owed grant"),
+        oauth_providers::SCIOTTE_GARMIN,
+        "the plan's primary, the sign-in an unconnected athlete starts from"
     );
 }
 

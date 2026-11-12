@@ -769,6 +769,8 @@ async fn a_stale_session_signs_in_again(resources: &Arc<ServerContext>, calls: &
         json!({
             "status": "connected",
             "provider": oauth_providers::SCIOTTE_TRAININGPEAKS,
+            // TrainingPeaks has no grant a sign-in goes on to (carnet#1494).
+            "oauth_follow_on": null,
         }),
         "a stale stored session must not short-circuit the login"
     );
