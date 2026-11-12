@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-history-walk-single-source.sh — makes each rule fire on a planted copy, pass and fail closed
-# ABOUTME: A spawn, a history_import or history_keys symbol, a stray coverage type or a second order fails; wire values do not
+# ABOUTME: A spawn, a history_import, history_keys or coverage_note symbol, a stray coverage type or a second order fails; wire values do not
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -144,6 +144,9 @@ expect_fires "a history_keys function" "$RESOLVER" \
     'pub fn history_keys(backend: &str) -> Vec<&str> { vec![backend] }'
 expect_fires "a history_keys call" "$CALLER" \
     'fn keys(p: &str) -> usize { backend_resolver::history_keys(p).len() }'
+expect_fires "a coverage_note test name" \
+    "crates/pierre-tool-runtime/tests/it/activity_coverage_framing_test.rs" \
+    'fn coverage_note_present_when_window_exceeds_returned() {}'
 
 # 4. Coverage types.
 expect_fires "a regrown HistoryCoverage" \

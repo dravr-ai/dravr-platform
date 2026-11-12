@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Guard — the history walk keeps one source order, one live-read order, one Coverage and no history import
-# ABOUTME: A spawn in the budgeted read, a history_import or history_keys symbol, a second order or coverage type fails
+# ABOUTME: A spawn in the budgeted read, a history_import, history_keys or coverage_note symbol, a second order or coverage type fails
 #
 # The history walk (carnet#1482) replaced the history import and folded every
 # answer about a served window into one Coverage type. Each of these came back
@@ -21,7 +21,8 @@
 #      `…_HISTORY_IMPORTING`.
 #   3. No `history_keys` symbol: which keys hold a provider's history is read
 #      from the one source table (`history_store_keys`, beside
-#      `history_sources_for`).
+#      `history_sources_for`). No identifier holding `coverage_note` either:
+#      the note a model reads is Coverage's own, built by `activity_coverage`.
 #   4. No struct, enum, type alias, trait or union whose name contains
 #      `Coverage` except the (name, file) pairs listed in ALLOWED_COVERAGE
 #      below, each with why it is not a second answer about a served window.
@@ -178,6 +179,9 @@ report "the retired history import is named" "$imports"$'\n'"$import_files" \
 keys="$(scan -w -g '*.rs' 'history_keys' crates)"
 report "history_keys is named" "$keys" \
     "Read the keys from pierre_services::training_history_read::history_store_keys."
+notes="$(scan -g '*.rs' 'coverage_note' crates)"
+report "the retired coverage_note is named" "$notes" \
+    "The note is Coverage's own: name it after Coverage (activity_coverage, coverage_*)."
 
 # 4. Coverage types outside the allowed (name, file) pairs.
 declared="$(scan -o -r '$1' -g '*.rs' '\b(?:struct|enum|type|trait|union)\s+(\w*Coverage\w*)' crates)"
@@ -227,4 +231,4 @@ report "a second source or read order is defined" \
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
-echo -e "${GREEN}✅ budgeted read spawns nothing; no history import or history_keys; one Coverage (${#ALLOWED_COVERAGE[@]} listed coverage names); one history source order and one live-read order${NC}"
+echo -e "${GREEN}✅ budgeted read spawns nothing; no history import, history_keys or coverage_note; one Coverage (${#ALLOWED_COVERAGE[@]} listed coverage names); one history source order and one live-read order${NC}"

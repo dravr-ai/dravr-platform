@@ -1,5 +1,5 @@
 // ABOUTME: Unit coverage for the get_activities window-coverage framing helpers
-// ABOUTME: coverage note, window bounds and totals, and how much of a bounded window is fetched
+// ABOUTME: Coverage and its note, window bounds and totals, and how much of a bounded window is fetched
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -52,23 +52,23 @@ fn act_on(id: &str, year: i32, month: u32, day: u32) -> Activity {
 }
 
 #[test]
-fn coverage_note_present_when_window_exceeds_returned() {
+fn coverage_present_when_window_exceeds_returned() {
     let span = (day(2024, 1, 15), day(2024, 12, 28));
-    let note = coverage_json(
+    let coverage = coverage_json(
         Some(552),
         200,
         Some(span),
         AskedWindow::default(),
         Completeness::Complete,
     )
-    .expect("a truncated window must emit a coverage note");
+    .expect("a truncated window must emit its Coverage");
 
-    assert_eq!(note["window"]["total"], 552);
-    assert_eq!(note["window"]["returned"], 200);
-    assert_eq!(note["window"]["oldest"], "2024-01-15");
-    assert_eq!(note["window"]["newest"], "2024-12-28");
+    assert_eq!(coverage["window"]["total"], 552);
+    assert_eq!(coverage["window"]["returned"], 200);
+    assert_eq!(coverage["window"]["oldest"], "2024-01-15");
+    assert_eq!(coverage["window"]["newest"], "2024-12-28");
     // The note must steer the model toward the full count, not the shown slice.
-    let text = note["note"].as_str().unwrap();
+    let text = coverage["note"].as_str().unwrap();
     assert!(text.contains("552"), "note cites the full total: {text}");
     assert!(text.contains("200"), "note cites the shown count: {text}");
     assert!(
@@ -89,7 +89,7 @@ fn coverage_note_present_when_window_exceeds_returned() {
 }
 
 #[test]
-fn coverage_note_absent_when_whole_window_returned() {
+fn coverage_absent_when_whole_window_returned() {
     let span = (day(2024, 1, 15), day(2024, 12, 28));
     // returned == total → nothing was hidden, so no framing.
     assert!(coverage_json(
@@ -112,7 +112,7 @@ fn coverage_note_absent_when_whole_window_returned() {
 }
 
 #[test]
-fn coverage_note_absent_when_window_total_unknown() {
+fn coverage_absent_when_window_total_unknown() {
     let span = (day(2024, 1, 15), day(2024, 12, 28));
     // The cached-snapshot path passes None — no coverage sidecar.
     assert!(coverage_json(
@@ -126,22 +126,22 @@ fn coverage_note_absent_when_window_total_unknown() {
 }
 
 #[test]
-fn coverage_note_is_count_only_without_a_span() {
-    let note = coverage_json(
+fn coverage_is_count_only_without_a_span() {
+    let coverage = coverage_json(
         Some(552),
         200,
         None,
         AskedWindow::default(),
         Completeness::Complete,
     )
-    .expect("a truncated window still emits a count-only note");
-    assert_eq!(note["window"]["total"], 552);
-    assert_eq!(note["window"]["returned"], 200);
+    .expect("a truncated window still emits a count-only Coverage");
+    assert_eq!(coverage["window"]["total"], 552);
+    assert_eq!(coverage["window"]["returned"], 200);
     assert!(
-        note["window"].get("oldest").is_none(),
+        coverage["window"].get("oldest").is_none(),
         "no span fields without dates"
     );
-    let text = note["note"].as_str().unwrap();
+    let text = coverage["note"].as_str().unwrap();
     assert!(text.contains("552"));
     // Sort-order-agnostic: the count-only note must not claim "most recent" either.
     assert!(
@@ -151,23 +151,26 @@ fn coverage_note_is_count_only_without_a_span() {
 }
 
 #[test]
-fn coverage_note_frames_count_as_lower_bound_when_read_is_capped() {
+fn coverage_frames_count_as_lower_bound_when_read_is_capped() {
     // A window that fills HISTORICAL_WINDOW_READ_LIMIT was truncated by the
     // durable read cap, so window_total is a LOWER BOUND, not the true total.
     let span = (day(2019, 1, 1), day(2024, 12, 28));
-    let note = coverage_json(
+    let coverage = coverage_json(
         Some(HISTORICAL_WINDOW_READ_LIMIT),
         200,
         Some(span),
         AskedWindow::default(),
         Completeness::Complete,
     )
-    .expect("a capped, truncated window must emit a coverage note");
+    .expect("a capped, truncated window must emit its Coverage");
 
     // The numeric key stays the exact figure read; the bound and the prose hedge.
-    assert_eq!(note["window"]["total"], HISTORICAL_WINDOW_READ_LIMIT);
-    assert_eq!(note["window"]["total_is_lower_bound"], true, "bug: {note}");
-    let text = note["note"].as_str().unwrap();
+    assert_eq!(coverage["window"]["total"], HISTORICAL_WINDOW_READ_LIMIT);
+    assert_eq!(
+        coverage["window"]["total_is_lower_bound"], true,
+        "bug: {coverage}"
+    );
+    let text = coverage["note"].as_str().unwrap();
     let lower_bound = format!("at least {HISTORICAL_WINDOW_READ_LIMIT}");
     assert!(
         text.contains(lower_bound.as_str()),
@@ -176,17 +179,17 @@ fn coverage_note_frames_count_as_lower_bound_when_read_is_capped() {
 }
 
 #[test]
-fn coverage_note_count_only_is_lower_bound_when_read_is_capped() {
+fn coverage_count_only_is_lower_bound_when_read_is_capped() {
     // Same lower-bound framing on the span-less (count-only) branch.
-    let note = coverage_json(
+    let coverage = coverage_json(
         Some(HISTORICAL_WINDOW_READ_LIMIT),
         200,
         None,
         AskedWindow::default(),
         Completeness::Complete,
     )
-    .expect("a capped, truncated window still emits a count-only note");
-    let text = note["note"].as_str().unwrap();
+    .expect("a capped, truncated window still emits a count-only Coverage");
+    let text = coverage["note"].as_str().unwrap();
     let lower_bound = format!("at least {HISTORICAL_WINDOW_READ_LIMIT}");
     assert!(
         text.contains(lower_bound.as_str()),
