@@ -50,8 +50,8 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::grant_withdrawal::GrantWithdrawal;
 use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_link_token, verify_link_token, MintProviderLinkTokenArgs,
-    HOSTED_SIGNIN_PATH,
+    mint_connect_link_token, mint_connect_oauth_init_url, mint_link_token, verify_link_token,
+    MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::spi::ProviderCapabilities;
@@ -574,6 +574,61 @@ async fn an_oauth_start_of_a_dead_garmin_grant_beside_a_live_session_authorizes_
     assert!(
         url.contains("client_id=") && !url.contains(HOSTED_SIGNIN_PATH),
         "bug: a dead grant beside a live session was sent back to the sign-in: {started}"
+    );
+}
+
+/// The link a dead or withdrawn Garmin grant's notice carries opens Garmin's
+/// own authorization when it is followed, beside a live session: never the
+/// sign-in the athlete already holds, nor the picker. Opened while the grant
+/// is flagged, and again once a deregistration deleted its rows.
+#[tokio::test]
+async fn the_grant_writes_link_opens_garmins_authorization_beside_a_live_session() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&scraper).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
+    hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
+    hold_grant(&resources, user_id, tenant).await;
+    let open = || async {
+        let (link, _expires_at) = mint_connect_oauth_init_url(
+            "",
+            user_id,
+            tenant.as_uuid(),
+            oauth_providers::GARMIN,
+            "whatsapp",
+            &resources.auth.admin_jwt_secret,
+        )
+        .unwrap();
+        let resp = AxumTestRequest::get(&link)
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+            .await;
+        assert_eq!(resp.status(), 302, "{}", resp.text());
+        resp.header("location").unwrap_or_default().to_owned()
+    };
+
+    kill_grant(&resources, user_id, tenant).await;
+    let flagged = open().await;
+    assert!(
+        flagged.contains("/oauth2Confirm") && flagged.contains("client_id="),
+        "bug: the flagged grant's link does not open Garmin's authorization: {flagged}"
+    );
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    GrantWithdrawal::new(
+        OAuthService::new(resources.data(), resources.common.config.clone()),
+        runtime,
+    )
+    .disconnect(
+        user_id,
+        oauth_providers::GARMIN,
+        tenant,
+        DisconnectReason::ProviderRevoked,
+    )
+    .await
+    .unwrap();
+    let withdrawn = open().await;
+    assert!(
+        withdrawn.contains("/oauth2Confirm") && withdrawn.contains("client_id="),
+        "bug: the withdrawn grant's link does not open Garmin's authorization: {withdrawn}"
     );
 }
 
