@@ -17,9 +17,11 @@
 //! fourteen days.
 
 use std::collections::HashMap;
+use std::slice;
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::ai_policy::ProviderTerms;
+use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityDetail;
 use pierre_database::RepositoryRegistry;
@@ -75,10 +77,12 @@ pub fn answered_key<'a>(listed_under: &'a str, detailed: &'a Activity) -> &'a st
 /// the session's place ([`answered_key`]).
 ///
 /// Answers `true` when it was stored. A row that left the cache meanwhile
-/// stores nothing (`false`), and neither does a grant's answer for a row the
-/// grant never listed: it is read again while the session stays down. A
-/// store that fails is logged and answers `false`: the caller has the detail
-/// in hand and answers from it either way.
+/// stores nothing (`false`). A grant's answer for an activity the grant
+/// never listed is first written as the grant's own copy of it
+/// ([`copy_under_grant`]), so the view that merges a workout's copies serves
+/// it and the grant's revocation purges it. A store that fails is logged and
+/// answers `false`: the caller has the detail in hand and answers from it
+/// either way.
 pub async fn store_detail(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -86,7 +90,75 @@ pub async fn store_detail(
     provider: &str,
     detailed: &Activity,
 ) -> bool {
-    let provider = answered_key(provider, detailed);
+    let answered = answered_key(provider, detailed);
+    match keep_detail(repos, tenant_id, user_id, answered, detailed).await {
+        Ok(false) if answered != provider => {
+            let copied = copy_under_grant(repos, tenant_id, user_id, answered, detailed).await;
+            match copied {
+                Ok(0) => false,
+                Ok(_) => keep_detail(repos, tenant_id, user_id, answered, detailed)
+                    .await
+                    .unwrap_or(false),
+                Err(e) => {
+                    warn!(
+                        activity_id = detailed.id(),
+                        provider = answered,
+                        error = %e,
+                        "writing the grant's copy of an activity it answered failed; its detail is not kept"
+                    );
+                    false
+                }
+            }
+        }
+        Ok(stored) => stored,
+        Err(()) => false,
+    }
+}
+
+/// Write `detailed` as the grant's own cached copy, under `grant`, and
+/// answer how many rows were written.
+///
+/// A by-id read is no read of the grant's list head, so the copy carries the
+/// head's own last sync and never makes the grant look freshly synced
+/// (`ActivityCacheRepository::upsert_activities_synced_at`). A grant never
+/// synced gets no copy (`0`): a row of it would read as a fetch that never
+/// happened, so its answer is read again while the session stays down.
+async fn copy_under_grant(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    grant: &str,
+    detailed: &Activity,
+) -> AppResult<u64> {
+    let Some(head_synced) = repos
+        .activity_cache
+        .latest_activity_sync(user_id, &tenant_id, grant)
+        .await?
+    else {
+        return Ok(0);
+    };
+    repos
+        .activity_cache
+        .upsert_activities_synced_at(
+            user_id,
+            &tenant_id,
+            grant,
+            slice::from_ref(detailed),
+            head_synced,
+        )
+        .await
+}
+
+/// One store of `detailed`'s detail beside the row under `provider`:
+/// `Ok(false)` when no such row is cached, `Err` when the store failed
+/// (logged).
+async fn keep_detail(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    provider: &str,
+    detailed: &Activity,
+) -> Result<bool, ()> {
     let detail = ActivityDetail::from_activity(detailed);
     let recheck_at = detail_recheck_at(&detail, Utc::now());
     let activity_id = detailed.id();
@@ -102,17 +174,17 @@ pub async fn store_detail(
         )
         .await
     {
-        Ok(true) => true,
+        Ok(true) => Ok(true),
         Ok(false) => {
             debug!(
                 activity_id,
                 provider, "activity left the cache during its detail read; its detail is not kept"
             );
-            false
+            Ok(false)
         }
         Err(e) => {
             warn!(activity_id, provider, error = %e, "storing an activity detail read failed");
-            false
+            Err(())
         }
     }
 }

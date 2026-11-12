@@ -1425,50 +1425,61 @@ async fn a_by_id_read_that_finds_the_session_dead_flags_it_while_its_grant_answe
 /// A detail the grant answers in the session's place is Strava API data: it
 /// is kept under the grant, never the session, so the grant's revocation
 /// purges it as Strava's terms require, and the session's own row keeps
-/// nothing the grant read.
+/// nothing the grant read. An activity a synced grant never listed gets
+/// the grant's own copy to keep it beside, without making the grant look
+/// freshly synced.
 #[tokio::test]
 async fn a_detail_the_grant_answers_is_kept_under_the_grant_and_purged_with_it() {
-    let pair = Pair::new("by-id-kept", SESSION_ANSWERS, false).await;
-    pair.cache("sciotte", GRANT_RIDE, 1).await;
-    pair.cache("strava", GRANT_RIDE, 1).await;
-    let provider = AuthService::new(pair.runtime())
-        .create_authenticated_provider("strava", pair.user_id, Some(&pair.tenant.to_string()))
-        .await
-        .expect("the session authenticates");
-    assert_eq!(provider.name(), "sciotte", "the session serves the reads");
-    let detail = provider
-        .get_activity_detailed(GRANT_RIDE)
-        .await
-        .expect("the grant reads the activity the session could not");
+    for grant_listed in [true, false] {
+        let pair = Pair::new("by-id-kept", SESSION_ANSWERS, false).await;
+        pair.cache("sciotte", GRANT_RIDE, 1).await;
+        let grant_row = if grant_listed { GRANT_RIDE } else { "4002" };
+        pair.cache("strava", grant_row, 3).await;
+        let grant_synced = pair.last_sync("strava").await;
+        let provider = AuthService::new(pair.runtime())
+            .create_authenticated_provider("strava", pair.user_id, Some(&pair.tenant.to_string()))
+            .await
+            .expect("the session authenticates");
+        assert_eq!(provider.name(), "sciotte", "the session serves the reads");
+        let detail = provider
+            .get_activity_detailed(GRANT_RIDE)
+            .await
+            .expect("the grant reads the activity the session could not");
 
-    let repos = &pair.resources.common.repos;
-    assert!(
-        store_detail(repos, pair.tenant, pair.user_id, "sciotte", &detail).await,
-        "the grant's answer is kept beside the grant's row"
-    );
-    assert_eq!(
-        pair.detail_read(GRANT_RIDE).await,
-        vec![("sciotte".to_owned(), false), ("strava".to_owned(), true)],
-        "bug: what the grant answered was kept under the session's key"
-    );
+        let repos = &pair.resources.common.repos;
+        assert!(
+            store_detail(repos, pair.tenant, pair.user_id, "sciotte", &detail).await,
+            "the grant's answer is kept beside the grant's copy (listed: {grant_listed})"
+        );
+        assert_eq!(
+            pair.detail_read(GRANT_RIDE).await,
+            vec![("sciotte".to_owned(), false), ("strava".to_owned(), true)],
+            "bug: what the grant answered was kept under the session's key (listed: {grant_listed})"
+        );
+        assert_eq!(
+            pair.last_sync("strava").await,
+            grant_synced,
+            "bug: a by-id read made the grant look freshly synced (listed: {grant_listed})"
+        );
 
-    OAuthService::new(
-        pair.resources.data(),
-        Arc::clone(&pair.resources.common.config),
-    )
-    .disconnect_provider(
-        pair.user_id,
-        "strava",
-        Some(pair.tenant.as_uuid()),
-        DisconnectReason::ProviderRevoked,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        pair.detail_read(GRANT_RIDE).await,
-        vec![("sciotte".to_owned(), false)],
-        "bug: the grant's revocation left what it answered"
-    );
+        OAuthService::new(
+            pair.resources.data(),
+            Arc::clone(&pair.resources.common.config),
+        )
+        .disconnect_provider(
+            pair.user_id,
+            "strava",
+            Some(pair.tenant.as_uuid()),
+            DisconnectReason::ProviderRevoked,
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            pair.detail_read(GRANT_RIDE).await,
+            vec![("sciotte".to_owned(), false)],
+            "bug: the grant's revocation left what it answered (listed: {grant_listed})"
+        );
+    }
 }
 
 /// A session read whose list answers only once the test lets it, and then
