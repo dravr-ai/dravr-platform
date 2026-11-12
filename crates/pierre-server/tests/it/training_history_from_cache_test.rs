@@ -40,6 +40,7 @@ use pierre_core::models::{
     ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType, TenantId,
     ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
 };
+use pierre_database::repositories::BackfillJobKind;
 use pierre_fitness_compute::training_history_compute::{warmup_days, CTL_WINDOW_DAYS};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::{
@@ -292,6 +293,16 @@ async fn an_empty_cache_computes_nothing_rather_than_a_zero_curve() {
     assert!(
         computed.capture_requested,
         "an empty cache must ask the capture rail for the athlete's history"
+    );
+    assert!(
+        fx.runtime
+            .repos()
+            .activity_backfill_jobs
+            .backfill_job_state(fx.user_id, fx.tenant, BACKEND, BackfillJobKind::HistoryWalk)
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the missing depth is asked as a history walk of the connection's session"
     );
 
     let rows = fetch_history_rows(&fx.runtime.data(), fx.tenant, fx.user_id, from, to)
