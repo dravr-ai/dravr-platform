@@ -13,7 +13,9 @@
 //!   order a push offers them when it asks. `chosen_connected` is false when
 //!   the chosen calendar is no longer among them: pushes pass it over.
 //! - `PUT /api/me/preferred-calendar` with `{"provider": "…"}` — record one of
-//!   `calendars` and answer as `GET` does. Any other is refused.
+//!   `calendars` and answer as `GET` does. Any other is refused; a calendar
+//!   only an owed grant writes (Garmin's, beside its sign-in) is refused with
+//!   that grant's authorization link.
 //! - `DELETE /api/me/preferred-calendar` — forget the choice, so a push with several
 //!   calendars connected asks again; answers as `GET` does.
 //!
@@ -33,6 +35,7 @@ use pierre_providers::backend_resolver::write_backend;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::ProviderRegistry;
 use pierre_services::plan_calendar_push::{chosen_calendar, connected_calendars, named_calendar};
+use pierre_tool_runtime::implementations::oauth_authorize::with_grant_link;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
@@ -144,7 +147,10 @@ async fn put_calendar(
 ) -> AppResult<Json<CalendarChoiceBody>> {
     let tenant_id = active_tenant(&auth)?;
     let registry = resources.fitness.provider_registry.as_ref();
-    let requested = write_backend(
+    // A calendar only its provider's grant writes, chosen while that grant
+    // is owed, is refused with the grant's authorization link, as a write
+    // from chat is (carnet#1494).
+    let requested = match write_backend(
         &resources.common.repos,
         registry,
         auth.user_id,
@@ -152,7 +158,13 @@ async fn put_calendar(
         update.provider.trim(),
         ProviderCapabilities::CALENDAR_WRITE,
     )
-    .await?;
+    .await
+    {
+        Ok(requested) => requested,
+        Err(refused) => {
+            return Err(with_grant_link(resources.as_ref(), auth.user_id, tenant_id, refused).await)
+        }
+    };
     let owned = own_backends(&resources, tenant_id, auth.user_id).await?;
     let backends: Vec<&str> = owned.iter().map(String::as_str).collect();
     let backend = named_calendar(registry, &backends, &requested)?;
