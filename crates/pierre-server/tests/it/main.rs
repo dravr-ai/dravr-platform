@@ -601,6 +601,7 @@ mod performance_prediction_test;
 mod permission_denied_message_passthrough_test;
 mod permissions_test;
 mod persona_conformance_test;
+mod personal_best_seed_store_test;
 mod personal_best_seed_test;
 mod personal_best_test;
 mod personal_thread_dm_test;
