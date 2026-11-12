@@ -531,7 +531,7 @@ mod tests {
     use super::super::models::{TerraActivity, TerraUser};
     use super::super::provider::TerraDescriptor;
     use super::TerraConverters;
-    use crate::field_support::assert_mapper_fills;
+    use crate::field_support::tests::assert_mapper_fills;
     use crate::spi::ProviderDescriptor;
 
     #[test]

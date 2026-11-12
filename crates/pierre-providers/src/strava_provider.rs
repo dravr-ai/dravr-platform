@@ -1102,5 +1102,4 @@ fn strava_utc_offset(seconds: f64) -> Option<i32> {
 }
 
 /// The field dictionary guard for this mapper.
-#[cfg(test)]
 mod field_guard;

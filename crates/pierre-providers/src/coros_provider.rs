@@ -687,7 +687,7 @@ impl ProviderFactory for CorosProviderFactory {
 #[cfg(test)]
 mod tests {
     use super::{CorosProvider, CorosWorkout};
-    use crate::field_support::assert_mapper_fills;
+    use crate::field_support::tests::assert_mapper_fills;
     use crate::spi::{CorosDescriptor, ProviderDescriptor};
 
     #[test]

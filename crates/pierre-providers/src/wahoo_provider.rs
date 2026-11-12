@@ -973,7 +973,6 @@ impl ProviderFactory for WahooProviderFactory {
 }
 
 /// The field dictionary guard for this mapper.
-#[cfg(test)]
 mod field_guard;
 
 #[cfg(test)]

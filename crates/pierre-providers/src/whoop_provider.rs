@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     fn the_whoop_mapper_fills_what_its_descriptor_declares() {
-        use crate::field_support::assert_mapper_fills;
+        use crate::field_support::tests::assert_mapper_fills;
         use crate::spi::{ProviderDescriptor, WhoopDescriptor};
 
         let mut scored = workout(Some("cycling"), Some(1));

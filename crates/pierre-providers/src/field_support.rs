@@ -44,8 +44,6 @@
 use crate::backend_resolver::{
     activity_origin, hosted_login_target, is_mirror_backend, mirror_backend_for, user_facing_name,
 };
-#[cfg(test)]
-use crate::models::Activity;
 use crate::registry::ProviderRegistry;
 use crate::spi::ProviderDescriptor;
 
@@ -343,46 +341,46 @@ pub fn field_support(
     })
 }
 
-/// The guard every mapper's unit test runs: `list_row`, mapped from a list
-/// fixture, carries every field `declared` promises on a list row, and
-/// `detailed`, mapped from a detail fixture with its streams, carries every
-/// field and channel it promises at all.
-///
-/// # Panics
-///
-/// Names `backend` and each field its mapper left out.
 #[cfg(test)]
-pub(crate) fn assert_mapper_fills(
-    backend: &str,
-    declared: ActivityFieldSupport,
-    list_row: &Activity,
-    detailed: &Activity,
-) {
-    use pierre_test_support::activity_fields::missing;
+pub(crate) mod tests {
+    use super::{ActivityFieldSupport, ActivityFields, StreamChannels, CHANNEL_NAMES, FIELD_NAMES};
+    use crate::models::Activity;
 
-    assert!(
-        !declared.is_empty(),
-        "bug: {backend} serves activities and declares no field"
-    );
-    let on_list = missing(list_row, &declared.list.names(), &[]);
-    assert!(
-        on_list.is_empty(),
-        "bug: {backend} declares {on_list:?} on a list row, and its mapper left them out"
-    );
-    let on_detail = missing(
-        detailed,
-        &declared.supplied().names(),
-        &declared.streams.names(),
-    );
-    assert!(
-        on_detail.is_empty(),
-        "bug: {backend} declares {on_detail:?}, and its mapper left them out of a detail read"
-    );
-}
+    /// The guard every mapper's unit test runs: `list_row`, mapped from a list
+    /// fixture, carries every field `declared` promises on a list row, and
+    /// `detailed`, mapped from a detail fixture with its streams, carries every
+    /// field and channel it promises at all.
+    ///
+    /// # Panics
+    ///
+    /// Names `backend` and each field its mapper left out.
+    pub(crate) fn assert_mapper_fills(
+        backend: &str,
+        declared: ActivityFieldSupport,
+        list_row: &Activity,
+        detailed: &Activity,
+    ) {
+        use pierre_test_support::activity_fields::missing;
 
-#[cfg(test)]
-mod tests {
-    use super::{ActivityFields, StreamChannels, CHANNEL_NAMES, FIELD_NAMES};
+        assert!(
+            !declared.is_empty(),
+            "bug: {backend} serves activities and declares no field"
+        );
+        let on_list = missing(list_row, &declared.list.names(), &[]);
+        assert!(
+            on_list.is_empty(),
+            "bug: {backend} declares {on_list:?} on a list row, and its mapper left them out"
+        );
+        let on_detail = missing(
+            detailed,
+            &declared.supplied().names(),
+            &declared.streams.names(),
+        );
+        assert!(
+            on_detail.is_empty(),
+            "bug: {backend} declares {on_detail:?}, and its mapper left them out of a detail read"
+        );
+    }
 
     #[test]
     fn every_flag_has_one_name() {

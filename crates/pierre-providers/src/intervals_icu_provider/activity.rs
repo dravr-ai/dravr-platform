@@ -366,7 +366,7 @@ mod tests {
 
     #[test]
     fn the_intervals_icu_mapper_fills_what_its_descriptor_declares() {
-        use crate::field_support::assert_mapper_fills;
+        use crate::field_support::tests::assert_mapper_fills;
         use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
         use crate::models::ActivityComment;
         use crate::spi::{IntervalsIcuDescriptor, ProviderDescriptor};
