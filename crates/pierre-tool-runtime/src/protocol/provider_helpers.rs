@@ -19,7 +19,7 @@ use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_providers::activity_source::resolve_activity_source;
 use pierre_providers::backend_resolver::{
-    serving_backends, session_beside_grant, user_facing_name,
+    grant_beside_session, mirror_backend_for, serving_backends,
 };
 use pierre_providers::core::FitnessProvider;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
@@ -222,16 +222,15 @@ pub async fn elected_source(
     )
     .await?
     {
-        // A usr/pwd session beside a grant that serves its provider serves
-        // nothing: the grant answers in its place (carnet#1386).
-        let beside_grant = match TenantId::parse_str(&conn.tenant_id).ok().or(tenant) {
-            Some(tid) => session_beside_grant(runtime.repos(), user_id, tid, &conn.provider).await,
+        // An OAuth grant beside a usr/pwd session of its provider is the
+        // session's fallback: the session answers in its place (carnet#1494).
+        let beside_session = match TenantId::parse_str(&conn.tenant_id).ok().or(tenant) {
+            Some(tid) => grant_beside_session(runtime.repos(), user_id, tid, &conn.provider).await,
             None => false,
         };
-        let provider = if beside_grant {
-            user_facing_name(&conn.provider).to_owned()
-        } else {
-            conn.provider
+        let provider = match mirror_backend_for(&conn.provider) {
+            Some(mirror) if beside_session => mirror.to_owned(),
+            _ => conn.provider,
         };
         // A diagnostic line, not a catalogued business event: on the notify
         // target it reached Slack and PostHog as a nameless event.

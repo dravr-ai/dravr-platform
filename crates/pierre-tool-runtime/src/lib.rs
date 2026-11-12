@@ -109,10 +109,6 @@ pub mod guardian;
 /// Streaming Copilot ACP turn execution, feeding the turn-event sink.
 #[cfg(feature = "client-chat")]
 pub mod headless_stream;
-/// The one-time history import a usr/pwd sign-in beside a Garmin grant runs on
-/// the backfill rail, and the session retirement that ends it (carnet#1386).
-#[cfg(feature = "tools-data")]
-pub mod history_import;
 pub mod implementations;
 /// The incomplete-window signal and its per-turn store (carnet#1481).
 pub mod incomplete_window;

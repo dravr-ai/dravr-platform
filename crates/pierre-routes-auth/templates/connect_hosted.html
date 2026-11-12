@@ -158,11 +158,10 @@
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
                 // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username', oauth_fallback }]
-                // `history_state` ('needed'|'importing'|'incomplete'|'imported'|'not_applicable'):
-                // a connected card whose history is `needed` or `incomplete`
-                // opens the credential sign-in that copies it when
-                // `history_sign_in`; one `importing` is disabled while the
-                // copy runs. `archive_url`: the hosted import page for the
+                // `history_state` ('needed'|'imported'|'not_applicable'):
+                // a connected card whose history is `needed` opens the
+                // credential sign-in that brings it in when
+                // `history_sign_in`. `archive_url`: the hosted import page for the
                 // provider's own export.
                 // `notice` is shown before the credential form (credentials) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
@@ -324,15 +323,11 @@
                     const tag = document.createElement('span');
                     // A connected card whose history is still to bring in
                     // names what picking it does.
-                    const historyOpen = p.connected
-                        && (p.history_state === 'needed' || p.history_state === 'incomplete');
-                    const importing = p.connected && p.history_state === 'importing';
-                    const settled = p.connected && !historyOpen && !importing;
+                    const historyOpen = p.connected && p.history_state === 'needed';
+                    const settled = p.connected && !historyOpen;
                     tag.className = 'pc-tag' + (settled ? ' connected' : '');
                     tag.textContent = historyOpen
-                        ? (p.history_state === 'incomplete' ? S.tagHistoryIncomplete : S.tagImportHistory)
-                        : importing
-                        ? S.tagHistoryImporting
+                        ? S.tagImportHistory
                         : p.connected
                         ? S.tagConnected
                         : (p.kind === 'oauth'

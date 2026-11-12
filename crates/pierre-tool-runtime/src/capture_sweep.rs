@@ -42,14 +42,15 @@
 //! upsert, dedup, prune and freshness-mark logic — and `fetched_at`, the mark
 //! that write-through advances, is the exact signal the staleness reader trusts.
 //!
-//! # Sessions beside a grant, and the grants themselves
+//! # Grants beside a session, and the grants themselves
 //!
-//! A usr/pwd session standing beside a grant that serves its provider
-//! ([`session_beside_grant`]) serves nothing, so the sweep neither refreshes
-//! nor retries it (carnet#1386). A push-only grant has no head to refresh, so
-//! the daily sweep walks it through the token path instead
+//! A usr/pwd session is its provider's primary source (carnet#1494): the
+//! sweep refreshes it, and passes over the OAuth grant standing beside it
+//! ([`grant_beside_session`]), which only answers when the session cannot,
+//! so the API is never read beside the scrape. A push-only grant has no head
+//! to refresh, so the daily sweep walks it through the token path instead
 //! ([`grant_check`]): a refresh the provider refuses flags the grant even for
-//! an athlete who records nothing.
+//! an athlete who records nothing, and a live grant keeps refreshing.
 
 mod grant_check;
 
@@ -62,7 +63,7 @@ use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use pierre_core::errors::AppResult;
 use pierre_core::models::{ReauthMark, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, CaptureFreshness};
-use pierre_providers::backend_resolver::session_beside_grant;
+use pierre_providers::backend_resolver::grant_beside_session;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::in_background;
@@ -302,8 +303,8 @@ pub struct RefreshReport {
     /// `skipped` when it reached that outcome.
     pub grants_checked: usize,
     /// Live connections the sweep left out: a push-only provider's, which
-    /// has nothing to fetch ([`capturable`]), a usr/pwd session beside a
-    /// serving grant ([`session_beside_grant`]), and those its
+    /// has nothing to fetch ([`capturable`]), an OAuth grant beside a
+    /// usr/pwd session of its provider ([`grant_beside_session`]), and those its
     /// [`SweepSelection`] did not pick — not used recently enough, or
     /// fetched recently enough already.
     pub passed_over: usize,
@@ -316,10 +317,10 @@ pub struct RefreshReport {
 /// Refresh the recent head of every live provider connection `selection`
 /// picks, then retry the flagged scrape sessions whose retry is due.
 ///
-/// Push-only providers' connections and sessions beside a serving grant are
-/// passed over ([`capturable`], [`session_beside_grant`]). The daily sweep
-/// (no `active_within`) then walks every live push-only grant through the
-/// token path ([`grant_check`]).
+/// Push-only providers' connections and grants beside a session of their
+/// provider are passed over ([`capturable`], [`grant_beside_session`]). The
+/// daily sweep (no `active_within`) then walks every live push-only grant
+/// through the token path ([`grant_check`]).
 ///
 /// Walks the same snapshot the staleness reader judges — which already excludes
 /// connections needing re-auth, since a known-dead one has nothing to refresh.
@@ -372,7 +373,7 @@ async fn sweep(
     let mut snapshot = Vec::with_capacity(fetchable.len());
     for connection in fetchable {
         if selection.selects(&connection, started_at, &active)
-            && !beside_grant(runtime, &connection).await
+            && !beside_session(runtime, &connection).await
         {
             snapshot.push(connection);
         }
@@ -444,17 +445,18 @@ async fn sweep(
     })
 }
 
-/// Whether `connection` is a usr/pwd session beside a grant that serves its
-/// provider ([`session_beside_grant`]), which the sweep never refreshes. A row
-/// whose ids do not parse is not one: it is walked, and reported as it fails.
-async fn beside_grant(runtime: &Arc<dyn ToolRuntime>, connection: &CaptureFreshness) -> bool {
+/// Whether `connection` is an OAuth grant beside a usr/pwd session of its
+/// provider ([`grant_beside_session`]), which the sweep never refreshes: the
+/// session is read in its place. A row whose ids do not parse is not one: it
+/// is walked, and reported as it fails.
+async fn beside_session(runtime: &Arc<dyn ToolRuntime>, connection: &CaptureFreshness) -> bool {
     let (Ok(user_id), Ok(tenant)) = (
         Uuid::from_str(&connection.user_id),
         TenantId::parse_str(&connection.tenant_id),
     ) else {
         return false;
     };
-    session_beside_grant(runtime.repos(), user_id, tenant, &connection.provider).await
+    grant_beside_session(runtime.repos(), user_id, tenant, &connection.provider).await
 }
 
 /// The report's counters, as one sweep accumulates them.

@@ -1,27 +1,25 @@
-// ABOUTME: Where a provider card's history stands, read from the backfill ledger and the rows under its history keys
-// ABOUTME: And the settling of a usr/pwd session a new Garmin grant leaves serving nothing (carnet#1386)
+// ABOUTME: Where a provider card's history stands, read from the rows held under its history keys
+// ABOUTME: A push-fed grant serving alone reads imported once its sign-in's or an export's rows are held
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! A card's history (carnet#1386).
+//! A card's history (carnet#1386, carnet#1494).
 //!
 //! A push-fed grant (Garmin) delivers only what the athlete records after
-//! connecting, so its card says whether what came before is in: a one-time
-//! import of a usr/pwd sign-in runs ([`HistoryState::Importing`]), ended
-//! before its history landed ([`HistoryState::Incomplete`]), or rows are held
-//! ([`HistoryState::Imported`]). Nothing new is stored for it: the backfill
-//! ledger's row for the session and the rows under the history keys say it.
+//! connecting, so its card says whether what came before is in: rows are
+//! held under the sign-in's key or an imported archive's
+//! ([`HistoryState::Imported`]), or they are not ([`HistoryState::Needed`]).
+//! A sign-in makes the session the card's primary source, whose own reads
+//! bring the history in. Nothing new is stored for it: the rows under the
+//! history keys say it.
 
 use std::iter;
 
 use pierre_auth::dto::auth::{HistoryState, HistoryStatus};
 use pierre_core::constants::oauth::providers::companion_keys;
 use pierre_core::models::TenantId;
-use pierre_database::repositories::BackfillJobState;
-use pierre_mcp_transport::OAuthCallbackResponse;
 use pierre_providers::backend_resolver;
-use tracing::warn;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
@@ -29,14 +27,10 @@ use crate::AuthRoutesContext;
 /// The history of `card` for `user_id`, whose own grant serves it first when
 /// `grant_serves` ([`crate::card_backend::grant_serves`]).
 ///
-/// Read in this order, the first that holds:
-/// 1. a one-time import of the card's sign-in is owed: `importing`;
-/// 2. rows are held under the sign-in's key or an imported archive's:
-///    `imported` — a usr/pwd athlete who moved to the grant keeps what their
-///    session stored, whatever a later top-up did;
-/// 3. the last import ended before its history landed: `incomplete`;
-/// 4. otherwise `needed` — rows the grant pushed itself start at the day it
-///    connected, so they never stand for what came before it.
+/// Rows held under the sign-in's key or an imported archive's read
+/// `imported`: an athlete whose session the one-time import retired keeps
+/// what it stored. Otherwise `needed`: rows the grant pushed itself start at
+/// the day it connected, so they never stand for what came before it.
 ///
 /// A card whose provider is not push-fed, or that no grant of the user's
 /// serves first (a session beside it reads its own history), reads
@@ -74,7 +68,9 @@ pub(crate) async fn card_history(
     }
 }
 
-/// [`card_history`]'s state for a card a push-fed grant serves.
+/// [`card_history`]'s state for a card a push-fed grant serves: `imported`
+/// when rows are held under the sign-in's key or an imported archive's, else
+/// `needed`.
 async fn history_state(
     resources: &AuthRoutesContext,
     user_id: Uuid,
@@ -82,63 +78,11 @@ async fn history_state(
     sign_in: &str,
     grant_key: &str,
 ) -> HistoryState {
-    let job = match resources
-        .repos
-        .activity_backfill_jobs
-        .backfill_job_state(user_id, tenant, sign_in)
-        .await
-    {
-        Ok(job) => job,
-        Err(e) => {
-            warn!(user_id = %user_id, error = %e, "Card history: the import ledger could not be read");
-            None
-        }
-    };
-    if job == Some(BackfillJobState::Owed) {
-        return HistoryState::Importing;
-    }
     let history_keys = iter::once(sign_in).chain(companion_keys(grant_key).iter().copied());
     for key in history_keys {
         if backend_resolver::holds_activities(&resources.repos, user_id, tenant, key).await {
             return HistoryState::Imported;
         }
     }
-    if job == Some(BackfillJobState::Incomplete) {
-        return HistoryState::Incomplete;
-    }
     HistoryState::Needed
-}
-
-/// Settle the usr/pwd session standing beside the grant the user just
-/// connected over OAuth (`connected`), in the tenant the callback stored it
-/// under: one import then retirement when it is live, retirement at once
-/// when it is not (`HistoryImports::grant_connected`). Runs detached; the
-/// callback answers at once. A provider that is not push-fed, and a build
-/// with no import rail, settle nothing.
-pub(crate) fn spawn_grant_history_settlement(
-    resources: &AuthRoutesContext,
-    connected: &OAuthCallbackResponse,
-) {
-    let provider = connected.provider.as_str();
-    if backend_resolver::pushed_backend_for(provider) != Some(provider) {
-        return;
-    }
-    let Some(imports) = resources.history_imports.clone() else {
-        return;
-    };
-    let (Ok(user), Ok(tenant)) = (
-        Uuid::parse_str(&connected.user_id),
-        TenantId::parse_str(&connected.tenant_id),
-    ) else {
-        warn!(
-            user_id = %connected.user_id,
-            provider,
-            "The new grant's user or tenant is not a UUID; its history is left unsettled"
-        );
-        return;
-    };
-    let grant = provider.to_owned();
-    tokio::spawn(async move {
-        imports.grant_connected(user, tenant, &grant).await;
-    });
 }

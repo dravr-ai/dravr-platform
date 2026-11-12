@@ -22,7 +22,7 @@ use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
 use crate::card_backend;
-use crate::card_history::{card_history, spawn_grant_history_settlement};
+use crate::card_history::card_history;
 use crate::card_seats::{require_garmin_seat, CardSeats};
 #[cfg(feature = "health-sync")]
 use crate::first_sync::health_sync_backfills;
@@ -168,12 +168,6 @@ pub(crate) async fn handle_oauth_callback(
             // session instead (carnet#1155).
             let pushed = backend_resolver::pushed_backend_for(&response.provider)
                 == Some(response.provider.as_str());
-            // The usr/pwd session the grant now stands beside serves nothing:
-            // a live one copies the history once, a dead one is retired at
-            // once (carnet#1386).
-            if pushed {
-                spawn_grant_history_settlement(&resources, &response);
-            }
             #[cfg(feature = "health-sync")]
             if !pushed {
                 spawn_health_backfill(&resources, &response.user_id, &response.provider, None);

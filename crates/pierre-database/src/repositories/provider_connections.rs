@@ -254,28 +254,6 @@ pub(crate) const MARK_ACTIVE_UNLESS_FLAGGED_FOR_SQL: &str = r"
                AND status != 'active' AND COALESCE(last_error, '') != $5
             ";
 
-/// The users of tenant `$1` whose own `$2` session (connection or token row)
-/// stands beside a `$3` token row in the same tenant. The token table keys
-/// users by `uuid` on `PostgreSQL` and the connection table by text, so the
-/// join casts the uuid down, never the text up.
-pub(crate) const LIST_SESSIONS_BESIDE_GRANT_SQL: &str = r"
-            SELECT c.user_id AS user_id
-              FROM provider_connections c
-             WHERE c.tenant_id = $1 AND c.provider = $2 AND c.connection_type != $4
-               AND EXISTS (SELECT 1 FROM user_oauth_tokens g
-                            WHERE CAST(g.user_id AS TEXT) = c.user_id
-                              AND g.tenant_id = c.tenant_id
-                              AND g.provider = $3)
-            UNION
-            SELECT CAST(t.user_id AS TEXT) AS user_id
-              FROM user_oauth_tokens t
-             WHERE t.tenant_id = $1 AND t.provider = $2
-               AND EXISTS (SELECT 1 FROM user_oauth_tokens g
-                            WHERE g.user_id = t.user_id
-                              AND g.tenant_id = t.tenant_id
-                              AND g.provider = $3)
-            ";
-
 /// The users of tenant `$1` whose own `$2` connection is `active`: the
 /// grants still in use there. `$3` is the delegated connection type, which
 /// is someone else's account.
@@ -855,29 +833,6 @@ macro_rules! impl_provider_connection_repository {
                     .fetch_one(self.pool())
                     .await?;
                 Ok(u32::try_from(grants).unwrap_or(u32::MAX))
-            }
-
-            async fn list_sessions_beside_grant(
-                &self,
-                tenant_id: TenantId,
-                mirror: &str,
-                grant: &str,
-            ) -> AppResult<Vec<Uuid>> {
-                let users: Vec<String> = sqlx::query_scalar(LIST_SESSIONS_BESIDE_GRANT_SQL)
-                    .bind(tenant_id.to_string())
-                    .bind(mirror)
-                    .bind(grant)
-                    .bind(ConnectionType::Delegated.as_str())
-                    .fetch_all(self.pool())
-                    .await?;
-                users
-                    .iter()
-                    .map(|user| {
-                        Uuid::parse_str(user).map_err(|e| {
-                            AppError::database(format!("session user_id is not a UUID: {e}"))
-                        })
-                    })
-                    .collect()
             }
 
             async fn list_active_connection_users(

@@ -40,9 +40,7 @@ use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use pierre_core::models::{connection_needs_reauth, TenantId};
-use pierre_providers::backend_resolver::{
-    is_mirror_backend, resolve_backend, session_beside_grant,
-};
+use pierre_providers::backend_resolver::{is_mirror_backend, resolve_backend};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -123,9 +121,7 @@ pub fn retries_flagged_session(provider: &str) -> bool {
 /// `(user_id, tenant_id, provider)`.
 ///
 /// `false` — attempt nothing — for a provider that is not a scrape mirror, for
-/// a session beside a grant that serves its provider ([`session_beside_grant`]:
-/// it serves nothing, so re-arming it buys nothing, carnet#1386), for a
-/// connection that is not `needs_reauth`, and for one flagged or retried
+/// a connection that is not `needs_reauth`, and for one flagged or retried
 /// within [`SCRAPE_SESSION_RETRY_INTERVAL_HOURS`]. A claim that cannot be
 /// written reads as `false` too: an unthrottled attempt is the thing this
 /// exists to prevent.
@@ -135,9 +131,7 @@ pub async fn claim_scrape_session_retry(
     tenant_id: TenantId,
     provider: &str,
 ) -> bool {
-    if !retries_flagged_session(provider)
-        || session_beside_grant(runtime.repos(), user_id, tenant_id, provider).await
-    {
+    if !retries_flagged_session(provider) {
         return false;
     }
     let due_before = Utc::now() - Duration::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);

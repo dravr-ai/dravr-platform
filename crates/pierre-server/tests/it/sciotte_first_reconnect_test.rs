@@ -23,7 +23,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::garmin_history_import_test::{
+use crate::garmin_sign_in_test::{
     athlete, connections, hold_grant, hold_session, reconnect_notices, rows_under, server,
     server_with_garmin_oauth, session_token_held, sign_in, spawn_switchable_scraper, ScraperSwitch,
     LIVE_SESSION,

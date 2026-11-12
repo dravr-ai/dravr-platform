@@ -184,7 +184,6 @@ async fn persist_fetched(
             &fetched.activities,
             WriteThrough {
                 read: params,
-                announces_sessions: true,
             },
         )
         .await;

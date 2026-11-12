@@ -196,9 +196,6 @@ pub mod garmin_push;
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
 
-/// The seam that runs and retires a usr/pwd session's one-time history import
-pub mod history_import;
-
 /// The one writer of wellness rows: every ingress writes nights, days, sources and series through it
 pub mod wellness_store;
 /// What the wellness store may keep of a WHOOP record: measurements, never WHOOP's own scores

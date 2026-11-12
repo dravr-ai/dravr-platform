@@ -67,14 +67,13 @@ use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
-use pierre_services::history_import::HistoryImports;
 use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
 mod account_deletion;
 mod card_backend;
-/// Where a provider card's history stands, and a new grant's session settlement.
+/// Where a provider card's history stands.
 mod card_history;
 mod card_seats;
 #[cfg(feature = "provider-sciotte")]
@@ -249,11 +248,6 @@ pub struct AuthRoutesContext {
     /// Non-empty, the connect picker offers the hosted import page and the
     /// page opens on it; each provider card names its own offered source.
     pub offered_archive_sources: Vec<&'static str>,
-    /// Runs the one-time history import of a usr/pwd session signed in
-    /// beside a grant, and retires the session a new grant leaves serving
-    /// nothing (carnet#1386). `None` in a build with no backfill rail, where
-    /// a sign-in only warms the session as any other does.
-    pub history_imports: Option<Arc<dyn HistoryImports>>,
     /// Single-use nonce store for hosted-login link-token jti claims.
     #[cfg(feature = "provider-sciotte")]
     pub nonce_store: Arc<NonceStore<Cache>>,
@@ -282,7 +276,6 @@ impl fmt::Debug for AuthRoutesContext {
         debug.field("group_service", &self.group_service);
         debug.field("admin_jwt_secret", &"[REDACTED]");
         debug.field("offered_archive_sources", &self.offered_archive_sources);
-        debug.field("history_imports", &self.history_imports.is_some());
         #[cfg(feature = "provider-sciotte")]
         debug.field("nonce_store", &self.nonce_store);
         debug.finish_non_exhaustive()

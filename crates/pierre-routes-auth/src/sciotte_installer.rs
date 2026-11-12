@@ -42,8 +42,7 @@ impl ScrapeSessionInstaller for AuthRoutesContext {
             session,
             &stored,
             backend,
-        )
-        .await;
+        );
         Ok(())
     }
 }

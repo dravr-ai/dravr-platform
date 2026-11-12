@@ -380,8 +380,7 @@ async fn store_sciotte_session(
         session,
         &stored,
         provider_name,
-    )
-    .await;
+    );
 
     Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
 }
@@ -447,12 +446,10 @@ async fn replace_dead_grant(
 /// which decides whether there is a calendar to prefetch at all. A session
 /// the provider rotates on those reads is written back over `stored`'s row.
 ///
-/// A session signed in beside a grant whose reads serve what it copies
-/// (Garmin) is no ongoing source: the server infers history mode from the
-/// grant, with no flag from the client, and runs the session's one-time
-/// history import instead — its activities, then its wellness, then the
-/// session's retirement (carnet#1386).
-pub(crate) async fn warm_from_session(
+/// A session signed in beside a grant is the provider's primary source
+/// (carnet#1494) and is warmed like any other: its own reads bring its
+/// history in, and nothing retires it.
+pub(crate) fn warm_from_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -460,27 +457,6 @@ pub(crate) async fn warm_from_session(
     stored: &StoredSession,
     provider_name: &str,
 ) {
-    if let Some(imports) = &resources.history_imports {
-        let tenant = TenantId::from_uuid(tenant_id);
-        if backend_resolver::session_imports_history(
-            &resources.repos,
-            user_id,
-            tenant,
-            provider_name,
-        )
-        .await
-        {
-            let started = imports.import_history(user_id, tenant, provider_name).await;
-            info!(
-                user_id = %user_id,
-                backend = %provider_name,
-                started,
-                "Sign-in beside a grant: importing the account's history once"
-            );
-            return;
-        }
-    }
-
     // Pre-fetch activities in background so the cache is warm when the user
     // chats. A TrainingPeaks coach account has no calendar of its own, so its
     // role is read first and decides whether there is anything to prefetch.

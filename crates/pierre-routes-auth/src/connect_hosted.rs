@@ -219,11 +219,7 @@ async fn build_connect_providers(
     let status = compute_providers_status(resources, user_id, tenant_id, strings.locale()).await?;
     let history = |p: &ProviderStatus| CardHistory {
         state: p.history.state,
-        sign_in: p.history.sign_in_target.is_some()
-            && matches!(
-                p.history.state,
-                HistoryState::Needed | HistoryState::Incomplete
-            ),
+        sign_in: p.history.sign_in_target.is_some() && p.history.state == HistoryState::Needed,
         archive_url: p
             .history
             .archive_source

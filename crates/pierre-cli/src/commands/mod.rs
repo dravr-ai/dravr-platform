@@ -16,7 +16,6 @@ pub(crate) mod config;
 pub(crate) mod connect_order;
 pub(crate) mod deletion;
 pub(crate) mod drift;
-pub(crate) mod garmin;
 pub(crate) mod guardian_settings;
 #[cfg(feature = "tools-verification")]
 pub(crate) mod harness;

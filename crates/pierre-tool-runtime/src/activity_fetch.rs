@@ -849,7 +849,6 @@ async fn fetch_and_persist_head(
             &head.activities,
             WriteThrough {
                 read: params,
-                announces_sessions: true,
             },
         )
         .await;

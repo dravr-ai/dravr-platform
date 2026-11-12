@@ -20,9 +20,9 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::garmin_history_import_test::{
+use crate::garmin_sign_in_test::{
     athlete, calls_matching, connect_garmin_oauth, connections, garmin_history, hold_grant,
-    hold_session, import_ended, rows_under, server, server_with_garmin_oauth, sign_in,
+    hold_session, server, server_with_garmin_oauth, session_token_held, sign_in,
     spawn_switchable_scraper, ScraperSwitch, LIVE_SESSION,
 };
 use crate::helpers::axum_test::AxumTestRequest;
@@ -156,7 +156,8 @@ async fn an_existing_usr_pwd_connection_re_signs_with_a_seat_free() {
     assert_eq!(body["status"], "connected", "{body}");
 }
 
-/// A grant holder's sign-in is the one-time history copy, never refused.
+/// A grant holder's sign-in is never refused for the seats: the session it
+/// stores becomes the provider's primary, beside the grant (carnet#1494).
 #[tokio::test]
 async fn a_grant_holders_sign_in_is_never_refused() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
@@ -165,47 +166,52 @@ async fn a_grant_holders_sign_in_is_never_refused() {
     hold_grant(&resources, user_id, tenant).await;
 
     let (status, body) = sign_in(&resources, &token).await;
-    assert_eq!(status, 200, "bug: the history sign-in goes through: {body}");
-    import_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        status, 200,
+        "bug: the grant holder's sign-in goes through: {body}"
+    );
+    assert!(
+        session_token_held(&resources, user_id, tenant).await,
+        "bug: the session is stored beside the grant"
+    );
 }
 
-/// A usr/pwd-only athlete who connects Garmin's OAuth: the callback copies
-/// through their live session once and retires it, keeping every row it
-/// copied; the card then reads imported.
+/// A usr/pwd-only athlete who connects Garmin's OAuth keeps their session
+/// as the card's primary: the grant lands beside it as its fallback, nothing
+/// retires the session, and the card keeps reading it (carnet#1494).
 #[tokio::test]
-async fn moving_to_the_grant_retires_the_session_and_reads_imported() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+async fn connecting_the_grant_keeps_the_session_serving_the_card() {
+    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server_with_garmin_oauth(&scraper).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     connect_garmin_oauth(&resources, user_id, tenant).await;
-    import_ended(&resources, user_id, tenant).await;
 
     assert!(
-        rows_under(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await > 0,
-        "bug: the rows the session copied are kept"
+        session_token_held(&resources, user_id, tenant).await,
+        "bug: a new grant never retires the session"
     );
     assert!(
-        !connections(&resources, user_id, tenant)
+        connections(&resources, user_id, tenant)
             .await
             .iter()
             .any(|(provider, _)| provider == oauth_providers::SCIOTTE_GARMIN),
-        "bug: the session's connection is retired"
+        "bug: the session's connection stays"
+    );
+    assert!(
+        calls_matching(&calls, "drop").is_empty(),
+        "bug: nothing drops the session"
     );
     let after = garmin_card(&resources, &token).await;
     assert_eq!(
         after["connected_backend"],
-        oauth_providers::GARMIN,
-        "{after}"
-    );
-    assert_eq!(
-        after["recommended_backend"], "mirror",
-        "bug: a new connection signs in first by default: {after}"
+        oauth_providers::SCIOTTE_GARMIN,
+        "bug: the session serves the card first: {after}"
     );
     assert_eq!(
         garmin_history(&resources, &token).await["state"],
-        "imported",
-        "bug: what the session copied is the history"
+        "not_applicable",
+        "bug: the session reads its own history"
     );
 }
 

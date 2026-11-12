@@ -390,56 +390,6 @@ pub fn history_keys(backend: &str) -> Vec<&str> {
     iter::once(backend).chain(other).collect()
 }
 
-/// Whether `backend` is a usr/pwd session standing beside an OAuth grant that
-/// serves its provider.
-///
-/// It is when `backend` is a mirror whose user-facing provider's own OAuth
-/// backend serves it (Garmin, Strava), for a user who holds a token row for
-/// that OAuth backend in this tenant.
-///
-/// Such a session serves nothing: the grant is the provider's one ongoing
-/// source, so the session is never read, retried, elected or surfaced as a
-/// reconnect, and a flag on it sends no notice (carnet#1386). The grant's row
-/// alone decides, whatever its connection's status: a dead grant raises its
-/// own reconnect. `false` for COROS and TrainingPeaks (no OAuth backend
-/// serves them), for a session with no grant beside it, and for any backend
-/// that is not a mirror.
-pub async fn session_beside_grant(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) -> bool {
-    if !is_mirror_backend(backend) {
-        return false;
-    }
-    let user_facing = user_facing_name(backend);
-    oauth_serves(user_facing) && has_token_row(repos, user_id, tenant_id, user_facing).await
-}
-
-/// Whether a sign-in of `backend` is a one-time history import (carnet#1386).
-///
-/// It is for a usr/pwd session beside a grant whose own reads serve what that
-/// session stores ([`history_keys`]), which is then no ongoing source.
-///
-/// It is when [`session_beside_grant`] holds and the grant is push-fed, so
-/// the rows the session imports keep being served through the grant's
-/// window (Garmin). `false` for `sciotte` beside a Strava grant: Strava's
-/// API reads history on request and never serves the session's rows, and
-/// for every session no grant stands beside.
-pub async fn session_imports_history(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) -> bool {
-    let Some(grant) = pushed_backend_for(backend) else {
-        return false;
-    };
-    history_keys(grant).contains(&backend)
-        && session_beside_grant(repos, user_id, tenant_id, backend).await
-}
-
 /// What one half of a mirror pair (the session or the grant) amounts to for
 /// an athlete in a tenant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1020,9 +970,9 @@ mod tests {
         );
     }
 
-    /// `session_imports_history` reads the grant a session imports for
-    /// through `pushed_backend_for`: Garmin's session has one, Strava's has
-    /// none, so a Strava sign-in beside a Strava grant is never an import.
+    /// `pushed_backend_for` names the push-fed grant beside a session:
+    /// Garmin's session has one, Strava's has none, and only the Garmin
+    /// grant's window serves its session's rows.
     #[test]
     fn only_the_garmin_session_has_a_pushed_grant() {
         assert_eq!(
