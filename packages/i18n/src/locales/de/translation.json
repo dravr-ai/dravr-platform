@@ -1692,7 +1692,16 @@
       "reads_none": "{0}: Dein menschlicher Coach hat in den letzten {1} Monaten keine deiner Daten eingesehen.",
       "reads_training": "Training",
       "reads_wellness": "Wohlbefinden",
-      "reads_former_coach": "ein früherer menschlicher Coach"
+      "reads_former_coach": "ein früherer menschlicher Coach",
+      "reads_source_plan_view": "dein Plan, aus den Gruppeninfos",
+      "reads_source_plan_command": "der Befehl /plan",
+      "reads_source_roster": "die Athletenliste",
+      "reads_source_coach_thread": "die Unterhaltung über dich",
+      "reads_source_group_room": "der Raum der Gruppe",
+      "reads_source_group_stats": "die Statistiken der Gruppe",
+      "reads_source_group_report": "der Wochenbericht der Gruppe",
+      "reads_source_group_health": "die Gesundheitshinweise der Gruppe",
+      "reads_source_weekly_digest": "die Wochenzusammenfassung der Gruppe"
     },
     "group-coach": {
       "description": "Den Dravr-Agenten dieser Gruppe festlegen oder ihren menschlichen Coach lösen"
@@ -2849,7 +2858,16 @@
       "training": "Training",
       "wellness": "Wohlbefinden",
       "formerCoach": "Ein früherer Coach",
-      "loadFailed": "Die Zugriffe deines Coaches konnten nicht geladen werden."
+      "loadFailed": "Die Zugriffe deines Coaches konnten nicht geladen werden.",
+      "sourcePlanView": "Dein Plan, in den Gruppeninfos",
+      "sourcePlanCommand": "Der Befehl /plan",
+      "sourceRoster": "Die Athletenliste",
+      "sourceCoachThread": "Die Unterhaltung über dich",
+      "sourceGroupRoom": "Der Raum der Gruppe",
+      "sourceGroupStats": "Die Statistiken der Gruppe",
+      "sourceGroupReport": "Der Wochenbericht der Gruppe",
+      "sourceGroupHealth": "Die Gesundheitshinweise der Gruppe",
+      "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe"
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. Gilt nur für diese Gruppe.",

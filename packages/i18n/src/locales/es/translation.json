@@ -1692,7 +1692,16 @@
       "reads_none": "{0}: tu entrenador humano no ha consultado tus datos en los últimos {1} meses.",
       "reads_training": "entrenamiento",
       "reads_wellness": "bienestar",
-      "reads_former_coach": "un antiguo entrenador humano"
+      "reads_former_coach": "un antiguo entrenador humano",
+      "reads_source_plan_view": "tu plan, desde Info del grupo",
+      "reads_source_plan_command": "el comando /plan",
+      "reads_source_roster": "su lista de atletas",
+      "reads_source_coach_thread": "su conversación sobre ti",
+      "reads_source_group_room": "la sala del grupo",
+      "reads_source_group_stats": "las estadísticas del grupo",
+      "reads_source_group_report": "el informe semanal del grupo",
+      "reads_source_group_health": "las alertas de salud del grupo",
+      "reads_source_weekly_digest": "su resumen semanal del grupo"
     },
     "group-coach": {
       "description": "Elegir el agente Dravr de este grupo, o desvincular a su coach humano"
@@ -2849,7 +2858,16 @@
       "training": "entrenamiento",
       "wellness": "bienestar",
       "formerCoach": "Un antiguo entrenador",
-      "loadFailed": "No se pudieron cargar las consultas de tu entrenador."
+      "loadFailed": "No se pudieron cargar las consultas de tu entrenador.",
+      "sourcePlanView": "Tu plan, en Info del grupo",
+      "sourcePlanCommand": "El comando /plan",
+      "sourceRoster": "Su lista de atletas",
+      "sourceCoachThread": "Su conversación sobre ti",
+      "sourceGroupRoom": "La sala del grupo",
+      "sourceGroupStats": "Las estadísticas del grupo",
+      "sourceGroupReport": "El informe semanal del grupo",
+      "sourceGroupHealth": "Las alertas de salud del grupo",
+      "sourceWeeklyDigest": "Su resumen semanal del grupo"
     },
     "shareTraining": "Compartir mi entrenamiento con mi coach",
     "shareTrainingHint": "Tu coach ve tu entrenamiento, tu plan y tus mensajes en el chat de este grupo. Solo afecta a este grupo.",

@@ -1692,7 +1692,16 @@
       "reads_none": "{0} : ton coach humain n'a consulté aucune de tes données ces {1} derniers mois.",
       "reads_training": "entraînement",
       "reads_wellness": "bien-être",
-      "reads_former_coach": "un ancien coach humain"
+      "reads_former_coach": "un ancien coach humain",
+      "reads_source_plan_view": "ton plan, depuis Infos du groupe",
+      "reads_source_plan_command": "la commande /plan",
+      "reads_source_roster": "sa liste d'athlètes",
+      "reads_source_coach_thread": "sa conversation à ton sujet",
+      "reads_source_group_room": "le salon du groupe",
+      "reads_source_group_stats": "les statistiques du groupe",
+      "reads_source_group_report": "le rapport hebdomadaire du groupe",
+      "reads_source_group_health": "les signaux de santé du groupe",
+      "reads_source_weekly_digest": "son résumé hebdomadaire du groupe"
     },
     "group-coach": {
       "description": "Choisir l'agent Dravr de ce groupe, ou détacher son coach humain"
@@ -2849,7 +2858,16 @@
       "training": "entraînement",
       "wellness": "bien-être",
       "formerCoach": "Un ancien coach",
-      "loadFailed": "Impossible de charger les consultations de ton coach."
+      "loadFailed": "Impossible de charger les consultations de ton coach.",
+      "sourcePlanView": "Ton plan, dans Infos du groupe",
+      "sourcePlanCommand": "La commande /plan",
+      "sourceRoster": "Sa liste d'athlètes",
+      "sourceCoachThread": "Sa conversation à ton sujet",
+      "sourceGroupRoom": "Le salon du groupe",
+      "sourceGroupStats": "Les statistiques du groupe",
+      "sourceGroupReport": "Le rapport hebdomadaire du groupe",
+      "sourceGroupHealth": "Les signaux de santé du groupe",
+      "sourceWeeklyDigest": "Son résumé hebdomadaire du groupe"
     },
     "shareTraining": "Partager mon entraînement avec mon coach",
     "shareTrainingHint": "Ton coach voit ton entraînement, ton plan et tes messages dans la discussion de ce groupe. Ne s’applique qu’à ce groupe.",
