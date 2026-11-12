@@ -165,7 +165,12 @@ pub(super) async fn run_live_read(
         Some(handoff) => (handoff.authenticated, Some(handoff.reply)),
         None => (None, None),
     };
-    let output = read_once(job, authenticated).await;
+    // Taken before the session is read, whoever authenticated it: a reconnect
+    // that lands during a long scrape is newer than the failure it reports.
+    let attempt_started_at = authenticated
+        .as_ref()
+        .map_or_else(Utc::now, |authenticated| authenticated.attempt_started_at);
+    let output = read_once(job, authenticated, attempt_started_at).await;
     let attempt = Attempt::of(&output.read);
     let delivered = reply.is_some_and(|reply| reply.send(output).is_ok());
     match (attempt, recorded) {
@@ -181,7 +186,7 @@ pub(super) async fn run_live_read(
         }
         (Attempt::AuthRequired, recorded) => {
             if !delivered {
-                notify_backfill_reauth(job, Utc::now()).await;
+                notify_backfill_reauth(job, attempt_started_at).await;
             }
             if let Some((lease, _)) = recorded {
                 remove_backfill_job(job, &lease, "auth_required").await;
@@ -210,13 +215,14 @@ pub(super) async fn run_live_read(
 async fn read_once(
     job: &ActivityBackfillJob,
     authenticated: Option<Authenticated>,
+    attempt_started_at: DateTime<Utc>,
 ) -> LiveReadOutput {
     let Authenticated {
         provider,
         attempt_started_at,
     } = match authenticated {
         Some(authenticated) => authenticated,
-        None => match authenticate(job).await {
+        None => match authenticate(job, attempt_started_at).await {
             Ok(authenticated) => authenticated,
             Err(e) => {
                 return LiveReadOutput {
@@ -265,8 +271,10 @@ async fn read_once(
 }
 
 /// Authenticate the job's provider for an attempt no turn handed one to.
-async fn authenticate(job: &ActivityBackfillJob) -> AppResult<Authenticated> {
-    let attempt_started_at = Utc::now();
+async fn authenticate(
+    job: &ActivityBackfillJob,
+    attempt_started_at: DateTime<Utc>,
+) -> AppResult<Authenticated> {
     let provider = AuthService::new(job.resources.clone())
         .create_authenticated_provider(
             &job.provider_name,

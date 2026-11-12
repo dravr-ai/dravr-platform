@@ -49,11 +49,13 @@ use uuid::Uuid;
 const PROVIDER: &str = "sciotte";
 const BUDGET: StdDuration = StdDuration::from_millis(200);
 
-/// A provider whose list read waits until the test notifies it.
+/// A provider whose list read waits until the test notifies it, then
+/// answers its rows — or, when `expired`, finds its session signed out.
 struct GatedProvider {
     config: ProviderConfig,
     gate: Arc<Notify>,
     rows: Vec<Activity>,
+    expired: bool,
 }
 
 #[async_trait]
@@ -87,6 +89,9 @@ impl FitnessProvider for GatedProvider {
         _params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
         self.gate.notified().await;
+        if self.expired {
+            return Err(AppError::provider_auth_required(PROVIDER));
+        }
         Ok(self.rows.clone())
     }
 
@@ -131,6 +136,7 @@ fn gated(gate: &Arc<Notify>, rows: Vec<Activity>) -> Box<GatedProvider> {
         },
         gate: Arc::clone(gate),
         rows,
+        expired: false,
     })
 }
 
@@ -650,4 +656,56 @@ async fn the_sweep_resumes_a_live_read_whose_instance_died() {
         .await
         .unwrap();
     assert_eq!(state, None, "bug: a settled live read leaves no row behind");
+}
+
+/// The session a live read was reading expires mid-scrape, after the athlete
+/// reconnected: the reconnected connection is newer than the failure, so it
+/// stays active and nothing tells them to reconnect again.
+#[cfg(feature = "client-messaging")]
+#[tokio::test]
+async fn a_read_that_expires_after_a_reconnect_leaves_the_new_connection_alone() {
+    use pierre_core::models::{ConnectionStatus, ConnectionType};
+
+    let (runtime, notifier, user_id, tenant_id) = notified_runtime().await;
+    let connections = &runtime.repos().provider_connections;
+    connections
+        .register_connection(user_id, tenant_id, PROVIDER, &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    let read = asked(user_id, tenant_id, "conv-1", "msg-1");
+    sleep(StdDuration::from_millis(20)).await;
+
+    let gate = Arc::new(Notify::new());
+    let mut provider = gated(&gate, Vec::new());
+    provider.expired = true;
+    let outcome = read_live_window_within_budget(&runtime, provider, read, BUDGET).await;
+    assert!(
+        matches!(outcome, BudgetedRead::Cached(_)),
+        "the turn answers from the cache past its budget"
+    );
+    // The athlete reconnects while the scrape still runs on the old session.
+    connections
+        .register_connection(user_id, tenant_id, PROVIDER, &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    gate.notify_one();
+    wait_until_finished(&runtime, user_id, tenant_id).await;
+
+    let status = connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|c| c.provider == PROVIDER)
+        .expect("the connection exists")
+        .status;
+    assert_eq!(
+        status,
+        ConnectionStatus::Active,
+        "bug: a reconnect made while the read ran is flagged by the read's stale session"
+    );
+    assert!(
+        notifier.reauth.lock().unwrap().is_empty(),
+        "bug: a reconnected athlete is told to reconnect"
+    );
 }
