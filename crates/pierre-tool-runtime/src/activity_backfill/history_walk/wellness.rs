@@ -15,6 +15,9 @@
 //! inside [`history_walk_scope`], the only sync that reads a session beside
 //! a live push-fed grant.
 
+#[cfg(not(feature = "health-sync"))]
+use std::future::{ready, Ready};
+
 use super::super::ActivityBackfillJob;
 #[cfg(feature = "health-sync")]
 use chrono::{Days, NaiveDate};
@@ -96,10 +99,11 @@ pub(super) async fn copy_before_grant(job: &ActivityBackfillJob) -> bool {
     copy.is_ok()
 }
 
-/// No health sync in this build: no wellness to copy.
+/// No health sync in this build: no wellness to copy. Answers as a ready
+/// future so the walk awaits it exactly as it awaits the copy.
 #[cfg(not(feature = "health-sync"))]
-pub(super) async fn copy_before_grant(_job: &ActivityBackfillJob) -> bool {
-    true
+pub(super) fn copy_before_grant(_job: &ActivityBackfillJob) -> Ready<bool> {
+    ready(true)
 }
 
 /// What the windowed backfill's `result` — the records it wrote and the
