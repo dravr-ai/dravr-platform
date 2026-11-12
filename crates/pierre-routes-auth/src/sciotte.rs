@@ -38,6 +38,7 @@ use crate::sciotte_cancel::{
 };
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
+use crate::sign_in_grant::{connected_response, replace_dead_grant};
 use crate::trainingpeaks_account::spawn_login_probe;
 use crate::AuthRoutesContext;
 use pierre_core::errors::{AppError, ErrorCode};
@@ -345,14 +346,16 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 }
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
-/// After storing, raises `provider.connected` and warms the account's data from
-/// the session (see [`warm_from_session`]).
+/// After storing, raises `provider.connected`, warms the account's data from
+/// the session (see [`warm_from_session`]) and answers `connected` with the
+/// grant authorization it goes on to ([`connected_response`]).
 async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     session: &AuthSession,
     provider_name: &str,
+    link: Option<&LinkContext>,
 ) -> Result<Response, AppError> {
     let stored = persist_sciotte_session(
         &resources.repos,
@@ -382,62 +385,7 @@ async fn store_sciotte_session(
         provider_name,
     );
 
-    Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
-}
-
-/// Delete the dead OAuth grant a sign-in of `backend` just replaced, keeping
-/// everything it fetched (carnet#1494, JF's directive 3).
-///
-/// A grant whose refresh the provider refused reconnects only through this
-/// hosted sign-in, and the session now serves the provider, so the grant's
-/// token row and its connection row go. Nothing is revoked upstream and no
-/// data is purged: the activities and wellness it stored stay the athlete's.
-/// A live grant beside the session is left alone, as the session's fallback.
-/// A delete that fails is logged; the session serves either way, and the dead
-/// grant is never elected while its connection needs a reconnect.
-async fn replace_dead_grant(
-    resources: &AuthRoutesContext,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) {
-    let Some(grant) =
-        backend_resolver::flagged_grant(&resources.repos, user_id, tenant_id, backend).await
-    else {
-        return;
-    };
-    let deleted = match resources
-        .repos
-        .oauth_tokens
-        .delete_token(user_id, tenant_id, grant)
-        .await
-    {
-        Ok(()) => {
-            resources
-                .repos
-                .provider_connections
-                .remove_connection(user_id, tenant_id, grant)
-                .await
-        }
-        Err(e) => Err(e),
-    };
-    match deleted {
-        Ok(()) => info!(
-            user_id = %user_id,
-            tenant_id = %tenant_id,
-            grant,
-            backend,
-            "Sign-in over a dead grant: the grant's token and connection are deleted, its data kept"
-        ),
-        Err(e) => warn!(
-            user_id = %user_id,
-            tenant_id = %tenant_id,
-            grant,
-            backend,
-            error = %e,
-            "Sign-in over a dead grant: the grant's rows could not be deleted; the session serves"
-        ),
-    }
+    Ok(connected_response(resources, user_id, tenant_id, provider_name, link).await)
 }
 
 /// Start what a freshly stored session owes the account: an activity
@@ -581,7 +529,15 @@ async fn remote_login_to_response(
             if let Some(link) = link_context {
                 emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
             }
-            store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
+            store_sciotte_session(
+                resources,
+                user_id,
+                tenant_id,
+                &session,
+                provider_name,
+                link_context,
+            )
+            .await
         }
         LoginOutcome::OtpRequired {
             flow_id, rejected, ..

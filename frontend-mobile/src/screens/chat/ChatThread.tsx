@@ -680,9 +680,12 @@ export function ChatThread({
         <SciotteLoginModal
           visible
           onClose={signIn.close}
-          onConnected={() => {
+          onConnected={(followOn) => {
             signIn.close();
             void providerStatus.refreshAfterLink();
+            // Garmin signs in first and authorizes its grant, which pushes
+            // workouts, right after (carnet#1494).
+            if (followOn) void providerStatus.handleConnectProvider(followOn);
           }}
           target={signIn.target}
           consentRequired={signIn.consentRequired}

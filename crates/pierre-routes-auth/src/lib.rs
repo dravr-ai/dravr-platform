@@ -118,6 +118,8 @@ mod sciotte_prefetch;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_reuse;
 mod short_link;
+#[cfg(feature = "provider-sciotte")]
+mod sign_in_grant;
 mod signup_code;
 mod signup_guards;
 

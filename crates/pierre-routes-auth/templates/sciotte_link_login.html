@@ -250,6 +250,14 @@
                 clearError();
                 switch (data.status) {
                     case 'connected':
+                        // A provider whose own grant is still owed for its
+                        // writes (Garmin's, which pushes workouts) goes on to
+                        // that authorization, which returns to the success
+                        // page: sign-in first, then the grant (carnet#1494).
+                        if (data.oauth_follow_on && data.oauth_follow_on.authorization_url) {
+                            window.location.assign(data.oauth_follow_on.authorization_url);
+                            break;
+                        }
                         showPhase('success');
                         setTimeout(() => {
                             const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(CONFIG.target)

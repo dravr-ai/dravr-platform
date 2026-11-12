@@ -4,7 +4,7 @@
 // ABOUTME: What a provider card offers — how it connects or reconnects, and the sign-in its history needs
 // ABOUTME: The one decision both clients render from, so web and mobile cannot disagree on a tap, a pill or a refused grant
 
-import type { ExtendedProviderStatus, HistoryState, SciotteTarget } from '@pierre/shared-types';
+import type { ExtendedProviderStatus, HistoryState, SciotteLoginResponse, SciotteTarget } from '@pierre/shared-types';
 import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_PRESETS,
@@ -214,4 +214,14 @@ export function oauthFallbackTarget(
  */
 export function signInFallsBackToOAuth(reason: string | null | undefined): boolean {
   return reason === SIGN_IN_UNAVAILABLE || reason === SCIOTTE_LOGIN_CHALLENGE;
+}
+
+/**
+ * The provider whose own authorization a completed sign-in goes on to, or
+ * `null` (carnet#1494): a provider whose grant writes what its session cannot
+ * (Garmin's, which pushes workouts) connects and reconnects by its sign-in
+ * first and its grant right after, while the server says the grant is owed.
+ */
+export function oauthFollowOn(answer: SciotteLoginResponse): string | null {
+  return answer.status === 'connected' ? (answer.oauth_follow_on?.provider ?? null) : null;
 }

@@ -13,6 +13,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   HISTORY_ACTION_KEYS,
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  cardForSlug,
   cardStatus,
   connectPlan,
   noticeRequired,
@@ -482,7 +483,7 @@ export default function ProviderConnectionCards({
       <SciotteLoginModal
         isOpen={signIn !== null}
         onClose={() => setSignIn(null)}
-        onConnected={() => {
+        onConnected={(followOn) => {
           refetch();
           // The sign-in completes in-process (no OAuth callback URL), so we have to
           // explicitly bust the onboarding-status cache here. Without this, the
@@ -490,6 +491,9 @@ export default function ProviderConnectionCards({
           // next poll tick (5s), stranding the user on the connected card.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setSignIn(null);
+          // Garmin signs in first and authorizes its grant, which pushes
+          // workouts, right after (carnet#1494).
+          if (followOn) connectViaOAuth(followOn, cardForSlug(followOn, served));
         }}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}

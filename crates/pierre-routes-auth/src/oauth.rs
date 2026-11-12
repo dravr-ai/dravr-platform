@@ -807,7 +807,9 @@ pub(crate) async fn require_oauth_start_notice(
 /// (carnet#1494), whatever client asks for the OAuth: a shipped mobile build
 /// and the web card both still start it for a grant they read as connected.
 /// The start answers with the sign-in in the authorization's place, so no
-/// client needs to change; the link-token is minted for `channel`.
+/// client needs to change; the link-token is minted for `channel`. A grant
+/// that writes what its session cannot (Garmin's) beside a signed-in session
+/// starts its own authorization: the sign-in already serves (directive 8).
 ///
 /// # Errors
 /// The mint's error when the link-token cannot be encoded.
@@ -826,6 +828,11 @@ pub(crate) async fn dead_grant_sign_in_url(
     let Some(target) = backend_resolver::reconnect_target(grant) else {
         return Ok(None);
     };
+    if backend_resolver::grant_writes_beside_mirror(&resources.provider_registry, grant).is_some()
+        && backend_resolver::grant_beside_session(&resources.repos, user_id, tenant_id, grant).await
+    {
+        return Ok(None);
+    }
     info!(
         user_id = %user_id,
         provider = %provider,

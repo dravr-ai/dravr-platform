@@ -17,6 +17,7 @@ import {
   type ConnectPlanCard,
   SIGN_IN_UNAVAILABLE,
   oauthFallbackTarget,
+  oauthFollowOn,
   signInFallsBackToOAuth,
 } from '../src/connect-plan';
 
@@ -299,5 +300,19 @@ describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
     for (const reason of ['login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
       expect(signInFallsBackToOAuth(reason)).toBe(false);
     }
+  });
+});
+
+describe('oauthFollowOn', () => {
+  it('names the grant a connected Garmin sign-in goes on to (carnet#1494)', () => {
+    expect(
+      oauthFollowOn({ status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } }),
+    ).toBe('garmin');
+  });
+
+  it('is null when no grant is owed, and for any step short of connected', () => {
+    expect(oauthFollowOn({ status: 'connected', provider: 'sciotte', oauth_follow_on: null })).toBeNull();
+    expect(oauthFollowOn({ status: 'connected', provider: 'sciotte_coros' })).toBeNull();
+    expect(oauthFollowOn({ status: 'otp_required' })).toBeNull();
   });
 });

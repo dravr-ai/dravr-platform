@@ -507,6 +507,14 @@ export type SciotteLoginResponse =
       provider: string;
       /** Set when a recent stored session answered without a new login */
       short_circuit?: boolean;
+      /**
+       * The provider's own authorization this sign-in goes on to, while the
+       * grant that writes what the session cannot (Garmin's, which pushes
+       * workouts) is still owed and a seat is there for it: sign-in first,
+       * then the grant. `authorization_url` only for the hosted sign-in a
+       * provider's own link opens. Absent or `null` otherwise.
+       */
+      oauth_follow_on?: { provider: string; authorization_url?: string } | null;
     }
   | {
       status: 'two_factor_choice';

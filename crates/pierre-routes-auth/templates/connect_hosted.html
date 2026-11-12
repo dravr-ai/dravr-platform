@@ -157,7 +157,10 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username', oauth_fallback }]
+                // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username', oauth_fallback, oauth_owed? }]
+                // `oauth_owed`: the provider whose own authorization the card
+                // still owes for its writes (Garmin's grant, which pushes
+                // workouts): a connected card stays pickable and starts it.
                 // `history_state` ('needed'|'imported'|'not_applicable'):
                 // a connected card whose history is `needed` opens the
                 // credential sign-in that brings it in when
@@ -324,10 +327,15 @@
                     // A connected card whose history is still to bring in
                     // names what picking it does.
                     const historyOpen = p.connected && p.history_state === 'needed';
-                    const settled = p.connected && !historyOpen;
+                    // A connected card whose own authorization is still owed
+                    // for its writes starts it (carnet#1494).
+                    const grantOwed = p.connected && !historyOpen && Boolean(p.oauth_owed);
+                    const settled = p.connected && !historyOpen && !grantOwed;
                     tag.className = 'pc-tag' + (settled ? ' connected' : '');
                     tag.textContent = historyOpen
                         ? S.tagImportHistory
+                        : grantOwed
+                        ? S.tagAuthorize
                         : p.connected
                         ? S.tagConnected
                         : (p.kind === 'oauth'
@@ -340,6 +348,11 @@
                         btn.addEventListener('click', () => {
                             clearError();
                             pickCredentials(p, true);
+                        });
+                    } else if (grantOwed) {
+                        btn.addEventListener('click', () => {
+                            clearError();
+                            startOAuth(p.oauth_owed, false);
                         });
                     } else if (p.connected) {
                         btn.disabled = true;
@@ -508,6 +521,14 @@
                 clearError();
                 switch (data.status) {
                     case 'connected':
+                        // A provider whose own grant is still owed for its
+                        // writes (Garmin's, which pushes workouts) goes on to
+                        // that authorization: sign-in first, then the grant
+                        // (carnet#1494).
+                        if (!historyMode && data.oauth_follow_on && data.oauth_follow_on.provider) {
+                            startOAuth(data.oauth_follow_on.provider, false);
+                            break;
+                        }
                         if (historyMode) {
                             document.getElementById('success-message').textContent = S.historyCopying;
                         }

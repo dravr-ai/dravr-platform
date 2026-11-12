@@ -36,6 +36,7 @@ import {
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
   loginIdentifierField,
+  oauthFollowOn,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -61,7 +62,12 @@ type LoginMethod = 'email' | 'google' | 'apple';
 interface SciotteLoginModalProps {
   visible: boolean;
   onClose: () => void;
-  onConnected: () => void;
+  /**
+   * The sign-in stored its session. `followOn` names the provider's own
+   * authorization the sign-in goes on to (Garmin's grant, which pushes
+   * workouts; carnet#1494), which the caller starts.
+   */
+  onConnected: (followOn?: string) => void;
   target: SciotteTarget;
   /**
    * The account has not yet accepted this provider's exposure notice (the
@@ -371,7 +377,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected();
+        onConnected(oauthFollowOn(data) ?? undefined);
         setTimeout(onClose, 1500);
       } else if (data.status === 'two_factor_choice') {
         setTwoFactorOptions(data.options || []);
@@ -423,7 +429,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected();
+        onConnected(oauthFollowOn(data) ?? undefined);
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');
@@ -479,7 +485,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected();
+        onConnected(oauthFollowOn(data) ?? undefined);
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');

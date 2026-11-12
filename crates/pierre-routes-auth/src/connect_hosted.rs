@@ -75,6 +75,7 @@ use crate::connect_hosted_templates;
 use crate::hosted_page::{locale_for_reader, locale_for_token, PageStrings};
 use crate::oauth::{compute_providers_status, dead_grant_sign_in_url, require_oauth_start_notice};
 use crate::short_link::preferred_locale;
+use crate::sign_in_grant::oauth_follow_on;
 use crate::AuthRoutesContext;
 
 /// Catalogue cards the connect picker does not offer: the synthetic providers
@@ -185,6 +186,13 @@ struct ConnectProviderCard {
     /// or meets a challenge starts the provider's OAuth for `target` instead
     /// of showing the failure (carnet#1477). Wrong credentials never do.
     oauth_fallback: bool,
+    /// The provider whose own authorization the card still owes for its
+    /// writes, a seat being there for it (Garmin's grant, which pushes
+    /// workouts; [`oauth_follow_on`]): a connected card stays pickable and
+    /// starts it, and a sign-in of the card is followed by it. Absent
+    /// otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oauth_owed: Option<&'static str>,
 }
 
 /// Whether a not-yet-connected card's sign-in falls back to its provider's
@@ -269,6 +277,7 @@ async fn build_connect_providers(
                     form_url: None,
                     login_identifier: "email",
                     oauth_fallback: fallback,
+                    oauth_owed: None,
                 });
             }
             // Garmin: the Strava card's decision, against the Developer
@@ -278,6 +287,18 @@ async fn build_connect_providers(
             // the page opens for the same target when the OAuth start fails.
             "sciotte_garmin" | "sciotte_trainingpeaks" | "sciotte_coros" => {
                 if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
+                    let oauth_owed = match tenant_id {
+                        Some(tenant) => oauth_follow_on(
+                            resources,
+                            user_id,
+                            TenantId::from_uuid(tenant),
+                            &provider_name,
+                            None,
+                        )
+                        .await
+                        .map(|follow_on| follow_on.provider),
+                        None => None,
+                    };
                     let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
                     let history = history(&p);
                     let fallback = oauth_fallback(&p);
@@ -306,6 +327,7 @@ async fn build_connect_providers(
                             .login_identifier()
                             .as_str(),
                         oauth_fallback: fallback,
+                        oauth_owed,
                     });
                 }
             }
@@ -335,6 +357,7 @@ async fn build_connect_providers(
                 )),
                 login_identifier: "email",
                 oauth_fallback: false,
+                oauth_owed: None,
             }),
             // Any remaining OAuth provider (Whoop, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
@@ -352,6 +375,7 @@ async fn build_connect_providers(
                 form_url: None,
                 login_identifier: "email",
                 oauth_fallback: false,
+                oauth_owed: None,
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
             _ => {}
