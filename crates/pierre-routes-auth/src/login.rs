@@ -453,9 +453,10 @@ pub(crate) async fn handle_logout(
 
 /// Restore session from httpOnly cookie authentication
 ///
-/// Returns the authenticated user's info along with a fresh JWT (for WebSocket auth)
-/// and CSRF token. This allows the frontend to restore sessions on page refresh
-/// without storing JWT tokens in localStorage.
+/// Returns the authenticated user's info along with a fresh JWT and CSRF
+/// token. The JWT renews the web's httpOnly cookie, so a page refresh restores
+/// the session without a JWT in localStorage, and the mobile app stores it to
+/// slide its own session.
 #[tracing::instrument(
     skip(resources, headers),
     fields(route = "session", user_id = Empty, success = Empty)
@@ -506,8 +507,9 @@ pub(crate) async fn handle_session(
     };
     let tenant_id_for_response = active_tenant_id.clone();
 
-    // Generate a fresh JWT token for WebSocket authentication with
-    // active_tenant_id, naming the client the restored session was signed in to
+    // A fresh JWT for the restored session, in its active tenant and naming
+    // the client it was signed in to: it renews the httpOnly cookie below,
+    // and the mobile app stores it to slide its session (`renewSession`)
     let jwt_token = resources
         .auth_manager
         .generate_client_session_token(

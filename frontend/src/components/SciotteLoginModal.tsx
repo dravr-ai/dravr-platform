@@ -2,15 +2,22 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Login modal for sciotte provider — collects credentials, Pierre runs Chrome in-process
-// ABOUTME: Supports Google/Apple/email login methods with 2FA (OTP and phone tap)
+// ABOUTME: Supports Google/Apple/email login methods with 2FA (OTP and phone tap) and a provider robot check's takeover
 
-import { useCallback, useEffect, useId, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useState } from 'react';
 import { oauthApi } from '../services/api';
 import { startOAuthInThisTab } from '../utils/oauthReturn';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
-import { describeApiError, isSignInPhaseLive, refusalReason, useAbortOnClose, useSignInAttempt } from '@pierre/ui-logic';
+import {
+  describeApiError,
+  isSignInPhaseLive,
+  refusalReason,
+  takeoverResult,
+  useAbortOnClose,
+  useSignInAttempt,
+} from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
@@ -27,11 +34,22 @@ import {
   providerGlyphInk,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
-import type { SciotteTarget } from '@pierre/shared-types';
+import type { SciotteLoginResponse, SciotteTakeoverOutcome, SciotteTarget } from '@pierre/shared-types';
+import { parseLinkToken } from '../utils/tokenLink';
+
+/** The takeover's viewer (ADR-034): loaded only when a robot check parks a sign-in. */
+const TakeoverViewer = lazy(() => import('./takeover/TakeoverViewer'));
 
 // `logging-in` is the credential login, with its elapsed-time copy;
-// `verifying` is a continuation of it (a code, a 2FA pick), which is not.
-type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'verifying' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'success' | 'error';
+// `verifying` is a continuation of it (a code, a 2FA pick), which is not;
+// `takeover` is the athlete answering a provider's robot check themselves.
+type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'verifying' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'takeover' | 'success' | 'error';
+
+/** The takeover token a `takeover_required` answer's link carries in its fragment. */
+function takeoverToken(takeoverUrl: string): string | null {
+  const hash = takeoverUrl.indexOf('#');
+  return hash === -1 ? null : parseLinkToken(takeoverUrl.slice(hash));
+}
 
 interface TwoFactorOption {
   id: string;
@@ -102,10 +120,14 @@ export default function SciotteLoginModal({
   // the password field for the page underneath.
   const titleId = useId();
   const otpErrorId = useId();
-  const { containerRef } = useDialog({ open: isOpen, onClose });
+  const [phase, setPhase] = useState<LoginPhase>('choose');
+  // The mirror goes first (ADR-034, decision 5): an athlete who closes a
+  // takeover without finishing it, on a card that offers its OAuth, is handed
+  // to that OAuth rather than left with nothing.
+  const requestClose = phase === 'takeover' && onFallBackToOAuth ? onFallBackToOAuth : onClose;
+  const { containerRef } = useDialog({ open: isOpen, onClose: requestClose });
   // Closing the window ends the sign-in it started, on the server too.
   const beginRequest = useAbortOnClose(isOpen);
-  const [phase, setPhase] = useState<LoginPhase>('choose');
   // Each opening of the window is one sign-in attempt, named on every step.
   // Closing it while the server holds that attempt cancels it there: the
   // aborted request alone never gets past the hops in front of the API.
@@ -126,6 +148,8 @@ export default function SciotteLoginModal({
   const [showPassword, setShowPassword] = useState(false);
   const [matchNumber, setMatchNumber] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  // The takeover token while a provider's robot check is the athlete's to answer.
+  const [takeover, setTakeover] = useState<string | null>(null);
   const preset = SCIOTTE_LOGIN_PRESETS[target];
   const providerLabel = t(preset.labelKey);
   const accountField = loginIdentifierField(preset.identifier);
@@ -153,6 +177,7 @@ export default function SciotteLoginModal({
       setOtpCode('');
       setCodeRejected(false);
       setIsLoading(false);
+      setTakeover(null);
     }
   }, [isOpen, target]);
 
@@ -182,6 +207,70 @@ export default function SciotteLoginModal({
     [online, providerLabel, t]
   );
 
+  // The answer to the credential login — or the same answer a takeover ends
+  // with, since a takeover finishes that login.
+  const applyLoginAnswer = useCallback(
+    (data: SciotteLoginResponse) => {
+      if (data.status === 'connected') {
+        setPhase('success');
+        setStatus(t('app.connectedBang'));
+        onConnected();
+        setTimeout(onClose, 1500);
+      } else if (data.status === 'two_factor_choice') {
+        setTwoFactorOptions(data.options || []);
+        setPhase('two-factor');
+        setStatus(t('app.chooseVerificationMethodShort'));
+      } else if (data.status === 'otp_required') {
+        setPhase('otp');
+        setStatus(t('app.enterVerificationCode'));
+        setOtpCode('');
+        setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
+      } else if (data.status === 'number_match') {
+        // Defensive: only render the number-box UI when the server returned
+        // an actual 2-3 digit number. Some upstream paths (Google /challenge/dp)
+        // historically passed a placeholder string here, which made the modal
+        // try to render it as a giant number and overflowed the box.
+        const raw = data.number ?? null;
+        const isRealNumber = !!raw && /^\d{2,3}$/.test(raw);
+        setMatchNumber(isRealNumber ? raw : null);
+        setPhase(isRealNumber ? 'number-match' : 'waiting-approval');
+        setStatus(isRealNumber
+          ? t('shell.sciotteTapMatchingNumber')
+          : t('shell.sciotteApproveOnPhone'));
+      } else if (data.status === 'takeover_required') {
+        // The provider asks the athlete to prove they are not a robot: its
+        // page streams here, for them to answer (ADR-034).
+        const token = takeoverToken(data.takeover_url);
+        if (token) {
+          setTakeover(token);
+          setPhase('takeover');
+          setStatus('');
+        } else {
+          setError(t('auth.loginFailed'));
+          setPhase('error');
+        }
+      } else {
+        setError(data.error || t('auth.loginFailed'));
+        setPhase('error');
+      }
+    },
+    [onClose, onConnected, t]
+  );
+
+  // A refused credential login — or the same refusal a takeover ends with.
+  const applyLoginRefusal = useCallback(
+    (err: unknown) => {
+      if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+        onFallBackToOAuth();
+        return;
+      }
+      setError(refusalMessage(err, 'auth.loginFailed'));
+      setPhase('error');
+      if (refusalReloadsCards(refusalReason(err))) onPlanChanged?.();
+    },
+    [onFallBackToOAuth, onPlanChanged, refusalMessage]
+  );
+
   // Email/password login — in-process headless Chrome
   const handleEmailLogin = useCallback(
     async (e: React.FormEvent) => {
@@ -203,53 +292,48 @@ export default function SciotteLoginModal({
           target,
           ...(notice ? { tos_consent: consentAccepted } : {}),
         }, { signal, attemptId: attemptId() });
-
-        if (data.status === 'connected') {
-          setPhase('success');
-          setStatus(t('app.connectedBang'));
-          onConnected();
-          setTimeout(onClose, 1500);
-        } else if (data.status === 'two_factor_choice') {
-          setTwoFactorOptions(data.options || []);
-          setPhase('two-factor');
-          setStatus(t('app.chooseVerificationMethodShort'));
-        } else if (data.status === 'otp_required') {
-          setPhase('otp');
-          setStatus(t('app.enterVerificationCode'));
-          setOtpCode('');
-          setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
-        } else if (data.status === 'number_match') {
-          // Defensive: only render the number-box UI when the server returned
-          // an actual 2-3 digit number. Some upstream paths (Google /challenge/dp)
-          // historically passed a placeholder string here, which made the modal
-          // try to render it as a giant number and overflowed the box.
-          const raw = data.number ?? null;
-          const isRealNumber = !!raw && /^\d{2,3}$/.test(raw);
-          setMatchNumber(isRealNumber ? raw : null);
-          setPhase(isRealNumber ? 'number-match' : 'waiting-approval');
-          setStatus(isRealNumber
-            ? t('shell.sciotteTapMatchingNumber')
-            : t('shell.sciotteApproveOnPhone'));
-        } else {
-          setError(data.error || t('auth.loginFailed'));
-          setPhase('error');
-        }
+        applyLoginAnswer(data);
       } catch (err) {
         // The window was closed: nothing is left to tell.
         if (signal.aborted) return;
-        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-          onFallBackToOAuth();
-          return;
-        }
-        setError(refusalMessage(err, 'auth.loginFailed'));
-        setPhase('error');
-        if (refusalReloadsCards(refusalReason(err))) onPlanChanged?.();
+        applyLoginRefusal(err);
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, onClose, onConnected, onPlanChanged, onFallBackToOAuth, refusalMessage, t]
+    [email, password, method, target, notice, consentAccepted, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]
   );
+
+  // The takeover's last word: read as the login's own answer, or its refusal.
+  // One that ended with nothing to say asks the athlete to connect again.
+  // Unless the answer continues the sign-in (a code, a 2FA pick), the next
+  // try is a new attempt: the server may have ended this one with the
+  // takeover, and refuses every later step that names it.
+  const handleTakeoverOutcome = useCallback(
+    (outcome: SciotteTakeoverOutcome) => {
+      setTakeover(null);
+      const result = takeoverResult(outcome);
+      if (result.kind !== 'answer' || result.data.status === 'failed') attemptId.renew();
+      if (result.kind === 'answer') {
+        applyLoginAnswer(result.data);
+      } else if (result.kind === 'refusal') {
+        applyLoginRefusal(result.error);
+      } else {
+        setError(t('shell.sciotteTakeoverEnded', { provider: providerLabel }));
+        setPhase('error');
+      }
+    },
+    [applyLoginAnswer, applyLoginRefusal, attemptId, providerLabel, t]
+  );
+
+  // The takeover's socket closed with no answer: the sign-in is over, and
+  // the server cancelled its attempt, so the next try is a new one.
+  const handleTakeoverEnded = useCallback(() => {
+    setTakeover(null);
+    attemptId.renew();
+    setError(t('shell.sciotteTakeoverEnded', { provider: providerLabel }));
+    setPhase('error');
+  }, [attemptId, providerLabel, t]);
 
   // What a refused continuation tells the user.
   const continuationError = useCallback(
@@ -421,7 +505,7 @@ export default function SciotteLoginModal({
       <div
         ref={containerRef}
         tabIndex={-1}
-        className="bg-surface-container-highest rounded-2xl border ghost-border max-w-md w-full mx-4 overflow-hidden"
+        className={`bg-surface-container-highest rounded-2xl border ghost-border w-full mx-4 overflow-hidden ${phase === 'takeover' ? 'max-w-xl' : 'max-w-md'}`}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b ghost-border">
@@ -455,7 +539,7 @@ export default function SciotteLoginModal({
             </div>
           </div>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             className="p-2 rounded-lg hover:bg-surface-container text-on-surface/60 hover:text-on-surface transition-colors"
             title={t('common.close')}
             aria-label={t('shell.sciotteCloseModalAria')}
@@ -466,7 +550,7 @@ export default function SciotteLoginModal({
           </button>
         </div>
 
-        <div className="p-6">
+        <div className={phase === 'takeover' ? 'p-4 sm:p-6' : 'p-6'}>
           {/* Phase: Choose */}
           {phase === 'choose' && (
             <div className="space-y-3">
@@ -725,6 +809,21 @@ export default function SciotteLoginModal({
                 </Button>
               </form>
             </div>
+          )}
+
+          {/* Phase: Takeover — the athlete answers the provider's robot check
+              in a live view of the parked sign-in (ADR-034) */}
+          {phase === 'takeover' && takeover && (
+            <Suspense fallback={null}>
+              <TakeoverViewer
+                key={takeover}
+                token={takeover}
+                providerLabel={providerLabel}
+                oauthOffered={onFallBackToOAuth !== undefined}
+                onOutcome={handleTakeoverOutcome}
+                onEnded={handleTakeoverEnded}
+              />
+            </Suspense>
           )}
 
           {/* Phase: Success */}

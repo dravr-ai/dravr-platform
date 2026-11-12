@@ -37,3 +37,4 @@ r             # proxied
 ready         # edge: container readiness
 tenants       # proxied (bare-path alternative: POST/GET /tenants)
 webhooks      # proxied
+ws            # proxied: nginx `location /ws` carries the upgrade (the login takeover socket, ADR-034)

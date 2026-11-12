@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ACCEPT_INVITATION_PATH, VERIFY_EMAIL_PATH, parseLinkToken } from '../tokenLink';
+import { ACCEPT_INVITATION_PATH, TAKEOVER_PATH, VERIFY_EMAIL_PATH, parseLinkToken } from '../tokenLink';
 
 const TOKEN = 'AbCd1234EfGh5678.IjKl9012MnOp3456QrSt7890UvWx1234';
 
@@ -39,6 +39,10 @@ describe('a token fragment and the dashboard deep link', () => {
 
   it('does not hold the confirmation token as a link to reopen after sign-in', async () => {
     expect(await deepLinkAfterLoading(`${VERIFY_EMAIL_PATH}#token=${TOKEN}`)).toBeNull();
+  });
+
+  it('does not hold the takeover token as a link to reopen after sign-in', async () => {
+    expect(await deepLinkAfterLoading(`${TAKEOVER_PATH}#token=${TOKEN}`)).toBeNull();
   });
 
   it('still holds a followed dashboard link on any other page', async () => {

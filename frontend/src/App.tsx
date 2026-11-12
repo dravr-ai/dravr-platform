@@ -4,7 +4,7 @@
 // ABOUTME: Root of the web app: reads the links a page load arrives on (OAuth return, invitation, confirmation, signup)
 // ABOUTME: Gates on authentication and account status, then renders onboarding or the dashboard inside the app providers
 
-import { useState, useEffect } from 'react';
+import { lazy, Suspense, useState, useEffect } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import Login from './components/Login';
 import Register from './components/Register';
@@ -12,7 +12,7 @@ import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import VerifyEmail from './components/VerifyEmail';
 import AcceptInvitation from './components/AcceptInvitation';
-import { ACCEPT_INVITATION_PATH, VERIFY_EMAIL_PATH, parseLinkToken } from './utils/tokenLink';
+import { ACCEPT_INVITATION_PATH, TAKEOVER_PATH, VERIFY_EMAIL_PATH, parseLinkToken } from './utils/tokenLink';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -37,6 +37,9 @@ import { importTombstoneFromReturn } from '@pierre/ui-logic';
 import { returnToConnectStart, settleOAuthReturn, type OAuthCallbackParams } from './utils/oauthReturn';
 import { queryClient } from './services/queryClient';
 import './App.css';
+
+/** The login takeover page (ADR-034), split out of the entry bundle. */
+const SignInCheck = lazy(() => import('./components/SignInCheck'));
 
 /**
  * Check if the current URL has OAuth callback parameters
@@ -69,6 +72,13 @@ function isVerifyEmailPath(): boolean {
  */
 function isAcceptInvitationPath(): boolean {
   return window.location.pathname === ACCEPT_INVITATION_PATH;
+}
+
+/**
+ * Whether the current URL is a login takeover: /sign-in-check#token=…
+ */
+function isTakeoverPath(): boolean {
+  return window.location.pathname === TAKEOVER_PATH;
 }
 
 /**
@@ -125,6 +135,11 @@ function AppContent() {
   // when this page load is not an invitation link.
   const [invitationToken, setInvitationToken] = useState<string | null | undefined>(() =>
     isAcceptInvitationPath() ? parseLinkToken(window.location.hash) : undefined,
+  );
+  // The takeover token, read once from the link's fragment. `undefined` when
+  // this page load is not a takeover link.
+  const [takeoverToken] = useState<string | null | undefined>(() =>
+    isTakeoverPath() ? parseLinkToken(window.location.hash) : undefined,
   );
 
   // Adopt the viewer's language for the whole app, not just the screen that
@@ -203,6 +218,12 @@ function AppContent() {
     if (isAcceptInvitationPath() || isVerifyEmailPath()) {
       window.history.replaceState({}, document.title, '/');
     }
+    // The takeover token leaves the address bar too, but the page stays: a
+    // reload there shows that the sign-in ended (closing its socket ended
+    // it), never the dashboard.
+    if (isTakeoverPath()) {
+      window.history.replaceState({}, document.title, TAKEOVER_PATH);
+    }
   }, []);
 
   // Check for group invite link on mount: /groups/join/:code
@@ -214,6 +235,19 @@ function AppContent() {
       window.history.replaceState({}, document.title, '/');
     }
   }, []);
+
+  // Login takeover (ADR-034). Rendered before every auth branch: the hosted
+  // sign-in pages and the phone app's WebView open it with no session, and
+  // its token is all the takeover socket asks for.
+  // Loaded on demand: only a takeover link opens it, so its viewer stays out
+  // of every other page's first paint.
+  if (takeoverToken !== undefined) {
+    return (
+      <Suspense fallback={null}>
+        <SignInCheck token={takeoverToken} />
+      </Suspense>
+    );
+  }
 
   // Invitation landing. Rendered before every auth branch for the same reason
   // as the email-confirmation landing below: the invitee arrives from a mail

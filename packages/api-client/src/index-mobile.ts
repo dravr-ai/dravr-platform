@@ -91,7 +91,7 @@ export type {
   ListAgentsOptions,
 } from './domains/coaches';
 
-export { createOAuthApi } from './domains/oauth';
+export { createOAuthApi, sciotteTakeoverSocketUrl } from './domains/oauth';
 export type {
   OAuthApi,
   MobileOAuthInitResponse,

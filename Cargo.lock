@@ -1443,8 +1443,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=4d7b52fe348
 
 [[package]]
 name = "dravr-enforme"
-version = "0.17.1"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.17.1#9a0ff158f9b61c7190bfbed05e8680107b1512df"
+version = "0.18.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.18.0#7715acf1a0a7ea7214dbbbc7e9da2fdb73a7fc4c"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1507,8 +1507,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "1.4.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.4.0#1300da115fb08da19d15bcabc46cd0b96c18b971"
+version = "2.0.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v2.0.0#5d191daababce5fae9fabbcfbc4c0e3e52eacdae"
 dependencies = [
  "async-trait",
  "chrono",
@@ -4316,6 +4316,8 @@ dependencies = [
  "chrono",
  "dravr-enforme",
  "dravr-sciotte",
+ "dravr-tronc",
+ "futures",
  "hex",
  "hmac",
  "pierre-auth",
@@ -6423,7 +6425,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7269,7 +7271,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]

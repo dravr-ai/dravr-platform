@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Sciotte credential login modal for mobile — collects email/password for headless Chrome login
-// ABOUTME: Supports Google/Apple/email methods with 2FA (OTP, phone tap, number match)
+// ABOUTME: Supports Google/Apple/email methods with 2FA (OTP, phone tap, number match) and a provider robot check's takeover
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
@@ -28,8 +28,9 @@ import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
 import { signInOauthRequiredLine } from '../utils/connectFlow';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
-import type { SciotteTarget } from '@pierre/shared-types';
+import type { SciotteLoginResponse, SciotteTakeoverBridgeMessage, SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
+import { TakeoverWebView } from './auth/TakeoverWebView';
 import { ProviderNotice } from './ProviderNotice';
 import {
   SCIOTTE_CODE_REJECTED,
@@ -42,10 +43,18 @@ import {
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { PROVIDER_BRAND } from '../constants/brands';
-import { describeApiError, isSignInPhaseLive, refusalReason, useAbortOnClose, useSignInAttempt } from '@pierre/ui-logic';
+import {
+  describeApiError,
+  isSignInPhaseLive,
+  refusalReason,
+  takeoverResult,
+  useAbortOnClose,
+  useSignInAttempt,
+} from '@pierre/ui-logic';
 
 // `logging-in` is the credential login, shown with its connecting copy;
-// `verifying` is a code or a 2FA pick being checked, shown with its status only.
+// `verifying` is a code or a 2FA pick being checked, shown with its status only;
+// `takeover` is the athlete answering a provider's robot check themselves.
 type LoginPhase =
   | 'choose'
   | 'credentials'
@@ -55,6 +64,7 @@ type LoginPhase =
   | 'waiting-approval'
   | 'number-match'
   | 'otp'
+  | 'takeover'
   | 'success'
   | 'error';
 
@@ -243,7 +253,12 @@ export function SciotteLoginModal({
   // push the password and Log In below the fold.
   const { height: windowHeight } = useWindowDimensions();
   const contentMaxHeight = Math.max(420, Math.round(windowHeight * 0.65));
+  // The takeover's page takes most of the sheet: the provider's check is
+  // drawn at the size of this view.
+  const takeoverHeight = Math.max(480, Math.round(windowHeight * 0.6));
   const [phase, setPhase] = useState<LoginPhase>('choose');
+  // The takeover page's link while a provider's robot check is the athlete's to answer.
+  const [takeoverUrl, setTakeoverUrl] = useState<string | null>(null);
   // Each opening of the window is one sign-in attempt, named on every step.
   // Closing it while the server holds that attempt cancels it there: the
   // aborted request alone never gets past the hops in front of the API.
@@ -297,6 +312,7 @@ export function SciotteLoginModal({
       setCodeRejected(false);
       setIsLoading(false);
       setShowPassword(false);
+      setTakeoverUrl(null);
     }
   }, [visible, target]);
 
@@ -360,6 +376,50 @@ export function SciotteLoginModal({
     [platformName, t]
   );
 
+  // The answer to the credential login — or the same answer a takeover ends
+  // with, since a takeover finishes that login.
+  const applyLoginAnswer = useCallback((data: SciotteLoginResponse) => {
+    if (data.status === 'connected') {
+      setPhase('success');
+      setStatus(t('app.connectedBang'));
+      onConnected();
+      setTimeout(onClose, 1500);
+    } else if (data.status === 'two_factor_choice') {
+      setTwoFactorOptions(data.options || []);
+      setPhase('two-factor');
+      setStatus(t('app.verificationRequired'));
+    } else if (data.status === 'otp_required') {
+      setPhase('otp');
+      setStatus(t('app.enterVerificationCode'));
+      setOtpCode('');
+      setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
+    } else if (data.status === 'number_match') {
+      setMatchNumber(data.number || null);
+      setPhase('number-match');
+      setStatus(t('app.confirmOnDevice'));
+    } else if (data.status === 'takeover_required') {
+      // The provider asks the athlete to prove they are not a robot: the web
+      // app's takeover page streams its check here (ADR-034).
+      setTakeoverUrl(data.takeover_url);
+      setPhase('takeover');
+      setStatus('');
+    } else {
+      setError(data.error || t('auth.loginFailed'));
+      setPhase('error');
+    }
+  }, [onClose, onConnected, t]);
+
+  // A refused credential login — or the same refusal a takeover ends with.
+  const applyLoginRefusal = useCallback((err: unknown) => {
+    if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
+      onFallBackToOAuth();
+      return;
+    }
+    setError(refusalMessage(err, 'auth.loginFailed'));
+    setPhase('error');
+    if (refusalReason(err) === SIGN_IN_OAUTH_REQUIRED) onOAuthRequired?.();
+  }, [onFallBackToOAuth, onOAuthRequired, refusalMessage]);
+
   const handleLogin = useCallback(async () => {
     if (!email || !password) return;
     if (notice && !consentAccepted) return;
@@ -378,43 +438,44 @@ export function SciotteLoginModal({
         target,
         ...(notice ? { tos_consent: consentAccepted } : {}),
       }, { signal, attemptId: attemptId() });
-
-      if (data.status === 'connected') {
-        setPhase('success');
-        setStatus(t('app.connectedBang'));
-        onConnected();
-        setTimeout(onClose, 1500);
-      } else if (data.status === 'two_factor_choice') {
-        setTwoFactorOptions(data.options || []);
-        setPhase('two-factor');
-        setStatus(t('app.verificationRequired'));
-      } else if (data.status === 'otp_required') {
-        setPhase('otp');
-        setStatus(t('app.enterVerificationCode'));
-        setOtpCode('');
-        setCodeRejected(data.reason === SCIOTTE_CODE_REJECTED);
-      } else if (data.status === 'number_match') {
-        setMatchNumber(data.number || null);
-        setPhase('number-match');
-        setStatus(t('app.confirmOnDevice'));
-      } else {
-        setError(data.error || t('auth.loginFailed'));
-        setPhase('error');
-      }
+      applyLoginAnswer(data);
     } catch (err) {
       // The window was closed: nothing is left to tell.
       if (signal.aborted) return;
-      if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-        onFallBackToOAuth();
-        return;
-      }
-      setError(refusalMessage(err, 'auth.loginFailed'));
-      setPhase('error');
-      if (refusalReason(err) === SIGN_IN_OAUTH_REQUIRED) onOAuthRequired?.();
+      applyLoginRefusal(err);
     } finally {
       if (!signal.aborted) setIsLoading(false);
     }
-  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, onClose, onConnected, onOAuthRequired, onFallBackToOAuth, refusalMessage, t]);
+  }, [email, password, method, target, notice, consentAccepted, platformName, beginRequest, attemptId, applyLoginAnswer, applyLoginRefusal, t]);
+
+  // What the takeover page says: connected, or over — with the answer it
+  // ended with, read as the login's own, or with none, which asks the athlete
+  // to connect again.
+  // Unless the answer continues the sign-in (a code, a 2FA pick), the next
+  // try is a new attempt: the server may have ended this one with the
+  // takeover, and refuses every later step that names it.
+  const handleTakeoverMessage = useCallback((message: SciotteTakeoverBridgeMessage) => {
+    setTakeoverUrl(null);
+    if (message.type === 'connected') {
+      applyLoginAnswer({ status: 'connected', provider: preset.backend });
+      return;
+    }
+    const result = message.outcome ? takeoverResult(message.outcome) : { kind: 'ended' as const };
+    if (result.kind !== 'answer' || result.data.status === 'failed') attemptId.renew();
+    if (result.kind === 'answer') {
+      applyLoginAnswer(result.data);
+    } else if (result.kind === 'refusal') {
+      applyLoginRefusal(result.error);
+    } else {
+      setError(t('shell.sciotteTakeoverEnded', { provider: platformName }));
+      setPhase('error');
+    }
+  }, [applyLoginAnswer, applyLoginRefusal, attemptId, platformName, preset.backend, t]);
+
+  // The mirror goes first (ADR-034, decision 5): an athlete who closes a
+  // takeover without finishing it, on a card that offers its OAuth, is handed
+  // to that OAuth. Either way the close cancels the attempt the takeover holds.
+  const requestClose = phase === 'takeover' && onFallBackToOAuth ? onFallBackToOAuth : onClose;
 
   // What a refused continuation tells the user.
   const continuationError = useCallback(
@@ -815,6 +876,15 @@ export function SciotteLoginModal({
       );
     }
 
+    // Takeover: the provider's robot check, answered in the web app's page
+    if (phase === 'takeover' && takeoverUrl) {
+      return (
+        <View testID="sciotte-takeover">
+          <TakeoverWebView url={takeoverUrl} onMessage={handleTakeoverMessage} height={takeoverHeight} />
+        </View>
+      );
+    }
+
     // OTP input
     if (phase === 'otp') {
       return (
@@ -925,7 +995,7 @@ export function SciotteLoginModal({
 
   return (
     <>
-    <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={requestClose}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         className="flex-1"
@@ -938,7 +1008,7 @@ export function SciotteLoginModal({
         <TouchableOpacity
           className="flex-1 bg-scrim/60 justify-end"
           activeOpacity={1}
-          onPress={onClose}
+          onPress={requestClose}
           accessible={false}
         >
           <View
@@ -987,7 +1057,10 @@ export function SciotteLoginModal({
               </View>
               <TouchableOpacity
                 className="w-8 h-8 rounded-full bg-background-secondary items-center justify-center"
-                onPress={onClose}
+                onPress={requestClose}
+                accessibilityRole="button"
+                accessibilityLabel={t('common.close')}
+                testID="sciotte-modal-close"
               >
                 <X size={16} color={colors.text.tertiary} />
               </TouchableOpacity>
@@ -996,9 +1069,10 @@ export function SciotteLoginModal({
             {/* Content */}
             <ScrollView
               className="px-6 pt-2 pb-4"
-              style={{ maxHeight: contentMaxHeight }}
+              style={{ maxHeight: phase === 'takeover' ? takeoverHeight + 24 : contentMaxHeight }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
+              scrollEnabled={phase !== 'takeover'}
             >
               {renderContent()}
             </ScrollView>

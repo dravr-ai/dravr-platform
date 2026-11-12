@@ -15,7 +15,13 @@ default = []
 # Health backfill kicks in after a successful OAuth connection (handled inside oauth.rs handler).
 health-sync = ["pierre-services/health-sync", "dep:dravr-enforme"]
 # Sciotte (Strava-mirror) provider routes: credential login + hosted login pages.
-provider-sciotte = ["dep:dravr-sciotte", "pierre-providers/provider-sciotte"]
+provider-sciotte = [
+    "dep:dravr-sciotte",
+    "dep:dravr-tronc",
+    "dep:futures",
+    "axum/ws",
+    "pierre-providers/provider-sciotte",
+]
 
 [dependencies]
 secrecy = { workspace = true }
@@ -52,6 +58,10 @@ uuid = { version = "1.29", features = ["v4", "serde"] }
 
 # Sciotte (provider-sciotte feature)
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }
+# The takeover relay's sciotte leg is tronc's ServiceClient socket, and its
+# viewer leg axum's (provider-sciotte turns on axum's ws).
+dravr-tronc = { workspace = true, optional = true, features = ["service-client"] }
+futures = { version = "0.3", optional = true }
 
 # Health backfill (health-sync feature)
 dravr-enforme = { workspace = true, optional = true }
