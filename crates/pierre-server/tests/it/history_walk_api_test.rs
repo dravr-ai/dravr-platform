@@ -48,7 +48,7 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, ONE_DAY};
-use pierre_tool_runtime::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
+use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::SecretString;
@@ -335,14 +335,7 @@ async fn a_strava_grant_is_walked_a_year_a_window_down_to_the_account_creation()
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(
-            &runtime,
-            user_id,
-            tenant,
-            oauth_providers::STRAVA,
-            WalkTrigger::Connected
-        )
-        .await,
+        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
         "bug: a live grant is walked"
     );
     walk_ended(&resources, user_id, tenant).await;
@@ -417,14 +410,7 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(
-            &runtime,
-            user_id,
-            tenant,
-            oauth_providers::STRAVA,
-            WalkTrigger::Connected
-        )
-        .await,
+        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
         "bug: a live grant is walked"
     );
     let deadline = Instant::now() + WALK_DEADLINE;
@@ -514,14 +500,7 @@ async fn an_api_walk_with_no_floor_ends_after_two_empty_years() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(
-            &runtime,
-            user_id,
-            tenant,
-            oauth_providers::STRAVA,
-            WalkTrigger::Connected
-        )
-        .await,
+        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
         "bug: a live grant is walked"
     );
     walk_ended(&resources, user_id, tenant).await;
@@ -556,9 +535,9 @@ async fn an_api_walk_with_no_floor_ends_after_two_empty_years() {
 }
 
 /// A depth ask never walks a source whose walk already reached its end: it
-/// holds all there is. A new connection walks it again.
+/// holds all there is.
 #[tokio::test]
-async fn a_depth_ask_never_rewalks_a_walked_source_but_a_connection_does() {
+async fn a_depth_ask_never_rewalks_a_walked_source() {
     let (api_base, mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
@@ -567,44 +546,25 @@ async fn a_depth_ask_never_rewalks_a_walked_source_but_a_connection_does() {
     *mock.created_at.lock().unwrap() = Some(now - 200 * DAY);
     open_window(&resources).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let walk =
-        |trigger| start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA, trigger);
+    let walk = || start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA);
 
-    assert!(
-        walk(WalkTrigger::DepthMissing).await,
-        "bug: a depth ask walks a source never walked"
-    );
+    assert!(walk().await, "bug: a depth ask walks a source never walked");
     walk_ended(&resources, user_id, tenant).await;
     assert_eq!(
         walk_state(&resources, user_id, tenant, oauth_providers::STRAVA).await,
         Some(BackfillJobState::Walked),
         "the walk reached its end"
     );
+    let listed = mock.listings.lock().unwrap().len();
 
     assert!(
-        !walk(WalkTrigger::DepthMissing).await,
+        !walk().await,
         "bug: a depth ask re-walked a source whose walk already ended"
     );
-    let first = progress(&resources, user_id, tenant).await;
-    let listed_by_first = mock.listings.lock().unwrap().len();
-    assert!(
-        walk(WalkTrigger::Connected).await,
-        "bug: a new connection walks the source again"
-    );
     assert_eq!(
-        walk_state(&resources, user_id, tenant, oauth_providers::STRAVA).await,
-        Some(BackfillJobState::Owed),
-        "bug: the new walk replaces the ended row"
-    );
-    walk_ended(&resources, user_id, tenant).await;
-    assert!(
-        mock.listings.lock().unwrap().len() > listed_by_first,
-        "bug: the re-walk reads the API again from the top, not from the old floor"
-    );
-    let again = progress(&resources, user_id, tenant).await;
-    assert_eq!(
-        again.months_done, first.months_done,
-        "bug: the re-walk's progress restarts at zero instead of adding to the ended walk's"
+        mock.listings.lock().unwrap().len(),
+        listed,
+        "bug: a refused ask lists nothing"
     );
 }
 
@@ -625,14 +585,7 @@ async fn a_full_api_page_reads_the_next_below_its_oldest_activity() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(
-            &runtime,
-            user_id,
-            tenant,
-            oauth_providers::STRAVA,
-            WalkTrigger::Connected
-        )
-        .await,
+        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
         "bug: a live grant is walked"
     );
     walk_ended(&resources, user_id, tenant).await;

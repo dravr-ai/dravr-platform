@@ -1,5 +1,5 @@
 // ABOUTME: How a Garmin history walk settles: what it sits beside, retries, keeps, steps through and never announces
-// ABOUTME: Pins the walk as a recorded property of its job, the wellness-only session, the card states and the digest guard
+// ABOUTME: Pins the walk as a recorded property of its job, its retries, its wellness copy and the digest guard
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,18 +15,19 @@
 // it at its own narrow window. A transient failure leaves the walk owed for
 // the next run. A step that fills its limit reads the next one below the
 // oldest activity it reached. A wellness copy that fails keeps the walk owed.
-// The card reads `importing` while the job is owed. And a walk copies the
-// past: its write-through announces no session.
+// And a walk copies the past: its write-through announces no session.
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::garmin_sign_in_test::{
+    athlete, calls_matching, hold_grant, hold_session, server, session_token_held, Calls,
+    LIVE_SESSION, SIGNED_IN_SESSION,
+};
 use crate::history_walk_test::{
-    age_job_rows, athlete, calls_matching, connections, garmin_history, hold_grant, hold_session,
-    job_row, job_state, job_state_of, rows_under, server, session_token_held, sign_in,
-    spawn_switchable_scraper, walk_ended, Calls, ScraperSwitch, IMPORT_DEADLINE, LIVE_SESSION,
-    SIGNED_IN_SESSION,
+    age_job_rows, ask_walk, job_row, job_state, job_state_of, rows_under, spawn_switchable_scraper,
+    walk_ended, ScraperSwitch, WALK_DEADLINE,
 };
 
 use std::slice;
@@ -37,9 +38,7 @@ use std::time::{Duration, Instant};
 use chrono::{Duration as ChronoDuration, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::feature_flags::FeatureKey;
-use pierre_core::models::{
-    ActivityBuilder, CoachingPersona, ConnectionStatus, SportType, TenantId, PERMISSION_WITHDRAWN,
-};
+use pierre_core::models::{ActivityBuilder, CoachingPersona, SportType, TenantId};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
 };
@@ -50,9 +49,8 @@ use pierre_notifications::{
     DispatchOutcome, DispatchRequest, NotificationEvent, PushTier, TenantId as CommTenantId,
 };
 use pierre_providers::core::ActivityQueryParams;
-use pierre_services::provider_revocation::{retire_history_session, HistoryRetirement};
 use pierre_tool_runtime::activity_backfill::history_walk::{
-    start_history_walk, WalkTrigger, WHOLE_ACCOUNT_AFTER,
+    start_history_walk, WHOLE_ACCOUNT_AFTER,
 };
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::activity_fetch::write_through::write_through_served_window;
@@ -123,15 +121,7 @@ async fn a_walk_is_recorded_beside_the_ordinary_job_owed_for_its_session() {
     );
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let walk = || {
-        start_history_walk(
-            &runtime,
-            user_id,
-            tenant,
-            oauth_providers::SCIOTTE_GARMIN,
-            WalkTrigger::Connected,
-        )
-    };
+    let walk = || start_history_walk(&runtime, user_id, tenant, oauth_providers::SCIOTTE_GARMIN);
     assert!(walk().await, "bug: a walk is on file for the session");
     assert!(!walk().await, "a second ask finds the walk already on file");
     assert!(
@@ -200,7 +190,7 @@ async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_walk() {
         1,
         "bug: the sweep resumes the owed backfill"
     );
-    let deadline = Instant::now() + IMPORT_DEADLINE;
+    let deadline = Instant::now() + WALK_DEADLINE;
     while job_state_of(&resources, user_id, tenant, BackfillJobKind::Backfill)
         .await
         .is_some()
@@ -230,20 +220,23 @@ async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_walk() {
 }
 
 /// The scraper fails the walk's read once: the job stays owed for the
-/// resume sweep and the session stays for it — nothing is retired or marked
-/// incomplete on a hiccup — and the card reads `importing` meanwhile.
+/// resume sweep and the session stays for it — nothing is dropped or marked
+/// incomplete on a hiccup.
 #[tokio::test]
-async fn a_transient_failure_keeps_the_session_and_the_card_reads_importing() {
+async fn a_transient_failure_keeps_the_walk_owed_and_the_session() {
     let switch = ScraperSwitch::default();
     switch.fail_next.store(true, Ordering::SeqCst);
     let (scraper, calls) = spawn_switchable_scraper(switch).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 
-    let (status, body) = sign_in(&resources, &token).await;
-    assert_eq!(status, 200, "{body}");
-    let deadline = Instant::now() + IMPORT_DEADLINE;
+    hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
+    assert!(
+        ask_walk(&resources, user_id, tenant).await,
+        "bug: the session is walked"
+    );
+    let deadline = Instant::now() + WALK_DEADLINE;
     while calls_matching(&calls, &format!("activities {SIGNED_IN_SESSION}")).is_empty() {
         assert!(Instant::now() < deadline, "the walk never read");
         sleep(Duration::from_millis(50)).await;
@@ -263,217 +256,6 @@ async fn a_transient_failure_keeps_the_session_and_the_card_reads_importing() {
         calls_matching(&calls, "drop"),
         Vec::<String>::new(),
         "bug: nothing drops the session"
-    );
-    assert_eq!(
-        garmin_history(&resources, &token).await["state"],
-        "importing",
-        "bug: the card reads importing while the job is owed"
-    );
-}
-
-/// The card's order: rows under the session's key read `imported` even when
-/// the last walk ended incomplete — the athlete keeps what was copied.
-#[tokio::test]
-async fn rows_under_the_session_key_read_imported_over_an_incomplete_end() {
-    let resources = server(common::test_server_config()).await;
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
-    hold_grant(&resources, user_id, tenant).await;
-    let ledger = &resources.common.repos.activity_backfill_jobs;
-    let mut row = job_row(user_id, tenant, 0);
-    row.lease_token = Some(Uuid::new_v4().to_string());
-    assert!(
-        ledger.record_backfill_job(&row).await.unwrap(),
-        "bug: the ledger records the job"
-    );
-    let lease = JobLease {
-        id: row.id.clone(),
-        token: row.lease_token.clone().unwrap(),
-    };
-    assert!(
-        ledger.end_backfill_job_incomplete(&lease).await.unwrap(),
-        "bug: the lease holder ends its job incomplete"
-    );
-    assert_eq!(
-        garmin_history(&resources, &token).await["state"],
-        "incomplete",
-        "bug: a walk ended before its history landed reads incomplete"
-    );
-
-    let ride = ActivityBuilder::new(
-        "7000000009",
-        "Garmin ride",
-        SportType::Ride,
-        Utc::now() - ChronoDuration::days(400),
-        3_600,
-        oauth_providers::SCIOTTE_GARMIN,
-    )
-    .build();
-    resources
-        .common
-        .repos
-        .activity_cache
-        .upsert_activities_synced_at(
-            user_id,
-            &tenant,
-            oauth_providers::SCIOTTE_GARMIN,
-            &[ride],
-            Utc::now(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        garmin_history(&resources, &token).await["state"],
-        "imported",
-        "bug: what the session copied reads imported, whatever the last walk did"
-    );
-}
-
-/// What the grant pushed itself starts the day it connected, so it never
-/// stands for the history before it: the card still offers the walk.
-#[tokio::test]
-async fn the_grants_own_pushes_leave_the_history_needed() {
-    let resources = server(common::test_server_config()).await;
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
-    hold_grant(&resources, user_id, tenant).await;
-    let pushed = ActivityBuilder::new(
-        "7000000010",
-        "Pushed ride",
-        SportType::Ride,
-        Utc::now() - chrono::Duration::hours(3),
-        3_600,
-        oauth_providers::GARMIN,
-    )
-    .build();
-    resources
-        .common
-        .repos
-        .activity_cache
-        .upsert_activities_synced_at(
-            user_id,
-            &tenant,
-            oauth_providers::GARMIN,
-            &[pushed],
-            Utc::now(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        garmin_history(&resources, &token).await["state"],
-        "needed",
-        "bug: a grant's own pushes read as the history before it"
-    );
-}
-
-/// A grant that withholds the health export leaves the session the athlete's
-/// only wellness source: the walk copies the activities, and the session
-/// stays.
-#[tokio::test]
-async fn a_grant_without_the_health_export_keeps_the_session() {
-    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
-    hold_grant(&resources, user_id, tenant).await;
-    resources
-        .common
-        .repos
-        .provider_connections
-        .set_provider_grants(
-            user_id,
-            tenant,
-            oauth_providers::GARMIN,
-            &["ACTIVITY_EXPORT".to_owned()],
-        )
-        .await
-        .unwrap();
-
-    let (status, body) = sign_in(&resources, &token).await;
-    assert_eq!(status, 200, "{body}");
-    assert_eq!(
-        walk_ended(&resources, user_id, tenant).await,
-        BackfillJobState::Walked,
-        "bug: the walk reaches the end of the history"
-    );
-
-    assert_eq!(
-        rows_under(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await,
-        3,
-        "the activities are copied all the same"
-    );
-    assert!(
-        session_token_held(&resources, user_id, tenant).await,
-        "bug: the session that alone brings the wellness in is kept"
-    );
-    assert_eq!(
-        calls_matching(&calls, "drop"),
-        Vec::<String>::new(),
-        "bug: nothing drops the session"
-    );
-    assert_eq!(
-        retire_history_session(
-            &resources.common.repos,
-            None,
-            user_id,
-            tenant,
-            oauth_providers::SCIOTTE_GARMIN,
-        )
-        .await
-        .unwrap(),
-        HistoryRetirement::KeptForWellness,
-        "bug: no caller retires it either"
-    );
-}
-
-/// A refused grant is the stronger state: a restored permission never
-/// re-arms it, since only a flag raised for the withdrawal is the
-/// withdrawal's to lift, while a refresh that proves the token alive does.
-#[tokio::test]
-async fn a_refused_grant_is_lifted_by_a_refresh_never_by_a_restored_permission() {
-    let resources = server(common::test_server_config()).await;
-    let (user_id, _user, tenant, _token) = athlete(&resources).await;
-    hold_grant(&resources, user_id, tenant).await;
-    let connections_repo = &resources.common.repos.provider_connections;
-    connections_repo
-        .mark_needs_reauth(
-            user_id,
-            tenant,
-            oauth_providers::GARMIN,
-            Some("grant_refused"),
-            Utc::now(),
-        )
-        .await
-        .unwrap();
-
-    assert!(
-        !connections_repo
-            .mark_active_if_flagged_for(
-                user_id,
-                tenant,
-                oauth_providers::GARMIN,
-                PERMISSION_WITHDRAWN,
-            )
-            .await
-            .unwrap(),
-        "bug: a restored permission lifts a refused grant's flag"
-    );
-    assert_eq!(
-        connections(&resources, user_id, tenant).await,
-        vec![(
-            oauth_providers::GARMIN.to_owned(),
-            ConnectionStatus::NeedsReauth
-        )],
-        "bug: the refused grant stays flagged"
-    );
-    assert!(
-        connections_repo
-            .mark_active_unless_flagged_for(
-                user_id,
-                tenant,
-                oauth_providers::GARMIN,
-                PERMISSION_WITHDRAWN,
-            )
-            .await
-            .unwrap(),
-        "bug: a refresh that proves the token alive re-arms a refused grant"
     );
 }
 
@@ -496,7 +278,7 @@ async fn a_walk_never_sends_the_per_session_digest() {
             "version: 1\npersonas:\n  power_athlete:\n    notification:\n      tier_floor: P2\n      digest: per_session\n",
         )
         .unwrap();
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
     let repos = &resources.common.repos;
     repos
         .users
@@ -550,8 +332,11 @@ async fn a_walk_never_sends_the_per_session_digest() {
     };
 
     hold_grant(&resources, user_id, tenant).await;
-    let (status, body) = sign_in(&resources, &token).await;
-    assert_eq!(status, 200, "{body}");
+    hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
+    assert!(
+        ask_walk(&resources, user_id, tenant).await,
+        "bug: the session is walked"
+    );
     walk_ended(&resources, user_id, tenant).await;
     assert_eq!(
         rows_under(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await,
@@ -581,7 +366,7 @@ async fn a_walk_never_sends_the_per_session_digest() {
         slice::from_ref(&ride),
     )
     .await;
-    let deadline = Instant::now() + IMPORT_DEADLINE;
+    let deadline = Instant::now() + WALK_DEADLINE;
     while digests().await == 0 {
         assert!(
             Instant::now() < deadline,
@@ -626,7 +411,7 @@ async fn a_step_that_fills_its_limit_reads_the_next_below_its_oldest_activity() 
         1,
         "bug: the sweep resumes the owed walk"
     );
-    let deadline = Instant::now() + IMPORT_DEADLINE;
+    let deadline = Instant::now() + WALK_DEADLINE;
     let stepped = loop {
         let claimed = resources
             .common
@@ -705,11 +490,14 @@ async fn a_failed_wellness_copy_keeps_the_session_for_the_next_run() {
     switch.fail_summaries.store(true, Ordering::SeqCst);
     let (scraper, calls) = spawn_switchable_scraper(switch).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 
-    let (status, body) = sign_in(&resources, &token).await;
-    assert_eq!(status, 200, "{body}");
+    hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
+    assert!(
+        ask_walk(&resources, user_id, tenant).await,
+        "bug: the session is walked"
+    );
     wellness_read_settled(&resources, &calls, user_id, tenant).await;
 
     assert!(
@@ -738,11 +526,14 @@ async fn one_unread_wellness_day_keeps_the_session_for_the_next_run() {
     *switch.fail_summary_on.lock().unwrap() = Some(hole);
     let (scraper, calls) = spawn_switchable_scraper(switch).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
 
-    let (status, body) = sign_in(&resources, &token).await;
-    assert_eq!(status, 200, "{body}");
+    hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
+    assert!(
+        ask_walk(&resources, user_id, tenant).await,
+        "bug: the session is walked"
+    );
     wellness_read_settled(&resources, &calls, user_id, tenant).await;
 
     let landed = resources
@@ -787,7 +578,7 @@ async fn wellness_read_settled(
     user_id: Uuid,
     tenant: TenantId,
 ) {
-    let deadline = Instant::now() + IMPORT_DEADLINE;
+    let deadline = Instant::now() + WALK_DEADLINE;
     while calls_matching(calls, &format!("summary {SIGNED_IN_SESSION}")).len() < 365
         || rows_under(resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await < 3
         || job_state(resources, user_id, tenant).await != Some(BackfillJobState::Owed)

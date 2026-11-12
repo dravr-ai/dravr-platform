@@ -1131,7 +1131,11 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
         .get_sleep_sessions(user_id, &tenant, start, end)
         .await
         .unwrap();
-    assert_eq!(nights.len(), 1, "bug: the walk copies the night before the grant");
+    assert_eq!(
+        nights.len(),
+        1,
+        "bug: the walk copies the night before the grant"
+    );
     assert_eq!(
         nights[0].source_name, "garmin",
         "bug: the copied night is filed under the provider's name"

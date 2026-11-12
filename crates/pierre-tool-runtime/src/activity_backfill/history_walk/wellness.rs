@@ -7,11 +7,13 @@
 //! The wellness half of a walk (carnet#1386).
 //!
 //! A Garmin athlete whose grant is pushed every summary from the day they
-//! connected still has the nights and readings before it on the account,
-//! where only their usr/pwd session reads them. A walk of that session
-//! copies the [`WELLNESS_HISTORY_DAYS`] before the grant once its
-//! activities are in, inside [`history_walk_scope`], the only sync that
-//! reads a session beside a push-fed grant.
+//! connected still has the nights and readings before it on the account.
+//! Their usr/pwd session serves their reads, but while the push grant behind
+//! it is live the push is their wellness source, so no pull reads the
+//! session (carnet#1494). A walk of that session copies the
+//! [`WELLNESS_HISTORY_DAYS`] before the grant once its activities are in,
+//! inside [`history_walk_scope`], the only sync that reads a session beside
+//! a live push-fed grant.
 
 use super::super::ActivityBackfillJob;
 #[cfg(feature = "health-sync")]
@@ -21,30 +23,30 @@ use dravr_enforme::error::EnformeResult;
 #[cfg(feature = "health-sync")]
 use pierre_core::models::ConnectionType;
 #[cfg(feature = "health-sync")]
+use pierre_providers::backend_resolver::{fallback_grant, pushed_backend_for};
+#[cfg(feature = "health-sync")]
 use pierre_services::garmin_push;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::history_walk_scope;
 #[cfg(feature = "health-sync")]
-use pierre_services::training_history_read::walk_only_session;
-#[cfg(feature = "health-sync")]
 use tracing::{info, warn};
 
-/// Copy the wellness before the grant when `job` walks a session beside a
-/// push-fed grant. Returns whether nothing of it is left to copy: `true`
+/// Copy the wellness before the grant when `job` walks a session whose read
+/// plan stands a live push-fed grant behind it ([`fallback_grant`]). Returns whether nothing of it is left to copy: `true`
 /// once copied, and for every walk that has none to copy; `false` when a
 /// read or a write failed, so a retry of the walk's last step copies again.
 #[cfg(feature = "health-sync")]
 pub(super) async fn copy_before_grant(job: &ActivityBackfillJob) -> bool {
     use pierre_providers::backend_resolver::user_facing_name;
 
-    if !walk_only_session(
+    let behind = fallback_grant(
         job.resources.repos(),
         job.user_id,
         job.tenant_id,
         &job.provider_name,
     )
-    .await
-    {
+    .await;
+    if !behind.is_some_and(|grant| pushed_backend_for(&grant) == Some(grant.as_str())) {
         return true;
     }
     let Some(orchestrator) = job.resources.sync_orchestrator() else {

@@ -1,5 +1,5 @@
 // ABOUTME: The one order the backends holding a provider's history come in: the usr/pwd session, the grant, the push
-// ABOUTME: A history walk reads the first live one; every read of a grant's window serves the rows of all of them
+// ABOUTME: A history walk reads the first live one, the session even while a grant is alive
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,26 +12,23 @@
 //! pushes every summary to. [`history_sources_for`] is the one table that
 //! names them and their order; every other answer here is read from it.
 //!
-//! - A history walk reads the first source that is live and can be paged
-//!   ([`history_source_order`], [`walk_source`]): the session first, because
-//!   it reads years in one request where an API pages a few hundred
-//!   activities at a time (D2). The push is never walked: it holds only what
-//!   arrived after the athlete connected it.
-//! - A read of a grant's stored window serves the rows of every source the
-//!   table pairs with it ([`history_read_keys`]), live or not: what a session
-//!   walked stays served after the session lapsed.
+//! A history walk reads the first source that is live and can be paged
+//! ([`history_source_order`], [`walk_source`]): the session first, even
+//! while a grant is alive, because it reads years in one request where an
+//! API pages a few hundred activities at a time (D2). The push is never
+//! walked: it holds only what arrived after the athlete connected it.
 //!
-//! A live read of the provider is not ordered here: it keeps preferring the
-//! grant whenever its token row exists
-//! ([`pierre_providers::backend_resolver::resolve_backend`], the live-read
-//! order), since an API answers the head of the list in a second where a
-//! scrape takes a browser.
+//! A live read of the provider is not ordered here: it follows the athlete's
+//! read plan ([`pierre_providers::backend_resolver::read_plan`], carnet#1494),
+//! the session first and a live grant its fallback on an unexpected error.
+//! What either half stored is served from both
+//! ([`pierre_providers::backend_resolver::history_keys`]), so the rows a walk
+//! lands under the session and under the grant read as one history.
 
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver::{
-    is_mirror_backend, mirror_backend_for, oauth_serves, pushed_backend_for, session_beside_grant,
-    user_facing_name,
+    mirror_backend_for, oauth_serves, pushed_backend_for, user_facing_name,
 };
 use tracing::warn;
 use uuid::Uuid;
@@ -63,8 +60,8 @@ pub struct HistorySource {
     pub backend: String,
     /// What the backend is to the athlete.
     pub role: HistorySourceRole,
-    /// Whether the athlete holds a token row for it and its connection is
-    /// not flagged for a reconnect.
+    /// Whether the athlete holds a token row for it that nothing flagged or
+    /// revoked ([`history_source_order`]).
     pub live: bool,
 }
 
@@ -96,25 +93,13 @@ fn grant_role(backend: &str) -> HistorySourceRole {
     }
 }
 
-/// The activity-cache keys a read of `backend`'s own window serves.
-///
-/// A grant's window serves every source [`history_sources_for`] pairs with
-/// it, the session's walked history included, whether or not that session
-/// still stands. A session read of its own (no grant routes the athlete)
-/// serves its own key, as does every backend with no pair.
-#[must_use]
-pub fn history_read_keys(backend: &str) -> Vec<&str> {
-    if is_mirror_backend(backend) {
-        return vec![backend];
-    }
-    history_sources_for(backend)
-        .into_iter()
-        .map(|(key, _)| key)
-        .collect()
-}
-
 /// [`history_sources_for`] `provider`, each source read for whether the user
 /// holds it live in `tenant_id`.
+///
+/// Live is the read plan's rule (`backend_resolver::read_plan`): a token row
+/// whose connection is active, or that has no connection row, nothing ever
+/// having flagged it. A flagged or revoked connection is not walked, nor one
+/// delegated from someone else's account.
 pub async fn history_source_order(
     repos: &RepositoryRegistry,
     user_id: Uuid,
@@ -147,26 +132,10 @@ pub async fn walk_source(
         .find(|source| source.live && source.role.walks())
 }
 
-/// Whether `backend` is a session only history walks read, for the user in `tenant_id`.
-///
-/// It is a usr/pwd session standing beside a push-fed grant (Garmin). The
-/// push feeds everything from the grant on, so the session serves no live
-/// read, and what it walked stays served through the grant's window
-/// ([`history_read_keys`]).
-pub async fn walk_only_session(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) -> bool {
-    pushed_backend_for(backend).is_some()
-        && session_beside_grant(repos, user_id, tenant_id, backend).await
-}
-
-/// Whether the user holds `backend` live in the tenant: its token row and an
-/// own (not delegated) connection that is not flagged for a reconnect. A
-/// connection list that cannot be read counts as not live: a walk then
-/// waits for the next ask rather than read a session it cannot vouch for.
+/// Whether the user holds `backend` live in the tenant
+/// ([`history_source_order`]). A connection list that cannot be read counts
+/// the held token row as live, as the read plan does: the walk's read then
+/// reports what it finds.
 async fn holds_live(
     repos: &RepositoryRegistry,
     user_id: Uuid,
@@ -188,14 +157,16 @@ async fn holds_live(
         .get_for_user(user_id, Some(tenant_id))
         .await
     {
-        Ok(connections) => connections.iter().any(|c| {
-            c.provider == backend
-                && c.connection_type != ConnectionType::Delegated
-                && !c.status.requires_reauth()
-        }),
+        Ok(connections) => connections
+            .iter()
+            .find(|c| c.provider == backend)
+            .is_none_or(|c| {
+                c.connection_type != ConnectionType::Delegated
+                    && c.status == ConnectionStatus::Active
+            }),
         Err(e) => {
-            warn!(user_id = %user_id, backend, error = %e, "History sources: the connections could not be read");
-            false
+            warn!(user_id = %user_id, backend, error = %e, "History sources: the connections could not be read; the token row reads as live");
+            true
         }
     }
 }
@@ -237,30 +208,6 @@ mod tests {
         assert!(
             !HistorySourceRole::Pushed.walks(),
             "bug: a push holds nothing from before the grant, so no walk reads it"
-        );
-    }
-
-    #[test]
-    fn a_grant_window_serves_every_source_paired_with_it() {
-        assert_eq!(
-            history_read_keys(oauth_providers::GARMIN),
-            vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN],
-            "bug: a Garmin grant's window serves its pushes and its session's walk"
-        );
-        assert_eq!(
-            history_read_keys(oauth_providers::STRAVA),
-            vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA],
-            "bug: a Strava grant's window serves what the session walked (D2)"
-        );
-        assert_eq!(
-            history_read_keys(oauth_providers::SCIOTTE_GARMIN),
-            vec![oauth_providers::SCIOTTE_GARMIN],
-            "bug: a session read serves its own key"
-        );
-        assert_eq!(
-            history_read_keys(oauth_providers::WAHOO),
-            vec![oauth_providers::WAHOO],
-            "bug: an unpaired backend serves its own key"
         );
     }
 }

@@ -1,5 +1,5 @@
 // ABOUTME: The one source order a history walk reads: a live usr/pwd session before the grant, never the push
-// ABOUTME: And the live-read order beside it, which keeps preferring the grant (B2)
+// ABOUTME: Even while a grant is alive, where a live read follows the read plan, the session first too
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,8 +11,9 @@
 //
 // `history_source_order` is the one order the backends holding a provider's
 // history come in. A walk reads the first live, pageable one: the usr/pwd
-// session before the grant (D2), never the push. A live read is not ordered
-// there: `resolve_backend` keeps preferring the grant (B2).
+// session before the grant (D2), even while the grant is alive, never the
+// push. A live read is not ordered there: it follows the read plan
+// (`backend_resolver::read_plan`, carnet#1494).
 #![cfg(all(
     feature = "provider-strava",
     feature = "provider-garmin",
@@ -28,7 +29,7 @@ use crate::history_walk_api_test::{mock_strava, server, strava_athlete};
 use chrono::Utc;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::ConnectionType;
-use pierre_providers::backend_resolver::resolve_backend;
+use pierre_providers::backend_resolver::{read_plan, ReadPlan};
 use pierre_services::training_history_read::{
     history_source_order, walk_source, HistorySource, HistorySourceRole,
 };
@@ -196,11 +197,12 @@ async fn a_garmin_session_is_walked_before_its_push_grant() {
     );
 }
 
-/// B2: sciotte-first is for walks only. A live read of Strava by an athlete
-/// holding both a live session and the grant keeps reading the grant, while
-/// the walk of the same provider reads the session.
+/// A Strava athlete holding both a live session and a live grant: the read
+/// plan serves the session first with the grant as its fallback, and the
+/// walk of the same provider reads the session too, never the grant
+/// (carnet#1482, carnet#1494).
 #[tokio::test]
-async fn a_live_read_keeps_the_grant_while_the_walk_reads_the_session() {
+async fn a_strava_athlete_with_a_live_grant_and_a_session_is_walked_sciotte_first() {
     let (api_base, _mock) = mock_strava().await;
     let resources = server(&api_base, 400).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
@@ -226,15 +228,18 @@ async fn a_live_read_keeps_the_grant_while_the_walk_reads_the_session() {
         .unwrap();
 
     assert_eq!(
-        resolve_backend(repos, user_id, Some(tenant), oauth_providers::STRAVA).await,
-        oauth_providers::STRAVA,
-        "bug: a live read keeps preferring the grant (B2)"
+        read_plan(repos, user_id, tenant, oauth_providers::STRAVA).await,
+        ReadPlan {
+            primary: oauth_providers::SCIOTTE.to_owned(),
+            fallback: Some(oauth_providers::STRAVA.to_owned()),
+        },
+        "bug: a live read serves the session first, the live grant behind it"
     );
     assert_eq!(
         walk_source(repos, user_id, tenant, oauth_providers::STRAVA)
             .await
             .map(|source| source.backend),
         Some(oauth_providers::SCIOTTE.to_owned()),
-        "bug: the walk of the same provider reads the session (D2)"
+        "bug: the walk reads the session while the grant is alive (D2)"
     );
 }

@@ -14,10 +14,11 @@
 //! **Which source.** The first live, pageable source of
 //! [`walk_source`]'s one order: the usr/pwd session before the grant (D2),
 //! since one scrape reads three years where an API pages two hundred
-//! activities. The session is read exactly as named
-//! ([`crate::protocol::AuthService::create_session_provider`]), never
-//! resolved to the grant a live read would pick, and it stays after the walk
-//! (B1): the next walk reads it again. A push is never walked.
+//! activities, even while a grant is alive (carnet#1482). The source is read
+//! exactly as named ([`crate::protocol::AuthService::create_exact_provider`]),
+//! never resolved to the backend the live-read plan serves, and a session
+//! stays after the walk (B1): the next walk reads it again. A push is never
+//! walked.
 //!
 //! **One step per run.** A run reads one step below the row's cursor
 //! (`before_ts`), writes it through the activity store, and records the step
@@ -55,7 +56,6 @@ use pierre_database::repositories::{
     BackfillCoverage, BackfillJobKind, BackfillJobState, JobFloor, JobLease, JobProgressStep,
 };
 use pierre_providers::ai_scope;
-use pierre_providers::backend_resolver::session_beside_grant;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::CoreFitnessProvider;
 use pierre_services::training_history_read::{history_sources_for, walk_source, HistorySourceRole};
@@ -63,7 +63,6 @@ use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-use super::reauth::SESSION_EXPIRED;
 use super::{
     capture_with_head, keep_backfill_lease, notify_backfill_reauth, persist_backfill_activities,
     provider_tenant_id_str, spawn_activity_backfill, warm_training_history, ActivityBackfillJob,
@@ -106,38 +105,25 @@ const EMPTY_WINDOWS_ENDING_A_WALK: u32 = 2;
 /// span is counted in the months the row reports.
 const SECS_PER_MONTH: i64 = 2_629_746;
 
-/// Why a walk is asked for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WalkTrigger {
-    /// The athlete just connected the provider: a sign-in stored a session,
-    /// or an OAuth grant landed. Walks even when a walk already ended, since
-    /// the new connection may reach further.
-    Connected,
-    /// A read of the history found depth missing. Walks only when no walk of
-    /// the source ever reached its end: one that did holds all there is.
-    DepthMissing,
-}
-
 /// Start a walk of `provider`'s history for the user.
 ///
-/// It reads the provider's first live, pageable source ([`walk_source`]).
-/// Returns whether a walk was started; `false` when the user holds no such
-/// source, a walk of it is already owed or running, or `trigger` is
-/// [`WalkTrigger::DepthMissing`] and a walk of it already ended.
+/// It reads the provider's first live, pageable source ([`walk_source`]),
+/// asked when a read of the history finds depth missing. Returns whether a
+/// walk was started; `false` when the user holds no such source, or a walk
+/// of it is already owed, running, or reached the end of the history: one
+/// that did holds all there is, and a new source the athlete connects is a
+/// source of its own, walked on its first ask.
 pub async fn start_history_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
-    trigger: WalkTrigger,
 ) -> bool {
     let Some(source) = walk_source(runtime.repos(), user_id, tenant_id, provider).await else {
         info!(user_id = %user_id, provider, "History walk: no live source to walk");
         return false;
     };
-    if trigger == WalkTrigger::DepthMissing
-        && walked(runtime, user_id, tenant_id, &source.backend).await
-    {
+    if walked(runtime, user_id, tenant_id, &source.backend).await {
         return false;
     }
     let limit = match source.role {
@@ -165,7 +151,6 @@ pub async fn start_history_walk(
     info!(
         user_id = %user_id,
         backend = %source.backend,
-        ?trigger,
         started,
         "History walk: asked"
     );
@@ -257,7 +242,9 @@ async fn settle_step(
             job,
         ),
         Step::AuthRequired => {
-            source_dead(job, attempt_started_at).await;
+            // The walked source is the athlete's own connection: flagged and
+            // told as every background read does (carnet#1494).
+            notify_backfill_reauth(job, attempt_started_at).await;
             log_write(
                 "the source's credential is dead; the walk ends incomplete",
                 ledger.end_backfill_job_incomplete(lease).await,
@@ -274,33 +261,6 @@ async fn settle_step(
             Ok(true),
             job,
         ),
-    }
-}
-
-/// What a walk does with the source it found dead. A usr/pwd session
-/// beside a grant serves the athlete nothing but walks, so its connection is
-/// flagged without a word: the athlete's next sign-in then signs in again
-/// instead of answering from the dead session, and no walk reads it until
-/// then. Any other source is the athlete's own connection, and is flagged
-/// and told as every background read does ([`notify_backfill_reauth`]).
-async fn source_dead(job: &ActivityBackfillJob, attempt_started_at: DateTime<Utc>) {
-    let repos = job.resources.repos();
-    if !session_beside_grant(repos, job.user_id, job.tenant_id, &job.provider_name).await {
-        notify_backfill_reauth(job, attempt_started_at).await;
-        return;
-    }
-    if let Err(e) = repos
-        .provider_connections
-        .mark_needs_reauth(
-            job.user_id,
-            job.tenant_id,
-            &job.provider_name,
-            Some(SESSION_EXPIRED),
-            attempt_started_at,
-        )
-        .await
-    {
-        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the dead session could not be flagged");
     }
 }
 
@@ -416,7 +376,7 @@ async fn walk_step(
     let tenant = job.tenant_id_str.as_deref();
     let provider = match executor
         .auth_service
-        .create_session_provider(&job.provider_name, job.user_id, tenant)
+        .create_exact_provider(&job.provider_name, job.user_id, tenant)
         .await
     {
         Ok(provider) => provider,

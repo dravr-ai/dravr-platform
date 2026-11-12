@@ -53,7 +53,7 @@ use pierre_services::training_history_read::{
 pub use pierre_services::training_history_read::{HistoryCoverage, TrainingHistoryRead};
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
+use crate::activity_backfill::history_walk::start_history_walk;
 use crate::runtime::ToolRuntime;
 
 /// Default backfill window when the caller does not specify one.
@@ -104,7 +104,7 @@ pub struct TrainingHistoryComputed {
     pub coverage: HistoryCoverage,
     /// Whether a history walk was started for the missing depth. `false`
     /// when coverage was complete, or when every connection's walk is
-    /// already owed, running or ended ([`WalkTrigger::DepthMissing`]).
+    /// already owed, running or ended ([`start_history_walk`]).
     pub capture_requested: bool,
     /// Rows removed because this run could not stand behind them.
     ///
@@ -425,7 +425,7 @@ async fn clear_unvouched_span(
 /// One walk per connection: the history is every provider's, so the depth
 /// missing from it may sit behind any of them. A connection whose walk
 /// already reached the end of the history is not walked again: it holds all
-/// there is ([`WalkTrigger::DepthMissing`]).
+/// there is ([`start_history_walk`]).
 async fn request_captures<'a>(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
@@ -457,14 +457,7 @@ async fn request_capture(
     user_id: Uuid,
     backend: &str,
 ) -> bool {
-    start_history_walk(
-        resources,
-        user_id,
-        tenant_id,
-        backend,
-        WalkTrigger::DepthMissing,
-    )
-    .await
+    start_history_walk(resources, user_id, tenant_id, backend).await
 }
 
 /// No walk rail in this build, so no walk is started. Answers as a ready

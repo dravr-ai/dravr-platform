@@ -1,5 +1,5 @@
 // ABOUTME: What a background activity job does when it finds its provider session dead
-// ABOUTME: Flag the connection, tell the athlete once, answer the conversation that asked — never for a walk-only session
+// ABOUTME: Flag the connection, tell the athlete once, answer the conversation that asked
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,8 +8,6 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use pierre_core::models::{ReauthMark, TenantId};
-use pierre_providers::backend_resolver::session_beside_grant;
-use pierre_services::training_history_read::walk_only_session;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -51,9 +49,7 @@ pub(super) async fn notify_backfill_reauth(
 ///    unless the notice just reached the athlete's chats — they would read the
 ///    same link twice. That answer is not deduped: an athlete who asks again
 ///    while still disconnected gets the link again, so a first link that was
-///    broken or never clicked does not silence them. A usr/pwd session beside
-///    a grant that serves its provider ([`session_beside_grant`]) is never
-///    answered: the grant still serves the athlete (carnet#1386).
+///    broken or never clicked does not silence them.
 ///
 /// `pub` so the integration suite can drive it without a scraper.
 pub async fn backfill_session_expired(
@@ -64,9 +60,6 @@ pub async fn backfill_session_expired(
     pierre_conversation_id: Option<&str>,
     attempt_started_at: DateTime<Utc>,
 ) {
-    if walk_only_session_expired(runtime, user_id, tenant_id, provider).await {
-        return;
-    }
     let notice = match flag_needs_reauth(
         runtime,
         user_id,
@@ -90,9 +83,7 @@ pub async fn backfill_session_expired(
             ReauthNotice::default()
         }
     };
-    if notice.chat_channels > 0
-        || session_beside_grant(runtime.repos(), user_id, tenant_id, provider).await
-    {
+    if notice.chat_channels > 0 {
         return;
     }
     let (Some(conversation_id), Some(notifier)) =
@@ -103,23 +94,4 @@ pub async fn backfill_session_expired(
     notifier
         .push_provider_reauth(user_id, tenant_id, conversation_id, provider)
         .await;
-}
-
-/// Whether the dead `provider` session is one only history walks read
-/// ([`walk_only_session`]). A walk that finds it dead ends incomplete on its
-/// own row: no flag on it, no notice, no answer.
-async fn walk_only_session_expired(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-) -> bool {
-    let walk_only = walk_only_session(runtime.repos(), user_id, tenant_id, provider).await;
-    if walk_only {
-        info!(
-            provider = %provider,
-            "Activity backfill: a walk-only session expired; nothing to flag"
-        );
-    }
-    walk_only
 }

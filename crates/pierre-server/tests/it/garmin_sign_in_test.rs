@@ -102,7 +102,7 @@ pub(crate) struct ScraperSwitch {
     pub(crate) fail_summary_on: Arc<Mutex<Option<NaiveDate>>>,
 }
 
-fn session_header(headers: &HeaderMap) -> String {
+pub(crate) fn session_header(headers: &HeaderMap) -> String {
     headers
         .get("x-session-id")
         .and_then(|value| value.to_str().ok())
@@ -110,7 +110,7 @@ fn session_header(headers: &HeaderMap) -> String {
         .to_owned()
 }
 
-fn session_json(session_id: &str) -> Value {
+pub(crate) fn session_json(session_id: &str) -> Value {
     json!({
         "session_id": session_id,
         "cookies": [],
@@ -119,7 +119,7 @@ fn session_json(session_id: &str) -> Value {
     })
 }
 
-fn workout(id: &str, sport: &str, start: &str) -> Value {
+pub(crate) fn workout(id: &str, sport: &str, start: &str) -> Value {
     json!({
         "id": id,
         "name": format!("Garmin {sport}"),
