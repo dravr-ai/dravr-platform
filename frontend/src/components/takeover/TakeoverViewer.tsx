@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
+import { takeoverResult, type TakeoverResult } from '@pierre/ui-logic';
 import type { SciotteTakeoverInput, SciotteTakeoverOutcome } from '@pierre/shared-types';
 import { Button, Input } from '../ui';
 import { useTakeoverSocket, type TakeoverStage } from './useTakeoverSocket';
@@ -28,8 +29,12 @@ export interface TakeoverViewerProps {
    * view says so, under the prompt.
    */
   oauthOffered?: boolean;
-  /** The takeover's answer: what the same login step would have answered. */
-  onOutcome: (outcome: SciotteTakeoverOutcome) => void;
+  /**
+   * The takeover's answer: what the same login step would have answered,
+   * with how to read it. Read here, in the viewer's own chunk, so the window
+   * that opens it carries none of the takeover's code before first paint.
+   */
+  onOutcome: (outcome: SciotteTakeoverOutcome, result: TakeoverResult) => void;
   /** The takeover ended with no answer. */
   onEnded: () => void;
   /**
@@ -95,7 +100,15 @@ export default function TakeoverViewer({
       .catch(() => undefined);
   }, []);
 
-  const { stage, viewport, notice, clearNotice, send } = useTakeoverSocket(token, { onFrame, onOutcome, onEnded });
+  const readOutcome = useCallback(
+    (outcome: SciotteTakeoverOutcome) => onOutcome(outcome, takeoverResult(outcome)),
+    [onOutcome],
+  );
+  const { stage, viewport, notice, clearNotice, send } = useTakeoverSocket(token, {
+    onFrame,
+    onOutcome: readOutcome,
+    onEnded,
+  });
   const live = stage === 'ready';
 
   const sendAll = useCallback((inputs: SciotteTakeoverInput[]) => inputs.forEach(send), [send]);

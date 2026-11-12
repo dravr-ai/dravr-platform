@@ -225,7 +225,10 @@ describe('TakeoverViewer', () => {
     const { socket, props } = await streaming();
     const outcome = { type: 'outcome', status_code: 200, body: { status: 'connected', provider: 'sciotte_garmin' } };
     act(() => socket.event(outcome));
-    expect(props.onOutcome).toHaveBeenCalledWith(outcome);
+    expect(props.onOutcome).toHaveBeenCalledWith(outcome, {
+      kind: 'answer',
+      data: { status: 'connected', provider: 'sciotte_garmin' },
+    });
     expect(screen.getByTestId('takeover-status')).toHaveTextContent(
       i18n.t('shell.sciotteTakeoverFinishing', { provider: 'Garmin' }),
     );

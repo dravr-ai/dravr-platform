@@ -6,7 +6,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
-import { describeApiError, takeoverResult, takeoverTarget, takeoverTokenProvider } from '@pierre/ui-logic';
+import { describeApiError, takeoverTarget, takeoverTokenProvider, type TakeoverResult } from '@pierre/ui-logic';
 import { SCIOTTE_LOGIN_PRESETS } from '@pierre/shared-constants';
 import type { SciotteTakeoverBridgeMessage, SciotteTakeoverOutcome } from '@pierre/shared-types';
 import TakeoverViewer from './takeover/TakeoverViewer';
@@ -45,8 +45,7 @@ export default function SignInCheck({ token }: SignInCheckProps) {
   );
 
   const onOutcome = useCallback(
-    (outcome: SciotteTakeoverOutcome) => {
-      const result = takeoverResult(outcome);
+    (outcome: SciotteTakeoverOutcome, result: TakeoverResult) => {
       if (result.kind === 'answer' && result.data.status === 'connected') {
         setState({ kind: 'connected' });
         tellApp({ type: 'connected' });
