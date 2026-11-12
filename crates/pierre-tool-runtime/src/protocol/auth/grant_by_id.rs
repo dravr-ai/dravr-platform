@@ -11,7 +11,10 @@
 //! its streams, the gear the detail carries) is a different call on the same
 //! provider handle, so it falls back here: [`GrantByIdFallback`] wraps the
 //! session and, when one of those reads fails the way a list read falls back
-//! for ([`error_falls_back`]), makes it once more through the grant.
+//! for ([`error_falls_back`]), makes it once more through the grant. A
+//! session the read found dead is flagged for its sign-in exactly as a list
+//! read flags it (`activity_fetch::flag_refusal`), whether the grant then
+//! answers or not.
 //!
 //! Strava only. The session's detail page is `strava.com/activities/{id}`, so
 //! its ids are the API's. Garmin's grant is push-only: its ids are summary
@@ -21,11 +24,11 @@
 use std::fmt;
 
 use async_trait::async_trait;
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SportType, Stats, TimeSeriesData,
+    SportType, Stats, TenantId, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_providers::core::{
@@ -38,6 +41,7 @@ use tracing::warn;
 use uuid::Uuid;
 
 use super::AuthService;
+use crate::activity_fetch::flag_refusal;
 use crate::activity_fetch::sync_verdict::error_falls_back;
 
 /// The grant a [`GrantByIdFallback`] reads through, authenticated only when
@@ -46,6 +50,7 @@ struct GrantSource {
     auth: AuthService,
     grant: String,
     user_id: Uuid,
+    tenant: TenantId,
     tenant_id: String,
 }
 
@@ -67,13 +72,13 @@ impl fmt::Debug for GrantByIdFallback {
 
 impl GrantByIdFallback {
     /// Wrap `session` so its by-id reads fall back to `grant`, which `auth`
-    /// authenticates for `user_id` in `tenant_id` when first needed.
+    /// authenticates for `user_id` in `tenant` when first needed.
     pub(super) fn wrap(
         session: Box<dyn FitnessProvider>,
         auth: AuthService,
         grant: &str,
         user_id: Uuid,
-        tenant_id: &str,
+        tenant: TenantId,
     ) -> Box<dyn FitnessProvider> {
         Box::new(Self {
             session,
@@ -81,16 +86,28 @@ impl GrantByIdFallback {
                 auth,
                 grant: grant.to_owned(),
                 user_id,
-                tenant_id: tenant_id.to_owned(),
+                tenant,
+                tenant_id: tenant.to_string(),
             },
             grant: OnceCell::new(),
         })
     }
 
-    /// The grant to read activity `id` through after the session's read of it
-    /// failed with `failed`, or `None` when that failure does not fall back or
-    /// the grant cannot be authenticated: the session's failure then stands.
-    async fn grant_for(&self, id: &str, failed: &AppError) -> Option<&dyn FitnessProvider> {
+    /// The grant to read activity `id` through after the session's read of it,
+    /// begun at `started_at`, failed with `failed`, or `None` when that
+    /// failure does not fall back or the grant cannot be authenticated: the
+    /// session's failure then stands.
+    ///
+    /// A failure that falls back and is the session's own refusal for
+    /// authentication flags the session first (`flag_refusal`), as the list
+    /// read's fallback does: the grant answering this one read never hides
+    /// that the athlete's sign-in is dead.
+    async fn grant_for(
+        &self,
+        id: &str,
+        failed: &AppError,
+        started_at: DateTime<Utc>,
+    ) -> Option<&dyn FitnessProvider> {
         if !error_falls_back(failed) {
             return None;
         }
@@ -98,8 +115,18 @@ impl GrantByIdFallback {
             auth,
             grant,
             user_id,
+            tenant,
             tenant_id,
         } = &self.source;
+        flag_refusal(
+            auth.runtime(),
+            *user_id,
+            *tenant,
+            self.session.name(),
+            failed,
+            started_at,
+        )
+        .await;
         warn!(
             user_id = %user_id,
             grant = %grant,
@@ -191,22 +218,24 @@ impl FitnessProvider for GrantByIdFallback {
     }
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
+        let started_at = Utc::now();
         let failed = match self.session.get_activity(id).await {
             Err(e) => e,
             read => return read,
         };
-        match self.grant_for(id, &failed).await {
+        match self.grant_for(id, &failed, started_at).await {
             Some(grant) => grant.get_activity(id).await,
             None => Err(failed),
         }
     }
 
     async fn get_activity_detailed(&self, id: &str) -> AppResult<Activity> {
+        let started_at = Utc::now();
         let failed = match self.session.get_activity_detailed(id).await {
             Err(e) => e,
             read => return read,
         };
-        match self.grant_for(id, &failed).await {
+        match self.grant_for(id, &failed, started_at).await {
             Some(grant) => grant.get_activity_detailed(id).await,
             None => Err(failed),
         }
@@ -217,22 +246,24 @@ impl FitnessProvider for GrantByIdFallback {
     }
 
     async fn get_activity_with_streams(&self, id: &str) -> AppResult<Activity> {
+        let started_at = Utc::now();
         let failed = match self.session.get_activity_with_streams(id).await {
             Err(e) => e,
             read => return read,
         };
-        match self.grant_for(id, &failed).await {
+        match self.grant_for(id, &failed, started_at).await {
             Some(grant) => grant.get_activity_with_streams(id).await,
             None => Err(failed),
         }
     }
 
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
+        let started_at = Utc::now();
         let failed = match self.session.get_activity_streams(id).await {
             Err(e) => e,
             read => return read,
         };
-        match self.grant_for(id, &failed).await {
+        match self.grant_for(id, &failed, started_at).await {
             Some(grant) => grant.get_activity_streams(id).await,
             None => Err(failed),
         }

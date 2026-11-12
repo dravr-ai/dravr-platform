@@ -863,6 +863,23 @@ async fn spawn_scraper(answer: u8) -> (Arc<ScraperStandIn>, String) {
                 }
             }),
         )
+        .route(
+            "/api/activities/{id}",
+            get(|State(scraper): State<Arc<ScraperStandIn>>| async move {
+                // A session Strava no longer honours refuses a read by id as
+                // it refuses its list; any other session finds no such ride.
+                if scraper.answer.load(Ordering::SeqCst) == SESSION_DEAD {
+                    return (
+                        StatusCode::UNAUTHORIZED,
+                        Json(json!({ "error": "session_expired" })),
+                    );
+                }
+                (
+                    StatusCode::NOT_FOUND,
+                    Json(json!({ "error": "activity_not_found" })),
+                )
+            }),
+        )
         .with_state(Arc::clone(&scraper));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -1341,6 +1358,40 @@ async fn a_failed_by_id_read_of_the_session_is_read_through_its_grant() {
         .expect("the grant reads the activity the session could not");
     assert_eq!(detail.id(), GRANT_RIDE);
     assert_eq!(detail.provider(), "strava");
+    assert_eq!(
+        pair.status("sciotte").await,
+        ConnectionStatus::Active,
+        "a session that only lacked the ride is not flagged"
+    );
+}
+
+/// A by-id read the session refuses as dead is answered by the grant, and
+/// the session is flagged for its sign-in all the same, as a list read that
+/// finds it dead flags it: the grant answering never hides the dead sign-in.
+#[tokio::test]
+async fn a_by_id_read_that_finds_the_session_dead_flags_it_while_its_grant_answers() {
+    let pair = Pair::new("by-id-dead", SESSION_DEAD, false).await;
+    let provider = AuthService::new(pair.runtime())
+        .create_authenticated_provider("strava", pair.user_id, Some(&pair.tenant.to_string()))
+        .await
+        .expect("the session authenticates");
+    assert_eq!(provider.name(), "sciotte", "the session serves the reads");
+
+    let detail = provider
+        .get_activity(GRANT_RIDE)
+        .await
+        .expect("the grant reads the activity the dead session refused");
+    assert_eq!(detail.id(), GRANT_RIDE);
+    assert_eq!(
+        pair.status("sciotte").await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the grant answered and the dead session was never flagged"
+    );
+    assert_eq!(
+        pair.status("strava").await,
+        ConnectionStatus::Active,
+        "the grant that answered is not flagged"
+    );
 }
 
 /// A session read whose list answers only once the test lets it, and then

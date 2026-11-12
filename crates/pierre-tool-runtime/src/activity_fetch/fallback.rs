@@ -176,8 +176,10 @@ fn head_cause(read: &AppResult<HeadRead>) -> String {
 
 /// Flag the session `backend` when `error` is its own refusal for
 /// authentication (`reauth_notice::refused_backend`): a dead session asks
-/// for its sign-in while its grant serves.
-async fn flag_refusal(
+/// for its sign-in while its grant serves. A list read
+/// ([`answer_with_grant`]) and a by-id read
+/// (`protocol::auth::grant_by_id`) that fall back flag it the same way.
+pub(crate) async fn flag_refusal(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant: TenantId,

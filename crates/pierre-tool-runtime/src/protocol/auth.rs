@@ -402,7 +402,7 @@ impl AuthService {
             .await?;
         // The Strava session's by-id reads fall back to the Strava grant
         // standing behind it (carnet#1494); the ids are Strava's on both.
-        let (Some(tenant), Some(tenant_id)) = (tenant_id_parsed, tenant_id) else {
+        let Some(tenant) = tenant_id_parsed else {
             return Ok(provider);
         };
         Ok(
@@ -412,7 +412,7 @@ impl AuthService {
                     Self::new(Arc::clone(&self.resources)),
                     &grant,
                     user_id,
-                    tenant_id,
+                    tenant,
                 ),
                 None => provider,
             },

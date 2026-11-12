@@ -54,6 +54,7 @@ pub mod uploads;
 pub mod write_through;
 
 use budgeted_read::refresh_head_within_budget;
+pub(crate) use fallback::flag_refusal;
 pub(crate) use fallback::grant_window;
 pub use fallback::{serve_without_primary, FallbackServe};
 pub(crate) use pushed::connection_grant_beside_session;
@@ -847,9 +848,7 @@ async fn fetch_and_persist_head(
             tenant,
             key,
             &head.activities,
-            WriteThrough {
-                read: params,
-            },
+            WriteThrough { read: params },
         )
         .await;
     }
