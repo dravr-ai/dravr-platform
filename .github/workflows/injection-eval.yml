@@ -144,7 +144,7 @@ jobs:
       # a dispatch lane is nobody's critical path, and an entry of its own would
       # push the push lanes' caches out of the 10 GB quota (carnet#1114).
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: test-dev
           cache-save: 'false'

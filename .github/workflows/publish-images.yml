@@ -514,7 +514,7 @@ jobs:
 
       - name: Setup Rust environment
         if: steps.ci-binaries.outputs.found != 'true'
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: release-ubuntu-24.04
           free-disk-space: 'true'
@@ -524,7 +524,7 @@ jobs:
       - name: Build server binaries
         id: binaries
         if: steps.ci-binaries.outputs.found != 'true'
-        uses: ./.github/actions/server-binaries
+        uses: $/.github/actions/server-binaries
         with:
           deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
 
@@ -623,7 +623,7 @@ jobs:
       # vulnerability DB comes from a free mirror and must stay fresh. The cache
       # is an artifact, not actions/cache — see the action for why.
       - name: Restore Trivy layer cache
-        uses: ./.github/actions/trivy-layer-cache
+        uses: $/.github/actions/trivy-layer-cache
         with:
           mode: restore
           name: trivy-fanal-server-${{ hashFiles('docker/images/server/Dockerfile') }}
@@ -645,7 +645,7 @@ jobs:
       # Saved after the reporting pass, which never fails, so a gated build
       # still keeps the analysis it paid to download.
       - name: Save Trivy layer cache
-        uses: ./.github/actions/trivy-layer-cache
+        uses: $/.github/actions/trivy-layer-cache
         with:
           mode: save
           name: trivy-fanal-server-${{ hashFiles('docker/images/server/Dockerfile') }}
@@ -738,7 +738,7 @@ jobs:
       # node_modules layer from the registry cache.
       - name: Build frontend dist
         id: dist
-        uses: ./.github/actions/frontend-dist
+        uses: $/.github/actions/frontend-dist
         env:
           VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
@@ -852,7 +852,7 @@ jobs:
       # Layer-analysis cache so the scan does not re-download the pushed image
       # from Artifact Registry — see the server job.
       - name: Restore Trivy layer cache
-        uses: ./.github/actions/trivy-layer-cache
+        uses: $/.github/actions/trivy-layer-cache
         with:
           mode: restore
           name: trivy-fanal-frontend-${{ hashFiles('docker/images/frontend/Dockerfile') }}
@@ -869,7 +869,7 @@ jobs:
             "${{ steps.tags.outputs.registry }}/frontend@${{ steps.build.outputs.digest }}"
 
       - name: Save Trivy layer cache
-        uses: ./.github/actions/trivy-layer-cache
+        uses: $/.github/actions/trivy-layer-cache
         with:
           mode: save
           name: trivy-fanal-frontend-${{ hashFiles('docker/images/frontend/Dockerfile') }}

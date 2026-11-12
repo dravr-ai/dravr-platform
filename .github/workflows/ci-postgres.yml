@@ -190,7 +190,7 @@ jobs:
 
       - name: Setup Rust environment
         if: steps.proven.outputs.skip != 'true'
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           free-disk-space: 'true'
           # No service container runs here, but pruning the images costs time
@@ -587,7 +587,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:16-alpine@sha256:aa6cb33cf4c19c765cefcf48d96176258800870a9a1e930ad126200f9d825139
         env:
           POSTGRES_USER: pierre
           POSTGRES_PASSWORD: ci_test_password

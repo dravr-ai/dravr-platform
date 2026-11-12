@@ -36,6 +36,7 @@ on:
       - "CI: Server E2E"
       - "Chat Eval: Conversation Scenarios"
       - "Guard: .build pointer"
+      - "Guard: actions lockfile"
       - "Guard: private tooling"
       - "Security: MCP Tool Scan"
       - "Infra: Terraform"
@@ -63,7 +64,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Checkout the default branch (the script that judges)
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        uses: actions/checkout@v6
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 200

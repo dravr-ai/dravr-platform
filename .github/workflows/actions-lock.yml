@@ -1,0 +1,66 @@
+# ABOUTME: Verifies .github/workflows/actions.lock covers every workflow and that every locked commit is still in its ref
+# ABOUTME: Runs on any .github change, and weekly so an upstream force-push surfaces before the runner rejects a real job
+name: "Guard: actions lockfile"
+
+on:
+  # .gitattributes and the top of .claude/ and .agents/ hold the export-ignore
+  # rules and the symlinks the archive check judges (see check-actions-lock.sh).
+  push:
+    paths:
+      - '.github/**'
+      - '.gitattributes'
+      - '.claude/*'
+      - '.agents/*'
+      - 'scripts/ci/check-actions-lock.sh'
+      - 'scripts/ci/check-actions-lock.test.sh'
+  pull_request:
+    paths:
+      - '.github/**'
+      - '.gitattributes'
+      - '.claude/*'
+      - '.agents/*'
+      - 'scripts/ci/check-actions-lock.sh'
+      - 'scripts/ci/check-actions-lock.test.sh'
+  # Nothing in this repository moves upstream refs, so a push never sees a
+  # locked commit leave its tag or branch. The weekly run does; a red one is
+  # picked up by monitor-scheduled-lanes like every other cron lane.
+  schedule:
+    - cron: '41 6 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  # On main the sha joins the group so no commit can evict another's verdict,
+  # matching every other test-verdict lane here.
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: lockfile covers every workflow
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      # The version check-actions-lock.sh pins; its self-test fails when the
+      # two differ, since another release can write or judge the lock differently.
+      - name: Install gh-actions-lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh extension install github/gh-actions-lock --pin v0.4.1
+
+      - name: Self-test
+        run: ./scripts/ci/check-actions-lock.test.sh
+
+      # --verify resolves every locked dependency upstream: the read-only
+      # job token covers github.com's public actions and this repository.
+      - name: Verify actions.lock
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./scripts/ci/check-actions-lock.sh

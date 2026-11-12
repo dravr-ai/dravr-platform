@@ -245,7 +245,7 @@ jobs:
       # (carnet#1258). The size gate below still runs on what it downloaded.
       - name: Reuse a server built from the same inputs
         id: prebuilt
-        uses: ./.github/actions/prebuilt-server
+        uses: $/.github/actions/prebuilt-server
         with:
           prefix: server-e2e-binaries
           variant: ${{ runner.os }}-ubuntu-24.04-${{ runner.arch }}-release-default-features

@@ -84,7 +84,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: bench
           cache-save: auto
@@ -173,7 +173,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: bench
           cache-save: 'false'

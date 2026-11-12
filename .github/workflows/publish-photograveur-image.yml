@@ -140,7 +140,7 @@ jobs:
       # Layer-analysis cache so the scan does not re-download the pushed image
       # from Artifact Registry — see publish-images.yml's server job.
       - name: Restore Trivy layer cache
-        uses: ./platform/.github/actions/trivy-layer-cache
+        uses: $/.github/actions/trivy-layer-cache
         with:
           mode: restore
           name: trivy-fanal-photograveur-${{ hashFiles('photograveur/Dockerfile') }}
@@ -160,7 +160,7 @@ jobs:
             "${{ steps.tags.outputs.registry }}/photograveur@${{ steps.build.outputs.digest }}"
 
       - name: Save Trivy layer cache
-        uses: ./platform/.github/actions/trivy-layer-cache
+        uses: $/.github/actions/trivy-layer-cache
         with:
           mode: save
           name: trivy-fanal-photograveur-${{ hashFiles('photograveur/Dockerfile') }}

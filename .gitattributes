@@ -1,0 +1,11 @@
+# A `uses: $/.github/actions/<name>` step makes the runner download this
+# repository's archive at the workflow's commit and extract it, and extraction
+# fails at "Set up job" on a symlink whose target the archive does not hold
+# ("Could not find file .../.claude/skills"). These point into the git-ignored
+# .savoir/ clone (and .agents/agents through .claude/agents), so they dangle in
+# every archive. Leave them out of archives; checkouts keep them. A new
+# dangling symlink fails scripts/ci/check-actions-lock.sh.
+.claude/agents export-ignore
+.claude/rules export-ignore
+.claude/skills export-ignore
+.agents/agents export-ignore

@@ -287,7 +287,7 @@ jobs:
       # dispatch run counts as everything changed.
       - name: Detect file changes
         id: changes
-        uses: ./.github/actions/ci-backend-changes
+        uses: $/.github/actions/ci-backend-changes
 
       # Which crates leaf-crate-tests runs (carnet#1282). A branch push tests
       # the crates its diff from main's fork point reaches and every crate
@@ -710,7 +710,7 @@ jobs:
 
       - name: Setup Rust environment
         if: steps.detect.outputs.skip != 'true'
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           components: clippy
           # The full-workspace clippy job's cache, restored; that job saves it.
@@ -787,7 +787,7 @@ jobs:
 
       - name: Detect file changes
         id: changes
-        uses: ./.github/actions/ci-backend-changes
+        uses: $/.github/actions/ci-backend-changes
 
       - name: Configure git for private deps
         if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
@@ -795,7 +795,7 @@ jobs:
 
       - name: Setup Rust environment
         if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           components: clippy
           free-disk-space: 'true'
@@ -853,13 +853,15 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
 
       - name: Security Audit (via deny.toml)
         run: cargo deny check
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
 
       - name: dravr-* duplicate check (hard fail)
         run: |
@@ -980,7 +982,7 @@ jobs:
 
       - name: Setup Rust environment
         id: rust
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           # The dev-profile test cache backend-test-binaries saves; restored only.
           shared-key: test-dev
@@ -1156,7 +1158,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           # The production entry lints rather than checks, so this job needs the
           # clippy component the way the full-workspace job does. Without it the
@@ -1209,7 +1211,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           free-disk-space: 'true'
           # The one dev-profile test cache dev-tests restores. This job is its
@@ -1372,7 +1374,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           free-disk-space: 'true'
 
@@ -1551,7 +1553,7 @@ jobs:
       # SQLite shard 1 and leaf-crate-tests in run 39609290067). The release
       # cache held no entry at all, so every build compiled ~480 crates cold.
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: release-ubuntu-24.04
           free-disk-space: 'true'
@@ -1566,7 +1568,7 @@ jobs:
         # profile release.yml never tags and a feature set nothing deploys.
         # carnet#471. Main builds pierre-cli too, so the upload below carries
         # both binaries the image needs; the two links run in parallel.
-        uses: ./.github/actions/server-binaries
+        uses: $/.github/actions/server-binaries
         with:
           deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
           bins: ${{ github.ref == 'refs/heads/main' && 'pierre-mcp-server pierre-cli' || 'pierre-mcp-server' }}
