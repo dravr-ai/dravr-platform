@@ -1758,6 +1758,16 @@ else
     VALIDATION_FAILED=true
 fi
 
+# HARD FAIL: the history walk keeps one history source order, one live-read
+# order and one Coverage; the budgeted read detaches nothing and the history
+# import stays retired (carnet#1482).
+if [ -f "$SCRIPT_DIR/check-history-walk-single-source.sh" ]; then
+    bash "$SCRIPT_DIR/check-history-walk-single-source.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${RED}❌ scripts/ci/check-history-walk-single-source.sh not found${NC}"
+    VALIDATION_FAILED=true
+fi
+
 # HARD FAIL: Cloud Run instance-based billing (cpu_idle=false) must cite an ADR.
 if [ -x "$SCRIPT_DIR/check-cpu-idle-adr.sh" ]; then
     "$SCRIPT_DIR/check-cpu-idle-adr.sh" || VALIDATION_FAILED=true
