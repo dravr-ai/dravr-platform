@@ -149,6 +149,7 @@ mod auth_test;
 mod backfill_dedup_test;
 mod backfill_job_kinds_migration_test;
 mod backfill_notifier_test;
+mod backfill_notify_kind_dispatch_test;
 mod backfill_placeholder_message_test;
 mod billing_checkout_auth_test;
 mod billing_dummy_webhook_refused_test;

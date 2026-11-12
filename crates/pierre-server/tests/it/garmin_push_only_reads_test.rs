@@ -201,6 +201,8 @@ async fn no_history_capture_is_started_for_a_push_only_provider() {
         },
         pierre_conversation_id: None,
         kind: BackfillJobKind::Backfill,
+        turn_id: None,
+        asked_message_id: None,
     })
     .await;
 

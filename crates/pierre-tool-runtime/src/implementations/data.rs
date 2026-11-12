@@ -654,6 +654,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
                             kind: BackfillJobKind::Backfill,
+                            turn_id: None,
+                            asked_message_id: None,
                         };
                         match backfill_inline_and_serve(job, &coverage_params, before).await {
                             InlineHistoricalServe::AuthRequired => {
@@ -690,6 +692,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
                             kind: BackfillJobKind::Backfill,
+                            turn_id: None,
+                            asked_message_id: None,
                         })
                         .await;
                         // `started == false` means a backfill for this window is
@@ -767,6 +771,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 params: query_params.clone(),
                                 attempt_started_at,
                                 conversation_id: context.conversation_id.clone(),
+                                ask: context.turn_ask.clone(),
                             };
                             let budget = RefreshConfig::default().wait_for_refresh_timeout();
                             match read_live_window_within_budget(

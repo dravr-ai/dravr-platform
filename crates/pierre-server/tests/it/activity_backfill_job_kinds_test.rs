@@ -342,3 +342,131 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
         "bug: steps add up, and a step that measured nothing keeps the measured pace"
     );
 }
+
+/// A live read nobody waits on — a stale head's top-up — asked while a
+/// chat's read is owed never takes that chat's follow-up away.
+#[tokio::test]
+async fn a_live_read_asked_with_no_conversation_keeps_the_owed_follow_up() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let chat = owed_row(tenant, user, BackfillJobKind::LiveRead);
+    assert!(
+        ledger.record_backfill_job(&chat).await.unwrap(),
+        "bug: the chat's live read is recorded"
+    );
+    let top_up = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: None,
+        turn_id: None,
+        asked_message_id: None,
+        ..chat.clone()
+    };
+    assert!(
+        !ledger.record_backfill_job(&top_up).await.unwrap(),
+        "bug: a top-up asked while a read is owed is that read, never a second one"
+    );
+    assert!(
+        !ledger.rebind_live_read(&top_up).await.unwrap(),
+        "bug: an ask with no conversation rebinds nothing"
+    );
+
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    assert_eq!(claimed.len(), 1, "bug: one live read is owed");
+    assert_eq!(
+        claimed[0].conversation_id.as_deref(),
+        Some("conv-1"),
+        "bug: the follow-up still goes to the chat that asked"
+    );
+    assert_eq!(
+        claimed[0].asked_message_id.as_deref(),
+        Some("message-1"),
+        "bug: the follow-up still answers the chat's message"
+    );
+}
+
+/// A re-ask that arrives while this instance runs the read rebinds the owed
+/// row and never records one of its own; with nothing owed it records
+/// nothing at all, and the row it finishes hands back the ask it was bound to.
+#[tokio::test]
+async fn a_rebind_only_moves_an_owed_live_read_and_finishing_returns_its_ask() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let first = owed_row(tenant, user, BackfillJobKind::LiveRead);
+    let reask = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        conversation_id: Some("conv-2".to_owned()),
+        turn_id: Some("turn-2".to_owned()),
+        asked_message_id: Some("message-2".to_owned()),
+        ..first.clone()
+    };
+    assert!(
+        !ledger.rebind_live_read(&reask).await.unwrap(),
+        "bug: with nothing owed a rebind finds no row"
+    );
+    assert_eq!(
+        ledger
+            .backfill_job_state(user, tenant, PROVIDER, BackfillJobKind::LiveRead)
+            .await
+            .unwrap(),
+        None,
+        "bug: a rebind never records a live read of its own"
+    );
+
+    assert!(
+        ledger.record_backfill_job(&first).await.unwrap(),
+        "bug: the first live read is recorded"
+    );
+    let elsewhere = ActivityBackfillJobRow {
+        tenant_id: TenantId::generate(),
+        conversation_id: Some("conv-other-tenant".to_owned()),
+        ..reask.clone()
+    };
+    assert!(
+        !ledger.rebind_live_read(&elsewhere).await.unwrap(),
+        "bug: another tenant's ask never rebinds this tenant's read"
+    );
+    assert!(
+        ledger.rebind_live_read(&reask).await.unwrap(),
+        "bug: a re-ask rebinds the owed read"
+    );
+
+    let lease = JobLease {
+        id: first.id.clone(),
+        token: first.lease_token.clone().unwrap(),
+    };
+    let stolen = JobLease {
+        id: first.id.clone(),
+        token: Uuid::new_v4().to_string(),
+    };
+    assert_eq!(
+        ledger.finish_live_read(&stolen).await.unwrap(),
+        None,
+        "bug: only the lease that holds the row finishes it"
+    );
+    let ask = ledger
+        .finish_live_read(&lease)
+        .await
+        .unwrap()
+        .expect("bug: the holding lease finishes the row");
+    assert_eq!(
+        (
+            ask.conversation_id.as_deref(),
+            ask.turn_id.as_deref(),
+            ask.asked_message_id.as_deref()
+        ),
+        (Some("conv-2"), Some("turn-2"), Some("message-2")),
+        "bug: finishing hands back the newest ask the row was bound to"
+    );
+    assert_eq!(
+        ledger
+            .backfill_job_state(user, tenant, PROVIDER, BackfillJobKind::LiveRead)
+            .await
+            .unwrap(),
+        None,
+        "bug: a finished live read leaves no row"
+    );
+}

@@ -1,5 +1,5 @@
 // ABOUTME: A live activity-list read that answers its turn inside the refresh budget
-// ABOUTME: Past the budget the cached window answers and the read runs on, so a slow scrape never fails a call
+// ABOUTME: Past the budget the cached window answers and the read runs on as a durable job, so a slow scrape never fails a call
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,20 +11,28 @@ use std::time::Duration;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
+use pierre_database::repositories::BackfillJobKind;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::{ai_scope, CoreFitnessProvider};
-use tokio::task::{JoinError, JoinHandle};
+use tokio::sync::oneshot::error::RecvError;
 use tokio::time::timeout;
-use tracing::{info, warn, Instrument, Span};
+use tracing::{info, warn};
 use uuid::Uuid;
 
-use super::sync_verdict::{HeadRead, LiveRead};
-use super::{read_live_window, serve_stale_activities};
-use crate::revalidation::revalidation_timeout;
+use super::pushed::serving_slug;
+use super::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
+use super::{
+    read_live_window, serve_after_failed_read, serve_flagged_session, serve_stale_activities,
+    stale_head_params, FailedRead,
+};
+use crate::activity_backfill::live_read::{
+    start_live_read, Authenticated, LiveReadOutput, LiveReadStart,
+};
+use crate::activity_backfill::{provider_tenant_id_str, ActivityBackfillJob};
+use crate::context::TurnAsk;
 use crate::runtime::ToolRuntime;
 
-/// The owned half of a [`LiveRead`], so the read can outlive the turn that
-/// started it.
+/// A live read a turn asks for, owned so the read can outlive the turn.
 #[derive(Debug)]
 pub struct OwnedLiveRead {
     /// The provider key the athlete's connection and cache rows use.
@@ -40,6 +48,9 @@ pub struct OwnedLiveRead {
     /// The conversation that asked, when a chat turn did: a read the turn
     /// stops waiting for posts its answer there once it lands.
     pub conversation_id: Option<String>,
+    /// The turn and the athlete's message that asked, when a chat turn did:
+    /// the follow-up answers that message only while it is the newest.
+    pub ask: Option<TurnAsk>,
 }
 
 /// How a budgeted live read ended for the turn that asked for it.
@@ -53,9 +64,9 @@ pub enum BudgetedRead {
         /// The authenticated provider, for the rest of the turn.
         provider: Option<Box<dyn CoreFitnessProvider>>,
     },
-    /// The read outlived the budget and the provider's own cached window
-    /// answered. The read runs on detached, capped at
-    /// [`revalidation_timeout`], and its write-through lands for the next turn.
+    /// The read outlived the budget, or a live read of the provider was
+    /// already running, and the provider's own cached window answered. The
+    /// read runs on as a job, and its write-through lands for the next turn.
     Cached(Vec<Activity>),
 }
 
@@ -72,114 +83,130 @@ impl fmt::Debug for BudgetedRead {
     }
 }
 
-/// What the detached read hands back: `None` when it hit its cap.
-type ReadOutput = Option<(AppResult<HeadRead>, Box<dyn CoreFitnessProvider>)>;
-
 /// Read a provider's window live, waiting at most `budget` for it.
 ///
 /// A healthy scrape takes about two minutes, and the chat tool loop gives a
 /// tool call ninety seconds: an inline read of a scraped provider could fail
-/// the whole `get_activities` call on a provider that was working. Past the
-/// budget the turn is answered from the provider's cached window, which the
-/// caller labels stale, while the read continues; it is judged, recorded and
-/// written through exactly as an inline read would be. With nothing cached
-/// there is nothing better to say, so the turn keeps waiting for the read.
+/// the whole `get_activities` call on a provider that was working. So the
+/// read is a [`BackfillJobKind::LiveRead`] job, recorded before it runs, and
+/// the turn waits for its first attempt. Past the budget the turn is answered
+/// from the provider's cached window, which the caller labels stale, while
+/// the read goes on; it is judged, recorded and written through exactly as an
+/// inline read would be, and the conversation that asked gets a follow-up
+/// once it lands — or, when the athlete has asked something newer since, a
+/// note that its data landed. With nothing cached there is nothing better to
+/// say, so the turn keeps waiting for the read.
 ///
 /// The fallback to the grant behind the athlete's session runs inside the
 /// read ([`read_live_window`], carnet#1494), so it shares the read's budget:
 /// past it, the cached window answers and a session that then fails falls
-/// back in the detached read. A turn never reads both backends inline past
-/// its budget.
+/// back in the job's read. A turn never reads both backends inline past its
+/// budget.
 ///
-/// The provider-terms and AI-consent gates are task-locals of the turn, and a
-/// spawned task does not inherit them: the detached read runs unfiltered, as a
-/// cache write does, and what it answers is filtered here, back in the turn.
+/// A read of the provider already running here takes this ask over instead,
+/// and the turn answers from the cache at once.
+///
+/// The read runs unfiltered, as a cache write does, on another task than the
+/// turn's: what it answers is filtered here, back in the turn.
 pub async fn read_live_window_within_budget(
     runtime: &Arc<dyn ToolRuntime>,
     provider: Box<dyn CoreFitnessProvider>,
     read: OwnedLiveRead,
     budget: Duration,
 ) -> BudgetedRead {
+    // A push-only provider has no live list: its window is its pushed store,
+    // read at once, with nothing to wait for or to owe.
+    if runtime.provider_registry().is_push_only(provider.name()) {
+        let tenant = read.tenant_id.to_string();
+        let live = LiveRead {
+            provider_slug: &read.provider_slug,
+            user_id: read.user_id,
+            tenant_id: Some(&tenant),
+            params: &read.params,
+            attempt_started_at: read.attempt_started_at,
+        };
+        let head = read_live_window(runtime, provider.as_ref(), live, Some(read.tenant_id)).await;
+        return answered(
+            runtime,
+            Ok(LiveReadOutput {
+                read: head,
+                provider: Some(provider),
+            }),
+        );
+    }
     let (provider_slug, user_id, tenant_id, params) = (
         read.provider_slug.clone(),
         read.user_id,
         read.tenant_id,
         read.params.clone(),
     );
-    let follow_up = read
-        .conversation_id
-        .clone()
-        .map(|conversation_id| FollowUp {
-            runtime: Arc::clone(runtime),
-            conversation_id,
-            tenant_id,
-            after_ts: params.after.unwrap_or(0),
-        });
-    let mut task = spawn_read(Arc::clone(runtime), provider, read);
-    if let Ok(joined) = timeout(budget, &mut task).await {
-        return answered(runtime, joined);
+    let authenticated = Authenticated {
+        provider,
+        attempt_started_at: read.attempt_started_at,
+    };
+    let job = live_read_job(runtime, read);
+    let mut answer = match start_live_read(job, Some(authenticated)).await {
+        LiveReadStart::Started(answer) => answer,
+        LiveReadStart::Joined => {
+            info!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                "a live activity read of this provider is already running; answering from the cached window"
+            );
+            let cached =
+                serve_stale_activities(runtime, &provider_slug, user_id, tenant_id, &params).await;
+            return BudgetedRead::Cached(cached.unwrap_or_default());
+        }
+    };
+    if let Ok(landed) = timeout(budget, &mut answer).await {
+        return answered(runtime, landed);
     }
     if let Some(cached) =
         serve_stale_activities(runtime, &provider_slug, user_id, tenant_id, &params).await
     {
+        // Closed before it is read, so an answer that lands from here on is
+        // the follow-up's to deliver — and one that landed already is
+        // served rather than the cache.
+        answer.close();
+        if let Ok(landed) = answer.try_recv() {
+            return answered(runtime, Ok(landed));
+        }
         info!(
             user_id = %user_id,
             provider = %provider_slug,
             budget_secs = budget.as_secs(),
             "live activity read outlived the turn's budget; answering from the cached window while it finishes"
         );
-        observe_detached_read(task, user_id, provider_slug, follow_up);
         return BudgetedRead::Cached(cached);
     }
-    answered(runtime, task.await)
+    answered(runtime, answer.await)
 }
 
-fn spawn_read(
-    runtime: Arc<dyn ToolRuntime>,
-    provider: Box<dyn CoreFitnessProvider>,
-    read: OwnedLiveRead,
-) -> JoinHandle<ReadOutput> {
-    // The read keeps the turn's span, so its logs stay on the turn that
-    // started it after the turn has answered.
-    let span = Span::current();
-    tokio::spawn(
-        async move {
-            let cap = revalidation_timeout(&runtime.config().timeouts);
-            let tenant = read.tenant_id.to_string();
-            let live = LiveRead {
-                provider_slug: &read.provider_slug,
-                user_id: read.user_id,
-                tenant_id: Some(&tenant),
-                params: &read.params,
-                attempt_started_at: read.attempt_started_at,
-            };
-            let result = timeout(
-                cap,
-                ai_scope::unfiltered(read_live_window(
-                    &runtime,
-                    provider.as_ref(),
-                    live,
-                    Some(read.tenant_id),
-                )),
-            )
-            .await;
-            if result.is_err() {
-                warn!(
-                    user_id = %read.user_id,
-                    provider = %read.provider_slug,
-                    timeout_secs = cap.as_secs(),
-                    "live activity read timed out"
-                );
-            }
-            result.ok().map(|outcome| (outcome, provider))
-        }
-        .instrument(span),
-    )
+/// The job a live read runs as.
+fn live_read_job(runtime: &Arc<dyn ToolRuntime>, read: OwnedLiveRead) -> ActivityBackfillJob {
+    let (turn_id, asked_message_id) = read
+        .ask
+        .map_or((None, None), |ask| (Some(ask.turn_id), ask.user_message_id));
+    ActivityBackfillJob {
+        resources: Arc::clone(runtime),
+        user_id: read.user_id,
+        tenant_id: read.tenant_id,
+        tenant_id_str: provider_tenant_id_str(read.tenant_id),
+        provider_name: read.provider_slug,
+        query_params: read.params,
+        pierre_conversation_id: read.conversation_id,
+        kind: BackfillJobKind::LiveRead,
+        turn_id,
+        asked_message_id,
+    }
 }
 
-fn answered(runtime: &Arc<dyn ToolRuntime>, joined: Result<ReadOutput, JoinError>) -> BudgetedRead {
-    match joined {
-        Ok(Some((read, provider))) => BudgetedRead::Answered {
+fn answered(
+    runtime: &Arc<dyn ToolRuntime>,
+    landed: Result<LiveReadOutput, RecvError>,
+) -> BudgetedRead {
+    match landed {
+        Ok(LiveReadOutput { read, provider }) => BudgetedRead::Answered {
             read: read.map(|mut head| {
                 head.activities = ai_scope::filter_activities(
                     runtime.provider_registry().as_ref(),
@@ -187,110 +214,27 @@ fn answered(runtime: &Arc<dyn ToolRuntime>, joined: Result<ReadOutput, JoinError
                 );
                 head
             }),
-            provider: Some(provider),
+            provider,
         },
-        Ok(None) => BudgetedRead::Answered {
-            read: Err(AppError::external_service(
-                "activity provider",
-                format!(
-                    "the live read did not answer within {}s",
-                    revalidation_timeout(&runtime.config().timeouts).as_secs()
-                ),
+        Err(RecvError { .. }) => BudgetedRead::Answered {
+            read: Err(AppError::internal(
+                "the live activity read ended without answering",
             )),
-            provider: None,
-        },
-        Err(join_error) => BudgetedRead::Answered {
-            read: Err(AppError::internal(format!(
-                "live activity read failed: {join_error}"
-            ))),
             provider: None,
         },
     }
 }
 
-/// Where a detached read reports once it lands: the conversation whose turn
-/// stopped waiting for it.
-struct FollowUp {
-    /// Shared with the turn: the detached task outlives it and reaches the
-    /// backfill notifier through it.
-    runtime: Arc<dyn ToolRuntime>,
-    conversation_id: String,
-    tenant_id: TenantId,
-    after_ts: i64,
-}
-
-/// Watch a live read the turn stopped waiting for: a panic in it is logged,
-/// and a read that lands answers the conversation that asked, through the
-/// backfill notifier's re-ask (carnet#1481). The turn told the athlete the
-/// window was incomplete; this delivers the rest.
-fn observe_detached_read(
-    task: JoinHandle<ReadOutput>,
-    user_id: Uuid,
-    provider: String,
-    follow_up: Option<FollowUp>,
-) {
-    tokio::spawn(async move {
-        let landed = match task.await {
-            Ok(Some((Ok(head), _))) => Some(head.activities.len()),
-            Ok(_) => None,
-            Err(join_error) => {
-                warn!(
-                    user_id = %user_id,
-                    provider = %provider,
-                    error = %join_error,
-                    "detached live activity read failed"
-                );
-                None
-            }
-        };
-        let (Some(count), Some(follow_up)) = (landed, follow_up) else {
-            return;
-        };
-        let Some(notifier) = follow_up.runtime.backfill_notifier() else {
-            return;
-        };
-        info!(
-            user_id = %user_id,
-            provider = %provider,
-            activities = count,
-            "detached live activity read landed; answering the conversation that asked"
-        );
-        notifier
-            .push_backfill_complete(
-                user_id,
-                follow_up.tenant_id,
-                &follow_up.conversation_id,
-                &provider,
-                follow_up.after_ts,
-                count,
-            )
-            .await;
-    });
-}
-
-/// Watch a read the turn stopped waiting for, so a panic in it is logged
-/// rather than lost with its dropped handle.
-fn observe_detached<T: Send + 'static>(task: JoinHandle<T>, user_id: Uuid, provider: String) {
-    tokio::spawn(async move {
-        if let Err(join_error) = task.await {
-            warn!(
-                user_id = %user_id,
-                provider = %provider,
-                error = %join_error,
-                "detached live activity read failed"
-            );
-        }
-    });
-}
-
-/// Re-read a provider's recent head detached, waiting at most `budget` for it.
+/// Re-read a provider's recent head, waiting at most `budget` for it.
 ///
 /// The head top-up of a covered historical window ([`super::refresh_stale_head`])
 /// awaited [`super::refresh_head`] inline, so a slow scrape held the whole
-/// call. Past the budget the read runs on under [`revalidation_timeout`] and
-/// its write-through lands for the next turn; `None` tells the caller the head
-/// it serves is behind. Run unfiltered and filtered here, for the reason
-/// [`read_live_window_within_budget`] gives.
+/// call. It is a [`BackfillJobKind::LiveRead`] job no conversation waits on:
+/// past the budget the read runs on and its write-through lands for the next
+/// turn, silently; `None` tells the caller the head it serves is behind. A
+/// read that failed is answered from the cache, as [`super::refresh_head`]'s
+/// is, and a flagged scrape session is not read at all. Run unfiltered and
+/// filtered here, for the reason [`read_live_window_within_budget`] gives.
 pub async fn refresh_head_within_budget(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -298,46 +242,106 @@ pub async fn refresh_head_within_budget(
     tenant_id: TenantId,
     budget: Duration,
 ) -> Option<Vec<Activity>> {
-    let span = Span::current();
-    let detached = Arc::clone(runtime);
-    let slug = provider_slug.to_owned();
-    let mut task = tokio::spawn(
-        async move {
-            let refresh = super::refresh_head(&detached, &slug, user_id, tenant_id);
-            timeout(
-                revalidation_timeout(&detached.config().timeouts),
-                ai_scope::unfiltered(refresh),
-            )
-            .await
-            .ok()
-            .flatten()
-        }
-        .instrument(span),
-    );
-    let Ok(joined) = timeout(budget, &mut task).await else {
-        info!(
-            user_id = %user_id,
-            provider = %provider_slug,
-            budget_secs = budget.as_secs(),
-            "stale activity head did not refresh within the turn's budget; serving the cached head while it finishes"
-        );
-        observe_detached(task, user_id, provider_slug.to_owned());
-        return None;
+    let attempt_started_at = Utc::now();
+    let provider_slug = &serving_slug(runtime, provider_slug, user_id, Some(tenant_id)).await;
+    let params = stale_head_params();
+    if let Some(served) =
+        serve_flagged_session(runtime, provider_slug, user_id, Some(tenant_id), &params).await
+    {
+        return served;
+    }
+    let read = OwnedLiveRead {
+        provider_slug: provider_slug.clone(),
+        user_id,
+        tenant_id,
+        params: params.clone(),
+        attempt_started_at,
+        conversation_id: None,
+        ask: None,
     };
-    let rows = match joined {
-        Ok(rows) => rows?,
-        Err(join_error) => {
-            warn!(
-                user_id = %user_id,
-                provider = %provider_slug,
-                error = %join_error,
-                "stale activity head refresh task failed"
-            );
-            return None;
-        }
+    let landed = head_within_budget(runtime, read, budget).await?;
+    let failed = FailedRead {
+        provider_slug,
+        user_id,
+        tenant: Some(tenant_id),
+        params: &params,
+        attempt_started_at,
     };
+    let rows = served_head(runtime, failed, landed.read).await?;
     Some(ai_scope::filter_activities(
         runtime.provider_registry().as_ref(),
         rows,
     ))
+}
+
+/// Start a stale head's read and wait at most `budget` for its first
+/// attempt; `None` when it is still running, or a read of the provider
+/// already was.
+async fn head_within_budget(
+    runtime: &Arc<dyn ToolRuntime>,
+    read: OwnedLiveRead,
+    budget: Duration,
+) -> Option<LiveReadOutput> {
+    let (user_id, provider_slug) = (read.user_id, read.provider_slug.clone());
+    let LiveReadStart::Started(mut answer) =
+        start_live_read(live_read_job(runtime, read), None).await
+    else {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            "a live activity read of this provider is already running; serving the cached head"
+        );
+        return None;
+    };
+    match timeout(budget, &mut answer).await {
+        Ok(Ok(landed)) => Some(landed),
+        Ok(Err(RecvError { .. })) => {
+            warn!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                "stale activity head refresh ended without answering"
+            );
+            None
+        }
+        Err(_) => {
+            info!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                budget_secs = budget.as_secs(),
+                "stale activity head did not refresh within the turn's budget; serving the cached head while it finishes"
+            );
+            None
+        }
+    }
+}
+
+/// The head a refresh's read answers with: its own rows when the provider
+/// vouched for the list, else the cached head — the connection that refused
+/// flagged first, as for every failed head read.
+async fn served_head(
+    runtime: &Arc<dyn ToolRuntime>,
+    failed: FailedRead<'_>,
+    read: AppResult<HeadRead>,
+) -> Option<Vec<Activity>> {
+    match read {
+        Ok(HeadRead {
+            activities,
+            verdict: HeadVerdict::Complete | HeadVerdict::Incomplete,
+        }) => Some(activities),
+        Ok(HeadRead {
+            verdict: HeadVerdict::EmptyOverCached { .. },
+            ..
+        }) => {
+            let tenant = failed.tenant?;
+            serve_stale_activities(
+                runtime,
+                failed.provider_slug,
+                failed.user_id,
+                tenant,
+                failed.params,
+            )
+            .await
+        }
+        Err(e) => serve_after_failed_read(runtime, failed, &e).await,
+    }
 }

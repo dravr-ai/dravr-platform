@@ -360,8 +360,8 @@ async fn connect_prefetch_answer(
 ///
 /// A failed head read is also the one event here an operator must hear
 /// about, so it is logged at `error`, the level the Slack error layer
-/// forwards: every caller that reads a head — a chat turn, its detached
-/// continuation, Home, the capture sweep — passes through here, and each
+/// forwards: every caller that reads a head — a chat turn, its live-read
+/// job, Home, the capture sweep — passes through here, and each
 /// then serves the athlete from the cache under a caveat the athlete is not
 /// shown. On 2026-10-30 a scraper release failed every Strava read for
 /// hours, the chat answered from yesterday's cache, and the only trace was

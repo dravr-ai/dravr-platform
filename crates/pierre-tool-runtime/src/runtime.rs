@@ -41,7 +41,7 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
-use pierre_database::repositories::ProviderPurge;
+use pierre_database::repositories::{BackfillJobKind, ProviderPurge};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::LlmProvider;
 use pierre_providers::originals::OriginalsStore;
@@ -57,6 +57,56 @@ use pierre_services::provider_refresh::SyncNotifier;
 use dravr_enforme::SyncOrchestrator;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
+
+/// A background read that finished, and the conversation it answers
+/// ([`BackfillNotifier::push_backfill_complete`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackfillCompletion<'a> {
+    /// The athlete.
+    pub user_id: Uuid,
+    /// The tenant that owns the rows.
+    pub tenant_id: TenantId,
+    /// The conversation that asked.
+    pub pierre_conversation_id: &'a str,
+    /// The backend that was read.
+    pub provider: &'a str,
+    /// The read window's `after` lower bound in unix seconds (`0` when the
+    /// read had none).
+    pub after_ts: i64,
+    /// The net distinct activities the read wrote.
+    pub activity_count: usize,
+    /// What finished: the answer a [`BackfillJobKind::LiveRead`] owes depends
+    /// on whether the athlete has asked something newer since.
+    pub kind: BackfillJobKind,
+    /// The athlete's message a live read answers; `None` for every other
+    /// kind, and for a read no stored message asked.
+    pub asked_message_id: Option<&'a str>,
+}
+
+impl<'a> BackfillCompletion<'a> {
+    /// A finished [`BackfillJobKind::Backfill`] of `activity_count`
+    /// activities from `provider`, back to `after_ts`.
+    #[must_use]
+    pub const fn backfill(
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &'a str,
+        provider: &'a str,
+        after_ts: i64,
+        activity_count: usize,
+    ) -> Self {
+        Self {
+            user_id,
+            tenant_id,
+            pierre_conversation_id,
+            provider,
+            after_ts,
+            activity_count,
+            kind: BackfillJobKind::Backfill,
+            asked_message_id: None,
+        }
+    }
+}
 
 /// Best-effort sink that pushes a "your historical backfill finished" notice
 /// back to the messaging channel that triggered it.
@@ -76,24 +126,17 @@ use pierre_notifications::NotificationService;
 /// the server crate, behind the implementation.
 #[async_trait]
 pub trait BackfillNotifier: Send + Sync {
-    /// Notify the channel behind `pierre_conversation_id` that a background
-    /// historical backfill of `activity_count` activities from `provider`
-    /// finished for `(user_id, tenant_id)`. Best-effort — implementations
-    /// swallow and log their own failures.
+    /// Answer the conversation a finished background read was asked from
+    /// ([`BackfillCompletion`]). Best-effort — implementations swallow and
+    /// log their own failures.
     ///
-    /// `after_ts` is the historical-window `after` lower bound in unix seconds
-    /// (`0` when the request had no `after`). It keys the durable cross-replica
-    /// dedup claim so the notice is sent exactly once per `(user, provider,
-    /// window)` even when several replicas finish the same backfill.
-    async fn push_backfill_complete(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        pierre_conversation_id: &str,
-        provider: &str,
-        after_ts: i64,
-        activity_count: usize,
-    );
+    /// The completion's `after_ts` keys the durable cross-replica dedup
+    /// claim, so the answer is sent exactly once per `(user, provider,
+    /// window)` even when several replicas finish the same read. A live read
+    /// whose asking message is no longer the conversation's newest gets a
+    /// one-line note that its data landed instead of an answer to a question
+    /// the athlete has moved on from.
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>);
 
     /// Answer the conversation behind `pierre_conversation_id` that
     /// `provider`'s session expired and must be reconnected — a localized
@@ -101,7 +144,7 @@ pub trait BackfillNotifier: Send + Sync {
     /// channel (any channel) via the same rail as
     /// [`Self::push_backfill_complete`].
     ///
-    /// Fired from the DETACHED backfill path, where an auth failure would
+    /// Fired from a background job, where an auth failure would
     /// otherwise be silent (the foreground tool loop already nudges inline).
     /// It is the conversation's answer, not the connection's notice: the flag
     /// and the once-per-transition notice are

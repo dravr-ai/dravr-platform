@@ -16,9 +16,9 @@ use super::tool_response::{
 use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
-    scoped_read_subject, AuthMethod, DispatchOrigin, CONVERSATION_ID, CONVERSATION_TENANT,
-    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, TURN_AGENT_ID, TURN_DIRECT_MESSAGE,
-    TURN_LOCALE,
+    scoped_read_subject, DispatchOrigin, TurnAsk, CONVERSATION_ID, CONVERSATION_TENANT,
+    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, TURN_AGENT_ID, TURN_ASK,
+    TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
 use crate::first_party_tools;
 use crate::guardian::{self, DenyReason, GateOutcome, HeadlessBlock, ReadFingerprint, TurnKey};
@@ -34,16 +34,14 @@ use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
-use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext};
+use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
 use pierre_core::constants::tools::identifiers::CONNECT_PROVIDER;
-use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
-use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_providers::ai_scope;
 use pierre_services::provider_notice;
 use pierre_services::usage_counter::increment_counter;
@@ -51,7 +49,7 @@ use serde_json::Value as JsonValue;
 use std::fmt;
 use std::sync::Arc;
 use std::time::Instant;
-use subject::{subject_tool_context, withhold_reconnect_offer, Parties};
+use subject::{build_tool_context, subject_tool_context, withhold_reconnect_offer, Parties};
 use tracing::{info, warn, Instrument};
 use uuid::Uuid;
 
@@ -109,6 +107,9 @@ pub struct UniversalExecutor {
     /// [`crate::context::TURN_DIRECT_MESSAGE`] when the executor is built
     /// inside a turn, and scoped back around each tool body. `None` outside a chat turn.
     turn_direct_message: Option<bool>,
+    /// The turn and the athlete's message it answers, read from
+    /// [`crate::context::TURN_ASK`] like `turn_locale` and scoped back the same way.
+    turn_ask: Option<TurnAsk>,
     /// Per-**utterance** token used solely as the Guardian's turn key so per-turn
     /// budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -176,6 +177,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("turn_agent_id", &self.turn_agent_id)
             .field("turn_locale", &self.turn_locale)
             .field("turn_direct_message", &self.turn_direct_message)
+            .field("turn_ask", &self.turn_ask)
             .field("turn_token", &self.turn_token)
             .field("scopes", &self.scopes)
             .field("seat", &self.seat)
@@ -207,6 +209,7 @@ impl UniversalExecutor {
             // around the whole turn, and a nested dispatch inherits it the same
             // way.
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
+            turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested write is charged to the
             // SAME turn as its caller. Absent outside any tool scope
@@ -772,7 +775,13 @@ impl UniversalExecutor {
                                 // exactly what authorized this call, never wider.
                                 GRANTED_SCOPES.scope(
                                     self.scopes.clone(),
-                                    READ_SUBJECT.scope(subject.clone(), execute),
+                                    READ_SUBJECT.scope(
+                                        subject.clone(),
+                                        TURN_ASK.scope(
+                                            self.turn_ask.clone().filter(|_| in_conversation),
+                                            execute,
+                                        ),
+                                    ),
                                 ),
                             ),
                         ),
@@ -1166,33 +1175,4 @@ fn scope_refusal(
         });
     }
     Ok(())
-}
-
-async fn build_tool_context(
-    resources: &Arc<dyn ToolRuntime>,
-    request: &UniversalRequest,
-) -> Result<(ToolContext, bool), ProtocolError> {
-    let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
-
-    let is_admin = resources
-        .repos()
-        .users
-        .get_global(user_uuid)
-        .await
-        .ok()
-        .flatten()
-        .is_some_and(|user| user.is_admin);
-
-    let mut ctx = ToolContext::new()
-        .with_user(user_uuid.to_string())
-        .with_auth_method(AuthMethod::JwtBearer.as_str())
-        .as_admin(is_admin);
-
-    if let Some(raw) = request.tenant_id.as_deref() {
-        let uuid = Uuid::parse_str(raw)
-            .map_err(|e| ProtocolError::InvalidRequest(format!("Invalid tenant_id format: {e}")))?;
-        ctx = ctx.with_tenant(TenantId::from_uuid(uuid).to_string());
-    }
-
-    Ok((ctx, is_admin))
 }

@@ -30,7 +30,7 @@ use pierre_mcp_server::services::platform_post::{
     PlatformPost, PlatformPostRequest, PostSurface, PostedReply,
 };
 use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PATH};
-use pierre_tool_runtime::runtime::BackfillNotifier;
+use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier};
 
 // Shared messaging fixtures + channel fakes live in a helpers subdir (not a
 // top-level test binary), pulled in via `#[path]` so this test and the upcoming
@@ -78,14 +78,14 @@ async fn push_routes_to_originating_chat() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             1_700_000_000,
             42,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -145,14 +145,14 @@ async fn push_routes_dm_to_channel_user_id_when_no_conversation_id() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "sciotte_garmin",
             1_700_000_000,
             7,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -474,14 +474,14 @@ async fn push_resolves_channel_config_under_bot_tenant_for_cross_tenant_bot() {
 
     // Push runs under the USER tenant — exactly what the backfill job carries.
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             user_tenant,
             &conversation_id,
             "strava",
             1_700_000_000,
             12,
-        )
+        ))
         .await;
 
     // The notice was delivered (it could NOT be before the fix) to the chat.
@@ -651,14 +651,14 @@ async fn push_sends_the_chart_and_never_its_marker() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             1_700_000_000,
             38,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -773,14 +773,14 @@ async fn push_renders_deterministic_list_when_reentry_produces_no_list() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             1_700_000_000,
             1,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -885,14 +885,14 @@ async fn push_re_asks_the_newest_question_in_the_conversation() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             1_700_000_000,
             1,
-        )
+        ))
         .await;
 
     assert_eq!(
@@ -987,14 +987,14 @@ async fn push_prepends_activity_list_to_agent_reply() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             1_700_000_000,
             2,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -1090,14 +1090,14 @@ async fn push_caps_long_activity_list_for_small_screens() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             1_700_000_000,
             25,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -1162,14 +1162,14 @@ async fn push_for_moved_session_sends_nothing() {
 
     // Push for the OLD conversation C — the session no longer points at it.
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_c,
             "strava",
             1_700_000_000,
             7,
-        )
+        ))
         .await;
 
     assert!(
@@ -1228,14 +1228,14 @@ async fn push_is_tenant_scoped() {
 
     // Push tenant A's conversation under tenant B — must resolve nothing.
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_b,
             tenant_b,
             &conversation_a,
             "strava",
             1_700_000_000,
             5,
-        )
+        ))
         .await;
     assert!(
         channel.sent.lock().unwrap().is_empty(),
@@ -1244,14 +1244,14 @@ async fn push_is_tenant_scoped() {
 
     // Sanity: under tenant A the same conversation resolves and routes to A's chat.
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_a,
             tenant_a,
             &conversation_a,
             "strava",
             1_700_000_000,
             5,
-        )
+        ))
         .await;
     let sent = channel.sent.lock().unwrap();
     assert_eq!(sent.len(), 1, "owning tenant should deliver exactly once");
@@ -1302,14 +1302,14 @@ async fn push_sends_warmed_activity_list() {
     // the warmed count the backfill reported.
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             2,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -1370,14 +1370,14 @@ async fn push_falls_back_to_nudge_on_empty_cache() {
 
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             9,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -1436,14 +1436,14 @@ async fn push_delivers_into_an_in_app_conversation_with_no_channel_session() {
 
     let after_ts = (Utc::now() - Duration::days(500)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             2,
-        )
+        ))
         .await;
 
     assert!(
@@ -1535,14 +1535,14 @@ async fn push_into_an_in_app_conversation_delivers_the_agents_answer() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             (Utc::now() - Duration::days(500)).timestamp(),
             1,
-        )
+        ))
         .await;
 
     assert_eq!(
@@ -1622,14 +1622,14 @@ async fn a_withheld_in_app_post_falls_back_to_the_list() {
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             (Utc::now() - Duration::days(500)).timestamp(),
             1,
-        )
+        ))
         .await;
 
     let messages = repos
@@ -1685,14 +1685,14 @@ async fn push_still_drops_a_reset_messaging_thread() {
 
     let after_ts = (Utc::now() - Duration::days(500)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             1,
-        )
+        ))
         .await;
 
     assert!(
@@ -1788,14 +1788,14 @@ async fn push_answers_in_an_adopted_personal_thread_when_asked_in_the_app() {
 
     let after_ts = (Utc::now() - Duration::days(500)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             1,
-        )
+        ))
         .await;
 
     assert!(
@@ -1861,14 +1861,14 @@ async fn push_body_is_rendered_in_the_users_locale() {
 
     let after_ts = (Utc::now() - Duration::days(500)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             1,
-        )
+        ))
         .await;
 
     let messages = repos

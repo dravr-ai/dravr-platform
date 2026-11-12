@@ -20,7 +20,7 @@ use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_mcp_server::services::messaging_ingress::addressing::reply_recipient;
-use pierre_tool_runtime::runtime::BackfillNotifier;
+use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier};
 
 // Shared messaging fixtures + channel fakes live in a helpers subdir (not a
 // top-level test binary), pulled in via `#[path]` so this test and the sibling
@@ -114,14 +114,14 @@ async fn route_recipient_for(
     );
 
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             1_700_000_000,
             7,
-        )
+        ))
         .await;
 
     let sent = capture.sent.lock().unwrap();

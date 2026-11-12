@@ -44,10 +44,10 @@ use std::fmt;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::Duration as StdDuration;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{Duration, TimeZone, Utc};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, ReauthMark, TenantId};
+use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillCoverage, BackfillJobKind, JobLease, JobProgress,
 };
@@ -60,25 +60,27 @@ use uuid::Uuid;
 
 use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
 use crate::activity_fetch::{read_cached_window, serve_historical_window};
-use crate::protocol::reauth_notice::{flag_needs_reauth, ReauthNotice};
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
-use crate::runtime::ToolRuntime;
+use crate::runtime::{BackfillCompletion, ToolRuntime};
 use crate::training_history_compute::{
     compute_history_after_capture, default_window, TrainingHistoryComputed,
 };
 use pierre_providers::ai_scope;
-use pierre_providers::backend_resolver::{session_beside_grant, session_imports_history};
 
 use crate::history_import::HistoryImport;
+
+/// A chat turn's live list read as a durable job
+pub mod live_read;
+/// What a job does when it finds its provider session dead
+mod reauth;
+
+pub use reauth::backfill_session_expired;
+use reauth::notify_backfill_reauth;
 
 /// Default age (days) past which an activity request is served via background
 /// backfill instead of an inline provider scrape.
 const DEFAULT_HISTORICAL_BACKFILL_THRESHOLD_DAYS: i64 = 90;
-
-/// Reason recorded on a connection a backfill flags: the word the capture
-/// sweep writes for the same condition, so `last_error` reads one way.
-const SESSION_EXPIRED: &str = "session_expired";
 
 /// Threshold (days) past which an `after` lower bound triggers background
 /// backfill, from `PIERRE_HISTORICAL_BACKFILL_THRESHOLD_DAYS` (falls back to
@@ -135,13 +137,15 @@ pub fn backfill_covered_floor_ts(
     }
 }
 
-/// In-flight backfill keys (`user_id:provider`) so repeated asks while a job is
-/// already paginating a user's history don't stack duplicate scrapes.
+/// In-flight job keys (`user_id:provider:kind`) so repeated asks while a job is
+/// already paginating a user's history don't stack duplicate scrapes. Each
+/// kind holds its own key, as it holds its own row: a chat's live read never
+/// waits behind a history walk of the same provider.
 static IN_FLIGHT_BACKFILLS: LazyLock<Mutex<HashSet<String>>> =
     LazyLock::new(|| Mutex::new(HashSet::new()));
 
-fn in_flight_key(user_id: Uuid, provider: &str) -> String {
-    format!("{user_id}:{provider}")
+fn in_flight_key(user_id: Uuid, provider: &str, kind: BackfillJobKind) -> String {
+    format!("{user_id}:{provider}:{kind}")
 }
 
 /// Take the process-local in-flight claim for `key`; `false` when a run in
@@ -210,6 +214,13 @@ pub struct ActivityBackfillJob {
     /// and kept on the job row, so a job is never taken for a walk because of
     /// which rows happen to stand beside it when it runs.
     pub kind: BackfillJobKind,
+    /// The chat turn that asked a [`BackfillJobKind::LiveRead`]; `None` for
+    /// every other kind.
+    pub turn_id: Option<String>,
+    /// The athlete's message that asked a [`BackfillJobKind::LiveRead`]: its
+    /// follow-up answers it only while it is the conversation's newest.
+    /// `None` for every other kind, and for a read no stored message asked.
+    pub asked_message_id: Option<String>,
 }
 
 impl fmt::Debug for ActivityBackfillJob {
@@ -222,6 +233,8 @@ impl fmt::Debug for ActivityBackfillJob {
             .field("query_params", &self.query_params)
             .field("pierre_conversation_id", &self.pierre_conversation_id)
             .field("kind", &self.kind)
+            .field("turn_id", &self.turn_id)
+            .field("asked_message_id", &self.asked_message_id)
             .finish_non_exhaustive()
     }
 }
@@ -251,12 +264,24 @@ pub async fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
         );
         return false;
     }
-    let key = in_flight_key(job.user_id, &job.provider_name);
+    enqueue(job, None).await
+}
+
+/// Take the in-flight key, record the row, and spawn the run: the one path
+/// every new job takes, whatever its kind. `false` when a job of the kind is
+/// already in flight here or owed elsewhere. A live read asked while one runs
+/// here rebinds that one's row to this ask ([`live_read`]).
+async fn enqueue(job: ActivityBackfillJob, handoff: Option<live_read::LiveReadHandoff>) -> bool {
+    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
     if !claim_in_flight(&key) {
+        if job.kind == BackfillJobKind::LiveRead {
+            rebind_live_read(&job).await;
+        }
         info!(
             user_id = %job.user_id,
             provider = %job.provider_name,
-            "Activity backfill already in flight — skipping duplicate"
+            kind = %job.kind,
+            "Activity job already in flight — skipping duplicate"
         );
         return false;
     }
@@ -274,8 +299,26 @@ pub async fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
         }
         Recorded::Unrecorded => None,
     };
-    spawn_backfill_run(job, key, recorded);
+    spawn_backfill_run(job, key, recorded, handoff);
     true
+}
+
+/// Point the live read this instance runs for the pair at `job`'s newer ask.
+async fn rebind_live_read(job: &ActivityBackfillJob) {
+    if let Err(e) = job
+        .resources
+        .repos()
+        .activity_backfill_jobs
+        .rebind_live_read(&job_row(job))
+        .await
+    {
+        warn!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            error = %e,
+            "Live read: the running read could not be rebound to the newer ask"
+        );
+    }
 }
 
 /// Run a job the resume sweep claimed, on this instance, through the same
@@ -288,7 +331,7 @@ pub(crate) fn resume_recorded_backfill(
     row_id: JobLease,
     attempts: i64,
 ) -> bool {
-    let key = in_flight_key(job.user_id, &job.provider_name);
+    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
     if !claim_in_flight(&key) {
         info!(
             user_id = %job.user_id,
@@ -298,28 +341,32 @@ pub(crate) fn resume_recorded_backfill(
         );
         return false;
     }
-    spawn_backfill_run(job, key, Some((row_id, attempts)));
+    spawn_backfill_run(job, key, Some((row_id, attempts)), None);
     true
 }
 
-/// The detached task every backfill runs in: holds the in-flight key for the
-/// life of the run and, when the job is on file, its row.
+/// The task every job runs in: holds the in-flight key for the life of the
+/// run and, when the job is on file, its row. What runs is the job's kind:
+/// a live read ([`live_read`]), or a backfill.
 ///
 /// A job naming a usr/pwd session beside a push-fed grant is that session's
 /// one-time history import ([`HistoryImport`]): it reads the session itself,
 /// and its end, whatever it is, retires the session (carnet#1386).
-/// A job no conversation waits on runs [`in_background`], leaving the head
-/// reads athletes wait on the rest of each window (carnet#1478).
-fn spawn_backfill_run(job: ActivityBackfillJob, key: String, recorded: Option<(JobLease, i64)>) {
-    let awaited = job.pierre_conversation_id.is_some();
+/// A job neither a conversation nor a turn waits on runs [`in_background`],
+/// leaving the head reads athletes wait on the rest of each window
+/// (carnet#1478).
+fn spawn_backfill_run(
+    job: ActivityBackfillJob,
+    key: String,
+    recorded: Option<(JobLease, i64)>,
+    handoff: Option<live_read::LiveReadHandoff>,
+) {
+    let awaited = job.pierre_conversation_id.is_some() || handoff.is_some();
     let run = async move {
-        let import = HistoryImport::of(&job).await;
-        if let Some((row_id, attempts)) = recorded {
-            run_recorded_backfill(&job, &row_id, attempts, import.as_ref()).await;
-        } else {
-            let outcome = run_activity_backfill(&job, BackfillRead::of(import.as_ref())).await;
-            if let Some(import) = &import {
-                import.settle(&job, None, &outcome).await;
+        match job.kind {
+            BackfillJobKind::LiveRead => live_read::run_live_read(&job, recorded, handoff).await,
+            BackfillJobKind::Backfill | BackfillJobKind::HistoryWalk => {
+                run_backfill(&job, recorded).await;
             }
         }
         release_in_flight(&key);
@@ -328,6 +375,19 @@ fn spawn_backfill_run(job: ActivityBackfillJob, key: String, recorded: Option<(J
         tokio::spawn(run);
     } else {
         tokio::spawn(in_background(run));
+    }
+}
+
+/// Run a backfill, or a history walk's import, and settle its row.
+async fn run_backfill(job: &ActivityBackfillJob, recorded: Option<(JobLease, i64)>) {
+    let import = HistoryImport::of(job).await;
+    if let Some((row_id, attempts)) = recorded {
+        run_recorded_backfill(job, &row_id, attempts, import.as_ref()).await;
+    } else {
+        let outcome = run_activity_backfill(job, BackfillRead::of(import.as_ref())).await;
+        if let Some(import) = &import {
+            import.settle(job, None, &outcome).await;
+        }
     }
 }
 
@@ -344,9 +404,36 @@ enum Recorded {
 
 /// Write the job's row before its spawn.
 async fn record_backfill_job(job: &ActivityBackfillJob) -> Recorded {
+    let row = job_row(job);
+    match job
+        .resources
+        .repos()
+        .activity_backfill_jobs
+        .record_backfill_job(&row)
+        .await
+    {
+        Ok(true) => Recorded::Inserted(JobLease {
+            token: row.lease_token.unwrap_or_default(),
+            id: row.id,
+        }),
+        Ok(false) => Recorded::AlreadyOwed,
+        Err(e) => {
+            warn!(
+                user_id = %job.user_id,
+                provider = %job.provider_name,
+                error = %e,
+                "Activity backfill: job could not be recorded; running unrecorded"
+            );
+            Recorded::Unrecorded
+        }
+    }
+}
+
+/// The row `job` is recorded as: a first attempt, leased to this instance
+/// under a fresh token.
+fn job_row(job: &ActivityBackfillJob) -> ActivityBackfillJobRow {
     let now = now_ms();
-    let lease_token = Uuid::new_v4().to_string();
-    let row = ActivityBackfillJobRow {
+    ActivityBackfillJobRow {
         id: Uuid::new_v4().to_string(),
         tenant_id: job.tenant_id,
         user_id: job.user_id,
@@ -361,33 +448,11 @@ async fn record_backfill_job(job: &ActivityBackfillJob) -> Recorded {
         created_at_ms: now,
         leased_until_ms: now.saturating_add(lease_ms()),
         attempts: 1,
-        lease_token: Some(lease_token.clone()),
+        lease_token: Some(Uuid::new_v4().to_string()),
         kind: job.kind,
         progress: JobProgress::default(),
-        turn_id: None,
-        asked_message_id: None,
-    };
-    match job
-        .resources
-        .repos()
-        .activity_backfill_jobs
-        .record_backfill_job(&row)
-        .await
-    {
-        Ok(true) => Recorded::Inserted(JobLease {
-            token: lease_token,
-            id: row.id,
-        }),
-        Ok(false) => Recorded::AlreadyOwed,
-        Err(e) => {
-            warn!(
-                user_id = %job.user_id,
-                provider = %job.provider_name,
-                error = %e,
-                "Activity backfill: job could not be recorded; running unrecorded"
-            );
-            Recorded::Unrecorded
-        }
+        turn_id: job.turn_id.clone(),
+        asked_message_id: job.asked_message_id.clone(),
     }
 }
 
@@ -592,7 +657,7 @@ pub(crate) enum BackfillRunOutcome {
 /// serialized provider pass in the rare double-ask race; the wrong answer
 /// would cost serving a shallow window as if it were complete.
 async fn run_activity_backfill_inline(job: ActivityBackfillJob) -> BackfillRunOutcome {
-    let key = in_flight_key(job.user_id, &job.provider_name);
+    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
     let mut waited = StdDuration::ZERO;
     loop {
         let claimed = IN_FLIGHT_BACKFILLS
@@ -1049,107 +1114,6 @@ async fn persist_backfill_activities(
     Some(usize::try_from(persisted).unwrap_or(activities.len()))
 }
 
-/// React to a backfill that found `job`'s provider session dead: flag the
-/// connection, tell the athlete once, and answer the conversation that asked.
-async fn notify_backfill_reauth(job: &ActivityBackfillJob, attempt_started_at: DateTime<Utc>) {
-    backfill_session_expired(
-        &job.resources,
-        job.user_id,
-        job.tenant_id,
-        &job.provider_name,
-        job.pierre_conversation_id.as_deref(),
-        attempt_started_at,
-    )
-    .await;
-}
-
-/// What a backfill that began at `attempt_started_at` does when it finds the
-/// `provider` session of `(user_id, tenant_id)` dead.
-///
-/// 1. Flag the connection and send the once-per-transition reconnect notice,
-///    through [`flag_needs_reauth`] like every other flagging path. A
-///    connection the athlete reconnected after the backfill began is left
-///    active and sent nothing: its session is the new one, and "your session
-///    expired" over it would contradict the connection the app shows.
-/// 2. Answer the conversation that asked, when there is one and messaging is
-///    wired ([`crate::runtime::BackfillNotifier::push_provider_reauth`]),
-///    unless the notice just reached the athlete's chats — they would read the
-///    same link twice. That answer is not deduped: an athlete who asks again
-///    while still disconnected gets the link again, so a first link that was
-///    broken or never clicked does not silence them. A usr/pwd session beside
-///    a grant that serves its provider ([`session_beside_grant`]) is never
-///    answered: the grant still serves the athlete (carnet#1386).
-///
-/// `pub` so the integration suite can drive it without a scraper.
-pub async fn backfill_session_expired(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    pierre_conversation_id: Option<&str>,
-    attempt_started_at: DateTime<Utc>,
-) {
-    if history_session_expired(runtime, user_id, tenant_id, provider).await {
-        return;
-    }
-    let notice = match flag_needs_reauth(
-        runtime,
-        user_id,
-        tenant_id,
-        provider,
-        SESSION_EXPIRED,
-        attempt_started_at,
-    )
-    .await
-    {
-        Ok((ReauthMark::ReconnectedSince, _)) => {
-            info!(
-                provider = %provider,
-                "Activity backfill: reconnected since the backfill began; nothing to send"
-            );
-            return;
-        }
-        Ok((_, notice)) => notice,
-        Err(e) => {
-            warn!(error = %e, provider = %provider, "Activity backfill: could not flag the expired session");
-            ReauthNotice::default()
-        }
-    };
-    if notice.chat_channels > 0
-        || session_beside_grant(runtime.repos(), user_id, tenant_id, provider).await
-    {
-        return;
-    }
-    let (Some(conversation_id), Some(notifier)) =
-        (pierre_conversation_id, runtime.backfill_notifier())
-    else {
-        return;
-    };
-    notifier
-        .push_provider_reauth(user_id, tenant_id, conversation_id, provider)
-        .await;
-}
-
-/// Whether the dead `provider` session is a history import's, which is
-/// retired when its import ends, recorded as not finished
-/// (`HistoryImport::settle`): no flag on it, no notice, no answer
-/// (carnet#1386).
-async fn history_session_expired(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-) -> bool {
-    let history = session_imports_history(runtime.repos(), user_id, tenant_id, provider).await;
-    if history {
-        info!(
-            provider = %provider,
-            "Activity backfill: the history session expired; its import ends incomplete, silently"
-        );
-    }
-    history
-}
-
 /// Push a "your history is ready" notice back to the originating channel for a
 /// chat-triggered backfill. Best-effort — the notifier owns its own error
 /// handling and `activity_count` is the net distinct rows persisted (deduped by
@@ -1167,13 +1131,13 @@ async fn notify_backfill_complete(job: &ActivityBackfillJob, activity_count: usi
     // cross-replica dedup claim; `0` when the request had no `after`.
     let after_ts = job.query_params.after.unwrap_or(0);
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             job.user_id,
             job.tenant_id,
             conversation_id,
             &job.provider_name,
             after_ts,
             activity_count,
-        )
+        ))
         .await;
 }

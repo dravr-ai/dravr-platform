@@ -44,7 +44,6 @@
 //! notice may carry (carnet#734). The athlete still sees every session in the
 //! app's own activity views.
 
-use pierre_core::transport::TransportPolicy;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
@@ -61,6 +60,7 @@ use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, TenantId};
 use pierre_core::transport::Transport;
 use pierre_database::backends::MessagingRepository;
+use pierre_database::repositories::BackfillJobKind;
 use pierre_database::repositories::OutboundReauthGuard;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver;
@@ -68,7 +68,7 @@ use pierre_providers::registry::global_registry;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::personal_thread::athlete_last_wrote_in_app;
-use pierre_tool_runtime::runtime::{BackfillNotifier, ReauthRetry};
+use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier, ReauthRetry};
 use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -77,6 +77,7 @@ use uuid::Uuid;
 use pierre_notifications::NotificationService;
 
 mod format;
+mod reask;
 mod reconnect;
 use format::{format_activity_line, warmed_window_policy};
 
@@ -89,7 +90,7 @@ use crate::services::messaging_ingress::outbound_retry::{
     enqueue_failed_outbound, FailedOutbound, TranscriptRecord,
 };
 use crate::services::messaging_ingress::surface::messaging_render_profile;
-use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurface, PostedReply};
+use crate::services::platform_post::{PlatformPost, PostSurface};
 use pierre_services::messaging_broadcast::{
     proactive_text, resolve_linked_targets, LinkedChannelTarget,
 };
@@ -568,83 +569,6 @@ impl ServerBackfillNotifier {
         body
     }
 
-    /// Fetch the user's most recent question in this conversation so the
-    /// re-entry can re-ask it verbatim — carrying the same window (e.g. "2022")
-    /// the agent must query against the now-warm cache.
-    ///
-    /// `get_recent_messages` selects the newest rows and hands them back in
-    /// chronological order — the shape a prompt wants — so the question that
-    /// triggered the backfill is the LAST `user` row, and the scan runs from
-    /// the end. Read from the front it picks the oldest question in the
-    /// lookback instead: on 2026-09-21 an athlete asked for monthly elevation
-    /// totals and the completion push answered whether to ride that morning, a
-    /// question from six hours earlier.
-    ///
-    /// A slash-command line is not a question — re-asking `/status` would answer
-    /// a command nobody typed — so command rows are skipped. `None` when the
-    /// read fails or there is no user turn — the caller falls back to the list.
-    async fn recent_user_question(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        conversation_id: &str,
-    ) -> Option<String> {
-        let messages = self
-            .repos
-            .chat
-            .get_recent_messages(
-                conversation_id,
-                &user_id.to_string(),
-                tenant_id,
-                REENTRY_HISTORY_LOOKBACK,
-                TransportPolicy::FirstPartyOnly,
-            )
-            .await
-            .inspect_err(|e| {
-                warn!(error = %e, "Backfill push: recent-message read failed for re-entry");
-            })
-            .ok()?;
-        messages
-            .into_iter()
-            .rev()
-            .find(|m| m.role == "user" && !m.is_command_turn() && !m.content.trim().is_empty())
-            .map(|m| m.content)
-    }
-
-    /// Try to answer in the agent's own words by re-asking the athlete's
-    /// question as a platform post, now that the activity cache is warm.
-    ///
-    /// Loop-safe: re-asking a deep window after the cache is warmed serves
-    /// inline from the durable cache (`covered == true`) and never re-spawns a
-    /// backfill, so the post cannot retrigger another completion push.
-    /// Returns `None` (caller falls back to the templated list) when no
-    /// platform post is installed, the conversation has no re-askable
-    /// question, or the post was withheld — the answer did not ground in the
-    /// history, or refused — in which case nothing was stored.
-    async fn try_platform_post(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        conversation_id: &str,
-        surface: PostSurface,
-        locale: &str,
-    ) -> Option<PostedReply> {
-        let platform_post = self.platform_post.get()?;
-        let prompt = self
-            .recent_user_question(user_id, tenant_id, conversation_id)
-            .await?;
-        platform_post
-            .post(PlatformPostRequest {
-                user_id,
-                tenant_id,
-                conversation_id,
-                surface,
-                locale,
-                prompt: &prompt,
-            })
-            .await
-    }
-
     /// The templated "your history is ready, ask again" nudge, for a warmed
     /// window that read back empty. The backfill's own count includes
     /// sessions the terms withhold from a model, so it is only quoted when
@@ -668,15 +592,17 @@ impl ServerBackfillNotifier {
 
 #[async_trait]
 impl BackfillNotifier for ServerBackfillNotifier {
-    async fn push_backfill_complete(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        pierre_conversation_id: &str,
-        provider: &str,
-        after_ts: i64,
-        activity_count: usize,
-    ) {
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>) {
+        let BackfillCompletion {
+            user_id,
+            tenant_id,
+            pierre_conversation_id,
+            provider,
+            after_ts,
+            activity_count,
+            kind,
+            asked_message_id,
+        } = completion;
         let Some(destination) = self
             .resolve_destination(user_id, tenant_id, pierre_conversation_id)
             .await
@@ -713,6 +639,18 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 warn!(error = %e, "Backfill push: dedup claim failed");
                 return;
             }
+        }
+        // A live read the athlete has asked past gets one line, never an
+        // answer to the question they moved on from.
+        if kind == BackfillJobKind::LiveRead
+            && self
+                .overtaken(user_id, tenant_id, pierre_conversation_id, asked_message_id)
+                .await
+        {
+            let ask = (user_id, tenant_id, pierre_conversation_id);
+            self.post_overtaken_note(destination, ask, &locale, activity_count)
+                .await;
+            return;
         }
 
         // Read the warmed window straight from the durable cache the backfill
@@ -771,6 +709,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                             pierre_conversation_id,
                             PostSurface::Channel(route.channel_type),
                             &locale,
+                            asked_message_id,
                         )
                         .await
                     {
@@ -826,6 +765,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                         pierre_conversation_id,
                         PostSurface::InApp,
                         &locale,
+                        asked_message_id,
                     )
                     .await
                     .is_some()

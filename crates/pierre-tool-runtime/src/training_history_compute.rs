@@ -516,6 +516,8 @@ async fn request_capture(
         // The rail's completion notice is driven by the fetch that has one.
         pierre_conversation_id: None,
         kind: BackfillJobKind::Backfill,
+        turn_id: None,
+        asked_message_id: None,
     })
     .await
 }

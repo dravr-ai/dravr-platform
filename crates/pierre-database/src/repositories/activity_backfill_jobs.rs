@@ -156,6 +156,21 @@ impl fmt::Debug for ActivityBackfillJobRow {
     }
 }
 
+/// The ask a live read's row was bound to when it finished.
+///
+/// This is where its follow-up goes. A newer ask while the read was owed
+/// rebound the row ([`ActivityBackfillJobRepository::record_backfill_job`]),
+/// so this is read back from the row, never from the run that started it.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct LiveReadAsk {
+    /// The conversation the follow-up answers into, if any.
+    pub conversation_id: Option<String>,
+    /// The turn that asked last.
+    pub turn_id: Option<String>,
+    /// The user message that asked last.
+    pub asked_message_id: Option<String>,
+}
+
 /// What the ledger holds for one `(user, provider, kind)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BackfillJobState {
@@ -203,6 +218,12 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// question.
     async fn record_backfill_job(&self, row: &ActivityBackfillJobRow) -> AppResult<bool>;
 
+    /// Rebind the [`BackfillJobKind::LiveRead`] owed for `ask`'s
+    /// `(user_id, provider)` in its tenant to `ask`'s conversation, turn and
+    /// message, recording nothing when none is owed. `false` when no row was
+    /// rebound — none owed, or `ask` has no conversation.
+    async fn rebind_live_read(&self, ask: &ActivityBackfillJobRow) -> AppResult<bool>;
+
     /// Atomically lease up to `claim.limit` rows whose lease has lapsed, that
     /// were recorded before `now_ms - queued_older_than_ms`, and whose
     /// attempts are below the cap — oldest first, incrementing `attempts`.
@@ -224,6 +245,13 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// about (completed, or reconnect needed): delete the row, if this lease
     /// still holds it. `false` when another claim took it.
     async fn finish_backfill_job(&self, lease: &JobLease) -> AppResult<bool>;
+
+    /// A live read landed: delete its row, if this lease still holds it, and
+    /// return the ask the row was bound to at that instant. One statement, so
+    /// an ask that rebinds the row either lands before it (and is returned)
+    /// or after it (and records a read of its own). `None` when another claim
+    /// took the row.
+    async fn finish_live_read(&self, lease: &JobLease) -> AppResult<Option<LiveReadAsk>>;
 
     /// The job ended before what it was asked for landed: keep its row, if
     /// this lease still holds it, as [`BackfillJobState::Incomplete`] —
@@ -302,8 +330,11 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
 /// inserts a new row) or after it (the rebound row is finished): the ask is
 /// never lost between two statements. `RETURNING id` tells the two apart —
 /// the ask's own id when it inserted, the owed row's when it rebound,
-/// nothing when another tenant's row stands. No guard on `outcome`: nothing
-/// ends a live read incomplete, so an owed row is the only one there is.
+/// nothing when another tenant's row stands, or when the ask has no
+/// conversation: a read nobody waits on (a stale head's top-up) never takes
+/// the follow-up away from an athlete who does. No guard on `outcome`:
+/// nothing ends a live read incomplete, so an owed row is the only one there
+/// is.
 pub(crate) const RECORD_LIVE_READ_SQL: &str = "INSERT INTO activity_backfill_jobs \
      (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
@@ -313,7 +344,18 @@ pub(crate) const RECORD_LIVE_READ_SQL: &str = "INSERT INTO activity_backfill_job
        conversation_id = excluded.conversation_id, turn_id = excluded.turn_id, \
        asked_message_id = excluded.asked_message_id \
      WHERE activity_backfill_jobs.tenant_id = excluded.tenant_id \
+       AND excluded.conversation_id IS NOT NULL \
      RETURNING id";
+
+/// Rebinds the live read owed for the pair to a newer ask, without ever
+/// recording one: the ask arrived while this instance runs the read, and a
+/// row it inserted would be a second read nobody runs until its lease lapsed.
+/// Same rules as [`RECORD_LIVE_READ_SQL`]'s conflict: the row's own tenant,
+/// and only an ask with a conversation.
+pub(crate) const REBIND_LIVE_READ_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET conversation_id = $5, turn_id = $6, asked_message_id = $7 \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
+       AND $5 IS NOT NULL";
 
 /// The claim: one statement, so the lease and the attempt bump land
 /// together and the subquery picks the rows under the same lock. The
@@ -350,6 +392,10 @@ pub(crate) const RENEW_BACKFILL_JOB_LEASE_SQL: &str =
 
 pub(crate) const FINISH_BACKFILL_JOB_SQL: &str =
     "DELETE FROM activity_backfill_jobs WHERE id = $1 AND lease_token = $2";
+
+pub(crate) const FINISH_LIVE_READ_SQL: &str = "DELETE FROM activity_backfill_jobs \
+     WHERE id = $1 AND lease_token = $2 \
+     RETURNING conversation_id, turn_id, asked_message_id";
 
 pub(crate) const REAP_EXHAUSTED_BACKFILL_JOBS_SQL: &str = "DELETE FROM activity_backfill_jobs \
      WHERE attempts >= $1 AND leased_until_ms <= $2 AND outcome IS NULL";
@@ -538,6 +584,24 @@ macro_rules! impl_activity_backfill_job_repository {
                 Ok(result.rows_affected() == 1)
             }
 
+            async fn rebind_live_read(&self, ask: &ActivityBackfillJobRow) -> AppResult<bool> {
+                let rebound =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::REBIND_LIVE_READ_SQL)
+                        .bind(ask.user_id.to_string())
+                        .bind(ask.tenant_id)
+                        .bind(&ask.provider)
+                        .bind(BackfillJobKind::LiveRead.as_str())
+                        .bind(&ask.conversation_id)
+                        .bind(&ask.turn_id)
+                        .bind(&ask.asked_message_id)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to rebind live read: {e}"))
+                        })?;
+                Ok(rebound.rows_affected() == 1)
+            }
+
             async fn claim_stale_backfill_jobs(
                 &self,
                 claim: BackfillJobClaim,
@@ -584,6 +648,29 @@ macro_rules! impl_activity_backfill_job_repository {
                         AppError::database(format!("Failed to finish backfill job: {e}"))
                     })?;
                 Ok(done.rows_affected() == 1)
+            }
+
+            async fn finish_live_read(
+                &self,
+                lease: &JobLease,
+            ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::LiveReadAsk>> {
+                let failed =
+                    |e: sqlx::Error| AppError::database(format!("Failed to finish live read: {e}"));
+                let row =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::FINISH_LIVE_READ_SQL)
+                        .bind(&lease.id)
+                        .bind(&lease.token)
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(failed)?;
+                row.map(|row| {
+                    Ok($crate::repositories::activity_backfill_jobs::LiveReadAsk {
+                        conversation_id: row.try_get("conversation_id").map_err(failed)?,
+                        turn_id: row.try_get("turn_id").map_err(failed)?,
+                        asked_message_id: row.try_get("asked_message_id").map_err(failed)?,
+                    })
+                })
+                .transpose()
             }
 
             async fn end_backfill_job_incomplete(&self, lease: &JobLease) -> AppResult<bool> {

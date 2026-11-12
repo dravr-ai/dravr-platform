@@ -170,6 +170,8 @@ async fn job_from_row(
         },
         pierre_conversation_id: row.conversation_id,
         kind: row.kind,
+        turn_id: row.turn_id,
+        asked_message_id: row.asked_message_id,
     }
 }
 

@@ -58,6 +58,7 @@ pub mod surface_profile;
 pub(crate) mod team_offer;
 mod tool_budget;
 pub mod turn;
+mod turn_prompt;
 pub mod turn_service;
 pub mod turn_stop;
 pub mod usage_counters;
@@ -101,23 +102,25 @@ use next_steps::NextSteps;
 use pierre_core::uuid_utils::parse_uuid;
 use recovery::{run_recovery_and_post_process, RecoveryAndPostProcessInputs};
 
+use std::future::Future;
+use std::pin::Pin;
+
 use chrono::{DateTime, Utc};
 use pierre_agui::AgUiEvent;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::AppResult;
 use pierre_core::models::{
     AddMessageParams, AgentRuntimeContext, CoachingPersona, MemberFitnessSnapshot,
     UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 use pierre_database::database::{ConversationRecord, MessageRecord};
 use pierre_llm::config::LlmProviderType;
-use pierre_llm::health::LlmHealthStatus;
 use pierre_llm::ChatMessage;
 use pierre_providers::ai_scope;
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_services::provider_notice;
 use pierre_tool_runtime::chat_catalogue::{self, SwitchedOff};
 use pierre_tool_runtime::coach_seat::TurnSeat;
-use pierre_tool_runtime::context::TURN_DIRECT_MESSAGE;
+use pierre_tool_runtime::context::{TURN_ASK, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use tracing::{debug, info, warn};
 
@@ -125,10 +128,10 @@ use stages::agent_session::{ensure_agent_session_attached, finalize_session_stat
 use stages::deterministic_reply::PLATFORM_REPLY_TRANSCRIPT_MARKER;
 use stages::persistence::{
     append_platform_prompt, get_conversation_history, persist_assistant_response,
-    resolve_turn_prompt,
 };
 use stages::provider_stop;
 use tool_budget::resolve_max_iterations;
+use turn_prompt::{store_turn_prompt, turn_ask};
 
 /// Announce that `step` was entered, on whichever progress rails are wired.
 ///
@@ -389,33 +392,6 @@ pub async fn run(
     outcome
 }
 
-/// Fail the turn fast with a 503 while the LLM health probe reads
-/// `Unhealthy`, rather than sending it to a provider known to be down.
-///
-/// # Errors
-///
-/// Returns [`ErrorCode::ResourceUnavailable`] naming the provider the probe
-/// found down.
-async fn refuse_when_llm_unhealthy(ctx: &ChatPipelineContext) -> AppResult<()> {
-    let snapshot = ctx.llm_health.snapshot().await;
-    if !matches!(snapshot.status, LlmHealthStatus::Unhealthy) {
-        return Ok(());
-    }
-    let provider = snapshot.provider.unwrap_or_else(|| "llm".to_owned());
-    let last_error = snapshot.error.unwrap_or_else(|| "unknown".to_owned());
-    warn!(
-        provider = %provider,
-        last_error = %last_error,
-        "LLM probe is Unhealthy — failing chat turn fast with 503"
-    );
-    Err(AppError::new(
-        ErrorCode::ResourceUnavailable,
-        format!(
-            "Our AI provider ({provider}) is temporarily unavailable. We've been notified — please try again in a minute or two."
-        ),
-    ))
-}
-
 /// Close the AG-UI run [`run`] opened, when the surface streams one: finished
 /// on a served turn, errored otherwise.
 async fn emit_run_outcome(hooks: &PipelineHooks<'_>, outcome: &AppResult<TurnEnvelope>) {
@@ -539,30 +515,6 @@ async fn turn_tool_offer(
     (switched_off, defer_tools)
 }
 
-/// Stage 2: resolve the prompt the turn answers, record it on the turn's stop
-/// handle, then refuse the turn while the LLM probe reads the provider down.
-///
-/// Refused only once the question is on file: a turn the provider outage stops
-/// still leaves the sender's words on the thread, for the surface to close with
-/// its notice rather than to lose (carnet#1362).
-///
-/// # Errors
-///
-/// Returns the prompt resolution's error, or
-/// [`ErrorCode::ResourceUnavailable`] from [`refuse_when_llm_unhealthy`].
-async fn store_turn_prompt(
-    ctx: &ChatPipelineContext,
-    input: &TurnInput,
-    profile: &SurfaceProfile,
-    hooks: &PipelineHooks<'_>,
-) -> AppResult<UserMessageResult> {
-    let (groups, channel) = (ctx.repos.groups.as_ref(), profile.surface.wire_channel());
-    let msg_result = resolve_turn_prompt(ctx.repos.chat.as_ref(), groups, input, channel).await?;
-    turn_stop::question_stored(hooks, &msg_result.message);
-    refuse_when_llm_unhealthy(ctx).await?;
-    Ok(msg_result)
-}
-
 /// The activity list a reply may carry: the one the turn's tools read, on the
 /// subject's seat only. The card is labelled as the sender's own activities,
 /// and off that seat the list a tool read is someone else's — the athlete of
@@ -579,12 +531,28 @@ async fn run_turn(
     profile: &SurfaceProfile,
     hooks: &PipelineHooks<'_>,
 ) -> AppResult<TurnEnvelope> {
-    let database = ctx.repos.chat.as_ref();
-
     // Stage 2: Resolve the prompt this turn answers. Persisted as the
     // athlete's message when they sent it, and deliberately not when the
-    // platform composed it — see `resolve_turn_prompt`.
+    // platform composed it — see `resolve_turn_prompt`. Every tool the turn
+    // dispatches then knows the message it answers ([`TURN_ASK`]).
     let msg_result = store_turn_prompt(ctx, &input, profile, hooks).await?;
+    let ask = turn_ask(&input, &msg_result.message);
+    // Erased behind `dyn`: the rest of the turn is the deepest future the
+    // pipeline builds, and every caller proving its own `Send` would walk it.
+    let answer: Pin<Box<dyn Future<Output = AppResult<TurnEnvelope>> + Send + '_>> =
+        Box::pin(answer_stored_turn(ctx, input, profile, hooks, msg_result));
+    TURN_ASK.scope(Some(ask), answer).await
+}
+
+/// The body of a turn once its prompt is stored.
+async fn answer_stored_turn(
+    ctx: &ChatPipelineContext,
+    input: TurnInput,
+    profile: &SurfaceProfile,
+    hooks: &PipelineHooks<'_>,
+    msg_result: UserMessageResult,
+) -> AppResult<TurnEnvelope> {
+    let database = ctx.repos.chat.as_ref();
     let user_message = msg_result.message;
     let conv = msg_result.conversation;
 

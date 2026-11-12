@@ -188,6 +188,8 @@ fn job(fx: &Fixture, provider: &str, conversation_id: Option<&str>) -> ActivityB
         },
         pierre_conversation_id: conversation_id.map(ToOwned::to_owned),
         kind: BackfillJobKind::Backfill,
+        turn_id: None,
+        asked_message_id: None,
     }
 }
 
