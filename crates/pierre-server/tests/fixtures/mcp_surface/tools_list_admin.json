@@ -16745,6 +16745,29 @@
             ],
             "type": "object"
           },
+          "DeliveringService": {
+            "description": "A service the rows' sessions came from.",
+            "properties": {
+              "brand": {
+                "description": "The service as the athlete knows it.",
+                "type": "string"
+              },
+              "last_activity": {
+                "description": "The athlete's civil date of the last session it delivered in the\nwindow, as `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "The service's key, as `connect_provider` takes it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "brand",
+              "last_activity"
+            ],
+            "type": "object"
+          },
           "FormBand": {
             "description": "Descriptive band for an athlete's form, expressed relative to their own\nchronic load (`form_pct = tsb / form_ctl * 100`) per the TrainingPeaks/Friel and\nintervals.icu convention.\n\nForm on a day is the previous day's CTL minus ATL, and it is a share of\nthat same previous day's CTL (Coggan/TrainingPeaks, see [`TrainingLoad`]).\nA band is therefore built from a whole [`TrainingLoad`] or\n[`DailyTrainingLoad`], which carry both numbers from the same day, never\nfrom a TSB and a CTL handed over separately.\n\nThe bands state the magnitude of fatigue relative to fitness. They are not\ninjury predictions: fixed-threshold injury prediction from load ratios is\nnot supported by the literature (Impellizzeri et al., 2020). This is the\nsingle form vocabulary — every surface that bands form derives it from\nhere rather than comparing raw TSB to a constant, because the same TSB is\na normal build week at CTL 120 and the deepest fatigue at CTL 40.",
             "oneOf": [
@@ -16825,29 +16848,6 @@
               "form_band",
               "method",
               "deep_fatigue_is_not_overtraining"
-            ],
-            "type": "object"
-          },
-          "HistorySource": {
-            "description": "A service the rows' sessions came from.",
-            "properties": {
-              "brand": {
-                "description": "The service as the athlete knows it.",
-                "type": "string"
-              },
-              "last_activity": {
-                "description": "The athlete's civil date of the last session it delivered in the\nwindow, as `YYYY-MM-DD`.",
-                "type": "string"
-              },
-              "provider": {
-                "description": "The service's key, as `connect_provider` takes it.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "provider",
-              "brand",
-              "last_activity"
             ],
             "type": "object"
           },
@@ -17163,7 +17163,7 @@
           "sources": {
             "description": "Each service a session in the window came from, with the last day it\ndelivered one there. Empty when no session in the window is readable.",
             "items": {
-              "$ref": "#/$defs/HistorySource"
+              "$ref": "#/$defs/DeliveringService"
             },
             "type": "array"
           },
