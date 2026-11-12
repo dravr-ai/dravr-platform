@@ -24,6 +24,7 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityDetail;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
+use pierre_providers::backend_resolver::mirror_backend_for;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -49,12 +50,35 @@ fn detail_recheck_at(detail: &ActivityDetail, now: DateTime<Utc>) -> Option<Date
         .then(|| now + Duration::minutes(EMPTY_DETAIL_RECHECK_MINUTES))
 }
 
+/// The cache key what a read of a row listed under `listed_under` brought
+/// back belongs under: the backend that answered it.
+///
+/// A by-id read of the athlete's Strava session that the session cannot
+/// answer is made again through their Strava grant
+/// (`protocol::auth::grant_by_id`), and what the grant answers is Strava API
+/// data, named `strava` by the activity it returns. It is kept under the
+/// grant's key, never the session's, so the grant's revocation purges it as
+/// Strava's terms require (carnet#1494). Any other answer is the listed
+/// backend's own.
+#[must_use]
+pub fn answered_key<'a>(listed_under: &'a str, detailed: &'a Activity) -> &'a str {
+    let answered = detailed.provider();
+    if mirror_backend_for(answered) == Some(listed_under) {
+        answered
+    } else {
+        listed_under
+    }
+}
+
 /// Keep what a detail read of one cached activity found, beside the row its
-/// list read wrote under `provider`.
+/// list read wrote under `provider`, or under the grant that answered it in
+/// the session's place ([`answered_key`]).
 ///
 /// Answers `true` when it was stored. A row that left the cache meanwhile
-/// stores nothing (`false`), and a store that fails is logged and answers
-/// `false`: the caller has the detail in hand and answers from it either way.
+/// stores nothing (`false`), and neither does a grant's answer for a row the
+/// grant never listed: it is read again while the session stays down. A
+/// store that fails is logged and answers `false`: the caller has the detail
+/// in hand and answers from it either way.
 pub async fn store_detail(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
@@ -62,6 +86,7 @@ pub async fn store_detail(
     provider: &str,
     detailed: &Activity,
 ) -> bool {
+    let provider = answered_key(provider, detailed);
     let detail = ActivityDetail::from_activity(detailed);
     let recheck_at = detail_recheck_at(&detail, Utc::now());
     let activity_id = detailed.id();
@@ -138,4 +163,44 @@ pub async fn stored_details(
             (key, activity)
         })
         .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    use super::*;
+
+    fn read_by(backend: &str) -> Activity {
+        ActivityBuilder::new(
+            "15550001111",
+            "Ride",
+            SportType::Ride,
+            Utc::now(),
+            3_600,
+            backend,
+        )
+        .build()
+    }
+
+    #[test]
+    fn a_grants_answer_for_the_session_is_kept_under_the_grant() {
+        assert_eq!(answered_key("sciotte", &read_by("strava")), "strava");
+    }
+
+    #[test]
+    fn every_other_answer_is_kept_under_the_row_it_details() {
+        assert_eq!(answered_key("sciotte", &read_by("sciotte")), "sciotte");
+        assert_eq!(answered_key("strava", &read_by("strava")), "strava");
+        assert_eq!(
+            answered_key("sciotte_garmin", &read_by("sciotte")),
+            "sciotte_garmin",
+            "a capture names the scraper, never the grant"
+        );
+        assert_eq!(
+            answered_key("intervals_icu", &read_by("strava")),
+            "intervals_icu"
+        );
+    }
 }

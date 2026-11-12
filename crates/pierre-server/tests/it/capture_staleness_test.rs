@@ -51,6 +51,9 @@ use pierre_providers::request_budget::{
     refused_before_send, ProviderRateLimiter, RequestBudget, ONE_DAY,
 };
 use pierre_providers::sciotte_error::coach_account_error;
+use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
+use pierre_tool_runtime::activity_detail_store::store_detail;
 use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
@@ -1111,6 +1114,31 @@ impl Pair {
         self.last_sync(provider).await.is_some()
     }
 
+    /// Each cached row of activity `id`, by key, and whether a stored detail
+    /// read answers it.
+    async fn detail_read(&self, id: &str) -> Vec<(String, bool)> {
+        let mut rows: Vec<(String, bool)> = self
+            .resources
+            .common
+            .repos
+            .activity_cache
+            .get_cached_activity_rows(
+                self.user_id,
+                &self.tenant,
+                Utc::now() - Duration::days(30),
+                Utc::now() + Duration::days(1),
+                100,
+            )
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|row| row.activity.id() == id)
+            .map(|row| (row.provider, row.detail_read))
+            .collect();
+        rows.sort();
+        rows
+    }
+
     async fn cache(&self, provider: &str, id: &str, days_ago: i64) {
         let row = ActivityBuilder::new(
             id,
@@ -1391,6 +1419,55 @@ async fn a_by_id_read_that_finds_the_session_dead_flags_it_while_its_grant_answe
         pair.status("strava").await,
         ConnectionStatus::Active,
         "the grant that answered is not flagged"
+    );
+}
+
+/// A detail the grant answers in the session's place is Strava API data: it
+/// is kept under the grant, never the session, so the grant's revocation
+/// purges it as Strava's terms require, and the session's own row keeps
+/// nothing the grant read.
+#[tokio::test]
+async fn a_detail_the_grant_answers_is_kept_under_the_grant_and_purged_with_it() {
+    let pair = Pair::new("by-id-kept", SESSION_ANSWERS, false).await;
+    pair.cache("sciotte", GRANT_RIDE, 1).await;
+    pair.cache("strava", GRANT_RIDE, 1).await;
+    let provider = AuthService::new(pair.runtime())
+        .create_authenticated_provider("strava", pair.user_id, Some(&pair.tenant.to_string()))
+        .await
+        .expect("the session authenticates");
+    assert_eq!(provider.name(), "sciotte", "the session serves the reads");
+    let detail = provider
+        .get_activity_detailed(GRANT_RIDE)
+        .await
+        .expect("the grant reads the activity the session could not");
+
+    let repos = &pair.resources.common.repos;
+    assert!(
+        store_detail(repos, pair.tenant, pair.user_id, "sciotte", &detail).await,
+        "the grant's answer is kept beside the grant's row"
+    );
+    assert_eq!(
+        pair.detail_read(GRANT_RIDE).await,
+        vec![("sciotte".to_owned(), false), ("strava".to_owned(), true)],
+        "bug: what the grant answered was kept under the session's key"
+    );
+
+    OAuthService::new(
+        pair.resources.data(),
+        Arc::clone(&pair.resources.common.config),
+    )
+    .disconnect_provider(
+        pair.user_id,
+        "strava",
+        Some(pair.tenant.as_uuid()),
+        DisconnectReason::ProviderRevoked,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        pair.detail_read(GRANT_RIDE).await,
+        vec![("sciotte".to_owned(), false)],
+        "bug: the grant's revocation left what it answered"
     );
 }
 

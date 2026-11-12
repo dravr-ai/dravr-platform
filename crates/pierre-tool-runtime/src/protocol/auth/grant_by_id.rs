@@ -16,6 +16,11 @@
 //! read flags it (`activity_fetch::flag_refusal`), whether the grant then
 //! answers or not.
 //!
+//! What the grant answers is Strava API data, and the activity it returns
+//! names `strava`: a caller that keeps it stores it under the grant's key
+//! (`activity_detail_store::answered_key`), so the grant's revocation purges
+//! it.
+//!
 //! Strava only. The session's detail page is `strava.com/activities/{id}`, so
 //! its ids are the API's. Garmin's grant is push-only: its ids are summary
 //! ids and it has no by-id read at all, so a Garmin session gets no by-id
@@ -302,6 +307,10 @@ impl FitnessProvider for GrantByIdFallback {
         to: NaiveDate,
     ) -> AppResult<Vec<CalendarEventRef>> {
         self.session.list_calendar_events(from, to).await
+    }
+
+    async fn calendar_event_detail(&self, event: CalendarEventRef) -> AppResult<CalendarEventRef> {
+        self.session.calendar_event_detail(event).await
     }
 
     async fn push_planned_session(&self, session: &PlannedSession) -> AppResult<String> {
