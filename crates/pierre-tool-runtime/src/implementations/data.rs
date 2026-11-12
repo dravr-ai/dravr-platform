@@ -91,7 +91,7 @@ use pierre_core::constants::oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
-use pierre_database::repositories::historical_depth_covered;
+use pierre_database::repositories::{historical_depth_covered, BackfillJobKind};
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
 use pierre_providers::ai_scope;
@@ -653,6 +653,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
+                            kind: BackfillJobKind::Backfill,
                         };
                         match backfill_inline_and_serve(job, &coverage_params, before).await {
                             InlineHistoricalServe::AuthRequired => {
@@ -688,6 +689,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
+                            kind: BackfillJobKind::Backfill,
                         })
                         .await;
                         // `started == false` means a backfill for this window is

@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
+use pierre_database::repositories::BackfillJobKind;
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider, OwnerStores};
 use pierre_providers::garmin_provider::GarminProvider;
@@ -199,6 +200,7 @@ async fn no_history_capture_is_started_for_a_push_only_provider() {
             ..ActivityQueryParams::default()
         },
         pierre_conversation_id: None,
+        kind: BackfillJobKind::Backfill,
     })
     .await;
 

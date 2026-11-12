@@ -23,8 +23,8 @@ use chrono::{Duration, TimeZone, Utc};
 use pierre_core::models::TenantId;
 use pierre_database::backends::{factory::Database, EnqueueOutboundParams};
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobClaim, ExtractionJobClaim, JobLease, MemoryExtractionJobRow,
-    WorkerRun,
+    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, ExtractionJobClaim, JobLease,
+    JobProgress, MemoryExtractionJobRow, WorkerRun,
 };
 use serde_json::Value;
 use uuid::Uuid;
@@ -131,6 +131,10 @@ async fn a_lapsed_backfill_claim_cannot_renew_or_finish_the_row_another_claim_to
         leased_until_ms: now - 1,
         attempts: 1,
         lease_token: Some(Uuid::new_v4().to_string()),
+        kind: BackfillJobKind::Backfill,
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
     };
     assert!(ledger.record_backfill_job(&row).await.unwrap());
     let claim_at = |now_ms| BackfillJobClaim {

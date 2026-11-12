@@ -33,6 +33,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::repositories::BackfillJobKind;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
@@ -150,7 +151,6 @@ async fn job_on_file(database: &Database, user_id: Uuid, tenant: TenantId, provi
             .unwrap(),
     };
     rows > 0
-}
 
 /// Connect `provider` for the athlete under a live scrape session `session`.
 async fn connect(
@@ -213,6 +213,7 @@ async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
             ..ActivityQueryParams::default()
         },
         pierre_conversation_id: None,
+        kind: BackfillJobKind::Backfill,
     })
     .await;
     assert!(started, "a fresh pair starts a backfill");

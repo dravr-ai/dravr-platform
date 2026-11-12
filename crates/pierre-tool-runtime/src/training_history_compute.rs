@@ -43,6 +43,8 @@ use uuid::Uuid;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{DailyTrainingState, TenantId};
+#[cfg(feature = "tools-data")]
+use pierre_database::repositories::BackfillJobKind;
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::ai_scope;
 #[cfg(feature = "tools-data")]
@@ -513,6 +515,7 @@ async fn request_capture(
         // conversation to push to.
         // The rail's completion notice is driven by the fetch that has one.
         pierre_conversation_id: None,
+        kind: BackfillJobKind::Backfill,
     })
     .await
 }

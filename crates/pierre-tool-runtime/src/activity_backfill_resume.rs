@@ -25,8 +25,8 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::{
-    ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, JobLease,
-    WorkerRunRepository,
+    ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind,
+    JobLease, WorkerRunRepository,
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
@@ -135,13 +135,17 @@ async fn job_from_row(
     resources: &Arc<dyn ToolRuntime>,
     row: ActivityBackfillJobRow,
 ) -> ActivityBackfillJob {
-    let provider_name = backend_resolver::resolve_backend(
-        resources.repos(),
-        row.user_id,
-        (!row.tenant_id.is_nil()).then_some(row.tenant_id),
-        backend_resolver::user_facing_name(&row.provider),
-    )
-    .await;
+    let provider_name = if row.kind == BackfillJobKind::HistoryWalk {
+        row.provider.clone()
+    } else {
+        backend_resolver::resolve_backend(
+            resources.repos(),
+            row.user_id,
+            (!row.tenant_id.is_nil()).then_some(row.tenant_id),
+            backend_resolver::user_facing_name(&row.provider),
+        )
+        .await
+    };
     info!(
         user_id = %row.user_id,
         provider = %provider_name,
@@ -165,6 +169,7 @@ async fn job_from_row(
             after: row.after_ts,
         },
         pierre_conversation_id: row.conversation_id,
+        kind: row.kind,
     }
 }
 

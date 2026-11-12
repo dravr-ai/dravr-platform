@@ -1,5 +1,5 @@
 // ABOUTME: Pins the claim semantics of the memory-extraction and activity-backfill job ledgers
-// ABOUTME: A fresh row is not stale, a lapsed lease is, a claim leases and counts, finish deletes, one backfill per (user, provider)
+// ABOUTME: A fresh row is not stale, a lapsed lease is, a claim leases and counts, finish deletes, one backfill per (user, provider, kind)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,14 +9,15 @@
 //! it only once it is old enough that its own spawn is presumed dead and
 //! its lease has lapsed, a claim leases it and bumps `attempts`, the cap
 //! stops a job that keeps dying, and success deletes it. The backfill
-//! ledger also refuses a second row for the same `(user, provider)`.
+//! ledger also refuses a second row of one kind for the same `(user, provider)`.
 
 #![allow(missing_docs, clippy::unwrap_used, clippy::expect_used)]
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobClaim, ExtractionJobClaim, JobLease, MemoryExtractionJobRow,
+    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, ExtractionJobClaim, JobLease,
+    JobProgress, MemoryExtractionJobRow,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -215,6 +216,10 @@ async fn backfill_jobs_are_one_per_user_and_provider_and_resume_after_a_lapsed_l
         leased_until_ms: now - 60_000,
         attempts: 1,
         lease_token: Some(Uuid::new_v4().to_string()),
+        kind: BackfillJobKind::Backfill,
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
     };
     assert!(
         ledger.record_backfill_job(&row).await.unwrap(),

@@ -58,8 +58,9 @@ use pierre_core::models::{
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
-    BackfillCoverage, PersonalBest, PersonalBestSeed, ProviderDataPurge, PurgeReason,
-    StoredRouteTrack, StreamOrigin, SyncCursorRow, STREAMS_FORMAT_VERSION,
+    BackfillCoverage, BackfillJobKind, JobProgress, PersonalBest, PersonalBestSeed,
+    ProviderDataPurge, PurgeReason, StoredRouteTrack, StreamOrigin, SyncCursorRow,
+    STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -538,6 +539,10 @@ async fn seed_provider_rows(
                 leased_until_ms: 0,
                 attempts: 0,
                 lease_token: Some(Uuid::new_v4().to_string()),
+                kind: BackfillJobKind::Backfill,
+                progress: JobProgress::default(),
+                turn_id: None,
+                asked_message_id: None,
             })
             .await
             .unwrap();

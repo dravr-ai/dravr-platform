@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait for historical activity backfills still owed — one per (user, provider), recorded before the spawn
+// ABOUTME: Repository trait for activity jobs still owed — one per (user, provider, kind), recorded before the spawn
 // ABOUTME: The SQL is written once here and both backends emit their impl from it; a lapsed lease is what the resume sweep claims
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,9 +12,88 @@ use uuid::Uuid;
 
 use crate::repositories::memory_extraction_jobs::JobLease;
 
+/// What a job row is for.
+///
+/// Each kind is its own row beside the others for one `(user, provider)`: a
+/// history walk, a live read and a backfill never share a slot. Stored as
+/// [`Self::as_str`]; a value this build does not know is a decode error,
+/// never a silent default.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum BackfillJobKind {
+    /// A chat's or the capture rail's deep window.
+    Backfill,
+    /// The whole-history walk, back to the account's floor.
+    HistoryWalk,
+    /// A chat read that outran its turn budget. A newer ask while it is owed
+    /// rebinds the turn it answers instead of being refused.
+    LiveRead,
+}
+
+impl BackfillJobKind {
+    /// The `kind` column value.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Backfill => "backfill",
+            Self::HistoryWalk => "history_walk",
+            Self::LiveRead => "live_read",
+        }
+    }
+
+    /// The kind a stored `kind` value names.
+    ///
+    /// # Errors
+    ///
+    /// A value this build does not know.
+    pub fn parse(stored: &str) -> AppResult<Self> {
+        match stored {
+            "backfill" => Ok(Self::Backfill),
+            "history_walk" => Ok(Self::HistoryWalk),
+            "live_read" => Ok(Self::LiveRead),
+            other => Err(AppError::database(format!(
+                "activity_backfill_jobs kind is not one this build knows: {other}"
+            ))),
+        }
+    }
+}
+
+impl fmt::Display for BackfillJobKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// How far a job has got: what a history walk reports while it runs.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct JobProgress {
+    /// Months the job has to cover; `None` while its floor is not known.
+    pub months_total: Option<i64>,
+    /// Months covered so far.
+    pub months_done: i64,
+    /// Activities written so far.
+    pub rows_landed: i64,
+    /// Measured seconds per covered month; `None` until a step measured one.
+    pub secs_per_unit: Option<f64>,
+}
+
+/// One step a running job finished
+/// ([`ActivityBackfillJobRepository::record_job_progress`]): what it adds to
+/// the row's [`JobProgress`] and where the next step starts.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct JobProgressStep {
+    /// The next step reads below this (unix seconds): the row's new `before_ts`.
+    pub before_ts: i64,
+    /// Months this step covered, added to [`JobProgress::months_done`].
+    pub months_walked: i64,
+    /// Activities this step wrote, added to [`JobProgress::rows_landed`].
+    pub rows_landed: i64,
+    /// Seconds per month this step measured; `None` keeps the stored one.
+    pub secs_per_unit: Option<f64>,
+}
+
 /// One backfill owed: the window that was asked for and where its finished
 /// answer is expected.
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 pub struct ActivityBackfillJobRow {
     /// Job id (UUID string), minted by the recorder.
     pub id: String,
@@ -24,6 +103,8 @@ pub struct ActivityBackfillJobRow {
     pub user_id: Uuid,
     /// Backend provider slug (already resolved to the sciotte mirror if any).
     pub provider: String,
+    /// What the job is for, as the ask that started it recorded.
+    pub kind: BackfillJobKind,
     /// The requested window's deep `after` (unix seconds).
     pub after_ts: Option<i64>,
     /// The requested window's `before` (unix seconds).
@@ -42,6 +123,12 @@ pub struct ActivityBackfillJobRow {
     /// and finishing it require this token. `None` on a row recorded before
     /// tokens existed, which only a claim can take.
     pub lease_token: Option<String>,
+    /// How far the job has got.
+    pub progress: JobProgress,
+    /// The conversation turn a live read answers.
+    pub turn_id: Option<String>,
+    /// The user message that asked a live read.
+    pub asked_message_id: Option<String>,
 }
 
 /// Prints every field but the lease token, which grants the right to renew
@@ -53,6 +140,7 @@ impl fmt::Debug for ActivityBackfillJobRow {
             .field("tenant_id", &self.tenant_id)
             .field("user_id", &self.user_id)
             .field("provider", &self.provider)
+            .field("kind", &self.kind)
             .field("after_ts", &self.after_ts)
             .field("before_ts", &self.before_ts)
             .field("fetch_limit", &self.fetch_limit)
@@ -61,9 +149,26 @@ impl fmt::Debug for ActivityBackfillJobRow {
             .field("leased_until_ms", &self.leased_until_ms)
             .field("attempts", &self.attempts)
             .field("lease_token", &"[redacted]")
+            .field("progress", &self.progress)
+            .field("turn_id", &self.turn_id)
+            .field("asked_message_id", &self.asked_message_id)
             .finish()
     }
 }
+
+/// What the ledger holds for one `(user, provider, kind)`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackfillJobState {
+    /// A job is owed: recorded, running or waiting for the resume sweep.
+    Owed,
+    /// The job ended before what it was asked for landed, and its row was
+    /// kept to say so ([`ActivityBackfillJobRepository::end_backfill_job_incomplete`]):
+    /// a history walk whose session expired mid-copy.
+    Incomplete,
+}
+
+/// The `outcome` an ended row carries in [`BackfillJobState::Incomplete`].
+const OUTCOME_INCOMPLETE: &str = "incomplete";
 
 /// Which rows a resume sweep may take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -84,10 +189,18 @@ pub struct BackfillJobClaim {
 /// The ledger of backfills owed.
 #[async_trait]
 pub trait ActivityBackfillJobRepository: Send + Sync {
-    /// Record a backfill before its spawn, leased to the recording instance
-    /// until `leased_until_ms`. Idempotent on `(user_id, provider)`: returns
-    /// `true` when this call inserted the row, `false` when one was already
-    /// owed — the same job, already on file.
+    /// Record a job before its spawn, leased to the recording instance until
+    /// `leased_until_ms`. Idempotent on `(user_id, provider, kind)`: returns
+    /// `true` when this call inserted the row, `false` when one of the kind
+    /// was already owed — the same job, already on file. A row that only
+    /// records how an earlier job ended ([`BackfillJobState::Incomplete`]) is
+    /// replaced by an ask in its own tenant: it owes nothing. An ask from
+    /// another tenant leaves it, and returns `false`.
+    ///
+    /// A [`BackfillJobKind::LiveRead`] asked again while one is owed still
+    /// returns `false`, but rebinds the owed row to the new ask's
+    /// conversation, turn and message, so the follow-up answers the newest
+    /// question.
     async fn record_backfill_job(&self, row: &ActivityBackfillJobRow) -> AppResult<bool>;
 
     /// Atomically lease up to `claim.limit` rows whose lease has lapsed, that
@@ -112,11 +225,45 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// still holds it. `false` when another claim took it.
     async fn finish_backfill_job(&self, lease: &JobLease) -> AppResult<bool>;
 
+    /// The job ended before what it was asked for landed: keep its row, if
+    /// this lease still holds it, as [`BackfillJobState::Incomplete`] —
+    /// released, never claimed or reaped again. `false` when another claim
+    /// took it.
+    async fn end_backfill_job_incomplete(&self, lease: &JobLease) -> AppResult<bool>;
+
     /// Give back a claim the sweep could not run (a run for the pair is
     /// already in flight on this instance): the row is released and the
     /// attempt the claim counted is returned, so waiting on that run never
     /// spends the job's attempts. `false` when this lease no longer holds it.
     async fn release_backfill_job_claim(&self, lease: &JobLease) -> AppResult<bool>;
+
+    /// A step of a job that walks down its window landed: add `step` to the
+    /// row's [`JobProgress`] and keep the row owed for the next step, read
+    /// below `step.before_ts`, with its attempts reset and its lease released
+    /// so the resume sweep runs that step. `false` when this lease no longer
+    /// holds the row.
+    async fn record_job_progress(&self, lease: &JobLease, step: JobProgressStep)
+        -> AppResult<bool>;
+
+    /// How far the `kind` job for `(user_id, provider)` in `tenant_id` has
+    /// got, owed or ended, or `None` when the ledger holds no such row.
+    async fn job_progress(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        kind: BackfillJobKind,
+    ) -> AppResult<Option<JobProgress>>;
+
+    /// What the ledger holds for the `kind` job of `(user_id, provider)` in
+    /// `tenant_id`, or `None` when it holds nothing.
+    async fn backfill_job_state(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        kind: BackfillJobKind,
+    ) -> AppResult<Option<BackfillJobState>>;
 
     /// Delete every row at or past the attempt cap whose lease has lapsed:
     /// the run that was to finish it died too, no claim will take it again,
@@ -125,13 +272,48 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     async fn reap_exhausted_backfill_jobs(&self, now_ms: i64, max_attempts: i64) -> AppResult<u64>;
 }
 
-/// A conflict on `(user_id, provider)` changes nothing: a second ask is the
-/// same job, and `rows_affected` tells the caller so.
+/// A conflict on `(user_id, provider, kind)` changes nothing while a job is
+/// owed (`outcome IS NULL`): a second ask is the same job, and
+/// `rows_affected` tells the caller so. A row that only records an ended job
+/// is replaced whole by the new one, but only by an ask in the row's own
+/// tenant: an ask from another tenant never overwrites what this tenant's
+/// card reads.
 pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_jobs \
      (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
-      conversation_id, created_at_ms, leased_until_ms, attempts, lease_token) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) \
-     ON CONFLICT (user_id, provider) DO NOTHING";
+      conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
+      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
+     ON CONFLICT (user_id, provider, kind) DO UPDATE SET \
+       id = excluded.id, tenant_id = excluded.tenant_id, after_ts = excluded.after_ts, \
+       before_ts = excluded.before_ts, fetch_limit = excluded.fetch_limit, \
+       conversation_id = excluded.conversation_id, created_at_ms = excluded.created_at_ms, \
+       leased_until_ms = excluded.leased_until_ms, attempts = excluded.attempts, \
+       lease_token = excluded.lease_token, months_total = excluded.months_total, \
+       months_done = excluded.months_done, rows_landed = excluded.rows_landed, \
+       secs_per_unit = excluded.secs_per_unit, turn_id = excluded.turn_id, \
+       asked_message_id = excluded.asked_message_id, outcome = NULL \
+     WHERE activity_backfill_jobs.outcome IS NOT NULL \
+       AND activity_backfill_jobs.tenant_id = excluded.tenant_id";
+
+/// A live read asked again while one is owed answers the newest ask: the
+/// conflict moves only where its follow-up goes, never its window or its
+/// lease, and only in the row's own tenant. One statement, so a run that
+/// finishes the owed row meanwhile either serializes before it (the ask
+/// inserts a new row) or after it (the rebound row is finished): the ask is
+/// never lost between two statements. `RETURNING id` tells the two apart —
+/// the ask's own id when it inserted, the owed row's when it rebound,
+/// nothing when another tenant's row stands. No guard on `outcome`: nothing
+/// ends a live read incomplete, so an owed row is the only one there is.
+pub(crate) const RECORD_LIVE_READ_SQL: &str = "INSERT INTO activity_backfill_jobs \
+     (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
+      conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
+      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
+     ON CONFLICT (user_id, provider, kind) DO UPDATE SET \
+       conversation_id = excluded.conversation_id, turn_id = excluded.turn_id, \
+       asked_message_id = excluded.asked_message_id \
+     WHERE activity_backfill_jobs.tenant_id = excluded.tenant_id \
+     RETURNING id";
 
 /// The claim: one statement, so the lease and the attempt bump land
 /// together and the subquery picks the rows under the same lock. The
@@ -147,12 +329,15 @@ macro_rules! claim_backfill_jobs_sql {
                  WHERE j.leased_until_ms <= $2 \
                    AND j.created_at_ms < $3 \
                    AND j.attempts < $4 \
+                   AND j.outcome IS NULL \
                  ORDER BY j.created_at_ms ASC \
                  LIMIT $5 ",
             $lock,
             ") \
              RETURNING id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
-                       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token"
+                       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, \
+                       kind, months_total, months_done, rows_landed, secs_per_unit, turn_id, \
+                       asked_message_id"
         )
     };
 }
@@ -167,13 +352,78 @@ pub(crate) const FINISH_BACKFILL_JOB_SQL: &str =
     "DELETE FROM activity_backfill_jobs WHERE id = $1 AND lease_token = $2";
 
 pub(crate) const REAP_EXHAUSTED_BACKFILL_JOBS_SQL: &str = "DELETE FROM activity_backfill_jobs \
-     WHERE attempts >= $1 AND leased_until_ms <= $2";
+     WHERE attempts >= $1 AND leased_until_ms <= $2 AND outcome IS NULL";
+
+/// Keeps the row, released, with the outcome it ended on.
+pub(crate) const END_BACKFILL_JOB_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET outcome = $3, leased_until_ms = 0, lease_token = NULL \
+     WHERE id = $1 AND lease_token = $2";
 
 /// Hands a claim back unrun, with the attempt it counted.
 pub(crate) const RELEASE_BACKFILL_JOB_CLAIM_SQL: &str = "UPDATE activity_backfill_jobs \
      SET leased_until_ms = 0, attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END, \
          lease_token = NULL \
-     WHERE id = $1 AND lease_token = $2";
+     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
+
+/// Adds a landed step to the progress and releases the row for the next
+/// step, below where this one reached.
+pub(crate) const RECORD_JOB_PROGRESS_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET before_ts = $3, months_done = months_done + $4, rows_landed = rows_landed + $5, \
+         secs_per_unit = COALESCE($6, secs_per_unit), \
+         attempts = 0, leased_until_ms = 0, lease_token = NULL \
+     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
+
+pub(crate) const JOB_PROGRESS_SQL: &str =
+    "SELECT months_total, months_done, rows_landed, secs_per_unit FROM activity_backfill_jobs \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
+
+pub(crate) const BACKFILL_JOB_STATE_SQL: &str = "SELECT outcome FROM activity_backfill_jobs \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
+
+/// The state an `outcome` column reads as.
+pub(crate) fn backfill_job_state_of(outcome: Option<&str>) -> AppResult<BackfillJobState> {
+    match outcome {
+        None => Ok(BackfillJobState::Owed),
+        Some(OUTCOME_INCOMPLETE) => Ok(BackfillJobState::Incomplete),
+        Some(other) => Err(AppError::database(format!(
+            "activity_backfill_jobs outcome is not one this build knows: {other}"
+        ))),
+    }
+}
+
+/// The `outcome` [`BackfillJobState::Incomplete`] is stored as.
+pub(crate) const fn incomplete_outcome() -> &'static str {
+    OUTCOME_INCOMPLETE
+}
+
+fn column_error(name: &str, e: &sqlx::Error) -> AppError {
+    AppError::database(format!("activity_backfill_jobs {name}: {e}"))
+}
+
+/// The [`JobProgress`] columns of `row`.
+pub(crate) fn job_progress_from_row<R>(row: &R) -> AppResult<JobProgress>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    Ok(JobProgress {
+        months_total: row
+            .try_get("months_total")
+            .map_err(|e| column_error("months_total", &e))?,
+        months_done: row
+            .try_get("months_done")
+            .map_err(|e| column_error("months_done", &e))?,
+        rows_landed: row
+            .try_get("rows_landed")
+            .map_err(|e| column_error("rows_landed", &e))?,
+        secs_per_unit: row
+            .try_get("secs_per_unit")
+            .map_err(|e| column_error("secs_per_unit", &e))?,
+    })
+}
 
 pub(crate) fn backfill_job_from_row<R>(row: &R) -> AppResult<ActivityBackfillJobRow>
 where
@@ -182,41 +432,56 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
-    let column = |name: &str, e: sqlx::Error| {
-        AppError::database(format!("activity_backfill_jobs {name}: {e}"))
-    };
-    let user_id: String = row.try_get("user_id").map_err(|e| column("user_id", e))?;
+    let user_id: String = row
+        .try_get("user_id")
+        .map_err(|e| column_error("user_id", &e))?;
+    let kind: String = row.try_get("kind").map_err(|e| column_error("kind", &e))?;
     Ok(ActivityBackfillJobRow {
-        id: row.try_get("id").map_err(|e| column("id", e))?,
+        id: row.try_get("id").map_err(|e| column_error("id", &e))?,
         tenant_id: row
             .try_get("tenant_id")
-            .map_err(|e| column("tenant_id", e))?,
+            .map_err(|e| column_error("tenant_id", &e))?,
         user_id: Uuid::parse_str(&user_id)
             .map_err(|e| AppError::database(format!("backfill job user_id is not a UUID: {e}")))?,
-        provider: row.try_get("provider").map_err(|e| column("provider", e))?,
-        after_ts: row.try_get("after_ts").map_err(|e| column("after_ts", e))?,
+        provider: row
+            .try_get("provider")
+            .map_err(|e| column_error("provider", &e))?,
+        kind: BackfillJobKind::parse(&kind)?,
+        after_ts: row
+            .try_get("after_ts")
+            .map_err(|e| column_error("after_ts", &e))?,
         before_ts: row
             .try_get("before_ts")
-            .map_err(|e| column("before_ts", e))?,
+            .map_err(|e| column_error("before_ts", &e))?,
         fetch_limit: row
             .try_get("fetch_limit")
-            .map_err(|e| column("fetch_limit", e))?,
+            .map_err(|e| column_error("fetch_limit", &e))?,
         conversation_id: row
             .try_get("conversation_id")
-            .map_err(|e| column("conversation_id", e))?,
+            .map_err(|e| column_error("conversation_id", &e))?,
         created_at_ms: row
             .try_get("created_at_ms")
-            .map_err(|e| column("created_at_ms", e))?,
+            .map_err(|e| column_error("created_at_ms", &e))?,
         leased_until_ms: row
             .try_get("leased_until_ms")
-            .map_err(|e| column("leased_until_ms", e))?,
-        attempts: row.try_get("attempts").map_err(|e| column("attempts", e))?,
+            .map_err(|e| column_error("leased_until_ms", &e))?,
+        attempts: row
+            .try_get("attempts")
+            .map_err(|e| column_error("attempts", &e))?,
         lease_token: row
             .try_get("lease_token")
-            .map_err(|e| column("lease_token", e))?,
+            .map_err(|e| column_error("lease_token", &e))?,
+        progress: job_progress_from_row(row)?,
+        turn_id: row
+            .try_get("turn_id")
+            .map_err(|e| column_error("turn_id", &e))?,
+        asked_message_id: row
+            .try_get("asked_message_id")
+            .map_err(|e| column_error("asked_message_id", &e))?,
     })
 }
 
@@ -232,7 +497,13 @@ macro_rules! impl_activity_backfill_job_repository {
         #[async_trait::async_trait]
         impl ActivityBackfillJobRepository for $ty {
             async fn record_backfill_job(&self, row: &ActivityBackfillJobRow) -> AppResult<bool> {
-                let result = sqlx::query(RECORD_BACKFILL_JOB_SQL)
+                let live_read = row.kind == BackfillJobKind::LiveRead;
+                let sql = if live_read {
+                    RECORD_LIVE_READ_SQL
+                } else {
+                    RECORD_BACKFILL_JOB_SQL
+                };
+                let query = sqlx::query(sql)
                     .bind(&row.id)
                     .bind(row.tenant_id)
                     .bind(row.user_id.to_string())
@@ -245,11 +516,25 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(row.leased_until_ms)
                     .bind(row.attempts)
                     .bind(&row.lease_token)
-                    .execute(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to record backfill job: {e}"))
-                    })?;
+                    .bind(row.kind.as_str())
+                    .bind(row.progress.months_total)
+                    .bind(row.progress.months_done)
+                    .bind(row.progress.rows_landed)
+                    .bind(row.progress.secs_per_unit)
+                    .bind(&row.turn_id)
+                    .bind(&row.asked_message_id);
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to record backfill job: {e}"))
+                };
+                if live_read {
+                    let written = query.fetch_optional(self.pool()).await.map_err(failed)?;
+                    let written_id: Option<String> = written
+                        .map(|written| written.try_get("id"))
+                        .transpose()
+                        .map_err(failed)?;
+                    return Ok(written_id.as_deref() == Some(row.id.as_str()));
+                }
+                let result = query.execute(self.pool()).await.map_err(failed)?;
                 Ok(result.rows_affected() == 1)
             }
 
@@ -301,6 +586,17 @@ macro_rules! impl_activity_backfill_job_repository {
                 Ok(done.rows_affected() == 1)
             }
 
+            async fn end_backfill_job_incomplete(&self, lease: &JobLease) -> AppResult<bool> {
+                let ended = sqlx::query(END_BACKFILL_JOB_SQL)
+                    .bind(&lease.id)
+                    .bind(&lease.token)
+                    .bind(incomplete_outcome())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to end backfill job: {e}")))?;
+                Ok(ended.rows_affected() == 1)
+            }
+
             async fn release_backfill_job_claim(&self, lease: &JobLease) -> AppResult<bool> {
                 let released = sqlx::query(RELEASE_BACKFILL_JOB_CLAIM_SQL)
                     .bind(&lease.id)
@@ -311,6 +607,72 @@ macro_rules! impl_activity_backfill_job_repository {
                         AppError::database(format!("Failed to release backfill job claim: {e}"))
                     })?;
                 Ok(released.rows_affected() == 1)
+            }
+
+            async fn record_job_progress(
+                &self,
+                lease: &JobLease,
+                step: JobProgressStep,
+            ) -> AppResult<bool> {
+                let recorded = sqlx::query(RECORD_JOB_PROGRESS_SQL)
+                    .bind(&lease.id)
+                    .bind(&lease.token)
+                    .bind(step.before_ts)
+                    .bind(step.months_walked)
+                    .bind(step.rows_landed)
+                    .bind(step.secs_per_unit)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to record backfill job progress: {e}"))
+                    })?;
+                Ok(recorded.rows_affected() == 1)
+            }
+
+            async fn job_progress(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                kind: BackfillJobKind,
+            ) -> AppResult<Option<JobProgress>> {
+                let row = sqlx::query(JOB_PROGRESS_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id)
+                    .bind(provider)
+                    .bind(kind.as_str())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read backfill job progress: {e}"))
+                    })?;
+                row.as_ref().map(job_progress_from_row).transpose()
+            }
+
+            async fn backfill_job_state(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                kind: BackfillJobKind,
+            ) -> AppResult<Option<BackfillJobState>> {
+                let row = sqlx::query(BACKFILL_JOB_STATE_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id)
+                    .bind(provider)
+                    .bind(kind.as_str())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read backfill job state: {e}"))
+                    })?;
+                row.map(|row| {
+                    let outcome: Option<String> = row.try_get("outcome").map_err(|e| {
+                        AppError::database(format!("activity_backfill_jobs outcome: {e}"))
+                    })?;
+                    backfill_job_state_of(outcome.as_deref())
+                })
+                .transpose()
             }
 
             async fn reap_exhausted_backfill_jobs(
