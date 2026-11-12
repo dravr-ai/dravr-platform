@@ -78,6 +78,18 @@ pub(crate) struct MockStrava {
     profiles: Mutex<usize>,
 }
 
+impl MockStrava {
+    /// Serve `starts` as the athlete's history.
+    pub(crate) fn serve(&self, starts: Vec<i64>) {
+        *self.starts.lock().unwrap() = starts;
+    }
+
+    /// How many activity listings the stand-in has answered.
+    pub(crate) fn listing_count(&self) -> usize {
+        self.listings.lock().unwrap().len()
+    }
+}
+
 /// `GET /athlete`: the profile, with its `created_at` when the mock has one.
 async fn athlete_profile(State(mock): State<Arc<MockStrava>>) -> Json<Value> {
     *mock.profiles.lock().unwrap() += 1;

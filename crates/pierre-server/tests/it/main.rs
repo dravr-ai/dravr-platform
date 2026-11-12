@@ -888,6 +888,7 @@ mod visitor_test;
 mod viz_accent_tolerance_test;
 mod viz_token_test;
 mod walk_completion_render_test;
+mod walked_window_read_test;
 mod warp_axum_migration_regression_test;
 mod weather_backfill_test;
 mod webhook_owner_resolution_test;
