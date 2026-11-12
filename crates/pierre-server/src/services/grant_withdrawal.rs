@@ -11,10 +11,11 @@
 //! (`OAuthService::disconnect_provider`). An athlete that grant served alone
 //! is then left with nothing, so they are told once, through the hosted
 //! sign-in link every reconnect carries
-//! ([`notify_grant_withdrawn`]). The withdrawal is the notice's claim: it is
-//! sent only by the disconnect that found the grant's token row and removed
-//! it, so a redelivered event or a retried pass finds nothing and sends
-//! nothing.
+//! ([`notify_grant_withdrawn`]). The notice is claimed on the grant's own
+//! connection row and sent before the disconnect deletes that row: a
+//! withdrawal that fails part way has already told the athlete, and a
+//! redelivered, retried or concurrent event finds the claim taken, or the
+//! row gone, and sends nothing.
 
 use std::fmt;
 use std::sync::Arc;
@@ -69,22 +70,10 @@ impl ProviderDisconnector for GrantWithdrawal {
         tenant_id: TenantId,
         reason: DisconnectReason,
     ) -> AppResult<RevocationOutcome> {
-        // Read before the delete: only the disconnect that removes the grant
-        // sends its notice. A row that cannot be read sends none.
-        let held = withdraws_without_asking(reason)
-            && matches!(
-                self.runtime
-                    .repos()
-                    .oauth_tokens
-                    .get_token(user_id, tenant_id, provider)
-                    .await,
-                Ok(Some(_))
-            );
-        let outcome = self
-            .service
-            .disconnect(user_id, provider, tenant_id, reason)
-            .await?;
-        if held {
+        // Before the delete: the notice is claimed on the grant's connection
+        // row, which the disconnect removes, and sent on the won claim, so a
+        // disconnect that fails part way has already told the athlete.
+        if withdraws_without_asking(reason) {
             let notice = notify_grant_withdrawn(&self.runtime, user_id, tenant_id, provider).await;
             info!(
                 user_id = %user_id,
@@ -95,7 +84,9 @@ impl ProviderDisconnector for GrantWithdrawal {
                 "Grant withdrawn: the reconnect notice of a grant-only athlete"
             );
         }
-        Ok(outcome)
+        self.service
+            .disconnect(user_id, provider, tenant_id, reason)
+            .await
     }
 
     async fn withdraw_upstream(

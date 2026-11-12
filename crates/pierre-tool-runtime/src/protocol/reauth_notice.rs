@@ -209,19 +209,26 @@ pub async fn new_sign_in_falls_back(
     sign_in_falls_back_to_oauth(order, seats)
 }
 
-/// Tell an athlete whose OAuth grant of `grant` was just withdrawn (a seat
+/// `last_error` of a grant connection a withdrawal flags to claim its notice.
+const GRANT_WITHDRAWN: &str = "grant_withdrawn";
+
+/// Tell an athlete whose OAuth grant of `grant` is being withdrawn (a seat
 /// reclaim, the provider's own revocation) to reconnect through the hosted
 /// sign-in, when no session of that provider serves them.
 ///
-/// The withdrawal deleted the grant's connection, so there is no
-/// `needs_reauth` row to claim: the withdrawal is the claim, and its caller
-/// sends this once, for the grant it actually removed (carnet#1494). The
-/// notice is the ordinary one, app half and chat half, with the hosted
-/// sign-in link. A grant beside a session that is not revoked asks nothing
-/// of the athlete, whose session keeps serving, and a backend that is no
-/// mirrored provider's grant is never told here. A chat send that fails is
-/// queued as any reconnect notice is, guarded on a connection that no longer
-/// exists, so it is not retried.
+/// Called before the withdrawal deletes the grant's rows (carnet#1494): the
+/// grant's connection is flagged `needs_reauth` and its one notice claimed,
+/// as any dead connection's is, and the notice is sent on the won claim. A
+/// withdrawal that fails after its token delete has therefore already told
+/// the athlete, and a redelivered event, a retried pass or a concurrent
+/// delivery finds the claim taken and sends nothing. A grant with no
+/// connection row left has nothing to claim and is told nothing. The notice
+/// is the ordinary one, app half and chat half, with the hosted sign-in
+/// link. A grant beside a session that is not revoked asks nothing of the
+/// athlete, whose session keeps serving, and a backend that is no mirrored
+/// provider's grant is never told here. A chat send that fails is queued as
+/// any reconnect notice is, guarded on a connection the withdrawal then
+/// deletes, so it is not retried.
 pub async fn notify_grant_withdrawn(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -237,6 +244,29 @@ pub async fn notify_grant_withdrawn(
             provider = %grant,
             "Withdrawn grant: a signed-in session serves the provider; nothing sent"
         );
+        return ReauthNotice::default();
+    }
+    let mark = runtime
+        .repos()
+        .provider_connections
+        .mark_needs_reauth(user_id, tenant_id, grant, Some(GRANT_WITHDRAWN), Utc::now())
+        .await;
+    match mark {
+        Ok(ReauthMark::Flagged | ReauthMark::AlreadyFlagged) => {}
+        Ok(ReauthMark::ReconnectedSince | ReauthMark::NoConnection) => {
+            return ReauthNotice::default();
+        }
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                provider = %grant,
+                error = %e,
+                "Withdrawn grant: its connection could not be flagged; nothing sent"
+            );
+            return ReauthNotice::default();
+        }
+    }
+    if !claim_notice(runtime, user_id, tenant_id, grant).await {
         return ReauthNotice::default();
     }
     #[cfg(feature = "client-notifications")]

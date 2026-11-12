@@ -403,6 +403,82 @@ async fn a_withdrawn_grant_tells_a_grant_only_athlete_once() {
     );
 }
 
+/// A withdrawal that failed after deleting its grant's token, before it
+/// told the athlete, still owes the notice: its retry finds the grant's
+/// connection row standing, claims the notice on it and sends it once, and a
+/// further redelivery sends nothing.
+#[tokio::test]
+async fn a_withdrawal_retried_after_its_token_delete_still_tells_the_athlete_once() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let withdrawal = GrantWithdrawal::new(
+        OAuthService::new(resources.data(), resources.common.config.clone()),
+        runtime,
+    );
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
+    hold_grant(&resources, user_id, tenant).await;
+    // What a disconnect that failed past its token delete leaves behind.
+    resources
+        .common
+        .repos
+        .oauth_tokens
+        .delete_token(user_id, tenant, oauth_providers::GARMIN)
+        .await
+        .unwrap();
+
+    for _retry in 0..2 {
+        withdrawal
+            .disconnect(
+                user_id,
+                oauth_providers::GARMIN,
+                tenant,
+                DisconnectReason::ProviderRevoked,
+            )
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        reconnect_notices(&resources, user_id, tenant).await,
+        1,
+        "bug: the retry of a withdrawal that lost its token row told the athlete other than once"
+    );
+    assert_eq!(connections(&resources, user_id, tenant).await, vec![]);
+}
+
+/// Two deliveries of one revocation racing each other tell a grant-only
+/// athlete once: the notice is claimed on the grant's connection row, and
+/// only one claim wins.
+#[tokio::test]
+async fn concurrent_withdrawals_of_one_grant_tell_the_athlete_once() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let withdrawal = GrantWithdrawal::new(
+        OAuthService::new(resources.data(), resources.common.config.clone()),
+        runtime,
+    );
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
+    hold_grant(&resources, user_id, tenant).await;
+
+    let deliver = || {
+        withdrawal.disconnect(
+            user_id,
+            oauth_providers::GARMIN,
+            tenant,
+            DisconnectReason::ProviderRevoked,
+        )
+    };
+    let (first, second) = tokio::join!(deliver(), deliver());
+    first.unwrap();
+    second.unwrap();
+    assert_eq!(
+        reconnect_notices(&resources, user_id, tenant).await,
+        1,
+        "bug: two racing deliveries of one revocation told the athlete twice"
+    );
+}
+
 /// A Garmin sign-in goes on to Garmin's authorization while its grant is
 /// owed (directive 8): over a dead grant it names the grant, for the app to
 /// start; beside a live grant it asks for nothing.
