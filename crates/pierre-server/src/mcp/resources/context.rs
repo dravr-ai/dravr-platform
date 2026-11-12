@@ -209,11 +209,7 @@ impl ServerContext {
         let service = self.common.notification_service.clone();
         #[cfg(not(feature = "client-notifications"))]
         let service = None;
-        PersonalBests::new(
-            Arc::clone(&self.common.repos.personal_bests),
-            service,
-            Arc::clone(&self.common.repos.worker_runs),
-        )
+        PersonalBests::new(&self.common.repos, service)
     }
 
     /// Build an [`pierre_routes_auth::AuthRoutesContext`] view over this

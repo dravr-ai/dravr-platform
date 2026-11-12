@@ -125,13 +125,18 @@ pub trait PersonalBestRepository: Send + Sync {
         seed: &PersonalBestSeed,
     ) -> AppResult<()>;
 
-    /// Up to `limit` athletes holding a `provider` token whose history walk
-    /// has not completed, and whose connection is not revoked or waiting on a
-    /// reconnect: those never started first, then the least recently
-    /// advanced, so passes share the budget among them in turn.
+    /// Up to `limit` athletes holding a `provider` token whose seed has not
+    /// completed, whose connection is not revoked or waiting on a reconnect,
+    /// and whose history a walk already copied into the activity store: a
+    /// [`BackfillJobKind::HistoryWalk`](crate::repositories::BackfillJobKind::HistoryWalk)
+    /// row in the token's tenant ended as walked, under `provider` itself or
+    /// under `paired`, the other half of its mirror pair. Those never started
+    /// first, then the least recently advanced, so passes share the budget
+    /// among them in turn.
     async fn list_personal_best_seed_candidates(
         &self,
         provider: &str,
+        paired: Option<&str>,
         limit: i64,
     ) -> AppResult<Vec<PersonalBestSeedCandidate>>;
 }
@@ -188,12 +193,16 @@ pub(crate) const SAVE_PERSONAL_BEST_SEED_SQL: &str = r"
                 updated_at = excluded.updated_at
             ";
 
-/// The token, connection and seed tables disagree on the id types on
-/// Postgres (`uuid` user and seed tenant, `VARCHAR` token tenant, `TEXT`
-/// connection ids), so each join compares the `uuid` side cast down to text.
-/// A connection row is optional — a token without one is usable — and the
-/// order puts athletes with no seed row first, then the least recently
-/// advanced, spelled with a `CASE` because the engines sort NULL differently.
+/// The token, connection, job and seed tables disagree on the id types on
+/// Postgres (`uuid` user and seed and job tenant, `VARCHAR` token tenant,
+/// `TEXT` connection and job user ids), so each join compares the `uuid` side
+/// cast down to text. A connection row is optional — a token without one is
+/// usable — and the order puts athletes with no seed row first, then the
+/// least recently advanced, spelled with a `CASE` because the engines sort
+/// NULL differently. The walk is filtered here, before the `LIMIT`, so
+/// athletes whose walk has not ended never crowd out those whose has.
+/// `$3`/`$4` are the history-walk kind and the walked outcome, `$5`/`$6` the
+/// keys a walk counts under (`$6` repeats `$5` when there is no pair).
 pub(crate) const LIST_PERSONAL_BEST_SEED_CANDIDATES_SQL: &str = r"
             SELECT t.user_id, t.tenant_id
             FROM user_oauth_tokens t
@@ -209,6 +218,14 @@ pub(crate) const LIST_PERSONAL_BEST_SEED_CANDIDATES_SQL: &str = r"
                     AND c.tenant_id = t.tenant_id
                     AND c.provider = t.provider
                     AND c.status IN ('revoked', 'needs_reauth')
+              )
+              AND EXISTS (
+                  SELECT 1 FROM activity_backfill_jobs j
+                  WHERE j.user_id = CAST(t.user_id AS TEXT)
+                    AND CAST(j.tenant_id AS TEXT) = t.tenant_id
+                    AND j.kind = $3
+                    AND j.outcome = $4
+                    AND j.provider IN ($5, $6)
               )
             ORDER BY CASE WHEN s.updated_at IS NULL THEN 0 ELSE 1 END,
                      s.updated_at, CAST(t.user_id AS TEXT), t.tenant_id
@@ -365,11 +382,16 @@ macro_rules! impl_personal_best_repository {
             async fn list_personal_best_seed_candidates(
                 &self,
                 provider: &str,
+                paired: Option<&str>,
                 limit: i64,
             ) -> AppResult<Vec<PersonalBestSeedCandidate>> {
                 let rows = sqlx::query(LIST_PERSONAL_BEST_SEED_CANDIDATES_SQL)
                     .bind(provider)
                     .bind(limit)
+                    .bind($crate::repositories::BackfillJobKind::HistoryWalk.as_str())
+                    .bind($crate::repositories::activity_backfill_jobs::walked_outcome())
+                    .bind(provider)
+                    .bind(paired.unwrap_or(provider))
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
