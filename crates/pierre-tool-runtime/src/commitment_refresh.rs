@@ -23,7 +23,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use pierre_core::models::TenantId;
+use pierre_core::models::{ProviderConnection, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -111,36 +111,33 @@ async fn run_commitment_refresh(
         return;
     }
 
-    // A grant beside a session is the session's fallback, and its name
-    // resolves to the session: the session's own connection reads the
-    // window, so the session is scraped once and the API never beside it.
-    let mut providers: Vec<&str> = Vec::with_capacity(connections.len());
-    for connection in &connections {
-        if !connection_grant_beside_session(runtime, user_id, connection).await {
-            providers.push(connection.provider.as_str());
-        }
-    }
-    let fetched =
-        fetch_window_across_providers(runtime, user_id, tenant_id, window_start_ts, &providers)
+    let (providers, fetched) =
+        fetch_window_across_providers(runtime, user_id, tenant_id, window_start_ts, &connections)
             .await;
 
     info!(
         user_id = %user_id,
-        providers = providers.len(),
+        providers,
         fetched,
         "Commitment refresh: fetched the commitment window across connected providers"
     );
 }
 
-/// Fetch `[window_start_ts, now]` from each provider through the shared
-/// authenticate-and-fetch path, returning the total activities fetched.
+/// Fetch `[window_start_ts, now]` from the provider of each of
+/// `connections` through the shared authenticate-and-fetch path, returning
+/// how many providers were read and the total activities fetched.
+///
+/// A grant beside a session is passed over: it is the session's fallback,
+/// and its name resolves to the session, which its own connection reads, so
+/// the session is scraped once and the API is never read beside it
+/// (carnet#1494).
 async fn fetch_window_across_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     window_start_ts: i64,
-    providers: &[&str],
-) -> usize {
+    connections: &[ProviderConnection],
+) -> (usize, usize) {
     let params = ActivityQueryParams {
         limit: Some(REFRESH_FETCH_LIMIT),
         offset: None,
@@ -148,13 +145,18 @@ async fn fetch_window_across_providers(
         after: Some(window_start_ts),
     };
     let tenant_str = tenant_id.to_string();
-    let mut fetched = 0_usize;
-    for provider in providers {
+    let (mut read, mut fetched) = (0_usize, 0_usize);
+    for connection in connections {
+        if connection_grant_beside_session(runtime, user_id, connection).await {
+            continue;
+        }
+        read += 1;
         if let Some(activities) =
-            fetch_provider_activities(runtime, provider, user_id, &tenant_str, &params).await
+            fetch_provider_activities(runtime, &connection.provider, user_id, &tenant_str, &params)
+                .await
         {
             fetched += activities.len();
         }
     }
-    fetched
+    (read, fetched)
 }
