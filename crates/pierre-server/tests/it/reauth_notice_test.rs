@@ -20,10 +20,14 @@ use std::time::Duration as StdDuration;
 
 use chrono::Utc;
 use pierre_config::environment::ServerConfig;
+use pierre_contremaitre::messaging_strings::{
+    KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+};
 use pierre_contremaitre::reauth_strings::{
     KEY_NOTIFICATION_PROVIDER_GRANT_WRITES_BODY, KEY_NOTIFICATION_PROVIDER_GRANT_WRITES_TITLE,
-    KEY_PROVIDER_REAUTH_FALLBACK_SERVED, KEY_PROVIDER_REAUTH_FALLBACK_SERVED_NO_LINK,
-    KEY_PROVIDER_REAUTH_GRANT_WRITES, KEY_PROVIDER_REAUTH_GRANT_WRITES_NO_LINK,
+    KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE, KEY_PROVIDER_REAUTH_FALLBACK_SERVED,
+    KEY_PROVIDER_REAUTH_FALLBACK_SERVED_NO_LINK, KEY_PROVIDER_REAUTH_GRANT_WRITES,
+    KEY_PROVIDER_REAUTH_GRANT_WRITES_NO_LINK,
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
@@ -827,43 +831,187 @@ async fn a_dead_garmin_grant_beside_a_serving_session_is_told_once_with_its_auth
     assert_eq!(f.app_titles().await.len(), 1, "bug: a second app notice");
 }
 
-/// A Garmin grant that dies beside a session that is itself dead is not
-/// told its reads go on: they do not. The session's own notice is the
-/// athlete's way back, and the grant says nothing of its own.
+/// Seed the test's own wording for the ordinary reconnect, in the chat and
+/// as the app's title, so an assertion can tell it from the fallback-served
+/// and grant-writes copies.
+fn reconnect_strings(f: &Fixture) {
+    seed_template(
+        f.runtime.messaging_strings_registry(),
+        KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
+        "reconnect-title",
+    );
+}
+
+/// Every wording a pair's notices can carry, the ordinary reconnect's
+/// included, so each notice names the copy it came from.
+fn every_copy_strings() -> Arc<MessagingStringsRegistry> {
+    let strings = grant_writes_strings();
+    seed_template(&strings, KEY_PROVIDER_REAUTH_REQUIRED, "reconnect {0} {1}");
+    seed_template(
+        &strings,
+        KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
+        "reconnect {0}",
+    );
+    seed_template(
+        &strings,
+        KEY_PROVIDER_REAUTH_FALLBACK_SERVED,
+        "fallback-served {0} {1}",
+    );
+    seed_template(
+        &strings,
+        KEY_PROVIDER_REAUTH_FALLBACK_SERVED_NO_LINK,
+        "fallback-served {0}",
+    );
+    strings
+}
+
+/// A grant that dies beside a session that died first leaves the athlete
+/// with nothing serving the provider, and the session's own notice told
+/// them the grant kept it syncing: that is no longer true. They are told,
+/// once, to sign in again on the hosted sign-in, for Garmin (whose grant
+/// also writes) and Strava alike. It is never the grant-writes copy: the
+/// reads do not go on.
 #[tokio::test]
-async fn a_dead_garmin_grant_beside_a_dead_session_tells_nothing_of_its_own() {
-    let f = fixture_with(grant_writes_strings()).await;
-    garmin_pair(&f, "15145550131").await;
-    f.runtime
-        .repos()
-        .provider_connections
-        .mark_needs_reauth(
+async fn a_dead_grant_beside_a_session_that_died_first_is_told_to_sign_in_again() {
+    for (session, grant, brand, chat_id) in [
+        ("sciotte_garmin", "garmin", "Garmin", "15145550131"),
+        ("sciotte", "strava", "Strava", "15145550134"),
+    ] {
+        let f = fixture_with(every_copy_strings()).await;
+        reconnect_strings(&f);
+        f.hold_token(session).await;
+        f.connect(session).await;
+        f.hold_token(grant).await;
+        f.connect(grant).await;
+        f.link_chat("whatsapp", chat_id).await;
+
+        let (_, told) = flag_needs_reauth(
+            &f.runtime,
             f.user_id,
             f.tenant,
-            "sciotte_garmin",
-            Some("session_expired"),
+            session,
+            "session_expired",
             Utc::now(),
         )
         .await
         .unwrap();
+        assert!(told.claimed, "fixture: the session's own notice ({grant})");
+        assert!(
+            f.chat()[0].1.starts_with("fallback-served"),
+            "fixture: the session was told its grant keeps {grant} syncing: {:?}",
+            f.chat()
+        );
 
-    let (mark, notice) = flag_needs_reauth(
+        let (mark, notice) = flag_needs_reauth(
+            &f.runtime,
+            f.user_id,
+            f.tenant,
+            grant,
+            "refresh_refused",
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+        assert_eq!(mark, ReauthMark::Flagged, "the flag itself lands ({grant})");
+        assert!(
+            notice.claimed,
+            "bug: a dead {grant} grant beside a dead session leaves the athlete believing it still syncs"
+        );
+        let chat = f.chat();
+        assert_eq!(chat.len(), 2, "one more message ({grant}): {chat:?}");
+        let body = &chat[1].1;
+        assert!(
+            body.starts_with(&format!("reconnect {brand} https://app.test/r/")),
+            "bug: the {grant} grant's notice is not the ordinary reconnect with a link: {body}"
+        );
+        let (target, _) = signed_in_target(&f, body).await;
+        assert_eq!(
+            target, grant,
+            "bug: the {grant} link opens something other than its hosted sign-in"
+        );
+        assert_eq!(
+            f.app_titles().await.len(),
+            2,
+            "one more app notice ({grant})"
+        );
+        assert!(
+            f.app_titles()
+                .await
+                .iter()
+                .all(|title| title != "grant-writes-title"),
+            "bug: the {grant} grant beside a dead session was told the reads go on"
+        );
+
+        let again = notify_needs_reauth(&f.runtime, f.user_id, f.tenant, grant).await;
+        assert!(
+            !again.claimed,
+            "bug: the {grant} grant's one notice is sent twice"
+        );
+        assert_eq!(f.chat().len(), 2, "bug: a third chat message ({grant})");
+    }
+}
+
+/// A session that dies after its grant already did was told the ordinary
+/// reconnect, which stays true: a later failure of the grant tells the
+/// athlete nothing more.
+#[tokio::test]
+async fn a_dead_grant_beside_a_session_that_died_after_it_tells_nothing_more() {
+    let f = fixture_with(every_copy_strings()).await;
+    reconnect_strings(&f);
+    f.hold_token("sciotte").await;
+    f.connect("sciotte").await;
+    f.hold_token("strava").await;
+    f.connect("strava").await;
+    f.link_chat("telegram", "tg-athlete-12").await;
+
+    let (_, beside_live) = flag_needs_reauth(
         &f.runtime,
         f.user_id,
         f.tenant,
-        "garmin",
+        "strava",
         "refresh_refused",
         Utc::now(),
     )
     .await
     .unwrap();
-    assert_eq!(mark, ReauthMark::Flagged);
     assert!(
-        !notice.claimed,
-        "bug: a grant beside a dead session is told the reads still sync"
+        !beside_live.claimed,
+        "fixture: a grant beside a serving session is not told"
     );
-    assert!(f.chat().is_empty(), "bug: {:?}", f.chat());
-    assert_eq!(f.app_titles().await, Vec::<String>::new());
+    let (_, session_told) = flag_needs_reauth(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "sciotte",
+        "session_expired",
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert!(session_told.claimed, "fixture: the session's own notice");
+    assert!(
+        f.chat()[0].1.starts_with("reconnect Strava"),
+        "fixture: with no live grant the session's notice is the ordinary reconnect: {:?}",
+        f.chat()
+    );
+
+    let (mark, again) = flag_needs_reauth(
+        &f.runtime,
+        f.user_id,
+        f.tenant,
+        "strava",
+        "refresh_refused",
+        Utc::now(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(mark, ReauthMark::AlreadyFlagged);
+    assert!(
+        !again.claimed,
+        "bug: the athlete already told to sign in again is told a second time"
+    );
+    assert_eq!(f.chat().len(), 1, "bug: {:?}", f.chat());
+    assert_eq!(f.app_titles().await.len(), 1, "bug: a second app notice");
 }
 
 /// Garmin's deregistration of a grant beside a serving session tells the
@@ -950,4 +1098,47 @@ async fn a_withdrawn_garmin_grant_with_no_seat_free_tells_nothing() {
     );
     assert!(f.chat().is_empty(), "bug: {:?}", f.chat());
     assert_eq!(f.app_titles().await, Vec::<String>::new());
+}
+
+/// A Strava grant withdrawn beside a session that is itself flagged leaves
+/// nothing serving, and the session's notice said the grant kept Strava
+/// syncing: the athlete is told the ordinary reconnect, with the hosted
+/// sign-in, before the rows go.
+#[tokio::test]
+async fn a_withdrawn_grant_beside_a_flagged_session_is_told_to_sign_in_again() {
+    let f = fixture_with(every_copy_strings()).await;
+    f.hold_token("sciotte").await;
+    f.connect("sciotte").await;
+    f.hold_token("strava").await;
+    f.connect("strava").await;
+    f.link_chat("whatsapp", "15145550135").await;
+    f.runtime
+        .repos()
+        .provider_connections
+        .mark_needs_reauth(
+            f.user_id,
+            f.tenant,
+            "sciotte",
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    let notice = notify_grant_withdrawn(&f.runtime, f.user_id, f.tenant, "strava").await;
+    assert!(
+        notice.claimed,
+        "bug: a grant withdrawn beside a flagged session leaves the athlete believing Strava syncs"
+    );
+    let chat = f.chat();
+    assert_eq!(chat.len(), 1, "{chat:?}");
+    assert!(
+        chat[0]
+            .1
+            .starts_with("reconnect Strava https://app.test/r/"),
+        "bug: the copy is not the ordinary reconnect with a link: {}",
+        chat[0].1
+    );
+    let (target, _) = signed_in_target(&f, &chat[0].1).await;
+    assert_eq!(target, "strava", "the hosted sign-in reconnects Strava");
 }

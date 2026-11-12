@@ -38,12 +38,14 @@
 //! reconnect goes through the provider's hosted sign-in, a dead OAuth grant's
 //! included (`backend_resolver::reconnect_target`, carnet#1494). A session
 //! that dies while its live grant keeps the provider syncing is told so, in
-//! the chat half's wording. A grant that dies beside a signed-in session is
-//! not surfaced, since the session serves the provider, unless only that
+//! the chat half's wording. A grant that dies beside a session that serves
+//! is not surfaced, since the session serves the provider, unless only that
 //! grant writes what the athlete asks of the provider (Garmin's workouts and
-//! calendar) and the session is serving: the athlete is then told, once,
-//! that the reads go on and the writes need the grant again, with the
-//! grant's own authorization link (JF's directive 8).
+//! calendar): the athlete is then told, once, that the reads go on and the
+//! writes need the grant again, with the grant's own authorization link
+//! (JF's directive 8). A grant that dies beside a session that died first
+//! leaves nothing serving, and that session's notice said the grant kept the
+//! provider syncing: the athlete is told the ordinary reconnect, once.
 //!
 //! [`flag_needs_reauth`] is the flip plus the notice, for the paths that flag
 //! through [`ProviderConnectionRepository::mark_needs_reauth`]. The OAuth
@@ -73,8 +75,8 @@ use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId 
 #[cfg(feature = "client-notifications")]
 use pierre_providers::backend_resolver::brand_name;
 use pierre_providers::backend_resolver::{
-    backend_pair_for, grant_beside_session, grant_writes_beside_serving_session, is_mirror_backend,
-    reconnect_target, user_facing_name,
+    backend_pair_for, grant_writes_beside_serving_session, is_mirror_backend, reconnect_target,
+    session_answers_for_grant, user_facing_name,
 };
 #[cfg(feature = "client-notifications")]
 use pierre_services::locale::resolve_user_locale;
@@ -109,31 +111,35 @@ pub struct ReauthNotice {
 /// doc describes. Best-effort: every failure is logged and the flag stands
 /// either way.
 ///
-/// A dead OAuth grant beside a session that is not revoked
-/// ([`grant_beside_session`]) is not surfaced: the session serves its
-/// provider, and the grant is replaced at the athlete's next sign-in. Nothing
-/// is claimed or sent for it; its flag stands, and it is never elected while
-/// it does (carnet#1494). The exception is a grant that writes what its
-/// session cannot (Garmin's workout and calendar push) beside a session that
-/// serves ([`grant_writes_beside_serving_session`]): its athlete is told
-/// once, through the same claim, that the reads go on and the writes need
-/// the grant again, with the grant's own authorization link (JF's
-/// directive 8). Such a write asked for meanwhile is still refused with that
-/// link (`backend_resolver::grant_owed_refusal`). A session that dies beside
-/// a live grant is told, once: the grant keeps the provider syncing for now,
-/// and the chat half says so.
+/// A dead OAuth grant the session beside it answers for
+/// ([`session_answers_for_grant`]) is not surfaced: a session that serves
+/// keeps the provider syncing, and one flagged after the grant was already
+/// told the ordinary reconnect. Nothing is claimed or sent for it; its flag
+/// stands, and it is never elected while it does (carnet#1494). The
+/// exception is a grant that writes what its session cannot (Garmin's
+/// workout and calendar push) beside a session that serves
+/// ([`grant_writes_beside_serving_session`]): its athlete is told once,
+/// through the same claim, that the reads go on and the writes need the
+/// grant again, with the grant's own authorization link (JF's directive 8).
+/// Such a write asked for meanwhile is still refused with that link
+/// (`backend_resolver::grant_owed_refusal`). A grant that dies beside a
+/// session flagged before it is told the ordinary reconnect, once: the
+/// session's own notice said the grant kept the provider syncing, and
+/// nothing serves the athlete any more. A session that dies beside a live
+/// grant is told, once: the grant keeps the provider syncing for now, and
+/// the chat half says so.
 pub async fn notify_needs_reauth(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> ReauthNotice {
-    let copy = if grant_beside_session(runtime.repos(), user_id, tenant_id, provider).await {
+    let copy = if session_answers_for_grant(runtime.repos(), user_id, tenant_id, provider).await {
         if !writes_owed(runtime, user_id, tenant_id, provider).await {
             info!(
                 user_id = %user_id,
                 provider = %provider,
-                "Reconnect notice: the grant stands beside a signed-in session; nothing sent"
+                "Reconnect notice: the session beside the grant answers for it; nothing sent"
             );
             return ReauthNotice::default();
         }
@@ -283,9 +289,11 @@ const GRANT_WITHDRAWN: &str = "grant_withdrawn";
 /// delivery finds the claim taken and sends nothing. A grant with no
 /// connection row left has nothing to claim and is told nothing. The notice
 /// is the ordinary one, app half and chat half, with the hosted sign-in
-/// link. A grant beside a session that is not revoked asks nothing of the
-/// athlete, whose session keeps serving, unless only that grant writes their
-/// workouts and calendar (Garmin's) and the session serves
+/// link, and it is what a grant withdrawn beside a session that is itself
+/// flagged sends: that session's notice said the grant kept the provider
+/// syncing. A grant beside a session that serves
+/// ([`session_answers_for_grant`]) asks nothing of the athlete, unless only
+/// that grant writes their workouts and calendar (Garmin's)
 /// ([`grant_writes_beside_serving_session`]): they are then told once that
 /// the reads go on and the writes need the grant again, with its own
 /// authorization link, while a seat is free on Garmin's client for them to
@@ -302,7 +310,7 @@ pub async fn notify_grant_withdrawn(
     if is_mirror_backend(grant) || reconnect_target(grant).is_none() {
         return ReauthNotice::default();
     }
-    let copy = if grant_beside_session(runtime.repos(), user_id, tenant_id, grant).await {
+    let copy = if session_answers_for_grant(runtime.repos(), user_id, tenant_id, grant).await {
         if !writes_owed(runtime, user_id, tenant_id, grant).await
             || !garmin_seat_free(runtime).await
         {

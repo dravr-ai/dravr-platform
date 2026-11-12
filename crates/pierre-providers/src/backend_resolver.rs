@@ -594,6 +594,81 @@ pub async fn grant_beside_session(
             .signed_in()
 }
 
+/// Whether the dead or withdrawn OAuth grant `backend` asks nothing of its
+/// athlete because of the usr/pwd session beside it, in this tenant.
+///
+/// True beside a session that serves (held, its connection active): the
+/// session keeps the provider syncing, and the grant is replaced at the
+/// athlete's next sign-in. True too beside a session flagged after the grant
+/// was: no live grant stood behind the session when it died, so its own
+/// notice was the ordinary reconnect, which still holds.
+///
+/// False beside a session flagged before the grant died, or before a live
+/// grant is withdrawn: that session's notice said the grant kept the
+/// provider syncing for now (carnet#1494), which the grant's end makes
+/// false, and nothing serves the athlete any more. False too with no
+/// session, or a revoked one, and for a mirror or a provider whose OAuth
+/// backend never serves beside its mirror. Flags of the same instant, or a
+/// flag whose instant is unknown, read as the session's first: the athlete
+/// is told rather than left believing a sync goes on. A store that cannot
+/// be read reads every held row as live, as [`read_plan`] reads it.
+///
+/// Unlike [`grant_beside_session`], which routes a walk of the athlete's
+/// connections, a flagged session counts here only by when it was flagged:
+/// a grant's name still resolves to its flagged session for reads.
+pub async fn session_answers_for_grant(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> bool {
+    let Some(mirror) = mirror_backend_for(backend) else {
+        return false;
+    };
+    if !oauth_serves(backend) {
+        return false;
+    }
+    match PairHalves::read(repos, user_id, tenant_id, backend, mirror)
+        .await
+        .session
+    {
+        Half::Live => true,
+        Half::Flagged => grant_flagged_first(repos, user_id, tenant_id, backend, mirror).await,
+        Half::Absent | Half::Revoked => false,
+    }
+}
+
+/// Whether the grant `grant`'s connection was flagged strictly before the
+/// session `mirror`'s, in this tenant. `false` when either instant is
+/// unknown, the grant is not flagged, or the connections cannot be read.
+async fn grant_flagged_first(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    grant: &str,
+    mirror: &str,
+) -> bool {
+    let Ok(connections) = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+    else {
+        return false;
+    };
+    let flagged_at = |backend: &str| {
+        connections
+            .iter()
+            .find(|connection| {
+                connection.provider == backend && connection.status == ConnectionStatus::NeedsReauth
+            })
+            .and_then(|connection| connection.status_changed_at)
+    };
+    matches!(
+        (flagged_at(grant), flagged_at(mirror)),
+        (Some(grant_at), Some(session_at)) if grant_at < session_at
+    )
+}
+
 /// The live OAuth grant that keeps `backend` syncing when `backend` is the
 /// athlete's session for its provider, else `None`.
 ///
