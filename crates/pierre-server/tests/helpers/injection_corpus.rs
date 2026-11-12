@@ -133,8 +133,9 @@ pub(crate) enum Surface {
     /// text, and the model-facing projection keeps it with the activity's
     /// other context fields (`project_tool_payload`'s
     /// `ACTIVITY_CONTEXT_FIELDS`, carnet#1494: an athlete's comments reach the
-    /// coach). No prefetch carries it, so it reaches the model only when the
-    /// model asks for the detailed read.
+    /// coach), and the activity prefetch carries it among the athlete's own
+    /// notes on the window it reads (`athlete_notes`), so it reaches the
+    /// model unasked when the agent declares a window.
     ActivityNote,
     /// The name of a group member's most recent run, from the activity cache.
     /// Reaches the model through `get_group_member_activities` and through the
@@ -182,9 +183,9 @@ impl Surface {
     /// athlete talks to declares a first-turn activity window.
     pub(crate) const fn shown_unasked(self, declares_window: bool) -> bool {
         match self {
-            Self::OwnActivityName => declares_window,
+            Self::OwnActivityName | Self::ActivityNote => declares_window,
             Self::PeerActivityName => true,
-            Self::ActivityNote | Self::PlannedWorkout | Self::None => false,
+            Self::PlannedWorkout | Self::None => false,
         }
     }
 
