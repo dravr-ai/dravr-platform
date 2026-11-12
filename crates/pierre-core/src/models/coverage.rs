@@ -55,8 +55,8 @@ impl IncompleteReason {
     /// The sentence a model reads after "This window is INCOMPLETE:", when
     /// the reason has one of its own. `None` for a reason whose note is a
     /// whole sentence of its own ([`Self::ShallowHistory`],
-    /// [`Self::NoStoredActivities`]) or whose wording is not authored yet
-    /// ([`Self::HistoryWalkRunning`], which the structured `pending` carries).
+    /// [`Self::NoStoredActivities`]). English, like the rest of the note:
+    /// the model renders it in the athlete's language.
     #[must_use]
     pub const fn explanation(self) -> Option<&'static str> {
         match self {
@@ -69,7 +69,10 @@ impl IncompleteReason {
             Self::ProviderUnavailable => {
                 Some("the provider could not be read, so only what it last synced is shown")
             }
-            Self::HistoryWalkRunning | Self::ShallowHistory | Self::NoStoredActivities => None,
+            Self::HistoryWalkRunning => Some(
+                "the athlete's history is still being copied in, so only the activities stored so far are shown; older ones land as the walk reaches them",
+            ),
+            Self::ShallowHistory | Self::NoStoredActivities => None,
         }
     }
 }
@@ -644,7 +647,11 @@ mod tests {
         };
         let note = walking.note().ok_or("no note")?;
         assert!(
-            note.contains("This window is INCOMPLETE. Do not state a count"),
+            note.contains(
+                "This window is INCOMPLETE: the athlete's history is still being copied in, \
+                 so only the activities stored so far are shown; older ones land as the walk \
+                 reaches them. Do not state a count"
+            ),
             "{note}"
         );
         Ok(())

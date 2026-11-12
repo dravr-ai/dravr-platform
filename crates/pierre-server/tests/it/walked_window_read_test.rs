@@ -372,6 +372,13 @@ async fn a_window_the_running_walk_has_not_reached_is_served_as_incomplete() {
             .is_some_and(|note| note.contains("Do not state a count")),
         "bug: an incomplete window forbids stating a count: {payload}"
     );
+    assert!(
+        coverage["note"].as_str().is_some_and(|note| note.contains(
+            "INCOMPLETE: the athlete's history is still being copied in, so only the \
+             activities stored so far are shown; older ones land as the walk reaches them."
+        )),
+        "bug: the model must be told the walk is still copying the history in: {payload}"
+    );
     assert_eq!(
         repos
             .activity_backfill_jobs
