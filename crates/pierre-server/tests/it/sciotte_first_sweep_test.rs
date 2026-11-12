@@ -56,16 +56,18 @@ use pierre_routes_auth::FirstSyncHook;
 use pierre_tool_runtime::capture_sweep::{
     refresh_captures, ConnectionRefresh, RefreshOutcome, SweepBudget, SweepSelection,
 };
+use pierre_tool_runtime::commitment_refresh::spawn_commitment_activity_refresh;
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::SecretString;
 use serde_json::json;
 use tokio::net::TcpListener;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use tower::ServiceExt;
 use uuid::Uuid;
 
 use crate::common;
+use crate::helpers::notify_capture::{capture_logs, named};
 use crate::helpers::sciotte_mock::seed_sciotte_session;
 use crate::messaging_fixtures::{CapturingChannel, FakeResolver};
 use crate::recording_post::RecordingPost;
@@ -615,6 +617,61 @@ async fn a_group_member_read_scrapes_the_session_once_and_never_writes_it_under_
         repos
             .activity_cache
             .latest_activity_sync(peer, &peer_tenant, "strava")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: scraped rows were written under the grant's key"
+    );
+}
+
+/// The line the commitment refresh logs once it walked every connection.
+const COMMITMENT_REFRESH_DONE: &str =
+    "Commitment refresh: fetched the commitment window across connected providers";
+
+/// A commitment refresh of an athlete holding both reads the session alone:
+/// the grant's name resolves to the session, so walking it too scraped the
+/// session a second time. The session is scraped once, Strava's API is never
+/// read, and nothing is cached under `strava`.
+#[tokio::test]
+async fn a_commitment_refresh_scrapes_the_session_once_and_never_reads_the_api() {
+    let w = world().await;
+    let (user_id, tenant) = athlete_with_both(&w.resources).await;
+    let runtime: Arc<dyn ToolRuntime> = w.resources.clone();
+    let (events, _guard) = capture_logs();
+
+    assert!(
+        spawn_commitment_activity_refresh(
+            Arc::clone(&runtime),
+            user_id,
+            tenant,
+            (Utc::now() - Duration::days(7)).timestamp(),
+        ),
+        "fixture: no refresh is in flight for this athlete"
+    );
+    let finished = timeout(StdDuration::from_secs(20), async {
+        while named(&events, COMMITMENT_REFRESH_DONE).is_empty() {
+            sleep(StdDuration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(finished.is_ok(), "the refresh walked every connection");
+
+    assert_eq!(
+        w.scraper.reads(),
+        1,
+        "bug: the commitment refresh scraped the session once per half of the pair"
+    );
+    assert_eq!(
+        w.strava.reads(),
+        0,
+        "bug: the commitment refresh reached Strava's API beside the scrape"
+    );
+    assert!(
+        w.resources
+            .common
+            .repos
+            .activity_cache
+            .latest_activity_sync(user_id, &tenant, "strava")
             .await
             .unwrap()
             .is_none(),
