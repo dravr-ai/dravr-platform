@@ -15,9 +15,10 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use serde_json::{json, Value};
 
+use chrono::Utc;
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::calendar_preference::CalendarPreferenceRoutes;
 use pierre_services::plan_calendar_push::connected_calendars;
@@ -74,10 +75,29 @@ async fn setup() -> Setup {
 }
 
 impl Setup {
+    /// Connect `provider` as a connect does: the athlete's own connection
+    /// holds its token row, which decides whether a grant is live (Garmin's
+    /// calendar is written only through a live grant, carnet#1494); a link's
+    /// connection holds none.
     async fn connect(&self, provider: &str, connection_type: ConnectionType) {
-        self.resources
-            .common
-            .repos
+        let repos = &self.resources.common.repos;
+        if connection_type != ConnectionType::Delegated {
+            let token = UserOAuthToken::new(
+                self.user_id,
+                self.tenant.to_string(),
+                provider.to_owned(),
+                "test_access_token".to_owned(),
+                Some("test_refresh_token".to_owned()),
+                Some(Utc::now() + chrono::Duration::hours(1)),
+                None,
+            );
+            repos
+                .oauth_tokens
+                .upsert_token(&token)
+                .await
+                .expect("token");
+        }
+        repos
             .provider_connections
             .register_connection(self.user_id, self.tenant, provider, &connection_type, None)
             .await
@@ -195,6 +215,9 @@ async fn a_calendar_held_only_through_a_link_or_not_at_all_is_refused() {
         "a link's calendar is the coach's to write"
     );
     let (status, refused) = setup.put(&second).await;
+    // Held through a coach's link the athlete has no session of their own,
+    // so even Garmin's calendar is not owed as a grant (carnet#1494): it is
+    // simply not one of the athlete's connected calendars.
     assert_eq!(status, StatusCode::BAD_REQUEST.as_u16(), "{refused}");
     let none = setup
         .resources

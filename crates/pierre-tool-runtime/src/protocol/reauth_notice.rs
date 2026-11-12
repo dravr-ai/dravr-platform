@@ -106,9 +106,12 @@ pub struct ReauthNotice {
 /// ([`grant_beside_session`]) is never surfaced: the session serves its
 /// provider, and the grant is replaced at the athlete's next sign-in. Nothing
 /// is claimed or sent for it; its flag stands, and it is never elected while
-/// it does (carnet#1494). A session that dies beside a live grant is told,
-/// once: the grant keeps the provider syncing for now, and the chat half says
-/// so.
+/// it does (carnet#1494). A write only that grant makes (Garmin's workout
+/// and calendar push) is refused when it is asked for, with the grant's own
+/// authorization link (`backend_resolver::grant_owed_refusal`), so the
+/// athlete is told what it needs at the moment it matters. A session that
+/// dies beside a live grant is told, once: the grant keeps the provider
+/// syncing for now, and the chat half says so.
 pub async fn notify_needs_reauth(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,

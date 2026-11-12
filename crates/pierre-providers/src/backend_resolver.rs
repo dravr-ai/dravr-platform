@@ -699,9 +699,11 @@ pub async fn resolve_backend(
 /// # Errors
 ///
 /// The [`grant_owed_refusal`] when only the pair's grant carries
-/// `capability` and the athlete's grant is not live (JF's directive 8): the
-/// write is never sent to a session that cannot make it, and the refusal
-/// names the authorization to connect again.
+/// `capability` and the grant is [`grant_owed`] beside the athlete's session
+/// (JF's directive 8): the write is never sent to a session that cannot make
+/// it, and the refusal names the authorization to connect again. An athlete
+/// holding neither half gets the plan's primary, whose refusal says the
+/// provider is not connected.
 pub async fn write_backend(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,
@@ -717,7 +719,7 @@ pub async fn write_backend(
     if let Some(backend) = plan.carrying(registry, capability) {
         return Ok(backend.to_owned());
     }
-    match grant_writes_beside_mirror(registry, requested) {
+    match grant_owed(repos, registry, user_id, tenant_id, requested).await {
         Some(grant)
             if registry
                 .get_capabilities(grant)
@@ -768,9 +770,13 @@ pub fn grant_writes_beside_mirror(
 /// The grant `provider`'s athlete still owes for its writes in this tenant.
 ///
 /// A [`grant_writes_beside_mirror`] grant whose half is not live (absent,
-/// flagged or revoked), whatever the session's state. `None` when the
-/// provider has no such grant or the athlete's grant is live. A store that
-/// cannot be read reads the grant as live: nothing is asked on a guess.
+/// flagged or revoked) while the athlete is signed in to the pair's session
+/// (held and not revoked). `None` when the provider has no such grant, the
+/// athlete's grant is live, or no session is held: an athlete with no
+/// session connects by the hosted sign-in first, which then goes on to the
+/// grant (JF's directive 8), so nothing points them at the grant alone. A
+/// store that cannot be read reads the grant as live: nothing is asked on a
+/// guess.
 pub async fn grant_owed(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,
@@ -781,7 +787,7 @@ pub async fn grant_owed(
     let grant = grant_writes_beside_mirror(registry, provider)?;
     let mirror = mirror_backend_for(grant)?;
     let halves = PairHalves::read(repos, user_id, tenant_id, grant, mirror).await;
-    (halves.grant != Half::Live).then_some(grant)
+    (halves.session.signed_in() && halves.grant != Half::Live).then_some(grant)
 }
 
 /// The refusal of a write only `grant`, the pair's own authorization, makes

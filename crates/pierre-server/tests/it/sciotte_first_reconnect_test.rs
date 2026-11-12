@@ -46,6 +46,7 @@ use std::sync::Arc;
 use chrono::Utc;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ActivityBuilder, ConnectionStatus, SportType, TenantId};
+use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::grant_withdrawal::GrantWithdrawal;
 use pierre_middleware::provider_link_token::{
@@ -59,6 +60,7 @@ use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::user_removal::ProviderDisconnector;
 use pierre_tool_runtime::implementations::oauth_authorize::with_grant_link;
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::Value;
 use uuid::Uuid;
@@ -577,5 +579,80 @@ async fn a_write_for_a_dead_garmin_grant_is_refused_with_its_authorization_link(
         refused.tool_message().contains(url),
         "bug: the model is never given the link: {}",
         refused.tool_message()
+    );
+}
+
+/// A workout prescribed with no calendar named, for an athlete whose Garmin
+/// grant is dead beside a live session, lands on that grant and is refused
+/// with Garmin's authorization link, through the tool the model calls.
+#[tokio::test]
+async fn an_unnamed_prescription_for_a_dead_garmin_grant_gets_its_authorization_link() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&scraper).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
+    hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
+    hold_grant(&resources, user_id, tenant).await;
+    kill_grant(&resources, user_id, tenant).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let executor = UniversalToolExecutor::new(runtime).with_scopes(OAuthScope::self_grant());
+    let date = (Utc::now() + chrono::Duration::days(3))
+        .date_naive()
+        .to_string();
+    let response = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "prescribe_workout".to_owned(),
+            parameters: serde_json::json!({ "template_slug": "long_run_z2", "date": date }),
+            user_id: user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+        })
+        .await;
+    let rendered = match response {
+        Ok(response) => {
+            assert!(
+                !response.success,
+                "bug: the workout was pushed: {response:?}"
+            );
+            format!("{:?} {:?}", response.error, response.result)
+        }
+        Err(e) => format!("{e:?}"),
+    };
+    assert!(
+        rendered.contains("client_id=") && !rendered.contains(HOSTED_SIGNIN_PATH),
+        "bug: the refusal does not carry Garmin's authorization link: {rendered}"
+    );
+}
+
+/// A Garmin sign-in repeated moments later, answered from the session it
+/// stored, still goes on to the grant it owes: an authorization left
+/// unfinished is offered again.
+#[tokio::test]
+async fn a_repeated_garmin_sign_in_still_goes_on_to_its_owed_grant() {
+    let (scraper, calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&scraper).await;
+    let (_user_id, _user, _tenant, token) = athlete(&resources).await;
+
+    let (_, first) = sign_in(&resources, &token).await;
+    assert_eq!(
+        first["oauth_follow_on"]["provider"],
+        oauth_providers::GARMIN,
+        "{first}"
+    );
+    let (status, again) = sign_in(&resources, &token).await;
+    assert_eq!(status, 200, "{again}");
+    assert_eq!(
+        again["short_circuit"], true,
+        "the stored session answers: {again}"
+    );
+    assert_eq!(
+        again["oauth_follow_on"]["provider"],
+        oauth_providers::GARMIN,
+        "bug: the repeated sign-in dropped the grant it owes: {again}"
+    );
+    assert_eq!(
+        crate::garmin_sign_in_test::calls_matching(&calls, "login").len(),
+        1,
+        "the repeat never reaches the service"
     );
 }

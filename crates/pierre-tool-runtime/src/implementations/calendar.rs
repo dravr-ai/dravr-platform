@@ -279,7 +279,7 @@ pub(super) async fn calendar_target(
     } else {
         (None, Vec::new())
     };
-    resolve_calendar_target(
+    let resolution = resolve_calendar_target(
         registry,
         &CalendarCandidates {
             connected: &backends,
@@ -287,7 +287,45 @@ pub(super) async fn calendar_target(
             preferred: preferred.as_deref(),
         },
         requested.as_deref(),
+    )?;
+    refuse_an_owed_grant(context, tenant_id, user_id, resolution).await
+}
+
+/// `resolution`, unless it targets a pair's grant the athlete still owes (a
+/// Garmin grant that is not live, its connection kept beside the session):
+/// that write is refused with the grant's authorization link
+/// ([`with_grant_link`], JF's directive 8), as a write naming the provider
+/// is, rather than sent to a grant that cannot take it.
+///
+/// # Errors
+///
+/// The grant-owed refusal for such a target.
+async fn refuse_an_owed_grant(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    resolution: CalendarResolution,
+) -> AppResult<CalendarResolution> {
+    let CalendarResolution::Target(target) = &resolution else {
+        return Ok(resolution);
+    };
+    let resources = context.resources.as_ref();
+    let registry = resources.provider_registry();
+    let owed = backend_resolver::grant_owed(
+        resources.repos(),
+        registry,
+        user_id,
+        tenant_id,
+        &target.backend,
     )
+    .await;
+    match owed {
+        Some(grant) if grant == target.backend => {
+            let refused = backend_resolver::grant_owed_refusal(registry, grant);
+            Err(with_grant_link(resources, user_id, tenant_id, refused).await)
+        }
+        _ => Ok(resolution),
+    }
 }
 
 /// Whether any of `user_id`'s connections, of whatever kind, is the one

@@ -2683,6 +2683,29 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
         Some(oauth_providers::GARMIN),
         "either half of the Garmin pair names its grant"
     );
+
+    // An athlete holding neither half connects by the sign-in first: nothing
+    // is owed, and the write is left to the plan, whose refusal says Garmin
+    // is not connected.
+    let (neither, neither_tenant) = athlete(&resources, "write-neither@example.com").await;
+    assert_eq!(
+        backend_resolver::grant_owed(
+            repos,
+            &registry,
+            neither,
+            neither_tenant,
+            oauth_providers::GARMIN
+        )
+        .await,
+        None,
+        "bug: an athlete with no Garmin session is pointed at the grant alone"
+    );
+    assert!(
+        write(neither, neither_tenant, oauth_providers::GARMIN, calendar)
+            .await
+            .is_ok(),
+        "bug: an unconnected Garmin write was refused as an owed grant"
+    );
 }
 
 /// A Garmin grant alone serves; a session that dies beside it later still
