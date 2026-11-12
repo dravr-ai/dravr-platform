@@ -55,7 +55,7 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
-use chrono::{Duration, Utc};
+use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
 use pierre_core::models::TenantId;
@@ -110,6 +110,13 @@ const PROVIDER_LINK_TOKEN_SCOPE_PREFIX: &str = "provider:";
 /// `/providers/sciotte/*` paths stay routed to the same pages so links
 /// already sent keep opening.
 pub const HOSTED_SIGNIN_PATH: &str = "/providers/signin";
+
+/// Path prefix of the link-token-authed OAuth start.
+///
+/// `<prefix>/{provider}?token=...`: a connect-scoped token opens the
+/// provider's own authorization, with no session cookie, and the browser
+/// returns to the hosted connect picker.
+pub const CONNECT_OAUTH_INIT_PATH: &str = "/api/providers/connect/oauth-init";
 
 /// Sentinel provider name for a *generic connect* link-token.
 ///
@@ -289,6 +296,41 @@ pub fn mint_connect_link_token(
         admin_jwt_secret,
         CONNECT_LINK_TOKEN_TTL_MINUTES,
     )
+}
+
+/// A link that starts `provider`'s own OAuth authorization, and its expiry.
+///
+/// Minted for `user_id` in `tenant_id` on `channel`; the instant returned is
+/// when its token expires.
+///
+/// The token is the connect-scoped one ([`mint_connect_link_token`], valid
+/// [`CONNECT_LINK_TOKEN_TTL_MINUTES`]); the path is
+/// [`CONNECT_OAUTH_INIT_PATH`]. The authorization URL itself is minted when
+/// the link is opened, so its short-lived state row is never what expires
+/// first: a notice that carries this link stays usable for the token's life.
+///
+/// # Errors
+///
+/// Returns an error if the link-token cannot be encoded.
+pub fn mint_connect_oauth_init_url(
+    base_url: &str,
+    user_id: Uuid,
+    tenant_id: Uuid,
+    provider: &str,
+    channel: &str,
+    admin_jwt_secret: &str,
+) -> AppResult<(String, DateTime<Utc>)> {
+    let expires_at = Utc::now() + Duration::minutes(CONNECT_LINK_TOKEN_TTL_MINUTES);
+    let token = mint_connect_link_token(user_id, tenant_id, channel, None, admin_jwt_secret)?;
+    Ok((
+        format!(
+            "{}{CONNECT_OAUTH_INIT_PATH}/{}?token={}",
+            base_url.trim_end_matches('/'),
+            urlencoding::encode(provider),
+            urlencoding::encode(&token)
+        ),
+        expires_at,
+    ))
 }
 
 /// Verify an HS256 provider link-token and check scope matches the expected provider.

@@ -790,6 +790,39 @@ pub async fn grant_owed(
     (halves.session.signed_in() && halves.grant != Half::Live).then_some(grant)
 }
 
+/// Whether `backend` is a [`grant_writes_beside_mirror`] grant standing
+/// beside a session that serves its provider: held, and its connection
+/// active, in this tenant.
+///
+/// Such a grant's death, or its withdrawal, leaves the reads going and the
+/// writes only it makes owed, so its athlete is told that much and given the
+/// grant's own authorization (JF's directive 8). A flagged session does not
+/// serve, though it still routes the reads to its sign-in: "your activities
+/// are still syncing" would then be false. `false` for a mirror, for a grant
+/// that writes nothing its mirror cannot (Strava's), and for a grant with no
+/// serving session beside it, whose notice is the ordinary reconnect. A store
+/// that cannot be read reads every held row as live, as [`read_plan`] reads
+/// it.
+pub async fn grant_writes_beside_serving_session(
+    repos: &RepositoryRegistry,
+    registry: &ProviderRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> bool {
+    let Some(grant) = grant_writes_beside_mirror(registry, backend) else {
+        return false;
+    };
+    let Some(mirror) = mirror_backend_for(grant) else {
+        return false;
+    };
+    grant == backend
+        && PairHalves::read(repos, user_id, tenant_id, grant, mirror)
+            .await
+            .session
+            == Half::Live
+}
+
 /// The refusal of a write only `grant`, the pair's own authorization, makes
 /// while the athlete's grant is not live.
 ///

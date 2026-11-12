@@ -1341,9 +1341,11 @@ async fn a_deregistration_deletes_the_garmin_api_connection_but_not_the_usr_pwd_
 
 /// A deregistration withdraws the grant through the same chokepoint as a
 /// Strava deauthorization (carnet#1494): an athlete the grant served alone is
-/// told once to sign in again, however often Garmin redelivers it, and one
-/// whose usr/pwd session serves beside the grant is told nothing and keeps
-/// the session and its rows.
+/// told once to sign in again, however often Garmin redelivers it. One whose
+/// usr/pwd session serves beside the grant keeps the session and its rows,
+/// and is told once that the reads go on and only the grant's workout and
+/// calendar writes need it again (JF's directive 8), however often Garmin
+/// redelivers it.
 #[tokio::test]
 async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session() {
     let (resources, service) = context_with_notices(None).await;
@@ -1409,16 +1411,18 @@ async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session()
         )
         .await
         .unwrap();
-    push(
-        &resources,
-        "deregistrations",
-        json!([{ "userId": GARMIN_USER }]),
-    )
-    .await;
+    for _delivery in 0..2 {
+        push(
+            &resources,
+            "deregistrations",
+            json!([{ "userId": GARMIN_USER }]),
+        )
+        .await;
+    }
     assert_eq!(
         reconnect_notices(&service, beside, beside_tenant).await,
-        0,
-        "bug: an athlete whose session serves is asked to reconnect"
+        1,
+        "bug: an athlete whose session serves is not told once that Garmin's writes stopped"
     );
     let kept: Vec<String> = resources
         .common

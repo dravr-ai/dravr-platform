@@ -38,8 +38,12 @@
 //! reconnect goes through the provider's hosted sign-in, a dead OAuth grant's
 //! included (`backend_resolver::reconnect_target`, carnet#1494). A session
 //! that dies while its live grant keeps the provider syncing is told so, in
-//! the chat half's wording; a grant that dies beside a signed-in session is
-//! never surfaced, since the session serves the provider.
+//! the chat half's wording. A grant that dies beside a signed-in session is
+//! not surfaced, since the session serves the provider, unless only that
+//! grant writes what the athlete asks of the provider (Garmin's workouts and
+//! calendar) and the session is serving: the athlete is then told, once,
+//! that the reads go on and the writes need the grant again, with the
+//! grant's own authorization link (JF's directive 8).
 //!
 //! [`flag_needs_reauth`] is the flip plus the notice, for the paths that flag
 //! through [`ProviderConnectionRepository::mark_needs_reauth`]. The OAuth
@@ -52,8 +56,10 @@ use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use pierre_auth::connect_order::{order_and_seats, sign_in_falls_back_to_oauth};
+use pierre_auth::garmin_seats::garmin_seat_summary;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::reauth_strings::{
+    KEY_NOTIFICATION_PROVIDER_GRANT_WRITES_BODY, KEY_NOTIFICATION_PROVIDER_GRANT_WRITES_TITLE,
     KEY_NOTIFICATION_PROVIDER_REAUTH_BODY, KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
 };
 use pierre_core::errors::{AppError, AppResult};
@@ -67,7 +73,8 @@ use pierre_notifications::{DispatchOutcome, DispatchRequest, PushTier, TenantId 
 #[cfg(feature = "client-notifications")]
 use pierre_providers::backend_resolver::brand_name;
 use pierre_providers::backend_resolver::{
-    backend_pair_for, grant_beside_session, is_mirror_backend, reconnect_target, user_facing_name,
+    backend_pair_for, grant_beside_session, grant_writes_beside_serving_session, is_mirror_backend,
+    reconnect_target, user_facing_name,
 };
 #[cfg(feature = "client-notifications")]
 use pierre_services::locale::resolve_user_locale;
@@ -103,29 +110,78 @@ pub struct ReauthNotice {
 /// either way.
 ///
 /// A dead OAuth grant beside a session that is not revoked
-/// ([`grant_beside_session`]) is never surfaced: the session serves its
+/// ([`grant_beside_session`]) is not surfaced: the session serves its
 /// provider, and the grant is replaced at the athlete's next sign-in. Nothing
 /// is claimed or sent for it; its flag stands, and it is never elected while
-/// it does (carnet#1494). A write only that grant makes (Garmin's workout
-/// and calendar push) is refused when it is asked for, with the grant's own
-/// authorization link (`backend_resolver::grant_owed_refusal`), so the
-/// athlete is told what it needs at the moment it matters. A session that
-/// dies beside a live grant is told, once: the grant keeps the provider
-/// syncing for now, and the chat half says so.
+/// it does (carnet#1494). The exception is a grant that writes what its
+/// session cannot (Garmin's workout and calendar push) beside a session that
+/// serves ([`grant_writes_beside_serving_session`]): its athlete is told
+/// once, through the same claim, that the reads go on and the writes need
+/// the grant again, with the grant's own authorization link (JF's
+/// directive 8). Such a write asked for meanwhile is still refused with that
+/// link (`backend_resolver::grant_owed_refusal`). A session that dies beside
+/// a live grant is told, once: the grant keeps the provider syncing for now,
+/// and the chat half says so.
 pub async fn notify_needs_reauth(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> ReauthNotice {
-    if grant_beside_session(runtime.repos(), user_id, tenant_id, provider).await {
-        info!(
-            user_id = %user_id,
-            provider = %provider,
-            "Reconnect notice: the grant stands beside a signed-in session; nothing sent"
-        );
-        return ReauthNotice::default();
-    }
+    let copy = if grant_beside_session(runtime.repos(), user_id, tenant_id, provider).await {
+        if !writes_owed(runtime, user_id, tenant_id, provider).await {
+            info!(
+                user_id = %user_id,
+                provider = %provider,
+                "Reconnect notice: the grant stands beside a signed-in session; nothing sent"
+            );
+            return ReauthNotice::default();
+        }
+        NoticeCopy::GrantWrites
+    } else {
+        NoticeCopy::Reconnect
+    };
+    send_claimed_notice(runtime, user_id, tenant_id, provider, copy).await
+}
+
+/// Which wording a notice carries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum NoticeCopy {
+    /// The connection must be reconnected for the provider to keep syncing.
+    Reconnect,
+    /// The reads go on through the athlete's session; the writes only the
+    /// grant makes need the grant again.
+    GrantWrites,
+}
+
+/// Whether the dead or withdrawn grant `grant` stands beside a session that
+/// serves its provider while only the grant writes the athlete's workouts
+/// and calendar ([`grant_writes_beside_serving_session`]).
+async fn writes_owed(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    grant: &str,
+) -> bool {
+    grant_writes_beside_serving_session(
+        runtime.repos(),
+        runtime.provider_registry(),
+        user_id,
+        tenant_id,
+        grant,
+    )
+    .await
+}
+
+/// Claim the connection's one notice and, on the won claim, send it in the
+/// app and on every linked chat, worded as `copy`.
+async fn send_claimed_notice(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    copy: NoticeCopy,
+) -> ReauthNotice {
     if !claim_notice(runtime, user_id, tenant_id, provider).await {
         return ReauthNotice::default();
     }
@@ -133,9 +189,12 @@ pub async fn notify_needs_reauth(
     // Without the notification backend there is no app half, and nothing to
     // suppress the chat half.
     #[cfg(feature = "client-notifications")]
-    let suppressed = suppressed_in_app(runtime, user_id, tenant_id, provider).await;
+    let suppressed = suppressed_in_app(runtime, user_id, tenant_id, provider, copy).await;
     #[cfg(not(feature = "client-notifications"))]
-    let suppressed = false;
+    let suppressed = {
+        let _ = copy;
+        false
+    };
 
     let chat_channels = if suppressed {
         info!(
@@ -225,10 +284,15 @@ const GRANT_WITHDRAWN: &str = "grant_withdrawn";
 /// connection row left has nothing to claim and is told nothing. The notice
 /// is the ordinary one, app half and chat half, with the hosted sign-in
 /// link. A grant beside a session that is not revoked asks nothing of the
-/// athlete, whose session keeps serving, and a backend that is no mirrored
-/// provider's grant is never told here. A chat send that fails is queued as
-/// any reconnect notice is, guarded on a connection the withdrawal then
-/// deletes, so it is not retried.
+/// athlete, whose session keeps serving, unless only that grant writes their
+/// workouts and calendar (Garmin's) and the session serves
+/// ([`grant_writes_beside_serving_session`]): they are then told once that
+/// the reads go on and the writes need the grant again, with its own
+/// authorization link, while a seat is free on Garmin's client for them to
+/// take ([`garmin_seat_free`]); with none, nothing is sent.
+/// A backend that is no mirrored provider's grant is never told here. A chat
+/// send that fails is queued as any reconnect notice is, guarded on a
+/// connection the withdrawal then deletes, so it is not retried.
 pub async fn notify_grant_withdrawn(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -238,14 +302,21 @@ pub async fn notify_grant_withdrawn(
     if is_mirror_backend(grant) || reconnect_target(grant).is_none() {
         return ReauthNotice::default();
     }
-    if grant_beside_session(runtime.repos(), user_id, tenant_id, grant).await {
-        info!(
-            user_id = %user_id,
-            provider = %grant,
-            "Withdrawn grant: a signed-in session serves the provider; nothing sent"
-        );
-        return ReauthNotice::default();
-    }
+    let copy = if grant_beside_session(runtime.repos(), user_id, tenant_id, grant).await {
+        if !writes_owed(runtime, user_id, tenant_id, grant).await
+            || !garmin_seat_free(runtime).await
+        {
+            info!(
+                user_id = %user_id,
+                provider = %grant,
+                "Withdrawn grant: a signed-in session serves the provider; nothing sent"
+            );
+            return ReauthNotice::default();
+        }
+        NoticeCopy::GrantWrites
+    } else {
+        NoticeCopy::Reconnect
+    };
     let mark = runtime
         .repos()
         .provider_connections
@@ -266,21 +337,31 @@ pub async fn notify_grant_withdrawn(
             return ReauthNotice::default();
         }
     }
-    if !claim_notice(runtime, user_id, tenant_id, grant).await {
-        return ReauthNotice::default();
-    }
-    #[cfg(feature = "client-notifications")]
-    let suppressed = suppressed_in_app(runtime, user_id, tenant_id, grant).await;
-    #[cfg(not(feature = "client-notifications"))]
-    let suppressed = false;
-    let chat_channels = if suppressed {
-        0
-    } else {
-        send_chat_half(runtime, user_id, tenant_id, grant).await
-    };
-    ReauthNotice {
-        claimed: true,
-        chat_channels,
+    send_claimed_notice(runtime, user_id, tenant_id, grant, copy).await
+}
+
+/// Whether a seat of the server's Garmin client is free for an athlete
+/// whose Garmin grant is being withdrawn.
+///
+/// Read before the withdrawal deletes the grant, so a grant that holds a
+/// seat still counts as using it: a pool full only of the athlete's own
+/// seat reads as full, and they are told nothing rather than sent to race
+/// others for the seat their withdrawal frees. A client that is not
+/// configured, or seats that cannot be counted, read as none free: the
+/// athlete is never sent to an authorization that cannot start. The seat is
+/// weighed again when the link is opened.
+async fn garmin_seat_free(runtime: &Arc<dyn ToolRuntime>) -> bool {
+    match garmin_seat_summary(
+        runtime.repos().provider_connections.as_ref(),
+        &runtime.config().oauth,
+    )
+    .await
+    {
+        Ok(summary) => summary.left() > 0,
+        Err(e) => {
+            info!(error = %e, "Withdrawn grant: Garmin's seats could not be counted; none free");
+            false
+        }
     }
 }
 
@@ -387,6 +468,7 @@ async fn suppressed_in_app(
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
+    copy: NoticeCopy,
 ) -> bool {
     let Some(service) = runtime.notification_service() else {
         return false;
@@ -408,13 +490,23 @@ async fn suppressed_in_app(
         .unwrap_or_else(|| user_facing_name(provider));
     let locale = resolve_user_locale(runtime.repos().users.as_ref(), user_id).await;
     let strings = runtime.messaging_strings_registry();
+    let (title_key, body_key) = match copy {
+        NoticeCopy::Reconnect => (
+            KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE,
+            KEY_NOTIFICATION_PROVIDER_REAUTH_BODY,
+        ),
+        NoticeCopy::GrantWrites => (
+            KEY_NOTIFICATION_PROVIDER_GRANT_WRITES_TITLE,
+            KEY_NOTIFICATION_PROVIDER_GRANT_WRITES_BODY,
+        ),
+    };
     let request = DispatchRequest {
         user_id,
         tenant_id: CommTenantId(tenant_id.as_uuid()),
         category: NotificationCategory::System,
         notification_type: "provider_needs_reauth".to_owned(),
-        title: strings.render(KEY_NOTIFICATION_PROVIDER_REAUTH_TITLE, &locale, &[brand]),
-        body: strings.render(KEY_NOTIFICATION_PROVIDER_REAUTH_BODY, &locale, &[brand]),
+        title: strings.render(title_key, &locale, &[brand]),
+        body: strings.render(body_key, &locale, &[brand]),
         data: Some(JsonValue::Object(data)),
         image_url: None,
         actions: None,

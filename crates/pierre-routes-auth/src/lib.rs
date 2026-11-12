@@ -525,6 +525,8 @@ impl AuthRoutes {
                 get(connect_hosted_intervals::handle_intervals_icu_form_page)
                     .post(connect_hosted_intervals::handle_intervals_icu_form_submit),
             )
+            // `provider_link_token::CONNECT_OAUTH_INIT_PATH`, spelled out for
+            // scripts/ci/backend-routes.py as the sign-in path above is.
             .route(
                 "/api/providers/connect/oauth-init/{provider}",
                 get(connect_hosted::handle_connect_oauth_init),

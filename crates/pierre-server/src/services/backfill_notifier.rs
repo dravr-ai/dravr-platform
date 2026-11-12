@@ -59,6 +59,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_contremaitre::reauth_strings::{
     KEY_PROVIDER_REAUTH_FALLBACK_SERVED, KEY_PROVIDER_REAUTH_FALLBACK_SERVED_NO_LINK,
+    KEY_PROVIDER_REAUTH_GRANT_WRITES, KEY_PROVIDER_REAUTH_GRANT_WRITES_NO_LINK,
 };
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
@@ -69,7 +70,7 @@ use pierre_database::repositories::shorten_url;
 use pierre_database::repositories::OutboundReauthGuard;
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::provider_link_token::{
-    mint_hosted_signin_url, PROVIDER_LINK_TOKEN_TTL_MINUTES,
+    mint_connect_oauth_init_url, mint_hosted_signin_url, PROVIDER_LINK_TOKEN_TTL_MINUTES,
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
@@ -116,6 +117,13 @@ const REENTRY_HISTORY_LOOKBACK: i64 = 10;
 /// than this left is given up instead: a link that dies before they read it
 /// is worse than the app notice they already have.
 const RECONNECT_LINK_MIN_REMAINING_MINUTES: i64 = 60;
+
+/// How long a grant's authorization link must still have to run for a
+/// queued notice to be sent with it. The link lasts an hour
+/// (`CONNECT_LINK_TOKEN_TTL_MINUTES`), so the reconnect margin above would
+/// leave no retry at all; a quarter of an hour still lets the athlete open
+/// it and consent.
+const GRANT_LINK_MIN_REMAINING_MINUTES: i64 = 15;
 
 /// A one-time hosted-login link, and the last instant a message carrying it
 /// may still be sent.
@@ -325,6 +333,51 @@ impl ServerBackfillNotifier {
         Some(ReconnectLink { url, send_by })
     }
 
+    /// A link to the OAuth authorization of the grant `grant`, minted for
+    /// `channel` and shortened as [`Self::hosted_login_url`]'s is, for a
+    /// grant only it writes beside a session that serves (JF's directive 8).
+    ///
+    /// The link starts the authorization when it is opened
+    /// (`mint_connect_oauth_init_url`), so it lasts its connect token's hour
+    /// rather than the ten minutes of an authorization URL's state; its
+    /// `send_by` is that expiry less [`GRANT_LINK_MIN_REMAINING_MINUTES`].
+    /// The seat cap is weighed when it is opened. `None`, logged, when the
+    /// token cannot be minted.
+    async fn grant_authorization_url(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        grant: &str,
+        channel: &str,
+    ) -> Option<ReconnectLink> {
+        let (full_url, expires_at) = match mint_connect_oauth_init_url(
+            &self.base_url,
+            user_id,
+            tenant_id.as_uuid(),
+            grant,
+            channel,
+            &self.admin_jwt_secret,
+        ) {
+            Ok(minted) => minted,
+            Err(e) => {
+                warn!(error = %e, provider = %grant, "Grant link: link-token mint failed");
+                return None;
+            }
+        };
+        let url = shorten_url(
+            self.repos.short_links.as_ref(),
+            &self.base_url,
+            &full_url,
+            &tenant_id.as_uuid().to_string(),
+            &user_id.to_string(),
+        )
+        .await;
+        Some(ReconnectLink {
+            url,
+            send_by: expires_at - Duration::minutes(GRANT_LINK_MIN_REMAINING_MINUTES),
+        })
+    }
+
     /// The catalogue keys of `provider`'s reconnect sentence, with and without
     /// a link.
     ///
@@ -364,6 +417,12 @@ impl ServerBackfillNotifier {
     /// notice read the next morning, and the sentence promises a day. It is
     /// named without a link, and reconnected from the app's settings — as is
     /// a mirror whose link could not be minted.
+    ///
+    /// A grant only it writes beside a session that serves
+    /// ([`backend_resolver::grant_writes_beside_serving_session`]) is told the
+    /// reads go on and the writes need it again, and links its own
+    /// authorization, never the sign-in the session already holds (JF's
+    /// directive 8).
     async fn reauth_notice_body(
         &self,
         user_id: Uuid,
@@ -372,12 +431,32 @@ impl ServerBackfillNotifier {
         channel: &str,
         locale: &str,
     ) -> ReconnectNotice {
-        let display =
-            backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        let (linked_key, bare_key) = self.reauth_keys(user_id, tenant_id, provider).await;
-        let link = self
-            .hosted_login_url(user_id, tenant_id, provider, channel)
-            .await;
+        let registry = global_registry();
+        let display = backend_resolver::brand_name(&registry, provider).unwrap_or(provider);
+        let writes_owed = backend_resolver::grant_writes_beside_serving_session(
+            &self.repos,
+            &registry,
+            user_id,
+            tenant_id,
+            provider,
+        )
+        .await;
+        let ((linked_key, bare_key), link) = if writes_owed {
+            (
+                (
+                    KEY_PROVIDER_REAUTH_GRANT_WRITES,
+                    KEY_PROVIDER_REAUTH_GRANT_WRITES_NO_LINK,
+                ),
+                self.grant_authorization_url(user_id, tenant_id, provider, channel)
+                    .await,
+            )
+        } else {
+            (
+                self.reauth_keys(user_id, tenant_id, provider).await,
+                self.hosted_login_url(user_id, tenant_id, provider, channel)
+                    .await,
+            )
+        };
         link.map_or_else(
             || ReconnectNotice {
                 body: self.strings.render(bare_key, locale, &[display]),
