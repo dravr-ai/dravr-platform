@@ -1,5 +1,5 @@
 // ABOUTME: A history walk through an API grant: a year a window, the Strava account's creation as its floor, a budget pause
-// ABOUTME: And the one source order: a live session before the grant, never the push, and a finished walk never re-asked by depth
+// ABOUTME: And a finished walk never re-asked by a depth ask, while a new connection walks it again
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -14,8 +14,9 @@
 // the account's creation, which is the walk's floor and gives its length. A
 // spent request budget pauses the walk with its cursor and its attempt; the
 // sweep resumes it in the next window. With no creation date the walk ends
-// after two empty years. The source order puts a live session before the
-// grant, and a depth ask never walks a source whose walk already ended.
+// after two empty years. A depth ask never walks a source whose walk already
+// ended. The source order the walk reads is pinned in
+// `history_source_order_test`.
 //
 // Strava is a loopback stand-in (a test double, per the repo's mock rule)
 // that serves the history inside each read's `after`/`before` and counts
@@ -29,7 +30,6 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::helpers::sciotte_mock::seed_scrape_session;
 use crate::history_walk_test::age_job_rows;
 
 use std::collections::HashMap;
@@ -48,9 +48,6 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, ONE_DAY};
-use pierre_services::training_history_read::{
-    history_source_order, walk_source, HistorySource, HistorySourceRole,
-};
 use pierre_tool_runtime::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -68,13 +65,15 @@ const WALK_DEADLINE: Duration = Duration::from_secs(20);
 
 /// What the Strava stand-in serves and saw.
 #[derive(Default)]
-struct MockStrava {
+pub(crate) struct MockStrava {
     /// Activity starts (unix seconds) the athlete's history holds.
     starts: Mutex<Vec<i64>>,
     /// When the account was created, if the profile says.
     created_at: Mutex<Option<i64>>,
     /// Every listing's `after` and `before`.
     listings: Mutex<Vec<(Option<i64>, Option<i64>)>>,
+    /// Every listing's `per_page`.
+    page_sizes: Mutex<Vec<usize>>,
     /// Profile reads.
     profiles: Mutex<usize>,
 }
@@ -103,6 +102,7 @@ async fn list_activities(
         .get("per_page")
         .and_then(|value| value.parse().ok())
         .unwrap_or(30);
+    mock.page_sizes.lock().unwrap().push(per_page);
     let mut listed: Vec<i64> = mock
         .starts
         .lock()
@@ -133,7 +133,7 @@ async fn list_activities(
     ))
 }
 
-async fn mock_strava() -> (String, Arc<MockStrava>) {
+pub(crate) async fn mock_strava() -> (String, Arc<MockStrava>) {
     let mock = Arc::new(MockStrava::default());
     let app = Router::new()
         .route("/athlete", get(athlete_profile))
@@ -149,7 +149,7 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
 
 /// A server whose Strava provider talks to `api_base`, with a window of
 /// `per_window` requests a day, a quarter of which background work takes.
-async fn server(api_base: &str, per_window: u32) -> Arc<ServerContext> {
+pub(crate) async fn server(api_base: &str, per_window: u32) -> Arc<ServerContext> {
     let mut config = common::test_server_config_with_api_base("strava", api_base);
     common::set_server_app(&mut config, "strava", "walk_client", "walk_secret");
     let resources = common::create_test_server_resources_with_config(config)
@@ -186,7 +186,7 @@ async fn open_window(resources: &Arc<ServerContext>) {
 }
 
 /// An athlete holding a live Strava grant and its connection.
-async fn strava_athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
+pub(crate) async fn strava_athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
     let (user_id, _user, tenant) = common::create_test_user_with_plan(
         &resources.agent.database,
         &format!("walk-{}@example.com", Uuid::new_v4()),
@@ -543,117 +543,6 @@ async fn an_api_walk_with_no_floor_ends_after_two_empty_years() {
     );
 }
 
-/// The one source order: a live usr/pwd session before the grant, so a walk
-/// reads the session; a flagged session is passed over for the grant; a
-/// Garmin athlete holding only the push has nothing to walk.
-#[tokio::test]
-async fn a_walk_reads_a_live_session_before_the_grant_and_never_the_push() {
-    let (api_base, _mock) = mock_strava().await;
-    let resources = server(&api_base, 400).await;
-    let (user_id, tenant) = strava_athlete(&resources).await;
-    let repos = &resources.common.repos;
-
-    assert_eq!(
-        walk_source(repos, user_id, tenant, oauth_providers::STRAVA)
-            .await
-            .map(|source| source.backend),
-        Some(oauth_providers::STRAVA.to_owned()),
-        "bug: with no session, the grant is walked"
-    );
-    seed_scrape_session(
-        &resources,
-        user_id,
-        tenant,
-        oauth_providers::SCIOTTE,
-        "walk-session",
-    )
-    .await;
-    repos
-        .provider_connections
-        .register_connection(
-            user_id,
-            tenant,
-            oauth_providers::SCIOTTE,
-            &ConnectionType::Manual,
-            None,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        history_source_order(repos, user_id, tenant, oauth_providers::STRAVA).await,
-        vec![
-            HistorySource {
-                backend: oauth_providers::SCIOTTE.to_owned(),
-                role: HistorySourceRole::Session,
-                live: true,
-            },
-            HistorySource {
-                backend: oauth_providers::STRAVA.to_owned(),
-                role: HistorySourceRole::Grant,
-                live: true,
-            },
-        ],
-        "bug: the session comes before the grant"
-    );
-    assert_eq!(
-        walk_source(repos, user_id, tenant, oauth_providers::STRAVA)
-            .await
-            .map(|source| source.backend),
-        Some(oauth_providers::SCIOTTE.to_owned()),
-        "bug: a live session is walked before the grant (D2)"
-    );
-    repos
-        .provider_connections
-        .mark_needs_reauth(
-            user_id,
-            tenant,
-            oauth_providers::SCIOTTE,
-            Some("session_expired"),
-            Utc::now(),
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        walk_source(repos, user_id, tenant, oauth_providers::STRAVA)
-            .await
-            .map(|source| source.backend),
-        Some(oauth_providers::STRAVA.to_owned()),
-        "bug: a flagged session is passed over for the grant"
-    );
-
-    let (garmin_user, _user, garmin_tenant) = common::create_test_user_with_plan(
-        &resources.agent.database,
-        &format!("push-{}@example.com", Uuid::new_v4()),
-        "starter",
-    )
-    .await
-    .unwrap();
-    seed_scrape_session(
-        &resources,
-        garmin_user,
-        garmin_tenant,
-        oauth_providers::GARMIN,
-        "push-grant",
-    )
-    .await;
-    repos
-        .provider_connections
-        .register_connection(
-            garmin_user,
-            garmin_tenant,
-            oauth_providers::GARMIN,
-            &ConnectionType::OAuth,
-            None,
-        )
-        .await
-        .unwrap();
-    assert_eq!(
-        walk_source(repos, garmin_user, garmin_tenant, oauth_providers::GARMIN).await,
-        None,
-        "bug: a push holds nothing from before the grant, so nothing is walked"
-    );
-}
-
 /// A depth ask never walks a source whose walk already reached its end: it
 /// holds all there is. A new connection walks it again.
 #[tokio::test]
@@ -684,6 +573,8 @@ async fn a_depth_ask_never_rewalks_a_walked_source_but_a_connection_does() {
         !walk(WalkTrigger::DepthMissing).await,
         "bug: a depth ask re-walked a source whose walk already ended"
     );
+    let first = progress(&resources, user_id, tenant).await;
+    let listed_by_first = mock.listings.lock().unwrap().len();
     assert!(
         walk(WalkTrigger::Connected).await,
         "bug: a new connection walks the source again"
@@ -692,5 +583,65 @@ async fn a_depth_ask_never_rewalks_a_walked_source_but_a_connection_does() {
         walk_state(&resources, user_id, tenant, oauth_providers::STRAVA).await,
         Some(BackfillJobState::Owed),
         "bug: the new walk replaces the ended row"
+    );
+    walk_ended(&resources, user_id, tenant).await;
+    assert!(
+        mock.listings.lock().unwrap().len() > listed_by_first,
+        "bug: the re-walk reads the API again from the top, not from the old floor"
+    );
+    let again = progress(&resources, user_id, tenant).await;
+    assert_eq!(
+        again.months_done, first.months_done,
+        "bug: the re-walk's progress restarts at zero instead of adding to the ended walk's"
+    );
+}
+
+/// An API step asks Strava's largest page, and a page that comes back full
+/// reads the next page below its oldest activity: a busy year is never cut
+/// at the first two hundred rides.
+#[tokio::test]
+async fn a_full_api_page_reads_the_next_below_its_oldest_activity() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    // 250 rides in the last year, one a day: more than one page.
+    let starts: Vec<i64> = (1..=250).map(|day| now - day * DAY).collect();
+    *mock.starts.lock().unwrap() = starts.clone();
+    *mock.created_at.lock().unwrap() = Some(now - 300 * DAY);
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert!(
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await,
+        "bug: a live grant is walked"
+    );
+    walk_ended(&resources, user_id, tenant).await;
+
+    let page_sizes = mock.page_sizes.lock().unwrap().clone();
+    assert!(
+        page_sizes.iter().all(|size| *size == 200),
+        "bug: every API page asks Strava's largest page: {page_sizes:?}"
+    );
+    let listings = mock.listings.lock().unwrap().clone();
+    let mut newest_first = starts;
+    newest_first.sort_unstable_by(|a, b| b.cmp(a));
+    let oldest_of_first_page = newest_first[199];
+    assert_eq!(
+        listings.get(1).and_then(|(_, before)| *before),
+        Some(oldest_of_first_page),
+        "bug: the page after a full one reads below its oldest activity: {listings:?}"
+    );
+    assert_eq!(
+        rows_under(&resources, user_id, tenant, oauth_providers::STRAVA).await,
+        250,
+        "bug: every ride of a year past one page lands"
     );
 }
