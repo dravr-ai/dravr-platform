@@ -305,10 +305,10 @@ async fn a_window_no_walk_covered_goes_to_the_session_not_the_api() {
     );
 }
 
-/// The stored window serves the session's rows beside the grant's, and a
-/// ride recorded under both keys is one session.
+/// The session's stored window serves the grant's rows beside its own, and
+/// a ride recorded under both keys is one session.
 #[tokio::test]
-async fn a_stored_strava_window_serves_both_keys_and_merges_twins() {
+async fn a_stored_session_window_serves_both_keys_and_merges_twins() {
     let (resources, mock, user_id, tenant) = walked_athlete().await;
     let now = Utc::now();
     let twin_start = now - Duration::days(680);
@@ -477,6 +477,64 @@ async fn a_window_the_session_walked_is_served_to_the_grant_from_the_store() {
         mock.listing_count(),
         0,
         "bug: a window the session's walk covered was read from the Strava API"
+    );
+}
+
+/// The grant's stored window serves the rows the session stored beside its
+/// own (`history_keys(strava)`), and a ride recorded under both keys is one
+/// session.
+#[tokio::test]
+async fn a_stored_strava_window_serves_the_session_rows_and_merges_twins() {
+    let (resources, mock, user_id, tenant) = grant_athlete().await;
+    let now = Utc::now();
+    let twin_start = now - Duration::days(680);
+    store(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE,
+        &[
+            ride("15550000001", now - Duration::days(700), "sciotte"),
+            ride("15550000003", twin_start, "sciotte"),
+        ],
+    )
+    .await;
+    store(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[
+            ride("15550000002", now - Duration::days(720), "strava"),
+            ride("15550000003", twin_start, "strava"),
+        ],
+    )
+    .await;
+    walked_to(&resources, user_id, tenant, now - Duration::days(1_000)).await;
+
+    let payload = ask_window(
+        &resources,
+        user_id,
+        tenant,
+        now - Duration::days(800),
+        now - Duration::days(600),
+    )
+    .await;
+
+    assert_eq!(
+        served_ids(&payload),
+        vec![
+            "15550000001".to_owned(),
+            "15550000002".to_owned(),
+            "15550000003".to_owned(),
+        ],
+        "bug: the Strava window serves the session's rows beside its own, \
+         the ride recorded under both keys once"
+    );
+    assert_eq!(
+        mock.listing_count(),
+        0,
+        "bug: a covered window was read from the Strava API"
     );
 }
 
