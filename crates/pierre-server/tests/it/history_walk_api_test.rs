@@ -36,7 +36,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, TimeZone, Utc};
@@ -76,6 +76,8 @@ pub(crate) struct MockStrava {
     page_sizes: Mutex<Vec<usize>>,
     /// Profile reads.
     profiles: Mutex<usize>,
+    /// Every activity detail read's id.
+    details: Mutex<Vec<i64>>,
 }
 
 impl MockStrava {
@@ -87,6 +89,11 @@ impl MockStrava {
     /// How many activity listings the stand-in has answered.
     pub(crate) fn listing_count(&self) -> usize {
         self.listings.lock().unwrap().len()
+    }
+
+    /// How many activity detail reads the stand-in has answered.
+    pub(crate) fn detail_count(&self) -> usize {
+        self.details.lock().unwrap().len()
     }
 }
 
@@ -127,22 +134,30 @@ async fn list_activities(
     listed.sort_unstable_by(|a, b| b.cmp(a));
     listed.truncate(per_page);
     Json(Value::Array(
-        listed
-            .iter()
-            .map(|start| {
-                json!({
-                    "id": start,
-                    "name": "Morning ride",
-                    "type": "Ride",
-                    "sport_type": "Ride",
-                    "start_date": Utc.timestamp_opt(*start, 0).unwrap().to_rfc3339(),
-                    "distance": 20_000.0,
-                    "elapsed_time": 3_600,
-                    "total_elevation_gain": 10.0
-                })
-            })
-            .collect(),
+        listed.iter().map(|start| ride_json(*start)).collect(),
     ))
+}
+
+/// `GET /activities/{id}`: the ride whose id is its start, as a detail.
+async fn activity_detail(State(mock): State<Arc<MockStrava>>, Path(id): Path<i64>) -> Json<Value> {
+    mock.details.lock().unwrap().push(id);
+    let mut detail = ride_json(id);
+    detail["description"] = json!("Sortie au parc");
+    Json(detail)
+}
+
+/// The stand-in's ride starting at `start`, whose id is its start.
+fn ride_json(start: i64) -> Value {
+    json!({
+        "id": start,
+        "name": "Morning ride",
+        "type": "Ride",
+        "sport_type": "Ride",
+        "start_date": Utc.timestamp_opt(start, 0).unwrap().to_rfc3339(),
+        "distance": 20_000.0,
+        "elapsed_time": 3_600,
+        "total_elevation_gain": 10.0
+    })
 }
 
 pub(crate) async fn mock_strava() -> (String, Arc<MockStrava>) {
@@ -150,6 +165,7 @@ pub(crate) async fn mock_strava() -> (String, Arc<MockStrava>) {
     let app = Router::new()
         .route("/athlete", get(athlete_profile))
         .route("/athlete/activities", get(list_activities))
+        .route("/activities/{id}", get(activity_detail))
         .with_state(Arc::clone(&mock));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();

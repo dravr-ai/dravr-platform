@@ -174,10 +174,10 @@ pub async fn serve_historical_window(
 ///
 /// `window` is the coverage read: the asked window, its open `before`
 /// bounded a year above `after` so recent rows cannot mask missing depth.
-/// The window is read once, every history key's rows merged
-/// ([`read_cached_window`]), and it is covered when a walk or a backfill
-/// under ANY of those keys reached `after` at its key's current capture
-/// ([`history_depth_covered`]): a Strava athlete walked through the session
+/// It is covered when a walk or a backfill under ANY of the provider's
+/// history keys reached `after` at its key's current capture
+/// ([`history_depth_covered`]), and only a covered window is read, once,
+/// every history key's rows merged ([`read_cached_window`]): a Strava athlete walked through the session
 /// holds the depth under `sciotte`, one walked through the API under
 /// `strava`, and both are read whichever backend the ask resolved to
 /// (carnet#1482). A covered window that holds no rows is not served, so an
@@ -191,21 +191,27 @@ pub async fn serve_covered_history(
     window: &ActivityQueryParams,
     before: Option<i64>,
 ) -> Option<HistoricalServe> {
-    let cached = read_cached_window(runtime, provider_slug, user_id, tenant_id, window).await;
     let after_ts = window.after.unwrap_or(0);
     let depth_covered =
         history_depth_covered(runtime, provider_slug, user_id, tenant_id, after_ts).await;
+    // A window no record vouches for is fetched whatever the store holds, so
+    // it is not read.
+    let cached = if depth_covered {
+        read_cached_window(runtime, provider_slug, user_id, tenant_id, window).await
+    } else {
+        None
+    };
     info!(
         user_id = %user_id,
         provider = %provider_slug,
         after = ?window.after,
         ?before,
-        covered = cached.is_some() && depth_covered,
+        covered = cached.is_some(),
         depth_covered,
         window_len = cached.as_ref().map_or(0, Vec::len),
         "get_activities historical gate decision"
     );
-    let served = cached.filter(|_| depth_covered)?;
+    let served = cached?;
     Some(
         serve_historical_window(
             runtime,

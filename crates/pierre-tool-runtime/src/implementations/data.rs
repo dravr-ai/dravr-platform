@@ -554,7 +554,25 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 stood_in = served
                     .behind
                     .map(|why| PrimaryStandIn::Stale(provider_name.clone(), why));
-                (served.activities, None)
+                // An API backend details the rows it served from the store as its
+                // live read of the window does (the recent days, or what
+                // `mode=detailed` asks); a grant that cannot authenticate leaves
+                // them summaries. A mirror's covered window is never detailed by
+                // a scrape.
+                let provider = if backend_resolver::is_mirror_backend(&provider_name) {
+                    None
+                } else {
+                    UniversalExecutor::new(context.resources.clone())
+                        .auth_service
+                        .create_authenticated_provider(
+                            &provider_name,
+                            context.user_id,
+                            tenant_id_str.as_deref(),
+                        )
+                        .await
+                        .ok()
+                };
+                (served.activities, provider)
             } else if route_to_backfill {
                 // Synchronous reconnect (priority): if this provider's
                 // connection is flagged needs_reauth/revoked, a background

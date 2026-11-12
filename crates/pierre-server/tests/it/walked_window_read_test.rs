@@ -120,7 +120,14 @@ async fn walked_to(
     tenant: TenantId,
     reached: DateTime<Utc>,
 ) {
-    walked_through(resources, user_id, tenant, oauth_providers::SCIOTTE, reached).await;
+    walked_through(
+        resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE,
+        reached,
+    )
+    .await;
 }
 
 /// Record that a walk through `key` reached `reached`, under `key` and at
@@ -171,6 +178,18 @@ async fn ask_window(
     after: DateTime<Utc>,
     before: DateTime<Utc>,
 ) -> Value {
+    ask_window_in(resources, user_id, tenant, (after, before), "summary").await
+}
+
+/// `get_activities` for the closed window `window` in `mode`, as
+/// [`ask_window`] asks it.
+async fn ask_window_in(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    (after, before): (DateTime<Utc>, DateTime<Utc>),
+    mode: &str,
+) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let ctx = ToolContext::new()
         .with_user(user_id.to_string())
@@ -184,7 +203,7 @@ async fn ask_window(
                 "after": after.timestamp(),
                 "before": before.timestamp(),
                 "limit": 20,
-                "mode": "summary"
+                "mode": mode
             }),
         )
         .await
@@ -565,5 +584,53 @@ async fn a_window_no_walk_covered_is_read_from_the_api_by_the_grant() {
     assert!(
         mock.listing_count() > 0,
         "bug: an uncovered old window of a grant alone was never read from the Strava API"
+    );
+}
+
+/// A grant serving an old window from the store still details its own rows
+/// as its live read does: a `mode=detailed` ask of a window the grant's walk
+/// covered lists nothing from the Strava API and reads the served ride's
+/// detail from it. A row the session stored is the session's to detail.
+#[tokio::test]
+async fn a_detailed_ask_of_a_walked_window_still_details_through_the_grant() {
+    let (resources, mock, user_id, tenant) = grant_athlete().await;
+    let now = Utc::now();
+    let start = now - Duration::days(700);
+    let id = start.timestamp().to_string();
+    store(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(&id, start, "strava")],
+    )
+    .await;
+    walked_through(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        now - Duration::days(1_000),
+    )
+    .await;
+
+    let payload = ask_window_in(
+        &resources,
+        user_id,
+        tenant,
+        (now - Duration::days(800), now - Duration::days(600)),
+        "detailed",
+    )
+    .await;
+
+    assert_eq!(served_ids(&payload), vec![id], "the walked ride is served");
+    assert_eq!(
+        mock.listing_count(),
+        0,
+        "bug: a window the grant's walk covered was listed from the Strava API"
+    );
+    assert!(
+        mock.detail_count() > 0,
+        "bug: a detailed ask served from the store read no detail through the grant"
     );
 }
