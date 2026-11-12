@@ -2801,7 +2801,14 @@
       "conflictWeeks": "Semanas cambiadas tanto en el borrador como en el plan actual: {{weeks}}",
       "conflictSeason": "La temporada de {{name}} se rehízo después de empezar este borrador, así que las semanas del borrador quizá ya no encajen.",
       "overwrite": "Publicar de todos modos",
-      "consentRevoked": "{{name}} ha dejado de compartir sus datos contigo, así que ya no se puede cambiar su plan."
+      "consentRevoked": "{{name}} ha dejado de compartir sus datos contigo, así que ya no se puede cambiar su plan.",
+      "pushed": "El plan también está en el calendario de {{name}}.",
+      "pushedPartly": "El plan está en el calendario de {{name}}, salvo algunos días que se editaron allí o no se pudieron escribir. Pregunta al agente aquí cuáles.",
+      "pushNoCalendar": "No está en el calendario de {{name}}: no ha conectado ninguno en el que Dravr pueda escribir.",
+      "pushNoConsent": "No está en el calendario de {{name}}: todavía no te ha dado permiso para escribir en él.",
+      "pushChooseCalendar": "No está en el calendario de {{name}}: tiene varios y no ha elegido uno para Dravr.",
+      "pushNoAccess": "No está en el calendario de {{name}}: su app de calendario todavía no te deja escribir en él.",
+      "pushNotWritten": "Todavía no está en el calendario de {{name}}. Pregunta al agente aquí por qué."
     },
     "planView": {
       "open": "Ver el plan de {{name}}",

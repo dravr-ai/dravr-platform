@@ -2801,7 +2801,14 @@
       "conflictWeeks": "Weeks changed in both the draft and the live plan: {{weeks}}",
       "conflictSeason": "{{name}}'s season was rebuilt after this draft began, so the draft's weeks may no longer fit it.",
       "overwrite": "Publish anyway",
-      "consentRevoked": "{{name}} stopped sharing with you, so their plan can't be changed."
+      "consentRevoked": "{{name}} stopped sharing with you, so their plan can't be changed.",
+      "pushed": "It's on {{name}}'s calendar too.",
+      "pushedPartly": "It's on {{name}}'s calendar, except some days that were edited there or couldn't be written. Ask the agent here which.",
+      "pushNoCalendar": "Not on {{name}}'s calendar: they haven't connected one Dravr can write to.",
+      "pushNoConsent": "Not on {{name}}'s calendar: they haven't allowed you to write it yet.",
+      "pushChooseCalendar": "Not on {{name}}'s calendar: they have several and haven't picked one for Dravr.",
+      "pushNoAccess": "Not on {{name}}'s calendar: their calendar app doesn't let you write it yet.",
+      "pushNotWritten": "Not on {{name}}'s calendar yet. Ask the agent here why."
     },
     "planView": {
       "open": "View {{name}}'s plan",

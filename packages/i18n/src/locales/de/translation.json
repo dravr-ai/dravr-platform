@@ -2801,7 +2801,14 @@
       "conflictWeeks": "Im Entwurf und im aktuellen Plan geänderte Wochen: {{weeks}}",
       "conflictSeason": "Die Saison von {{name}} wurde nach Beginn dieses Entwurfs neu aufgebaut, daher passen die Wochen des Entwurfs womöglich nicht mehr dazu.",
       "overwrite": "Trotzdem veröffentlichen",
-      "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher kann der Plan nicht mehr geändert werden."
+      "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher kann der Plan nicht mehr geändert werden.",
+      "pushed": "Der Plan steht auch im Kalender von {{name}}.",
+      "pushedPartly": "Der Plan steht im Kalender von {{name}}, bis auf einige Tage, die dort bearbeitet wurden oder nicht geschrieben werden konnten. Frag den Agenten hier, welche.",
+      "pushNoCalendar": "Nicht im Kalender von {{name}}: Es ist kein Kalender verbunden, in den Dravr schreiben kann.",
+      "pushNoConsent": "Nicht im Kalender von {{name}}: {{name}} hat dir das Schreiben noch nicht erlaubt.",
+      "pushChooseCalendar": "Nicht im Kalender von {{name}}: Mehrere Kalender sind verbunden, aber keiner wurde für Dravr ausgewählt.",
+      "pushNoAccess": "Nicht im Kalender von {{name}}: Die Kalender-App lässt dich noch nicht hineinschreiben.",
+      "pushNotWritten": "Noch nicht im Kalender von {{name}}. Frag den Agenten hier, warum."
     },
     "planView": {
       "open": "Plan von {{name}} ansehen",

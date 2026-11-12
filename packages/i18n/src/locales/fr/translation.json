@@ -2801,7 +2801,14 @@
       "conflictWeeks": "Semaines modifiées à la fois dans le brouillon et dans le plan actuel : {{weeks}}",
       "conflictSeason": "La saison de {{name}} a été reconstruite après le début de ce brouillon : les semaines du brouillon risquent de ne plus s’y ajuster.",
       "overwrite": "Publier quand même",
-      "consentRevoked": "{{name}} ne partage plus ses données avec toi : son plan ne peut plus être modifié."
+      "consentRevoked": "{{name}} ne partage plus ses données avec toi : son plan ne peut plus être modifié.",
+      "pushed": "Le plan est aussi dans le calendrier de {{name}}.",
+      "pushedPartly": "Le plan est dans le calendrier de {{name}}, sauf quelques jours modifiés là-bas ou qui n’ont pas pu être écrits. Demande à l’agent ici lesquels.",
+      "pushNoCalendar": "Pas dans le calendrier de {{name}} : aucun calendrier où Dravr peut écrire n’est connecté.",
+      "pushNoConsent": "Pas dans le calendrier de {{name}} : {{name}} ne t’a pas encore donné l’accès en écriture.",
+      "pushChooseCalendar": "Pas dans le calendrier de {{name}} : plusieurs calendriers sont connectés et aucun n’a été choisi pour Dravr.",
+      "pushNoAccess": "Pas dans le calendrier de {{name}} : son application de calendrier ne te permet pas encore d’y écrire.",
+      "pushNotWritten": "Pas encore dans le calendrier de {{name}}. Demande à l’agent ici pourquoi."
     },
     "planView": {
       "open": "Voir le plan de {{name}}",

@@ -2801,7 +2801,14 @@
       "conflictWeeks": "Semanas alteradas no rascunho e no plano atual: {{weeks}}",
       "conflictSeason": "A época de {{name}} foi refeita depois de este rascunho começar, por isso as semanas do rascunho podem já não encaixar.",
       "overwrite": "Publicar mesmo assim",
-      "consentRevoked": "{{name}} deixou de partilhar os dados contigo, por isso o plano já não pode ser alterado."
+      "consentRevoked": "{{name}} deixou de partilhar os dados contigo, por isso o plano já não pode ser alterado.",
+      "pushed": "O plano também está no calendário de {{name}}.",
+      "pushedPartly": "O plano está no calendário de {{name}}, exceto alguns dias que foram editados lá ou que não puderam ser escritos. Pergunta ao agente aqui quais.",
+      "pushNoCalendar": "Não está no calendário de {{name}}: não há nenhum calendário ligado onde o Dravr possa escrever.",
+      "pushNoConsent": "Não está no calendário de {{name}}: ainda não te deu permissão para escrever nele.",
+      "pushChooseCalendar": "Não está no calendário de {{name}}: tem vários e não escolheu nenhum para o Dravr.",
+      "pushNoAccess": "Não está no calendário de {{name}}: a app de calendário ainda não te deixa escrever nele.",
+      "pushNotWritten": "Ainda não está no calendário de {{name}}. Pergunta ao agente aqui porquê."
     },
     "planView": {
       "open": "Ver o plano de {{name}}",
