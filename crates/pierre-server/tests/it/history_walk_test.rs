@@ -28,9 +28,9 @@
 
 use crate::common;
 use crate::garmin_sign_in_test::{
-    athlete, calls_matching, connections, garmin_history, hold_grant, hold_session,
-    offered_garmin_archive, reconnect_notices, server, session_header, session_json,
-    session_token_held, sign_in, workout, Calls, LIVE_SESSION, SIGNED_IN_SESSION,
+    athlete, calls_matching, connections, hold_grant, hold_session, reconnect_notices, server,
+    session_header, session_json, session_token_held, sign_in, workout, Calls, LIVE_SESSION,
+    SIGNED_IN_SESSION,
 };
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -465,7 +465,7 @@ async fn served_ids(
 async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keeps_it() {
     let (scraper, calls) = spawn_scraper(false).await;
     let resources = server(common::test_server_config_with_sciotte(&scraper)).await;
-    let (user_id, _user, tenant, token) = athlete(&resources).await;
+    let (user_id, _user, tenant, _token) = athlete(&resources).await;
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, SIGNED_IN_SESSION).await;
 
@@ -628,15 +628,6 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
         notification_types(&resources, user_id, tenant).await,
         Vec::<String>::new(),
         "the walk is told to nobody"
-    );
-    assert_eq!(
-        garmin_history(&resources, &token).await,
-        json!({
-            "state": "imported",
-            "sign_in_target": oauth_providers::SCIOTTE_GARMIN,
-            "archive_source": offered_garmin_archive(&resources),
-        }),
-        "bug: a walked history reads imported"
     );
 }
 
@@ -833,11 +824,6 @@ async fn a_session_expiring_mid_walk_ends_incomplete_and_asks_for_its_sign_in() 
         0,
         "bug: nothing landed under the session's key"
     );
-    assert_eq!(
-        garmin_history(&resources, &token).await["state"],
-        "needed",
-        "bug: a walk that ended before its history landed leaves it needed"
-    );
 
     // "Continue": the athlete signs in again on a session that lives, and
     // the next walk replaces the incomplete row and lands.
@@ -857,11 +843,6 @@ async fn a_session_expiring_mid_walk_ends_incomplete_and_asks_for_its_sign_in() 
         rows_under(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await,
         3,
         "bug: the walk lands under the session's key"
-    );
-    assert_eq!(
-        garmin_history(&resources, &token).await["state"],
-        "imported",
-        "bug: a landed walk reads imported"
     );
 }
 

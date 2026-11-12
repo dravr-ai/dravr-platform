@@ -2504,8 +2504,9 @@ async fn only_a_grant_beside_a_session_stands_aside() {
 }
 
 /// The history a read of each backend serves (carnet#1494): a session's
-/// window keeps the rows its grant stored, a Garmin grant's keeps what its
-/// session imported (carnet#1386), and every other backend has one key.
+/// window keeps the rows its grant stored, a grant's keeps what its session
+/// walked (carnet#1482) or imported (carnet#1386), and every other backend
+/// has one key.
 #[test]
 fn history_keys_serve_both_halves_of_a_pair_from_the_session() {
     assert_eq!(
@@ -2522,7 +2523,7 @@ fn history_keys_serve_both_halves_of_a_pair_from_the_session() {
     );
     assert_eq!(
         backend_resolver::history_keys(oauth_providers::STRAVA),
-        vec![oauth_providers::STRAVA]
+        vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE]
     );
     assert_eq!(
         backend_resolver::history_keys(oauth_providers::SCIOTTE_COROS),

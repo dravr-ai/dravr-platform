@@ -600,6 +600,9 @@ async fn a_re_ask_while_the_read_runs_rebinds_its_follow_up() {
 /// takes it on another instance and settles it with the conversation that
 /// asked. A provider with no token is the outcome a run can reach without a
 /// network here: the conversation is told to reconnect, and the row ends.
+/// The row is resolved again through the athlete's read plan, which sends an
+/// athlete holding no Strava credential to the hosted sign-in (`sciotte`,
+/// carnet#1494), so that is the reconnect the conversation is told.
 #[cfg(feature = "client-messaging")]
 #[tokio::test]
 async fn the_sweep_resumes_a_live_read_whose_instance_died() {
@@ -607,6 +610,7 @@ async fn the_sweep_resumes_a_live_read_whose_instance_died() {
     use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 
     const TOKENLESS: &str = "strava";
+    const SIGN_IN: &str = "sciotte";
     let (runtime, notifier, user_id, tenant_id) = notified_runtime().await;
     let long_ago = Utc::now().timestamp_millis() - 600_000;
     let row = ActivityBackfillJobRow {
@@ -651,7 +655,7 @@ async fn the_sweep_resumes_a_live_read_whose_instance_died() {
     );
     assert_eq!(
         notifier.reauth.lock().unwrap().as_slice(),
-        [("conv-dead".to_owned(), TOKENLESS.to_owned())],
+        [("conv-dead".to_owned(), SIGN_IN.to_owned())],
         "the resumed read answers the conversation its row names"
     );
     let state = runtime
