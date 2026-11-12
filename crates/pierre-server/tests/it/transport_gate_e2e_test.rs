@@ -169,6 +169,7 @@ impl FitnessProvider for Relay {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Ok(Athlete {
+            created_at: None,
             id: "relay-athlete".to_owned(),
             username: "relay_rider".to_owned(),
             firstname: Some("Relay".to_owned()),
@@ -2035,6 +2036,7 @@ mod scraped {
 
         async fn get_athlete(&self) -> AppResult<Athlete> {
             Ok(Athlete {
+                created_at: None,
                 id: "scraped-athlete".to_owned(),
                 username: "scraped_runner".to_owned(),
                 firstname: Some("Scraped".to_owned()),

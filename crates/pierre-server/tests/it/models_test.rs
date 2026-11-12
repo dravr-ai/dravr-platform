@@ -50,6 +50,7 @@ fn create_sample_activity() -> Activity {
 /// Test data for creating sample athlete
 fn create_sample_athlete() -> Athlete {
     Athlete {
+        created_at: None,
         id: "67890".into(),
         username: "runner123".into(),
         firstname: Some("John".into()),

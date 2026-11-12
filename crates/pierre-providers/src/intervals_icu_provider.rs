@@ -942,6 +942,7 @@ impl FitnessProvider for IntervalsIcuProvider {
         })?;
         let display_name = raw.name.unwrap_or_else(|| raw.id.clone());
         Ok(Athlete {
+            created_at: None,
             id: raw.id,
             username: raw.email.unwrap_or_default(),
             firstname: Some(display_name),

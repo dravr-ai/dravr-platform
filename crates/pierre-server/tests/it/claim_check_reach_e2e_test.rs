@@ -203,6 +203,7 @@ impl FitnessProvider for OpenRunner {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Ok(Athlete {
+            created_at: None,
             id: "open-athlete".to_owned(),
             username: "open_runner".to_owned(),
             firstname: Some("Open".to_owned()),

@@ -188,6 +188,7 @@ impl FitnessProvider for TerraProvider {
             let user_info = client.get_user_info(&user_id).await?;
             if let Some(user) = user_info.user {
                 return Ok(Athlete {
+                    created_at: None,
                     id: user.user_id,
                     username: user.reference_id.unwrap_or_default(),
                     firstname: None,
@@ -201,6 +202,7 @@ impl FitnessProvider for TerraProvider {
 
         // Return basic athlete info from user ID
         Ok(Athlete {
+            created_at: None,
             id: user_id.clone(),
             username: user_id,
             firstname: None,

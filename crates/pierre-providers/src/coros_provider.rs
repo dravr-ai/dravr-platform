@@ -486,6 +486,7 @@ impl FitnessProvider for CorosProvider {
         let profile: CorosUserProfile = self.api_request("user/profile").await?;
 
         Ok(Athlete {
+            created_at: None,
             id: profile.user_id,
             username: profile
                 .nickname

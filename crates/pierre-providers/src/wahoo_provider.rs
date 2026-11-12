@@ -736,6 +736,7 @@ impl FitnessProvider for WahooProvider {
     async fn get_athlete(&self) -> AppResult<Athlete> {
         let user: WahooUser = self.get_json("user").await?;
         Ok(Athlete {
+            created_at: None,
             id: user.id.to_string(),
             username: user.email.unwrap_or_default(),
             firstname: user.first,

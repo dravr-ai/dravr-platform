@@ -696,6 +696,7 @@ impl FitnessProvider for StravaProvider {
         let strava_athlete: StravaAthleteResponse = self.api_request("athlete").await?;
 
         Ok(Athlete {
+            created_at: strava_athlete.created_at,
             id: strava_athlete.id.to_string(),
             username: strava_athlete.username.unwrap_or_default(),
             firstname: strava_athlete.firstname,

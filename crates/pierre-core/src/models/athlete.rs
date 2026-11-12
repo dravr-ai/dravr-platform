@@ -27,6 +27,7 @@ use super::{Activity, PhysiologicalSex};
 ///     profile_picture: Some("https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg".into()),
 ///     provider: "strava".into(),
 ///     sex: None,
+///     created_at: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -50,6 +51,11 @@ pub struct Athlete {
     /// intervals.icu's athlete `sex`). Never inferred.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sex: Option<PhysiologicalSex>,
+    /// When the athlete's account was created at the provider, when the
+    /// provider reports it (Strava's athlete `created_at`): no activity is
+    /// recorded before it, so a history walk stops there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 /// Aggregated fitness statistics for an athlete

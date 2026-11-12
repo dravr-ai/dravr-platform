@@ -572,6 +572,7 @@ impl FitnessProvider for GarminProvider {
         let user: GarminUserIdResponse = self.api_request("user/id").await?;
 
         Ok(Athlete {
+            created_at: None,
             id: user.user_id,
             username: String::new(),
             firstname: None,
