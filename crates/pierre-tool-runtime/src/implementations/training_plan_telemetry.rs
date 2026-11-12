@@ -20,9 +20,11 @@ use uuid::Uuid;
 /// Record that a calendar write to a provider landed.
 ///
 /// A calendar write is a provider sync in the outbound direction, so it rides
-/// the catalogued `sync.completed` event: `trigger` names the tool that wrote
-/// (`prescribe_workout`, `withdraw_prescribed_workout`, `push_training_plan`)
-/// and `records` counts the entries the provider accepted.
+/// the catalogued `sync.completed` event: `trigger` names what wrote — a tool
+/// (`prescribe_workout`, `withdraw_prescribed_workout`, `push_training_plan`,
+/// or the `save_training_plan` / `publish_training_plan` whose write pushed),
+/// or the coach's Publish button (`subject_plan_publish`) — and `records`
+/// counts the entries the provider accepted.
 pub(super) fn emit_calendar_sync_completed(
     tenant_id: TenantId,
     user_id: Uuid,

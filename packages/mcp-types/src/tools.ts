@@ -1286,7 +1286,7 @@ export interface PrescribeWorkoutParams {
 
 
 /**
- * Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. Publishing leaves the calendar alone: push_training_plan is a separate step, so say so. The caller's own plan has no draft: their saves are already live.
+ * Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. publish also puts the plan on the athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan has no draft: their saves are already live.
  */
 export interface PublishTrainingPlanParams {
 
@@ -1302,7 +1302,7 @@ export interface PublishTrainingPlanParams {
 
 
 /**
- * Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin), or update it after a change: creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. Call it when the athlete or coach asks, not on your own after a save. Publishing does not push: after publish_training_plan, call it only if the coach asks. Needs a saved plan and a connected calendar-writing provider. A group's human coach pushes a consenting athlete's plan with `athlete`, through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).
+ * Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin): creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. save_training_plan and publish_training_plan already push (their calendar_push says what landed): call this only when the athlete or coach asks, e.g. once what stopped that push is fixed. Needs a saved plan and a connected calendar-writing provider. A group's human coach pushes a consenting athlete's plan with `athlete`, through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).
  */
 export interface PushTrainingPlanParams {
 
@@ -1440,7 +1440,7 @@ export interface SaveRecipeParams {
 
 
 /**
- * Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving never writes the calendar: when the reply's calendar.stale is true, tell the athlete their calendar no longer matches the plan, and offer push_training_plan only when calendar.pushed_by is absent — when it is human_coach, their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.
+ * Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed; calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.
  */
 export interface SaveTrainingPlanParams {
 
@@ -2112,7 +2112,7 @@ export interface VerifyClaimParams {
 
 
 /**
- * Remove a workout prescribe_workout wrote to the athlete's calendar provider and mark the prescription withdrawn. Only for single prescriptions: an entry the training plan put there is removed by adjusting the plan (save_training_plan) and pushing it (push_training_plan). A group's human coach passes `athlete` as for prescribe_workout.
+ * Remove a workout prescribe_workout wrote to the athlete's calendar provider and mark the prescription withdrawn. Only for single prescriptions: an entry the training plan put there is removed by adjusting the plan — save_training_plan, or a coach's publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for prescribe_workout.
  */
 export interface WithdrawPrescribedWorkoutParams {
 

@@ -805,6 +805,12 @@ async fn only_the_publish_that_puts_the_draft_live_tells_the_athlete() {
             .is_some_and(|m| m.contains("was sent a notice")),
         "{published}"
     );
+    // The publish put the plan on the athlete's calendar too (carnet#1492),
+    // and its notice is the only one: the push it ends tells no one again.
+    assert_eq!(
+        published["calendar_push"]["status"], "pushed",
+        "{published}"
+    );
     let rows = w.notices(&alex, alex.tenant, 1).await;
     assert_published_notice(only(&rows, PUBLISHED), &alex);
     assert_eq!(

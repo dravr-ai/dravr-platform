@@ -92,6 +92,19 @@ use auth_challenge::{auth_refusal, insufficient_scope_challenge};
 /// `2025-11-25` and the modern path never ran.
 pub const SUPPORTED_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2025-06-18", "2024-11-05"];
 
+/// The tool runtime's name for how `auth` authenticated, for a tool context
+/// built from it.
+pub(crate) const fn tool_auth_method(auth: &AuthResult) -> AuthMethod {
+    use pierre_auth::auth::AuthMethod as AuthResultMethod;
+
+    match &auth.auth_method {
+        AuthResultMethod::JwtToken { .. } => AuthMethod::JwtBearer,
+        AuthResultMethod::ApiKey { .. } => AuthMethod::ApiKey,
+        AuthResultMethod::ChannelLink { .. } => AuthMethod::ChannelLink,
+        AuthResultMethod::McpToken { .. } => AuthMethod::McpClient,
+    }
+}
+
 /// Build the per-call [`ToolContext`] the engine threads into the dispatcher.
 ///
 /// Maps the platform's [`AuthResult`] auth method onto the host-agnostic label,
@@ -104,14 +117,7 @@ fn build_context(
     auth_method: &AuthResult,
     request_id: Option<Value>,
 ) -> ToolContext {
-    use pierre_auth::auth::AuthMethod as AuthResultMethod;
-
-    let method = match &auth_method.auth_method {
-        AuthResultMethod::JwtToken { .. } => AuthMethod::JwtBearer,
-        AuthResultMethod::ApiKey { .. } => AuthMethod::ApiKey,
-        AuthResultMethod::ChannelLink { .. } => AuthMethod::ChannelLink,
-        AuthResultMethod::McpToken { .. } => AuthMethod::McpClient,
-    };
+    let method = tool_auth_method(auth_method);
 
     let mut ctx = ToolContext::new()
         .with_user(user_id.to_string())

@@ -145,6 +145,52 @@ describe("a coach's draft on the plan card", () => {
     );
     expect(api.publishSubjectPlan).toHaveBeenCalledWith(CONVERSATION_ID, { overwrite_athlete_changes: false });
     expect(screen.queryByRole('button', { name: 'Discard draft' })).toBeNull();
+    // An answer that names no calendar push says nothing about the calendar.
+    expect(screen.queryByTestId('plan-draft-calendar-push')).toBeNull();
+  });
+
+  it('says the published plan reached the athlete’s calendar', async () => {
+    api.publishSubjectPlan.mockResolvedValue({
+      status: 'published',
+      published: {
+        plan_id: 'plan-2',
+        superseded_plan_id: 'plan-1',
+        athlete_notified: true,
+        calendar_push: {
+          status: 'pushed',
+          report: { provider: 'intervals_icu', created: 2, updated: 0, removed: 0, skipped: [], failed: [] },
+        },
+      },
+    });
+    const user = userEvent.setup();
+    renderCard();
+
+    await user.click(await screen.findByRole('button', { name: 'Publish to Alice Runner' }));
+
+    expect(await screen.findByTestId('plan-draft-calendar-push')).toHaveTextContent(
+      "It's on Alice Runner's calendar too.",
+    );
+  });
+
+  it('says why the published plan did not reach the athlete’s calendar', async () => {
+    api.publishSubjectPlan.mockResolvedValue({
+      status: 'published',
+      published: {
+        plan_id: 'plan-2',
+        superseded_plan_id: 'plan-1',
+        athlete_notified: true,
+        calendar_push: { status: 'not_pushed', reason: 'no_calendar_write_consent', message: 'server words' },
+      },
+    });
+    const user = userEvent.setup();
+    renderCard();
+
+    await user.click(await screen.findByRole('button', { name: 'Publish to Alice Runner' }));
+
+    const line = await screen.findByTestId('plan-draft-calendar-push');
+    expect(line).toHaveTextContent("Not on Alice Runner's calendar: they haven't allowed you to write it yet.");
+    expect(line).not.toHaveTextContent('server words');
+    expect(screen.getByTestId('plan-draft-published')).toHaveTextContent('Published. Alice Runner has been notified.');
   });
 
   it('shows what a refused publish collided with, and publishes anyway on request', async () => {

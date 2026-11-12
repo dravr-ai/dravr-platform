@@ -894,16 +894,21 @@ async fn three_irreversible_calls_commit_and_the_fourth_is_denied() {
     );
 }
 
-/// carnet#1403: both tools' own descriptions, on every surface that lists them, say
-/// the push is a separate step the coach asks for, and neither repeats a budget a
-/// super admin can change.
+/// carnet#1492 (superseding carnet#1403's "separate step"): the writing plan
+/// tools' own descriptions, on every surface that lists them, say the write
+/// puts the plan on the calendar and point at the reply's `calendar_push`, and
+/// none repeats a budget a super admin can change.
 #[tokio::test]
-async fn both_plan_tools_say_the_push_is_a_separate_step() {
+async fn the_plan_writes_say_they_push_and_where_the_reply_says_so() {
     common::init_server_config();
     let resources = create_test_server_resources()
         .await
         .expect("server resources");
-    for tool in ["publish_training_plan", "push_training_plan"] {
+    for tool in [
+        "save_training_plan",
+        "publish_training_plan",
+        "push_training_plan",
+    ] {
         let description = resources
             .mcp
             .tool_registry
@@ -912,7 +917,11 @@ async fn both_plan_tools_say_the_push_is_a_separate_step() {
             .definition()
             .description;
         assert!(
-            description.contains("separate step") || description.contains("does not push"),
+            description.contains("calendar_push"),
+            "{tool}: {description}"
+        );
+        assert!(
+            !description.contains("separate step") && !description.contains("does not push"),
             "{tool}: {description}"
         );
         assert!(!description.contains("per turn"), "{tool}: {description}");

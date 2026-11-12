@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Check } from 'lucide-react';
 import type { DraftState, PlanSubject } from '@pierre/shared-types';
-import { PLAN_DRAFT_KEYS, planConflictText } from '@pierre/chat-utils';
+import { PLAN_DRAFT_KEYS, planConflictText, planPushComplete, planPushText } from '@pierre/chat-utils';
 import { API_ERROR_KEYS, describeApiError, type PlanDraftActionResult } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../hooks/useAuth';
@@ -30,8 +30,9 @@ interface PlanDraftControlsProps {
  * The footer of a plan card that shows the coach's draft: a badge saying
  * the athlete cannot see it yet, Discard, and Publish to the athlete. A
  * publish the athlete's own changes refused shows what collided, and Publish
- * anyway; a landed one says the athlete was told. Nothing at all for anyone
- * but the thread's owner, or on a card whose draft has since moved on.
+ * anyway; a landed one says the athlete was told, and whether the plan
+ * reached their calendar. Nothing at all for anyone but the thread's owner,
+ * or on a card whose draft has since moved on.
  */
 export default function PlanDraftControls({ conversationId, subject, draft }: PlanDraftControlsProps) {
   const { t, language } = useTranslation();
@@ -68,8 +69,9 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
   };
 
   if (state.kind === 'published') {
+    const push = state.calendarPush;
     return (
-      <div className="border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
+      <div className="space-y-1 border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
         <p
           role="status"
           className="flex items-center gap-1.5 text-sm text-on-success-container"
@@ -78,6 +80,14 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
           <Check className="h-4 w-4 shrink-0" aria-hidden="true" />
           {t(PLAN_DRAFT_KEYS.published, { name })}
         </p>
+        {push && (
+          <p
+            className={`text-sm ${planPushComplete(push) ? 'text-on-success-container' : 'text-on-warning-container'}`}
+            data-testid="plan-draft-calendar-push"
+          >
+            {planPushText(push, name, t)}
+          </p>
+        )}
       </div>
     );
   }

@@ -249,10 +249,16 @@ describe('planDraftCardState', () => {
     });
   });
 
-  it('keeps a landed publish said after the draft is gone', () => {
+  it('keeps a landed publish, and what it did to the calendar, said after the draft is gone', () => {
+    const calendarPush = { status: 'not_pushed', reason: 'no_calendar', message: 'No calendar.' } as const;
     expect(
-      planDraftCardState({ ownsThread: true, cardDraft: DRAFT, read: ok(null), outcome: { kind: 'published' } }),
-    ).toEqual({ kind: 'published' });
+      planDraftCardState({
+        ownsThread: true,
+        cardDraft: DRAFT,
+        read: ok(null),
+        outcome: { kind: 'published', calendarPush },
+      }),
+    ).toEqual({ kind: 'published', calendarPush });
   });
 
   it('shows the conflict a refused publish named while the draft is still open', () => {
@@ -500,11 +506,20 @@ describe('usePlanDraftCard', () => {
     await waitFor(() => expect(result.current.state).toEqual({ kind: 'consentRevoked' }));
   });
 
-  it('publishes, says so, and refreshes the subject plan and the thread', async () => {
+  it('publishes, says so with what reached the calendar, and refreshes the subject plan and the thread', async () => {
     const ctx = setup();
+    const calendarPush = {
+      status: 'pushed',
+      report: { provider: 'intervals_icu', created: 2, updated: 0, removed: 0, skipped: [], failed: [] },
+    } as const;
     ctx.api.publishSubjectPlan.mockResolvedValue({
       status: 'published',
-      published: { plan_id: 'plan-2', superseded_plan_id: 'plan-1', athlete_notified: true },
+      published: {
+        plan_id: 'plan-2',
+        superseded_plan_id: 'plan-1',
+        athlete_notified: true,
+        calendar_push: calendarPush,
+      },
     });
     const invalidate = vi.spyOn(ctx.client, 'invalidateQueries');
     const { result } = renderCard(ctx);
@@ -518,7 +533,7 @@ describe('usePlanDraftCard', () => {
 
     expect(outcome).toEqual({ kind: 'shown' });
     expect(ctx.api.publishSubjectPlan).toHaveBeenCalledWith(CONVERSATION_ID, { overwrite_athlete_changes: false });
-    expect(result.current.state).toEqual({ kind: 'published' });
+    expect(result.current.state).toEqual({ kind: 'published', calendarPush });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['chat', 'subject-plan', CONVERSATION_ID] });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['chat-messages', CONVERSATION_ID] });
   });
@@ -552,7 +567,8 @@ describe('usePlanDraftCard', () => {
       await result.current.publish(true);
     });
     expect(ctx.api.publishSubjectPlan).toHaveBeenLastCalledWith(CONVERSATION_ID, { overwrite_athlete_changes: true });
-    expect(result.current.state).toEqual({ kind: 'published' });
+    // An answer from before the calendar push carries no word of it.
+    expect(result.current.state).toEqual({ kind: 'published', calendarPush: null });
   });
 
   it('says the athlete stopped sharing when a publish is refused for it', async () => {

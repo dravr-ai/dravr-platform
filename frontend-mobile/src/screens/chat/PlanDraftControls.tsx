@@ -8,7 +8,7 @@ import React from 'react';
 import { Alert, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import type { DraftState, PlanSubject } from '@pierre/shared-types';
-import { PLAN_DRAFT_KEYS, planConflictText } from '@pierre/chat-utils';
+import { PLAN_DRAFT_KEYS, planConflictText, planPushComplete, planPushText } from '@pierre/chat-utils';
 import { API_ERROR_KEYS, describeApiError, type PlanDraftActionResult } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../contexts/AuthContext';
@@ -29,8 +29,9 @@ interface PlanDraftControlsProps {
  * The foot of a plan card that shows the coach's draft: a badge saying the
  * athlete cannot see it yet, Discard, and Publish to the athlete. A publish
  * the athlete's own changes refused shows what collided, and Publish anyway;
- * a landed one says the athlete was told. Nothing at all for anyone but the
- * thread's owner, or on a card whose draft has since moved on.
+ * a landed one says the athlete was told, and whether the plan reached their
+ * calendar. Nothing at all for anyone but the thread's owner, or on a card
+ * whose draft has since moved on.
  */
 export default function PlanDraftControls({ conversationId, subject, draft }: PlanDraftControlsProps) {
   const { t, language } = useTranslation();
@@ -66,17 +67,28 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
   };
 
   if (state.kind === 'published') {
+    const push = state.calendarPush;
     return (
-      <View className="mx-4 mb-3 flex-row items-center" testID="plan-draft-controls">
-        <Feather name="check" size={16} color={colors.ink.success} />
-        <Text
-          className="ml-1.5 flex-1 text-sm text-on-success-container"
-          accessibilityRole="text"
-          accessibilityLiveRegion="polite"
-          testID="plan-draft-published"
-        >
-          {t(PLAN_DRAFT_KEYS.published, { name })}
-        </Text>
+      <View className="mx-4 mb-3" testID="plan-draft-controls">
+        <View className="flex-row items-center">
+          <Feather name="check" size={16} color={colors.ink.success} />
+          <Text
+            className="ml-1.5 flex-1 text-sm text-on-success-container"
+            accessibilityRole="text"
+            accessibilityLiveRegion="polite"
+            testID="plan-draft-published"
+          >
+            {t(PLAN_DRAFT_KEYS.published, { name })}
+          </Text>
+        </View>
+        {push ? (
+          <Text
+            className={`mt-1 text-sm ${planPushComplete(push) ? 'text-on-success-container' : 'text-on-warning-container'}`}
+            testID="plan-draft-calendar-push"
+          >
+            {planPushText(push, name, t)}
+          </Text>
+        ) : null}
       </View>
     );
   }

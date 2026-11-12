@@ -26698,7 +26698,7 @@
     },
     {
       "name": "publish_training_plan",
-      "description": "Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. Publishing leaves the calendar alone: push_training_plan is a separate step, so say so. The caller's own plan has no draft: their saves are already live.",
+      "description": "Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. publish also puts the plan on the athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan has no draft: their saves are already live.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -26781,6 +26781,52 @@
               "stale"
             ],
             "type": "object"
+          },
+          "CalendarPushOutcome": {
+            "description": "What a save or a publish did to the athlete's calendar on its own\n(carnet#1492): the plan reconciled onto their chosen calendar, or why\nnothing was written there.\n\nThe write it follows never fails because of it. A gate that refuses the\npush, or a push that fails, is reported here beside a plan that landed.",
+            "oneOf": [
+              {
+                "description": "The plan was reconciled onto the athlete's calendar.",
+                "properties": {
+                  "report": {
+                    "$ref": "#/$defs/PushReport",
+                    "description": "What the push created, updated and removed, and what it left\nalone or failed to write."
+                  },
+                  "status": {
+                    "const": "pushed",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "report"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Nothing on the athlete's calendar was written.",
+                "properties": {
+                  "message": {
+                    "description": "Why, in words to relay.",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "description": "Why, as a code a client branches on: the refusing gate's own\nreason, `no_calendar` when the athlete holds no calendar Dravr\nwrites, or `push_failed` when the push itself failed.",
+                    "type": "string"
+                  },
+                  "status": {
+                    "const": "not_pushed",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason",
+                  "message"
+                ],
+                "type": "object"
+              }
+            ]
           },
           "CalendarPusher": {
             "description": "Who puts Dravr's plan on a calendar when it is not the athlete reading it.",
@@ -27076,6 +27122,35 @@
             ],
             "type": "object"
           },
+          "FailedEntry": {
+            "description": "An entry whose write the provider or the ledger refused.",
+            "properties": {
+              "date": {
+                "description": "The entry's date.",
+                "format": "date",
+                "type": "string"
+              },
+              "error": {
+                "description": "What went wrong, in the provider's or the database's words.",
+                "type": "string"
+              },
+              "external_id": {
+                "description": "The entry's key.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The entry's title.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "external_id",
+              "date",
+              "name",
+              "error"
+            ],
+            "type": "object"
+          },
           "FindingCode": {
             "description": "What a finding is about.",
             "oneOf": [
@@ -27287,6 +27362,102 @@
             ],
             "type": "object"
           },
+          "PushReport": {
+            "description": "What a push did.",
+            "properties": {
+              "calendar_note": {
+                "description": "Present when the calendar the athlete chose for Dravr's pushes was\npassed over for this one — not connected, or not one this write may\ngo to — saying where it went instead (carnet#1393).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cancelled": {
+                "description": "Whether a cooperative cancellation stopped the push early. Entries\nalready written stay; the push is convergent, so a re-run reconciles\nthe rest.",
+                "type": "boolean"
+              },
+              "created": {
+                "description": "Entries created on the provider.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "failed": {
+                "description": "Entries the provider or the ledger refused.",
+                "items": {
+                  "$ref": "#/$defs/FailedEntry"
+                },
+                "type": "array"
+              },
+              "from": {
+                "description": "First date the push considered.",
+                "format": "date",
+                "type": "string"
+              },
+              "plan_id": {
+                "description": "The active plan that was pushed.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "Provider the plan was pushed to.",
+                "type": "string"
+              },
+              "removed": {
+                "description": "Entries removed from the provider because no plan day wants them.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "skipped": {
+                "description": "Entries left alone, with the reason.",
+                "items": {
+                  "$ref": "#/$defs/SkippedEntry"
+                },
+                "type": "array"
+              },
+              "to": {
+                "description": "Last date the push considered, when there was anything to consider.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "unchanged": {
+                "description": "Entries already carrying this content.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unpublished_draft": {
+                "description": "Present when a human coach pushed a coached athlete's calendar while\nholding an unpublished draft of their plan: only the published plan\nwas pushed, and the draft reaches the calendar once it is published\nand pushed again.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated": {
+                "description": "Entries updated in place.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "provider",
+              "plan_id",
+              "from",
+              "to",
+              "created",
+              "updated",
+              "unchanged",
+              "removed",
+              "skipped",
+              "failed",
+              "cancelled"
+            ],
+            "type": "object"
+          },
           "RampUnmeasurable": {
             "description": "Why a ramp check could not produce a verdict.",
             "oneOf": [
@@ -27401,6 +27572,45 @@
               "from",
               "to",
               "hours"
+            ],
+            "type": "object"
+          },
+          "SkipReason": {
+            "description": "Why a wanted entry was left as it is.",
+            "oneOf": [
+              {
+                "const": "edited_on_provider",
+                "description": "The athlete changed the entry on the provider after Dravr wrote it.",
+                "type": "string"
+              }
+            ]
+          },
+          "SkippedEntry": {
+            "description": "An entry the push left alone, and why.",
+            "properties": {
+              "date": {
+                "description": "The entry's date.",
+                "format": "date",
+                "type": "string"
+              },
+              "external_id": {
+                "description": "The entry's key.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The entry's title.",
+                "type": "string"
+              },
+              "reason": {
+                "$ref": "#/$defs/SkipReason",
+                "description": "Why it was skipped."
+              }
+            },
+            "required": [
+              "external_id",
+              "date",
+              "name",
+              "reason"
             ],
             "type": "object"
           },
@@ -27711,7 +27921,18 @@
                 "type": "null"
               }
             ],
-            "description": "On `published`: what a push would now change, when the athlete's\ncalendar already carries the plan. Publishing never writes it."
+            "description": "On `published`, when the push did not run: what one would change,\nwhen the athlete's calendar already carries the plan."
+          },
+          "calendar_push": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CalendarPushOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "On `published`: the plan put on the athlete's chosen calendar, or why\nit was not."
           },
           "conflict": {
             "anyOf": [
@@ -27799,7 +28020,7 @@
     },
     {
       "name": "push_training_plan",
-      "description": "Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin), or update it after a change: creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. Call it when the athlete or coach asks, not on your own after a save. Publishing does not push: after publish_training_plan, call it only if the coach asks. Needs a saved plan and a connected calendar-writing provider. A group's human coach pushes a consenting athlete's plan with `athlete`, through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).",
+      "description": "Put the athlete's active training plan on their calendar provider (Intervals.icu, Wahoo or Garmin): creates missing days, updates changed ones, removes dropped ones, leaves alone any the athlete edited there (Garmin reports no edits). Never touches dates before today. save_training_plan and publish_training_plan already push (their calendar_push says what landed): call this only when the athlete or coach asks, e.g. once what stopped that push is fixed. Needs a saved plan and a connected calendar-writing provider. A group's human coach pushes a consenting athlete's plan with `athlete`, through their Intervals.icu link: they must allow calendar writes on it, and Intervals.icu must list the coach as their coach. Only the published plan is pushed, never a coach's unpublished draft (the reply's unpublished_draft flags one).",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -29412,7 +29633,7 @@
     },
     {
       "name": "save_training_plan",
-      "description": "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving never writes the calendar: when the reply's calendar.stale is true, tell the athlete their calendar no longer matches the plan, and offer push_training_plan only when calendar.pushed_by is absent — when it is human_coach, their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
+      "description": "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed; calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
       "inputSchema": {
         "properties": {
           "agent_id": {
@@ -29937,6 +30158,52 @@
             ],
             "type": "object"
           },
+          "CalendarPushOutcome": {
+            "description": "What a save or a publish did to the athlete's calendar on its own\n(carnet#1492): the plan reconciled onto their chosen calendar, or why\nnothing was written there.\n\nThe write it follows never fails because of it. A gate that refuses the\npush, or a push that fails, is reported here beside a plan that landed.",
+            "oneOf": [
+              {
+                "description": "The plan was reconciled onto the athlete's calendar.",
+                "properties": {
+                  "report": {
+                    "$ref": "#/$defs/PushReport",
+                    "description": "What the push created, updated and removed, and what it left\nalone or failed to write."
+                  },
+                  "status": {
+                    "const": "pushed",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "report"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Nothing on the athlete's calendar was written.",
+                "properties": {
+                  "message": {
+                    "description": "Why, in words to relay.",
+                    "type": "string"
+                  },
+                  "reason": {
+                    "description": "Why, as a code a client branches on: the refusing gate's own\nreason, `no_calendar` when the athlete holds no calendar Dravr\nwrites, or `push_failed` when the push itself failed.",
+                    "type": "string"
+                  },
+                  "status": {
+                    "const": "not_pushed",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "status",
+                  "reason",
+                  "message"
+                ],
+                "type": "object"
+              }
+            ]
+          },
           "CalendarPusher": {
             "description": "Who puts Dravr's plan on a calendar when it is not the athlete reading it.",
             "oneOf": [
@@ -30171,6 +30438,35 @@
             ],
             "type": "object"
           },
+          "FailedEntry": {
+            "description": "An entry whose write the provider or the ledger refused.",
+            "properties": {
+              "date": {
+                "description": "The entry's date.",
+                "format": "date",
+                "type": "string"
+              },
+              "error": {
+                "description": "What went wrong, in the provider's or the database's words.",
+                "type": "string"
+              },
+              "external_id": {
+                "description": "The entry's key.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The entry's title.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "external_id",
+              "date",
+              "name",
+              "error"
+            ],
+            "type": "object"
+          },
           "FindingCode": {
             "description": "What a finding is about.",
             "oneOf": [
@@ -30362,6 +30658,102 @@
             ],
             "type": "object"
           },
+          "PushReport": {
+            "description": "What a push did.",
+            "properties": {
+              "calendar_note": {
+                "description": "Present when the calendar the athlete chose for Dravr's pushes was\npassed over for this one — not connected, or not one this write may\ngo to — saying where it went instead (carnet#1393).",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "cancelled": {
+                "description": "Whether a cooperative cancellation stopped the push early. Entries\nalready written stay; the push is convergent, so a re-run reconciles\nthe rest.",
+                "type": "boolean"
+              },
+              "created": {
+                "description": "Entries created on the provider.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "failed": {
+                "description": "Entries the provider or the ledger refused.",
+                "items": {
+                  "$ref": "#/$defs/FailedEntry"
+                },
+                "type": "array"
+              },
+              "from": {
+                "description": "First date the push considered.",
+                "format": "date",
+                "type": "string"
+              },
+              "plan_id": {
+                "description": "The active plan that was pushed.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "Provider the plan was pushed to.",
+                "type": "string"
+              },
+              "removed": {
+                "description": "Entries removed from the provider because no plan day wants them.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "skipped": {
+                "description": "Entries left alone, with the reason.",
+                "items": {
+                  "$ref": "#/$defs/SkippedEntry"
+                },
+                "type": "array"
+              },
+              "to": {
+                "description": "Last date the push considered, when there was anything to consider.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "unchanged": {
+                "description": "Entries already carrying this content.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "unpublished_draft": {
+                "description": "Present when a human coach pushed a coached athlete's calendar while\nholding an unpublished draft of their plan: only the published plan\nwas pushed, and the draft reaches the calendar once it is published\nand pushed again.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "updated": {
+                "description": "Entries updated in place.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "provider",
+              "plan_id",
+              "from",
+              "to",
+              "created",
+              "updated",
+              "unchanged",
+              "removed",
+              "skipped",
+              "failed",
+              "cancelled"
+            ],
+            "type": "object"
+          },
           "RampUnmeasurable": {
             "description": "Why a ramp check could not produce a verdict.",
             "oneOf": [
@@ -30499,6 +30891,45 @@
               "from",
               "to",
               "hours"
+            ],
+            "type": "object"
+          },
+          "SkipReason": {
+            "description": "Why a wanted entry was left as it is.",
+            "oneOf": [
+              {
+                "const": "edited_on_provider",
+                "description": "The athlete changed the entry on the provider after Dravr wrote it.",
+                "type": "string"
+              }
+            ]
+          },
+          "SkippedEntry": {
+            "description": "An entry the push left alone, and why.",
+            "properties": {
+              "date": {
+                "description": "The entry's date.",
+                "format": "date",
+                "type": "string"
+              },
+              "external_id": {
+                "description": "The entry's key.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The entry's title.",
+                "type": "string"
+              },
+              "reason": {
+                "$ref": "#/$defs/SkipReason",
+                "description": "Why it was skipped."
+              }
+            },
+            "required": [
+              "external_id",
+              "date",
+              "name",
+              "reason"
             ],
             "type": "object"
           },
@@ -30805,7 +31236,18 @@
                 "type": "null"
               }
             ],
-            "description": "What a push would change now, when the calendar already carries this\nplan. Absent when the athlete has never pushed — an athlete who does\nnot use the calendar is not nagged about it."
+            "description": "When the push did not run: what one would change, when the calendar\nalready carries this plan. Absent when the athlete has never pushed."
+          },
+          "calendar_push": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/CalendarPushOutcome"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The athlete's own save put on their chosen calendar, or why it was\nnot. Absent on a draft save, when the athlete holds no calendar Dravr\nwrites, and when their tenant switched `push_training_plan` off — what\nwould repeat on every save is not said on every save."
           },
           "draft": {
             "description": "`true` when a group's human coach saved for a coached athlete: the\nsave went into the coach's draft, which the athlete does not see\nuntil the coach publishes it with `publish_training_plan`. `plan_id`\nis then the draft's.",
@@ -30898,8 +31340,8 @@
       "annotations": {
         "title": "Save training plan",
         "readOnlyHint": false,
-        "destructiveHint": false,
-        "idempotentHint": false,
+        "destructiveHint": true,
+        "idempotentHint": true,
         "openWorldHint": false
       }
     },
@@ -34710,7 +35152,7 @@
     },
     {
       "name": "withdraw_prescribed_workout",
-      "description": "Remove a workout prescribe_workout wrote to the athlete's calendar provider and mark the prescription withdrawn. Only for single prescriptions: an entry the training plan put there is removed by adjusting the plan (save_training_plan) and pushing it (push_training_plan). A group's human coach passes `athlete` as for prescribe_workout.",
+      "description": "Remove a workout prescribe_workout wrote to the athlete's calendar provider and mark the prescription withdrawn. Only for single prescriptions: an entry the training plan put there is removed by adjusting the plan — save_training_plan, or a coach's publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for prescribe_workout.",
       "inputSchema": {
         "properties": {
           "athlete": {

@@ -1,5 +1,5 @@
 // ABOUTME: A human coach's draft of a coached athlete's plan on the tool path — the save into it, the read of it, and publish_training_plan
-// ABOUTME: Also the publish entry point the subject-plan route shares: the service's publish, then the rails every live plan write runs
+// ABOUTME: Also the publish entry point the subject-plan route shares: the service's publish, the rails every live plan write runs, the calendar push
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -18,7 +18,8 @@
 //! ([`publish_coach_draft`]) — goal fact, one transaction, the
 //! `training_plan.published` record, the athlete's `coach_plan_published`
 //! notice — then the rails every live plan write runs
-//! ([`run_live_plan_rails`]). Neither path can publish without the other's
+//! ([`run_live_plan_rails`]), then the push onto the athlete's chosen
+//! calendar (carnet#1492). Neither path can publish without the other's
 //! steps.
 
 use crate::annotations::{annotations, Effect, Reach};
@@ -52,11 +53,11 @@ use uuid::Uuid;
 
 use super::plan_scope::{resolve_plan_scope, PlanScope, PlanScopeRequest, PlanSubject};
 use super::training_plan_authorship::load_conversation;
-use super::training_plan_push::calendar_preview_after_save;
+use super::training_plan_push::{calendar_preview_after_save, push_after_write, AthleteNotice};
 use super::training_plan_rails::{draft_plan_safety, run_live_plan_rails, LivePlanWrite};
 use super::training_plans_output::{
-    race_summary, saved_weeks, DraftSection, PlanEnvelopeReport, PlanSafetyReport, PublishStatus,
-    PublishTrainingPlanResult, SaveTrainingPlanResult,
+    race_summary, saved_weeks, CalendarPushOutcome, DraftSection, PlanEnvelopeReport,
+    PlanSafetyReport, PublishStatus, PublishTrainingPlanResult, SaveTrainingPlanResult,
 };
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -143,6 +144,7 @@ pub(super) async fn save_into_draft(
             goal_fact_id: draft.goal_fact_id.clone(),
             weeks_saved: weeks.len(),
             weeks,
+            calendar_push: None,
             calendar: None,
             draft: true,
             message: Some(format!(
@@ -198,6 +200,26 @@ pub struct PublishedDraftReport {
     /// Where the line saying the publish in the athlete's room landed
     /// (carnet#1249).
     pub room_post: RoomPostOutcome,
+    /// The published plan put on the athlete's chosen calendar, or why it
+    /// was not (carnet#1492).
+    pub calendar_push: CalendarPushOutcome,
+}
+
+/// A coach's publish of their draft, as [`publish_draft_live`] takes it.
+#[derive(Debug)]
+pub struct DraftPublish<'req> {
+    /// Whose draft, and whose plan it becomes.
+    pub target: &'req CoachDraftTarget,
+    /// The group the coach coaches the athlete in, whose room is told.
+    pub group_id: Uuid,
+    /// Publish over the weeks the athlete changed since the coach drafted
+    /// them, and over a season re-laid under the draft.
+    pub overwrite: bool,
+    /// The athlete as the call named them, for the calendar push's scope;
+    /// `None` when the coach's thread bound to the athlete names them.
+    pub athlete: Option<&'req str>,
+    /// What published, as the calendar push's notify events name it.
+    pub trigger: &'static str,
 }
 
 /// What [`publish_draft_live`] came to.
@@ -213,40 +235,46 @@ pub enum DraftPublishOutcome {
 }
 
 /// Publish the coach's draft as the athlete's live plan, tell the athlete
-/// and the room, then run the rails.
+/// and the room, run the rails, then put the plan on the athlete's calendar.
 ///
 /// The rails are the ones every live plan write runs, over what this one
 /// wrote. The athlete is told through the runtime's notification service,
 /// when it has one ([`PublishedCoachDraft::athlete_notified`]). The room of
-/// `group_id` — the group the coach coaches the athlete in — gets one line
-/// naming the days the publish changed, and the group's bound chat the same
-/// line ([`post_plan_published`]); it is built from the plans alone. This is
-/// the entry point both `publish_training_plan` and the subject-plan publish
-/// route call; the caller has run the coaching gates for `target` in
-/// `group_id`.
+/// the group the coach coaches the athlete in gets one line naming the days
+/// the publish changed, and the group's bound chat the same line
+/// ([`post_plan_published`]); it is built from the plans alone. The push
+/// reconciles the athlete's chosen calendar onto the plan just published,
+/// as the coach's `push_training_plan` with `athlete` would from `context`
+/// ([`push_after_write`]): from a room or an external transport it is
+/// refused, and the publish stands either way (carnet#1492).
+///
+/// This is the entry point both `publish_training_plan` and the
+/// subject-plan publish route call; the caller has run the coaching gates
+/// for the publish's target in its group, as `context`'s requester.
 ///
 /// # Errors
 ///
 /// The errors of [`publish_coach_draft`].
 pub async fn publish_draft_live(
-    state: &Arc<dyn ToolRuntime>,
-    target: &CoachDraftTarget,
-    group_id: Uuid,
-    overwrite: bool,
+    context: &ToolExecutionContext,
+    publish: &DraftPublish<'_>,
 ) -> AppResult<DraftPublishOutcome> {
+    let state = &context.resources;
+    let target = publish.target;
     let repos = state.repos();
     #[cfg(feature = "client-notifications")]
     let notifications = state.notification_service();
     #[cfg(not(feature = "client-notifications"))]
     let notifications = None;
-    let published = match publish_coach_draft(repos, notifications, target, overwrite).await? {
-        CoachDraftPublish::Published(published) => *published,
-        CoachDraftPublish::Conflict(standing) => {
-            return Ok(DraftPublishOutcome::Conflict(standing))
-        }
-        CoachDraftPublish::NoDraft => return Ok(DraftPublishOutcome::NoDraft),
-    };
-    let room_post = say_in_room(state, target, group_id, &published).await;
+    let published =
+        match publish_coach_draft(repos, notifications, target, publish.overwrite).await? {
+            CoachDraftPublish::Published(published) => *published,
+            CoachDraftPublish::Conflict(standing) => {
+                return Ok(DraftPublishOutcome::Conflict(standing))
+            }
+            CoachDraftPublish::NoDraft => return Ok(DraftPublishOutcome::NoDraft),
+        };
+    let room_post = say_in_room(state, target, publish.group_id, &published).await;
     let rails = run_live_plan_rails(
         state,
         repos,
@@ -263,12 +291,22 @@ pub async fn publish_draft_live(
         },
     )
     .await;
+    let push_args = json!({ "athlete": publish.athlete });
+    // The publish's own notice told the athlete; the push adds none.
+    let calendar_push = Box::pin(push_after_write(
+        context,
+        &push_args,
+        publish.trigger,
+        AthleteNotice::ToldByPublish,
+    ))
+    .await;
     Ok(DraftPublishOutcome::Published(Box::new(
         PublishedDraftReport {
             published,
             safety: rails.safety,
             today: rails.today,
             room_post,
+            calendar_push,
         },
     )))
 }
@@ -389,9 +427,9 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
              Call it only when the coach asks. If the athlete's own agent changed a drafted \
              week or re-laid the season since, publish is refused with status `conflict` and \
              nothing changes: tell the coach which weeks, and publish again with \
-             overwrite_athlete_changes only if they choose. Publishing leaves the calendar \
-             alone: push_training_plan is a separate step, so say so. The caller's own plan has no draft: their saves are \
-             already live.",
+             overwrite_athlete_changes only if they choose. publish also puts the plan on the \
+             athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan \
+             has no draft: their saves are already live.",
             schema,
             annotations(
                 "Publish training plan",
@@ -473,15 +511,14 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
                 // back to the coach, under the athlete's own AI consents
                 // (carnet#1419).
                 DraftAction::Publish => {
-                    let publishing = Box::pin(publish(
-                        state,
-                        &context,
-                        &scope,
-                        &target,
-                        *group_id,
-                        name.clone(),
+                    let request = DraftPublish {
+                        target: &target,
+                        group_id: *group_id,
                         overwrite,
-                    ));
+                        athlete,
+                        trigger: PUBLISH_TOOL,
+                    };
+                    let publishing = Box::pin(publish(&context, &scope, &request, name.clone()));
                     scope.read_as_athlete(repos, publishing).await
                 }
             }
@@ -521,15 +558,12 @@ async fn discard(
 }
 
 async fn publish(
-    state: &Arc<dyn ToolRuntime>,
     context: &ToolExecutionContext,
     scope: &PlanScope,
-    target: &CoachDraftTarget,
-    group_id: Uuid,
+    request: &DraftPublish<'_>,
     name: String,
-    overwrite: bool,
 ) -> AppResult<ToolResult> {
-    let report = match publish_draft_live(state, target, group_id, overwrite).await? {
+    let report = match publish_draft_live(context, request).await? {
         DraftPublishOutcome::Published(report) => report,
         DraftPublishOutcome::NoDraft => return Ok(no_draft(&name)),
         DraftPublishOutcome::Conflict(standing) => {
@@ -558,13 +592,22 @@ async fn publish(
         safety,
         today,
         room_post,
+        calendar_push,
     } = *report;
-    // Publishing does not write the calendar; when the calendar already
-    // carries this plan, say what a push would now change.
-    let fueling =
-        FuelingDisclosure::for_athlete(state.repos(), scope.tenant, scope.user_id).await?;
-    let calendar =
-        calendar_preview_after_save(context, scope, &published.plan.id, today, &fueling).await;
+    // A publish whose push did not run says what one would now change, when
+    // the calendar already carries this plan.
+    let calendar = match &calendar_push {
+        CalendarPushOutcome::Pushed { .. } => None,
+        CalendarPushOutcome::NotPushed { .. } => {
+            let fueling = FuelingDisclosure::for_athlete(
+                context.resources.repos(),
+                scope.tenant,
+                scope.user_id,
+            )
+            .await?;
+            calendar_preview_after_save(context, scope, &published.plan.id, today, &fueling).await
+        }
+    };
     let told = if published.athlete_notified {
         format!("{name} was sent a notice that it is published.")
     } else {
@@ -575,10 +618,27 @@ async fn publish(
     } else {
         String::new()
     };
+    let on_calendar = match &calendar_push {
+        CalendarPushOutcome::Pushed { .. } => format!(
+            "It is on {name}'s calendar too: calendar_push.report says what changed, and any day \
+             it skipped or failed to write."
+        ),
+        CalendarPushOutcome::NotPushed { message, .. } => {
+            let message = message.trim_end();
+            let stop = if message.ends_with(['.', '!', '?']) {
+                ""
+            } else {
+                "."
+            };
+            format!(
+                "It was not put on {name}'s calendar: {message}{stop} Once that is fixed, \
+                 push_training_plan puts it there."
+            )
+        }
+    };
     let message = format!(
         "Your draft is {name}'s live plan now. The weeks you did not draft keep {name}'s own \
-         version. {told}{room} Putting it on the calendar with push_training_plan is a \
-         separate step: offer that, and call it only if the coach asks."
+         version. {told}{room} {on_calendar}"
     );
     ok_typed(
         PUBLISH_TOOL,
@@ -589,6 +649,7 @@ async fn publish(
             weeks_published: published.weeks.into_iter().map(|w| w.week_start).collect(),
             athlete_notified: Some(published.athlete_notified),
             safety: (!safety.is_empty()).then_some(safety),
+            calendar_push: Some(calendar_push),
             calendar,
             ..PublishTrainingPlanResult::new(
                 PublishStatus::Published,

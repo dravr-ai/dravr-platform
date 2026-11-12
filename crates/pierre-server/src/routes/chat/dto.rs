@@ -15,6 +15,7 @@ use pierre_core::models::{
 };
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
+use pierre_tool_runtime::implementations::training_plans_output::CalendarPushOutcome;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::warn;
@@ -382,6 +383,9 @@ pub(super) struct PublishedSubjectPlanResponse {
     /// publish changed no day, or the room is not the coach's and the
     /// athlete's alone.
     pub posted_in_room: bool,
+    /// The published plan put on the athlete's chosen calendar, or why it
+    /// was not (carnet#1492).
+    pub calendar_push: CalendarPushOutcome,
 }
 
 /// `POST …/subject-plan/publish` answered 409: the athlete's plan moved

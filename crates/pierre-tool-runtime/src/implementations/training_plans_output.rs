@@ -22,7 +22,7 @@ use pierre_core::models::periodization::{
 use pierre_core::models::{CalendarEventSource, TargetAnchor};
 use pierre_memory::training_plans::{GoalRace, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_services::coach_plan_draft::DraftState;
-use pierre_services::plan_calendar_push::PushPreview;
+use pierre_services::plan_calendar_push::{PushPreview, PushReport};
 use pierre_services::plan_fueling::WithheldFueling;
 use pierre_services::ramp_check::RampVerdict;
 use serde::Serialize;
@@ -164,8 +164,12 @@ pub struct PublishTrainingPlanResult {
     /// that went live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub envelope: Option<PlanEnvelopeReport>,
-    /// On `published`: what a push would now change, when the athlete's
-    /// calendar already carries the plan. Publishing never writes it.
+    /// On `published`: the plan put on the athlete's chosen calendar, or why
+    /// it was not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_push: Option<CalendarPushOutcome>,
+    /// On `published`, when the push did not run: what one would change,
+    /// when the athlete's calendar already carries the plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarPreview>,
 }
@@ -190,6 +194,7 @@ impl PublishTrainingPlanResult {
             conflict: None,
             safety: None,
             envelope: None,
+            calendar_push: None,
             calendar: None,
         }
     }
@@ -538,9 +543,14 @@ pub struct SaveTrainingPlanResult {
     pub weeks_saved: usize,
     /// Each week, and whether it replaced an earlier version of itself.
     pub weeks: Vec<SavedWeek>,
-    /// What a push would change now, when the calendar already carries this
-    /// plan. Absent when the athlete has never pushed — an athlete who does
-    /// not use the calendar is not nagged about it.
+    /// The athlete's own save put on their chosen calendar, or why it was
+    /// not. Absent on a draft save, when the athlete holds no calendar Dravr
+    /// writes, and when their tenant switched `push_training_plan` off — what
+    /// would repeat on every save is not said on every save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_push: Option<CalendarPushOutcome>,
+    /// When the push did not run: what one would change, when the calendar
+    /// already carries this plan. Absent when the athlete has never pushed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarPreview>,
     /// `true` when a group's human coach saved for a coached athlete: the
@@ -647,4 +657,46 @@ pub struct CalendarPreview {
     /// [`CalendarBlock::calendar_note`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar_note: Option<String>,
+}
+
+/// The `reason` of a [`CalendarPushOutcome::NotPushed`] whose athlete holds
+/// no calendar Dravr writes: there was nowhere to push.
+pub(super) const NO_CALENDAR: &str = "no_calendar";
+
+/// The `reason` of a [`CalendarPushOutcome::NotPushed`] whose push passed its
+/// gates and then failed.
+pub(super) const PUSH_FAILED: &str = "push_failed";
+
+/// What a save or a publish did to the athlete's calendar on its own
+/// (carnet#1492): the plan reconciled onto their chosen calendar, or why
+/// nothing was written there.
+///
+/// The write it follows never fails because of it. A gate that refuses the
+/// push, or a push that fails, is reported here beside a plan that landed.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CalendarPushOutcome {
+    /// The plan was reconciled onto the athlete's calendar.
+    Pushed {
+        /// What the push created, updated and removed, and what it left
+        /// alone or failed to write.
+        report: PushReport,
+    },
+    /// Nothing on the athlete's calendar was written.
+    NotPushed {
+        /// Why, as a code a client branches on: the refusing gate's own
+        /// reason, `no_calendar` when the athlete holds no calendar Dravr
+        /// writes, or `push_failed` when the push itself failed.
+        reason: String,
+        /// Why, in words to relay.
+        message: String,
+    },
+}
+
+impl CalendarPushOutcome {
+    /// Whether nothing was pushed for the reason `code` names.
+    #[must_use]
+    pub(super) fn refused_for(&self, code: &str) -> bool {
+        matches!(self, Self::NotPushed { reason, .. } if reason == code)
+    }
 }

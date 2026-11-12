@@ -229,7 +229,16 @@ export { formatList } from './list-format';
 
 // A coach's plan thread for one athlete and the draft card in it: the
 // catalogue keys, and how a refused publish names what it collided with
-export { coachRoomName, GROUP_ROOM_KEYS, PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, PLAN_VIEW_KEYS, planConflictText } from './plan-draft';
+export {
+  coachRoomName,
+  GROUP_ROOM_KEYS,
+  PLAN_DRAFT_KEYS,
+  PLAN_THREAD_KEYS,
+  PLAN_VIEW_KEYS,
+  planConflictText,
+  planPushComplete,
+  planPushText,
+} from './plan-draft';
 export type { PlanConflictText, PlanDraftConflict } from './plan-draft';
 
 // Whose composer it is, and when that is not yet known.

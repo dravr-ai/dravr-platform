@@ -1513,8 +1513,8 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     );
 
     // ── The agent adjusts week one through the tool ────────────────────
-    // Wednesday becomes rest, Saturday gets longer; the save reports that
-    // the calendar is now behind, without touching it.
+    // Wednesday becomes rest, Saturday gets longer; the save puts the change
+    // on the calendar itself (carnet#1492).
     let saved = fixture
         .ok(
             "save_training_plan",
@@ -1539,36 +1539,54 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
     // Saturday changed and the week note changed (its adjustment reason is
     // part of it); Wednesday is gone; Monday, Thursday and next week's tempo
     // ride are as they were.
+    let pushed = &saved["calendar_push"];
+    assert_eq!(pushed["status"], "pushed", "got: {saved}");
     assert_eq!(
-        saved["calendar"]["stale"].as_bool(),
-        Some(true),
-        "got: {saved}"
-    );
-    assert_eq!(
-        saved["calendar"]["pending"]["update"].as_u64(),
+        pushed["report"]["updated"].as_u64(),
         Some(2),
-        "got: {saved}"
+        "Saturday and the week note; got: {saved}"
     );
     assert_eq!(
-        saved["calendar"]["pending"]["remove"].as_u64(),
+        pushed["report"]["removed"].as_u64(),
         Some(1),
-        "got: {saved}"
+        "Wednesday; got: {saved}"
     );
     assert_eq!(
-        saved["calendar"]["pending"]["unchanged"].as_u64(),
+        pushed["report"]["unchanged"].as_u64(),
         Some(3),
         "got: {saved}"
     );
     assert_eq!(
-        saved["calendar"]["pending"]["create"].as_u64(),
+        pushed["report"]["created"].as_u64(),
         Some(0),
         "got: {saved}"
     );
-    assert_eq!(
-        stub.request_lines().await.len(),
-        8,
-        "a save never writes to the calendar"
+    assert!(
+        saved.get("calendar").is_none(),
+        "a save that pushed leaves nothing pending: {saved}"
     );
+
+    let lines = stub.request_lines().await;
+    let save_lines = &lines[8..];
+    assert_eq!(
+        save_lines[0],
+        format!("GET /api/v1/athlete/{ATHLETE_ID}/events")
+    );
+    assert!(
+        save_lines
+            .iter()
+            .any(|l| l.starts_with("PUT ") && !l.ends_with("bulk-delete")),
+        "got: {save_lines:?}"
+    );
+    assert!(
+        save_lines.iter().any(|l| l.ends_with("bulk-delete")),
+        "got: {save_lines:?}"
+    );
+    assert!(
+        !save_lines.iter().any(|l| l.starts_with("POST ")),
+        "nothing is created twice; got: {save_lines:?}"
+    );
+    let after_save = lines.len();
 
     // Meanwhile the athlete edited next week's tempo ride on Intervals.icu,
     // and the agent also re-saved that week with a longer version.
@@ -1589,48 +1607,25 @@ async fn pushing_a_plan_puts_every_future_session_on_the_calendar_and_reconciles
         )
         .await;
 
-    // ── Third push: update, remove, and leave the edited one alone ─────
+    // ── Third push: leave the edited one alone ─────────────────────────
     let reconciled = fixture.ok("push_training_plan", json!({})).await?;
     assert_eq!(
-        reconciled["updated"].as_u64(),
-        Some(2),
-        "Saturday and the week note; got: {reconciled}"
-    );
-    assert_eq!(
-        reconciled["removed"].as_u64(),
-        Some(1),
-        "Wednesday; got: {reconciled}"
-    );
-    assert_eq!(
         reconciled["unchanged"].as_u64(),
-        Some(2),
-        "Monday and Thursday; got: {reconciled}"
+        Some(4),
+        "Monday, Thursday, Saturday and the week note; got: {reconciled}"
     );
-    assert_eq!(reconciled["created"].as_u64(), Some(0));
+    assert_eq!(reconciled["updated"].as_u64(), Some(0), "got: {reconciled}");
+    assert_eq!(reconciled["removed"].as_u64(), Some(0), "got: {reconciled}");
+    assert_eq!(reconciled["created"].as_u64(), Some(0), "got: {reconciled}");
     let skipped = reconciled["skipped"].as_array().expect("skipped");
     assert_eq!(skipped.len(), 1, "the edited tempo ride; got: {reconciled}");
     assert_eq!(skipped[0]["external_id"].as_str(), Some(tempo_key.as_str()));
     assert_eq!(skipped[0]["reason"].as_str(), Some("edited_on_provider"));
-
     let lines = stub.request_lines().await;
-    let new_lines = &lines[8..];
     assert_eq!(
-        new_lines[0],
-        format!("GET /api/v1/athlete/{ATHLETE_ID}/events")
-    );
-    assert!(
-        new_lines
-            .iter()
-            .any(|l| l.starts_with("PUT ") && !l.ends_with("bulk-delete")),
-        "got: {new_lines:?}"
-    );
-    assert!(
-        new_lines.iter().any(|l| l.ends_with("bulk-delete")),
-        "got: {new_lines:?}"
-    );
-    assert!(
-        !new_lines.iter().any(|l| l.starts_with("POST ")),
-        "nothing is created twice; got: {new_lines:?}"
+        &lines[after_save..],
+        [format!("GET /api/v1/athlete/{ATHLETE_ID}/events")],
+        "only the read: the edited ride is not written"
     );
 
     assert_eq!(
@@ -2108,6 +2103,165 @@ async fn a_refused_plan_push_records_every_failure_and_leaves_the_ledger_honest(
     assert!(
         fixture.live().await.is_empty(),
         "nothing is recorded as live"
+    );
+    Ok(())
+}
+
+// ── The athlete's own save pushes (carnet#1492) ────────────────────────────
+
+/// `save_training_plan`'s arguments re-laying the week of `monday` as two
+/// runs, Monday and Wednesday, with no focus (so no week note).
+fn two_runs(monday: NaiveDate) -> Value {
+    json!({
+        "weeks": [{
+            "week_start": iso(monday),
+            "focus": "",
+            "days": [
+                { "date": iso(monday), "sport": "run", "workout": "Easy 40", "duration_min": 40, "intensity": "Z1" },
+                { "date": iso(monday + Duration::days(2)), "sport": "run", "workout": "Steady 50", "duration_min": 50, "intensity": "Z2" }
+            ]
+        }]
+    })
+}
+
+/// The season a weeks-only save attaches to, written without the tool so
+/// nothing is pushed before the save under test.
+async fn lay_season(fixture: &Fixture, monday: NaiveDate) {
+    fixture
+        .save_weeks(
+            true,
+            &[(
+                monday,
+                "",
+                vec![planned(monday, "run", "Easy", Some(30), "Z1")],
+            )],
+        )
+        .await;
+}
+
+#[tokio::test]
+async fn an_athletes_own_save_puts_the_plan_on_their_calendar() -> Result<()> {
+    let stub = stub_live(6000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    assert!(stub.requests().await.is_empty(), "nothing pushed yet");
+
+    let saved = fixture.ok("save_training_plan", two_runs(monday)).await?;
+    let push = &saved["calendar_push"];
+    assert_eq!(push["status"], "pushed", "got: {saved}");
+    assert_eq!(push["report"]["created"].as_u64(), Some(2), "got: {saved}");
+    assert_eq!(push["report"]["provider"], INTERVALS_ICU, "got: {saved}");
+    assert!(
+        saved.get("calendar").is_none(),
+        "nothing is pending once the save pushed: {saved}"
+    );
+    let names: HashSet<String> = stub
+        .events()
+        .await
+        .iter()
+        .filter_map(|event| event.body["name"].as_str().map(str::to_owned))
+        .collect();
+    assert_eq!(
+        names,
+        HashSet::from(["Easy 40".to_owned(), "Steady 50".to_owned()]),
+        "the calendar carries the saved week"
+    );
+    assert_eq!(
+        fixture.live().await.len(),
+        2,
+        "bug: the save's push recorded no live ledger row per written day"
+    );
+    Ok(())
+}
+
+/// A tenant that switched `push_training_plan` off writes no calendar on a
+/// save either: the save lands and says the push was refused, and why.
+#[tokio::test]
+async fn a_tenant_that_switched_the_push_off_keeps_its_saves_off_the_calendar() -> Result<()> {
+    let stub = stub_live(8000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+    fixture
+        .executor
+        .resources
+        .tool_selection()
+        .set_tool_override(
+            fixture.tenant,
+            "push_training_plan",
+            false,
+            fixture.user_id,
+            None,
+        )
+        .await?;
+
+    let saved = fixture.ok("save_training_plan", two_runs(monday)).await?;
+    assert_eq!(saved["weeks_saved"], 1, "the save lands: {saved}");
+    // A tenant that switched the push off is not told so on every save
+    // (Phil, 2026-11-12): the reply says nothing about the calendar.
+    assert!(
+        saved.get("calendar_push").is_none(),
+        "a switched-off push is not relayed on each save: {saved}"
+    );
+    assert!(
+        stub.requests().await.is_empty(),
+        "bug: a switched-off push reached the calendar"
+    );
+    assert!(
+        fixture.live().await.is_empty(),
+        "bug: a switched-off push recorded a live ledger row"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn an_athlete_with_no_calendar_saves_without_a_word_about_one() -> Result<()> {
+    let stub = stub_live(7000).await;
+    // Strava-connected only: nothing Dravr writes a calendar on.
+    let fixture = Box::pin(fixture(&stub.base_url, false)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+
+    let saved = fixture.ok("save_training_plan", two_runs(monday)).await?;
+    assert_eq!(saved["weeks_saved"], 1, "got: {saved}");
+    assert!(
+        saved.get("calendar_push").is_none(),
+        "an athlete without a calendar is not told about one: {saved}"
+    );
+    assert_eq!(
+        stub.requests().await.len(),
+        0,
+        "no calendar was called for an athlete who holds none"
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn a_calendar_that_refuses_the_saves_push_never_undoes_the_save() -> Result<()> {
+    let stub = stub_refusing("HTTP/1.1 503 Service Unavailable").await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let monday = next_plan_monday();
+    lay_season(&fixture, monday).await;
+
+    let saved = fixture.ok("save_training_plan", two_runs(monday)).await?;
+    let push = &saved["calendar_push"];
+    assert_eq!(push["status"], "not_pushed", "got: {saved}");
+    assert_eq!(push["reason"], "push_failed", "got: {saved}");
+    assert!(
+        push["message"].as_str().is_some_and(|m| m.contains("503")),
+        "the calendar's own refusal is named: {saved}"
+    );
+    // The week is saved all the same.
+    let plan = fixture.ok("get_training_plan", json!({})).await?;
+    assert!(
+        plan.to_string().contains("Steady 50"),
+        "the save stands: {plan}"
+    );
+    assert_eq!(
+        fixture.live().await.len(),
+        0,
+        "nothing is recorded as live on a calendar that refused"
     );
     Ok(())
 }

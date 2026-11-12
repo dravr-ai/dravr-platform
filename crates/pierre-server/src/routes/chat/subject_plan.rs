@@ -43,10 +43,12 @@ use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::implementations::training_plan_drafts::{
-    publish_draft_live, DraftPublishOutcome,
+    publish_draft_live, DraftPublish, DraftPublishOutcome, PublishedDraftReport,
 };
 
+use crate::mcp::host_seams::tool_auth_method;
 use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
@@ -60,6 +62,10 @@ use super::dto::{
 /// The code of a publish refused because the athlete's plan moved under the
 /// draft, in the 409 body's `error_code` and `details.reason`.
 const PLAN_PUBLISH_CONFLICT: &str = "plan_publish_conflict";
+
+/// What the calendar push's notify events name as its trigger when the
+/// coach's Publish button published.
+const PUBLISH_TRIGGER: &str = "subject_plan_publish";
 
 /// The 404 for a coach who holds no draft of the athlete's plan.
 fn no_draft() -> AppError {
@@ -156,13 +162,15 @@ pub(super) async fn get_subject_plan(
 }
 
 /// `POST /api/chat/conversations/{id}/subject-plan/publish`: the coach's
-/// draft made the athlete's live plan.
+/// draft made the athlete's live plan, and put on the athlete's chosen
+/// calendar (carnet#1492).
 ///
 /// 409 `plan_publish_conflict` — with the weeks the athlete changed since the
 /// coach drafted them and whether their season was re-laid — when the
 /// athlete's plan moved under the draft and the body did not ask to
 /// overwrite it; nothing is written. 404 `no_draft` when the coach holds no
-/// draft.
+/// draft. A push a gate refuses or that fails leaves the publish standing:
+/// the 200 says why in `calendar_push`.
 pub(super) async fn publish_subject_plan(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -171,24 +179,44 @@ pub(super) async fn publish_subject_plan(
 ) -> Result<Response, AppError> {
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
+    // The push runs as the coach's own push_training_plan from this thread
+    // would: the thread names the athlete, the coach is the requester, and an
+    // API-key caller is refused it as an external transport.
+    let coach_tenant = get_tenant_id(&auth, &resources).await?;
+    let context = ToolExecutionContext::new(
+        auth.user_id,
+        Some(coach_tenant),
+        into_runtime(&resources),
+        tool_auth_method(&auth),
+    )
+    .with_conversation_id(conversation_id.clone());
     // The room the publish is said in is the group the thread acts under now:
     // reopening the thread from another group rebinds it there.
     let outcome = publish_draft_live(
-        &into_runtime(&resources),
-        &target,
-        access.group.id,
-        request.overwrite_athlete_changes,
+        &context,
+        &DraftPublish {
+            target: &target,
+            group_id: access.group.id,
+            overwrite: request.overwrite_athlete_changes,
+            athlete: None,
+            trigger: PUBLISH_TRIGGER,
+        },
     )
     .await?;
     match outcome {
         DraftPublishOutcome::Published(report) => {
-            let posted_in_room = report.room_post.in_room;
-            let published = report.published;
+            let PublishedDraftReport {
+                published,
+                room_post,
+                calendar_push,
+                ..
+            } = *report;
             let response = PublishedSubjectPlanResponse {
                 plan_id: published.plan.id,
                 superseded_plan_id: published.superseded_plan_id,
                 athlete_notified: published.athlete_notified,
-                posted_in_room,
+                posted_in_room: room_post.in_room,
+                calendar_push,
             };
             Ok((StatusCode::OK, Json(response)).into_response())
         }

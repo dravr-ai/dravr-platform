@@ -366,7 +366,8 @@ async fn live_prescription(
     if row.source != CalendarEventSource::Prescription {
         return Err(AppError::invalid_input(format!(
             "prescription {prescription_id} is an entry of the training plan — adjust the plan \
-             with save_training_plan and push it with push_training_plan instead"
+             instead: save_training_plan, or a coach's publish_training_plan, updates the \
+             calendar"
         )));
     }
     if !row.is_live() {
@@ -985,8 +986,8 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
             "Remove a workout prescribe_workout wrote to the athlete's calendar \
              provider and mark the prescription withdrawn. Only for single \
              prescriptions: an entry the training plan put there is removed by \
-             adjusting the plan (save_training_plan) and pushing it \
-             (push_training_plan). A group's human coach passes `athlete` as for \
+             adjusting the plan — save_training_plan, or a coach's \
+             publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for \
              prescribe_workout.",
             schema,
             annotations(

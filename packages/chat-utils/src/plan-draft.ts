@@ -4,7 +4,7 @@
 // ABOUTME: The words of a coach's plan thread, its draft card and the group room as the coach reads it — keys, and a refused publish's conflict
 // ABOUTME: Both clients render from these, so a conflict reads the same on web and on the phone (carnet#1069/#1070)
 
-import type { CoachingGroup } from '@pierre/shared-types';
+import type { CalendarPushOutcome, CoachingGroup } from '@pierre/shared-types';
 import { formatList } from './list-format';
 import type { Translate } from './text';
 
@@ -77,7 +77,53 @@ export const PLAN_DRAFT_KEYS = {
   overwrite: 'humanCoach.planDraft.overwrite',
   /** The athlete stopped sharing with the coach. */
   consentRevoked: 'humanCoach.planDraft.consentRevoked',
+  /** The publish put the plan on the athlete's calendar, every day of it. */
+  pushed: 'humanCoach.planDraft.pushed',
+  /** It did, but some days were left alone or refused. */
+  pushedPartly: 'humanCoach.planDraft.pushedPartly',
+  /** Not on the calendar: the athlete connects none Dravr writes. */
+  pushNoCalendar: 'humanCoach.planDraft.pushNoCalendar',
+  /** Not on the calendar: the athlete has not allowed the coach calendar writes. */
+  pushNoConsent: 'humanCoach.planDraft.pushNoConsent',
+  /** Not on the calendar: several qualify and the athlete chose none. */
+  pushChooseCalendar: 'humanCoach.planDraft.pushChooseCalendar',
+  /** Not on the calendar: the athlete's calendar platform does not let the coach write it. */
+  pushNoAccess: 'humanCoach.planDraft.pushNoAccess',
+  /** Not on the calendar, for any other reason: the agent in the thread can say which. */
+  pushNotWritten: 'humanCoach.planDraft.pushNotWritten',
 } as const;
+
+/** The line each refusal code a publish's push names is said with; any other gets `pushNotWritten`. */
+const PUSH_REFUSAL_KEYS: Readonly<Record<string, string>> = {
+  no_calendar: PLAN_DRAFT_KEYS.pushNoCalendar,
+  no_calendar_write_consent: PLAN_DRAFT_KEYS.pushNoConsent,
+  choose_calendar: PLAN_DRAFT_KEYS.pushChooseCalendar,
+  coach_follower: PLAN_DRAFT_KEYS.pushNoAccess,
+  athlete_no_access: PLAN_DRAFT_KEYS.pushNoAccess,
+};
+
+/**
+ * Whether a publish's push put every day of the plan on the calendar: it ran,
+ * and left no day alone or unwritten. Both clients colour the calendar line
+ * by it, and {@link planPushText} words it, so the two never disagree.
+ */
+export function planPushComplete(push: CalendarPushOutcome): boolean {
+  return push.status === 'pushed' && push.report.skipped.length === 0 && push.report.failed.length === 0;
+}
+
+/**
+ * The line a published card adds about `name`'s calendar (carnet#1492): the
+ * plan is on it, on it but for some days, or not on it and why. A refusal is
+ * worded by its code, never with the server's English message, so it reads
+ * in the coach's language; a code the card has no words for sends the coach
+ * to the agent in the thread, which reads the full reason.
+ */
+export function planPushText(push: CalendarPushOutcome, name: string, t: Translate): string {
+  if (push.status === 'pushed') {
+    return t(planPushComplete(push) ? PLAN_DRAFT_KEYS.pushed : PLAN_DRAFT_KEYS.pushedPartly, { name });
+  }
+  return t(PUSH_REFUSAL_KEYS[push.reason] ?? PLAN_DRAFT_KEYS.pushNotWritten, { name });
+}
 
 /** The catalogue keys of the read-only plan a coach opens from Group info (carnet#1244). */
 export const PLAN_VIEW_KEYS = {

@@ -587,12 +587,26 @@ async fn publishing_puts_the_draft_live_and_untouched_weeks_keep_the_athletes_sa
 
     let published = fx.coach_publishes(json!({ "action": "publish" })).await;
     assert_eq!(published["status"], "published", "{published}");
-    // carnet#1403: told before it tries, so the model offers the push instead of
-    // treating publish as if it had reached the calendar.
-    let told = published["message"].as_str().expect("message");
-    assert!(
-        told.contains("push_training_plan") && told.contains("separate step"),
+    // carnet#1492: the publish puts the plan on the athlete's calendar itself,
+    // and an athlete with none connected is said to have none — the publish
+    // standing — so the model never reports a calendar write that did not
+    // happen.
+    assert_eq!(
+        published["calendar_push"]["status"], "not_pushed",
         "{published}"
+    );
+    assert_eq!(
+        published["calendar_push"]["reason"], "no_calendar",
+        "{published}"
+    );
+    let told = published["message"].as_str().expect("message");
+    let (why, then) = told
+        .split_once(" Once that is fixed")
+        .unwrap_or_else(|| panic!("the coach is told how to put it there: {published}"));
+    assert!(why.contains("was not put on"), "{published}");
+    assert!(
+        why.ends_with('.') && then.contains("push_training_plan"),
+        "the reason is its own sentence: {published}"
     );
     assert_eq!(published["athlete"], SUBJECT_NAME);
     assert_eq!(published["weeks_published"], json!([ymd(monday(0))]));

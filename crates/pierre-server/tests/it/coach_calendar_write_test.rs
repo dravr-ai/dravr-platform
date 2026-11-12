@@ -1,4 +1,4 @@
-// ABOUTME: A human coach writes a coached athlete's Intervals.icu calendar with athlete= — push, prescribe and withdraw
+// ABOUTME: A human coach writes a coached athlete's Intervals.icu calendar with athlete= — push, prescribe, withdraw and publish
 // ABOUTME: Pins the coach's key at the athlete's path, the ledger under the athlete, each refusal before any write, and the turn budget
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -26,6 +26,7 @@
 //! external caller writes no one's calendar.
 
 use crate::common;
+use crate::helpers;
 use secrecy::SecretString;
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
@@ -39,24 +40,28 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
-use common::{create_test_server_resources, create_test_user_with_plan};
+use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
+use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::{provider_terms_version, INTERVALS_ICU};
 use pierre_core::models::groups::{
     CoachConsents, CoachingGroup, GroupDigestMode, GroupMember, GroupRespondMode, GroupRole,
 };
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    ConnectionStatus, ConnectionType, DelegatedConnection, PrescribedWorkout, RosterAthlete,
-    Tenant, TenantId, UserId, UserOAuthToken, API_KEY_TOKEN_TYPE,
+    ConnectionStatus, ConnectionType, ConversationSubject, DelegatedConnection, PrescribedWorkout,
+    RosterAthlete, Tenant, TenantId, UserId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::training_plans::PlanAuthor;
-use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
+use pierre_database::repositories::{
+    NewSubjectConversation, PlanOutlineInput, PlanWeekInput, SavePlanBundleParams,
+};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::ai_scope::{self, serve_over};
 use pierre_providers::intervals_icu_provider::default_config;
@@ -69,6 +74,7 @@ use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::implementations::endurance_workouts::{
     PrescribeWorkoutTool, WithdrawPrescribedWorkoutTool,
 };
+use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plan_push::PushTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
@@ -673,6 +679,28 @@ impl World {
             )
             .await
             .unwrap()
+            .id
+    }
+
+    /// The coach's thread about `athlete` in the coach's group — where the
+    /// plan card's Publish button acts.
+    async fn coach_thread(&self, athlete: Person) -> String {
+        self.repos()
+            .chat
+            .open_subject_conversation(&NewSubjectConversation {
+                user_id: &self.coach.id.to_string(),
+                tenant_id: self.coach.tenant,
+                title: "The athlete's plan",
+                model: "model",
+                agent_id: &self.coach_agent,
+                subject: ConversationSubject {
+                    athlete_user_id: athlete.id,
+                    group_id: self.group.id,
+                },
+            })
+            .await
+            .unwrap()
+            .conversation
             .id
     }
 
@@ -1540,6 +1568,20 @@ async fn an_athlete_reading_through_the_link_is_told_their_human_coach_pushes_it
     assert!(!refused, "{saved}");
     assert_eq!(saved["calendar"]["stale"], true, "{saved}");
     assert_eq!(saved["calendar"]["pushed_by"], "human_coach", "{saved}");
+    // The save's own push is the athlete's, and the link's calendar is the
+    // coach's to write: refused in the coach's terms, the save standing
+    // (carnet#1492).
+    assert_eq!(saved["calendar_push"]["status"], "not_pushed", "{saved}");
+    assert_eq!(
+        saved["calendar_push"]["reason"], "human_coach_writes_calendar",
+        "{saved}"
+    );
+    assert_eq!(
+        w.api.event_writes().len(),
+        3,
+        "only the coach's push wrote the calendar: {:?}",
+        w.api.event_writes()
+    );
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -1943,5 +1985,271 @@ async fn a_coachs_dispatched_calendar_writes_run_under_the_athletes_ai_consents(
         consents, None,
         "bug: a write of the caller's own calendar records no one else's consents: {:?}",
         own.result
+    );
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// A coach's publish puts the plan on the athlete's calendar (carnet#1492)
+// ════════════════════════════════════════════════════════════════════════
+
+/// `save_training_plan`'s arguments for the coach's draft of next week, of
+/// the athlete `athlete` names (or the thread's, when `None`): one tempo run
+/// on the Tuesday the athlete's own plan leaves empty.
+fn draft_args(athlete: Option<&str>) -> Value {
+    let monday = next_plan_monday();
+    let date = |offset: i64| {
+        (monday + Duration::days(offset))
+            .format("%Y-%m-%d")
+            .to_string()
+    };
+    let mut args = json!({
+        "weeks": [{
+            "week_start": date(0),
+            "focus": "the coach's draft",
+            "days": [{ "date": date(1), "sport": "run", "workout": "Draft tempo", "duration_min": 50, "intensity": "Z3" }],
+        }],
+    });
+    if let Some(name) = athlete {
+        args["athlete"] = json!(name);
+    }
+    args
+}
+
+/// The coach drafts `name`'s next week from their direct chat.
+async fn coach_drafts(w: &World, name: &str) {
+    let (saved, refused) = w.in_dm(&SaveTrainingPlanTool, draft_args(Some(name))).await;
+    assert!(!refused, "{saved}");
+    assert_eq!(saved["draft"], true, "{saved}");
+    assert!(
+        saved.get("calendar_push").is_none(),
+        "a draft reaches no calendar: {saved}"
+    );
+}
+
+/// The publish reply's push, asserted to have run and written `created`
+/// entries to `athlete`'s calendar alone, with the coach's key.
+fn assert_pushed(w: &World, published: &Value, athlete: &str, created: usize) {
+    assert_eq!(published["status"], "published", "{published}");
+    let push = &published["calendar_push"];
+    assert_eq!(push["status"], "pushed", "{published}");
+    assert_eq!(push["report"]["created"], created, "{published}");
+    assert_eq!(push["report"]["failed"], json!([]), "{published}");
+    assert!(
+        published.get("calendar").is_none(),
+        "nothing is pending once the push ran: {published}"
+    );
+    let writes = w.api.event_writes();
+    assert_eq!(writes.len(), created, "{writes:?}");
+    let path = format!("/api/v1/athlete/{athlete}/events");
+    assert!(
+        writes.iter().all(|h| h.method == "POST" && h.path == path),
+        "{writes:?}"
+    );
+}
+
+/// A coach's publish puts the plan it made live on the athlete's calendar,
+/// through the coach's key, with no second step, and says what it wrote.
+#[tokio::test]
+async fn a_coachs_publish_puts_the_published_plan_on_the_athletes_calendar() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    coach_drafts(&w, "Alex").await;
+    assert!(
+        w.api.event_calls().is_empty(),
+        "a draft reaches no calendar"
+    );
+
+    let (published, refused) = w
+        .in_dm(
+            &PublishTrainingPlanTool,
+            json!({ "athlete": "Alex", "action": "publish" }),
+        )
+        .await;
+    assert!(!refused, "{published}");
+    // The drafted Tuesday and its week's note. The athlete's own days of that
+    // week were replaced by the draft, so none of them goes out.
+    assert_pushed(&w, &published, "i201", 2);
+    assert!(
+        published["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("calendar too")),
+        "{published}"
+    );
+    let live = w.live(alex).await;
+    assert_eq!(live.len(), 2, "{live:?}");
+    assert!(
+        live.iter()
+            .any(|row| row.payload_json.contains("Draft tempo")),
+        "what went out is the plan just published: {live:?}"
+    );
+    assert!(
+        w.live(w.coach).await.is_empty(),
+        "bug: the publish's push wrote the coach's own calendar"
+    );
+}
+
+/// From the coach's thread bound to the athlete — where the Publish button
+/// acts — a publish naming no one pushes that athlete's calendar.
+#[tokio::test]
+async fn a_publish_from_the_athletes_thread_pushes_their_calendar() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    let thread = w.coach_thread(alex).await;
+
+    let (saved, refused) = CONVERSATION_ID
+        .scope(
+            Some(thread.clone()),
+            w.in_app(&SaveTrainingPlanTool, draft_args(None)),
+        )
+        .await;
+    assert!(!refused, "{saved}");
+    assert_eq!(saved["draft"], true, "{saved}");
+    let (published, refused) = CONVERSATION_ID
+        .scope(
+            Some(thread),
+            w.in_app(&PublishTrainingPlanTool, json!({ "action": "publish" })),
+        )
+        .await;
+    assert!(!refused, "{published}");
+    assert_pushed(&w, &published, "i201", 2);
+}
+
+/// The Publish button itself — `POST …/subject-plan/publish` — pushes the
+/// thread's athlete's calendar through the coach's key, never the coach's
+/// own, and its 200 carries what the push wrote.
+#[tokio::test]
+async fn the_publish_button_puts_the_plan_on_the_athletes_calendar() {
+    let w = World::new().await;
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    let thread = w.coach_thread(alex).await;
+    let (saved, refused) = CONVERSATION_ID
+        .scope(
+            Some(thread.clone()),
+            w.in_app(&SaveTrainingPlanTool, draft_args(None)),
+        )
+        .await;
+    assert!(!refused, "{saved}");
+
+    let coach = w
+        .repos()
+        .users
+        .get(w.coach.id, w.coach.tenant)
+        .await
+        .unwrap()
+        .expect("the coach's account reads back");
+    let auth = format!("Bearer {}", generate_test_token(&w.res, &coach).await);
+    let resp = AxumTestRequest::post(&format!(
+        "/api/chat/conversations/{thread}/subject-plan/publish"
+    ))
+    .header("authorization", &auth)
+    .json(&json!({ "overwrite_athlete_changes": false }))
+    .send(ChatRoutes::routes(Arc::clone(&w.res)))
+    .await;
+    let status = resp.status_code();
+    let body: Value = resp.json();
+    assert_eq!(status, StatusCode::OK, "the publish lands: {body}");
+    let push = &body["calendar_push"];
+    assert_eq!(push["status"], "pushed", "{body}");
+    assert_eq!(push["report"]["created"], 2, "{body}");
+    assert_eq!(push["report"]["failed"], json!([]), "{body}");
+    let writes = w.api.event_writes();
+    assert_eq!(writes.len(), 2, "{writes:?}");
+    assert!(
+        writes
+            .iter()
+            .all(|h| h.method == "POST" && h.path == "/api/v1/athlete/i201/events"),
+        "every write lands on the thread's athlete's calendar: {writes:?}"
+    );
+    assert!(
+        w.live(w.coach).await.is_empty(),
+        "bug: the Publish button's push wrote the coach's own calendar"
+    );
+}
+
+/// A publish whose push a gate refuses still lands, and the coach reads why:
+/// an athlete who never allowed calendar writes, and a publish over an
+/// external transport, which writes no one's calendar.
+#[tokio::test]
+async fn a_publish_whose_push_is_refused_still_lands_and_says_why() {
+    let w = World::new().await;
+    let (nora, _) = w
+        .athlete("Nora Noconsent", "i211", Some(json!("WRITE")), false)
+        .await;
+    w.plan(nora, TransportPolicy::AnyTransport).await;
+    coach_drafts(&w, "Nora").await;
+    let (published, refused) = w
+        .in_dm(
+            &PublishTrainingPlanTool,
+            json!({ "athlete": "Nora", "action": "publish" }),
+        )
+        .await;
+    assert!(!refused, "{published}");
+    assert_eq!(published["status"], "published", "{published}");
+    assert_eq!(
+        published["calendar_push"]["status"], "not_pushed",
+        "{published}"
+    );
+    assert_eq!(
+        published["calendar_push"]["reason"], "no_calendar_write_consent",
+        "{published}"
+    );
+    assert!(
+        published["message"]
+            .as_str()
+            .is_some_and(|message| message.contains("not put on")),
+        "{published}"
+    );
+    let live_plan = w
+        .repos()
+        .training_plans
+        .get_active_plan(&nora.tenant.to_string(), &nora.id.to_string())
+        .await
+        .unwrap()
+        .expect("the publish stands");
+    assert_eq!(published["plan_id"], live_plan.id.as_str(), "{published}");
+
+    let (alex, _) = w
+        .athlete("Alex Athlete", "i201", Some(json!("WRITE")), true)
+        .await;
+    w.plan(alex, TransportPolicy::AnyTransport).await;
+    coach_drafts(&w, "Alex").await;
+    let (published, refused) = serve_over(
+        Transport::McpHttp,
+        w.call(
+            &PublishTrainingPlanTool,
+            w.coach,
+            w.coach.tenant,
+            json!({ "athlete": "Alex", "action": "publish" }),
+        ),
+    )
+    .await;
+    assert!(!refused, "{published}");
+    assert_eq!(published["status"], "published", "{published}");
+    assert_eq!(
+        published["calendar_push"]["reason"], "external_transport",
+        "{published}"
+    );
+
+    assert!(
+        w.api.event_calls().is_empty(),
+        "no refused push reached a calendar: {:?}",
+        w.api.event_calls()
+    );
+    assert!(
+        w.live(nora).await.is_empty(),
+        "bug: a push refused for consent left a live ledger row"
+    );
+    assert!(
+        w.live(alex).await.is_empty(),
+        "bug: a push refused over an external transport left a live ledger row"
     );
 }
