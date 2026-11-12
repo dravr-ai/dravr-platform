@@ -22,11 +22,11 @@
 //! through the disconnect chokepoint, nothing at all (a deregistered athlete
 //! has no grant left to revoke).
 //!
-//! The grant is Garmin's one ongoing source (carnet#1386), so the worker is
-//! also where it is found dead: a download whose token path hands back no
-//! token (a refresh Garmin refused, nothing left to refresh with), and a
-//! permission change withdrawing what the grant exists for, flag the `garmin`
-//! connection ([`flag_needs_reauth`]), which the card reads as "Reconnect"
+//! The grant feeds Garmin's pushes beside the usr/pwd session the athlete
+//! may hold (carnet#1494), so the worker is also where it is found dead: a
+//! download whose token path hands back no token (a refresh Garmin refused,
+//! nothing left to refresh with), and a permission change withdrawing what
+//! the grant exists for, flag the `garmin` connection ([`flag_needs_reauth`]), which the card reads as "Reconnect"
 //! and the athlete is told once. The daily grant check (`grant_refresh`)
 //! flags the same way a grant that no push put to the test.
 

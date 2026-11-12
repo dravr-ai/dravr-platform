@@ -335,9 +335,8 @@ impl AuthService {
     /// For a read or write that must reach the backend it names whatever the
     /// athlete's read plan (`backend_resolver::read_plan`) serves first: a
     /// Strava webhook's and a first sync's read of the grant, which must never
-    /// start a scrape (carnet#1494), a calendar write already chosen by
-    /// capability, and the one-time history import of a usr/pwd session
-    /// (carnet#1386). Governed like
+    /// start a scrape (carnet#1494), and a calendar write already chosen by
+    /// capability. Governed like
     /// [`Self::create_authenticated_provider`].
     ///
     /// # Errors

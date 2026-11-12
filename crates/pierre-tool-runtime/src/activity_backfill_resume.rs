@@ -93,9 +93,9 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
         if resume_recorded_backfill(job, lease.clone(), attempts) {
             resumed += 1;
         } else {
-            // A run for the pair is in flight here — an ordinary backfill a
-            // history import adopted, say. Waiting on it must not spend the
-            // job's attempts, or the sweep reaps it before that run ends.
+            // A run for the pair is in flight here. Waiting on it must not
+            // spend the job's attempts, or the sweep reaps it before that run
+            // ends.
             release_claim(ledger.as_ref(), &lease).await;
         }
     }
