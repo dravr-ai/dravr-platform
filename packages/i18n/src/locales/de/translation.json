@@ -1686,7 +1686,13 @@
         "member": "Mitglied",
         "owner": "Eigentümer"
       },
-      "status_summary": "{0} — Statistiken:\n- Mitglieder: {1}\n- Aktiv: {2}\n- Peer-Sharing: {3}"
+      "status_summary": "{0} — Statistiken:\n- Mitglieder: {1}\n- Aktiv: {2}\n- Peer-Sharing: {3}",
+      "reads_header": "Zugriffe deines menschlichen Coaches auf deine Daten in {0}, neueste zuerst:",
+      "reads_line": "• {0} — {1}: {2} ({3})",
+      "reads_none": "{0}: Dein menschlicher Coach hat in den letzten {1} Monaten keine deiner Daten eingesehen.",
+      "reads_training": "Training",
+      "reads_wellness": "Wohlbefinden",
+      "reads_former_coach": "ein früherer menschlicher Coach"
     },
     "group-coach": {
       "description": "Den Dravr-Agenten dieser Gruppe festlegen oder ihren menschlichen Coach lösen"
@@ -1711,6 +1717,9 @@
     },
     "group-members": {
       "description": "Gruppenmitglieder auflisten"
+    },
+    "group-reads": {
+      "description": "Sieh, welche deiner Daten der menschliche Coach deiner Gruppe eingesehen hat, mit welchem Tool und wann"
     },
     "group-respond": {
       "description": "Festlegen, wann der Agent dieser Gruppe antwortet — auf jede Nachricht oder nur bei Erwähnung"
@@ -2832,6 +2841,15 @@
       "quoteRemove": "Zitat entfernen",
       "bubbleAria": "Diese Nachricht ist nur für dich und {{agent}} sichtbar",
       "quoteUnavailable": "Diese Nachricht kann nicht mehr für den Plan verwendet werden."
+    },
+    "readLog": {
+      "title": "Was dein Coach eingesehen hat",
+      "hint": "Jedes Mal, wenn der Agent deines menschlichen Coaches deine Daten liest, wird es hier {{months}} Monate lang aufgelistet.",
+      "empty": "Dein menschlicher Coach hat in den letzten {{months}} Monaten keine deiner Daten eingesehen.",
+      "training": "Training",
+      "wellness": "Wohlbefinden",
+      "formerCoach": "Ein früherer Coach",
+      "loadFailed": "Die Zugriffe deines Coaches konnten nicht geladen werden."
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. Gilt nur für diese Gruppe.",
@@ -4296,6 +4314,15 @@
     "trainingpeaksUsername": "TrainingPeaks-Benutzername",
     "sciotteConnectedDataReady": "Deine {{provider}}-Daten sind jetzt verfügbar",
     "sciotteProviderCoros": "COROS",
+    "sciotteTakeoverPrompt": "{{provider}} möchte prüfen, dass du kein Roboter bist. Schließe die Prüfung unten ab und tippe dann auf Anmelden.",
+    "sciotteTakeoverConnecting": "{{provider}} wird geöffnet…",
+    "sciotteTakeoverFinishing": "Deine Anmeldung bei {{provider}} wird abgeschlossen…",
+    "sciotteTakeoverPopupRefused": "Diese Option öffnet ein neues Fenster, was hier nicht funktioniert. Melde dich stattdessen mit deiner {{provider}}-E-Mail und deinem Passwort an.",
+    "sciotteTakeoverPageReset": "Dieser Link verlässt die {{provider}}-Anmeldung, deshalb haben wir dich zurückgebracht.",
+    "sciotteTakeoverEnded": "Das {{provider}}-Anmeldefenster wurde geschlossen. Versuche erneut, dich zu verbinden.",
+    "sciotteTakeoverOAuthOffer": "Lieber nicht? Schließe dieses Fenster, um {{provider}} auf andere Weise zu verbinden.",
+    "sciotteTakeoverKeyboard": "Tastatur anzeigen",
+    "sciotteTakeoverViewAria": "{{provider}}-Anmeldeseite",
     "sciotteCorosAccount": "COROS-Konto",
     "corosEmail": "COROS-E-Mail",
     "intervalsCredentialsHelp": "Deine Athleten-ID und deinen API-Schlüssel findest du in Intervals.icu: Öffne Settings und scrolle zu Developer Settings, fast ganz unten auf der Seite.",

@@ -1686,7 +1686,13 @@
         "member": "membro",
         "owner": "proprietário"
       },
-      "status_summary": "{0} — estatísticas:\n- Membros: {1}\n- Ativos: {2}\n- Partilha entre pares: {3}"
+      "status_summary": "{0} — estatísticas:\n- Membros: {1}\n- Ativos: {2}\n- Partilha entre pares: {3}",
+      "reads_header": "Consultas do teu treinador humano aos teus dados em {0}, das mais recentes às mais antigas:",
+      "reads_line": "• {0} — {1}: {2} ({3})",
+      "reads_none": "{0}: o teu treinador humano não consultou os teus dados nos últimos {1} meses.",
+      "reads_training": "treino",
+      "reads_wellness": "bem-estar",
+      "reads_former_coach": "um antigo treinador humano"
     },
     "group-coach": {
       "description": "Definir o agente Dravr deste grupo, ou desvincular o seu coach humano"
@@ -1711,6 +1717,9 @@
     },
     "group-members": {
       "description": "Listar os membros do grupo"
+    },
+    "group-reads": {
+      "description": "Vê que dados teus o treinador humano do teu grupo consultou, com que ferramenta e quando"
     },
     "group-respond": {
       "description": "Escolher quando o agente deste grupo responde — a cada mensagem, ou só quando é mencionado"
@@ -2832,6 +2841,15 @@
       "quoteRemove": "Remover a citação",
       "bubbleAria": "Esta mensagem só é visível para ti e para {{agent}}",
       "quoteUnavailable": "Esta mensagem já não pode ser usada para o plano."
+    },
+    "readLog": {
+      "title": "O que o teu treinador consultou",
+      "hint": "Sempre que o agente do teu treinador humano consulta os teus dados, fica registado aqui durante {{months}} meses.",
+      "empty": "O teu treinador humano não consultou os teus dados nos últimos {{months}} meses.",
+      "training": "treino",
+      "wellness": "bem-estar",
+      "formerCoach": "Um antigo treinador",
+      "loadFailed": "Não foi possível carregar as consultas do teu treinador."
     },
     "shareTraining": "Partilhar o meu treino com o meu coach",
     "shareTrainingHint": "O teu coach vê o teu treino, o teu plano e as tuas mensagens no chat deste grupo. Aplica-se apenas a este grupo.",
@@ -4296,6 +4314,15 @@
     "trainingpeaksUsername": "Nome de utilizador TrainingPeaks",
     "sciotteConnectedDataReady": "Os teus dados do {{provider}} já estão disponíveis",
     "sciotteProviderCoros": "COROS",
+    "sciotteTakeoverPrompt": "O {{provider}} quer confirmar que não és um robô. Conclui a verificação abaixo e depois toca em Iniciar sessão.",
+    "sciotteTakeoverConnecting": "A abrir o {{provider}}…",
+    "sciotteTakeoverFinishing": "A concluir o teu início de sessão no {{provider}}…",
+    "sciotteTakeoverPopupRefused": "Essa opção abre uma nova janela, o que não funciona aqui. Inicia sessão com o teu e-mail e a tua palavra-passe do {{provider}}.",
+    "sciotteTakeoverPageReset": "Essa ligação sai do início de sessão do {{provider}}, por isso trouxemos-te de volta.",
+    "sciotteTakeoverEnded": "A janela de início de sessão do {{provider}} fechou. Tenta ligar novamente.",
+    "sciotteTakeoverOAuthOffer": "Preferes não? Fecha esta janela para ligar o {{provider}} de outra forma.",
+    "sciotteTakeoverKeyboard": "Mostrar teclado",
+    "sciotteTakeoverViewAria": "Página de início de sessão do {{provider}}",
     "sciotteCorosAccount": "Conta COROS",
     "corosEmail": "E-mail COROS",
     "intervalsCredentialsHelp": "Encontra o teu ID de atleta e a tua chave de API no Intervals.icu: abre Settings e desce até Developer Settings, quase no fim da página.",

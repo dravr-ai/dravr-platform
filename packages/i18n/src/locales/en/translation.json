@@ -1686,7 +1686,13 @@
         "member": "member",
         "owner": "owner"
       },
-      "status_summary": "{0} stats:\n- Members: {1}\n- Active: {2}\n- Peer sharing: {3}"
+      "status_summary": "{0} stats:\n- Members: {1}\n- Active: {2}\n- Peer sharing: {3}",
+      "reads_header": "Your human coach's reads of your data in {0}, newest first:",
+      "reads_line": "• {0} — {1}: {2} ({3})",
+      "reads_none": "{0}: your human coach has not read your data in the last {1} months.",
+      "reads_training": "training",
+      "reads_wellness": "wellness",
+      "reads_former_coach": "a former human coach"
     },
     "group-coach": {
       "description": "Set this group's Dravr agent, or detach its human coach"
@@ -1711,6 +1717,9 @@
     },
     "group-members": {
       "description": "List group members"
+    },
+    "group-reads": {
+      "description": "See which of your data your group's human coach read, through which tool, and when"
     },
     "group-respond": {
       "description": "Set when this group's agent replies — every message, or only when mentioned"
@@ -2832,6 +2841,15 @@
       "quoteRemove": "Remove quote",
       "bubbleAria": "Only you and {{agent}} can see this message",
       "quoteUnavailable": "This message can no longer be used for the plan."
+    },
+    "readLog": {
+      "title": "What your coach read",
+      "hint": "Each time your human coach's agent reads your data, it is listed here for {{months}} months.",
+      "empty": "Your human coach has not read your data in the last {{months}} months.",
+      "training": "training",
+      "wellness": "wellness",
+      "formerCoach": "A former coach",
+      "loadFailed": "Your coach's reads could not be loaded."
     },
     "shareTraining": "Share my training with my coach",
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. Applies to this group only.",
@@ -4296,6 +4314,15 @@
     "trainingpeaksUsername": "TrainingPeaks username",
     "sciotteConnectedDataReady": "Your {{provider}} data is now available",
     "sciotteProviderCoros": "COROS",
+    "sciotteTakeoverPrompt": "{{provider}} wants to check you're not a robot. Complete the check below, then press Sign In.",
+    "sciotteTakeoverConnecting": "Opening {{provider}}…",
+    "sciotteTakeoverFinishing": "Finishing your {{provider}} sign-in…",
+    "sciotteTakeoverPopupRefused": "That option opens a new window, which doesn't work here. Sign in with your {{provider}} email and password instead.",
+    "sciotteTakeoverPageReset": "That link leaves the {{provider}} sign-in, so we brought you back to it.",
+    "sciotteTakeoverEnded": "The {{provider}} sign-in window closed. Try connecting again.",
+    "sciotteTakeoverOAuthOffer": "Rather not? Close this window to connect {{provider}} another way.",
+    "sciotteTakeoverKeyboard": "Show keyboard",
+    "sciotteTakeoverViewAria": "{{provider}} sign-in page",
     "sciotteCorosAccount": "COROS Account",
     "corosEmail": "COROS email",
     "intervalsCredentialsHelp": "Find your Athlete ID and API key in Intervals.icu: open Settings and scroll down to Developer Settings, near the bottom of the page.",
