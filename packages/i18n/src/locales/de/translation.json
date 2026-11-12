@@ -2891,6 +2891,82 @@
     "error": {
       "generic": "Dravr ist vorübergehend nicht verfügbar. Das Team wurde benachrichtigt — versuch es in ein paar Minuten erneut. (Ref: {0})"
     },
+    "envelope": {
+      "anchor": "Bezugswert: {0} {1}, {2}.",
+      "anchor_estimate": "etwa {0} (Schätzung)",
+      "anchor_label": {
+        "critical_power": "kritische Leistung",
+        "critical_speed": "kritische Geschwindigkeit",
+        "ftp": "FTP",
+        "map": "MAP",
+        "max_heart_rate": "maximale Herzfrequenz",
+        "threshold_heart_rate": "Schwellenherzfrequenz",
+        "threshold_speed": "Schwellentempo",
+        "vvo2max": "vVO2max"
+      },
+      "anchor_range": "etwa {0}–{1} (Schätzung)",
+      "day": "{0}: {1}",
+      "finding": {
+        "cycle_mean_floor": "Der Mittelwert aus Belastung und aktiver Pause liegt bei etwa {0} % der maximalen aeroben Intensität, unter {1} %: Bei so kurzen Wiederholungen folgt der Körper dem Mittelwert, das ist also keine VO2max-Arbeit mehr.",
+        "duration_ceiling": "{0} min liegen über der Obergrenze von {1} min dieser Einheitenfamilie.",
+        "fixed_pacing": "Ein festes Ziel unterdosiert trainierte Athleten bei diesen Wiederholungen; die getestete Dosis ist die härteste Belastung, die du über die ganze Serie wiederholen kannst.",
+        "gps_short_reps": "Die GPS-Geschwindigkeit ist bei so kurzen Wiederholungen unzuverlässig; lauf sie als Distanzen auf einer vermessenen Strecke oder auf dem Laufband.",
+        "hr_rep_target": "Die Herzfrequenz kann so kurze Wiederholungen nicht steuern; sie wird zur Kontrolle der Einheit, und die Wiederholungen laufen nach Gefühl.",
+        "insert_quality_cap": "{0} min über der ersten Schwelle sind mehr als die {1} min, die eine lockere Einheit enthalten darf.",
+        "left_purpose": "Diese Schritte trainieren eine andere Art von Arbeit als für die Einheit geplant.",
+        "map_without_definition": "Für deine MAP ist keine Definition hinterlegt (Rampenspitze, Leistung bei VO2peak oder extrapoliert), daher kann derselbe Prozentwert unterschiedliche Watt bedeuten.",
+        "on_intensity_window": "Eine Belastung mit {0} % der maximalen aeroben Intensität liegt außerhalb des getesteten Fensters für diese Wiederholungen (Grenze bei {1} %).",
+        "on_time_ceiling": "{0} min Belastung liegen über {1} min, außerhalb jeder Studie zu diesem Format.",
+        "on_time_floor": "{0} min Belastung liegen unter {1} min: eine geringe Dosis, deren Wirkung nur in der Allgemeinbevölkerung gezeigt ist.",
+        "one_to_one_long_rep": "Ein Verhältnis von 1:1 bei minutenlangen Wiederholungen bringt weniger Zeit nahe VO2max als 2:1 (60/30).",
+        "param_out_of_range": "Ein angegebener Wert ({0}) liegt außerhalb des getesteten Bereichs dieses Formats (Grenze {1}).",
+        "params_disagree_with_steps": "Die angegebenen Werte und die geschriebenen Schritte beschreiben unterschiedliche Einheiten.",
+        "ratio_ceiling": "Ein Belastungs-Pausen-Verhältnis von {0}:1 liegt über {1}:1; die meisten Athleten können eine solche Serie nicht im Zielbereich beenden.",
+        "ratio_floor": "Die Pause ist länger als die Belastung bei kurzen Wiederholungen mit {0} % der maximalen aeroben Intensität, unter {1} %: Die Einheit bleibt unterhalb der VO2max-Arbeit.",
+        "sport_not_offered": "Diese Einheitenfamilie hat keine Form für diese Sportart.",
+        "steady_ceiling": "Ein gleichmäßiger Abschnitt bei etwa {0} % der kritischen Leistung oder Geschwindigkeit liegt über der Obergrenze von {1} % dieser Familie.",
+        "true_tabata": "20 s mit {0} % und 10 s passiver Pause sind echtes Tabata: Arbeit an der anaeroben Kapazität.",
+        "under_dosed": "So kurze Wiederholungen über der Schwelle mit so viel Pause sind zu leicht für anaerobe Arbeit und zu zerstückelt für VO2max-Arbeit.",
+        "unknown_preset": "Das genannte Format gehört nicht zu dieser Einheitenfamilie.",
+        "work_range": "Belastungen von {0} s liegen außerhalb des getesteten Bereichs dieses Formats (Grenze bei {1} s)."
+      },
+      "heading": "So gespeichert, wie geschrieben – außerhalb dessen, was die Evidenz stützt:",
+      "param": {
+        "duration_minutes": "{0} min liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} min).",
+        "reps": "{0} Wiederholungen pro Serie liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1}).",
+        "rest_seconds": "Pausen von {0} s liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} s).",
+        "set_rest_seconds": "{0} s zwischen den Serien liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} s).",
+        "sets": "{0} Serien liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1}).",
+        "work_seconds": "Belastungen von {0} s liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} s)."
+      },
+      "purpose": {
+        "anaerobic_capacity": "Einheit für anaerobe Kapazität",
+        "brick": "Koppeleinheit",
+        "downhill": "Bergab-Einheit",
+        "endurance": "Ausdauereinheit",
+        "endurance_long": "lange Ausdauereinheit",
+        "mobility": "Mobilitätseinheit",
+        "neuromuscular": "neuromuskuläre Einheit",
+        "plyometric": "Plyometrie-Einheit",
+        "race_prep": "Wettkampfvorbereitung",
+        "race_specific": "wettkampfspezifische Einheit",
+        "recovery": "Regenerationseinheit",
+        "sprint": "Sprinteinheit",
+        "strength_aa": "Krafteinheit zur anatomischen Anpassung",
+        "strength_maint": "Krafterhaltungseinheit",
+        "strength_max": "Maximalkrafteinheit",
+        "sweet_spot": "Sweet-Spot-Einheit",
+        "tempo": "Tempoeinheit",
+        "threshold": "Schwelleneinheit",
+        "uphill": "Bergeinheit",
+        "vo2max_long": "VO2max-Einheit mit langen Intervallen",
+        "vo2max_short": "VO2max-Einheit mit kurzen Intervallen"
+      },
+      "relabelled": "Sie zählt jetzt als {0}.",
+      "source_athlete": "der eigene Wert des Athleten",
+      "source_from": "von {0}",
+      "source_own": "dein eigener Wert"
+    },
     "flavour": {
       "hvlit_foundation": "alles locker, viel davon, eine lange Einheit pro Woche",
       "norwegian_singles_subthreshold": "mehrere kontrollierte Einheiten knapp unter der Schwelle pro Woche, nach Tempo oder Puls",
@@ -3552,7 +3628,10 @@
         "coach": "von deinem menschlichen Coach gewählt",
         "athlete": "von dir gewählt"
       },
-      "alsoRacing": "Ebenfalls im Kalender"
+      "alsoRacing": "Ebenfalls im Kalender",
+      "envelope": {
+        "badge": "Außerhalb der Evidenz"
+      }
     },
     "limits": {
       "messagesPerDay": "Nachrichten / Tag",

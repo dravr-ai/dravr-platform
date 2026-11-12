@@ -2891,6 +2891,82 @@
     "error": {
       "generic": "O Dravr está temporariamente indisponível. A equipa foi notificada — tenta de novo em alguns minutos. (ref: {0})"
     },
+    "envelope": {
+      "anchor": "Referência: {0} {1}, {2}.",
+      "anchor_estimate": "cerca de {0} (estimativa)",
+      "anchor_label": {
+        "critical_power": "potência crítica",
+        "critical_speed": "velocidade crítica",
+        "ftp": "FTP",
+        "map": "PAM",
+        "max_heart_rate": "FC máxima",
+        "threshold_heart_rate": "FC de limiar",
+        "threshold_speed": "ritmo de limiar",
+        "vvo2max": "vVO2máx"
+      },
+      "anchor_range": "cerca de {0}–{1} (estimativa)",
+      "day": "{0}: {1}",
+      "finding": {
+        "cycle_mean_floor": "A média do esforço e da recuperação ativa fica em cerca de {0}% da intensidade aeróbia máxima, abaixo de {1}%: em repetições tão curtas o corpo segue a média, por isso já não é trabalho de VO2máx.",
+        "duration_ceiling": "{0} min passam do teto de {1} min desta família de sessões.",
+        "fixed_pacing": "Um alvo fixo subdoseia atletas treinados nestas repetições; a dose testada é o esforço mais duro que consegues repetir na série inteira.",
+        "gps_short_reps": "A velocidade de GPS não é fiável em repetições tão curtas; corre-as por distância num percurso medido ou na passadeira.",
+        "hr_rep_target": "A frequência cardíaca não consegue guiar repetições tão curtas; passa a ser um controlo da sessão, e as repetições vão pelo esforço.",
+        "insert_quality_cap": "{0} min acima do primeiro limiar passam dos {1} min que uma sessão leve pode ter.",
+        "left_purpose": "Estas etapas treinam um tipo de trabalho diferente do previsto para a sessão.",
+        "map_without_definition": "A tua PAM não tem definição registada (pico de rampa, potência no VO2pico ou extrapolada), por isso a mesma percentagem pode significar watts diferentes.",
+        "on_intensity_window": "Um esforço a {0}% da intensidade aeróbia máxima fica fora da janela testada para estas repetições (limite em {1}%).",
+        "on_time_ceiling": "{0} min de esforço passam de {1} min, fora de qualquer ensaio deste formato.",
+        "on_time_floor": "{0} min de esforço ficam abaixo de {1} min: uma dose baixa cujo efeito só foi mostrado na população geral.",
+        "one_to_one_long_rep": "Uma relação 1:1 em repetições de um minuto dá menos tempo perto do VO2máx do que uma 2:1 (60/30).",
+        "param_out_of_range": "Um valor indicado ({0}) está fora da faixa testada para este formato (limite {1}).",
+        "params_disagree_with_steps": "Os valores indicados e as etapas escritas descrevem sessões diferentes.",
+        "ratio_ceiling": "Uma relação esforço:descanso de {0}:1 está acima de {1}:1; a maioria dos atletas não consegue terminar uma série assim no alvo.",
+        "ratio_floor": "O descanso é mais longo do que o esforço em repetições curtas a {0}% da intensidade aeróbia máxima, abaixo de {1}%: a sessão fica abaixo do trabalho de VO2máx.",
+        "sport_not_offered": "Esta família de sessões não tem versão para este desporto.",
+        "steady_ceiling": "Um troço constante a cerca de {0}% da potência ou velocidade crítica passa do teto de {1}% desta família.",
+        "true_tabata": "20 s a {0}% com 10 s de descanso passivo é Tabata a sério: trabalho de capacidade anaeróbia.",
+        "under_dosed": "Repetições tão curtas acima do limiar, com tanto descanso, são fáceis demais para trabalho anaeróbio e fragmentadas demais para trabalho de VO2máx.",
+        "unknown_preset": "O formato indicado não faz parte desta família de sessões.",
+        "work_range": "Esforços de {0} s ficam fora da faixa testada para este formato (limite em {1} s)."
+      },
+      "heading": "Guardado tal como escrito, fora do que a evidência sustenta:",
+      "param": {
+        "duration_minutes": "{0} min ficam fora da faixa testada para este formato (limite {1} min).",
+        "reps": "{0} repetições por série ficam fora da faixa testada para este formato (limite {1}).",
+        "rest_seconds": "Recuperações de {0} s ficam fora da faixa testada para este formato (limite {1} s).",
+        "set_rest_seconds": "{0} s entre séries ficam fora da faixa testada para este formato (limite {1} s).",
+        "sets": "{0} séries ficam fora da faixa testada para este formato (limite {1}).",
+        "work_seconds": "Esforços de {0} s ficam fora da faixa testada para este formato (limite {1} s)."
+      },
+      "purpose": {
+        "anaerobic_capacity": "uma sessão de capacidade anaeróbia",
+        "brick": "um treino combinado (brick)",
+        "downhill": "uma sessão de descidas",
+        "endurance": "uma sessão de resistência",
+        "endurance_long": "uma sessão longa de resistência",
+        "mobility": "uma sessão de mobilidade",
+        "neuromuscular": "uma sessão neuromuscular",
+        "plyometric": "uma sessão de pliometria",
+        "race_prep": "uma preparação de prova",
+        "race_specific": "uma sessão específica de prova",
+        "recovery": "uma sessão de recuperação",
+        "sprint": "uma sessão de sprint",
+        "strength_aa": "uma sessão de força de adaptação anatómica",
+        "strength_maint": "uma sessão de manutenção de força",
+        "strength_max": "uma sessão de força máxima",
+        "sweet_spot": "uma sessão de sweet spot",
+        "tempo": "uma sessão de tempo",
+        "threshold": "uma sessão de limiar",
+        "uphill": "uma sessão de subidas",
+        "vo2max_long": "uma sessão de VO2máx em intervalos longos",
+        "vo2max_short": "uma sessão de VO2máx em intervalos curtos"
+      },
+      "relabelled": "Agora conta como {0}.",
+      "source_athlete": "o valor do próprio atleta",
+      "source_from": "de {0}",
+      "source_own": "o teu próprio valor"
+    },
     "flavour": {
       "hvlit_foundation": "tudo leve, muito volume, uma sessão longa por semana",
       "norwegian_singles_subthreshold": "várias sessões controladas mesmo abaixo do limiar por semana, por ritmo ou pulsação",
@@ -3552,7 +3628,10 @@
         "coach": "escolhida pelo teu treinador humano",
         "athlete": "escolhida por ti"
       },
-      "alsoRacing": "Também no calendário"
+      "alsoRacing": "Também no calendário",
+      "envelope": {
+        "badge": "Fora da evidência"
+      }
     },
     "limits": {
       "messagesPerDay": "Mensagens / dia",

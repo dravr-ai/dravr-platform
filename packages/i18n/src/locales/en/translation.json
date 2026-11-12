@@ -2891,6 +2891,82 @@
     "error": {
       "generic": "Dravr is temporarily unavailable. The team has been notified — please try again in a few minutes. (ref: {0})"
     },
+    "envelope": {
+      "anchor": "Anchor: {0} {1}, {2}.",
+      "anchor_estimate": "about {0} (estimate)",
+      "anchor_label": {
+        "critical_power": "critical power",
+        "critical_speed": "critical speed",
+        "ftp": "FTP",
+        "map": "MAP",
+        "max_heart_rate": "max heart rate",
+        "threshold_heart_rate": "threshold heart rate",
+        "threshold_speed": "threshold pace",
+        "vvo2max": "vVO2max"
+      },
+      "anchor_range": "about {0}–{1} (estimate)",
+      "day": "{0}: {1}",
+      "finding": {
+        "cycle_mean_floor": "The average of work and float is about {0}% of maximal aerobic intensity, below {1}%: on reps this short the body follows the average, so this is no longer VO2max work.",
+        "duration_ceiling": "{0} min is past this session family's {1}-min ceiling.",
+        "fixed_pacing": "A fixed target under-doses trained athletes on these reps; the tested dose is the hardest effort you can repeat for the whole set.",
+        "gps_short_reps": "GPS speed is unreliable on reps this short; run them as distances on a measured course or a treadmill.",
+        "hr_rep_target": "Heart rate can't steer reps this short; it becomes a check on the session, and the reps go by effort.",
+        "insert_quality_cap": "{0} min above the first threshold is more than the {1} min an easy session may hold.",
+        "left_purpose": "These steps train a different kind of work than the session was planned as.",
+        "map_without_definition": "Your MAP has no definition on file (ramp peak, power at VO2peak, or extrapolated), so the same percentage can mean different watts.",
+        "on_intensity_window": "Work at {0}% of maximal aerobic intensity sits outside the tested window for these reps (edge at {1}%).",
+        "on_time_ceiling": "{0} min of work is above {1} min, outside any trial of this format.",
+        "on_time_floor": "{0} min of work is below {1} min: a low dose whose effect is shown only in the general population.",
+        "one_to_one_long_rep": "1:1 work:rest on minute-long reps gives less time near VO2max than 2:1 (60/30).",
+        "param_out_of_range": "A stated value ({0}) is outside this format's tested range (limit {1}).",
+        "params_disagree_with_steps": "The stated values and the written steps describe different sessions.",
+        "ratio_ceiling": "A work:rest ratio of {0}:1 is above {1}:1; most athletes can't finish such a set at the target.",
+        "ratio_floor": "Rest is longer than work on short reps at {0}% of maximal aerobic intensity, below {1}%: the session stays below VO2max work.",
+        "sport_not_offered": "This session family has no form for this sport.",
+        "steady_ceiling": "A steady segment at about {0}% of critical power or speed is past this family's {1}% ceiling.",
+        "true_tabata": "20 s at {0}% with 10 s of passive rest is true Tabata: anaerobic-capacity work.",
+        "under_dosed": "Reps this short above threshold, with this much rest, are too easy for anaerobic work and too broken up for VO2max work.",
+        "unknown_preset": "The format named isn't one this session family holds.",
+        "work_range": "Work bouts of {0} s sit outside this format's tested band (edge at {1} s)."
+      },
+      "heading": "Saved as written, outside what the evidence supports:",
+      "param": {
+        "duration_minutes": "{0} min is outside this format's tested range (limit {1} min).",
+        "reps": "{0} reps per set is outside this format's tested range (limit {1}).",
+        "rest_seconds": "Recoveries of {0} s are outside this format's tested range (limit {1} s).",
+        "set_rest_seconds": "{0} s between sets is outside this format's tested range (limit {1} s).",
+        "sets": "{0} sets is outside this format's tested range (limit {1}).",
+        "work_seconds": "Work bouts of {0} s are outside this format's tested range (limit {1} s)."
+      },
+      "purpose": {
+        "anaerobic_capacity": "anaerobic-capacity work",
+        "brick": "a brick session",
+        "downhill": "downhill work",
+        "endurance": "endurance work",
+        "endurance_long": "long endurance work",
+        "mobility": "mobility work",
+        "neuromuscular": "neuromuscular work",
+        "plyometric": "plyometric work",
+        "race_prep": "race preparation",
+        "race_specific": "race-specific work",
+        "recovery": "recovery work",
+        "sprint": "sprint work",
+        "strength_aa": "anatomical-adaptation strength work",
+        "strength_maint": "strength maintenance work",
+        "strength_max": "maximal strength work",
+        "sweet_spot": "sweet-spot work",
+        "tempo": "tempo work",
+        "threshold": "threshold work",
+        "uphill": "uphill work",
+        "vo2max_long": "long-interval VO2max work",
+        "vo2max_short": "short-interval VO2max work"
+      },
+      "relabelled": "It now counts as {0}.",
+      "source_athlete": "the athlete's own value",
+      "source_from": "from {0}",
+      "source_own": "your own value"
+    },
     "flavour": {
       "hvlit_foundation": "all easy, lots of it, one long session a week",
       "norwegian_singles_subthreshold": "several controlled just-below-threshold sessions a week, by pace or heart rate",
@@ -3552,7 +3628,10 @@
         "coach": "chosen by your human coach",
         "athlete": "chosen by you"
       },
-      "alsoRacing": "Also racing"
+      "alsoRacing": "Also racing",
+      "envelope": {
+        "badge": "Outside the evidence"
+      }
     },
     "limits": {
       "messagesPerDay": "Messages / day",

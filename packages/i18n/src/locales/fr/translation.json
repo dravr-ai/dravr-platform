@@ -2891,6 +2891,82 @@
     "error": {
       "generic": "Dravr est temporairement indisponible. L'équipe a été notifiée — réessaie dans quelques minutes. (ref: {0})"
     },
+    "envelope": {
+      "anchor": "Référence : {0} {1}, {2}.",
+      "anchor_estimate": "environ {0} (estimation)",
+      "anchor_label": {
+        "critical_power": "puissance critique",
+        "critical_speed": "vitesse critique",
+        "ftp": "FTP",
+        "map": "PMA",
+        "max_heart_rate": "FC max",
+        "threshold_heart_rate": "FC au seuil",
+        "threshold_speed": "allure seuil",
+        "vvo2max": "VMA"
+      },
+      "anchor_range": "environ {0}–{1} (estimation)",
+      "day": "{0} : {1}",
+      "finding": {
+        "cycle_mean_floor": "La moyenne de l'effort et de la récupération active est d'environ {0} % de l'intensité aérobie maximale, sous {1} % : sur des répétitions aussi courtes, le corps suit la moyenne, ce n'est donc plus du travail à VO2max.",
+        "duration_ceiling": "{0} min dépassent le plafond de {1} min de cette famille de séances.",
+        "fixed_pacing": "Une cible fixe sous-dose les athlètes entraînés sur ces répétitions ; la dose testée est l'effort le plus dur que tu peux répéter sur toute la série.",
+        "gps_short_reps": "La vitesse GPS n'est pas fiable sur des répétitions aussi courtes ; cours-les en distance sur un parcours mesuré ou sur tapis.",
+        "hr_rep_target": "La fréquence cardiaque ne peut pas guider des répétitions aussi courtes ; elle devient un contrôle de la séance et les répétitions se font à l'effort.",
+        "insert_quality_cap": "{0} min au-dessus du premier seuil, c'est plus que les {1} min qu'une séance facile peut contenir.",
+        "left_purpose": "Ces étapes entraînent un autre type de travail que celui prévu pour la séance.",
+        "map_without_definition": "Ta PMA n'a pas de définition enregistrée (pic de rampe, puissance au VO2pic ou extrapolée) : le même pourcentage peut donc correspondre à des watts différents.",
+        "on_intensity_window": "Un effort à {0} % de l'intensité aérobie maximale sort de la fenêtre testée pour ces répétitions (limite à {1} %).",
+        "on_time_ceiling": "{0} min d'effort dépassent {1} min, hors de tout essai de ce format.",
+        "on_time_floor": "{0} min d'effort restent sous {1} min : une faible dose dont l'effet n'est montré que dans la population générale.",
+        "one_to_one_long_rep": "Un rapport 1:1 sur des répétitions d'une minute donne moins de temps près de VO2max qu'un 2:1 (60/30).",
+        "param_out_of_range": "Une valeur indiquée ({0}) sort de la plage testée pour ce format (limite {1}).",
+        "params_disagree_with_steps": "Les valeurs indiquées et les étapes écrites décrivent deux séances différentes.",
+        "ratio_ceiling": "Un rapport effort/récupération de {0}:1 dépasse {1}:1 ; la plupart des athlètes ne peuvent pas terminer une telle série à la cible.",
+        "ratio_floor": "La récupération dure plus que l'effort sur des répétitions courtes à {0} % de l'intensité aérobie maximale, sous {1} % : la séance reste en deçà du travail à VO2max.",
+        "sport_not_offered": "Cette famille de séances n'a pas de version pour ce sport.",
+        "steady_ceiling": "Un segment régulier à environ {0} % de la puissance ou de la vitesse critique dépasse le plafond de {1} % de cette famille.",
+        "true_tabata": "20 s à {0} % avec 10 s de récupération passive, c'est du vrai Tabata : du travail de capacité anaérobie.",
+        "under_dosed": "Des répétitions aussi courtes au-dessus du seuil, avec autant de récupération, sont trop faciles pour du travail anaérobie et trop morcelées pour du travail à VO2max.",
+        "unknown_preset": "Le format indiqué ne fait pas partie de cette famille de séances.",
+        "work_range": "Des efforts de {0} s sortent de la plage testée pour ce format (limite à {1} s)."
+      },
+      "heading": "Enregistré tel quel, en dehors de ce que les données probantes appuient :",
+      "param": {
+        "duration_minutes": "{0} min sortent de la plage testée pour ce format (limite {1} min).",
+        "reps": "{0} répétitions par série sortent de la plage testée pour ce format (limite {1}).",
+        "rest_seconds": "Des récupérations de {0} s sortent de la plage testée pour ce format (limite {1} s).",
+        "set_rest_seconds": "{0} s entre les séries sortent de la plage testée pour ce format (limite {1} s).",
+        "sets": "{0} séries sortent de la plage testée pour ce format (limite {1}).",
+        "work_seconds": "Des efforts de {0} s sortent de la plage testée pour ce format (limite {1} s)."
+      },
+      "purpose": {
+        "anaerobic_capacity": "une séance de capacité anaérobie",
+        "brick": "un enchaînement",
+        "downhill": "une séance de descente",
+        "endurance": "une séance d'endurance",
+        "endurance_long": "une sortie longue d'endurance",
+        "mobility": "une séance de mobilité",
+        "neuromuscular": "une séance neuromusculaire",
+        "plyometric": "une séance de pliométrie",
+        "race_prep": "une préparation de course",
+        "race_specific": "une séance spécifique à la course",
+        "recovery": "une séance de récupération",
+        "sprint": "une séance de sprint",
+        "strength_aa": "une séance de renforcement d'adaptation anatomique",
+        "strength_maint": "une séance d'entretien de la force",
+        "strength_max": "une séance de force maximale",
+        "sweet_spot": "une séance de sweet spot",
+        "tempo": "une séance de tempo",
+        "threshold": "une séance au seuil",
+        "uphill": "une séance en côte",
+        "vo2max_long": "une séance de VO2max en intervalles longs",
+        "vo2max_short": "une séance de VO2max en intervalles courts"
+      },
+      "relabelled": "Elle compte désormais comme {0}.",
+      "source_athlete": "la valeur propre de l'athlète",
+      "source_from": "de {0}",
+      "source_own": "ta propre valeur"
+    },
     "flavour": {
       "hvlit_foundation": "tout en facile, beaucoup, avec une longue sortie par semaine",
       "norwegian_singles_subthreshold": "plusieurs séances contrôlées juste sous le seuil chaque semaine, à l'allure ou au cardio",
@@ -3552,7 +3628,10 @@
         "coach": "choisie par ton coach humain",
         "athlete": "choisie par toi"
       },
-      "alsoRacing": "Aussi au calendrier"
+      "alsoRacing": "Aussi au calendrier",
+      "envelope": {
+        "badge": "Hors des données probantes"
+      }
     },
     "limits": {
       "messagesPerDay": "Messages / jour",
