@@ -42,7 +42,8 @@
 # (prod-src-scan.sh, ADR-027).
 #
 # Exits 2 — never a pass — when a file or definition the rules anchor on is
-# missing, or a scan cannot run.
+# missing, or a scan cannot run. Every pattern is ripgrep's default engine:
+# CI installs ripgrep from apt, whose PCRE2 support this gate does not assume.
 #
 # Usage: check-history-walk-single-source.sh [ROOT]   (ROOT defaults to the repo root)
 #        check-history-walk-single-source.sh --self-test
@@ -121,7 +122,7 @@ scan() {
 # reading as an empty match list.
 anchor() { # file pattern what
     local found
-    found="$(scan -P "$2" "$1")"
+    found="$(scan "$2" "$1")"
     if [ -z "$found" ]; then
         echo -e "${RED}❌ $1 no longer defines $3: the rule this gate guards moved${NC}" >&2
         exit 2
@@ -150,7 +151,7 @@ outside() { # file-to-drop lines
 }
 
 # 1. Nothing detached from the budgeted read.
-spawns="$(scan -P '\bspawn(_blocking|_local)?\b' "$BUDGETED_READ")"
+spawns="$(scan '\bspawn(_blocking|_local)?\b' "$BUDGETED_READ")"
 report "budgeted_read.rs spawns a task" "$spawns" \
     "Work the read cannot finish inside its budget is a durable job (live read or walk)."
 
@@ -161,7 +162,7 @@ report "budgeted_read.rs spawns a task" "$spawns" \
 # never a `'a, …, 'b` lifetime list). What is left must hold no identifier
 # containing `history_import` or `HistoryImport`, nor one opening with
 # `HISTORY_IMPORT`.
-candidates="$(scan -P -g '*.rs' '(?i)history_?import' crates)"
+candidates="$(scan -g '*.rs' '(?i)history_?import' crates)"
 imports="$(printf '%s\n' "$candidates" | sed '/^$/d' | perl -ne '
     my ($location, $code) = /^([^:]+:\d+:)(.*)$/s or next;
     $code =~ s/"(?:[^"\\]|\\.)*"//g;
@@ -179,7 +180,7 @@ report "history_keys is named" "$keys" \
     "Read the keys from pierre_services::training_history_read::history_store_keys."
 
 # 4. Coverage types outside the allowed (name, file) pairs.
-declared="$(scan -o -P -g '*.rs' '\b(?:struct|enum|type|trait|union)\s+\K\w*Coverage\w*' crates)"
+declared="$(scan -o -r '$1' -g '*.rs' '\b(?:struct|enum|type|trait|union)\s+(\w*Coverage\w*)' crates)"
 stray=""
 while IFS= read -r hit; do
     [ -z "$hit" ] && continue
@@ -199,12 +200,12 @@ report "a coverage type beside pierre_core::models::Coverage" "$stray" \
     "without 'Coverage', or a listed (name, file) pair with its reason in this gate."
 
 # 5. One history source order, one live-read order.
-history_order="$(scan -P -g '*.rs' '\b(fn\s+(history_source_order|history_sources_for|history_store_keys|walk_source)|(struct|enum)\s+(HistorySource|HistorySourceRole))\b' crates)"
+history_order="$(scan -g '*.rs' '\b(fn\s+(history_source_order|history_sources_for|history_store_keys|walk_source)|(struct|enum)\s+(HistorySource|HistorySourceRole))\b' crates)"
 report "the history source order is defined outside $SOURCE_ORDER" \
     "$(outside "$SOURCE_ORDER" "$history_order")" \
     "There is one order the backends holding a provider's history come in."
 
-plan_types="$(scan -P -g '*.rs' '\b(struct|enum|type)\s+ReadPlan\b' crates)"
+plan_types="$(scan -g '*.rs' '\b(struct|enum|type)\s+ReadPlan\b' crates)"
 report "the live-read order is defined outside $RESOLVER" \
     "$(outside "$RESOLVER" "$plan_types")" \
     "A live read follows backend_resolver::read_plan (carnet#1494)."
@@ -212,11 +213,13 @@ report "the live-read order is defined outside $RESOLVER" \
 shopt -s nullglob
 SRC_DIRS=(crates/*/src)
 shopt -u nullglob
-built="$(bash "$SCAN" '(?<!impl )(?<!for )\bReadPlan\s*\{|->\s*ReadPlan\b' -P "${SRC_DIRS[@]}")"
+# A literal or a bare return type; an `impl … ReadPlan {` block is neither.
+literals="$(bash "$SCAN" '\bReadPlan\s*\{|->\s*ReadPlan\b' "${SRC_DIRS[@]}")"
+built="$(printf '%s\n' "$literals" | grep -vE '\b(impl|for)\s+ReadPlan\s*\{' || true)"
 report "a ReadPlan is built outside $RESOLVER" "$(outside "$RESOLVER" "$built")" \
     "Ask backend_resolver::read_plan for the athlete's plan; never assemble one."
 
-orders="$(bash "$SCAN" '\bfn\s+\w*(source_order|sources_for|read_order|store_keys)\w*\b' -P "${SRC_DIRS[@]}")"
+orders="$(bash "$SCAN" '\bfn\s+\w*(source_order|sources_for|read_order|store_keys)\w*\b' "${SRC_DIRS[@]}")"
 report "a second source or read order is defined" \
     "$(outside "$SOURCE_ORDER" "$(outside "$RESOLVER" "$orders")")" \
     "History reads history_source_order; live reads read_plan. There is no third."

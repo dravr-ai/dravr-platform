@@ -75,6 +75,9 @@ pub async fn depth(runtime: &R, provider: &str) -> bool {
     true
 }
 async fn read_plan(plan: &TrainingPlanRead) -> AppResult<Option<Plan>> { plan.load().await }
+impl fmt::Display for ReadPlan {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result { write!(f, "{}", self.primary) }
+}
 RS
     cat > "$WORK/root/$SUITE" <<'RS'
 const SEED: &str = "INSERT INTO activity_backfill_jobs (kind) VALUES ('history_import')";
@@ -95,7 +98,7 @@ echo "check-history-walk-single-source.test.sh"
 scaffold
 code="$(run)"
 if [ "$code" -eq 0 ] && grep -q "one history source order and one live-read order" "$WORK/out"; then
-    pass "one order of each, one Coverage, quoted wire values and a training-plan read_plan pass"
+    pass "one order of each, one Coverage, quoted wire values, a training-plan read_plan and an impl for ReadPlan pass"
 else
     fail "a clean tree should pass (exit $code)"; sed 's/^/       /' "$WORK/out"
 fi
