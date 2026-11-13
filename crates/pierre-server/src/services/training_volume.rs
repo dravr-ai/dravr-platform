@@ -112,8 +112,8 @@ pub fn day_start_utc(date: NaiveDate, zone: Tz) -> DateTime<Utc> {
 /// first one `coverage` vouches for to the week of `today`, in `zone`: the
 /// window's start when it is complete, the week of its `trustworthy_from`
 /// when the stored history (or the read) stops short of it, none when
-/// nothing is stored. A session outside those weeks, or after `today`, is
-/// left out.
+/// nothing is stored or an incomplete read names no such day. A session
+/// outside those weeks, or after `today`, is left out.
 #[must_use]
 pub fn volume_from_sessions(
     today: NaiveDate,
@@ -122,27 +122,24 @@ pub fn volume_from_sessions(
     coverage: &Coverage,
 ) -> TrainingVolume {
     let opens = window_start(today);
+    // An incomplete read vouches only from the day it names, and for no week
+    // when it names none: nothing stored, or a read that stopped short
+    // without saying where.
     let first_week = match coverage.completeness.reason() {
-        Some(IncompleteReason::NoStoredActivities) => {
-            return TrainingVolume {
-                today,
-                weeks: Vec::new(),
-                garmin_contribution: None,
-            }
-        }
-        None => opens,
+        None => Some(opens),
+        Some(IncompleteReason::NoStoredActivities) => None,
         Some(_) => coverage
             .trustworthy_from
-            .map_or(opens, |day| monday_of(day).max(opens)),
+            .map(|day| monday_of(day).max(opens)),
     };
     let last_week = monday_of(today);
-    if first_week > last_week {
+    let Some(first_week) = first_week.filter(|first| *first <= last_week) else {
         return TrainingVolume {
             today,
             weeks: Vec::new(),
             garmin_contribution: None,
         };
-    }
+    };
 
     let mut totals: BTreeMap<(NaiveDate, String), SportVolume> = BTreeMap::new();
     for session in sessions {
@@ -386,6 +383,32 @@ mod tests {
     fn nothing_stored_answers_no_weeks() {
         let volume = volume_from_sessions(today(), Tz::UTC, &[], &nothing());
         assert_eq!(volume.weeks, []);
+    }
+
+    /// A read that stopped short of the window without naming the first day
+    /// it stands behind vouches for no week: none is summed as if whole.
+    #[test]
+    fn an_incomplete_read_naming_no_first_day_answers_no_weeks() {
+        let capped = Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::ReadCapped),
+            window: CoverageWindow::default(),
+            trustworthy_from: None,
+            pending: None,
+        };
+        let sessions = [session(
+            "a",
+            SportType::Run,
+            at(ymd(2026, 10, 5), 7),
+            3_600,
+            Some(10_000.0),
+            None,
+        )];
+        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, &capped);
+        assert_eq!(
+            volume.weeks,
+            [],
+            "bug: an incomplete read with no vouched day was summed over the whole window"
+        );
     }
 
     #[test]
