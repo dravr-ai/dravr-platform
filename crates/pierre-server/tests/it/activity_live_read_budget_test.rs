@@ -1099,3 +1099,57 @@ async fn an_ask_beside_a_read_owed_elsewhere_waits_for_its_rows() {
         "bug: with nothing cached the ask waits for the read owed elsewhere, not an empty window"
     );
 }
+
+/// The read a second ask joined ends without rows — its session expired —
+/// and nothing is cached. The ask does not answer the empty window: it reads
+/// for itself, through the provider its turn authenticated, which the join
+/// handed back.
+#[tokio::test]
+async fn a_joined_ask_whose_read_ends_without_rows_reads_for_itself() {
+    let (runtime, user_id, tenant_id) = runtime_and_user().await;
+    let gate = Arc::new(Notify::new());
+    let mut expired = gated(&gate, Vec::new());
+    expired.expired = true;
+    let first_runtime = Arc::clone(&runtime);
+    let first = tokio::spawn(async move {
+        read_live_window_within_budget(
+            &first_runtime,
+            expired,
+            asked(user_id, tenant_id, "conv-1", "msg-1"),
+            BUDGET,
+        )
+        .await
+    });
+    sleep(StdDuration::from_millis(100)).await;
+
+    let release = Arc::clone(&gate);
+    tokio::spawn(async move {
+        sleep(StdDuration::from_millis(400)).await;
+        release.notify_one();
+    });
+    let own = Arc::new(Notify::new());
+    own.notify_one();
+    let second = timeout(
+        StdDuration::from_secs(5),
+        read_live_window_within_budget(
+            &runtime,
+            gated(&own, vec![activity("mine", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-2"),
+            StdDuration::from_secs(10),
+        ),
+    )
+    .await
+    .expect("bug: the joined ask never answered");
+    assert_eq!(
+        answer_of(second),
+        Answer::Answered(vec!["mine".to_owned()]),
+        "bug: once the joined read ended without rows, the ask reads for itself"
+    );
+    let BudgetedRead::Answered { read, .. } = first.await.unwrap() else {
+        panic!("the first turn waited for its own read");
+    };
+    assert!(
+        read.is_err_and(|e| e.provider_auth_required_provider().is_some()),
+        "the first read found its session expired"
+    );
+}
