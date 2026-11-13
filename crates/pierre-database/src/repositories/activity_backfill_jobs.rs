@@ -233,6 +233,27 @@ pub enum BackfillJobState {
     Walked,
 }
 
+/// Whether an attempt holds an owed row's lease right now.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JobLeaseState {
+    /// A live attempt holds the lease: the job is running.
+    Leased,
+    /// The row is owed but no attempt holds it: a failed attempt gave its
+    /// lease back, or the one that held it died. Nothing runs it until the
+    /// resume sweep, or the next ask of a live read, takes it.
+    Idle,
+}
+
+/// What the ledger holds for one history walk row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HistoryWalkRowState {
+    /// Owed, or how it ended.
+    pub state: BackfillJobState,
+    /// The API grant the walk reads once its session handed off
+    /// ([`WalkHandOff`]); `None` while it reads the key it is filed under.
+    pub walk_backend: Option<String>,
+}
+
 /// The `outcome` an ended row carries in [`BackfillJobState::Incomplete`].
 const OUTCOME_INCOMPLETE: &str = "incomplete";
 
@@ -318,6 +339,48 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// attempt the claim counted is returned, so waiting on that run never
     /// spends the job's attempts. `false` when this lease no longer holds it.
     async fn release_backfill_job_claim(&self, lease: &JobLease) -> AppResult<bool>;
+
+    /// A failed attempt gives its lease back and keeps the attempt it
+    /// counted: the row stays owed for the resume sweep's bounded retries,
+    /// but reads [`JobLeaseState::Idle`] at once instead of running for the
+    /// rest of a lease nothing holds. `false` when this lease no longer
+    /// holds the row.
+    async fn release_backfill_job_lease(&self, lease: &JobLease) -> AppResult<bool>;
+
+    /// Take the [`BackfillJobKind::LiveRead`] owed for `ask`'s
+    /// `(user_id, provider)` in its tenant when no attempt holds it at
+    /// `ask.created_at_ms` ([`JobLeaseState::Idle`]): lease it under `ask`'s
+    /// token until `ask.leased_until_ms`, read `ask`'s window, and count one
+    /// more attempt. The follow-up moves to `ask` when it has a
+    /// conversation; an ask with none leaves the row bound to the ask it was
+    /// owed to. Returns the lease and the attempts it now counts; `None`
+    /// when an attempt holds the row, or none is owed in the tenant.
+    async fn take_over_idle_live_read(
+        &self,
+        ask: &ActivityBackfillJobRow,
+    ) -> AppResult<Option<(JobLease, i64)>>;
+
+    /// Whether an attempt holds the lease of the owed `kind` job for
+    /// `(user_id, provider)` in `tenant_id` at `now_ms`; `None` when no job
+    /// of the kind is owed.
+    async fn backfill_job_lease_state(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        kind: BackfillJobKind,
+        now_ms: i64,
+    ) -> AppResult<Option<JobLeaseState>>;
+
+    /// The history walk row filed under `(user_id, provider)` in
+    /// `tenant_id`: its state and the grant it reads once handed off, or
+    /// `None` when the ledger holds none.
+    async fn history_walk_row(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<HistoryWalkRowState>>;
 
     /// A step of a job that walks down its window landed: add `step` to the
     /// row's [`JobProgress`] and keep the row owed for the next step, read
@@ -502,6 +565,33 @@ pub(crate) const RELEASE_BACKFILL_JOB_CLAIM_SQL: &str = "UPDATE activity_backfil
      SET leased_until_ms = 0, attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END, \
          lease_token = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
+
+/// Gives a failed attempt's lease back, keeping the attempt it counted.
+pub(crate) const RELEASE_BACKFILL_JOB_LEASE_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET leased_until_ms = 0, lease_token = NULL \
+     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
+
+/// Leases an owed live read no attempt holds to a new ask, in one
+/// statement: a resume sweep claiming the same row at the same instant
+/// either lands first (the row is leased, and this matches nothing) or
+/// after (and finds it leased). Same tenant rule as [`RECORD_LIVE_READ_SQL`].
+pub(crate) const TAKE_OVER_IDLE_LIVE_READ_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET after_ts = $5, before_ts = $6, fetch_limit = $7, \
+         conversation_id = COALESCE($8, conversation_id), \
+         turn_id = CASE WHEN $8 IS NULL THEN turn_id ELSE $9 END, \
+         asked_message_id = CASE WHEN $8 IS NULL THEN asked_message_id ELSE $10 END, \
+         leased_until_ms = $11, lease_token = $12, attempts = attempts + 1 \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
+       AND outcome IS NULL AND leased_until_ms <= $13 \
+     RETURNING id, attempts";
+
+pub(crate) const BACKFILL_JOB_LEASE_SQL: &str =
+    "SELECT leased_until_ms FROM activity_backfill_jobs \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 AND outcome IS NULL";
+
+pub(crate) const HISTORY_WALK_ROW_SQL: &str = "SELECT outcome, walk_backend \
+     FROM activity_backfill_jobs \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
 
 /// Adds a landed step to the progress and releases the row for the next
 /// step, below where this one reached.
@@ -828,6 +918,119 @@ macro_rules! impl_activity_backfill_job_repository {
                         AppError::database(format!("Failed to release backfill job claim: {e}"))
                     })?;
                 Ok(released.rows_affected() == 1)
+            }
+
+            async fn release_backfill_job_lease(&self, lease: &JobLease) -> AppResult<bool> {
+                let released = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::RELEASE_BACKFILL_JOB_LEASE_SQL,
+                )
+                .bind(&lease.id)
+                .bind(&lease.token)
+                .execute(self.pool())
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to release backfill job lease: {e}"))
+                })?;
+                Ok(released.rows_affected() == 1)
+            }
+
+            async fn take_over_idle_live_read(
+                &self,
+                ask: &ActivityBackfillJobRow,
+            ) -> AppResult<Option<(JobLease, i64)>> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to take over an idle live read: {e}"))
+                };
+                let Some(token) = ask.lease_token.clone() else {
+                    return Ok(None);
+                };
+                let row = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::TAKE_OVER_IDLE_LIVE_READ_SQL,
+                )
+                .bind(ask.user_id.to_string())
+                .bind(ask.tenant_id)
+                .bind(&ask.provider)
+                .bind(BackfillJobKind::LiveRead.as_str())
+                .bind(ask.after_ts)
+                .bind(ask.before_ts)
+                .bind(ask.fetch_limit)
+                .bind(&ask.conversation_id)
+                .bind(&ask.turn_id)
+                .bind(&ask.asked_message_id)
+                .bind(ask.leased_until_ms)
+                .bind(&token)
+                .bind(ask.created_at_ms)
+                .fetch_optional(self.pool())
+                .await
+                .map_err(failed)?;
+                row.map(|row| {
+                    let id: String = row.try_get("id").map_err(failed)?;
+                    let attempts: i64 = row.try_get("attempts").map_err(failed)?;
+                    Ok((JobLease { id, token }, attempts))
+                })
+                .transpose()
+            }
+
+            async fn backfill_job_lease_state(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                kind: BackfillJobKind,
+                now_ms: i64,
+            ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::JobLeaseState>>
+            {
+                use $crate::repositories::activity_backfill_jobs::JobLeaseState;
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to read backfill job lease: {e}"))
+                };
+                let row =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::BACKFILL_JOB_LEASE_SQL)
+                        .bind(user_id.to_string())
+                        .bind(tenant_id)
+                        .bind(provider)
+                        .bind(kind.as_str())
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(failed)?;
+                row.map(|row| {
+                    let leased_until_ms: i64 = row.try_get("leased_until_ms").map_err(failed)?;
+                    Ok(if leased_until_ms > now_ms {
+                        JobLeaseState::Leased
+                    } else {
+                        JobLeaseState::Idle
+                    })
+                })
+                .transpose()
+            }
+
+            async fn history_walk_row(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::HistoryWalkRowState>>
+            {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to read history walk row: {e}"))
+                };
+                let row =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::HISTORY_WALK_ROW_SQL)
+                        .bind(user_id.to_string())
+                        .bind(tenant_id)
+                        .bind(provider)
+                        .bind(BackfillJobKind::HistoryWalk.as_str())
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(failed)?;
+                row.map(|row| {
+                    let outcome: Option<String> = row.try_get("outcome").map_err(failed)?;
+                    Ok($crate::repositories::activity_backfill_jobs::HistoryWalkRowState {
+                        state: backfill_job_state_of(outcome.as_deref())?,
+                        walk_backend: row.try_get("walk_backend").map_err(failed)?,
+                    })
+                })
+                .transpose()
             }
 
             async fn record_job_progress(

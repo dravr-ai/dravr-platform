@@ -18,7 +18,7 @@ use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
-    JobProgress, JobProgressStep,
+    JobLeaseState, JobProgress, JobProgressStep,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -544,5 +544,117 @@ async fn a_walk_asked_after_one_ended_starts_from_the_top() {
             .unwrap(),
         Some(JobProgress::default()),
         "bug: the new walk's progress starts at zero"
+    );
+}
+
+/// A failed attempt gives its lease back and keeps its attempt: the row
+/// reads idle at once. An ask then takes it over — its lease, its window,
+/// one more attempt, the follow-up moved to it — but never a row an attempt
+/// holds, nor another tenant's; an ask with no conversation leaves the
+/// follow-up with the chat that was owed it.
+#[tokio::test]
+async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let lease_state = || async {
+        ledger
+            .backfill_job_lease_state(user, tenant, PROVIDER, BackfillJobKind::LiveRead, now_ms())
+            .await
+            .unwrap()
+    };
+    let running = ActivityBackfillJobRow {
+        leased_until_ms: now_ms() + 600_000,
+        ..owed_row(tenant, user, BackfillJobKind::LiveRead)
+    };
+    let ask = |conversation: Option<&str>, tenant_id: TenantId| ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id,
+        after_ts: Some(1_600_000_000),
+        conversation_id: conversation.map(ToOwned::to_owned),
+        turn_id: conversation.map(|_| "turn-2".to_owned()),
+        asked_message_id: conversation.map(|_| "message-2".to_owned()),
+        created_at_ms: now_ms(),
+        leased_until_ms: now_ms() + 600_000,
+        lease_token: Some(Uuid::new_v4().to_string()),
+        ..running.clone()
+    };
+    let release = |row: &ActivityBackfillJobRow| JobLease {
+        id: row.id.clone(),
+        token: row.lease_token.clone().unwrap(),
+    };
+
+    assert!(ledger.record_backfill_job(&running).await.unwrap());
+    assert_eq!(lease_state().await, Some(JobLeaseState::Leased));
+    assert_eq!(
+        ledger
+            .take_over_idle_live_read(&ask(Some("conv-2"), tenant))
+            .await
+            .unwrap(),
+        None,
+        "bug: a read an attempt holds is taken over"
+    );
+    assert!(ledger
+        .release_backfill_job_lease(&release(&running))
+        .await
+        .unwrap());
+    assert_eq!(
+        lease_state().await,
+        Some(JobLeaseState::Idle),
+        "bug: a failed attempt's row reads as running"
+    );
+    assert_eq!(
+        ledger
+            .take_over_idle_live_read(&ask(Some("conv-x"), TenantId::generate()))
+            .await
+            .unwrap(),
+        None,
+        "bug: an ask from another tenant takes the read over"
+    );
+
+    let top_up = ask(None, tenant);
+    let (taken, attempts) = ledger
+        .take_over_idle_live_read(&top_up)
+        .await
+        .unwrap()
+        .expect("bug: an idle read is taken over");
+    assert_eq!(taken.id, running.id, "the owed row is the one taken");
+    assert_eq!(attempts, 2, "bug: taking a read over counts an attempt");
+    assert_eq!(lease_state().await, Some(JobLeaseState::Leased));
+    let bound = ledger.finish_live_read(&taken).await.unwrap().unwrap();
+    assert_eq!(
+        bound.asked_message_id.as_deref(),
+        Some("message-1"),
+        "bug: an ask with no conversation takes the chat's follow-up away"
+    );
+
+    assert!(ledger.record_backfill_job(&running).await.unwrap());
+    assert!(ledger
+        .release_backfill_job_lease(&release(&running))
+        .await
+        .unwrap());
+    let chat = ask(Some("conv-2"), tenant);
+    let (taken, _) = ledger
+        .take_over_idle_live_read(&chat)
+        .await
+        .unwrap()
+        .expect("bug: an idle read is taken over");
+    assert!(ledger.release_backfill_job_lease(&taken).await.unwrap());
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    assert_eq!(claimed.len(), 1, "the released row is the sweep's to retry");
+    let row = &claimed[0];
+    assert_eq!(
+        row.after_ts, chat.after_ts,
+        "bug: the taken-over read reads its new ask's window"
+    );
+    assert_eq!(
+        row.asked_message_id.as_deref(),
+        Some("message-2"),
+        "bug: the follow-up moves to the ask that took the read over"
+    );
+    assert_eq!(
+        row.attempts, 3,
+        "bug: a released lease gives no attempt back"
     );
 }
