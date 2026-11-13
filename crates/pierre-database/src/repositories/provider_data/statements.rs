@@ -292,8 +292,8 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
 ///   the grant starts beside it on any instance. The step records nothing
 ///   on the row (each of its row writes requires an owed row), and leaves
 ///   none of what it read in the store: it writes its page only while the
-///   row is owed under its lease, and takes back exactly what it wrote when
-///   this purge landed during the write. Once no step holds the lease
+///   row is owed under its lease, and takes its whole page back when this
+///   purge landed during the write. Once no step holds the lease
 ///   the phase is reopened below the session's own rows, or the row is kept
 ///   as walked when no grant is live — by the step that stopped, a reconnect,
 ///   or the resume sweep when the step died.
@@ -435,6 +435,13 @@ pub(crate) const INSERT_PURGE_RECORD_SQL: &str = "INSERT INTO provider_data_purg
 pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, provider, \
      reason, rows_removed, purged_at FROM provider_data_purges WHERE provider = $1 \
      ORDER BY purged_at DESC LIMIT $2";
+
+/// The reasons of the purges of `$1`'s data that reached the user `$3` in
+/// the tenant `$4`, theirs or the operator's whole-provider purge (both ids
+/// NULL), committed at or after `$2`.
+pub(crate) const PURGE_REASONS_SINCE_SQL: &str = "SELECT reason FROM provider_data_purges \
+     WHERE provider = $1 AND purged_at >= $2 \
+       AND ((user_id = $3 AND tenant_id = $4) OR (user_id IS NULL AND tenant_id IS NULL))";
 
 /// What a whole-provider purge deletes, in the same order as
 /// [`USER_WELLNESS_ROWS_SQL`], [`USER_ACTIVITY_ROWS_SQL`] then

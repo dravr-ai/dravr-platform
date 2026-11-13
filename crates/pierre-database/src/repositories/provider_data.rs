@@ -93,10 +93,10 @@ mod statements;
 
 pub(crate) use statements::{
     EXPIRED_WELLNESS_SCOPES_SQL, INSERT_PURGE_RECORD_SQL, LIST_PURGE_RECORDS_SQL,
-    PROVIDER_PURGE_SQL, PROVIDER_WALK_PHASE_RESET_SQL, USER_ACTIVITY_ROWS_SQL,
-    USER_ACTIVITY_SYNC_STATE_SQL, USER_EXPIRED_ROUTE_TRACK_SQL, USER_EXPIRED_WELLNESS_SQL,
-    USER_SOURCE_WELLNESS_ROWS_SQL, USER_SYNC_CURSORS_SQL, USER_SYNC_STATE_SQL,
-    USER_WALK_PHASE_RESET_SQL, USER_WELLNESS_ROWS_SQL,
+    PROVIDER_PURGE_SQL, PROVIDER_WALK_PHASE_RESET_SQL, PURGE_REASONS_SINCE_SQL,
+    USER_ACTIVITY_ROWS_SQL, USER_ACTIVITY_SYNC_STATE_SQL, USER_EXPIRED_ROUTE_TRACK_SQL,
+    USER_EXPIRED_WELLNESS_SQL, USER_SOURCE_WELLNESS_ROWS_SQL, USER_SYNC_CURSORS_SQL,
+    USER_SYNC_STATE_SQL, USER_WALK_PHASE_RESET_SQL, USER_WELLNESS_ROWS_SQL,
 };
 
 /// The statements one user's purge runs, in order.
@@ -380,6 +380,21 @@ pub trait ProviderDataRepository: Send + Sync {
         provider: &str,
         limit: i64,
     ) -> AppResult<Vec<ProviderDataPurgeRecord>>;
+
+    /// The reasons ([`PurgeReason::as_str`]) of every purge of `provider`'s
+    /// data that reached `user_id` in `tenant_id` — theirs, or the
+    /// operator's whole-provider purge — committed at or after `since`, read
+    /// from the attestation rows.
+    ///
+    /// # Errors
+    /// Returns a database error when the rows cannot be read.
+    async fn purge_reasons_since(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        since: DateTime<Utc>,
+    ) -> AppResult<Vec<String>>;
 }
 
 /// Decode one `provider_data_purges` row.
@@ -828,6 +843,25 @@ macro_rules! impl_provider_data_repository {
                     .iter()
                     .map(purge_record_from_row)
                     .collect()
+            }
+
+            async fn purge_reasons_since(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                since: DateTime<Utc>,
+            ) -> AppResult<Vec<String>> {
+                sqlx::query_scalar($crate::repositories::provider_data::PURGE_REASONS_SINCE_SQL)
+                    .bind(provider)
+                    .bind(since)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the {provider} purges: {e}"))
+                    })
             }
         }
     };
