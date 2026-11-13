@@ -2064,8 +2064,9 @@ async fn a_purge_landing_while_a_step_writes_leaves_none_of_its_rows() {
 /// The athlete drops both connections while a step of the walk's API phase
 /// writes the grant's page: the session's purge removes the walk's row, so
 /// the grant's purge finds no row to mark, and the step's write lands after
-/// both. With its row gone the step cannot tell which purge took it, so it
-/// takes its page back: nothing of the purged grant is left in the store.
+/// both. With its row gone the step reads the grant's purge from the
+/// attestation it wrote, and takes its page back: nothing of the purged
+/// grant is left in the store.
 #[tokio::test]
 async fn a_step_whose_row_both_purges_took_leaves_none_of_its_rows() {
     let now = Utc::now().timestamp();
@@ -2497,5 +2498,67 @@ async fn an_expiry_landing_while_a_step_writes_takes_back_only_what_it_added() {
         fx.rows(oauth_providers::SCIOTTE).await,
         1,
         "bug: the step left the ride it added after the expiry reset its row"
+    );
+}
+
+/// The session's first step reads its two rides, the recent one an earlier
+/// read already stored with its samples and gear, and the walk's row is
+/// removed while the step writes by no purge at all (the reaper of a row
+/// whose lease lapsed deletes it the same way). Nothing attests a purge of
+/// the session's key: the step keeps its page and ends.
+#[tokio::test]
+async fn a_row_removed_by_no_purge_while_a_step_writes_keeps_its_page() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let earlier = format!("9{recent}");
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &earlier, recent)
+        .await;
+    let write = store.hold_next_write(oauth_providers::SCIOTTE);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    timeout(WALK_DEADLINE, write.reached.notified())
+        .await
+        .expect("the session's first step never wrote");
+    let sql = "DELETE FROM activity_backfill_jobs WHERE user_id = $1";
+    match fx.resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(sql)
+                .bind(fx.user_id.to_string())
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            sqlx::query(sql)
+                .bind(fx.user_id.to_string())
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+    assert_eq!(fx.state().await, None, "the walk's row is gone");
+    write.gate.notify_one();
+    write.landed.notified().await;
+    sleep(STEP_SETTLE).await;
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        2,
+        "bug: a step whose row no purge removed took its page back"
+    );
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &earlier, recent).await,
+        KEPT_WHOLE,
+        "bug: a step whose row no purge removed took back a ride an earlier read stored"
     );
 }

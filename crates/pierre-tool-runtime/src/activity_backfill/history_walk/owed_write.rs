@@ -29,18 +29,20 @@
 //!
 //! The evidence:
 //!
-//! - A step writing under the key its row is filed under (a session's
-//!   phase, or a grant walked alone): the row's removal. Only a purge or an
-//!   expiry of that very key deletes it; the purge's attestation says which.
-//! - A step of a session's API phase, writing under its grant's key while
-//!   the row stays filed under the session's: the grant's purge leaves the
-//!   row owed a reopen, and the operator's termination settles it as its
-//!   session walked alone. A row that is gone went with the session's own
-//!   purge, which says nothing of the grant: only an attestation of the
-//!   grant's purge for the athlete, or of the provider's termination,
-//!   committed since the step's first check, takes the page back. With none,
-//!   the grant's page stays and the step ends: its row is no longer there to
-//!   record it.
+//! - A row still there: a step writing under the key its row is filed
+//!   under (a session's phase, or a grant walked alone) was not purged, since
+//!   that key's purge deletes the row. A step of a session's API phase,
+//!   writing under its grant's key while the row stays filed under the
+//!   session's, was purged when the grant's purge left the row owed a
+//!   reopen, or the operator's termination settled it as its session walked
+//!   alone.
+//! - A row that is gone says nothing by itself: the session's own purge
+//!   removes it, and so does the reaper of a row whose lease lapsed. Only the
+//!   attestation a purge of the step's key writes, for the athlete or for
+//!   the whole provider, committed between the step's first check and its
+//!   second (the attestations read at both, compared), takes rows back, and
+//!   names how much. With none, the page stays and the step ends: its row is
+//!   no longer there to record it.
 //!
 //! A purge that commits after the second check deletes the step's rows
 //! itself. When the ledger or the attestations cannot be read after the
@@ -66,8 +68,9 @@ use crate::activity_fetch::write_through::WriteThrough;
 use crate::protocol::UniversalExecutor;
 
 /// How far behind the step's clock a purging instance's may run, in
-/// seconds: a purge attested this long before the step's first check still
-/// counts as landing after it.
+/// seconds: the attestations the step compares around its write are read
+/// from this long before its first check, so one committed between its
+/// checks is seen though its clock ran behind.
 const PURGE_CLOCK_SKEW_SECS: i64 = 60;
 
 /// What writing a step's activities came to.
@@ -99,8 +102,8 @@ enum KeyPurge {
 enum AfterWrite {
     /// The row is still the step's.
     Owed,
-    /// The row went with its session's purge alone; the key the step wrote
-    /// under was not purged.
+    /// The row went, and no purge of the key the step wrote under is
+    /// attested: its session's purge alone, or the reaper, took it.
     Gone,
     /// The key the step wrote under was purged for the athlete.
     Purged(KeyPurge),
@@ -121,7 +124,10 @@ pub(super) async fn land_owed(
             .await
             .map_or(Landed::Failed, Landed::Rows);
     };
-    let checked_at = Utc::now() - Duration::seconds(PURGE_CLOCK_SKEW_SECS);
+    let since = Utc::now() - Duration::seconds(PURGE_CLOCK_SKEW_SECS);
+    let Ok(attested_before) = purges_since(job, since).await else {
+        return Landed::Failed;
+    };
     let Ok(before) = leased_row(job, lease).await else {
         return Landed::Failed;
     };
@@ -135,7 +141,13 @@ pub(super) async fn land_owed(
     };
     let landed = persist_backfill_activities(job, executor, activities, write).await;
     let after = match leased_row(job, lease).await {
-        Ok(after) => after_write(job, &row.provider, after.as_ref(), checked_at).await,
+        Ok(after) => {
+            let attested = Attested {
+                since,
+                before: &attested_before,
+            };
+            after_write(job, &row.provider, after.as_ref(), attested).await
+        }
         Err(()) => Err(()),
     };
     settle(job, activities, &held, landed, after).await
@@ -154,7 +166,7 @@ async fn settle(
     match after {
         Ok(AfterWrite::Owed) => landed.map_or(Landed::Failed, Landed::Rows),
         Ok(AfterWrite::Gone) => {
-            info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's row went with its session's purge alone; its page stays");
+            info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's row went with no purge of its key; its page stays");
             Landed::Stopped
         }
         Ok(AfterWrite::Purged(purge)) => {
@@ -199,18 +211,39 @@ async fn held_before(
         })
 }
 
+/// The purges of the step's key attested from `since` on, as read before
+/// its first check.
+#[derive(Debug, Clone, Copy)]
+struct Attested<'a> {
+    since: DateTime<Utc>,
+    before: &'a [String],
+}
+
+/// The reasons of the purges of the step's key that reached the athlete,
+/// attested from `since` on; `Err` (logged) when they could not be read.
+async fn purges_since(job: &ActivityBackfillJob, since: DateTime<Utc>) -> Result<Vec<String>, ()> {
+    job.resources
+        .repos()
+        .provider_data
+        .purge_reasons_since(job.user_id, &job.tenant_id, &job.provider_name, since)
+        .await
+        .map_err(|e| {
+            warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the purges of the step's key could not be read");
+        })
+}
+
 /// What became of the row filed under `key`, which the step writing under
-/// `job.provider_name` checked at `checked_at`, given the row `after` its
-/// write; `Err` (logged) when the attestations could not be read.
+/// `job.provider_name` checked before its write, given the row `after` it;
+/// a row that is gone is read against the purges `attested` before the
+/// check. `Err` (logged) when the attestations could not be read.
 async fn after_write(
     job: &ActivityBackfillJob,
     key: &str,
     after: Option<&LeasedWalkRow>,
-    checked_at: DateTime<Utc>,
+    attested: Attested<'_>,
 ) -> Result<AfterWrite, ()> {
-    let own_key = key == job.provider_name;
     match after {
-        Some(_) if own_key => Ok(AfterWrite::Owed),
+        Some(_) if key == job.provider_name => Ok(AfterWrite::Owed),
         Some(row)
             if row.state == BackfillJobState::PhasePurged
                 || row.walk_backend.as_deref() != Some(job.provider_name.as_str()) =>
@@ -219,30 +252,20 @@ async fn after_write(
         }
         Some(_) => Ok(AfterWrite::Owed),
         None => {
-            let reasons = job
-                .resources
-                .repos()
-                .provider_data
-                .purge_reasons_since(job.user_id, &job.tenant_id, &job.provider_name, checked_at)
-                .await
-                .map_err(|e| {
-                    warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the purges of the step's key could not be read after its write");
-                })?;
-            Ok(match attested(&reasons) {
-                Some(purge) => AfterWrite::Purged(purge),
-                // The row filed under the very key the step wrote went:
-                // that key's purge, attested or not (an account's deletion
-                // leaves no attestation).
-                None if own_key => AfterWrite::Purged(KeyPurge::Whole),
-                None => AfterWrite::Gone,
-            })
+            let mut landed_since = purges_since(job, attested.since).await?;
+            for reason in attested.before {
+                if let Some(at) = landed_since.iter().position(|seen| seen == reason) {
+                    landed_since.swap_remove(at);
+                }
+            }
+            Ok(purge_of(&landed_since).map_or(AfterWrite::Gone, AfterWrite::Purged))
         }
     }
 }
 
 /// What the purges attested by `reasons` deleted of the key's activities;
 /// `None` when none of them deleted any.
-fn attested(reasons: &[String]) -> Option<KeyPurge> {
+fn purge_of(reasons: &[String]) -> Option<KeyPurge> {
     let mut deleting = reasons
         .iter()
         .filter(|reason| reason.as_str() != PurgeReason::WellnessConsentWithdrawn.as_str())
@@ -285,7 +308,7 @@ async fn take_back(
 
 #[cfg(test)]
 mod tests {
-    use super::{attested, KeyPurge};
+    use super::{purge_of, KeyPurge};
     use pierre_database::repositories::PurgeReason;
 
     fn reasons(of: &[PurgeReason]) -> Vec<String> {
@@ -294,24 +317,24 @@ mod tests {
 
     #[test]
     fn only_activity_purges_count_and_an_expiry_alone_reaches_what_was_added() {
-        assert_eq!(attested(&[]), None);
+        assert_eq!(purge_of(&[]), None);
         assert_eq!(
-            attested(&reasons(&[PurgeReason::WellnessConsentWithdrawn])),
+            purge_of(&reasons(&[PurgeReason::WellnessConsentWithdrawn])),
             None
         );
         assert_eq!(
-            attested(&reasons(&[PurgeReason::CacheExpired])),
+            purge_of(&reasons(&[PurgeReason::CacheExpired])),
             Some(KeyPurge::Expired)
         );
         assert_eq!(
-            attested(&reasons(&[
+            purge_of(&reasons(&[
                 PurgeReason::CacheExpired,
                 PurgeReason::ProviderRevoked
             ])),
             Some(KeyPurge::Whole)
         );
         assert_eq!(
-            attested(&reasons(&[PurgeReason::Termination])),
+            purge_of(&reasons(&[PurgeReason::Termination])),
             Some(KeyPurge::Whole)
         );
     }
