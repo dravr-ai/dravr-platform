@@ -2196,3 +2196,100 @@ async fn a_purged_walk_with_no_grant_settles_as_walked_once_no_step_holds_it() {
         "bug: a grant connected later cannot reopen the settled walk"
     );
 }
+
+/// The reasons of the purges of `provider` the repository reads as having
+/// reached `who` since `since`, sorted.
+async fn reasons_since(
+    world: &World,
+    who: (Uuid, TenantId),
+    provider: &str,
+    since: DateTime<Utc>,
+) -> Vec<String> {
+    let mut reasons = world
+        .repos()
+        .provider_data
+        .purge_reasons_since(who.0, &who.1, provider, since)
+        .await
+        .unwrap();
+    reasons.sort_unstable();
+    reasons
+}
+
+/// The purges that reached an athlete since a moment are theirs, in that
+/// tenant, of that provider, and the operator's whole-provider purge, which
+/// names no athlete: never a teammate's, the athlete's own in another
+/// tenant, another provider's, or one that committed before the moment.
+#[tokio::test]
+async fn the_purges_since_a_moment_are_the_athletes_own_and_the_operators() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+    let (teammate, team) = world.teammate;
+    let (_, elsewhere) = world.athlete_elsewhere;
+
+    repos
+        .provider_data
+        .expire_provider_activities(athlete, &tenant, "whoop", &["before"])
+        .await
+        .unwrap();
+    sleep(StdDuration::from_millis(25)).await;
+    let since = Utc::now();
+    sleep(StdDuration::from_millis(25)).await;
+    assert_eq!(
+        reasons_since(&world, world.athlete, "whoop", since).await,
+        Vec::<String>::new(),
+        "bug: a purge committed before the moment is read as one since"
+    );
+
+    repos
+        .provider_data
+        .purge_user_provider_data(teammate, &team, "whoop", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    repos
+        .provider_data
+        .purge_user_provider_data(
+            athlete,
+            &elsewhere,
+            "whoop",
+            PurgeReason::OperatorDisconnect,
+        )
+        .await
+        .unwrap();
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "garmin", PurgeReason::ProviderRevoked)
+        .await
+        .unwrap();
+    assert_eq!(
+        reasons_since(&world, world.athlete, "whoop", since).await,
+        Vec::<String>::new(),
+        "bug: a teammate's purge, the athlete's in another tenant, or another provider's reached the athlete"
+    );
+
+    repos
+        .provider_data
+        .expire_provider_activities(athlete, &tenant, "whoop", &["since"])
+        .await
+        .unwrap();
+    repos
+        .provider_data
+        .purge_provider_data("whoop")
+        .await
+        .unwrap();
+    assert_eq!(
+        reasons_since(&world, world.athlete, "whoop", since).await,
+        ["cache_expired", "termination"],
+        "bug: the athlete's own purge or the operator's termination is not read"
+    );
+    assert_eq!(
+        reasons_since(&world, world.teammate, "whoop", since).await,
+        ["athlete_disconnect", "termination"],
+        "the teammate reads their own purge and the termination"
+    );
+    assert_eq!(
+        reasons_since(&world, world.athlete_elsewhere, "whoop", since).await,
+        ["operator_disconnect", "termination"],
+        "the athlete's other tenant reads its own purge and the termination"
+    );
+}

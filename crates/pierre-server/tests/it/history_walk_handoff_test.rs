@@ -2860,3 +2860,90 @@ async fn a_row_removed_by_no_purge_while_a_step_writes_keeps_its_page() {
         "bug: a step that kept its page never warmed the training-history rollup over it"
     );
 }
+
+/// The session's activities expired a moment before the walk started, so
+/// that expiry's attestation sits inside the window the step reads purges
+/// from; then the walk's row is removed by no purge while the session's
+/// first step writes. The step subtracts what it read before its first
+/// check: no purge landed during its write, and it keeps its page.
+#[tokio::test]
+async fn a_purge_attested_before_a_steps_check_takes_nothing_back() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let earlier = format!("9{recent}");
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    fx.resources
+        .common
+        .repos
+        .provider_data
+        .expire_provider_activities(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            &["9100000000"],
+        )
+        .await
+        .unwrap();
+    let store = fx.hold_writes();
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &earlier, recent)
+        .await;
+    let write = store.hold_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.remove_walk_row().await;
+    fx.base_the_rollup(oauth_providers::SCIOTTE).await;
+    fx.clear_rollup().await;
+    write.gate.notify_one();
+    let warmed = fx.rollup_warmed().await;
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        3,
+        "bug: an expiry attested before the step's first check took back the ride it added"
+    );
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &earlier, recent).await,
+        KEPT_WHOLE,
+        "the ride an earlier read stored stays whole"
+    );
+    assert!(warmed, "the step that kept its page warmed the rollup");
+}
+
+/// The operator terminates the session's own provider while the walk's
+/// first session step writes its page, a ride an earlier read stored among
+/// it. The termination deleted the walk's row, filed under the terminated
+/// key, and attests a purge reaching every athlete, naming none. The step
+/// reads that attestation and takes its whole page back: nothing of the
+/// terminated provider is left in the store.
+#[tokio::test]
+async fn a_termination_of_the_steps_own_key_takes_back_its_whole_page() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let earlier = format!("9{recent}");
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &earlier, recent)
+        .await;
+    let write = store.hold_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.resources
+        .common
+        .provider_purge
+        .purge_provider_data(oauth_providers::SCIOTTE)
+        .await
+        .unwrap();
+    assert_eq!(
+        (fx.state().await, fx.rows(oauth_providers::SCIOTTE).await),
+        (None, 0),
+        "the termination took the walk's row and the session's rows"
+    );
+    write.gate.notify_one();
+    write.landed.notified().await;
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while fx.rows(oauth_providers::SCIOTTE).await != 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        0,
+        "bug: a step whose own key was terminated left the terminated provider's rows in the store"
+    );
+}
