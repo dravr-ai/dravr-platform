@@ -44,8 +44,8 @@ use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 use super::{
-    enqueue, job_row, keep_backfill_lease, mark_in_flight_landed, notify_backfill_reauth, now_ms,
-    rebind_live_read, remove_backfill_job, settle_backfill_job, ActivityBackfillJob,
+    enqueue, job_row, keep_backfill_lease, lease_ms, mark_in_flight_landed, notify_backfill_reauth,
+    now_ms, rebind_live_read, remove_backfill_job, settle_backfill_job, ActivityBackfillJob,
     BackfillRunOutcome, Enqueued, InFlight, InFlightClaim, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::read_live_window;
@@ -486,8 +486,10 @@ async fn settle(
 /// A failed attempt no turn heard of: the row stays owed for the resume
 /// sweep's next attempt, its lease given back so that every ask meanwhile
 /// finds it idle and reads for itself instead of joining a read nothing
-/// runs ([`take_over_idle`]). Its last attempt drops the row instead
-/// ([`settle_backfill_job`]).
+/// runs ([`take_over_idle`]). The sweep waits a lease's length before that
+/// attempt, as it did while a failed attempt kept its lease, so a failing
+/// provider is not spent through every attempt in minutes. Its last attempt
+/// drops the row instead ([`settle_backfill_job`]).
 async fn give_back(job: &ActivityBackfillJob, lease: &JobLease, attempts: i64) {
     if attempts >= MAX_BACKFILL_ATTEMPTS {
         settle_backfill_job(job, lease, attempts, &BackfillRunOutcome::Failed).await;
@@ -497,7 +499,7 @@ async fn give_back(job: &ActivityBackfillJob, lease: &JobLease, attempts: i64) {
         .resources
         .repos()
         .activity_backfill_jobs
-        .release_backfill_job_lease(lease)
+        .release_backfill_job_lease(lease, now_ms().saturating_add(lease_ms()))
         .await
     {
         Ok(released) => info!(

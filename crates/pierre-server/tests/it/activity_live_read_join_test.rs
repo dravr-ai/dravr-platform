@@ -29,9 +29,11 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
+    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState,
+    JobProgress,
 };
 use pierre_providers::core::ActivityQueryParams;
+use pierre_tool_runtime::activity_backfill::MAX_BACKFILL_ATTEMPTS;
 use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, OwnedLiveRead,
 };
@@ -735,4 +737,51 @@ async fn a_follow_ups_re_ask_never_takes_the_successors_follow_up() {
         ],
         "bug: the wider ask's follow-up was taken by the older conversation's re-ask"
     );
+}
+
+/// A failed read's row is given back idle, yet the sweep waits out the
+/// backoff the attempt's lease used to hold it for, so a failing provider
+/// is not spent through every attempt in a few minutes. An ask meanwhile
+/// takes the idle row over at once and reads in its own turn.
+#[tokio::test]
+async fn a_failed_read_waits_its_backoff_for_the_sweep_but_not_for_an_ask() {
+    let (runtime, _notifier, user_id, tenant_id) = notified_runtime().await;
+    fail_past_the_budget(&runtime, user_id, tenant_id).await;
+
+    let swept = runtime
+        .repos()
+        .activity_backfill_jobs
+        .claim_stale_backfill_jobs(BackfillJobClaim {
+            now_ms: Utc::now().timestamp_millis(),
+            queued_older_than_ms: 0,
+            lease_ms: 600_000,
+            max_attempts: MAX_BACKFILL_ATTEMPTS,
+            limit: 10,
+        })
+        .await
+        .unwrap();
+    assert!(
+        swept.is_empty(),
+        "bug: the sweep retries a failed read before its backoff: {swept:?}"
+    );
+
+    let open = Arc::new(Notify::new());
+    open.notify_one();
+    let next = timeout(
+        StdDuration::from_secs(5),
+        read_live_window_within_budget(
+            &runtime,
+            gated(&open, vec![activity("cached", 3), activity("fresh", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-2"),
+            TURN_BUDGET,
+        ),
+    )
+    .await
+    .expect("bug: the ask waited out the sweep's backoff");
+    assert_eq!(
+        answer_of(next),
+        Answer::Answered(names(&["cached", "fresh"])),
+        "bug: an ask takes a failed read's idle row over at once"
+    );
+    wait_until_finished(&runtime, user_id, tenant_id).await;
 }

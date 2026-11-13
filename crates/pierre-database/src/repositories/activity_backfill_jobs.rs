@@ -300,8 +300,9 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     async fn rebind_live_read(&self, ask: &ActivityBackfillJobRow) -> AppResult<bool>;
 
     /// Atomically lease up to `claim.limit` rows whose lease has lapsed, that
-    /// were recorded before `now_ms - queued_older_than_ms`, and whose
-    /// attempts are below the cap — oldest first, incrementing `attempts`.
+    /// were recorded before `now_ms - queued_older_than_ms`, whose retry is
+    /// due ([`Self::release_backfill_job_lease`]), and whose attempts are
+    /// below the cap — oldest first, incrementing `attempts`.
     /// The returned rows carry the incremented count.
     async fn claim_stale_backfill_jobs(
         &self,
@@ -341,11 +342,14 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     async fn release_backfill_job_claim(&self, lease: &JobLease) -> AppResult<bool>;
 
     /// A failed attempt gives its lease back and keeps the attempt it
-    /// counted: the row stays owed for the resume sweep's bounded retries,
-    /// but reads [`JobLeaseState::Idle`] at once instead of running for the
-    /// rest of a lease nothing holds. `false` when this lease no longer
-    /// holds the row.
-    async fn release_backfill_job_lease(&self, lease: &JobLease) -> AppResult<bool>;
+    /// counted: the row reads [`JobLeaseState::Idle`] at once, for an ask to
+    /// take over, while the sweep's bounded retries wait until `retry_at_ms`.
+    /// `false` when this lease no longer holds the row.
+    async fn release_backfill_job_lease(
+        &self,
+        lease: &JobLease,
+        retry_at_ms: i64,
+    ) -> AppResult<bool>;
 
     /// Take the [`BackfillJobKind::LiveRead`] owed for `ask`'s
     /// `(user_id, provider)` in its tenant when no attempt holds it at
@@ -474,7 +478,8 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
        lease_token = excluded.lease_token, months_total = excluded.months_total, \
        months_done = excluded.months_done, rows_landed = excluded.rows_landed, \
        secs_per_unit = excluded.secs_per_unit, turn_id = excluded.turn_id, \
-       asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL \
+       asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL, \
+       next_attempt_ms = 0 \
      WHERE activity_backfill_jobs.outcome IS NOT NULL \
        AND activity_backfill_jobs.tenant_id = excluded.tenant_id";
 
@@ -524,6 +529,7 @@ macro_rules! claim_backfill_jobs_sql {
              WHERE id IN ( \
                  SELECT j.id FROM activity_backfill_jobs j \
                  WHERE j.leased_until_ms <= $2 \
+                   AND j.next_attempt_ms <= $2 \
                    AND j.created_at_ms < $3 \
                    AND j.attempts < $4 \
                    AND j.outcome IS NULL \
@@ -566,9 +572,9 @@ pub(crate) const RELEASE_BACKFILL_JOB_CLAIM_SQL: &str = "UPDATE activity_backfil
          lease_token = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
 
-/// Gives a failed attempt's lease back, keeping the attempt it counted.
+/// Gives a failed attempt's lease back, keeping its attempt; the sweep's next is due at `$3`.
 pub(crate) const RELEASE_BACKFILL_JOB_LEASE_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET leased_until_ms = 0, lease_token = NULL \
+     SET leased_until_ms = 0, lease_token = NULL, next_attempt_ms = $3 \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
 
 /// Leases an owed live read no attempt holds to a new ask, in one
@@ -920,12 +926,17 @@ macro_rules! impl_activity_backfill_job_repository {
                 Ok(released.rows_affected() == 1)
             }
 
-            async fn release_backfill_job_lease(&self, lease: &JobLease) -> AppResult<bool> {
+            async fn release_backfill_job_lease(
+                &self,
+                lease: &JobLease,
+                retry_at_ms: i64,
+            ) -> AppResult<bool> {
                 let released = sqlx::query(
                     $crate::repositories::activity_backfill_jobs::RELEASE_BACKFILL_JOB_LEASE_SQL,
                 )
                 .bind(&lease.id)
                 .bind(&lease.token)
+                .bind(retry_at_ms)
                 .execute(self.pool())
                 .await
                 .map_err(|e| {

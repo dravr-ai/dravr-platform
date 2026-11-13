@@ -580,6 +580,8 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
         lease_token: Some(Uuid::new_v4().to_string()),
         ..running.clone()
     };
+    // The sweep's retry of a given-back row is due ten minutes on.
+    let retry_at = now_ms() + 600_000;
     let release = |row: &ActivityBackfillJobRow| JobLease {
         id: row.id.clone(),
         token: row.lease_token.clone().unwrap(),
@@ -596,7 +598,7 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
         "bug: a read an attempt holds is taken over"
     );
     assert!(ledger
-        .release_backfill_job_lease(&release(&running))
+        .release_backfill_job_lease(&release(&running), retry_at)
         .await
         .unwrap());
     assert_eq!(
@@ -631,7 +633,7 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
 
     assert!(ledger.record_backfill_job(&running).await.unwrap());
     assert!(ledger
-        .release_backfill_job_lease(&release(&running))
+        .release_backfill_job_lease(&release(&running), retry_at)
         .await
         .unwrap());
     let chat = ask(Some("conv-2"), tenant);
@@ -640,9 +642,35 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
         .await
         .unwrap()
         .expect("bug: an idle read is taken over");
-    assert!(ledger.release_backfill_job_lease(&taken).await.unwrap());
-    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
-    assert_eq!(claimed.len(), 1, "the released row is the sweep's to retry");
+    assert!(ledger
+        .release_backfill_job_lease(&taken, retry_at)
+        .await
+        .unwrap());
+    assert_eq!(
+        lease_state().await,
+        Some(JobLeaseState::Idle),
+        "bug: a given-back row waiting out its retry reads as running"
+    );
+    assert!(
+        ledger
+            .claim_stale_backfill_jobs(claim_now())
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the sweep retries a given-back row before its retry is due"
+    );
+    let claimed = ledger
+        .claim_stale_backfill_jobs(BackfillJobClaim {
+            now_ms: retry_at,
+            ..claim_now()
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        claimed.len(),
+        1,
+        "the released row is the sweep's to retry once due"
+    );
     let row = &claimed[0];
     assert_eq!(
         row.after_ts, chat.after_ts,

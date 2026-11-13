@@ -31,6 +31,10 @@
 --                     reads `provider`, the walk's own source; the API grant
 --                     once the session's phase handed off below the oldest
 --                     row it reached
+--   next_attempt_ms   the earliest the resume sweep may run a row a failed
+--                     attempt gave back (unix ms; 0 at once): the row reads
+--                     idle to an ask at once, while the sweep's retries keep
+--                     the spacing a held lease used to give them
 --
 -- SQLite cannot change an inline UNIQUE, so the table is rebuilt with every
 -- column, default and index it carries (20260918000003 plus the lease-token
@@ -58,6 +62,7 @@ CREATE TABLE activity_backfill_jobs_new ( -- idempotency-ok: table rebuild — S
     turn_id TEXT,
     asked_message_id TEXT,
     walk_backend TEXT,
+    next_attempt_ms INTEGER NOT NULL DEFAULT 0,
     UNIQUE (user_id, provider, kind)
 );
 INSERT INTO activity_backfill_jobs_new
