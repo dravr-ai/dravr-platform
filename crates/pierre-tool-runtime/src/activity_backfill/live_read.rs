@@ -155,13 +155,22 @@ impl fmt::Debug for JoinedRead {
 impl JoinedRead {
     /// Whether the read joined landed here, reading a window that holds this
     /// ask's: the rows it wrote through are then as current as a read of
-    /// this ask's own. Still true once the run has ended.
+    /// this ask's own, and the answer says where they are filed. Still
+    /// answered once the run has ended.
     #[must_use]
-    pub fn landed_over_its_window(&self) -> bool {
-        self.here.as_ref().is_some_and(|run| match &*run.borrow() {
-            InFlight::Landed { params, count } => covers(params, *count, &self.job.query_params),
-            InFlight::Running => false,
-        })
+    pub fn landed_over_its_window(&self) -> Option<LandedOver> {
+        let run = self.here.as_ref()?;
+        let state = run.borrow();
+        match &*state {
+            InFlight::Landed {
+                params,
+                count,
+                served_by_grant,
+            } if covers(params, *count, &self.job.query_params) => Some(LandedOver {
+                served_by_grant: served_by_grant.clone(),
+            }),
+            InFlight::Landed { .. } | InFlight::Running => None,
+        }
     }
 
     /// Whether the read joined still runs: the run here still holds the
@@ -212,6 +221,23 @@ impl JoinedRead {
     /// Ask for the read again, now that the one joined has ended.
     pub async fn restart(self) -> LiveReadStart {
         start_live_read(self.job, self.authenticated).await
+    }
+}
+
+/// A joined read that landed over the ask's window.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LandedOver {
+    /// The grant that answered in the session's place, when one did: the
+    /// rows are filed under it, not under the session the ask named.
+    pub served_by_grant: Option<String>,
+}
+
+impl LandedOver {
+    /// The cache key the landed rows are filed under, for an ask of
+    /// `provider_slug`.
+    #[must_use]
+    pub fn filed_under<'a>(&'a self, provider_slug: &'a str) -> &'a str {
+        self.served_by_grant.as_deref().unwrap_or(provider_slug)
     }
 }
 
@@ -295,14 +321,18 @@ pub(super) async fn run_live_read(
         .map_or_else(Utc::now, |authenticated| authenticated.attempt_started_at);
     let output = read_once(job, authenticated, attempt_started_at).await;
     let attempt = Attempt::of(&output.read);
-    if let Attempt::Landed(count) = attempt {
+    if let (Attempt::Landed(count), Ok(head)) = (&attempt, &output.read) {
         // Before anything is answered: the follow-up re-asks the question
         // while this run still holds the pair, and that ask reads what
         // landed rather than joining a read that is over.
+        let landed = InFlight::Landed {
+            params: job.query_params.clone(),
+            count: *count,
+            served_by_grant: head.served_by_grant.clone(),
+        };
         mark_in_flight_landed(
             &in_flight_key(job.user_id, &job.provider_name, job.kind),
-            &job.query_params,
-            count,
+            landed,
         );
     }
     let delivered = reply.is_some_and(|reply| reply.send(output).is_ok());

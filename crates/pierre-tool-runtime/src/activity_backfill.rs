@@ -155,11 +155,14 @@ pub(crate) enum InFlight {
     /// The run is reading.
     Running,
     /// A live read landed: it read `params` and its provider answered
-    /// `count` activities, written through. What is left of the run is
-    /// settling its row and its follow-up, which reads that window again.
+    /// `count` activities, written through — under the grant that answered
+    /// in the session's place, when `served_by_grant` names one. What is
+    /// left of the run is settling its row and its follow-up, which reads
+    /// that window again.
     Landed {
         params: ActivityQueryParams,
         count: usize,
+        served_by_grant: Option<String>,
     },
 }
 
@@ -206,18 +209,15 @@ fn release_in_flight(key: &str) {
         .remove(key);
 }
 
-/// Mark the run holding `key` as landed (see [`InFlight::Landed`]). A key no
+/// Mark the run holding `key` as `landed` ([`InFlight::Landed`]). A key no
 /// run holds is left alone: only its holder settles it.
-fn mark_in_flight_landed(key: &str, params: &ActivityQueryParams, count: usize) {
+fn mark_in_flight_landed(key: &str, landed: InFlight) {
     if let Some(state) = IN_FLIGHT_BACKFILLS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .get(key)
     {
-        state.send_replace(InFlight::Landed {
-            params: params.clone(),
-            count,
-        });
+        state.send_replace(landed);
     }
 }
 

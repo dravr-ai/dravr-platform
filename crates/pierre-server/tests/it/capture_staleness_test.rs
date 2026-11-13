@@ -25,6 +25,8 @@
 
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
+#[cfg(feature = "client-messaging")]
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration as StdDuration;
 
 use async_trait::async_trait;
@@ -65,6 +67,10 @@ use pierre_tool_runtime::capture_sweep::capturable;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
+#[cfg(feature = "client-messaging")]
+use pierre_tool_runtime::runtime::{
+    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry,
+};
 use secrecy::SecretString;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -1584,17 +1590,7 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
     let runtime = pair.runtime();
     pair.cache("sciotte", SESSION_RIDE, 3).await;
     let gate = Arc::new(Notify::new());
-    let session = Box::new(SlowFailingSession {
-        config: ProviderConfig {
-            name: "sciotte".to_owned(),
-            auth_url: String::new(),
-            token_url: String::new(),
-            api_base_url: String::new(),
-            revoke_url: None,
-            default_scopes: Vec::new(),
-        },
-        gate: Arc::clone(&gate),
-    });
+    let session = Box::new(slow_failing_session(&gate));
     let read = OwnedLiveRead {
         provider_slug: "sciotte".to_owned(),
         user_id: pair.user_id,
@@ -1634,6 +1630,137 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
     );
     assert_eq!(pair.strava.list_reads.load(Ordering::SeqCst), 1);
     assert!(pair.failure_recorded("sciotte").await);
+}
+
+/// A follow-up that re-asks the question while the session's read, answered
+/// by its grant, still holds the pair: what the re-ask is told it landed.
+#[cfg(feature = "client-messaging")]
+struct GrantReask {
+    runtime: OnceLock<Arc<dyn ToolRuntime>>,
+    user_id: Uuid,
+    tenant: TenantId,
+    unread: Arc<Notify>,
+    landed: Mutex<Vec<(Vec<String>, Option<String>)>>,
+}
+
+#[cfg(feature = "client-messaging")]
+#[async_trait]
+impl BackfillNotifier for GrantReask {
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>) {
+        let runtime = Arc::clone(self.runtime.get().expect("the runtime is set"));
+        let read = OwnedLiveRead {
+            provider_slug: "sciotte".to_owned(),
+            user_id: self.user_id,
+            tenant_id: self.tenant,
+            params: Pair::head(),
+            attempt_started_at: Utc::now(),
+            conversation_id: Some(completion.pierre_conversation_id.to_owned()),
+            ask: None,
+        };
+        let outcome = read_live_window_within_budget(
+            &runtime,
+            Box::new(slow_failing_session(&self.unread)),
+            read,
+            StdDuration::from_millis(200),
+        )
+        .await;
+        let BudgetedRead::Landed {
+            activities,
+            served_by_grant,
+        } = outcome
+        else {
+            panic!("bug: the re-ask must read what just landed: {outcome:?}");
+        };
+        let rows = ids(&activities).into_iter().map(str::to_owned).collect();
+        self.landed.lock().unwrap().push((rows, served_by_grant));
+    }
+
+    async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
+        0
+    }
+}
+
+fn slow_failing_session(gate: &Arc<Notify>) -> SlowFailingSession {
+    SlowFailingSession {
+        config: ProviderConfig {
+            name: "sciotte".to_owned(),
+            auth_url: String::new(),
+            token_url: String::new(),
+            api_base_url: String::new(),
+            revoke_url: None,
+            default_scopes: Vec::new(),
+        },
+        gate: Arc::clone(gate),
+    }
+}
+
+/// The session's read outlived its turn, failed, and its grant answered in
+/// its place: the grant's rows were written through under the grant. The
+/// follow-up's re-ask reads the window under the grant, which holds what the
+/// session stored too, and says the grant served it — never passes it off
+/// as the session's own current read.
+#[cfg(feature = "client-messaging")]
+#[tokio::test]
+async fn a_re_ask_of_a_read_its_grant_answered_reads_the_grants_rows() {
+    let pair = Pair::new("grant-reask", SESSION_ANSWERS, false).await;
+    pair.cache("sciotte", SESSION_RIDE, 3).await;
+    let notifier = Arc::new(GrantReask {
+        runtime: OnceLock::new(),
+        user_id: pair.user_id,
+        tenant: pair.tenant,
+        unread: Arc::new(Notify::new()),
+        landed: Mutex::new(Vec::new()),
+    });
+    let mut context = (*pair.resources).clone();
+    context.mcp.backfill_notifier = Some(notifier.clone());
+    let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
+    assert!(notifier.runtime.set(Arc::clone(&runtime)).is_ok());
+
+    let gate = Arc::new(Notify::new());
+    let read = OwnedLiveRead {
+        provider_slug: "sciotte".to_owned(),
+        user_id: pair.user_id,
+        tenant_id: pair.tenant,
+        params: Pair::head(),
+        attempt_started_at: Utc::now(),
+        conversation_id: Some("conv-1".to_owned()),
+        ask: None,
+    };
+    let session = Box::new(slow_failing_session(&gate));
+    let outcome =
+        read_live_window_within_budget(&runtime, session, read, StdDuration::from_millis(200))
+            .await;
+    assert!(
+        matches!(outcome, BudgetedRead::Cached(_)),
+        "the turn answers from the cache past its budget"
+    );
+
+    gate.notify_one();
+    let re_asked = timeout(StdDuration::from_secs(10), async {
+        while notifier.landed.lock().unwrap().is_empty() {
+            sleep(StdDuration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(re_asked.is_ok(), "bug: the landed read never followed up");
+    assert_eq!(
+        notifier.landed.lock().unwrap().as_slice(),
+        [(
+            vec![GRANT_RIDE.to_owned(), SESSION_RIDE.to_owned()],
+            Some("strava".to_owned())
+        )],
+        "bug: the re-ask must read the window the grant answered, named as the grant's"
+    );
 }
 
 /// A ride the grant listed while the session's list fails, detailed by the

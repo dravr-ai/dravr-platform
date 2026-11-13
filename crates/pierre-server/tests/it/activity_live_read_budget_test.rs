@@ -737,7 +737,13 @@ fn answer_of(outcome: BudgetedRead) -> Answer {
     match outcome {
         BudgetedRead::Answered { read, .. } => Answer::Answered(owned(&read.unwrap().activities)),
         BudgetedRead::Cached(rows) => Answer::Cached(owned(&rows)),
-        BudgetedRead::Landed(rows) => Answer::Landed(owned(&rows)),
+        BudgetedRead::Landed {
+            activities,
+            served_by_grant,
+        } => {
+            assert_eq!(served_by_grant, None, "no grant stands behind this session");
+            Answer::Landed(owned(&activities))
+        }
     }
 }
 

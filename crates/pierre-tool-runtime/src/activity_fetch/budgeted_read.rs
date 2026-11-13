@@ -71,7 +71,13 @@ pub enum BudgetedRead {
     /// A live read of the provider that was already running here landed over
     /// this window: the rows it wrote through answer, as current as the
     /// turn's own read would be, and nothing is owed.
-    Landed(Vec<Activity>),
+    Landed {
+        /// The rows the read wrote through.
+        activities: Vec<Activity>,
+        /// The grant that answered in the session's place, when one did:
+        /// the rows are its.
+        served_by_grant: Option<String>,
+    },
 }
 
 impl fmt::Debug for BudgetedRead {
@@ -83,7 +89,14 @@ impl fmt::Debug for BudgetedRead {
                 .field("provider", &provider.as_ref().map(|p| p.name()))
                 .finish(),
             Self::Cached(activities) => f.debug_tuple("Cached").field(activities).finish(),
-            Self::Landed(activities) => f.debug_tuple("Landed").field(activities).finish(),
+            Self::Landed {
+                activities,
+                served_by_grant,
+            } => f
+                .debug_struct("Landed")
+                .field("activities", activities)
+                .field("served_by_grant", served_by_grant)
+                .finish(),
         }
     }
 }
@@ -243,9 +256,13 @@ async fn wait_on_joined(
         "a live activity read of this provider is already running; joining it"
     );
     loop {
-        if joined.landed_over_its_window() {
-            let rows = read_cached_page(runtime, provider_slug, user_id, tenant_id, params).await;
-            return AfterJoin::Answered(BudgetedRead::Landed(rows.unwrap_or_default()));
+        if let Some(landed) = joined.landed_over_its_window() {
+            let filed_under = landed.filed_under(provider_slug);
+            let rows = read_cached_page(runtime, filed_under, user_id, tenant_id, params).await;
+            return AfterJoin::Answered(BudgetedRead::Landed {
+                activities: rows.unwrap_or_default(),
+                served_by_grant: landed.served_by_grant,
+            });
         }
         if let Some(cached) =
             serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await

@@ -753,7 +753,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                     break 'live (rows, None);
                                 }
                                 // A read already running landed over this window.
-                                BudgetedRead::Landed(rows) => break 'live (rows, None),
+                                BudgetedRead::Landed { activities, served_by_grant } => {
+                                    if served_by_grant.is_some() {
+                                        stood_in = Some(PrimaryStandIn::ServedByGrant(provider_name.clone()));
+                                    }
+                                    break 'live (activities, None);
+                                }
                             }
                         } else {
                             let live = LiveRead {
