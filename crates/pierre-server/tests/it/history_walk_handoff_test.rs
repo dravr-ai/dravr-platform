@@ -53,7 +53,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, ConnectionType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
+    BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress, PurgeReason,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::live_activities::{LiveActivityStore, LiveIngest};
@@ -1837,24 +1837,26 @@ struct HeldWrite {
 }
 
 /// One armed hold: the provider whose next write waits, the gate that lets
-/// it land, and the signal that it reached the store.
+/// it land, and the signals that it reached the store and that it landed.
+#[derive(Clone)]
 struct Hold {
     provider: String,
     gate: Arc<Notify>,
     reached: Arc<Notify>,
+    landed: Arc<Notify>,
 }
 
 impl HeldWrite {
-    /// Hold the next write of `provider`; returns the gate that lets it land
-    /// and the signal that it reached the store.
-    fn hold_next_write(&self, provider: &str) -> (Arc<Notify>, Arc<Notify>) {
-        let (gate, reached) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
-        *self.armed.lock().unwrap() = Some(Hold {
+    /// Hold the next write of `provider`.
+    fn hold_next_write(&self, provider: &str) -> Hold {
+        let hold = Hold {
             provider: provider.to_owned(),
-            gate: Arc::clone(&gate),
-            reached: Arc::clone(&reached),
-        });
-        (gate, reached)
+            gate: Arc::new(Notify::new()),
+            reached: Arc::new(Notify::new()),
+            landed: Arc::new(Notify::new()),
+        };
+        *self.armed.lock().unwrap() = Some(hold.clone());
+        hold
     }
 }
 
@@ -1876,13 +1878,18 @@ impl LiveActivityStore for HeldWrite {
                 None
             }
         };
-        if let Some(hold) = held {
+        if let Some(hold) = &held {
             hold.reached.notify_one();
             hold.gate.notified().await;
         }
-        self.inner
+        let ingested = self
+            .inner
             .ingest(user_id, tenant_id, provider, activities, synced_at)
-            .await
+            .await;
+        if let Some(hold) = held {
+            hold.landed.notify_one();
+        }
+        ingested
     }
 
     async fn ingest_received(
@@ -2000,11 +2007,11 @@ async fn a_purge_landing_while_a_step_writes_leaves_none_of_its_rows() {
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
     let listing = hold_the_second_api_year(&fx, session_oldest).await;
-    let (write, reached) = store.hold_next_write(oauth_providers::STRAVA);
+    let write = store.hold_next_write(oauth_providers::STRAVA);
     listing.notify_one();
-    reached.notified().await;
+    write.reached.notified().await;
     fx.revoke_grant().await;
-    write.notify_one();
+    write.gate.notify_one();
     fx.step_stopped().await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
@@ -2015,5 +2022,51 @@ async fn a_purge_landing_while_a_step_writes_leaves_none_of_its_rows() {
         fx.rows(oauth_providers::SCIOTTE).await,
         2,
         "the session's rows stay with the session"
+    );
+}
+
+/// The athlete drops both connections while a step of the walk's API phase
+/// writes the grant's page: the session's purge removes the walk's row, so
+/// the grant's purge finds no row to mark, and the step's write lands after
+/// both. With its row gone the step cannot tell which purge took it, so it
+/// takes its page back: nothing of the purged grant is left in the store.
+#[tokio::test]
+async fn a_step_whose_row_both_purges_took_leaves_none_of_its_rows() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    let write = store.hold_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fx.state().await,
+        None,
+        "the session's purge took the walk's row"
+    );
+    fx.revoke_grant().await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    // The step's own check follows its write; give it a few seconds.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while fx.rows(oauth_providers::STRAVA).await != 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: a step whose row a purge removed left the purged grant's rows in the store"
     );
 }

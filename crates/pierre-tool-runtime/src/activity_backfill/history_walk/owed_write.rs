@@ -102,17 +102,20 @@ async fn leased_row(
 /// Whether a purge took the row filed under `key` that the step reading
 /// `job.provider_name` checked before its write, given the row `after` it.
 ///
+/// - A row that is gone was removed by a purge of the key it was filed
+///   under. For a step of a session's API phase that may be the session's
+///   own purge alone, or the session's and then the grant's, which found no
+///   row left to mark; the step cannot tell which, so it counts as purged,
+///   and a grant still live is paged again by its next walk.
 /// - A step reading the key the row is filed under (a session's phase, or a
-///   grant walked alone): its own purge removed the row.
+///   grant walked alone) is purged only with the row.
 /// - A step of a session's API phase, reading its grant: the grant's purge
 ///   left the row owed a reopen, or a whole-provider purge settled it as its
-///   session walked alone, naming no grant. A row the session's own purge
-///   removed says nothing of the grant, whose rows stay.
+///   session walked alone, naming no grant.
 fn purged(job: &ActivityBackfillJob, key: &str, after: Option<&LeasedWalkRow>) -> bool {
-    let reads_own_key = key == job.provider_name;
     match after {
-        None => reads_own_key,
-        Some(_) if reads_own_key => false,
+        None => true,
+        Some(_) if key == job.provider_name => false,
         Some(row) => {
             row.state == BackfillJobState::PhasePurged
                 || row.walk_backend.as_deref() != Some(job.provider_name.as_str())
