@@ -353,6 +353,15 @@ pub(crate) fn handle_analyze_training_load(
                 &withheld,
             ));
         }
+        // Under the grant, that read is on the athlete's record before it is
+        // made (carnet#1445).
+        if sleep_provider.is_some() {
+            read_subject::record_analytics_wellness_read(
+                executor.resources.repos(),
+                "analyze_training_load",
+            )
+            .await?;
+        }
 
         // Extract output format parameter: "json" (default) or "toon"
         let output_format = extract_output_format(&request);

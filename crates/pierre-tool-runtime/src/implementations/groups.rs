@@ -1,5 +1,5 @@
 // ABOUTME: Group-aware MCP tool — fetch a consenting peer member's activities.
-// ABOUTME: Gated by shared membership, then coach consent (the group's coach) or peer consent + kill-switch (a peer).
+// ABOUTME: Gated by shared membership, then the coaching gates (the group's coach) or peer consent + kill-switch (a peer).
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,12 +17,16 @@
 //! co-membership without trusting the conversation tenant), then on the
 //! consent that standing calls for:
 //! - **the group's human coach** (`coaching_groups.coach_user_id`) reads a
-//!   member whose `coach_sharing_consent` is `true`. Joining grants it
-//!   (ADR-002: membership is consent to share with the coach), the member can
-//!   revoke it, and the group's peer switch does not govern it;
+//!   member through the one answer every coach read of a coached athlete asks
+//!   ([`read_subject::coached_read`], training class): the coach attachment,
+//!   a live membership, the member's `coach_sharing_consent` and one home
+//!   tenant. Its refusal is the one a scoped read of the same athlete answers
+//!   with (carnet#1425). Joining grants the consent (ADR-002: membership is
+//!   consent to share with the coach), the member can revoke it, and the
+//!   group's peer switch does not govern it;
 //! - **any other member** reads a peer only when the target's
 //!   `peer_sharing_consent` is `true` AND the group's `peer_data_sharing`
-//!   kill-switch is `true`.
+//!   kill-switch is `true` ([`member_reads::peer_read_allowed`]).
 //!
 //! In a group's room the scan is pinned to that room's group server-side,
 //! whatever `group_id` the model passes (carnet#1420): every member of the
@@ -72,14 +76,20 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
+use crate::read_subject::{self, DataClass};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
+use pierre_database::repositories::CoachReadClass;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::athlete_display_name::fetch_user_display_name;
-use pierre_services::member_reads::{self, GroupReader};
+use pierre_services::coached_athlete::CoachedAthleteAccess;
+use pierre_services::member_reads;
 use pierre_services::provider_notice;
+
+/// The tool's name, as its refusals name it.
+const TOOL_NAME: &str = "get_group_member_activities";
 
 /// Number of peer activities returned when `limit` is omitted.
 const DEFAULT_PEER_ACTIVITY_LIMIT: usize = 30;
@@ -101,6 +111,7 @@ pub fn create_group_tools() -> Vec<Box<dyn RuntimeTool>> {
 /// A group member that matched the caller's `member` query, carried with the
 /// group context needed to authorize and explain the result.
 struct MemberMatch {
+    group_id: Uuid,
     group_name: String,
     group_allows_sharing: bool,
     /// The requester is this group's human coach, so the member's coach
@@ -249,6 +260,7 @@ async fn scan_shared_rosters(
                 continue;
             }
             matches.push(MemberMatch {
+                group_id: group.id,
                 group_name: group.name.clone(),
                 group_allows_sharing: group.peer_data_sharing,
                 requester_is_coach: group.requester_is_coach,
@@ -265,7 +277,12 @@ async fn scan_shared_rosters(
 /// In a room it never says whether the name belongs to another group: the
 /// room reads the reply, so it only points to where that member is read.
 fn no_match(query: &str, scope: &ScanScope) -> Value {
-    let error = match scope {
+    json!({ "reason": "no_match", "error": no_match_message(query, scope) })
+}
+
+/// What [`no_match`] tells the model.
+fn no_match_message(query: &str, scope: &ScanScope) -> String {
+    match scope {
         ScanScope::Private(_) => format!(
             "No group member matching '{query}' was found in your group(s). \
              They must be a member of a group you share."
@@ -276,17 +293,21 @@ fn no_match(query: &str, scope: &ScanScope) -> Value {
              in your own conversation with Dravr — as their coach, in your thread about that \
              athlete."
         ),
-    };
-    json!({ "reason": "no_match", "error": error })
+    }
 }
 
-/// Collapse the match set to a single peer, or an error payload explaining why
-/// resolution failed (none found / ambiguous across distinct users).
-fn resolve_unique_peer<'a>(
-    matches: &'a [MemberMatch],
+/// Collapse the match set to one member's rows, or an error payload
+/// explaining why resolution failed (none found / ambiguous across distinct
+/// users).
+///
+/// The rows are every group the member was matched in, those whose consent
+/// covers the requester first, so the read is authorized through the most
+/// permissive shared context and a refusal reports it.
+fn resolve_unique_peer<'matches>(
+    matches: &'matches [MemberMatch],
     query: &str,
     scope: &ScanScope,
-) -> Result<&'a MemberMatch, Value> {
+) -> Result<Vec<&'matches MemberMatch>, Value> {
     let Some(first) = matches.first() else {
         return Err(no_match(query, scope));
     };
@@ -307,57 +328,107 @@ fn resolve_unique_peer<'a>(
         }));
     }
 
-    // Same peer (possibly across multiple groups): prefer a group whose gates
-    // authorize the read, so the refusal, when there is one, reports the most
-    // permissive shared context.
-    let best = matches
-        .iter()
-        .find(|m| read_refusal(m).is_none())
-        .unwrap_or(first);
-    Ok(best)
+    let mut rows: Vec<&MemberMatch> = matches.iter().collect();
+    rows.sort_by_key(|row| !shares_with_requester(row));
+    Ok(rows)
 }
 
-/// Why the requester may not read `resolved`, or `None` when they may.
-///
-/// The group's human coach reads by the member's coach consent alone; any
-/// other requester needs the group's peer switch and the member's peer
-/// consent ([`member_reads::member_read_allowed`], the rule a turn replays a
-/// stamped row under too).
-fn read_refusal(resolved: &MemberMatch) -> Option<Value> {
-    let reader = if resolved.requester_is_coach {
-        GroupReader::Coach
+/// Whether the member's consent in this group covers the requester: their
+/// coach consent for the group's coach, their peer consent under the group's
+/// switch for anyone else. It orders the rows only; the read itself is
+/// authorized by [`authorize`].
+const fn shares_with_requester(row: &MemberMatch) -> bool {
+    if row.requester_is_coach {
+        row.member.coach_sharing_consent
     } else {
-        GroupReader::Peer
-    };
-    if member_reads::member_read_allowed(reader, resolved.group_allows_sharing, &resolved.member) {
-        return None;
+        member_reads::peer_read_allowed(row.group_allows_sharing, &row.member)
     }
-    if resolved.requester_is_coach {
-        return Some(json!({
-            "reason": "no_coach_consent",
-            "error": format!(
-                "{} has stopped sharing their data with you, the coach of '{}'. \
-                 They can share it again with `/group consent coach yes`.",
-                resolved.display_name, resolved.group_name
+}
+
+/// The member the requester may read, and how.
+struct AuthorizedRead {
+    /// The member's display name.
+    display_name: String,
+    /// The group the read is authorized through.
+    group_name: String,
+    /// What the coaching gates answered, when the requester reads them as
+    /// that group's human coach; `None` for a peer's read.
+    as_coach: Option<CoachedAthleteAccess>,
+}
+
+/// Authorize the requester's read of the member `rows` hold, trying each row
+/// in turn: the group's human coach through [`read_subject::coached_read`]
+/// (the gates every coach read of a coached athlete asks, training class),
+/// anyone else by the peer rule. When no row authorizes it, the first row's
+/// refusal is the answer, so the most permissive shared context is reported.
+///
+/// The outer `Err` is a repository failure; the inner `Err` the refusal.
+async fn authorize(
+    data: &DataContext,
+    requester: Uuid,
+    rows: &[&MemberMatch],
+    query: &str,
+    scope: &ScanScope,
+) -> AppResult<Result<AuthorizedRead, ToolResult>> {
+    let mut first_refusal = None;
+    for row in rows {
+        let refused = if row.requester_is_coach {
+            match read_subject::coached_read(
+                data.repos(),
+                requester,
+                row.member.user_id,
+                row.group_id,
+                DataClass::Training,
             )
-        }));
+            .await?
+            {
+                Ok(access) => {
+                    return Ok(Ok(AuthorizedRead {
+                        display_name: access.display_name.clone(),
+                        group_name: access.group.name.clone(),
+                        as_coach: Some(access),
+                    }));
+                }
+                // The two gates that fail before the member is shown to be
+                // the requester's (a membership that changed since the scan)
+                // read as no match.
+                Err(refused) => refused.tool_error(TOOL_NAME, |_| no_match_message(query, scope)),
+            }
+        } else if member_reads::peer_read_allowed(row.group_allows_sharing, &row.member) {
+            return Ok(Ok(AuthorizedRead {
+                display_name: row.display_name.clone(),
+                group_name: row.group_name.clone(),
+                as_coach: None,
+            }));
+        } else {
+            ToolResult::error(peer_refusal(row))
+        };
+        first_refusal.get_or_insert(refused);
     }
+    Ok(Err(first_refusal.unwrap_or_else(|| {
+        ToolResult::error(no_match(query, scope))
+    })))
+}
+
+/// Why a fellow member may not read `resolved`: the group's peer switch is
+/// off, or the member has not shared with the group.
+fn peer_refusal(resolved: &MemberMatch) -> Value {
     if !resolved.group_allows_sharing {
-        return Some(json!({
+        return json!({
             "reason": "sharing_disabled",
             "error": format!(
                 "Peer data sharing is disabled for group '{}'.",
                 resolved.group_name
             )
-        }));
+        });
     }
-    Some(json!({
+    json!({
         "reason": "no_consent",
         "error": format!(
             "{} hasn't shared their data with the group yet. They can opt in with `/group consent yes`.",
             resolved.display_name
         )
-    }))
+    })
 }
 
 /// Project an activity to the compact shape the agent reasons over. Mirrors the
@@ -580,24 +651,37 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 })));
             }
 
-            let resolved = match resolve_unique_peer(&matches, member_query, &scope) {
-                Ok(r) => r,
+            let rows = match resolve_unique_peer(&matches, member_query, &scope) {
+                Ok(rows) => rows,
                 Err(payload) => return Ok(ToolResult::error(payload)),
             };
+            let peer_id = rows[0].member.user_id;
 
-            // Authorization: the consent the requester's standing calls for.
-            if let Some(refusal) = read_refusal(resolved) {
-                return Ok(ToolResult::error(refusal));
-            }
+            // Authorization: the gates the requester's standing calls for.
+            let resolved = match authorize(&data, requester, &rows, member_query, &scope).await? {
+                Ok(resolved) => resolved,
+                Err(refused) => return Ok(refused),
+            };
 
-            let peer_id = resolved.member.user_id;
             info!(
                 requester = %requester,
                 peer = %peer_id,
-                as_coach = resolved.requester_is_coach,
+                as_coach = resolved.as_coach.is_some(),
                 in_room = matches!(scope, ScanScope::Room(_)),
                 "get_group_member_activities: authorized consent-gated member fetch"
             );
+            // A coach's read of their athlete goes on the athlete's own record
+            // before anything of theirs is read (carnet#1445).
+            if let Some(access) = &resolved.as_coach {
+                read_subject::record_coach_read(
+                    data.repos(),
+                    access,
+                    requester,
+                    TOOL_NAME,
+                    CoachReadClass::Training,
+                )
+                .await?;
+            }
             // What the turn derives from here on carries this member's data
             // (carnet#1174).
             ai_scope::note_member_read(peer_id);

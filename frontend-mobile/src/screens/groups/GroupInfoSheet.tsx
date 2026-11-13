@@ -49,6 +49,7 @@ import { MemberRow } from './MemberRow';
 import { AthletePlanView } from './AthletePlanView';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
 import { CoachConsentsSection } from './CoachConsentsSection';
+import { CoachReadLog } from './CoachReadLog';
 import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
@@ -763,6 +764,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               )}
             </View>
           )}
+          {/* What the coach's agent read of the member, beside the sharing
+              that lets it (carnet#1445): only once a human coach is attached. */}
+          {showsCoachSharing && group?.coach_user_id && <CoachReadLog groupId={groupId} />}
         </CollapsibleSection>
         )}
 

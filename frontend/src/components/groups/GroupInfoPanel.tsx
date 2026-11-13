@@ -46,6 +46,7 @@ import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
 import CoachConsentsSection from './CoachConsentsSection';
+import CoachReadLog from './CoachReadLog';
 import type { GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
 import {
   COACH_CONSENTS_KEYS,
@@ -426,6 +427,13 @@ export default function GroupInfoPanel({
                   onChange={(e) => void handleCoachSharingChange(e.target.checked)}
                   data-testid="coach-sharing-switch"
                 />
+              </div>
+            )}
+            {/* What the coach's agent read of the member, beside the sharing
+                that lets it (carnet#1445): only once a human coach is attached. */}
+            {showsCoachSharing && group.coach_user_id && (
+              <div className="mt-4">
+                <CoachReadLog groupId={groupId} />
               </div>
             )}
           </Card>

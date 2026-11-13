@@ -1,5 +1,5 @@
-// ABOUTME: Whether a group member's data may be read by another person now: the group's coach by the member's coach consent, a peer by theirs
-// ABOUTME: The rule the group tools gate a member read on, and the one a turn's history replays a stamped row under (carnet#1174)
+// ABOUTME: Whether a group member's data may be read by another person now: the group's coach by the coaching gates, a peer by peer consent
+// ABOUTME: The rule a turn's history replays a stamped row under (carnet#1174), and the peer rule the group tools gate a peer's read on
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,52 +10,47 @@
 //! under the member's own consent:
 //!
 //! - **the group's human coach** (`coaching_groups.coach_user_id`) reads a
-//!   live member whose `coach_sharing_consent` is on. Joining grants it
-//!   (ADR-002) and the member revokes it; the group's peer switch does not
-//!   govern it.
+//!   member only through the coaching gates,
+//!   [`coached_athlete_access`]: the coach attachment, a live membership,
+//!   the member's `coach_sharing_consent` and one home tenant. Every coach
+//!   read asks those gates, so no second rule here can drift from them
+//!   (carnet#1425).
 //! - **any other member** reads a live peer whose `peer_sharing_consent` is
-//!   on, and only while the group's `peer_data_sharing` switch is on.
+//!   on, and only while the group's `peer_data_sharing` switch is on
+//!   ([`peer_read_allowed`]).
 //!
-//! [`member_read_allowed`] is that rule for one membership; the group tools
-//! gate every fresh read on it. [`readable_members`] asks it of a set of
-//! members by id, for the turn that replays rows stamped with them
-//! (`about_user_id`, carnet#1174): a member who withdrew their consent, left
-//! the group, or deleted their account is no longer replayed into a prompt.
+//! [`readable_members`] asks the rule of a set of members by id, for the turn
+//! that replays rows stamped with them (`about_user_id`, carnet#1174): a
+//! member who withdrew their consent, left the group, or deleted their
+//! account is no longer replayed into a prompt.
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::GroupMember;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
+use crate::coached_athlete::coached_athlete_access;
+
 /// The standing a reader holds in the group whose member they read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum GroupReader {
-    /// The group's human coach (`coaching_groups.coach_user_id`): reads by
-    /// the member's coach consent.
+enum GroupReader {
+    /// The group's human coach (`coaching_groups.coach_user_id`): reads
+    /// through the coaching gates.
     Coach,
     /// Any other member: reads by the member's peer consent, under the
     /// group's `peer_data_sharing` switch.
     Peer,
 }
 
-/// Whether `reader` may read `member`'s data in a group.
+/// Whether a fellow member may read `member`'s data in a group whose
+/// `peer_data_sharing` switch is `peer_data_sharing`: the member's peer
+/// consent while the switch is on. A member who left is read by no one.
 ///
-/// The group's coach reads by the member's coach consent; a peer by their
-/// peer consent while the group's `peer_data_sharing` switch is on. A member
-/// who left is read by no one.
+/// A group's human coach never reads through this rule: their read is the
+/// coaching gates' to answer ([`coached_athlete_access`]).
 #[must_use]
-pub fn member_read_allowed(
-    reader: GroupReader,
-    peer_data_sharing: bool,
-    member: &GroupMember,
-) -> bool {
-    if member.left_at.is_some() {
-        return false;
-    }
-    match reader {
-        GroupReader::Coach => member.coach_sharing_consent,
-        GroupReader::Peer => peer_data_sharing && member.peer_sharing_consent,
-    }
+pub const fn peer_read_allowed(peer_data_sharing: bool, member: &GroupMember) -> bool {
+    member.left_at.is_none() && peer_data_sharing && member.peer_sharing_consent
 }
 
 /// A group the reader reads members of, with their standing in it.
@@ -109,9 +104,9 @@ async fn reader_groups(
 ///
 /// The group is `within` alone when given (the conversation's own group),
 /// else any group they belong to or coach. A member no such group lets them
-/// read — who withdrew their consent, left, or no longer has an account — is
-/// not returned, so a caller that keeps only the returned members fails
-/// closed.
+/// read — who withdrew their consent, left, or no longer has an account, or
+/// whom the coaching gates refuse their coach for any other reason — is not
+/// returned, so a caller that keeps only the returned members fails closed.
 ///
 /// # Errors
 ///
@@ -134,14 +129,19 @@ pub async fn readable_members(
             continue;
         }
         for group in &groups {
-            let Some(membership) = repos
-                .groups
-                .get_member(&group.id.to_string(), member)
-                .await?
-            else {
-                continue;
+            let readable_here = match group.reader {
+                GroupReader::Coach => coached_athlete_access(repos, reader, member, group.id)
+                    .await?
+                    .is_ok(),
+                GroupReader::Peer => repos
+                    .groups
+                    .get_member(&group.id.to_string(), member)
+                    .await?
+                    .is_some_and(|membership| {
+                        peer_read_allowed(group.peer_data_sharing, &membership)
+                    }),
             };
-            if member_read_allowed(group.reader, group.peer_data_sharing, &membership) {
+            if readable_here {
                 readable.push(member);
                 break;
             }
@@ -176,42 +176,26 @@ mod tests {
     }
 
     #[test]
-    fn the_coach_reads_by_coach_consent_alone() {
-        assert!(
-            member_read_allowed(GroupReader::Coach, false, &member(false, true, false)),
-            "the coach reads a consenting member whatever the peer switch says"
-        );
-        assert!(
-            !member_read_allowed(GroupReader::Coach, true, &member(true, false, false)),
-            "a member who revoked the coach's read is not read by the coach"
-        );
-    }
-
-    #[test]
     fn a_peer_reads_by_peer_consent_under_the_group_switch() {
         assert!(
-            member_read_allowed(GroupReader::Peer, true, &member(true, false, false)),
-            "a peer reads a member who shares with the group while its switch is on"
+            peer_read_allowed(true, &member(true, false, false)),
+            "bug: a peer reads a member who shares with the group while its switch is on"
         );
         assert!(
-            !member_read_allowed(GroupReader::Peer, false, &member(true, true, false)),
-            "the group's peer switch off stops every peer read"
+            !peer_read_allowed(false, &member(true, true, false)),
+            "bug: the group's peer switch off stops every peer read"
         );
         assert!(
-            !member_read_allowed(GroupReader::Peer, true, &member(false, true, false)),
-            "coach consent grants no peer read"
+            !peer_read_allowed(true, &member(false, true, false)),
+            "bug: coach consent grants no peer read"
         );
     }
 
     #[test]
-    fn a_member_who_left_is_read_by_no_one() {
+    fn a_member_who_left_is_read_by_no_peer() {
         assert!(
-            !member_read_allowed(GroupReader::Coach, true, &member(true, true, true)),
-            "the coach reads no member who left, whatever their consents say"
-        );
-        assert!(
-            !member_read_allowed(GroupReader::Peer, true, &member(true, true, true)),
-            "a peer reads no member who left, whatever their consents say"
+            !peer_read_allowed(true, &member(true, true, true)),
+            "bug: a peer reads no member who left, whatever their consents say"
         );
     }
 }

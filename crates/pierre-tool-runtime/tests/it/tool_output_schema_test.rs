@@ -4296,12 +4296,23 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
                     needs_reconnect: Vec::new(),
                     stale: false,
                 }),
+                not_read: None,
             },
             RosterOverviewAthlete {
                 name: "Bruno".to_owned(),
                 groups: vec!["Tuesday Track".to_owned()],
                 status: RosterAthleteStatus::NoCoachConsent,
                 training: None,
+                not_read: None,
+            },
+            // A sharer the coaching gates refuse (carnet#1425): no training,
+            // and why, in the words a scoped read of them is refused with.
+            RosterOverviewAthlete {
+                name: "Chloe".to_owned(),
+                groups: vec!["Tuesday Track".to_owned()],
+                status: RosterAthleteStatus::Shared,
+                training: None,
+                not_read: Some("Chloe belongs to several tenants.".to_owned()),
             },
         ],
         truncated: false,
@@ -4311,6 +4322,16 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
     assert!(
         value["athletes"][1].get("training").is_none(),
         "a withheld athlete must carry no training key at all"
+    );
+    assert!(
+        value["athletes"][0].get("not_read").is_none()
+            && value["athletes"][1].get("not_read").is_none(),
+        "bug: an athlete the gates let through, or one who stopped sharing, carries no not_read"
+    );
+    assert!(
+        value["athletes"][2].get("training").is_none()
+            && value["athletes"][2]["not_read"].is_string(),
+        "bug: a sharer the gates refuse carries why, and no training"
     );
 }
 

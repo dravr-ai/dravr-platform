@@ -7,15 +7,16 @@
 //! carnet#1244. Group info and the roster show a coached athlete's published
 //! plan read-only from here, outside the plan thread (carnet#1070) where the
 //! coach drafts and publishes it: the plan the athlete sees, in the shape
-//! `GET /api/me/training-plan` answers with, and no draft. Nothing is opened
-//! or written.
+//! `GET /api/me/training-plan` answers with, and no draft. Nothing is opened,
+//! and nothing of the plan is written.
 //!
 //! The gates are those every coach read of a plan runs
 //! ([`plan_scope::coached_plan_read_access`]): the caller is the active
 //! group's human coach, the athlete a live member who still shares with them
-//! and has one home tenant, and that tenant allows `get_training_plan`. A
-//! plan derived from first-party-only data is refused over an external
-//! transport, as on every surface that shows it (carnet#769).
+//! and has one home tenant, and that tenant allows `get_training_plan`. Those
+//! gates record the read on the athlete's own record as a `plan_view`
+//! (carnet#1445). A plan derived from first-party-only data is refused over
+//! an external transport, as on every surface that shows it (carnet#769).
 
 use std::sync::Arc;
 
@@ -24,6 +25,7 @@ use axum::{
     Json,
 };
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_database::repositories::CoachReadSurface;
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::athlete_clock;
 use pierre_services::locale::user_locale;
@@ -73,11 +75,14 @@ pub(super) async fn get_athlete_plan(
         .map_err(|_| AppError::invalid_input("athlete_user_id must be a UUID"))?;
     let coach = auth.user_id;
     let repos = &resources.common.repos;
+    // The gates record the read on the athlete's own record before the plan
+    // is read (carnet#1445).
     let access = plan_scope::coached_plan_read_access(
         &into_runtime(&resources),
         coach,
         athlete,
         query.group_id,
+        CoachReadSurface::PlanView.as_str(),
     )
     .await?
     .map_err(refusal_error)?;

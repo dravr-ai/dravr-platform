@@ -78,6 +78,7 @@ vi.mock('../../../services/api', () => ({
     updateGroup: vi.fn(),
     updatePeerConsent: vi.fn(),
     getCoachSharing: vi.fn(),
+    getCoachReads: vi.fn(),
     updateCoachSharing: vi.fn(),
     leaveGroup: vi.fn(),
     deleteGroup: vi.fn(),
@@ -268,6 +269,7 @@ describe('GroupInfoPanel', () => {
     });
     vi.mocked(groupsApi.updatePeerConsent).mockResolvedValue(undefined);
     vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true });
+    vi.mocked(groupsApi.getCoachReads).mockResolvedValue({ reads: [], retention_months: 12 });
     vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => request);
     vi.mocked(groupsApi.updateGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.deleteGroup).mockResolvedValue(undefined);
@@ -449,12 +451,18 @@ describe('GroupInfoPanel', () => {
     await waitFor(() => expect(toggle.checked).toBe(false));
     // Peer sharing is a separate choice the flip leaves alone.
     expect(groupsApi.updatePeerConsent).not.toHaveBeenCalled();
+    // Beside it, the member's own record of what the coach read (carnet#1445).
+    expect(await screen.findByTestId('coach-read-log')).toBeInTheDocument();
+    expect(groupsApi.getCoachReads).toHaveBeenCalledWith(GROUP_ID);
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {
     renderPanel();
 
     expect(await screen.findByTestId('coach-sharing-row')).toBeInTheDocument();
+    // No coach has read anything here, so there is no record to show.
+    expect(screen.queryByTestId('coach-read-log')).toBeNull();
+    expect(groupsApi.getCoachReads).not.toHaveBeenCalled();
   });
 
   it('lists the roster with each member role', async () => {
@@ -771,6 +779,9 @@ describe('GroupInfoPanel', () => {
     expect(screen.queryByTestId('peer-consent-card')).toBeNull();
     expect(screen.queryByTestId('coach-sharing-row')).toBeNull();
     expect(groupsApi.getCoachSharing).not.toHaveBeenCalled();
+    // The record of a coach's reads is the athlete's, never the coach's.
+    expect(screen.queryByTestId('coach-read-log')).toBeNull();
+    expect(groupsApi.getCoachReads).not.toHaveBeenCalled();
     // The coach sets where the weekly digest goes, and no other group setting.
     expect(await screen.findByTestId('group-digest-mode')).toHaveValue('off');
     expect(screen.getByTestId('group-info-save-settings')).toBeInTheDocument();

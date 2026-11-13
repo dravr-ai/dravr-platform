@@ -54,6 +54,8 @@ pub mod claim_verdicts;
 pub mod coach_access_requests;
 /// A coach's "Traité" on Coach Home attention reasons (`SQLite`)
 pub mod coach_attention_dismissals;
+/// The athlete's record of their human coach's reads (`SQLite`)
+pub mod coach_data_reads;
 /// A coach's review of the agent's group replies (`SQLite`)
 pub mod coach_reply_reviews;
 /// Coaching group storage, membership, and invite management

@@ -716,6 +716,10 @@ impl UniversalExecutor {
             return Ok(pointer);
         }
 
+        // Past every refusal and the repeated-read pointer, the read is made:
+        // the athlete's record of it is written first (carnet#1445).
+        self.record_coach_read(subject.as_ref(), &tool_name).await?;
+
         // Scope the originating conversation id into the task-local for the
         // duration of the tool body so `ToolExecutionContext::from_tronc` can
         // recover it — the tronc `ToolContext` has no field to carry it through.

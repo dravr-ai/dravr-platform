@@ -319,6 +319,12 @@ export {
   COACH_CONSENTS_KEYS,
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
+export {
+  COACH_READ_LOG_ALL_KEYS,
+  COACH_READ_LOG_KEYS,
+  coachReadClassKey,
+  coachReadSourceKey,
+} from './coach-reads';
 
 // The map layers both route cards draw over, and the ink the track is drawn in
 export {

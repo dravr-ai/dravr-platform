@@ -661,8 +661,10 @@ async fn read_plan(
     // Both rails have measured every save since they shipped and
     // reported into a log line no agent reads. Asked for, the same
     // verdict comes back to the agent that has to act on it. A coach's read
-    // takes the athlete's wellness grant to include their recovery.
+    // takes the athlete's wellness grant, and goes on their record (carnet#1445).
     let state = if include_state {
+        let recorded = scope.record_wellness_read(repos, "get_training_plan");
+        recorded.await?;
         Some(plan_state_block(state, repos, scope, &plan, &active_weeks, today).await)
     } else {
         None

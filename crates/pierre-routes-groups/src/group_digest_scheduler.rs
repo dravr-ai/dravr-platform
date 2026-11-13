@@ -42,7 +42,7 @@
 //! Each tick enumerates the tenants, keeps those whose tier enables the
 //! digest, lists their active groups and, for a group whose week is due and
 //! claimed, builds member snapshots through the canonical
-//! [`fetch_member_snapshots`] builder (the same all-providers + deduplicated
+//! [`fetch_member_snapshots_in`] builder (the same all-providers + deduplicated
 //! path the chat agent and the REST analytics endpoints use) — only for the
 //! members some copy of the digest covers.
 //!
@@ -63,7 +63,12 @@
 //!   the rule applied everywhere a member's training is shown: the group's
 //!   human coach reads the members' coach sharing, any other manager their
 //!   peer sharing, carnet#1166). It opens by saying how many members that is
-//!   when it is not everyone. It goes out as a
+//!   when it is not everyone. The human coach's copy also asks each of those
+//!   members the coach-read gate and puts the read on the member's record as
+//!   a `weekly_digest` read, before any snapshot is fetched
+//!   ([`gate_group_view_skipping`], carnet#1445): a member the gate refuses,
+//!   or whose read cannot be recorded, is left out of the coach's copy with a
+//!   warning, and the digest goes on for everyone else. It goes out as a
 //!   [`NotificationEvent::GroupWeeklyDigest`], which the notification
 //!   localizer renders in each recipient's own language and the stored row
 //!   keeps as parameters, so the feed renders it again after a language
@@ -90,7 +95,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{TenantId, User};
-use pierre_database::repositories::MessagingRepository;
+use pierre_database::repositories::{CoachReadSurface, MessagingRepository};
 use pierre_database::RepositoryRegistry;
 use pierre_groups::strategies::tier::tier_enables_digest;
 use pierre_groups::GroupService;
@@ -103,7 +108,8 @@ use pierre_services::notification_text::{
     CONCERN_OVERTRAINING_RISK, CONCERN_VOLUME_DROP, PARAM_ROSTER_MEMBERS, PARAM_SHARED_MEMBERS,
 };
 use pierre_services::periodic::spawn_periodic;
-use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
+use pierre_tool_runtime::coach_group_view::{gate_group_view_skipping, GroupView};
+use pierre_tool_runtime::group_fitness::fetch_member_snapshots_in;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Map, Value};
 use tracing::{debug, error, info, warn};
@@ -366,11 +372,35 @@ async fn process_group<C>(
     let notifies_managers = sweep.notifications.is_some();
     #[cfg(not(feature = "client-notifications"))]
     let notifies_managers = false;
-    let user_ids = digest_subjects(group, &audience.members, posts_to_room, notifies_managers);
+    // The coach's copy is gated, and its reads recorded, before anything is
+    // read (carnet#1445).
+    let coach_view = if notifies_managers {
+        coach_copy_view(repos, tenant_id, group, &audience.members).await
+    } else {
+        None
+    };
+    if let Some(view) = &coach_view {
+        outcome.errors += view.unrecorded.len();
+    }
+    let user_ids = digest_subjects(
+        group,
+        &audience.members,
+        posts_to_room,
+        notifies_managers,
+        coach_view.as_ref(),
+    );
+    // A member the coach's gate let through is read under their home tenant.
+    let readers: Vec<(Uuid, TenantId)> = user_ids
+        .iter()
+        .map(|&id| {
+            let home = coach_view.as_ref().and_then(|view| view.tenant_of(id));
+            (id, home.unwrap_or(tenant_id))
+        })
+        .collect();
     // The digest is derived from those members' training: it is stamped with
     // what those reads served (carnet#769).
     let (snapshots, derived_from) =
-        ai_scope::derived(fetch_member_snapshots(sweep.runtime, &user_ids, tenant_id)).await;
+        ai_scope::derived(fetch_member_snapshots_in(sweep.runtime, &readers)).await;
     outcome.groups_reported += 1;
     let posted = post_digest_to_room(sweep, tenant_id, group, &audience, &snapshots, outcome).await;
 
@@ -389,6 +419,7 @@ async fn process_group<C>(
         DigestDelivery {
             posted_to_room: posted,
             derived_from,
+            coach_view: coach_view.as_ref(),
         },
         outcome,
     )
@@ -406,12 +437,13 @@ async fn process_group<C>(
 /// The members whose training some copy of this week's digest covers, in
 /// join order: the sharers the chat copy is computed over when it posts into
 /// the group's chat, and the members each manager may see when the managers
-/// are notified. Nobody else's training is read.
+/// are notified ([`manager_covers`]). Nobody else's training is read.
 fn digest_subjects(
     group: &CoachingGroup,
     members: &[GroupMember],
     posts_to_room: bool,
     notifies_managers: bool,
+    coach_view: Option<&GroupView>,
 ) -> Vec<Uuid> {
     let mut covered = if posts_to_room {
         GroupService::peer_sharing_user_ids(group, members)
@@ -421,11 +453,7 @@ fn digest_subjects(
     if notifies_managers {
         let managers = members.iter().filter(|m| m.role.can_manage_members());
         for manager in managers {
-            covered.extend(GroupService::visible_member_ids(
-                group,
-                members,
-                manager.user_id,
-            ));
+            covered.extend(manager_covers(group, members, manager.user_id, coach_view));
         }
     }
     members
@@ -433,6 +461,57 @@ fn digest_subjects(
         .map(|m| m.user_id)
         .filter(|id| covered.contains(id))
         .collect()
+}
+
+/// The coach's view of the group for their copy of the digest, when the
+/// group's human coach is one of the managers it goes to: each member who
+/// shares with the coach asked the coach-read gate, and each read it lets
+/// through on the member's record as a `weekly_digest` read, once a day,
+/// before any snapshot is fetched (carnet#1445).
+///
+/// A member the gate refuses, or whose read cannot be recorded, is left out
+/// of the coach's copy (the latter with a warning, counted as an error): one
+/// member's record must not cost every other manager and member their week.
+async fn coach_copy_view(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    group: &CoachingGroup,
+    members: &[GroupMember],
+) -> Option<GroupView> {
+    let coach = group.coach_user_id?;
+    let coach_manages = members
+        .iter()
+        .any(|m| m.user_id == coach && m.role.can_manage_members());
+    if !coach_manages {
+        return None;
+    }
+    Some(
+        gate_group_view_skipping(
+            repos,
+            group,
+            members,
+            coach,
+            tenant_id,
+            CoachReadSurface::WeeklyDigest,
+        )
+        .await,
+    )
+}
+
+/// The members `manager`'s copy of the digest covers: for the group's human
+/// coach their gated view ([`coach_copy_view`]) — nobody else when it was not
+/// taken — and for any other manager the members who share with their peers
+/// and themself ([`GroupService::visible_member_ids`]).
+fn manager_covers(
+    group: &CoachingGroup,
+    members: &[GroupMember],
+    manager: Uuid,
+    coach_view: Option<&GroupView>,
+) -> HashSet<Uuid> {
+    if group.coach_user_id == Some(manager) {
+        return coach_view.map(GroupView::member_ids).unwrap_or_default();
+    }
+    GroupService::visible_member_ids(group, members, manager)
 }
 
 /// Mark the group's `week_key` delivered in the ledger. A failure is counted:
@@ -636,9 +715,9 @@ pub fn room_digest_params(
 /// The parameters of the digest one manager receives.
 ///
 /// [`digest_params`] over the members whose training `manager` may see
-/// ([`GroupService::visible_member_ids`]): the group's human coach reads the
-/// members' coach sharing, any other owner or admin their peer sharing, and
-/// the manager themself is always in. The summary, the trend, the volume
+/// ([`manager_covers`]): the group's human coach the members who share with
+/// the coach and pass the coach-read gate, any other owner or admin their
+/// peer sharing, and the manager themself is always in. The summary, the trend, the volume
 /// lines, the highlights and the concerns are all computed over that set, so
 /// no total gives away the week of a member left out (carnet#1166). It also
 /// carries how many members that is and how many the group holds, which the
@@ -650,8 +729,9 @@ fn manager_digest_params(
     members: &[GroupMember],
     snapshots: &[MemberFitnessSnapshot],
     manager: Uuid,
+    coach_view: Option<&GroupView>,
 ) -> Value {
-    let visible = GroupService::visible_member_ids(group, members, manager);
+    let visible = manager_covers(group, members, manager, coach_view);
     covered_digest_params(
         service,
         group,
@@ -776,12 +856,14 @@ pub fn plurality_locale<'a>(votes: impl IntoIterator<Item = &'a str>, owner: &st
 
 /// How one week's digest reached the group before its managers are told.
 #[cfg(feature = "client-notifications")]
-struct DigestDelivery {
+struct DigestDelivery<'a> {
     /// Whether the chat copy reached the group's chat.
     posted_to_room: bool,
     /// The stamp of the member data the digest was computed from
     /// (carnet#769).
     derived_from: TransportPolicy,
+    /// The coach's gated view, when the group's human coach is a manager.
+    coach_view: Option<&'a GroupView>,
 }
 
 /// Notify every member who can manage the group (owner + admins) of the
@@ -798,7 +880,7 @@ async fn dispatch_to_managers<C>(
     group: &CoachingGroup,
     audience: &Audience,
     snapshots: &[MemberFitnessSnapshot],
-    delivery: DigestDelivery,
+    delivery: DigestDelivery<'_>,
     outcome: &mut DigestTickOutcome,
 ) where
     C: ToolRuntime + GroupsCtx + MiddlewareCtx,
@@ -819,6 +901,7 @@ async fn dispatch_to_managers<C>(
             &audience.members,
             snapshots,
             member.user_id,
+            delivery.coach_view,
         );
         let dispatch = EventDispatch {
             user_id: member.user_id,
@@ -1026,30 +1109,49 @@ mod tests {
     fn a_member_no_copy_covers_is_never_read() {
         let (group, members) = group_and_members();
         assert_eq!(
-            digest_subjects(&group, &members, false, true),
+            digest_subjects(&group, &members, false, true, None),
             ids(&members, &[0, 1]),
             "the admin's copy: themself and the peer sharer"
         );
         assert_eq!(
-            digest_subjects(&group, &members, true, false),
+            digest_subjects(&group, &members, true, false, None),
             ids(&members, &[1]),
             "the chat copy: the peer sharer alone"
         );
         assert!(
-            digest_subjects(&group, &members, false, false).is_empty(),
+            digest_subjects(&group, &members, false, false, None).is_empty(),
             "no copy goes out, so nothing is read"
         );
     }
 
     #[test]
-    fn the_coachs_copy_reads_the_members_who_share_with_the_coach() {
+    fn the_coachs_copy_reads_the_members_its_gated_view_lets_through() {
         let (mut group, mut members) = group_and_members();
         members[0].coach_sharing_consent = true;
         group.coach_user_id = Some(members[0].user_id);
+        let tenant = TenantId::from_uuid(Uuid::new_v4());
+        let view = GroupView {
+            readable: vec![(members[0].user_id, tenant), (members[2].user_id, tenant)],
+            ..GroupView::default()
+        };
         assert_eq!(
-            digest_subjects(&group, &members, false, true),
+            digest_subjects(&group, &members, false, true, Some(&view)),
             ids(&members, &[0, 2]),
             "the coach-admin, and the athlete sharing with the coach"
+        );
+        let refused = GroupView {
+            readable: vec![(members[0].user_id, tenant)],
+            refused: vec![members[2].user_id],
+            ..GroupView::default()
+        };
+        assert_eq!(
+            digest_subjects(&group, &members, false, true, Some(&refused)),
+            ids(&members, &[0]),
+            "bug: a sharer the coach's gate refused is not read for the coach's copy"
+        );
+        assert!(
+            digest_subjects(&group, &members, false, true, None).is_empty(),
+            "bug: with no gated view the coach's copy covers nobody, never the ungated rule"
         );
     }
 }

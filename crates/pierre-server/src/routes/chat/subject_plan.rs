@@ -20,6 +20,11 @@
 //! a consent revoked since the thread opened refuses the next one. Publish
 //! goes through [`publish_draft_live`], the entry point `publish_training_plan`
 //! calls, so the button and the tool publish the same way.
+//!
+//! The read and the publish read the athlete's plan (the publish also their
+//! load, for its rails), so each goes on the athlete's own record as a
+//! `coach_thread` read before anything of theirs is read (carnet#1445). The
+//! discard reads nothing of theirs: the draft is the coach's.
 
 use std::sync::Arc;
 
@@ -31,6 +36,7 @@ use axum::{
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{
@@ -47,6 +53,9 @@ use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::implementations::training_plan_drafts::{
     publish_draft_live, DraftPublish, DraftPublishOutcome, PublishedDraftReport,
 };
+use pierre_tool_runtime::read_subject::record_coach_read;
+
+use uuid::Uuid;
 
 use crate::mcp::host_seams::tool_auth_method;
 use crate::mcp::resources::ServerContext;
@@ -114,6 +123,24 @@ async fn coached_subject(
     .map_err(CoachedAthleteRefusal::into_error)
 }
 
+/// Record on the athlete's own record that the coach's thread read their plan
+/// (carnet#1445). A row that cannot be written fails the request: no read
+/// goes unrecorded.
+async fn record_thread_read(
+    resources: &Arc<ServerContext>,
+    access: &CoachedAthleteAccess,
+    coach: Uuid,
+) -> Result<(), AppError> {
+    record_coach_read(
+        &resources.common.repos,
+        access,
+        coach,
+        CoachReadSurface::CoachThread.as_str(),
+        CoachReadClass::Training,
+    )
+    .await
+}
+
 /// `GET /api/chat/conversations/{id}/subject-plan`: the thread's athlete's
 /// live plan and the coach's draft over it, each projected on the athlete's
 /// today in the shape `GET /api/me/training-plan` returns, in the coach's
@@ -126,6 +153,7 @@ pub(super) async fn get_subject_plan(
 ) -> Result<Response, AppError> {
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let coach = auth.user_id;
+    record_thread_read(&resources, &access, coach).await?;
     let repos = &resources.common.repos;
     let athlete = access.athlete_user_id;
     let target = CoachDraftTarget::new(access.tenant, athlete, coach);
@@ -178,6 +206,7 @@ pub(super) async fn publish_subject_plan(
     Json(request): Json<PublishSubjectPlanRequest>,
 ) -> Result<Response, AppError> {
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
+    record_thread_read(&resources, &access, auth.user_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
     // The push runs as the coach's own push_training_plan from this thread
     // would: the thread names the athlete, the coach is the requester, and an

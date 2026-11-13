@@ -262,6 +262,7 @@ account_reset_tables!(
     "user_home_preferences",
     "user_check_in_preferences",
     "calendar_preferences",
+    "coach_data_reads",
     "user_agent_preferences",
     "agent_assignments",
     "agent_authors",

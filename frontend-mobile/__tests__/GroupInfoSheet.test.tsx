@@ -45,6 +45,7 @@ const mockConfirmLink = jest.fn();
 const mockGetCoachConsents = jest.fn();
 const mockUpdateCoachConsents = jest.fn();
 const mockGetCoachSharing = jest.fn();
+const mockGetCoachReads = jest.fn();
 const mockUpdateCoachSharing = jest.fn();
 
 /** What the caller lets the group's coach do: nothing granted, nothing offered unless overridden. */
@@ -73,6 +74,7 @@ jest.mock('../src/services/api', () => ({
     getCoachConsents: (...args: unknown[]) => mockGetCoachConsents(...args),
     updateCoachConsents: (...args: unknown[]) => mockUpdateCoachConsents(...args),
     getCoachSharing: (...args: unknown[]) => mockGetCoachSharing(...args),
+    getCoachReads: (...args: unknown[]) => mockGetCoachReads(...args),
     updateCoachSharing: (...args: unknown[]) => mockUpdateCoachSharing(...args),
     endDelegatedConnection: jest.fn(),
     listMembers: jest.fn(),
@@ -163,6 +165,7 @@ describe('GroupInfoSheet', () => {
     (groupsApi.getGroup as jest.Mock).mockResolvedValue(GROUP);
     mockGetCoachConsents.mockResolvedValue(coachConsents());
     mockGetCoachSharing.mockResolvedValue({ consent: true });
+    mockGetCoachReads.mockResolvedValue({ reads: [], retention_months: 12 });
     mockUpdateCoachSharing.mockImplementation(async (_groupId: string, request: unknown) => request);
     (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
       can_create: true,
@@ -607,6 +610,9 @@ describe('GroupInfoSheet', () => {
     // Sharing with the coach is a member's choice the coach never holds.
     expect(queryByTestId('coach-sharing-row')).toBeNull();
     expect(mockGetCoachSharing).not.toHaveBeenCalled();
+    // The record of a coach's reads is the athlete's, never the coach's.
+    expect(queryByTestId('coach-read-log')).toBeNull();
+    expect(mockGetCoachReads).not.toHaveBeenCalled();
   });
 
   it("shows a member's own coach sharing beside peer sharing, and stops it when switched off", async () => {
@@ -629,6 +635,9 @@ describe('GroupInfoSheet', () => {
     await waitFor(() => expect(getByTestId('coach-sharing-switch')).toHaveProp('value', false));
     // Peer sharing is a separate choice the switch leaves alone.
     expect(groupsApi.updatePeerConsent).not.toHaveBeenCalled();
+    // Under it, the member's own record of what the coach read (carnet#1445).
+    expect(await findByTestId('coach-read-log')).toBeTruthy();
+    expect(mockGetCoachReads).toHaveBeenCalledWith('group-1');
   });
 
   it("offers the group's coach a way into each member's plan, and opens that thread", async () => {

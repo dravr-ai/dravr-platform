@@ -49,8 +49,8 @@ use pierre_core::models::{
     StoredRecoveryMetrics, StoredSleepSession, Tenant, TenantId,
 };
 use pierre_core::transport::TransportPolicy;
-use pierre_database::repositories::InsertCompactionBlockParams;
 use pierre_database::repositories::WellnessWriteMode;
+use pierre_database::repositories::{CoachReadClass, InsertCompactionBlockParams};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::{
     ChatRequest, ChatResponse, ChatStream, LlmCapabilities, LlmProvider, MessageRole, StreamChunk,
@@ -1201,6 +1201,154 @@ async fn wellness_reaches_the_coach_only_under_the_links_wellness_read() {
     ] {
         assert!(section.contains(&reading), "{reading}: {section}");
     }
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// The athlete's record of the block's reads (carnet#1445)
+// ════════════════════════════════════════════════════════════════════════
+
+impl Fixture {
+    /// The block's reads of the subject on their own record, by class:
+    /// (training, wellness). A turn on `PLAIN_ASK` calls no tool, so these are
+    /// every row the turn wrote.
+    async fn thread_reads(&self) -> (usize, usize) {
+        let reads = self
+            .repos()
+            .coach_data_reads
+            .list_coach_reads(self.subject.tenant, self.subject.id, self.group.id, 100)
+            .await
+            .unwrap();
+        assert!(
+            reads.iter().all(|read| read.tool == "coach_thread"
+                && read.coach == Some(self.coach.id)
+                && read.group == self.group.id),
+            "bug: a plain turn's reads are the coach's thread's, by this coach in this group: \
+             {reads:?}"
+        );
+        let training = reads
+            .iter()
+            .filter(|read| read.class == CoachReadClass::Training)
+            .count();
+        (training, reads.len() - training)
+    }
+
+    /// The coach's confirmed Intervals.icu link to the subject, its wellness
+    /// filed, and the subject's wellness grant to the coach.
+    async fn wellness_shared_through_a_link(&self) {
+        let repos = self.repos();
+        let now = Utc::now();
+        let proposed = repos
+            .delegated_connections
+            .propose(&DelegatedConnection::propose(
+                INTERVALS_ICU.to_owned(),
+                self.group.id,
+                self.coach.id,
+                self.coach.tenant,
+                self.subject.id,
+                RosterAthlete::new("i201", None, Some(self.subject.email.clone())),
+            ))
+            .await
+            .unwrap()
+            .unwrap();
+        repos
+            .delegated_connections
+            .confirm(proposed.id, self.subject.id, self.subject.tenant, now)
+            .await
+            .unwrap()
+            .unwrap();
+        seed_link_wellness(repos, &self.subject).await;
+        repos
+            .groups
+            .set_coach_consents(
+                &self.group.id.to_string(),
+                self.subject.id,
+                None,
+                Some(true),
+                now,
+            )
+            .await
+            .unwrap()
+            .expect("the member grants their coach wellness_read");
+    }
+}
+
+#[tokio::test]
+async fn each_turn_records_one_read_per_class_the_block_reads() {
+    let fx = Fixture::new().await;
+    fx.subject_season().await;
+    fx.wellness_shared_through_a_link().await;
+
+    let (prompt, _) = fx.thread_turn(PLAIN_ASK).await;
+    assert!(
+        prompt.contains(WELLNESS_HEADING),
+        "test setup bug: the block shows the linked wellness: {prompt}"
+    );
+    assert_eq!(
+        fx.thread_reads().await,
+        (1, 1),
+        "bug: one turn writes one training row and one wellness row, however much the block \
+         reads of each"
+    );
+
+    fx.thread_turn(PLAIN_ASK).await;
+    assert_eq!(
+        fx.thread_reads().await,
+        (2, 2),
+        "bug: the next turn writes its own row per class, and no more"
+    );
+}
+
+#[tokio::test]
+async fn a_turn_with_no_wellness_to_read_records_its_training_read_alone() {
+    let fx = Fixture::new().await;
+    fx.subject_season().await;
+    // The grant alone: no link, so the block reads no wellness.
+    fx.repos()
+        .groups
+        .set_coach_consents(
+            &fx.group.id.to_string(),
+            fx.subject.id,
+            None,
+            Some(true),
+            Utc::now(),
+        )
+        .await
+        .unwrap()
+        .expect("the member grants their coach wellness_read");
+
+    let (prompt, _) = fx.thread_turn(PLAIN_ASK).await;
+    assert!(
+        !prompt.contains(WELLNESS_HEADING),
+        "test setup bug: no link, no wellness section"
+    );
+    assert_eq!(
+        fx.thread_reads().await,
+        (1, 0),
+        "bug: a turn that reads no wellness records none"
+    );
+}
+
+#[tokio::test]
+async fn a_refused_turn_records_nothing() {
+    let fx = Fixture::new().await;
+    fx.subject_season().await;
+    fx.wellness_shared_through_a_link().await;
+    assert!(
+        fx.repos()
+            .groups
+            .update_coach_sharing_consent(&fx.group.id.to_string(), fx.subject.id, false)
+            .await
+            .unwrap(),
+        "test setup bug: the athlete's membership row takes the revoked coach sharing"
+    );
+
+    let (prompt, _) = fx.thread_turn(PLAIN_ASK).await;
+    assert_refused_with(&prompt, "Mira Subject has stopped sharing");
+    assert_eq!(
+        fx.thread_reads().await,
+        (0, 0),
+        "bug: a turn the gates refuse reads nothing of the athlete, and records nothing"
+    );
 }
 
 /// The wellness a link files: under the member's tenant, as the platform's.

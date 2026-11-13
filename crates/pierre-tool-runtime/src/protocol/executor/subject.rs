@@ -170,6 +170,51 @@ impl UniversalExecutor {
         Ok(resolved)
     }
 
+    /// Record a read of a coached athlete on the athlete's own record, once
+    /// the call is past every refusal and about to run
+    /// ([`read_subject::record_coach_read`], carnet#1445).
+    ///
+    /// Only the call that resolved its subject records its class: a nested
+    /// call reads the athlete its caller already recorded reading, so a
+    /// nested training read adds no row. A nested wellness-class read inside
+    /// a training call does read more than its caller recorded, so it puts
+    /// the call's one wellness row on the record, under the outer tool
+    /// ([`ReadSubject::record_wellness_read`]). A record that cannot be
+    /// written fails the call, so no read of the athlete goes unrecorded.
+    pub(super) async fn record_coach_read(
+        &self,
+        subject: Option<&ReadSubject>,
+        tool_name: &str,
+    ) -> Result<(), ProtocolError> {
+        let Some(subject) = subject else {
+            return Ok(());
+        };
+        let repos = self.resources.repos();
+        let recorded = if self.read_subject.is_some() {
+            if self.resources.tool_registry().data_class(tool_name) == Some(DataClass::Wellness) {
+                subject.record_wellness_read(repos).await
+            } else {
+                Ok(())
+            }
+        } else if let Some(class) = subject.class.coach_read_class() {
+            read_subject::record_coach_read(
+                repos,
+                &subject.access,
+                subject.requester,
+                tool_name,
+                class,
+            )
+            .await
+        } else {
+            Ok(())
+        };
+        recorded.map_err(|e| {
+            ProtocolError::InternalError(format!(
+                "recording the coach's read of '{tool_name}' on the athlete's record: {e}"
+            ))
+        })
+    }
+
     /// What a read of a coached athlete answers when the athlete's `provider`
     /// connection needs reconnecting: in band, naming the athlete.
     ///

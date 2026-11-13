@@ -19,6 +19,7 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::AppError;
 use pierre_core::models::{TenantId, User};
+use pierre_database::repositories::CoachReadSurface;
 use pierre_memory::training_plans::{
     parse_plan_date, PlanPhase, PlanWeek, PlannedDay, TrainingPlan,
 };
@@ -528,11 +529,14 @@ async fn coached_athlete_plan(
             )));
         }
     };
+    // The gates record the read on the athlete's own record before the plan
+    // is read (carnet#1445).
     let access = match plan_scope::coached_plan_read_access(
         &ctx.tool_runtime,
         ctx.user_id,
         found.user_id,
         found.group.id,
+        CoachReadSurface::PlanCommand.as_str(),
     )
     .await?
     {

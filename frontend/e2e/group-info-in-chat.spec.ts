@@ -146,6 +146,28 @@ const mockInvites = {
   ],
 };
 
+/**
+ * The member's own record as `GET /api/groups/:id/members/me/coach-reads`
+ * serialises it: newest first, a tool by its name and each read made outside
+ * a tool call by the label the server records for it.
+ */
+const mockCoachReads = {
+  retention_months: 12,
+  reads: [
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z' },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z' },
+    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z' },
+    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z' },
+    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z' },
+    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z' },
+    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z' },
+  ],
+};
+
 /** Health flags exactly as `GET /api/groups/:id/health` serialises them. */
 const mockHealthFlags: GroupHealthFlag[] = [
   {
@@ -268,6 +290,17 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
     } else {
       await route.fallback();
     }
+  });
+
+  // The member's record of their human coach's reads (carnet#1445), shown in
+  // Group info once a coach is attached: a tool read and one read of each
+  // source the server records outside a tool call.
+  await page.route(`**/api/groups/${GROUP_ID}/members/me/coach-reads`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockCoachReads),
+    });
   });
 
   await page.route(`**/api/groups/${GROUP_ID}/invites`, async (route) => {
@@ -658,6 +691,40 @@ test.describe('Group info — settings and consent', () => {
     await expect.poll(() => sharingBodies.length).toBe(1);
     expect(sharingBodies[0]).toEqual({ consent: false });
     await expect(toggle).not.toBeChecked();
+  });
+
+  test("a member reads their coach's reads of them, each made outside a tool call in words (carnet#1445)", async ({
+    page,
+  }) => {
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-coach', coach_display_name: 'Casey Coach' }),
+        });
+      });
+    });
+
+    const log = page.getByTestId('coach-read-log');
+    const rows = log.getByTestId('coach-read-row');
+    await expect(rows).toHaveCount(mockCoachReads.reads.length);
+    // A tool is named as it is.
+    await expect(rows.nth(2).getByTestId('coach-read-tool')).toHaveText('get_activities');
+    // A read the server records under a label of its own never shows the label.
+    for (const [index, label] of [
+      [0, 'coach_thread'],
+      [3, 'plan_view'],
+      [4, 'plan_command'],
+      [5, 'roster'],
+      [6, 'group_room'],
+      [7, 'group_stats'],
+      [8, 'group_report'],
+      [9, 'group_health'],
+      [10, 'weekly_digest'],
+    ] as const) {
+      await expect(rows.nth(index).getByTestId('coach-read-tool')).not.toHaveText(label);
+    }
   });
 
   test('shows the weekly report and one row per flagged member', async ({ page }) => {

@@ -216,6 +216,8 @@ export const ENDPOINTS = {
     MY_CONSENT: (id: string) => `/api/groups/${id}/members/me/consent`,
     /** The caller's own coach sharing: read it (GET), stop or resume it (PUT) */
     MY_COACH_SHARING: (id: string) => `/api/groups/${id}/members/me/coach-sharing`,
+    /** The caller's own record of their human coach's reads of their data */
+    MY_COACH_READS: (id: string) => `/api/groups/${id}/members/me/coach-reads`,
     /** The shared room transcript (membership-gated, consent-filtered) */
     TRANSCRIPT: (id: string) => `/api/chat/groups/${id}/transcript`,
     /** List/create invites */

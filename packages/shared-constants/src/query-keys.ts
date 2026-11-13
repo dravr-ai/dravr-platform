@@ -307,6 +307,7 @@ export const QUERY_KEYS = {
     delegationRoster: (groupId: string) => ['groups', groupId, 'delegation-roster'] as const,
     coachConsents: (groupId: string) => ['groups', groupId, 'coach-consents'] as const,
     coachSharing: (groupId: string) => ['groups', groupId, 'coach-sharing'] as const,
+    coachReads: (groupId: string) => ['groups', groupId, 'coach-reads'] as const,
     permissions: () => ['groups', 'permissions'] as const,
   },
 

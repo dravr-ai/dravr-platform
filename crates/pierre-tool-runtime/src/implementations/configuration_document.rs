@@ -152,6 +152,19 @@ pub(crate) fn readable_configuration(
     result
 }
 
+/// Whether `result` holds any override that is the athlete's wellness
+/// ([`WELLNESS_KEYS`]): what [`readable_configuration`] shows only where a
+/// wellness read could, and what a coach's read under the grant puts on the
+/// athlete's record (carnet#1445).
+#[must_use]
+pub(crate) fn carries_wellness(result: &UserConfigurationResult) -> bool {
+    let document = &result.configuration;
+    WELLNESS_KEYS.iter().any(|key| {
+        document.session_overrides.contains_key(*key)
+            || document.effective_parameters.contains_key(*key)
+    })
+}
+
 /// Refuse overrides that belong to the physiological profile, naming each
 /// and where it is saved.
 ///

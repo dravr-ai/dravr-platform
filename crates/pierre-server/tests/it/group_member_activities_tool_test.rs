@@ -850,7 +850,9 @@ mod peer_fetch_tests {
         );
 
         // The member revokes coach sharing: the coach is refused, with the
-        // way back named.
+        // way back named, in the reason every coach read of a coached athlete
+        // is refused with (carnet#1425: the coaching gates answer this tool's
+        // coach read too).
         assert!(resources
             .common
             .repos
@@ -865,8 +867,15 @@ mod peer_fetch_tests {
         );
         assert_eq!(
             refused.get("reason").and_then(Value::as_str),
-            Some("no_coach_consent"),
+            Some("coach_sharing_revoked"),
             "a revoked coach consent refuses the coach: {refused}"
+        );
+        assert!(
+            refused
+                .get("error")
+                .and_then(Value::as_str)
+                .is_some_and(|e| e.contains("/group consent coach yes")),
+            "the refusal names the way back: {refused}"
         );
         assert!(refused.get("activities").is_none());
     }

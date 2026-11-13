@@ -491,12 +491,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let PlanSubject::Coached {
-                athlete: name,
-                group_id,
-                ..
-            } = &scope.subject
-            else {
+            let PlanSubject::Coached { access } = &scope.subject else {
                 return Ok(refusal(
                     "own_plan",
                     "Your own saves are already live — there is no draft of your own plan to \
@@ -506,19 +501,24 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             };
             let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
             match action {
-                DraftAction::Discard => discard(repos, &target, name.clone()).await,
+                DraftAction::Discard => discard(repos, &target, access.display_name.clone()).await,
                 // The rails a publish runs read the athlete's load to report
                 // back to the coach, under the athlete's own AI consents
                 // (carnet#1419).
                 DraftAction::Publish => {
                     let request = DraftPublish {
                         target: &target,
-                        group_id: *group_id,
+                        group_id: access.group.id,
                         overwrite,
                         athlete,
                         trigger: PUBLISH_TOOL,
                     };
-                    let publishing = Box::pin(publish(&context, &scope, &request, name.clone()));
+                    let publishing = Box::pin(publish(
+                        &context,
+                        &scope,
+                        &request,
+                        access.display_name.clone(),
+                    ));
                     scope.read_as_athlete(repos, publishing).await
                 }
             }
