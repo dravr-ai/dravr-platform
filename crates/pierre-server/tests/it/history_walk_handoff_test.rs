@@ -50,13 +50,15 @@ use chrono::{DateTime, Datelike, TimeZone, Utc};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId};
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
+    BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
+use pierre_tool_runtime::activity_backfill::{BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS};
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::{
     BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry, ToolRuntime,
@@ -1294,5 +1296,249 @@ async fn the_api_phase_starts_below_the_sessions_own_oldest_row_not_a_stray_gran
         fx.rows(oauth_providers::STRAVA).await,
         3,
         "bug: the years between the session's oldest row and the stray page are never paged"
+    );
+}
+
+impl Fixture {
+    /// Sweep the walk until its session handed off to the grant and no step
+    /// holds the row: the API phase is owed, its next step not yet taken.
+    async fn reach_the_api_phase(&self) {
+        let deadline = Instant::now() + WALK_DEADLINE;
+        loop {
+            let row = self
+                .resources
+                .common
+                .repos
+                .activity_backfill_jobs
+                .history_walk_row(self.user_id, self.tenant, oauth_providers::SCIOTTE)
+                .await
+                .unwrap()
+                .expect("the walk's row is kept");
+            if row.walk_backend.as_deref() == Some(oauth_providers::STRAVA) && self.idle().await {
+                return;
+            }
+            assert!(Instant::now() < deadline, "the session never handed off");
+            self.sweep(true).await;
+        }
+    }
+
+    /// Claim the walk's row the way another instance's sweep does, leased
+    /// for a whole lease, and never run it: the instance dies holding it.
+    async fn claim_as_a_runner_that_dies(&self) {
+        age_job_rows(&self.resources, self.user_id).await;
+        let claimed = self
+            .resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .claim_stale_backfill_jobs(self.claim_at(Utc::now().timestamp_millis()))
+            .await
+            .unwrap();
+        assert_eq!(claimed.len(), 1, "the dead runner holds the walk's row");
+    }
+
+    /// The resume sweep's claim at `now_ms`, over every row however fresh.
+    fn claim_at(&self, now_ms: i64) -> BackfillJobClaim {
+        BackfillJobClaim {
+            now_ms,
+            queued_older_than_ms: 0,
+            lease_ms: i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap(),
+            max_attempts: MAX_BACKFILL_ATTEMPTS,
+            limit: 10,
+        }
+    }
+
+    /// Let every lease the athlete's rows hold run out, as a dead runner's
+    /// does once its lease has passed.
+    async fn lapse_leases(&self) {
+        let sql = "UPDATE activity_backfill_jobs SET leased_until_ms = 0 WHERE user_id = $1";
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                sqlx::query(sql)
+                    .bind(self.user_id.to_string())
+                    .execute(sqlite.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => {
+                sqlx::query(sql)
+                    .bind(self.user_id.to_string())
+                    .execute(pg.pool())
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    /// The usr/pwd session expires: the grant becomes the walk's source.
+    async fn lapse_session(&self) {
+        self.resources
+            .common
+            .repos
+            .provider_connections
+            .mark_needs_reauth(
+                self.user_id,
+                self.tenant,
+                oauth_providers::SCIOTTE,
+                Some("session_expired"),
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+    }
+
+    /// What the ledger holds under the grant's own key.
+    async fn grant_row(&self) -> Option<BackfillJobState> {
+        self.resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .backfill_job_state(
+                self.user_id,
+                self.tenant,
+                oauth_providers::STRAVA,
+                BackfillJobKind::HistoryWalk,
+            )
+            .await
+            .unwrap()
+    }
+}
+
+/// The instance running a step of the walk's API phase dies just as the
+/// grant is revoked, and the grant connects again at once. The reconnect
+/// cannot reopen the walk under the dead runner's lease, and no step of the
+/// dead runner ever asks for the walk again. Once that lease has run out,
+/// the resume sweep re-walks the grant below the session's own oldest row,
+/// reading the purged history back, without any further ask.
+#[tokio::test]
+async fn a_purge_under_a_dead_runner_is_walked_again_once_its_lease_lapses() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+        session_oldest - 5 * YEAR / 2,
+    ]);
+    fx.strava.created(now - 6 * YEAR);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    fx.reach_the_api_phase().await;
+    fx.claim_as_a_runner_that_dies().await;
+    fx.revoke_grant().await;
+    assert!(
+        !fx.reconnect().await,
+        "bug: a reconnect reopened the walk under a lease a runner still holds"
+    );
+    let listed = fx.strava.listing_count();
+    fx.sweep(true).await;
+    assert_eq!(
+        fx.strava.listing_count(),
+        listed,
+        "bug: the grant was paged while the dead runner's lease still held"
+    );
+
+    fx.lapse_leases().await;
+    fx.walk_to_the_end().await;
+    let again = fx.strava.listings()[listed..].to_vec();
+    assert_eq!(
+        again.first().and_then(|(_, before)| *before),
+        Some(session_oldest),
+        "bug: once the dead runner's lease lapsed, the purged walk is not re-walked below the session's oldest row: {again:?}"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "bug: the purged history is never read back"
+    );
+    assert_eq!(fx.state().await, Some(BackfillJobState::Walked));
+}
+
+/// The same dead runner, but the session lapsed before the grant came back:
+/// the grant is now the walk's source. Another instance handling the
+/// reconnect must still see the purged walk of the pair under the runner's
+/// lease and start no walk of the grant from the head beside it — the only
+/// thing holding it back across instances is the ledger, since the dead
+/// runner's in-flight key was never this process's. Once the lease lapses,
+/// the sweep pages the grant below the session's oldest row, under the
+/// session's key.
+#[tokio::test]
+async fn a_reconnect_after_the_session_lapsed_never_pages_the_grant_beside_a_purged_step() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+        session_oldest - 5 * YEAR / 2,
+    ]);
+    fx.strava.created(now - 6 * YEAR);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    fx.reach_the_api_phase().await;
+    fx.claim_as_a_runner_that_dies().await;
+    fx.revoke_grant().await;
+    fx.lapse_session().await;
+    let listed = fx.strava.listing_count();
+
+    assert!(
+        !fx.reconnect().await,
+        "bug: a reconnect started a walk of the grant beside the purged step still holding its lease"
+    );
+    for trigger in [WalkTrigger::DepthMissing, WalkTrigger::Seed] {
+        assert!(
+            !start_history_walk(
+                &fx.runtime(),
+                fx.user_id,
+                fx.tenant,
+                oauth_providers::STRAVA,
+                trigger
+            )
+            .await,
+            "bug: a {trigger:?} ask started a walk of the grant beside the purged step"
+        );
+    }
+    assert_eq!(
+        fx.grant_row().await,
+        None,
+        "bug: a walk was filed under the grant's key beside the purged step"
+    );
+    sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        fx.strava.listing_count(),
+        listed,
+        "bug: the grant was paged from the head beside the purged step"
+    );
+
+    fx.lapse_leases().await;
+    fx.walk_to_the_end().await;
+    let again = fx.strava.listings()[listed..].to_vec();
+    assert_eq!(
+        again.first().and_then(|(_, before)| *before),
+        Some(session_oldest),
+        "bug: the purged walk is not re-walked below the session's oldest row: {again:?}"
+    );
+    assert_eq!(fx.rows(oauth_providers::STRAVA).await, 3);
+    assert_eq!(
+        fx.grant_row().await,
+        None,
+        "bug: the grant was walked under its own key"
     );
 }

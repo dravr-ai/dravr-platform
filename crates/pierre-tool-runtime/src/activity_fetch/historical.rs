@@ -238,7 +238,8 @@ pub async fn serve_covered_history(
 }
 
 /// Whether a history walk under any of `provider_slug`'s history keys is
-/// owed: recorded, running or waiting for the resume sweep
+/// owed: recorded, running, waiting for the resume sweep, or owed the reopen
+/// of a phase a purge took
 /// ([`walk_across_pair`]). A ledger that cannot be read counts as no walk,
 /// so the window is read as before.
 async fn history_walk_owed(
@@ -248,7 +249,7 @@ async fn history_walk_owed(
     tenant_id: TenantId,
 ) -> bool {
     match walk_across_pair(runtime.repos(), user_id, tenant_id, provider_slug).await {
-        Ok(walk) => matches!(walk, PairWalk::Owed { .. }),
+        Ok(walk) => matches!(walk, PairWalk::Owed { .. } | PairWalk::Purged { .. }),
         Err(e) => {
             warn!(
                 user_id = %user_id,

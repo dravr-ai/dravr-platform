@@ -60,7 +60,7 @@ use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
     BackfillCoverage, BackfillJobClaim, BackfillJobKind, BackfillJobState, HistoryWalkRowState,
     JobLease, JobProgress, JobProgressStep, PersonalBest, PersonalBestSeed, ProviderDataPurge,
-    PurgeReason, StoredRouteTrack, StreamOrigin, SyncCursorRow, WalkHandOff,
+    PurgeReason, PurgedHistoryWalk, StoredRouteTrack, StreamOrigin, SyncCursorRow, WalkHandOff,
     STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
@@ -1606,10 +1606,10 @@ async fn session_walk(
 }
 
 /// A grant's purge takes what a session walk's API phase brought in under
-/// the grant's key, so that walk no longer claims the phase: it reads as a
-/// session walked alone, owed nothing, which a reconnect reopens. Only the
-/// purged user's walk in the purged tenant is released, a walk reading
-/// another grant stays, and the release is not counted as a removal.
+/// the grant's key, so that walk no longer claims the phase: it is owed the
+/// reopen of the phase, below the session's own rows, once no step holds it.
+/// Only the purged user's walk in the purged tenant is released, a walk
+/// reading another grant stays, and the release is not counted as a removal.
 #[tokio::test]
 async fn a_grants_purge_releases_only_its_users_walk_through_it() {
     let db = create_test_db().await.unwrap();
@@ -1653,10 +1653,7 @@ async fn a_grants_purge_releases_only_its_users_walk_through_it() {
     );
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(HistoryWalkRowState {
-            state: BackfillJobState::Walked,
-            walk_backend: None,
-        }),
+        Some(purged("strava")),
         "bug: a walk still claims the API phase of a purged grant"
     );
     assert_eq!(
@@ -1681,12 +1678,13 @@ fn reading(grant: &str) -> HistoryWalkRowState {
     }
 }
 
-/// What a walk whose API phase a purge took reads as: a session walked
-/// alone, which a reconnect reopens.
-fn released() -> HistoryWalkRowState {
+/// What a walk whose owed API phase a purge took reads as: owed the reopen
+/// of that phase, still the walk of the pair through `grant`, so no other
+/// walk of the grant starts beside a step that may still page it.
+fn purged(grant: &str) -> HistoryWalkRowState {
     HistoryWalkRowState {
-        state: BackfillJobState::Walked,
-        walk_backend: None,
+        state: BackfillJobState::PhasePurged,
+        walk_backend: Some(grant.to_owned()),
     }
 }
 
@@ -1713,12 +1711,12 @@ async fn the_whole_provider_purge_releases_every_walk_through_it_and_no_other() 
         .unwrap();
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(released()),
+        Some(purged("strava")),
         "bug: the whole-provider purge left a walk claiming its API phase"
     );
     assert_eq!(
         session_walk(repos, elsewhere, other_tenant).await,
-        Some(released()),
+        Some(purged("strava")),
         "bug: the whole-provider purge left another tenant's walk claiming its API phase"
     );
     assert_eq!(
@@ -1764,7 +1762,7 @@ async fn an_activity_purge_releases_only_its_users_walk_through_it() {
         .unwrap();
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(released()),
+        Some(purged("strava")),
         "bug: an activity purge left the walk claiming the purged API phase"
     );
     assert_eq!(
@@ -1822,7 +1820,7 @@ async fn a_source_purge_releases_only_its_users_walk_through_it() {
         .unwrap();
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(released()),
+        Some(purged("garmin")),
         "bug: a source purge left the walk claiming the purged API phase"
     );
     assert_eq!(
@@ -1851,9 +1849,10 @@ fn reconnect_below_session() -> WalkHandOff {
 /// A purge lands while a step of the walk's API phase is running. The purge
 /// releases the phase but never the step's lease: the step keeps renewing
 /// it, and its next write finds the phase reset. While it holds the lease a
-/// reconnect cannot reopen the walk and the sweep cannot claim it, so no
-/// second step pages the grant beside the running one; once the step gives
-/// the lease up, the reconnect reopens the walk.
+/// reconnect cannot reopen the walk, the sweep neither claims it nor lists
+/// it to resolve, so no second step pages the grant beside the running one;
+/// once the step gives the lease up, the sweep lists it and a reconnect
+/// reopens the walk.
 #[tokio::test]
 async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() {
     let db = create_test_db().await.unwrap();
@@ -1885,7 +1884,18 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
         .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
         .await
         .unwrap();
-    assert_eq!(session_walk(repos, athlete, tenant).await, Some(released()));
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava"))
+    );
+    assert!(
+        ledger
+            .purged_history_walks(Utc::now().timestamp_millis(), 10)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the sweep resolves a purged walk whose step still holds the lease"
+    );
     assert!(
         !ledger
             .reopen_history_walk(
@@ -1930,13 +1940,32 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
         !ledger.end_backfill_job_incomplete(&lease).await.unwrap(),
         "bug: a step that failed through the purge ended the released walk incomplete"
     );
+    assert!(
+        !ledger
+            .release_backfill_job_lease(&lease, now + 600_000)
+            .await
+            .unwrap(),
+        "bug: a step that failed through the purge gave a retry to the released walk"
+    );
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(released()),
-        "bug: the released walk no longer reads as walked, so no reconnect reopens it"
+        Some(purged("strava")),
+        "bug: the purged walk no longer reads as owed a reopen, so nothing reopens it"
     );
 
     assert!(ledger.renew_backfill_job_lease(&lease, 0).await.unwrap());
+    assert_eq!(
+        ledger
+            .purged_history_walks(Utc::now().timestamp_millis(), 10)
+            .await
+            .unwrap(),
+        vec![PurgedHistoryWalk {
+            user_id: athlete,
+            tenant_id: tenant,
+            provider: "sciotte".to_owned(),
+        }],
+        "bug: once its step stopped, the sweep does not list the purged walk to resolve"
+    );
     assert!(
         ledger
             .reopen_history_walk(
@@ -1949,5 +1978,83 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
             .await
             .unwrap(),
         "bug: once the step gave its lease up, a reconnect cannot reopen the walk"
+    );
+}
+
+/// A purged phase with no grant live to reopen it through is kept as a
+/// session walked alone, once no step holds it — never while one does — and
+/// a grant connected later reopens it as any walked session.
+#[tokio::test]
+async fn a_purged_walk_with_no_grant_settles_as_walked_once_no_step_holds_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let ledger = &repos.activity_backfill_jobs;
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    let now = Utc::now().timestamp_millis();
+    let running = ledger
+        .claim_stale_backfill_jobs(BackfillJobClaim {
+            now_ms: now + 1,
+            queued_older_than_ms: 0,
+            lease_ms: 600_000,
+            max_attempts: 3,
+            limit: 10,
+        })
+        .await
+        .unwrap();
+    assert_eq!(running.len(), 1);
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+
+    assert!(
+        !ledger
+            .settle_purged_history_walk(athlete, tenant, "sciotte", now + 2)
+            .await
+            .unwrap(),
+        "bug: a purged walk was settled under a step still holding it"
+    );
+    assert!(
+        !ledger
+            .settle_purged_history_walk(
+                athlete,
+                TenantId::from_uuid(Uuid::new_v4()),
+                "sciotte",
+                now + 700_000
+            )
+            .await
+            .unwrap(),
+        "bug: another tenant settled the athlete's purged walk"
+    );
+    assert!(
+        ledger
+            .settle_purged_history_walk(athlete, tenant, "sciotte", now + 700_000)
+            .await
+            .unwrap(),
+        "bug: a purged walk no step holds cannot be settled"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(HistoryWalkRowState {
+            state: BackfillJobState::Walked,
+            walk_backend: None,
+        }),
+        "bug: a settled purged walk does not read as a session walked alone"
+    );
+    assert!(
+        ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                &reconnect_below_session(),
+                now + 700_000,
+            )
+            .await
+            .unwrap(),
+        "bug: a grant connected later cannot reopen the settled walk"
     );
 }

@@ -457,7 +457,8 @@ impl WalkAsk {
 /// key of the source's provider ([`walk_across_pair`]): a session's walk in
 /// its API phase keeps the session's key while the grant is its source. A
 /// source already walking is reported, with its progress, as
-/// [`Pending::HistoryWalkRunning`]; one whose walk reached the
+/// [`Pending::HistoryWalkRunning`], as is one a purge left owed the reopen
+/// of its API phase; one whose walk reached the
 /// end of the history is not walked again: it holds all there is
 /// ([`start_history_walk`]). Any other, never walked or ended before its
 /// floor, is asked for a walk, and a started one is
@@ -478,7 +479,7 @@ async fn request_walks<'a>(
             continue;
         };
         match walk_across_pair(repos, user_id, tenant_id, &source.backend).await {
-            Ok(PairWalk::Owed { key }) => {
+            Ok(PairWalk::Owed { key } | PairWalk::Purged { key }) => {
                 match repos
                     .activity_backfill_jobs
                     .job_progress(user_id, tenant_id, &key, BackfillJobKind::HistoryWalk)

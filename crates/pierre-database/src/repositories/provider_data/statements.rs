@@ -275,32 +275,40 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
 
 /// A history walk of the user's whose API phase read the purged provider no
 /// longer claims that phase, binding `$1` user id, `$2` tenant id, `$3`
-/// provider, `$4` the history-walk kind and `$5` the walked outcome.
+/// provider, `$4` the history-walk kind and `$5` the purged-phase outcome.
 ///
 /// The phase's rows are filed under the grant's key and go with its purge,
 /// while the walk's row stays under its session's key, naming the grant in
-/// `walk_backend`. Left naming it, the row would tell a reconnect that the
-/// grant was walked to its end, and the deep history the purge took would
-/// never be read again. Its session phase did end, so the row reads as a
-/// session walked alone (`walk_backend` NULL), owed nothing; a grant
-/// connected beside it reopens the API phase, and a walk of the grant alone
-/// starts once the session lapsed. A row that ended incomplete keeps that
-/// outcome. Not a removal: it is never counted as one.
+/// `walk_backend`. Left as it was, the row would tell a reconnect that the
+/// grant was walked, or is being walked, below rows that are gone.
 ///
-/// The lease is left as it stands. A step of the phase still running keeps
-/// it, so no reopen or sweep starts a second step beside it; that step's
-/// next write finds the phase reset (`outcome` no longer NULL), records no
-/// coverage, gives the lease up and asks for the walk again.
+/// - A walk whose API phase ended (walked, or incomplete) keeps its outcome
+///   and reads as a session walked alone (`walk_backend` NULL), owed
+///   nothing: no step holds it, and a grant connected beside it reopens the
+///   phase.
+/// - A walk still owed in its API phase is kept as owed a reopen (`$5`),
+///   naming the grant still. A step of the phase may be running, its lease
+///   left as it stands: the row stays the walk of the pair, so no walk of
+///   the grant starts beside it on any instance, and none of the step's
+///   writes land (each requires an owed row). Once no step holds the lease
+///   the phase is reopened below the session's own rows, or the row is kept
+///   as walked when no grant is live — by the step that stopped, a reconnect,
+///   or the resume sweep when the step died.
+///
+/// Not a removal: it is never counted as one.
 pub(crate) const USER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET walk_backend = NULL, outcome = COALESCE(outcome, $5) \
+     SET outcome = CASE WHEN outcome IS NULL THEN $5 ELSE outcome END, \
+         walk_backend = CASE WHEN outcome IS NULL THEN walk_backend ELSE NULL END \
      WHERE CAST(user_id AS TEXT) = $1 AND CAST(tenant_id AS TEXT) = $2 \
        AND kind = $4 AND walk_backend = $3";
 
 /// [`USER_WALK_PHASE_RESET_SQL`] across every user and tenant, for the
 /// whole-provider purge, binding `$1` provider, `$2` the history-walk kind and
-/// `$3` the walked outcome. Same isolation exemption as [`PROVIDER_PURGE_SQL`].
+/// `$3` the purged-phase outcome. Same isolation exemption as
+/// [`PROVIDER_PURGE_SQL`].
 pub(crate) const PROVIDER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET walk_backend = NULL, outcome = COALESCE(outcome, $3) \
+     SET outcome = CASE WHEN outcome IS NULL THEN $3 ELSE outcome END, \
+         walk_backend = CASE WHEN outcome IS NULL THEN walk_backend ELSE NULL END \
      WHERE kind = $2 AND walk_backend = $1";
 
 /// The sync state describing a user's provider activities alone: every

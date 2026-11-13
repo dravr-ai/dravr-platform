@@ -204,6 +204,15 @@ pub enum PairWalk {
         /// The key the owed walk is filed under.
         key: String,
     },
+    /// A walk filed under `key` was paging the API grant when a purge of
+    /// that grant took its phase ([`BackfillJobState::PhasePurged`]). A step
+    /// may still hold its lease and be paging the grant, on any instance, so
+    /// it stands in the way of every other walk of the pair until it is
+    /// resolved: reopened below its session's rows, or kept as walked.
+    Purged {
+        /// The key the purged walk is filed under: its session.
+        key: String,
+    },
     /// `backend`'s own walk reached the end of the history.
     Walked,
     /// A walk filed under another key paged `backend` to the end of the
@@ -221,7 +230,8 @@ pub enum PairWalk {
 /// row keeps its key while its API phase pages the grant, so a session that
 /// lapses mid-walk makes the grant the walk's source while its walk still
 /// runs under the session's key. Any walk owed under any of the keys is that
-/// walk, and none other is started beside it.
+/// walk, and none other is started beside it; so is one a purge left owed a
+/// reopen, whose step may still be paging the grant.
 ///
 /// # Errors
 ///
@@ -244,6 +254,11 @@ pub async fn walk_across_pair(
         match row.state {
             BackfillJobState::Owed => {
                 return Ok(PairWalk::Owed {
+                    key: key.to_owned(),
+                })
+            }
+            BackfillJobState::PhasePurged => {
+                return Ok(PairWalk::Purged {
                     key: key.to_owned(),
                 })
             }

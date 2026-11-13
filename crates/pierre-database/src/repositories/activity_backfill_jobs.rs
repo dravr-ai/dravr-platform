@@ -12,11 +12,20 @@ use uuid::Uuid;
 
 use crate::repositories::memory_extraction_jobs::JobLease;
 
+/// How a job row's columns decode
+mod rows;
+pub(crate) use rows::{backfill_job_from_row, job_progress_from_row};
+/// The statements that record an ask
+mod record_statements;
+pub(crate) use record_statements::{
+    REBIND_LIVE_READ_SQL, RECORD_BACKFILL_JOB_SQL, RECORD_LIVE_READ_SQL,
+};
 /// The statements that move a history walk down its window, through its phases
 mod walk_statements;
 pub(crate) use walk_statements::{
-    END_HISTORY_WALK_SQL, HAND_OFF_HISTORY_WALK_SQL, HISTORY_WALK_ROW_SQL, RECORD_JOB_PROGRESS_SQL,
-    REOPEN_HISTORY_WALK_SQL,
+    END_HISTORY_WALK_SQL, HAND_OFF_HISTORY_WALK_SQL, HISTORY_WALK_ROW_SQL,
+    PURGED_HISTORY_WALKS_SQL, RECORD_JOB_PROGRESS_SQL, REOPEN_HISTORY_WALK_SQL,
+    SETTLE_PURGED_HISTORY_WALK_SQL,
 };
 
 /// What a job row is for.
@@ -238,6 +247,18 @@ pub enum BackfillJobState {
     /// A history walk reached the end of the athlete's history, and its row
     /// was kept to say so ([`ActivityBackfillJobRepository::end_history_walk`]).
     Walked,
+    /// A purge of the grant a history walk's API phase was paging took that
+    /// phase while it was owed. The row is still the walk of the pair: a step
+    /// may still hold its lease and be paging the grant, so no walk of the
+    /// grant starts beside it, and none of that step's writes land. Once no
+    /// step holds the lease, the phase is reopened below the session's own
+    /// rows when a grant is live, or the row is kept as
+    /// [`Self::Walked`] when none is
+    /// ([`ActivityBackfillJobRepository::reopen_history_walk`],
+    /// [`ActivityBackfillJobRepository::settle_purged_history_walk`]); the
+    /// resume sweep does it for a row whose step died
+    /// ([`ActivityBackfillJobRepository::purged_history_walks`]).
+    PhasePurged,
 }
 
 /// Whether an attempt holds an owed row's lease right now.
@@ -261,11 +282,27 @@ pub struct HistoryWalkRowState {
     pub walk_backend: Option<String>,
 }
 
+/// A history walk in [`BackfillJobState::PhasePurged`] no step holds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurgedHistoryWalk {
+    /// Athlete whose walk it is.
+    pub user_id: Uuid,
+    /// Tenant the row is filed under.
+    pub tenant_id: TenantId,
+    /// The key the walk is filed under: its session.
+    pub provider: String,
+}
+
 /// The `outcome` an ended row carries in [`BackfillJobState::Incomplete`].
 const OUTCOME_INCOMPLETE: &str = "incomplete";
 
 /// The `outcome` an ended row carries in [`BackfillJobState::Walked`].
 const OUTCOME_WALKED: &str = "walked";
+
+/// The `outcome` a row carries in [`BackfillJobState::PhasePurged`]. Not an
+/// end: only the walk's resolution moves it on, never a step's write, the
+/// claim or the reap.
+const OUTCOME_PHASE_PURGED: &str = "phase_purged";
 
 /// Which rows a resume sweep may take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -423,17 +460,14 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         hand_off: &WalkHandOff,
     ) -> AppResult<bool>;
 
-    /// A history walk of `provider` that its session ended alone, with no
-    /// grant beside it then, owes the API phase now that one is: the walked
-    /// row of `(user_id, provider)` in `tenant_id` is owed again as
-    /// [`Self::hand_off_history_walk`] leaves it. Its count of rows starts
-    /// over: the session's end was told already, so the API phase's message
-    /// counts what it brings in, and none is sent when that is nothing.
-    /// `false` when no such row stands: none walked, one still owed, one
-    /// whose API phase already ran, or one a step holds the lease of at
-    /// `now_ms`
-    /// (a purge took its phase from under that step, which asks for the
-    /// walk again once it stops).
+    /// A history walk of `provider` owes its API phase to the grant now live
+    /// beside it: the row of `(user_id, provider)` in `tenant_id` is owed
+    /// again as [`Self::hand_off_history_walk`] leaves it, its retry due at
+    /// once. Its count of rows starts over: the session's end was told
+    /// already, so the API phase's message counts what it brings in, and none
+    /// is sent when that is nothing. Only a row whose session walked alone
+    /// with no grant beside it, or one in [`BackfillJobState::PhasePurged`],
+    /// and only once no step holds its lease at `now_ms`; `false` otherwise.
     async fn reopen_history_walk(
         &self,
         user_id: Uuid,
@@ -442,6 +476,29 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         hand_off: &WalkHandOff,
         now_ms: i64,
     ) -> AppResult<bool>;
+
+    /// The history walk of `(user_id, provider)` in `tenant_id` in
+    /// [`BackfillJobState::PhasePurged`] has no live grant to reopen its
+    /// phase through: keep it as [`BackfillJobState::Walked`], its session
+    /// walked alone, which a grant connected later reopens. Only once no step
+    /// holds its lease at `now_ms`; `false` when no such row stands.
+    async fn settle_purged_history_walk(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        now_ms: i64,
+    ) -> AppResult<bool>;
+
+    /// Up to `limit` history walks in [`BackfillJobState::PhasePurged`] whose
+    /// lease has lapsed at `now_ms`, oldest first: the step that held each
+    /// one stopped, or died, without resolving it. Across every tenant, for
+    /// the resume sweep.
+    async fn purged_history_walks(
+        &self,
+        now_ms: i64,
+        limit: i64,
+    ) -> AppResult<Vec<PurgedHistoryWalk>>;
 
     /// How far the `kind` job for `(user_id, provider)` in `tenant_id` has
     /// got, owed or ended, or `None` when the ledger holds no such row.
@@ -463,70 +520,17 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         kind: BackfillJobKind,
     ) -> AppResult<Option<BackfillJobState>>;
 
-    /// Delete every row at or past the attempt cap whose lease has lapsed:
-    /// the run that was to finish it died too, no claim will take it again,
-    /// and while it stands `record_backfill_job` refuses every new ask for
-    /// the pair. Returns how many were removed.
-    async fn reap_exhausted_backfill_jobs(&self, now_ms: i64, max_attempts: i64) -> AppResult<u64>;
+    /// Delete every owed row at or past the attempt cap whose lease has
+    /// lapsed: the run that was to finish it died too, no claim will take it
+    /// again, and while it stands `record_backfill_job` refuses every new ask
+    /// for the pair. Returns the rows removed, as they stood: a live read's
+    /// still names the ask it owes a follow-up.
+    async fn reap_exhausted_backfill_jobs(
+        &self,
+        now_ms: i64,
+        max_attempts: i64,
+    ) -> AppResult<Vec<ActivityBackfillJobRow>>;
 }
-
-/// A conflict on `(user_id, provider, kind)` changes nothing while a job is
-/// owed (`outcome IS NULL`): a second ask is the same job, and
-/// `rows_affected` tells the caller so. A row that only records an ended job
-/// is replaced whole by the new one, but only by an ask in the row's own
-/// tenant: an ask from another tenant never overwrites what this tenant's
-/// card reads.
-pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_jobs \
-     (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
-      conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
-      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
-     ON CONFLICT (user_id, provider, kind) DO UPDATE SET \
-       id = excluded.id, tenant_id = excluded.tenant_id, after_ts = excluded.after_ts, \
-       before_ts = excluded.before_ts, fetch_limit = excluded.fetch_limit, \
-       conversation_id = excluded.conversation_id, created_at_ms = excluded.created_at_ms, \
-       leased_until_ms = excluded.leased_until_ms, attempts = excluded.attempts, \
-       lease_token = excluded.lease_token, months_total = excluded.months_total, \
-       months_done = excluded.months_done, rows_landed = excluded.rows_landed, \
-       secs_per_unit = excluded.secs_per_unit, turn_id = excluded.turn_id, \
-       asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL, \
-       next_attempt_ms = 0 \
-     WHERE activity_backfill_jobs.outcome IS NOT NULL \
-       AND activity_backfill_jobs.tenant_id = excluded.tenant_id";
-
-/// A live read asked again while one is owed answers the newest ask: the
-/// conflict moves only where its follow-up goes, never its window or its
-/// lease, and only in the row's own tenant. One statement, so a run that
-/// finishes the owed row meanwhile either serializes before it (the ask
-/// inserts a new row) or after it (the rebound row is finished): the ask is
-/// never lost between two statements. `RETURNING id` tells the two apart —
-/// the ask's own id when it inserted, the owed row's when it rebound,
-/// nothing when another tenant's row stands, or when the ask has no
-/// conversation: a read nobody waits on (a stale head's top-up) never takes
-/// the follow-up away from an athlete who does. No guard on `outcome`:
-/// nothing ends a live read incomplete, so an owed row is the only one there
-/// is.
-pub(crate) const RECORD_LIVE_READ_SQL: &str = "INSERT INTO activity_backfill_jobs \
-     (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
-      conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
-      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
-     ON CONFLICT (user_id, provider, kind) DO UPDATE SET \
-       conversation_id = excluded.conversation_id, turn_id = excluded.turn_id, \
-       asked_message_id = excluded.asked_message_id \
-     WHERE activity_backfill_jobs.tenant_id = excluded.tenant_id \
-       AND excluded.conversation_id IS NOT NULL \
-     RETURNING id";
-
-/// Rebinds the live read owed for the pair to a newer ask, without ever
-/// recording one: the ask arrived while this instance runs the read, and a
-/// row it inserted would be a second read nobody runs until its lease lapsed.
-/// Same rules as [`RECORD_LIVE_READ_SQL`]'s conflict: the row's own tenant,
-/// and only an ask with a conversation.
-pub(crate) const REBIND_LIVE_READ_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET conversation_id = $5, turn_id = $6, asked_message_id = $7 \
-     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
-       AND $5 IS NOT NULL";
 
 /// The claim: one statement, so the lease and the attempt bump land
 /// together and the subquery picks the rows under the same lock. The
@@ -570,7 +574,11 @@ pub(crate) const FINISH_LIVE_READ_SQL: &str = "DELETE FROM activity_backfill_job
      RETURNING conversation_id, turn_id, asked_message_id";
 
 pub(crate) const REAP_EXHAUSTED_BACKFILL_JOBS_SQL: &str = "DELETE FROM activity_backfill_jobs \
-     WHERE attempts >= $1 AND leased_until_ms <= $2 AND outcome IS NULL";
+     WHERE attempts >= $1 AND leased_until_ms <= $2 AND outcome IS NULL \
+     RETURNING id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
+               conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, \
+               kind, months_total, months_done, rows_landed, secs_per_unit, turn_id, \
+               asked_message_id, walk_backend";
 
 /// Keeps the row, released, with the outcome it ended on — only while it is
 /// owed: a walk a purge already ended keeps the outcome the purge gave it.
@@ -620,6 +628,7 @@ pub(crate) fn backfill_job_state_of(outcome: Option<&str>) -> AppResult<Backfill
         None => Ok(BackfillJobState::Owed),
         Some(OUTCOME_INCOMPLETE) => Ok(BackfillJobState::Incomplete),
         Some(OUTCOME_WALKED) => Ok(BackfillJobState::Walked),
+        Some(OUTCOME_PHASE_PURGED) => Ok(BackfillJobState::PhasePurged),
         Some(other) => Err(AppError::database(format!(
             "activity_backfill_jobs outcome is not one this build knows: {other}"
         ))),
@@ -636,96 +645,9 @@ pub(crate) const fn walked_outcome() -> &'static str {
     OUTCOME_WALKED
 }
 
-fn column_error(name: &str, e: &sqlx::Error) -> AppError {
-    AppError::database(format!("activity_backfill_jobs {name}: {e}"))
-}
-
-/// The [`JobProgress`] columns of `row`.
-pub(crate) fn job_progress_from_row<R>(row: &R) -> AppResult<JobProgress>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    Ok(JobProgress {
-        months_total: row
-            .try_get("months_total")
-            .map_err(|e| column_error("months_total", &e))?,
-        months_done: row
-            .try_get("months_done")
-            .map_err(|e| column_error("months_done", &e))?,
-        rows_landed: row
-            .try_get("rows_landed")
-            .map_err(|e| column_error("rows_landed", &e))?,
-        secs_per_unit: row
-            .try_get("secs_per_unit")
-            .map_err(|e| column_error("secs_per_unit", &e))?,
-    })
-}
-
-pub(crate) fn backfill_job_from_row<R>(row: &R) -> AppResult<ActivityBackfillJobRow>
-where
-    R: sqlx::Row,
-    for<'a> &'a str: sqlx::ColumnIndex<R>,
-    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    TenantId: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
-{
-    let user_id: String = row
-        .try_get("user_id")
-        .map_err(|e| column_error("user_id", &e))?;
-    let kind: String = row.try_get("kind").map_err(|e| column_error("kind", &e))?;
-    Ok(ActivityBackfillJobRow {
-        id: row.try_get("id").map_err(|e| column_error("id", &e))?,
-        tenant_id: row
-            .try_get("tenant_id")
-            .map_err(|e| column_error("tenant_id", &e))?,
-        user_id: Uuid::parse_str(&user_id)
-            .map_err(|e| AppError::database(format!("backfill job user_id is not a UUID: {e}")))?,
-        provider: row
-            .try_get("provider")
-            .map_err(|e| column_error("provider", &e))?,
-        kind: BackfillJobKind::parse(&kind)?,
-        after_ts: row
-            .try_get("after_ts")
-            .map_err(|e| column_error("after_ts", &e))?,
-        before_ts: row
-            .try_get("before_ts")
-            .map_err(|e| column_error("before_ts", &e))?,
-        fetch_limit: row
-            .try_get("fetch_limit")
-            .map_err(|e| column_error("fetch_limit", &e))?,
-        conversation_id: row
-            .try_get("conversation_id")
-            .map_err(|e| column_error("conversation_id", &e))?,
-        created_at_ms: row
-            .try_get("created_at_ms")
-            .map_err(|e| column_error("created_at_ms", &e))?,
-        leased_until_ms: row
-            .try_get("leased_until_ms")
-            .map_err(|e| column_error("leased_until_ms", &e))?,
-        attempts: row
-            .try_get("attempts")
-            .map_err(|e| column_error("attempts", &e))?,
-        lease_token: row
-            .try_get("lease_token")
-            .map_err(|e| column_error("lease_token", &e))?,
-        progress: job_progress_from_row(row)?,
-        turn_id: row
-            .try_get("turn_id")
-            .map_err(|e| column_error("turn_id", &e))?,
-        asked_message_id: row
-            .try_get("asked_message_id")
-            .map_err(|e| column_error("asked_message_id", &e))?,
-        walk_backend: row
-            .try_get("walk_backend")
-            .map_err(|e| column_error("walk_backend", &e))?,
-    })
+/// The `outcome` [`BackfillJobState::PhasePurged`] is stored as.
+pub(crate) const fn phase_purged_outcome() -> &'static str {
+    OUTCOME_PHASE_PURGED
 }
 
 /// Emit the whole [`ActivityBackfillJobRepository`] implementation for one
@@ -1096,10 +1018,71 @@ macro_rules! impl_activity_backfill_job_repository {
                 .bind(hand_off.fetch_limit)
                 .bind(walked_outcome())
                 .bind(now_ms)
+                .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
                 .execute(self.pool())
                 .await
                 .map_err(|e| AppError::database(format!("Failed to reopen history walk: {e}")))?;
                 Ok(reopened.rows_affected() == 1)
+            }
+
+            async fn settle_purged_history_walk(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                now_ms: i64,
+            ) -> AppResult<bool> {
+                let settled = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::SETTLE_PURGED_HISTORY_WALK_SQL,
+                )
+                .bind(user_id.to_string())
+                .bind(tenant_id)
+                .bind(provider)
+                .bind(BackfillJobKind::HistoryWalk.as_str())
+                .bind(walked_outcome())
+                .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
+                .bind(now_ms)
+                .execute(self.pool())
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to settle a purged history walk: {e}"))
+                })?;
+                Ok(settled.rows_affected() == 1)
+            }
+
+            async fn purged_history_walks(
+                &self,
+                now_ms: i64,
+                limit: i64,
+            ) -> AppResult<Vec<$crate::repositories::activity_backfill_jobs::PurgedHistoryWalk>>
+            {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to read purged history walks: {e}"))
+                };
+                let rows = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::PURGED_HISTORY_WALKS_SQL,
+                )
+                .bind(BackfillJobKind::HistoryWalk.as_str())
+                .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
+                .bind(now_ms)
+                .bind(limit)
+                .fetch_all(self.pool())
+                .await
+                .map_err(failed)?;
+                rows.iter()
+                    .map(|row| {
+                        let user_id: String = row.try_get("user_id").map_err(failed)?;
+                        Ok($crate::repositories::activity_backfill_jobs::PurgedHistoryWalk {
+                            user_id: Uuid::parse_str(&user_id).map_err(|e| {
+                                AppError::database(format!(
+                                    "purged history walk user_id is not a UUID: {e}"
+                                ))
+                            })?,
+                            tenant_id: row.try_get("tenant_id").map_err(failed)?,
+                            provider: row.try_get("provider").map_err(failed)?,
+                        })
+                    })
+                    .collect()
             }
 
             async fn job_progress(
@@ -1152,16 +1135,16 @@ macro_rules! impl_activity_backfill_job_repository {
                 &self,
                 now_ms: i64,
                 max_attempts: i64,
-            ) -> AppResult<u64> {
-                let outcome = sqlx::query(REAP_EXHAUSTED_BACKFILL_JOBS_SQL)
+            ) -> AppResult<Vec<ActivityBackfillJobRow>> {
+                let rows = sqlx::query(REAP_EXHAUSTED_BACKFILL_JOBS_SQL)
                     .bind(max_attempts)
                     .bind(now_ms)
-                    .execute(self.pool())
+                    .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to reap exhausted backfill jobs: {e}"))
                     })?;
-                Ok(outcome.rows_affected())
+                rows.iter().map(backfill_job_from_row).collect()
             }
         }
     };

@@ -33,11 +33,12 @@ use pierre_providers::core::ActivityQueryParams;
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
 
+use crate::activity_backfill::history_walk::resolve_purged_walk;
 use crate::activity_backfill::{
     provider_tenant_id_str, resume_recorded_backfill, ActivityBackfillJob, BACKFILL_JOB_LEASE,
     MAX_BACKFILL_ATTEMPTS,
 };
-use crate::runtime::ToolRuntime;
+use crate::runtime::{ToolRuntime, WalkTrigger};
 
 /// How often the sweep looks for lapsed rows.
 pub const SWEEP_INTERVAL: Duration = Duration::from_mins(1);
@@ -58,6 +59,8 @@ const SWEEP_BATCH: i64 = 5;
 /// Returns how many this pass started. Rows past the attempt cap whose
 /// lease has ended are reaped first — nothing will claim them again, and
 /// while they stand every new ask for their pair is refused as a duplicate.
+/// History walks a purge left owed a reopen are resolved next, so a walk
+/// reopened here is claimed in the same pass.
 ///
 /// # Errors
 ///
@@ -67,6 +70,7 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
     let ledger = Arc::clone(&resources.repos().activity_backfill_jobs);
     let now_ms = Utc::now().timestamp_millis();
     reap_exhausted_jobs(ledger.as_ref(), now_ms).await;
+    resolve_purged_walks(&resources, now_ms).await;
 
     let claim = BackfillJobClaim {
         now_ms,
@@ -110,15 +114,46 @@ async fn release_claim(ledger: &dyn ActivityBackfillJobRepository, lease: &JobLe
     }
 }
 
+/// Resolve the history walks a purge left owed the reopen of their API
+/// phase whose step stopped without resolving them: it died, or its run
+/// ended on a write that failed. Each is reopened below its session's own
+/// rows when a grant is live — this pass's claim then takes it — or kept as
+/// walked when none is ([`resolve_purged_walk`]). A row a step still holds
+/// waits for its lease to lapse.
+async fn resolve_purged_walks(resources: &Arc<dyn ToolRuntime>, now_ms: i64) {
+    let purged = match resources
+        .repos()
+        .activity_backfill_jobs
+        .purged_history_walks(now_ms, SWEEP_BATCH)
+        .await
+    {
+        Ok(purged) => purged,
+        Err(e) => {
+            warn!(error = %e, "Activity backfill resume: purged history walks could not be read");
+            return;
+        }
+    };
+    for walk in purged {
+        resolve_purged_walk(
+            resources,
+            walk.user_id,
+            walk.tenant_id,
+            &walk.provider,
+            WalkTrigger::PhaseReset,
+        )
+        .await;
+    }
+}
+
 /// Drop the rows past the attempt cap whose last runner died too.
 async fn reap_exhausted_jobs(ledger: &dyn ActivityBackfillJobRepository, now_ms: i64) {
     match ledger
         .reap_exhausted_backfill_jobs(now_ms, MAX_BACKFILL_ATTEMPTS)
         .await
     {
-        Ok(0) => {}
+        Ok(reaped) if reaped.is_empty() => {}
         Ok(reaped) => warn!(
-            reaped,
+            reaped = reaped.len(),
             "Activity backfill resume: dropped jobs past the attempt cap whose last runner died; each athlete's next ask starts over"
         ),
         Err(e) => warn!(error = %e, "Activity backfill resume: exhausted jobs could not be reaped"),
