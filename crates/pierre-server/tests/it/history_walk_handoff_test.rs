@@ -2689,12 +2689,13 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back_and_fails() {
     );
 }
 
-/// The grant's second year holds a ride an earlier read stored, and the
-/// grant is revoked while a step of the walk's API phase writes that year:
-/// the purge deleted the earlier ride before the write landed it again. The
-/// ledger cannot be read for a moment once the write landed; the step's
-/// retry reads it, finds its phase purged, and takes its whole page back,
-/// the ride it found stored included: nothing of the purged grant is left.
+/// The grant's second year holds a ride an earlier read stored and a ride
+/// no read stored yet, and the grant is revoked while a step of the walk's
+/// API phase writes that year: the purge deleted the earlier ride before
+/// the write landed both. The ledger cannot be read for a moment once the
+/// write landed; the step's retry reads it, finds its phase purged, and
+/// takes its whole page back, the ride it added and the one it found
+/// stored: nothing of the purged grant is left.
 #[tokio::test]
 async fn a_ledger_unread_for_a_moment_after_a_steps_write_takes_back_what_a_purge_reached() {
     let now = Utc::now().timestamp();
@@ -2703,6 +2704,12 @@ async fn a_ledger_unread_for_a_moment_after_a_steps_write_takes_back_what_a_purg
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
     let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        second_year + DAY,
+        second_year,
+        session_oldest - 5 * YEAR / 2,
+    ]);
     fx.hold_earlier_read(
         oauth_providers::STRAVA,
         &second_year.to_string(),
@@ -2717,8 +2724,8 @@ async fn a_ledger_unread_for_a_moment_after_a_steps_write_takes_back_what_a_purg
     write.landed.notified().await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
-        1,
-        "the step's write put back the ride the purge deleted"
+        2,
+        "the step's write added the year's new ride and put back the ride the purge deleted"
     );
     fx.execute(BREAK_WALK_ROW_READS).await;
     write.resume.as_ref().unwrap().notify_one();
@@ -2741,10 +2748,11 @@ const MEND_PURGE_READS: &str =
 
 /// The athlete drops both connections while a step of the walk's API phase
 /// writes the grant's second year, a year holding a ride an earlier read
-/// stored, and the purge attestations cannot be read for a moment once the
-/// write landed. The step finds its row gone; its retry reads the grant's
-/// purge and takes its whole page back, the ride it found stored included:
-/// nothing of the purged grant is left.
+/// stored and a ride no read stored yet, and the purge attestations cannot
+/// be read for a moment once the write landed. The step finds its row gone;
+/// its retry reads the grant's purge and takes its whole page back, the
+/// ride it added and the one it found stored: nothing of the purged grant
+/// is left.
 #[tokio::test]
 async fn a_purge_attestation_unread_for_a_moment_takes_back_what_the_purge_reached() {
     let now = Utc::now().timestamp();
@@ -2753,6 +2761,12 @@ async fn a_purge_attestation_unread_for_a_moment_takes_back_what_the_purge_reach
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
     let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        second_year + DAY,
+        second_year,
+        session_oldest - 5 * YEAR / 2,
+    ]);
     fx.hold_earlier_read(
         oauth_providers::STRAVA,
         &second_year.to_string(),
@@ -2783,8 +2797,8 @@ async fn a_purge_attestation_unread_for_a_moment_takes_back_what_the_purge_reach
     write.landed.notified().await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
-        1,
-        "the step's write put back the ride the grant's purge deleted"
+        2,
+        "the step's write added the year's new ride and put back the ride the grant's purge deleted"
     );
     fx.execute(BREAK_PURGE_READS).await;
     write.resume.as_ref().unwrap().notify_one();
