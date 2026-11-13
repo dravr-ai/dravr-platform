@@ -58,9 +58,9 @@ use pierre_core::models::{
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
-    BackfillCoverage, BackfillJobKind, JobProgress, PersonalBest, PersonalBestSeed,
-    ProviderDataPurge, PurgeReason, StoredRouteTrack, StreamOrigin, SyncCursorRow,
-    STREAMS_FORMAT_VERSION,
+    BackfillCoverage, BackfillJobKind, BackfillJobState, HistoryWalkRowState, JobLease,
+    JobProgress, PersonalBest, PersonalBestSeed, ProviderDataPurge, PurgeReason, StoredRouteTrack,
+    StreamOrigin, SyncCursorRow, WalkHandOff, STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -72,6 +72,7 @@ use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::OAuthService;
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::provider_revocation::DisconnectReason;
+use pierre_test_support::db::create_test_db;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::Value;
 use tokio::time::sleep;
@@ -1539,5 +1540,134 @@ async fn a_provider_purge_takes_only_the_samples_it_pushed() {
         still_held().await,
         ["uploaded-1", "archived-1"],
         "termination"
+    );
+}
+
+/// A session's history walk whose API phase reads `grant`, filed under the
+/// session's key for `user` in `tenant`: recorded, then handed off.
+async fn walk_reading_grant(repos: &RepositoryRegistry, user: Uuid, tenant: TenantId, grant: &str) {
+    let now = Utc::now().timestamp_millis();
+    let token = Uuid::new_v4().to_string();
+    let row = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: tenant,
+        user_id: user,
+        provider: "sciotte".to_owned(),
+        kind: BackfillJobKind::HistoryWalk,
+        after_ts: Some(946_684_800),
+        before_ts: None,
+        fetch_limit: Some(500),
+        conversation_id: None,
+        created_at_ms: now,
+        leased_until_ms: now + 600_000,
+        attempts: 1,
+        lease_token: Some(token.clone()),
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
+        walk_backend: None,
+    };
+    assert!(repos
+        .activity_backfill_jobs
+        .record_backfill_job(&row)
+        .await
+        .unwrap());
+    assert!(repos
+        .activity_backfill_jobs
+        .hand_off_history_walk(
+            &JobLease {
+                id: row.id.clone(),
+                token,
+            },
+            &WalkHandOff {
+                backend: grant.to_owned(),
+                before_ts: Some(1_700_000_000),
+                months_done: 24,
+                rows_landed: 2,
+                fetch_limit: 200,
+            },
+        )
+        .await
+        .unwrap());
+}
+
+/// What the ledger holds for `user`'s walk filed under the session's key.
+async fn session_walk(
+    repos: &RepositoryRegistry,
+    user: Uuid,
+    tenant: TenantId,
+) -> Option<HistoryWalkRowState> {
+    repos
+        .activity_backfill_jobs
+        .history_walk_row(user, tenant, "sciotte")
+        .await
+        .unwrap()
+}
+
+/// A grant's purge takes what a session walk's API phase brought in under
+/// the grant's key, so that walk no longer claims the phase: it reads as a
+/// session walked alone, owed nothing, which a reconnect reopens. Only the
+/// purged user's walk in the purged tenant is released, a walk reading
+/// another grant stays, and the release is not counted as a removal.
+#[tokio::test]
+async fn a_grants_purge_releases_only_its_users_walk_through_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let (athlete, teammate, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    walk_reading_grant(repos, teammate, tenant, "strava").await;
+    walk_reading_grant(repos, other_grant, tenant, "wahoo").await;
+
+    let elsewhere = repos
+        .provider_data
+        .purge_user_provider_data(
+            athlete,
+            &TenantId::from_uuid(Uuid::new_v4()),
+            "strava",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(elsewhere.total(), 0);
+    let api_phase = HistoryWalkRowState {
+        state: BackfillJobState::Owed,
+        walk_backend: Some("strava".to_owned()),
+    };
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(api_phase.clone()),
+        "bug: a purge in another tenant released the athlete's walk"
+    );
+
+    let purge = repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        purge.total(),
+        0,
+        "bug: releasing a walk is counted as a removal: {purge:?}"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(HistoryWalkRowState {
+            state: BackfillJobState::Walked,
+            walk_backend: None,
+        }),
+        "bug: a walk still claims the API phase of a purged grant"
+    );
+    assert_eq!(
+        session_walk(repos, teammate, tenant).await,
+        Some(api_phase),
+        "bug: the purge released a teammate's walk"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant)
+            .await
+            .and_then(|row| row.walk_backend),
+        Some("wahoo".to_owned()),
+        "bug: the purge released a walk reading another grant"
     );
 }

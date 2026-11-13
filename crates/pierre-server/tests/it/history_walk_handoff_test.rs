@@ -52,6 +52,8 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobProgress};
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::{
@@ -821,4 +823,182 @@ async fn a_session_that_lapses_mid_api_phase_leaves_one_walk_of_the_grant() {
         "bug: a grant the session's walk paged to its end is walked again from the head"
     );
     assert_eq!(grant_row().await, None, "bug: a walk filed under the grant");
+}
+
+/// Walk the session through its API phase to the end, then let Strava revoke
+/// the grant: the disconnect purges what the grant's phase brought in. The
+/// fixture's session stays live.
+async fn walked_then_grant_revoked(fx: &Fixture, session_oldest: i64) {
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await,
+        "the session is walked"
+    );
+    fx.walk_to_the_end().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "the API phase landed"
+    );
+    assert!(
+        fx.strava
+            .listings()
+            .iter()
+            .all(|(_, before)| before.is_some_and(|before| before <= session_oldest)),
+        "the API phase paged below the session"
+    );
+
+    OAuthService::new(fx.resources.data(), Arc::clone(&fx.resources.common.config))
+        .disconnect_provider(
+            fx.user_id,
+            oauth_providers::STRAVA,
+            Some(fx.tenant.as_uuid()),
+            DisconnectReason::ProviderRevoked,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "the revocation purged what the grant's phase brought in"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        2,
+        "the session's rows stay with the session"
+    );
+}
+
+/// The walk paged the grant to its end, then the grant was revoked: its
+/// purge took the deep history the API phase brought in. The walk no longer
+/// claims that phase, so a reconnect beside the live session reopens it,
+/// paging the grant again strictly below the session's oldest row.
+#[tokio::test]
+async fn a_purged_grant_reconnected_beside_its_session_is_walked_again_below_it() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+        session_oldest - 5 * YEAR / 2,
+    ]);
+    fx.strava.created(now - 6 * YEAR);
+    walked_then_grant_revoked(&fx, session_oldest).await;
+    let listed = fx.strava.listing_count();
+
+    hold_strava_grant(&fx.resources, fx.user_id, fx.tenant).await;
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await,
+        "bug: a grant whose purge took the API phase's history is never walked again"
+    );
+    fx.walk_to_the_end().await;
+    let again = &fx.strava.listings()[listed..];
+    assert!(
+        !again.is_empty()
+            && again
+                .iter()
+                .all(|(_, before)| before.is_some_and(|before| before <= session_oldest)),
+        "bug: the reconnected grant is paged again strictly below the session: {again:?}"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "bug: the purged deep history is read back"
+    );
+    assert_eq!(
+        fx.session.read_count(),
+        2,
+        "bug: the session's phase is not walked again"
+    );
+}
+
+/// The same purge, but the session has lapsed by the time the grant comes
+/// back: the grant is now the walk's source, and a walk of it starts under
+/// its own key from the head, reading the whole history the grant lists —
+/// the recent rides the session held and the deep ones the purge took.
+#[tokio::test]
+async fn a_purged_grant_reconnected_after_its_session_lapsed_is_walked_again() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+        session_oldest - 5 * YEAR / 2,
+    ]);
+    fx.strava.created(now - 6 * YEAR);
+    walked_then_grant_revoked(&fx, session_oldest).await;
+    // A grant lists every ride, the session's recent ones too.
+    fx.strava.serve(vec![
+        now - 3 * DAY,
+        session_oldest,
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+        session_oldest - 5 * YEAR / 2,
+    ]);
+    let repos = &fx.resources.common.repos;
+    repos
+        .provider_connections
+        .mark_needs_reauth(
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::SCIOTTE,
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    hold_strava_grant(&fx.resources, fx.user_id, fx.tenant).await;
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await,
+        "bug: a grant whose purge took the API phase's history is never walked again"
+    );
+    let deadline = Instant::now() + WALK_DEADLINE;
+    loop {
+        let row = repos
+            .activity_backfill_jobs
+            .backfill_job_state(
+                fx.user_id,
+                fx.tenant,
+                oauth_providers::STRAVA,
+                BackfillJobKind::HistoryWalk,
+            )
+            .await
+            .unwrap();
+        if row == Some(BackfillJobState::Walked) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the grant's walk did not end (row: {row:?})"
+        );
+        fx.sweep(true).await;
+    }
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        5,
+        "bug: the grant's walk reads its whole history back, the purged deep rides included"
+    );
 }
