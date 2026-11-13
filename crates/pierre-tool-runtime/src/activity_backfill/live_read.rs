@@ -21,12 +21,21 @@
 //! landed here over the ask's window answers it as current: that is how its
 //! own follow-up's re-ask of the question, asked while the run still holds
 //! the pair, reads the rows the run just wrote.
+//!
+//! Only a read that is actually running is joined. One that landed here
+//! over a narrower window than the ask's holds no provider read any more,
+//! so the ask reads for itself ([`succeeds`]). A failed attempt gives its
+//! lease back: its row stays owed for the sweep's bounded retries, but the
+//! next ask finds it idle, takes it over and reads it in its own turn
+//! ([`take_over_idle`]) — that ask's answer is the follow-up it was owed.
 
 use std::fmt;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobLease, LiveReadAsk};
+use pierre_database::repositories::{
+    ActivityBackfillJobRow, BackfillJobKind, JobLease, JobLeaseState, LiveReadAsk,
+};
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::CoreFitnessProvider;
@@ -35,9 +44,9 @@ use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 use super::{
-    enqueue, in_flight_key, job_row, keep_backfill_lease, mark_in_flight_landed,
-    notify_backfill_reauth, rebind_live_read, remove_backfill_job, settle_backfill_job,
-    ActivityBackfillJob, BackfillRunOutcome, Enqueued, InFlight,
+    enqueue, job_row, keep_backfill_lease, mark_in_flight_landed, notify_backfill_reauth, now_ms,
+    rebind_live_read, remove_backfill_job, settle_backfill_job, ActivityBackfillJob,
+    BackfillRunOutcome, Enqueued, InFlight, InFlightClaim, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::read_live_window;
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
@@ -173,48 +182,66 @@ impl JoinedRead {
         }
     }
 
-    /// Whether the read joined still runs: the run here still holds the
-    /// pair, or the ledger owes a live read of it.
+    /// Whether the read joined still runs: the run here is still reading,
+    /// or an attempt holds the lease of the read the ledger owes. A run here
+    /// that landed reads nothing more, and an owed row no attempt holds is
+    /// waiting for a retry, not running.
     pub async fn running(&self) -> bool {
-        if self
-            .here
-            .as_ref()
-            .is_some_and(|run| run.has_changed().is_ok())
-        {
-            return true;
+        if let Some(run) = &self.here {
+            if matches!(*run.borrow(), InFlight::Landed { .. }) {
+                return false;
+            }
+            if run.has_changed().is_ok() {
+                return true;
+            }
         }
+        self.lease().await == Some(JobLeaseState::Leased)
+    }
+
+    /// The turn stops waiting: the read joined owes this ask its follow-up
+    /// once it lands. A read running here is rebound to it now; one owed
+    /// elsewhere was rebound as this ask was recorded. `false` when no
+    /// follow-up would come: the run here landed or ended, or the row it
+    /// would answer from is gone or no attempt holds it — the ask then reads
+    /// for itself rather than be told a read is coming.
+    pub async fn owe_follow_up(&self) -> bool {
+        let Some(run) = &self.here else {
+            return self.lease().await != Some(JobLeaseState::Idle);
+        };
+        if matches!(*run.borrow(), InFlight::Landed { .. }) || run.has_changed().is_err() {
+            return false;
+        }
+        // An ask with no conversation is owed nothing a follow-up could post.
+        self.job.pierre_conversation_id.is_none() || rebind_live_read(&self.job).await
+    }
+
+    /// Whether an attempt holds the lease of the read the ledger owes for
+    /// the pair; `None` when none is owed, or the ledger cannot say.
+    async fn lease(&self) -> Option<JobLeaseState> {
         let job = &self.job;
         match job
             .resources
             .repos()
             .activity_backfill_jobs
-            .backfill_job_state(
+            .backfill_job_lease_state(
                 job.user_id,
                 job.tenant_id,
                 &job.provider_name,
                 BackfillJobKind::LiveRead,
+                now_ms(),
             )
             .await
         {
-            Ok(state) => state == Some(BackfillJobState::Owed),
+            Ok(lease) => lease,
             Err(e) => {
                 warn!(
                     user_id = %job.user_id,
                     provider = %job.provider_name,
                     error = %e,
-                    "Live read: the ledger could not say whether a read of the pair is owed"
+                    "Live read: the ledger could not say whether a read of the pair is running"
                 );
-                false
+                None
             }
-        }
-    }
-
-    /// The turn stops waiting: the read joined owes this ask its follow-up
-    /// once it lands. A read running here is rebound to it now; one owed
-    /// elsewhere was rebound as this ask was recorded.
-    pub async fn owe_follow_up(&self) {
-        if self.here.is_some() {
-            rebind_live_read(&self.job).await;
         }
     }
 
@@ -238,6 +265,56 @@ impl LandedOver {
     #[must_use]
     pub fn filed_under<'a>(&'a self, provider_slug: &'a str) -> &'a str {
         self.served_by_grant.as_deref().unwrap_or(provider_slug)
+    }
+}
+
+/// Whether `job`, a live read, succeeds the run of its pair in `run`: that
+/// run landed over a window that does not hold `job`'s. It reads nothing
+/// more — its row is finished, only its follow-up is left — so the ask reads
+/// its own window rather than wait on a run that will never read it.
+pub(super) fn succeeds(job: &ActivityBackfillJob, run: &InFlight) -> bool {
+    job.kind == BackfillJobKind::LiveRead
+        && matches!(run, InFlight::Landed { params, count, .. }
+            if !covers(params, *count, &job.query_params))
+}
+
+/// Take over the live read owed for `job`'s pair when no attempt holds it,
+/// leased under `row`: a failed attempt gave it back, or its instance died.
+/// The ask reads it now instead of joining a read nothing runs; `None` for
+/// any other kind, or when an attempt holds the row.
+pub(super) async fn take_over_idle(
+    job: &ActivityBackfillJob,
+    row: &ActivityBackfillJobRow,
+) -> Option<(JobLease, i64)> {
+    if job.kind != BackfillJobKind::LiveRead {
+        return None;
+    }
+    match job
+        .resources
+        .repos()
+        .activity_backfill_jobs
+        .take_over_idle_live_read(row)
+        .await
+    {
+        Ok(Some(taken)) => {
+            info!(
+                user_id = %job.user_id,
+                provider = %job.provider_name,
+                attempts = taken.1,
+                "Live read: the read owed for the pair stood idle; this ask reads it"
+            );
+            Some(taken)
+        }
+        Ok(None) => None,
+        Err(e) => {
+            warn!(
+                user_id = %job.user_id,
+                provider = %job.provider_name,
+                error = %e,
+                "Live read: an idle read could not be taken over; joining it"
+            );
+            None
+        }
     }
 }
 
@@ -295,8 +372,9 @@ impl Attempt {
 /// The attempt answers the turn waiting on it, when one is. A turn that got
 /// the answer is owed nothing more; a turn that stopped waiting — and every
 /// attempt the resume sweep runs, which no turn waits on — is answered by the
-/// follow-up once the read lands, and a failure leaves the row for the next
-/// attempt. A newer ask that rebound the row is owed its follow-up either way.
+/// follow-up once the read lands, and a failure leaves the row, idle, for the
+/// next attempt. A newer ask that rebound the row is owed its follow-up
+/// either way.
 #[instrument(
     skip_all,
     name = "live_read",
@@ -304,6 +382,7 @@ impl Attempt {
 )]
 pub(super) async fn run_live_read(
     job: &ActivityBackfillJob,
+    claim: &InFlightClaim,
     recorded: Option<(JobLease, i64)>,
     handoff: Option<LiveReadHandoff>,
 ) {
@@ -320,25 +399,43 @@ pub(super) async fn run_live_read(
         .as_ref()
         .map_or_else(Utc::now, |authenticated| authenticated.attempt_started_at);
     let output = read_once(job, authenticated, attempt_started_at).await;
+    drop(renewal);
     let attempt = Attempt::of(&output.read);
+    // A landed read finishes its row before it marks itself landed, and both
+    // before anything is answered. From then on the run holds no read and no
+    // row: its follow-up's re-ask of the question reads what landed, and an
+    // ask its window does not cover reads for itself ([`succeeds`]) rather
+    // than be promised a follow-up from a row that is gone.
+    let bound = match (&attempt, &recorded) {
+        (Attempt::Landed(_), Some((lease, _))) => finish(job, lease).await,
+        _ => None,
+    };
     if let (Attempt::Landed(count), Ok(head)) = (&attempt, &output.read) {
-        // Before anything is answered: the follow-up re-asks the question
-        // while this run still holds the pair, and that ask reads what
-        // landed rather than joining a read that is over.
         let landed = InFlight::Landed {
             params: job.query_params.clone(),
             count: *count,
             served_by_grant: head.served_by_grant.clone(),
         };
-        mark_in_flight_landed(
-            &in_flight_key(job.user_id, &job.provider_name, job.kind),
-            landed,
-        );
+        mark_in_flight_landed(claim, landed);
     }
     let delivered = reply.is_some_and(|reply| reply.send(output).is_ok());
+    settle(job, attempt, recorded, bound, delivered, attempt_started_at).await;
+}
+
+/// Settle the row of an attempt that ended as `attempt`; `bound` is the ask
+/// a landed read's finished row was bound to, `delivered` whether the turn
+/// that asked heard the answer itself.
+async fn settle(
+    job: &ActivityBackfillJob,
+    attempt: Attempt,
+    recorded: Option<(JobLease, i64)>,
+    bound: Option<LiveReadAsk>,
+    delivered: bool,
+    attempt_started_at: DateTime<Utc>,
+) {
     match (attempt, recorded) {
-        (Attempt::Landed(count), Some((lease, _))) => {
-            if let Some(ask) = finish(job, &lease).await {
+        (Attempt::Landed(count), Some(_)) => {
+            if let Some(ask) = bound {
                 if !delivered || rebound(job, &ask) {
                     follow_up(job, &ask, count).await;
                 }
@@ -356,7 +453,7 @@ pub(super) async fn run_live_read(
             }
         }
         (Attempt::Failed, Some((lease, attempts))) if !delivered => {
-            settle_backfill_job(job, &lease, attempts, &BackfillRunOutcome::Failed).await;
+            give_back(job, &lease, attempts).await;
         }
         (Attempt::Failed, Some((lease, attempts))) => {
             // The turn heard of the failure itself; only a newer ask the
@@ -369,7 +466,41 @@ pub(super) async fn run_live_read(
         }
         (Attempt::Landed(_) | Attempt::Failed, None) => {}
     }
-    drop(renewal);
+}
+
+/// A failed attempt no turn heard of: the row stays owed for the resume
+/// sweep's next attempt, its lease given back so that every ask meanwhile
+/// finds it idle and reads for itself instead of joining a read nothing
+/// runs ([`take_over_idle`]). Its last attempt drops the row instead
+/// ([`settle_backfill_job`]).
+async fn give_back(job: &ActivityBackfillJob, lease: &JobLease, attempts: i64) {
+    if attempts >= MAX_BACKFILL_ATTEMPTS {
+        settle_backfill_job(job, lease, attempts, &BackfillRunOutcome::Failed).await;
+        return;
+    }
+    match job
+        .resources
+        .repos()
+        .activity_backfill_jobs
+        .release_backfill_job_lease(lease)
+        .await
+    {
+        Ok(released) => info!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            row_id = %lease,
+            attempts,
+            released,
+            "Live read: failed; its row stays owed for a retry, idle until the sweep or the next ask takes it"
+        ),
+        Err(e) => warn!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            row_id = %lease,
+            error = %e,
+            "Live read: the failed read's lease could not be given back; it lapses on its own"
+        ),
+    }
 }
 
 /// Read the job's window once, through `authenticated` or a provider this

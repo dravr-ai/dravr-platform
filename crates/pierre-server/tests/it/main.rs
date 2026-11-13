@@ -48,6 +48,7 @@ mod activity_cache_serve_freshness_test;
 mod activity_cache_test;
 mod activity_detail_budget_test;
 mod activity_live_read_budget_test;
+mod activity_live_read_join_test;
 mod activity_streams_transport_test;
 mod activity_summary_enrichment_test;
 mod admin_analytics_test;

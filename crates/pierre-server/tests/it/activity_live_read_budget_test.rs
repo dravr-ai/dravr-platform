@@ -50,16 +50,18 @@ use tokio::sync::Notify;
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
-const PROVIDER: &str = "sciotte";
-const BUDGET: StdDuration = StdDuration::from_millis(200);
+pub(crate) const PROVIDER: &str = "sciotte";
+pub(crate) const BUDGET: StdDuration = StdDuration::from_millis(200);
 
 /// A provider whose list read waits until the test notifies it, then
-/// answers its rows — or, when `expired`, finds its session signed out.
-struct GatedProvider {
+/// answers its rows — or, when `expired`, finds its session signed out, and
+/// when `fails`, fails as a scrape that broke does.
+pub(crate) struct GatedProvider {
     config: ProviderConfig,
     gate: Arc<Notify>,
     rows: Vec<Activity>,
-    expired: bool,
+    pub(crate) expired: bool,
+    pub(crate) fails: bool,
 }
 
 #[async_trait]
@@ -96,6 +98,9 @@ impl FitnessProvider for GatedProvider {
         if self.expired {
             return Err(AppError::provider_auth_required(PROVIDER));
         }
+        if self.fails {
+            return Err(AppError::external_service(PROVIDER, "the scrape broke"));
+        }
         Ok(self.rows.clone())
     }
 
@@ -115,7 +120,7 @@ impl FitnessProvider for GatedProvider {
     }
 }
 
-fn activity(id: &str, days_ago: i64) -> Activity {
+pub(crate) fn activity(id: &str, days_ago: i64) -> Activity {
     ActivityBuilder::new(
         id,
         "Tempo run",
@@ -128,7 +133,7 @@ fn activity(id: &str, days_ago: i64) -> Activity {
     .build()
 }
 
-fn gated(gate: &Arc<Notify>, rows: Vec<Activity>) -> Box<GatedProvider> {
+pub(crate) fn gated(gate: &Arc<Notify>, rows: Vec<Activity>) -> Box<GatedProvider> {
     Box::new(GatedProvider {
         config: ProviderConfig {
             name: PROVIDER.to_owned(),
@@ -141,10 +146,11 @@ fn gated(gate: &Arc<Notify>, rows: Vec<Activity>) -> Box<GatedProvider> {
         gate: Arc::clone(gate),
         rows,
         expired: false,
+        fails: false,
     })
 }
 
-fn window(user_id: Uuid, tenant_id: TenantId) -> OwnedLiveRead {
+pub(crate) fn window(user_id: Uuid, tenant_id: TenantId) -> OwnedLiveRead {
     OwnedLiveRead {
         provider_slug: PROVIDER.to_owned(),
         user_id,
@@ -162,7 +168,12 @@ fn window(user_id: Uuid, tenant_id: TenantId) -> OwnedLiveRead {
 }
 
 /// A read asked from `conversation` by the athlete's message `message`.
-fn asked(user_id: Uuid, tenant_id: TenantId, conversation: &str, message: &str) -> OwnedLiveRead {
+pub(crate) fn asked(
+    user_id: Uuid,
+    tenant_id: TenantId,
+    conversation: &str,
+    message: &str,
+) -> OwnedLiveRead {
     OwnedLiveRead {
         conversation_id: Some(conversation.to_owned()),
         ask: Some(TurnAsk {
@@ -174,7 +185,7 @@ fn asked(user_id: Uuid, tenant_id: TenantId, conversation: &str, message: &str) 
 }
 
 /// What the ledger holds for the pair's live read.
-async fn live_read_state(
+pub(crate) async fn live_read_state(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -188,7 +199,11 @@ async fn live_read_state(
 }
 
 /// Wait until the pair's live read row is gone: the read finished it.
-async fn wait_until_finished(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, tenant_id: TenantId) {
+pub(crate) async fn wait_until_finished(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) {
     let finished = timeout(StdDuration::from_secs(10), async {
         while live_read_state(runtime, user_id, tenant_id).await.is_some() {
             sleep(StdDuration::from_millis(50)).await;
@@ -201,7 +216,7 @@ async fn wait_until_finished(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, tena
     );
 }
 
-fn ids(rows: &[Activity]) -> Vec<&str> {
+pub(crate) fn ids(rows: &[Activity]) -> Vec<&str> {
     let mut ids: Vec<&str> = rows.iter().map(Activity::id).collect();
     ids.sort_unstable();
     ids
@@ -387,19 +402,19 @@ async fn a_stale_head_held_back_by_its_failures_is_reported_behind() {
 /// One follow-up a live read sent.
 #[cfg(feature = "client-messaging")]
 #[derive(Debug, Clone, PartialEq, Eq)]
-struct FollowUp {
+pub(crate) struct FollowUp {
     conversation: String,
     provider: String,
     count: usize,
     kind: BackfillJobKind,
-    asked: Option<String>,
+    pub(crate) asked: Option<String>,
 }
 
 /// Every follow-up and reconnect answer the live reads sent.
 #[cfg(feature = "client-messaging")]
 #[derive(Default)]
-struct RecordingNotifier {
-    sent: Mutex<Vec<FollowUp>>,
+pub(crate) struct RecordingNotifier {
+    pub(crate) sent: Mutex<Vec<FollowUp>>,
     reauth: Mutex<Vec<(String, String)>>,
 }
 
@@ -446,7 +461,8 @@ impl BackfillNotifier for RecordingNotifier {
 /// A runtime whose follow-ups the test reads, with one cached row for the
 /// turn to answer from.
 #[cfg(feature = "client-messaging")]
-async fn notified_runtime() -> (Arc<dyn ToolRuntime>, Arc<RecordingNotifier>, Uuid, TenantId) {
+pub(crate) async fn notified_runtime(
+) -> (Arc<dyn ToolRuntime>, Arc<RecordingNotifier>, Uuid, TenantId) {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, _user) = common::create_test_user(&resources.agent.database)
         .await
@@ -468,7 +484,7 @@ async fn notified_runtime() -> (Arc<dyn ToolRuntime>, Arc<RecordingNotifier>, Uu
 /// Wait until at least one follow-up was sent, then a little longer, so a
 /// second one would be seen too.
 #[cfg(feature = "client-messaging")]
-async fn settled_follow_ups(notifier: &RecordingNotifier) -> Vec<FollowUp> {
+pub(crate) async fn settled_follow_ups(notifier: &RecordingNotifier) -> Vec<FollowUp> {
     let posted = timeout(StdDuration::from_secs(10), async {
         while notifier.sent.lock().unwrap().is_empty() {
             sleep(StdDuration::from_millis(50)).await;
@@ -724,7 +740,7 @@ async fn a_read_that_expires_after_a_reconnect_leaves_the_new_connection_alone()
 
 /// What a turn was answered with, in a form a test can hold on to.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Answer {
+pub(crate) enum Answer {
     /// The turn's own read answered.
     Answered(Vec<String>),
     /// The cached window answered, labelled stale; a follow-up is owed.
@@ -733,7 +749,7 @@ enum Answer {
     Landed(Vec<String>),
 }
 
-fn answer_of(outcome: BudgetedRead) -> Answer {
+pub(crate) fn answer_of(outcome: BudgetedRead) -> Answer {
     let owned = |rows: &[Activity]| ids(rows).into_iter().map(str::to_owned).collect();
     match outcome {
         BudgetedRead::Answered { read, .. } => Answer::Answered(owned(&read.unwrap().activities)),
@@ -750,7 +766,7 @@ fn answer_of(outcome: BudgetedRead) -> Answer {
 
 /// A runtime whose follow-ups the test reads, with nothing cached.
 #[cfg(feature = "client-messaging")]
-async fn uncached_notified_runtime(
+pub(crate) async fn uncached_notified_runtime(
 ) -> (Arc<dyn ToolRuntime>, Arc<RecordingNotifier>, Uuid, TenantId) {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, _user) = common::create_test_user(&resources.agent.database)

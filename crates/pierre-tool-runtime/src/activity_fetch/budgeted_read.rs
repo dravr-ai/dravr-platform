@@ -232,12 +232,14 @@ enum AfterJoin {
 ///   ([`BudgetedRead::Landed`]). The follow-up of a read that outlived its
 ///   turn re-asks the question while the run still holds the pair, and
 ///   lands here.
-/// - Rows are cached: they answer at once, and the joined read owes this
-///   ask its follow-up.
-/// - Nothing is cached: the turn waits for the read, as it would for its
-///   own. Once it ended without landing over this window, this ask starts
-///   its own read; past the deadline the empty window answers, and the
-///   joined read owes this ask its follow-up.
+/// - Rows are cached and the joined read still owes a follow-up: they
+///   answer at once, and that read owes this ask its follow-up.
+/// - The joined read is not running — it landed over a narrower window, it
+///   ended, or its row stands owed with no attempt holding it: this ask
+///   starts its own read, which takes over an idle row.
+/// - Otherwise the turn waits for the read, as it would for its own; past
+///   the deadline the cached window answers, empty when nothing is cached,
+///   and the joined read owes this ask its follow-up.
 async fn wait_on_joined(
     runtime: &Arc<dyn ToolRuntime>,
     mut joined: Box<JoinedRead>,
@@ -256,19 +258,8 @@ async fn wait_on_joined(
         "a live activity read of this provider is already running; joining it"
     );
     loop {
-        if let Some(landed) = joined.landed_over_its_window() {
-            let filed_under = landed.filed_under(provider_slug);
-            let rows = read_cached_page(runtime, filed_under, user_id, tenant_id, params).await;
-            return AfterJoin::Answered(BudgetedRead::Landed {
-                activities: rows.unwrap_or_default(),
-                served_by_grant: landed.served_by_grant,
-            });
-        }
-        if let Some(cached) =
-            serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await
-        {
-            joined.owe_follow_up().await;
-            return AfterJoin::Answered(BudgetedRead::Cached(cached));
+        if let Some(answer) = answer_beside(runtime, &joined, window).await {
+            return AfterJoin::Answered(answer);
         }
         if !joined.running().await {
             match (*joined).restart().await {
@@ -280,13 +271,43 @@ async fn wait_on_joined(
             info!(
                 user_id = %user_id,
                 provider = %provider_slug,
-                "the joined live activity read did not land within the turn's budget; nothing is cached to answer with"
+                "the joined live activity read did not land within the turn's budget"
             );
             joined.owe_follow_up().await;
-            return AfterJoin::Answered(BudgetedRead::Cached(Vec::new()));
+            let cached =
+                serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await;
+            return AfterJoin::Answered(BudgetedRead::Cached(cached.unwrap_or_default()));
         }
         sleep_until(deadline.min(Instant::now() + JOINED_READ_POLL)).await;
     }
+}
+
+/// What the joined read answers this ask with now: the rows it landed over
+/// this window, or the cached rows while it still owes this ask a follow-up.
+async fn answer_beside(
+    runtime: &Arc<dyn ToolRuntime>,
+    joined: &JoinedRead,
+    window: &Window<'_>,
+) -> Option<BudgetedRead> {
+    let Window {
+        provider_slug,
+        user_id,
+        tenant_id,
+        params,
+    } = *window;
+    if let Some(landed) = joined.landed_over_its_window() {
+        let filed_under = landed.filed_under(provider_slug);
+        let rows = read_cached_page(runtime, filed_under, user_id, tenant_id, params).await;
+        return Some(BudgetedRead::Landed {
+            activities: rows.unwrap_or_default(),
+            served_by_grant: landed.served_by_grant,
+        });
+    }
+    let cached = serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await?;
+    joined
+        .owe_follow_up()
+        .await
+        .then_some(BudgetedRead::Cached(cached))
 }
 
 /// The job a live read runs as.
