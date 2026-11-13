@@ -73,20 +73,26 @@
 //! ```
 
 use super::core::{FitnessProvider, ProviderConfig};
+use crate::field_support::ActivityFieldSupport;
 #[cfg(any(
     feature = "provider-whoop",
     feature = "provider-strava",
     feature = "provider-garmin",
     feature = "provider-coros",
-    feature = "provider-sciotte",
+    feature = "provider-intervals-icu"
+))]
+use crate::field_support::{ActivityFields as F, StreamChannels as S};
+#[cfg(any(
+    feature = "provider-whoop",
+    feature = "provider-strava",
+    feature = "provider-garmin",
+    feature = "provider-coros",
     feature = "provider-intervals-icu"
 ))]
 use crate::provider_terms;
 #[cfg(feature = "provider-whoop")]
 use crate::utils::WHOOP_REFRESH_EXTRA_FORM;
 use pierre_core::ai_policy::SourcePolicy;
-#[cfg(feature = "provider-sciotte")]
-use pierre_core::constants::oauth::providers::{COROS, GARMIN, STRAVA, TRAININGPEAKS};
 #[cfg(feature = "provider-garmin")]
 use pierre_core::constants::oauth::{
     GARMIN_API_BASE_URL, GARMIN_AUTH_URL, GARMIN_DEREGISTRATION_URL, GARMIN_TOKEN_URL,
@@ -351,6 +357,13 @@ pub trait ProviderDescriptor: Send + Sync {
     /// Provider capabilities (OAuth, sleep tracking, etc.)
     fn capabilities(&self) -> ProviderCapabilities;
 
+    /// What this backend's mapper fills on the activities it returns, field
+    /// by field, on a list row and on a detail read ([`crate::field_support`]).
+    /// Nothing by default: a backend promises no field until it declares it.
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport::NONE
+    }
+
     /// OAuth endpoints if provider requires authentication
     ///
     /// Returns `None` for providers that don't require OAuth (e.g., synthetic provider).
@@ -572,6 +585,33 @@ pub struct StravaDescriptor;
 
 #[cfg(feature = "provider-strava")]
 impl ProviderDescriptor for StravaDescriptor {
+    /// The API's summary on every list row; the athlete's words, the gear and
+    /// the device, laps and splits on the detail read; nine stream channels.
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport {
+            list: F::WORKOUT_TYPE
+                .union(F::TRAINER)
+                .union(F::COMMUTE)
+                .union(F::AVERAGE_HEART_RATE)
+                .union(F::MAX_HEART_RATE)
+                .union(F::AVERAGE_POWER)
+                .union(F::NORMALIZED_POWER)
+                .union(F::MOVING_TIME)
+                .union(F::AVERAGE_CADENCE)
+                .union(F::SUMMARY_POLYLINE)
+                .union(F::SPORT_TYPE_DETAIL),
+            detail_only: F::DESCRIPTION
+                .union(F::PRIVATE_NOTE)
+                .union(F::CALORIES)
+                .union(F::GEAR)
+                .union(F::DEVICE)
+                .union(F::LAPS)
+                .union(F::SPLITS)
+                .union(F::PERCEIVED_EXERTION),
+            streams: S::all(),
+        }
+    }
+
     fn name(&self) -> &'static str {
         "strava"
     }
@@ -624,6 +664,22 @@ pub struct GarminDescriptor;
 
 #[cfg(feature = "provider-garmin")]
 impl ProviderDescriptor for GarminDescriptor {
+    /// What Garmin pushes: the summary's readings on every activity, and the
+    /// samples, laps and the power derived from them once its details arrive.
+    /// No measured push payload carries a description, workout tag or trainer
+    /// flag, so none is declared ([`crate::field_support`]).
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport {
+            list: F::AVERAGE_HEART_RATE
+                .union(F::MAX_HEART_RATE)
+                .union(F::AVERAGE_CADENCE)
+                .union(F::CALORIES)
+                .union(F::DEVICE),
+            detail_only: F::AVERAGE_POWER.union(F::NORMALIZED_POWER).union(F::LAPS),
+            streams: S::all(),
+        }
+    }
+
     fn name(&self) -> &'static str {
         "garmin"
     }
@@ -704,6 +760,18 @@ pub struct WhoopDescriptor;
 
 #[cfg(feature = "provider-whoop")]
 impl ProviderDescriptor for WhoopDescriptor {
+    /// A detected workout's score: heart rate, energy and WHOOP's sport name.
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport {
+            list: F::AVERAGE_HEART_RATE
+                .union(F::MAX_HEART_RATE)
+                .union(F::CALORIES)
+                .union(F::SPORT_TYPE_DETAIL),
+            detail_only: F::empty(),
+            streams: S::empty(),
+        }
+    }
+
     fn name(&self) -> &'static str {
         "whoop"
     }
@@ -803,6 +871,20 @@ pub struct CorosDescriptor;
 
 #[cfg(feature = "provider-coros")]
 impl ProviderDescriptor for CorosDescriptor {
+    /// The partner API's workout summary.
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport {
+            list: F::AVERAGE_HEART_RATE
+                .union(F::MAX_HEART_RATE)
+                .union(F::CALORIES)
+                .union(F::AVERAGE_CADENCE)
+                .union(F::AVERAGE_POWER)
+                .union(F::SPORT_TYPE_DETAIL),
+            detail_only: F::empty(),
+            streams: S::empty(),
+        }
+    }
+
     fn name(&self) -> &'static str {
         "coros"
     }
@@ -860,232 +942,14 @@ impl ProviderDescriptor for CorosDescriptor {
     }
 }
 
-/// Sciotte web scraping provider descriptor
-///
-/// Sciotte uses browser-based web scraping via CDP to capture session cookies
-/// and extract activity data from fitness platform HTML pages (Strava, Garmin, etc.).
-/// It does not use OAuth — authentication happens via a streamed browser login session.
+/// The four sciotte backends' descriptors.
 #[cfg(feature = "provider-sciotte")]
-#[derive(Debug)]
-pub struct SciotteDescriptor;
-
+mod sciotte_descriptors;
 #[cfg(feature = "provider-sciotte")]
-impl ProviderDescriptor for SciotteDescriptor {
-    fn name(&self) -> &'static str {
-        "sciotte"
-    }
-
-    fn display_name(&self) -> &'static str {
-        "Strava"
-    }
-
-    /// The Strava backend: its stamp is `sciotte`, its data Strava's.
-    fn origin(&self) -> Option<&'static str> {
-        Some(STRAVA)
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        // Sciotte uses browser login (not OAuth) and provides activity data
-        ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::RECORDED_ACTIVITIES)
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None // Sciotte uses browser-based session cookies, not OAuth
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        None // Sciotte uses browser-based session cookies, not OAuth
-    }
-
-    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
-        None // A browser session, not an OAuth grant
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        // Sciotte runs in-process via dravr-sciotte — no external API
-        ""
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &[] // No OAuth scopes — browser session-based
-    }
-
-    /// This backend reads strava.com, so what it serves is Strava data.
-    fn transport_policy(&self) -> TransportPolicy {
-        provider_terms::STRAVA_TRANSPORT
-    }
-}
-
-/// Sciotte Garmin Connect web scraping provider descriptor
-#[cfg(feature = "provider-sciotte")]
-#[derive(Debug)]
-pub struct SciotteGarminDescriptor;
-
-#[cfg(feature = "provider-sciotte")]
-impl ProviderDescriptor for SciotteGarminDescriptor {
-    fn name(&self) -> &'static str {
-        "sciotte_garmin"
-    }
-
-    fn display_name(&self) -> &'static str {
-        "Garmin"
-    }
-
-    fn origin(&self) -> Option<&'static str> {
-        Some(GARMIN)
-    }
-
-    fn transport_policy(&self) -> TransportPolicy {
-        provider_terms::GARMIN_TRANSPORT
-    }
-
-    /// Activities are scraped on demand; the night's sleep, resting heart
-    /// rate, overnight HRV, stress, Body Battery, body metrics and `VO2max`
-    /// are synced from the same session's daily summary by the health sync.
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::ACTIVITIES
-            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
-            .union(ProviderCapabilities::SLEEP_TRACKING)
-            .union(ProviderCapabilities::RECOVERY_METRICS)
-            .union(ProviderCapabilities::HEALTH_METRICS)
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        None
-    }
-
-    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
-        None // A browser session, not an OAuth grant
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        ""
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &[]
-    }
-}
-
-/// Sciotte TrainingPeaks web scraping provider descriptor.
-///
-/// Activities and the calendar's planned workouts, and never
-/// `CHEAP_ACTIVITY_DETAIL`: a TrainingPeaks workout's detail is a browser
-/// round trip per workout on the scraper service, the same N+1 the Garmin and
-/// Strava mirrors ration. The planned read is one scraper call per window.
-#[cfg(feature = "provider-sciotte")]
-#[derive(Debug)]
-pub struct SciotteTrainingPeaksDescriptor;
-
-#[cfg(feature = "provider-sciotte")]
-impl ProviderDescriptor for SciotteTrainingPeaksDescriptor {
-    fn name(&self) -> &'static str {
-        "sciotte_trainingpeaks"
-    }
-
-    fn display_name(&self) -> &'static str {
-        "TrainingPeaks"
-    }
-
-    /// The planned workouts are stamped `trainingpeaks`
-    /// ([`crate::trainingpeaks_plan`]), as is every scraped activity's source.
-    fn origin(&self) -> Option<&'static str> {
-        Some(TRAININGPEAKS)
-    }
-
-    fn transport_policy(&self) -> TransportPolicy {
-        provider_terms::TRAININGPEAKS_TRANSPORT
-    }
-
-    fn capabilities(&self) -> ProviderCapabilities {
-        // A coach account reads its athletes through the coach's scraper
-        // session (`SciotteTrainingPeaksProviderFactory::delegated_reads`).
-        ProviderCapabilities::ACTIVITIES
-            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
-            .union(ProviderCapabilities::PLANNED_WORKOUTS)
-            .union(ProviderCapabilities::COACH_ROSTER)
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        None
-    }
-
-    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
-        None // A browser session, not an OAuth grant
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        ""
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &[]
-    }
-}
-
-/// Sciotte COROS Training Hub web scraping provider descriptor
-#[cfg(feature = "provider-sciotte")]
-#[derive(Debug)]
-pub struct SciotteCorosDescriptor;
-
-#[cfg(feature = "provider-sciotte")]
-impl ProviderDescriptor for SciotteCorosDescriptor {
-    fn name(&self) -> &'static str {
-        "sciotte_coros"
-    }
-
-    fn display_name(&self) -> &'static str {
-        "COROS"
-    }
-
-    /// `coros`, which no compiled descriptor carries in production: the
-    /// partner-API provider is feature-gated off (registre#509).
-    fn origin(&self) -> Option<&'static str> {
-        Some(COROS)
-    }
-
-    fn transport_policy(&self) -> TransportPolicy {
-        provider_terms::COROS_TRANSPORT
-    }
-
-    /// Activities are scraped on demand; the resting heart rate, sleep HRV
-    /// and `VO2max` are synced from the Training Hub's daily analysis by the
-    /// health sync. The Training Hub carries no sleep sessions.
-    fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::ACTIVITIES
-            .union(ProviderCapabilities::RECORDED_ACTIVITIES)
-            .union(ProviderCapabilities::RECOVERY_METRICS)
-            .union(ProviderCapabilities::HEALTH_METRICS)
-    }
-
-    fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {
-        None
-    }
-
-    fn oauth_params(&self) -> Option<OAuthParams> {
-        None
-    }
-
-    fn oauth_refresh(&self) -> Option<OAuthRefresh> {
-        None // A browser session, not an OAuth grant
-    }
-
-    fn api_base_url(&self) -> &'static str {
-        ""
-    }
-
-    fn default_scopes(&self) -> &'static [&'static str] {
-        &[]
-    }
-}
+pub use sciotte_descriptors::{
+    SciotteCorosDescriptor, SciotteDescriptor, SciotteGarminDescriptor,
+    SciotteTrainingPeaksDescriptor,
+};
 
 /// Intervals.icu endurance-analytics provider descriptor.
 ///
@@ -1099,6 +963,33 @@ pub struct IntervalsIcuDescriptor;
 
 #[cfg(feature = "provider-intervals-icu")]
 impl ProviderDescriptor for IntervalsIcuDescriptor {
+    /// The whole activity on every list row, the athlete's words and flags
+    /// included; its comment thread on a detail read; seven stream channels.
+    fn activity_fields(&self) -> ActivityFieldSupport {
+        ActivityFieldSupport {
+            list: F::DESCRIPTION
+                .union(F::TRAINER)
+                .union(F::COMMUTE)
+                .union(F::AVERAGE_HEART_RATE)
+                .union(F::MAX_HEART_RATE)
+                .union(F::AVERAGE_POWER)
+                .union(F::NORMALIZED_POWER)
+                .union(F::MOVING_TIME)
+                .union(F::CALORIES)
+                .union(F::AVERAGE_CADENCE)
+                .union(F::DEVICE)
+                .union(F::PERCEIVED_EXERTION),
+            detail_only: F::COMMENTS,
+            streams: S::TIME
+                .union(S::HEART_RATE)
+                .union(S::POWER)
+                .union(S::CADENCE)
+                .union(S::SPEED)
+                .union(S::ALTITUDE)
+                .union(S::LATLNG),
+        }
+    }
+
     fn name(&self) -> &'static str {
         "intervals_icu"
     }

@@ -29,18 +29,18 @@
 //! Every other on-demand read leaves a flagged session alone
 //! ([`flagged_session`]): a chat turn's list read, a Home page's burst of
 //! route reads. Each scraper call on a dead session is a headless sign-in
-//! attempt that fails the same way, so those reads serve the cache and answer
-//! the reconnect instead. The Home retry claims its attempt first and runs
-//! inside [`claimed_retry`], which is what lets its read through.
+//! attempt that fails the same way, so those reads go to the live OAuth grant
+//! behind the session when one stands there (carnet#1494), and otherwise
+//! serve the cache and answer the reconnect. The Home retry claims its
+//! attempt first and runs inside [`claimed_retry`], which is what lets its
+//! read through.
 
 use std::future::Future;
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
 use pierre_core::models::{connection_needs_reauth, TenantId};
-use pierre_providers::backend_resolver::{
-    is_mirror_backend, resolve_backend, session_beside_grant,
-};
+use pierre_providers::backend_resolver::{is_mirror_backend, resolve_backend};
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -63,7 +63,8 @@ pub async fn claimed_retry<F: Future>(work: F) -> F::Output {
 ///
 /// `Some(backend)` when `provider` resolves to a mirror backend
 /// ([`resolve_backend`]) whose connection in `tenant_id` is `needs_reauth`
-/// (or revoked), outside a [`claimed_retry`]: the caller answers the
+/// (or revoked), outside a [`claimed_retry`]: the caller reads the live
+/// grant behind `backend` when one stands there, and otherwise answers the
 /// reconnect, naming `backend`, without calling the scraper. Only a reconnect
 /// (which re-registers the connection as active) or a claimed retry the
 /// session serves clears the flag. A connection list that cannot be read
@@ -120,9 +121,7 @@ pub fn retries_flagged_session(provider: &str) -> bool {
 /// `(user_id, tenant_id, provider)`.
 ///
 /// `false` — attempt nothing — for a provider that is not a scrape mirror, for
-/// a session beside a grant that serves its provider ([`session_beside_grant`]:
-/// it serves nothing, so re-arming it buys nothing, carnet#1386), for a
-/// connection that is not `needs_reauth`, and for one flagged or retried
+/// a connection that is not `needs_reauth`, and for one flagged or retried
 /// within [`SCRAPE_SESSION_RETRY_INTERVAL_HOURS`]. A claim that cannot be
 /// written reads as `false` too: an unthrottled attempt is the thing this
 /// exists to prevent.
@@ -132,9 +131,7 @@ pub async fn claim_scrape_session_retry(
     tenant_id: TenantId,
     provider: &str,
 ) -> bool {
-    if !retries_flagged_session(provider)
-        || session_beside_grant(runtime.repos(), user_id, tenant_id, provider).await
-    {
+    if !retries_flagged_session(provider) {
         return false;
     }
     let due_before = Utc::now() - Duration::hours(SCRAPE_SESSION_RETRY_INTERVAL_HOURS);

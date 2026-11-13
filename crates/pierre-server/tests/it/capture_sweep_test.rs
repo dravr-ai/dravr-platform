@@ -1005,26 +1005,36 @@ async fn the_daily_sweep_flags_a_garmin_grant_whose_refresh_is_refused() {
     );
 }
 
-/// A live usr/pwd session beside a grant that serves its provider serves
-/// nothing (carnet#1386), so the sweep passes over it, counting it, instead of
-/// reading it: for Strava's `sciotte` beside a `strava` grant as for Garmin's.
-/// The session here is Active, so only the beside-grant rule leaves it out.
+/// A live usr/pwd session is its provider's primary source and the OAuth
+/// grant beside it only its fallback (carnet#1494), so the sweep walks the
+/// session and passes over the grant, counting it, instead of reading the
+/// API beside the scrape. The grant here is Active with a live token, so
+/// only the grant-beside-session rule leaves it out.
 #[tokio::test]
-async fn the_sweep_passes_over_a_live_session_beside_a_grant() {
-    let f = fixture_with_connection("sciotte").await;
-    let grant = UserOAuthToken::new(
-        f.user_id,
-        f.tenant.to_string(),
-        "strava".to_owned(),
-        "strava-access".to_owned(),
-        Some("strava-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
-        None,
-    );
-    f.runtime
-        .repos()
-        .oauth_tokens
-        .upsert_token(&grant)
+async fn the_sweep_walks_the_session_and_passes_over_the_grant_beside_it() {
+    let f = fixture_with_connection("strava").await;
+    let repos = f.runtime.repos();
+    for (provider, access) in [("strava", "strava-access"), ("sciotte", "{}")] {
+        let token = UserOAuthToken::new(
+            f.user_id,
+            f.tenant.to_string(),
+            provider.to_owned(),
+            access.to_owned(),
+            Some(format!("{provider}-refresh")),
+            Some(Utc::now() + Duration::hours(6)),
+            None,
+        );
+        repos.oauth_tokens.upsert_token(&token).await.unwrap();
+    }
+    repos
+        .provider_connections
+        .register_connection(
+            f.user_id,
+            f.tenant,
+            "sciotte",
+            &ConnectionType::Manual,
+            None,
+        )
         .await
         .unwrap();
 
@@ -1037,13 +1047,17 @@ async fn the_sweep_passes_over_a_live_session_beside_a_grant() {
     .expect("refresh report");
 
     assert!(
-        report.connections.iter().all(|c| c.provider != "sciotte"),
-        "bug: a live session beside a Strava grant was read by the sweep: {:?}",
+        report.connections.iter().all(|c| c.provider != "strava"),
+        "bug: the grant beside a live session was read by the sweep: {:?}",
         report.connections
     );
-    assert_eq!(report.attempted, 0, "{:?}", report.connections);
+    assert!(
+        report.connections.iter().any(|c| c.provider == "sciotte"),
+        "bug: the sweep must walk the session, the provider's primary: {:?}",
+        report.connections
+    );
     assert_eq!(
         report.passed_over, 1,
-        "bug: the session beside the grant must be counted as passed over"
+        "bug: the grant beside the session must be counted as passed over"
     );
 }

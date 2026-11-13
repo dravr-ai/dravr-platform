@@ -60,21 +60,18 @@ jest.mock('../../../components/SciotteLoginModal', () => {
   const React = require('react');
   const { Text } = require('react-native');
   return {
-    // The window as a marker carrying its target, plus the server's
-    // oauth_required refusal, which keeps the window open and tells the screen.
+    // The window as a marker carrying its target.
     SciotteLoginModal: ({
       visible,
       target,
       consentRequired,
       historyMode,
-      onOAuthRequired,
       onFallBackToOAuth,
     }: {
       visible: boolean;
       target: string;
       consentRequired?: boolean;
       historyMode?: boolean;
-      onOAuthRequired?: () => void;
       onFallBackToOAuth?: () => void;
     }) =>
       visible
@@ -85,11 +82,6 @@ jest.mock('../../../components/SciotteLoginModal', () => {
               Text,
               null,
               `sciotte-modal:${target}${consentRequired ? ':consent' : ''}${historyMode ? ':history' : ''}`,
-            ),
-            React.createElement(
-              Text,
-              { testID: 'sciotte-modal-oauth-required', onPress: () => onOAuthRequired?.() },
-              'refuse:oauth_required',
             ),
             // What a sign-in that could not complete does, when the card offers it.
             onFallBackToOAuth
@@ -350,23 +342,6 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
-  it('says on the row that Garmin now connects through its official sign-in when the server refuses the sign-in', async () => {
-    getProvidersStatus
-      .mockResolvedValueOnce({ providers: [garminRow({ recommended_backend: 'mirror', seats_left: 0 })] })
-      .mockResolvedValue({ providers: [garminRow()] });
-
-    renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
-    fireEvent.press(await screen.findByTestId('sciotte-modal-oauth-required'));
-
-    const refused = await screen.findByTestId('provider-error-sciotte_garmin');
-    expect(refused).toHaveTextContent(i18n.t('hosted.common.signInOauthRequired').split('{0}').join('Garmin'));
-    expect(refused).not.toHaveTextContent(i18n.t('providers.connectRefused', { provider: 'Garmin' }));
-    expect(getProvidersStatus).toHaveBeenCalledTimes(2);
-    // The window stays open, saying the same.
-    expect(screen.getByText('sciotte-modal:garmin')).toBeTruthy();
-  });
-
   it('says a Garmin start that failed did not connect, on its row, never the sign-in', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [garminRow()] });
     initMobileOAuth.mockRejectedValue(new Error('network down'));
@@ -424,29 +399,6 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     renderScreen();
     fireEvent.press(await screen.findByTestId('provider-export-sciotte_garmin'));
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/(onboarding)/import', params: { source: 'garmin_archive' } });
-  });
-
-  it('asks a sign-in-only Garmin row to move, through Garmin OAuth', async () => {
-    getProvidersStatus.mockResolvedValue({
-      providers: [garminRow({ connected: true, connected_backend: 'sciotte_garmin', migration: 'oauth_required' })],
-    });
-    openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
-
-    renderScreen();
-    expect(await screen.findByTestId('provider-subtitle-sciotte_garmin')).toHaveTextContent(
-      i18n.t('providers.migration.oauthRequired', { provider: 'Garmin' }),
-    );
-    fireEvent.press(screen.getByText(i18n.t('app.connectProvider', { provider: 'Garmin' })));
-
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
-    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
-
-    // Back on the rows while the authorization is still out (the overlay's
-    // Cancel), the `garmin` authorization's spinner shows on the row it
-    // belongs to, never its "Connected".
-    fireEvent.press(await screen.findByText(i18n.t('app.cancelTryDifferentProvider')));
-    await waitFor(() => expect(screen.getByTestId('provider-action-sciotte_garmin').type).toBe('ActivityIndicator'));
-    expect(screen.queryByText(i18n.t('app.connected'))).toBeNull();
   });
 });
 

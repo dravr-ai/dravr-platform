@@ -10,12 +10,11 @@ import {
   TouchableOpacity,
   ActivityIndicator,
   Alert,
-  AppState,
   Modal,
 } from 'react-native';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useRouter } from 'expo-router';
 import { getOAuthCallbackUrl } from '../../utils/oauth';
 import { promptImportTombstoneClear } from '../../utils/importTombstone';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -34,10 +33,8 @@ import type { SciotteTarget } from '@pierre/shared-types';
 import {
   AI_CONSENT_KEYS,
   HISTORY_ACTION_KEYS,
-  HISTORY_IMPORTING_REFRESH_MS,
   HISTORY_LINE_KEYS,
   OAUTH_NO_SEAT,
-  SIGN_IN_OAUTH_REQUIRED,
   cardForSlug,
   cardHistoryState,
   cardStatus,
@@ -45,8 +42,6 @@ import {
   connectPlan,
   credentialFallbackOnRefusal,
   delegationRefusalKey,
-  historyActionKey,
-  historyImporting,
   noticeRequired,
   refusalReloadsCards,
   refusalReturnsToCard,
@@ -138,27 +133,25 @@ export function ConnectionsScreen() {
   }, [t]);
 
   /**
-   * Tell the row `cardKey` its connect did not go through, and why when the
-   * server named it (`reason`). When the refusal says the row's plan changed
-   * under the athlete (a seat went or came back), the rows are read again
-   * first, and a row that now signs in opens its sign-in at once when
-   * `signInAllowed` — never after a sign-in the server just refused, which
-   * would only be refused again.
+   * Tell the row `cardKey` its connect did not go through. When the
+   * refusal says the row's plan changed under the athlete (the seat it was
+   * shown went), the rows are read again first, and a row that now signs in
+   * opens its sign-in at once.
    */
   const showRefusal = async (
     cardKey: string,
-    { reload, signInAllowed, reason }: { reload: boolean; signInAllowed: boolean; reason?: string },
+    { reload }: { reload: boolean },
   ) => {
     if (reload) {
       const served = await loadConnectionStatus({ quiet: true });
       const card = served.find((p) => p.provider === cardKey);
       const primary = card ? connectPlan(card).primary : null;
-      if (signInAllowed && card && primary?.kind === 'sign_in') {
+      if (card && primary?.kind === 'sign_in') {
         signIn.open(primary.target, card);
         return;
       }
     }
-    setRefusedCard({ card: cardKey, reason });
+    setRefusedCard({ card: cardKey });
   };
 
   useEffect(() => {
@@ -166,19 +159,6 @@ export function ConnectionsScreen() {
       loadConnectionStatus();
     }
   }, [isAuthenticated, loadConnectionStatus]);
-
-  // A row copying its history is read again, while this screen is in view and
-  // the app is not in the background, until the copy settles (carnet#1386).
-  const importing = historyImporting(providers);
-  useFocusEffect(
-    useCallback(() => {
-      if (!importing) return undefined;
-      const timer = setInterval(() => {
-        if (AppState.currentState !== 'background') void loadConnectionStatus({ quiet: true });
-      }, HISTORY_IMPORTING_REFRESH_MS);
-      return () => clearInterval(timer);
-    }, [importing, loadConnectionStatus]),
-  );
 
   // Safety net: auto-clear the post-connect spinner after 6 seconds so the
   // user is never pinned on it. The connection-status refetch normally
@@ -266,7 +246,7 @@ export function ConnectionsScreen() {
           if (fallback) {
             signIn.openFor(fallback, providers);
           } else if (refusalReturnsToCard(providerId)) {
-            await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT, signInAllowed: true });
+            await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT });
           } else {
             Alert.alert(t('app.connectionFailed'), t('app.failedToConnectReason', { reason: error }));
           }
@@ -294,8 +274,7 @@ export function ConnectionsScreen() {
       }
       if (refusalReturnsToCard(providerId)) {
         console.error('Failed to start the OAuth flow:', err);
-        const reason = refusalReason(err);
-        await showRefusal(cardKey, { reload: refusalReloadsCards(reason), signInAllowed: true, reason });
+        await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)) });
         return;
       }
       const isCredentialError = errorMessage.toLowerCase().includes('client id not configured')
@@ -485,8 +464,6 @@ export function ConnectionsScreen() {
         coach: delegation.coach_display_name,
         group: delegation.group_name,
       });
-    } else if (status === 'migrate') {
-      subtitle = t('providers.migration.oauthRequired', { provider: provider.display_name });
     } else if (provider.account_role === 'coach') {
       subtitle = t('humanCoach.trainingpeaksAccountHint');
     }
@@ -515,29 +492,18 @@ export function ConnectionsScreen() {
           {canConnect && action(t('app.reconnect'), reconnect)}
         </>
       );
-    } else if (status === 'migrate') {
-      // Served by a sign-in alone while a seat of the official connection is
-      // free: the row moves it there, through the provider's authorization.
-      trailing = (
-        <>
-          <StatusDot tone="warning" />
-          {action(t('app.connectProvider', { provider: provider.display_name }), reconnect)}
-        </>
-      );
     } else if (isConnected) {
       // A push-fed grant (Garmin) carries only what comes after it: while the
-      // history is needed, or its last copy did not finish, the row opens the
-      // sign-in that copies it; disconnecting stays in the row's menu
-      // (carnet#1472).
-      const historySignIn =
-        status === 'history_needed' || status === 'history_incomplete' ? connectPlan(provider).history.signIn : null;
+      // history is needed, the row opens the sign-in that brings it in;
+      // disconnecting stays in the row's menu (carnet#1472).
+      const historySignIn = status === 'history_needed' ? connectPlan(provider).history.signIn : null;
       trailing = (
         <>
           <StatusDot tone="success" />
           <Text className="text-sm font-medium text-text-secondary">{t('app.connected')}</Text>
           {historySignIn
             ? action(
-                t(historyActionKey(provider)),
+                t(HISTORY_ACTION_KEYS.add),
                 () => signIn.open(historySignIn, provider, true),
                 t(HISTORY_ACTION_KEYS.explainer, { provider: provider.display_name }),
               )
@@ -560,7 +526,7 @@ export function ConnectionsScreen() {
                 presentProviderMenu(
                   {
                     providerName: provider.display_name,
-                    canReconnect: needsReauth || owesAuthorization || status === 'migrate',
+                    canReconnect: needsReauth || owesAuthorization,
                     onReconnect: reconnect,
                     onDisconnect: disconnect,
                     disconnectLabel: isDelegated ? t('delegation.unlink') : undefined,
@@ -603,11 +569,8 @@ export function ConnectionsScreen() {
             {historyState !== 'not_applicable' && (
               <View testID={`provider-history-${id}`}>
                 <View className="flex-row items-center gap-1.5">
-                  {(historyState === 'needed' || historyState === 'incomplete') && <StatusDot tone="warning" />}
-                  <Text
-                    className={`text-sm ${historyState === 'imported' ? 'text-text-tertiary' : 'text-text-secondary'}`}
-                    accessibilityLiveRegion={historyState === 'importing' ? 'polite' : undefined}
-                  >
+                  {historyState === 'needed' && <StatusDot tone="warning" />}
+                  <Text className={`text-sm ${historyState === 'imported' ? 'text-text-tertiary' : 'text-text-secondary'}`}>
                     {t(HISTORY_LINE_KEYS[historyState], { provider: provider.display_name })}
                   </Text>
                 </View>
@@ -621,7 +584,7 @@ export function ConnectionsScreen() {
                 accessibilityLiveRegion="polite"
                 testID={`provider-error-${id}`}
               >
-                {refusedConnectLine(t, refusedCard, provider.display_name)}
+                {refusedConnectLine(t, provider.display_name)}
               </Text>
             )}
             {exportSource && (
@@ -718,21 +681,17 @@ export function ConnectionsScreen() {
       <SciotteLoginModal
         visible={signIn.target !== null}
         onClose={signIn.close}
-        onConnected={() => {
+        onConnected={(followOn) => {
           loadConnectionStatus();
           signIn.close();
+          // Garmin signs in first and authorizes its grant, which pushes
+          // workouts, right after (carnet#1494).
+          if (followOn) void handleConnect(followOn, cardForSlug(followOn, providers)?.display_name ?? followOn);
         }}
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
         onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
-        onOAuthRequired={() => {
-          const target = signIn.target;
-          const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;
-          if (card) {
-            void showRefusal(card.provider, { reload: true, signInAllowed: false, reason: SIGN_IN_OAUTH_REQUIRED });
-          }
-        }}
       />
 
       <IntervalsIcuLinkModal

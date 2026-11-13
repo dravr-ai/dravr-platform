@@ -22,7 +22,7 @@ use serde_json::json;
 use tracing::{error, field, field::Empty, info, warn, Span};
 
 use crate::card_backend;
-use crate::card_history::{card_history, spawn_grant_history_settlement};
+use crate::card_history::card_history;
 use crate::card_seats::{require_garmin_seat, CardSeats};
 #[cfg(feature = "health-sync")]
 use crate::first_sync::health_sync_backfills;
@@ -61,8 +61,14 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_middleware::provider_link_token::mint_hosted_signin_url;
 use pierre_services::locale::resolve_user_locale;
 use uuid::Uuid;
+
+/// The channel a sign-in minted by the web app's OAuth start names.
+const WEB_CHANNEL: &str = "web_chat";
+/// The channel a sign-in minted by the mobile app's OAuth start names.
+const MOBILE_CHANNEL: &str = "mobile_chat";
 
 // ---------------------------------------------------------------------------
 // Axum handler functions — called from AuthRoutes::routes() in mod.rs
@@ -162,12 +168,6 @@ pub(crate) async fn handle_oauth_callback(
             // session instead (carnet#1155).
             let pushed = backend_resolver::pushed_backend_for(&response.provider)
                 == Some(response.provider.as_str());
-            // The usr/pwd session the grant now stands beside serves nothing:
-            // a live one copies the history once, a dead one is retired at
-            // once (carnet#1386).
-            if pushed {
-                spawn_grant_history_settlement(&resources, &response);
-            }
             #[cfg(feature = "health-sync")]
             if !pushed {
                 spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
@@ -651,7 +651,7 @@ pub(crate) async fn compute_providers_status(
         // then is the only way in.
         if backend_resolver::mirror_backend_for(provider_name).is_some_and(|mirror| {
             registry.get_descriptor(mirror).is_some()
-                || backend_resolver::mirror_is_default(provider_name)
+                || !backend_resolver::api_reads_on_request(provider_name)
         }) {
             continue;
         }
@@ -663,9 +663,9 @@ pub(crate) async fn compute_providers_status(
             // Determine connection status from the provider_connections table,
             // coalescing the card's two possible backends (see `card_is_connected`).
             let connected = card_is_connected(provider_name, &connected_providers);
-            // The backend behind a connected card and its grant's state, by the
-            // rule reads route by (carnet#1302, `card_backend`).
-            let (connected_backend, grant) = card_backend::card_backend(
+            // The backend behind a connected card and the athlete's read plan,
+            // the rule reads route by (carnet#1302, `card_backend`).
+            let (connected_backend, plan) = card_backend::card_backend(
                 resources,
                 user_id,
                 tenant_id,
@@ -675,6 +675,7 @@ pub(crate) async fn compute_providers_status(
             .await;
             let needs_reauth =
                 card_backend::reauth_flag(connected_backend.as_deref(), &reauth_providers);
+            let grant_serves = card_backend::grant_serves(provider_name, plan.as_ref());
             // How that backend's connection was made. A connected backend with
             // no link of the user's own is served by a confirmed delegation.
             let connection_type = connected_backend.as_deref().map(|backend| {
@@ -691,23 +692,10 @@ pub(crate) async fn compute_providers_status(
 
             let capabilities = capability_names(caps);
 
+            // A reconnect signs in through the mirror, whatever the order
+            // and the seats (carnet#1494).
             let (recommended_backend, seats_left) =
-                card_seats.recommendation(provider_name, grant.serves());
-            // Asked only of a usr/pwd-only Garmin card, so the grant lookup
-            // runs for that card alone.
-            let migration = if connected_backend.as_deref() == Some(oauth_providers::SCIOTTE_GARMIN)
-            {
-                card_backend::card_migration(
-                    provider_name,
-                    connected_backend.as_deref(),
-                    connection_type.as_deref(),
-                    card_seats.garmin_left(),
-                    card_backend::garmin_grant_held(resources, user_id, tenant_id).await,
-                    card_seats.garmin_order(),
-                )
-            } else {
-                None
-            };
+                card_seats.recommendation(provider_name, connected && needs_reauth);
 
             let (own_app_required, oauth_callback_url) =
                 own_app_fields(resources, user_id, tenant_id, provider_name, requires_oauth).await;
@@ -721,7 +709,6 @@ pub(crate) async fn compute_providers_status(
                 requires_oauth,
                 connected,
                 connected_backend,
-                migration,
                 connection_type,
                 needs_reauth,
                 capabilities,
@@ -734,7 +721,8 @@ pub(crate) async fn compute_providers_status(
                 ai_consent: card_ai_consent(resources, user_id, tenant_id, provider_name).await,
                 account_role: account_roles.get(provider_name).copied(),
                 delegation: delegations.remove(provider_name),
-                history: card_history(resources, user_id, tenant_id, provider_name, grant).await,
+                history: card_history(resources, user_id, tenant_id, provider_name, grant_serves)
+                    .await,
             });
         }
     }
@@ -812,6 +800,55 @@ pub(crate) async fn require_oauth_start_notice(
     .await
 }
 
+/// The hosted sign-in an OAuth start of `provider` is turned to, when the
+/// athlete's grant of it is dead in `tenant_id`; `None` otherwise.
+///
+/// A dead grant reconnects only through its mirror's hosted sign-in
+/// (carnet#1494), whatever client asks for the OAuth: a shipped mobile build
+/// and the web card both still start it for a grant they read as connected.
+/// The start answers with the sign-in in the authorization's place, so no
+/// client needs to change; the link-token is minted for `channel`. A grant
+/// that writes what its session cannot (Garmin's) beside a signed-in session
+/// starts its own authorization: the sign-in already serves (directive 8).
+///
+/// # Errors
+/// The mint's error when the link-token cannot be encoded.
+pub(crate) async fn dead_grant_sign_in_url(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    channel: &str,
+) -> Result<Option<String>, AppError> {
+    let Some(grant) =
+        backend_resolver::flagged_grant(&resources.repos, user_id, tenant_id, provider).await
+    else {
+        return Ok(None);
+    };
+    let Some(target) = backend_resolver::reconnect_target(grant) else {
+        return Ok(None);
+    };
+    if backend_resolver::grant_writes_beside_mirror(&resources.provider_registry, grant).is_some()
+        && backend_resolver::grant_beside_session(&resources.repos, user_id, tenant_id, grant).await
+    {
+        return Ok(None);
+    }
+    info!(
+        user_id = %user_id,
+        provider = %provider,
+        "OAuth start of a dead grant: answering with the hosted sign-in"
+    );
+    mint_hosted_signin_url(
+        &resources.config.base_url,
+        user_id,
+        tenant_id.as_uuid(),
+        target,
+        channel,
+        &resources.admin_jwt_secret,
+    )
+    .map(Some)
+}
+
 /// Handle mobile OAuth initiation
 ///
 /// Returns OAuth URL in JSON format for mobile apps to use with in-app browsers.
@@ -859,6 +896,21 @@ pub(crate) async fn handle_mobile_oauth_init(
     // Verify user exists
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;
+    // A dead grant is answered in the same shape, its sign-in in the
+    // authorization's place: a shipped build opens whatever URL it is given.
+    if let Some(sign_in) =
+        dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, MOBILE_CHANNEL).await?
+    {
+        return Ok((
+            StatusCode::OK,
+            Json(json!({
+                "authorization_url": sign_in,
+                "provider": provider,
+                "message": format!("Sign in to reconnect your {provider} account")
+            })),
+        )
+            .into_response());
+    }
     let tos_consent = query.get("tos_consent").is_some_and(|v| v == "true");
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, tos_consent).await?;
     require_garmin_seat(&resources, user_id, tenant_id, &provider).await?;
@@ -965,6 +1017,11 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     span.record("tenant_id", field::display(&tenant_id));
 
     get_user_for_oauth(resources.repos.users.as_ref(), user_id).await?;
+    if let Some(sign_in) =
+        dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, WEB_CHANNEL).await?
+    {
+        return Ok((StatusCode::FOUND, [(header::LOCATION, sign_in)]).into_response());
+    }
     require_oauth_start_notice(&resources, user_id, tenant_id, &provider, start.tos_consent)
         .await?;
     // A tab opened for Garmin's consent page lands back on the app's OAuth

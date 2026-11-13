@@ -37,7 +37,7 @@ const PROMPT = () => i18n.t('shell.sciotteTakeoverPrompt', { provider: 'Garmin' 
 
 interface Handlers {
   onClose: () => void;
-  onConnected: () => void;
+  onConnected: (followOn?: string) => void;
   onFallBackToOAuth?: () => void;
 }
 
@@ -91,6 +91,14 @@ describe('SciotteLoginModal — the takeover of a provider robot check', () => {
     expect((await screen.findAllByText(i18n.t('shell.sciotteConnected'))).length).toBeGreaterThan(0);
     expect(handlers.onConnected).toHaveBeenCalledTimes(1);
     expect(sciotteCancel).not.toHaveBeenCalled();
+  });
+
+  it('hands on the grant a connected takeover goes on to (carnet#1494)', async () => {
+    const { socket, handlers } = await intoTakeover();
+    const body = { status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } };
+    act(() => socket.event({ type: 'outcome', status_code: 200, body }));
+    expect((await screen.findAllByText(i18n.t('shell.sciotteConnected'))).length).toBeGreaterThan(0);
+    expect(handlers.onConnected).toHaveBeenCalledWith('garmin');
   });
 
   it('shows wrong credentials as the login does, for another try', async () => {

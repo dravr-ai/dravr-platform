@@ -99,6 +99,13 @@ describe('SciotteLoginModal (mobile) — the takeover of a provider robot check'
     expect(sciotteCancel).not.toHaveBeenCalled();
   });
 
+  it('hands on the grant a connected takeover goes on to (carnet#1494)', async () => {
+    const { handlers } = await intoTakeover();
+    post({ type: 'connected', follow_on: 'garmin' });
+    expect(await screen.findByTestId('sciotte-success-line')).toBeTruthy();
+    expect(handlers.onConnected).toHaveBeenCalledWith('garmin');
+  });
+
   it('reads the answer a closed takeover carries as the login answer', async () => {
     await intoTakeover();
     post({ type: 'closed', outcome: { type: 'outcome', status_code: 200, body: { status: 'otp_required' } } });

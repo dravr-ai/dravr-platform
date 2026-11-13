@@ -417,9 +417,8 @@ test.describe('Provider Connections - Disconnect', () => {
   });
 });
 
-test.describe('Provider Connections - Garmin history copy (carnet#1386)', () => {
-  // The Garmin grant's card once its OAuth landed, its one-time history copy
-  // at `state`.
+test.describe('Provider Connections - Garmin history (carnet#1386, carnet#1494)', () => {
+  // The Garmin grant's card once its OAuth landed, its history at `state`.
   const grantAt = (state: string) => ({
     provider: 'garmin',
     display_name: 'Garmin',
@@ -435,8 +434,6 @@ test.describe('Provider Connections - Garmin history copy (carnet#1386)', () => 
 
   const lines: Record<string, string> = {
     needed: "Your past Garmin activities aren't here yet",
-    incomplete: "Your Garmin history didn't finish copying",
-    importing: 'Copying your past Garmin activities',
     imported: 'Your Garmin history is in',
   };
 
@@ -460,9 +457,6 @@ test.describe('Provider Connections - Garmin history copy (carnet#1386)', () => 
         await expect(page.getByText(/sciotte/i)).toHaveCount(0);
         if (state === 'needed') {
           await expect(page.getByRole('button', { name: 'Add history' })).toBeVisible();
-        }
-        if (state === 'incomplete') {
-          await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
         }
         // Let the theme's transitions land before the picture is taken.
         await page.waitForTimeout(1500);

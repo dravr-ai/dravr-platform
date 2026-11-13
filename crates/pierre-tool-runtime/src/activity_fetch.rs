@@ -54,8 +54,10 @@ pub mod uploads;
 pub mod write_through;
 
 use budgeted_read::refresh_head_within_budget;
+pub(crate) use fallback::flag_refusal;
+pub(crate) use fallback::grant_window;
 pub use fallback::{serve_without_primary, FallbackServe};
-pub(crate) use pushed::connection_beside_grant;
+pub(crate) use pushed::connection_grant_beside_session;
 use pushed::{pushed_head, pushed_window, reads_pushed_store, serving_slug};
 use sync_verdict::{
     judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
@@ -165,7 +167,7 @@ async fn fold_other_connections(
         )
         .await;
         if canonical == primary_backend
-            || connection_beside_grant(&context.resources, context.user_id, conn).await
+            || connection_grant_beside_session(&context.resources, context.user_id, conn).await
         {
             continue;
         }
@@ -536,12 +538,14 @@ pub struct HistoricalServe {
 /// that, the Home refresh that met a dead session said nothing, recorded no
 /// pause, and scraped the dead session again on every Home load. The flag
 /// names the connection that refused (`reauth_notice::refused_backend`), and a
-/// session already flagged is served from the cache without a read
-/// ([`reauth_retry::flagged_session`]) until a reconnect or a claimed retry.
+/// session already flagged is not read ([`reauth_retry::flagged_session`])
+/// until a reconnect or a claimed retry: the live grant behind it serves in
+/// its place (`fallback::grant_window`, carnet#1494), and only without one
+/// does the cache.
 ///
-/// A usr/pwd session named beside a Garmin grant is read as that grant
-/// (`pushed::serving_slug`, carnet#1386): its flag, cache and verdict are the
-/// grant's, never the session's.
+/// A grant named beside the athlete's session is read as that session
+/// (`pushed::serving_slug`, carnet#1494): its flag, cache and verdict are the
+/// session's, never the grant's.
 pub async fn fetch_provider_activities(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -557,10 +561,30 @@ pub async fn fetch_provider_activities(
             .await
             .is_some()
         {
+            // The grant behind a flagged session serves; only without one does the cache.
+            if let Some((_, rows)) = Box::pin(grant_window(
+                runtime,
+                provider_slug,
+                user_id,
+                tenant,
+                params,
+            ))
+            .await
+            {
+                return Some(rows);
+            }
             return serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await;
         }
     }
-    match fetch_provider_head(runtime, provider_slug, user_id, tenant_id, params).await {
+    match Box::pin(fetch_provider_head(
+        runtime,
+        provider_slug,
+        user_id,
+        tenant_id,
+        params,
+    ))
+    .await
+    {
         Ok(activities) => Some(activities),
         Err(e) => {
             // The connection that refused is the backend the error names, so a
@@ -621,9 +645,10 @@ pub async fn fetch_provider_activities(
 /// A read the provider answered with a list it did not reject also re-arms a
 /// connection flagged `needs_reauth` ([`rearm_after_live_read`](sync_verdict::rearm_after_live_read)), for every
 /// caller alike: the credential that just served is the one the flag doubted.
-/// A usr/pwd session named beside a Garmin grant is read as that grant
-/// (`pushed::serving_slug`), so it never re-arms the grant or writes under the
-/// session's key.
+/// A grant named beside the athlete's session is read as that session
+/// (`pushed::serving_slug`), so it never re-arms one backend from the other's
+/// read or writes under the other's key. A read that must reach the named
+/// backend exactly is [`read_exact_backend`].
 ///
 /// # Errors
 ///
@@ -654,6 +679,52 @@ pub async fn fetch_provider_head(
         user_id,
         tenant_id,
         params,
+        Routing::Resolved,
+    ))
+    .await?;
+    Ok(ai_scope::filter_activities(
+        runtime.provider_registry().as_ref(),
+        head,
+    ))
+}
+
+/// How a head read picks the backend it authenticates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Routing {
+    /// The backend the athlete's read plan serves the named slug by
+    /// (`backend_resolver::resolve_backend`).
+    Resolved,
+    /// Exactly the named backend, with its own token row.
+    Exact,
+}
+
+/// [`fetch_provider_head`] of exactly `backend`, never the backend the
+/// athlete's read plan serves first: judged, recorded and written through
+/// under `backend` alone.
+///
+/// For a read a provider's own event asks of the credential it names: a
+/// Strava webhook and the first read of a connection just made reach the
+/// grant, so a pushed event never starts a scrape of the session beside it
+/// (carnet#1494). A push-only backend answers with its pushed window, as it
+/// does on every read.
+///
+/// # Errors
+///
+/// As [`fetch_provider_head`].
+pub async fn read_exact_backend(
+    runtime: &Arc<dyn ToolRuntime>,
+    backend: &str,
+    user_id: Uuid,
+    tenant_id: &str,
+    params: &ActivityQueryParams,
+) -> AppResult<Vec<Activity>> {
+    let head = ai_scope::unfiltered(fetch_and_persist_head(
+        runtime,
+        backend,
+        user_id,
+        tenant_id,
+        params,
+        Routing::Exact,
     ))
     .await?;
     Ok(ai_scope::filter_activities(
@@ -690,20 +761,17 @@ pub async fn read_live_window(
         return pushed_head(runtime, provider.name(), user_id, tenant, params).await;
     }
     let read = ai_scope::unfiltered(judge_live_read(runtime, live, provider)).await;
-    if let Some(tenant) = tenant {
-        record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
-    }
-    let mut head = read?;
-    if let (HeadVerdict::Complete, Some(tenant)) = (&head.verdict, tenant) {
-        write_through_served_window(
-            runtime,
-            user_id,
-            &tenant,
-            provider_slug,
-            params,
-            &head.activities,
-        )
-        .await;
+    let Some(tenant) = tenant else {
+        let mut head = read?;
+        head.activities =
+            ai_scope::filter_activities(runtime.provider_registry().as_ref(), head.activities);
+        return Ok(head);
+    };
+    // A session read that falls back is answered by its grant (carnet#1494).
+    let mut head = Box::pin(fallback::serve_head(runtime, live, tenant, read)).await?;
+    let key = fallback::write_key(runtime, provider_slug, &head);
+    if let (HeadVerdict::Complete, Some(key)) = (&head.verdict, key) {
+        write_through_served_window(runtime, user_id, &tenant, key, params, &head.activities).await;
     }
     head.activities =
         ai_scope::filter_activities(runtime.provider_registry().as_ref(), head.activities);
@@ -716,16 +784,35 @@ async fn fetch_and_persist_head(
     user_id: Uuid,
     tenant_id: &str,
     params: &ActivityQueryParams,
+    routing: Routing,
 ) -> AppResult<Vec<Activity>> {
     let tenant = TenantId::parse_str(tenant_id).ok();
-    if reads_pushed_store(runtime, provider_slug, user_id, tenant).await {
+    let pushed = match routing {
+        Routing::Resolved => reads_pushed_store(runtime, provider_slug, user_id, tenant).await,
+        Routing::Exact => runtime.provider_registry().is_push_only(provider_slug),
+    };
+    if pushed {
         return pushed_window(runtime, provider_slug, user_id, tenant, params).await;
     }
-    let read = read_provider_head(runtime, provider_slug, user_id, tenant_id, params).await;
-    if let Some(tenant) = tenant {
-        record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
-    }
-    let head = read?;
+    let live = LiveRead {
+        provider_slug,
+        user_id,
+        tenant_id: Some(tenant_id),
+        params,
+        attempt_started_at: Utc::now(),
+    };
+    let read = read_provider_head(runtime, live, routing).await;
+    // A session read that falls back is answered by its grant (carnet#1494).
+    let head = match (tenant, routing) {
+        (Some(tenant), Routing::Resolved) => {
+            Box::pin(fallback::serve_head(runtime, live, tenant, read)).await
+        }
+        (Some(tenant), Routing::Exact) => {
+            record_head_outcome(runtime, user_id, tenant, provider_slug, params, &read).await;
+            read
+        }
+        (None, _) => read,
+    }?;
     if let HeadVerdict::EmptyOverCached { cached } = head.verdict {
         return Err(AppError::external_service(
             provider_slug,
@@ -752,18 +839,16 @@ async fn fetch_and_persist_head(
     }
 
     // Warm the stale-while-revalidate cache so the next outage serves these.
-    if let Some(tenant) = tenant {
+    if let (Some(tenant), Some(key)) = (tenant, fallback::write_key(runtime, provider_slug, &head))
+    {
         let auth_service = AuthService::new(Arc::clone(runtime));
         write_through_activity_cache(
             &auth_service,
             user_id,
             tenant,
-            provider_slug,
+            key,
             &head.activities,
-            WriteThrough {
-                read: params,
-                announces_sessions: true,
-            },
+            WriteThrough { read: params },
         )
         .await;
     }
@@ -933,8 +1018,8 @@ pub async fn serve_stale_activities(
 /// `after_ts` is a Unix timestamp (seconds) lower bound; `limit_per_provider`
 /// caps how many activities are pulled from each provider. Providers that
 /// fail to authenticate or fetch are skipped (logged at `warn`) rather than
-/// failing the whole call, and so is a usr/pwd session beside a grant that
-/// serves its provider (`pushed::connection_beside_grant`).
+/// failing the whole call, and so is a grant beside a usr/pwd session of its
+/// provider (`pushed::connection_grant_beside_session`): the session is read.
 pub async fn fetch_recent_activities_all_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -958,9 +1043,10 @@ pub async fn fetch_recent_activities_all_providers(
 
     let mut all = Vec::new();
     for connection in &connections {
-        // A usr/pwd session beside a grant serves nothing: the grant's own
-        // connection reads its window, the session's history included.
-        if connection_beside_grant(runtime, user_id, connection).await {
+        // A grant beside a session is the session's fallback: the session's
+        // own connection reads the window, the grant's stored rows included
+        // (`backend_resolver::history_keys`).
+        if connection_grant_beside_session(runtime, user_id, connection).await {
             continue;
         }
         if let Some(activities) =

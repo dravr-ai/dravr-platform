@@ -578,30 +578,15 @@ impl fmt::Debug for OAuthAuthorizationResponse {
     }
 }
 
-/// The move a provider card asks of an athlete whose connection the
-/// provider's own OAuth replaces (carnet#1454).
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum ProviderMigration {
-    /// Connect through the provider's official OAuth: the card is served by
-    /// a usr/pwd session alone, and a seat is free.
-    OauthRequired,
-}
-
-/// Where a provider card's history stands (carnet#1386).
+/// Where a provider card's history stands (carnet#1386, carnet#1494).
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum HistoryState {
     /// The grant serves the card, and nothing is held from before it: the
-    /// athlete can sign in once, or import an export, to bring it in.
+    /// athlete can sign in, or import an export, to bring it in.
     Needed,
-    /// A one-time import of the card's history is running.
-    Importing,
-    /// The last one-time import ended before the history landed (its
-    /// sign-in expired mid-copy), and nothing else brought it in.
-    Incomplete,
     /// The card holds activities from a history source: what a usr/pwd
-    /// sign-in copied, or an imported export. Rows the grant pushed itself
+    /// sign-in stored, or an imported export. Rows the grant pushed itself
     /// start at the day it connected, so they never make the history imported.
     Imported,
     /// The card has no history to bring in this way: its ongoing source reads
@@ -614,7 +599,7 @@ pub enum HistoryState {
 pub struct HistoryStatus {
     /// Where the history stands.
     pub state: HistoryState,
-    /// The sign-in that copies the history once (the card's usr/pwd login
+    /// The sign-in that brings the history in (the card's usr/pwd login
     /// backend, e.g. `"sciotte_garmin"`), for a card whose history it can
     /// bring in; `None` when the state is `not_applicable`.
     pub sign_in_target: Option<String>,
@@ -664,13 +649,6 @@ pub struct ProviderStatus {
     /// Absent while the card is not connected.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub connected_backend: Option<String>,
-    /// The move the card asks of an athlete connected by usr/pwd alone
-    /// (carnet#1454): [`ProviderMigration::OauthRequired`] on the Garmin card
-    /// of an athlete whose own usr/pwd session serves it, with no Garmin
-    /// grant, while a seat is free on Garmin's OAuth client. They keep their
-    /// session until they move. Absent otherwise.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub migration: Option<ProviderMigration>,
     /// How the connection behind a connected card was made, as
     /// [`ConnectionType`](pierre_core::models::ConnectionType) names it:
     /// `"oauth"` for a provider authorization, `"manual"` for a pasted

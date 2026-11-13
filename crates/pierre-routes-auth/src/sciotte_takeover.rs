@@ -100,6 +100,7 @@ impl Caller {
             channel: link.channel,
             channel_thread: link.channel_thread,
             target: link.target,
+            on_takeover_page: true,
         });
         Ok(Self {
             user_id,

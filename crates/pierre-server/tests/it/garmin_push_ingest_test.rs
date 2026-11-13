@@ -39,8 +39,8 @@ use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::{SeriesType, TimeRange};
 use futures_util::stream::poll_fn;
 use pierre_core::models::{
-    Activity, ConnectionStatus, ConnectionType, DataSource, DeviceType, StoredRecoveryMetrics,
-    TenantId, UserOAuthToken,
+    Activity, ActivityBuilder, ConnectionStatus, ConnectionType, DataSource, DeviceType, SportType,
+    StoredRecoveryMetrics, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::WellnessWriteMode;
@@ -50,8 +50,10 @@ use pierre_mcp_server::routes::garmin_webhook::process_garmin_inbox;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
+use pierre_providers::spi::{GarminDescriptor, ProviderDescriptor};
 use pierre_providers::upload_provider::file_sha256;
 use pierre_routes_auth::AuthRoutes;
+use pierre_test_support::activity_fields::missing;
 use pierre_test_support::fit::{power as fit_power, FitWorkout};
 use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use serde_json::{json, Value};
@@ -103,6 +105,47 @@ async fn context_over(
     common::create_test_server_resources_with_config_and_records(config, records)
         .await
         .unwrap()
+}
+
+/// [`context`] with a notification service over its own database, so the
+/// reconnect notices a test expects can be counted.
+async fn context_with_notices(
+    api_base: Option<&str>,
+) -> (Arc<ServerContext>, Arc<NotificationService>) {
+    let mut with_notices: ServerContext = (*context(api_base).await).clone();
+    let service = Arc::new(match with_notices.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+        }
+    });
+    with_notices.common.notification_service = Some(Arc::clone(&service));
+    (Arc::new(with_notices), service)
+}
+
+/// How many reconnect notices `service` stored for the athlete.
+async fn reconnect_notices(
+    service: &NotificationService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> usize {
+    let (rows, _, _) = service
+        .list_notifications(
+            user_id,
+            CommereTenantId(tenant_id.as_uuid()),
+            50,
+            0,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    rows.iter()
+        .filter(|row| row.notification_type == "provider_needs_reauth")
+        .count()
 }
 
 /// Seed an athlete connected through the Garmin API: a `garmin` token that
@@ -1296,6 +1339,127 @@ async fn a_deregistration_deletes_the_garmin_api_connection_but_not_the_usr_pwd_
     assert_eq!(purges[0].reason, "provider_revoked");
 }
 
+/// A deregistration withdraws the grant through the same chokepoint as a
+/// Strava deauthorization (carnet#1494): an athlete the grant served alone is
+/// told once to sign in again, however often Garmin redelivers it. One whose
+/// usr/pwd session serves beside the grant keeps the session and its rows,
+/// and is told once that the reads go on and only the grant's workout and
+/// calendar writes need it again (JF's directive 8), however often Garmin
+/// redelivers it.
+#[tokio::test]
+async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session() {
+    let (resources, service) = context_with_notices(None).await;
+    let (alone, alone_tenant) = seed_athlete(&resources).await;
+    for _delivery in 0..2 {
+        push(
+            &resources,
+            "deregistrations",
+            json!([{ "userId": GARMIN_USER }]),
+        )
+        .await;
+    }
+    assert_eq!(
+        reconnect_notices(&service, alone, alone_tenant).await,
+        1,
+        "bug: a grant-only athlete Garmin deregistered is told other than once"
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .provider_connections
+            .get_for_user(alone, Some(alone_tenant))
+            .await
+            .unwrap()
+            .is_empty(),
+        "the grant's connection is deleted"
+    );
+
+    let (resources, service) = context_with_notices(None).await;
+    let (beside, beside_tenant) = seed_athlete(&resources).await;
+    store_token(&resources, beside, beside_tenant, "sciotte_garmin", None).await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            beside,
+            beside_tenant,
+            "sciotte_garmin",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            beside,
+            &beside_tenant,
+            "sciotte_garmin",
+            &[ActivityBuilder::new(
+                "880001",
+                "Captured ride",
+                SportType::Ride,
+                Utc::now() - ChronoDuration::days(1),
+                3_600,
+                "sciotte",
+            )
+            .build()],
+        )
+        .await
+        .unwrap();
+    for _delivery in 0..2 {
+        push(
+            &resources,
+            "deregistrations",
+            json!([{ "userId": GARMIN_USER }]),
+        )
+        .await;
+    }
+    assert_eq!(
+        reconnect_notices(&service, beside, beside_tenant).await,
+        1,
+        "bug: an athlete whose session serves is not told once that Garmin's writes stopped"
+    );
+    let kept: Vec<String> = resources
+        .common
+        .repos
+        .provider_connections
+        .get_for_user(beside, Some(beside_tenant))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.provider)
+        .collect();
+    assert_eq!(
+        kept,
+        ["sciotte_garmin"],
+        "bug: the session went with the grant"
+    );
+    let captured = resources
+        .common
+        .repos
+        .activity_cache
+        .get_cached_activities(
+            beside,
+            &beside_tenant,
+            Some("sciotte_garmin"),
+            Utc::now() - ChronoDuration::days(30),
+            Utc::now() + ChronoDuration::days(1),
+            100,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        captured.len(),
+        1,
+        "bug: the session's rows went with the grant"
+    );
+}
+
 #[tokio::test]
 async fn a_withdrawn_permission_purges_that_data_and_refuses_later_pushes_of_it() {
     let resources = context(None).await;
@@ -2449,20 +2613,7 @@ async fn intraday_spo2_breathing_and_stress_are_not_stored() {
 async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     let start = Utc::now() - ChronoDuration::days(3);
     let (base, hits) = mock_garmin_files(FitWorkout::ride(start, 120).encode()).await;
-    // A notification service over the same database, so the notices the flag
-    // sends can be counted.
-    let mut with_notices: ServerContext = (*context(Some(&base)).await).clone();
-    let service = Arc::new(match with_notices.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => {
-            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
-        }
-        #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => {
-            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
-        }
-    });
-    with_notices.common.notification_service = Some(Arc::clone(&service));
-    let resources = Arc::new(with_notices);
+    let (resources, service) = context_with_notices(Some(&base)).await;
     let (user_id, user, tenant_id) = common::create_test_user_with_plan(
         &resources.agent.database,
         &format!("garmin-refused-{}@example.com", Uuid::new_v4()),
@@ -2526,23 +2677,9 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     );
 
     push(&resources, "activityFiles", file_push(2)).await;
-    let (rows, _, _) = service
-        .list_notifications(
-            user_id,
-            CommereTenantId(tenant_id.as_uuid()),
-            50,
-            0,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-    let notices = rows
-        .iter()
-        .filter(|row| row.notification_type == "provider_needs_reauth")
-        .count();
     assert_eq!(
-        notices, 1,
+        reconnect_notices(&service, user_id, tenant_id).await,
+        1,
         "bug: two refusals of one dead grant must send its reconnect notice once"
     );
 
@@ -2563,5 +2700,86 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     assert_eq!(
         card["needs_reauth"], true,
         "bug: the card must ask for a reconnect once the grant is dead: {card}"
+    );
+}
+
+/// Every field the Garmin descriptor declares reaches what Dravr stores
+/// (carnet#1494, the field dictionary): the summary's readings on the row an
+/// `activities` push lands, and the samples, laps and the power derived from
+/// them once the activity's `activityDetails` arrive.
+#[tokio::test]
+async fn pushed_activities_fill_every_field_the_garmin_descriptor_declares() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let start = recent_start();
+    let summary = |id: &str| {
+        let mut summary = activity(id, "Tempo", start, 600);
+        summary["maxHeartRateInBeatsPerMinute"] = json!(171);
+        summary["averageBikeCadenceInRoundsPerMinute"] = json!(88);
+        summary["activeKilocalories"] = json!(410);
+        summary
+    };
+    push(&resources, "activities", json!([summary("960001")])).await;
+
+    let samples: Vec<Value> = (0..60_u32)
+        .map(|second| {
+            json!({
+                "startTimeInSeconds": start + i64::from(second),
+                "heartRate": 140,
+                "powerInWatts": fit_power(second),
+                "bikeCadenceInRPM": 88,
+                "speedMetersPerSecond": 8.0,
+                "elevationInMeters": 44.0,
+                "airTemperatureCelcius": 11.0,
+                "totalDistanceInMeters": f64::from(second) * 8.0,
+                "latitudeInDegree": 45.5,
+                "longitudeInDegree": -73.6,
+            })
+        })
+        .collect();
+    let details = json!([{
+        "userId": GARMIN_USER,
+        "summaryId": "960002-detail",
+        "activityId": 960_002,
+        "summary": summary("960002"),
+        "samples": samples,
+        "laps": [{ "startTimeInSeconds": start }, { "startTimeInSeconds": start + 300 }],
+    }]);
+    push(&resources, "activityDetails", details).await;
+
+    let cached = cached_garmin(&resources, user_id, &tenant_id).await;
+    let stored = |id: &str| {
+        cached
+            .iter()
+            .find(|activity| activity.id() == id)
+            .unwrap_or_else(|| panic!("{id} is stored: {cached:?}"))
+            .clone()
+    };
+    let streams = resources
+        .common
+        .repos
+        .activity_streams
+        .get_activity_streams(&tenant_id, user_id, "garmin", "960002")
+        .await
+        .unwrap()
+        .expect("the samples are stored");
+    let mut detailed = serde_json::to_value(stored("960002")).unwrap();
+    detailed["time_series_data"] = serde_json::to_value(streams).unwrap();
+    let detailed: Activity = serde_json::from_value(detailed).unwrap();
+
+    let declared = GarminDescriptor.activity_fields();
+    let on_list = missing(&stored("960001"), &declared.list.names(), &[]);
+    assert!(
+        on_list.is_empty(),
+        "bug: Garmin declares {on_list:?} on a pushed summary, and the push left them out"
+    );
+    let on_detail = missing(
+        &detailed,
+        &declared.supplied().names(),
+        &declared.streams.names(),
+    );
+    assert!(
+        on_detail.is_empty(),
+        "bug: Garmin declares {on_detail:?}, and its pushed details left them out"
     );
 }

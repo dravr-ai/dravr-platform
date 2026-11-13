@@ -19,15 +19,17 @@
 //!
 //! Nothing here asks Garmin for data: the Starter tier allows no pull. The
 //! only calls are the one-shot activity-file download a push offers and,
-//! through the disconnect chokepoint, nothing at all (a deregistered athlete
-//! has no grant left to revoke).
+//! through the grant withdrawal chokepoint, nothing at all (a deregistered
+//! athlete has no grant left to revoke). A deregistered athlete the grant
+//! served alone is told to sign in again (`GrantWithdrawal`).
 //!
-//! The grant is Garmin's one ongoing source (carnet#1386), so the worker is
-//! also where it is found dead: a download whose token path hands back no
-//! token (a refresh Garmin refused, nothing left to refresh with), and a
-//! permission change withdrawing what the grant exists for, flag the `garmin`
-//! connection ([`flag_needs_reauth`]), which the card reads as "Reconnect"
-//! and the athlete is told once. The daily grant check (`grant_refresh`)
+//! The grant feeds Garmin's pushes beside the usr/pwd session the athlete
+//! may hold (carnet#1494), so the worker is also where it is found dead: a
+//! download whose token path hands back no token (a refresh Garmin refused,
+//! nothing left to refresh with), and a permission change withdrawing what
+//! the grant exists for, flag the `garmin` connection
+//! ([`flag_needs_reauth`]), which the card reads as "Reconnect" and the
+//! athlete is told once. The daily grant check (`grant_refresh`)
 //! flags the same way a grant that no push put to the test.
 
 use std::sync::Arc;
@@ -51,7 +53,8 @@ use pierre_services::garmin_push::{
 };
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::periodic::spawn_periodic;
-use pierre_services::provider_revocation::{clear_backend, DisconnectReason};
+use pierre_services::provider_revocation::DisconnectReason;
+use pierre_services::user_removal::ProviderDisconnector;
 use pierre_tool_runtime::protocol::reauth_notice::flag_needs_reauth;
 use pierre_tool_runtime::protocol::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -62,6 +65,7 @@ use tracing::{error, info, warn};
 use crate::mcp::resources::ServerContext;
 use crate::routes::webhooks::{notify_owner, report_sync, stamp_last_sync};
 use crate::services::activity_upload::MAX_UPLOAD_BYTES;
+use crate::services::grant_withdrawal::GrantWithdrawal;
 
 /// How long one run holds a row before the sweep may take it.
 const GARMIN_PUSH_LEASE: Duration = Duration::from_mins(10);
@@ -459,20 +463,26 @@ impl GarminPushHost for ServerHost {
         // Only the Garmin API connection is withdrawn: the athlete removed
         // Dravr's API access in Garmin Connect, which says nothing about the
         // usr/pwd connection the platform's pair-wide disconnect would end too.
-        let service = OAuthService::new(
-            self.resources.data(),
-            Arc::clone(&self.resources.common.config),
+        // The grant goes through the withdrawal chokepoint, as a Strava
+        // deauthorization and a seat reclaim do (carnet#1494): its rows and
+        // what it contributed are deleted, a session beside it keeps serving,
+        // and an athlete it served alone is told to sign in again.
+        let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&self.resources);
+        let withdrawal = GrantWithdrawal::new(
+            OAuthService::new(
+                self.resources.data(),
+                Arc::clone(&self.resources.common.config),
+            ),
+            runtime,
         );
-        let data = self.resources.data();
-        clear_backend(
-            &service,
-            &data,
-            owner.user_id,
-            owner.tenant_id,
-            GARMIN,
-            DisconnectReason::ProviderRevoked,
-        )
-        .await?;
+        withdrawal
+            .disconnect(
+                owner.user_id,
+                GARMIN,
+                owner.tenant_id,
+                DisconnectReason::ProviderRevoked,
+            )
+            .await?;
         info!(
             target: "notify",
             event = "provider.disconnected",

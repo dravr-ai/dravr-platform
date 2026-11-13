@@ -28,7 +28,7 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
-use pierre_database::repositories::{ActivityBackfillJobRow, JobLease};
+use pierre_database::repositories::{ActivityBackfillJobRow, BackfillJobClaim, JobLease};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
     provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob, BACKFILL_JOB_LEASE,
@@ -185,7 +185,6 @@ fn job(fx: &Fixture, provider: &str, conversation_id: Option<&str>) -> ActivityB
             after: Some(AFTER_TS),
         },
         pierre_conversation_id: conversation_id.map(ToOwned::to_owned),
-        history_import: false,
     }
 }
 
@@ -214,7 +213,6 @@ fn seeded_row(
         leased_until_ms: if lease.is_zero() { 0 } else { now + lease_ms },
         attempts,
         lease_token: Some(Uuid::new_v4().to_string()),
-        history_import: false,
     }
 }
 
@@ -503,5 +501,66 @@ async fn a_row_at_the_attempt_cap_is_not_claimed_and_is_reaped_once_its_runner_d
     assert!(
         ledger.record_backfill_job(&fresh).await.unwrap(),
         "the next ask records a fresh job instead of being refused"
+    );
+}
+
+/// A claim the sweep cannot run is handed back with its attempt, so waiting
+/// on a run already in flight never spends the job's attempts.
+#[tokio::test]
+async fn a_released_claim_returns_its_attempt() {
+    let fx = fixture().await;
+    let ledger = &fx.runtime.repos().activity_backfill_jobs;
+    let row = seeded_row(
+        &fx,
+        UNKNOWN_PROVIDER,
+        Duration::from_mins(20),
+        Duration::ZERO,
+        1,
+    );
+    assert!(
+        ledger.record_backfill_job(&row).await.unwrap(),
+        "bug: the ledger records the job"
+    );
+    let claim = BackfillJobClaim {
+        now_ms: Utc::now().timestamp_millis(),
+        queued_older_than_ms: 0,
+        lease_ms: 60_000,
+        max_attempts: 10,
+        limit: 10,
+    };
+    let claimed: Vec<ActivityBackfillJobRow> = ledger
+        .claim_stale_backfill_jobs(claim)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|claimed| claimed.id == row.id)
+        .collect();
+    assert_eq!(
+        claimed[0].attempts, 2,
+        "bug: the claim counts one more attempt"
+    );
+    let lease = JobLease {
+        id: claimed[0].id.clone(),
+        token: claimed[0].lease_token.clone().unwrap(),
+    };
+    assert!(
+        ledger.release_backfill_job_claim(&lease).await.unwrap(),
+        "bug: the lease holder hands its claim back"
+    );
+    assert!(
+        !ledger.release_backfill_job_claim(&lease).await.unwrap(),
+        "a released claim holds the row no more"
+    );
+    let again: Vec<ActivityBackfillJobRow> = ledger
+        .claim_stale_backfill_jobs(claim)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|claimed| claimed.id == row.id)
+        .collect();
+    assert_eq!(again.len(), 1, "bug: a released row is claimable at once");
+    assert_eq!(
+        again[0].attempts, 2,
+        "bug: the release returned the attempt"
     );
 }

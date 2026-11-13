@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use chrono::{DateTime, NaiveDate, Utc};
+use chrono::{DateTime, Utc};
 use dravr_riviere::aggregation::aggregate_windows;
 use dravr_riviere::{
     AggregatedPoint, Aggregation, DataPoint, QueryResult, RiviereError, TimeRange, TimeSeriesStore,
@@ -23,8 +23,7 @@ use crate::repositories::health_persistence::{
     impl_health_persistence_repositories, origin_from_row, recovery_metrics_from_row,
     sleep_session_from_row, tenant_from_row, CLEAR_PROVIDER_RECOVERY_SCORES_SQL,
     CLEAR_PROVIDER_SLEEP_SCORES_SQL, DELETE_HEALTH_SNAPSHOT_SQL, DELETE_RECOVERY_METRIC_SQL,
-    DELETE_SLEEP_SESSION_SQL, EARLIEST_SOURCE_DATED_SQL, EARLIEST_SOURCE_SLEEP_SQL,
-    FIND_HEALTH_SNAPSHOT_TENANT_SQL, FIND_RECOVERY_METRIC_TENANT_SQL,
+    DELETE_SLEEP_SESSION_SQL, FIND_HEALTH_SNAPSHOT_TENANT_SQL, FIND_RECOVERY_METRIC_TENANT_SQL,
     FIND_SLEEP_SESSION_TENANT_SQL, GET_DAILY_ACTIVITY_SQL, GET_HEALTH_SNAPSHOTS_SQL,
     GET_LATEST_HEALTH_SNAPSHOTS_SQL, GET_LATEST_RECOVERY_METRICS_SQL, GET_RECOVERY_METRICS_SQL,
     GET_RECOVERY_ORIGINS_SQL, GET_SLEEP_ORIGINS_SQL, GET_SLEEP_SESSIONS_SQL, LIST_DATA_SOURCES_SQL,

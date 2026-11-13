@@ -43,6 +43,11 @@ pub(crate) struct LinkContext {
     pub channel_thread: Option<String>,
     /// Target platform (strava / garmin / trainingpeaks / coros) from the claims
     pub target: String,
+    /// The sign-in concludes on the takeover page (ADR-034), not on the
+    /// hosted page its link opened: that page is gone, so a grant the sign-in
+    /// goes on to is handed over as its authorization URL whichever hosted
+    /// page started it.
+    pub on_takeover_page: bool,
 }
 
 /// Extract authenticated `user_id` and `tenant_id` from request headers.
@@ -72,6 +77,7 @@ pub(crate) async fn authenticate(
             channel: claims.channel,
             channel_thread: claims.channel_thread,
             target: claims.tgt,
+            on_takeover_page: false,
         };
         return Ok((user_id, tenant_id, Some(link_context)));
     }

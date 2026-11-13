@@ -35,9 +35,9 @@ use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
 use pierre_tool_runtime::activity_fetch::{refresh_stale_head, StaleReason};
-#[cfg(feature = "client-messaging")]
-use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::runtime::ToolRuntime;
+#[cfg(feature = "client-messaging")]
+use pierre_tool_runtime::runtime::{BackfillNotifier, ReauthRetry};
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout};
 use uuid::Uuid;
@@ -343,7 +343,13 @@ impl BackfillNotifier for RecordingNotifier {
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
-    async fn push_reauth_to_linked_channels(&self, _: Uuid, _: TenantId, _: &str) -> usize {
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
         0
     }
 }

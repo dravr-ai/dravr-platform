@@ -1,99 +1,33 @@
 // ABOUTME: Whether a provider's wellness reaches an athlete by push, so the pull sync stands down
-// ABOUTME: And the one-time history import's scope, the only sync that reads a session beside a push grant
+// ABOUTME: Judged from the athlete's read plan: a live push grant stays the wellness source beside a session
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use std::future::Future;
-
-use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
-
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
-use pierre_providers::backend_resolver::{oauth_grant, pushed_backend_for, sync_backend};
+use pierre_providers::backend_resolver::{pushed_backend_for, read_plan, sync_backend};
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::token_tenant_id;
 use crate::garmin_push;
 
-tokio::task_local! {
-    /// The athlete whose one-time history import runs on this task.
-    static HISTORY_IMPORT: HistoryImportScope;
-}
-
-/// Whose history import runs on a task, and from which day the push holds
-/// their wellness.
-#[derive(Debug, Clone, Copy)]
-struct HistoryImportScope {
-    user: Uuid,
-    pushed_from: NaiveDate,
-}
-
-/// Run `work`, the wellness half of `user`'s one-time history import.
-///
-/// It is the one sync that reads the usr/pwd session standing beside a
-/// push-fed grant (carnet#1386). Everywhere else that session serves nothing
-/// ([`wellness_fed_by_push`]); within this scope it is read for the nights
-/// the provider pushed before the grant existed. Only those are written:
-/// a day from `pushed_from` on is the push's ([`history_import_writes`]), and
-/// a sync writes a whole day, so writing it would blank the readings only the
-/// push carries and re-file the row under the session's source. The scope is
-/// task-local, so it is set inside the task that runs the sync.
-pub async fn history_import_scope<F: Future>(
-    user: Uuid,
-    pushed_from: NaiveDate,
-    work: F,
-) -> F::Output {
-    HISTORY_IMPORT
-        .scope(HistoryImportScope { user, pushed_from }, work)
-        .await
-}
-
-/// Whether the running task is `user`'s history import.
-fn in_history_import_of(user: Uuid) -> bool {
-    HISTORY_IMPORT
-        .try_with(|importing| importing.user == user)
-        .unwrap_or(false)
-}
-
-/// Whether a sync on this task writes `user_id`'s wellness for `day`: every
-/// day, except within the user's history import, where a day the push holds
-/// is left to it ([`history_import_scope`]).
-pub(super) fn history_import_writes(user_id: &str, day: NaiveDate) -> bool {
-    HISTORY_IMPORT
-        .try_with(|importing| importing.user.to_string() != user_id || day < importing.pushed_from)
-        .unwrap_or(true)
-}
-
-/// Whether a sync on this task writes `user_id`'s night that `ended` then:
-/// every night, except within the user's history import, where a night
-/// ending from the push's first day on is left to it. The cutoff is that
-/// day's first instant, the same day the push's first stored night counts
-/// toward ([`history_import_scope`]).
-pub(super) fn history_import_writes_night(user_id: &str, ended: DateTime<Utc>) -> bool {
-    HISTORY_IMPORT
-        .try_with(|importing| {
-            importing.user.to_string() != user_id
-                || ended < importing.pushed_from.and_time(NaiveTime::MIN).and_utc()
-        })
-        .unwrap_or(true)
-}
-
 /// Whether `provider`'s wellness reaches `user` in `tenant` by push, so no
 /// pull of it runs.
 ///
-/// It does when the provider's pushed backend ([`pushed_backend_for`]) serves
-/// its reads there ([`oauth_grant`], the one rule routing and every status
-/// surface read, carnet#1302) and its connection's last reported permissions
-/// (none reported reads as all granted) include the health export.
+/// It does when the provider's pushed backend ([`pushed_backend_for`]) is a
+/// live grant in the athlete's read plan there ([`read_plan`], the one rule
+/// routing and every status surface read, carnet#1302) — the fallback behind
+/// their session, or the primary of a grant held alone — and its
+/// connection's last reported permissions (none reported reads as all
+/// granted) include the health export.
 ///
-/// A usr/pwd session beside the grant serves nothing, live or not: the
-/// pushes feed the days (carnet#1386). A user who withheld the health export
-/// is pulled as before: nothing else serves their wellness. Within the
-/// user's history import ([`history_import_scope`]) the session is read
-/// once, for what came before the grant.
+/// The pushes then stay the wellness source while the session serves the
+/// activity reads, so no day is written twice (carnet#1494). A dead grant is
+/// in no plan, so the session beside it is pulled. A user who withheld the
+/// health export is pulled as before: nothing else serves their wellness.
 ///
 /// # Errors
 ///
@@ -107,10 +41,10 @@ pub(super) async fn wellness_fed_by_push(
     let Some(pushed) = pushed_backend_for(provider) else {
         return Ok(false);
     };
-    if in_history_import_of(user) {
-        return Ok(false);
-    }
-    if !oauth_grant(registry, user, tenant, pushed).await.serves() {
+    if !read_plan(registry, user, tenant, pushed)
+        .await
+        .serves(pushed)
+    {
         return Ok(false);
     }
     let grants = registry

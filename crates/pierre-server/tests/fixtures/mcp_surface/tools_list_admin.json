@@ -9590,6 +9590,17 @@
               "coverage": {
                 "description": "Present when the served slice was truncated: how many are really in\nthe window and over what dates, so the reply says \"552 in this window,\nshowing the most recent 200\" rather than letting the model anchor on\nthe oldest activity it can see."
               },
+              "field_support": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FieldSupportHeader"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Per connection that served these rows, the fields it never supplies\nand those only a detail read adds: a field it never supplies is\nunknown on its rows, never zero."
+              },
               "format": {
                 "description": "`json` or `toon`, whichever was actually produced.",
                 "type": "string"
@@ -9857,6 +9868,27 @@
             ],
             "type": "object"
           },
+          "FieldSupportHeader": {
+            "description": "The `get_activities` header: per connection that served `activities`,\nwhat it never supplies. `None` when no served row came from a connection\nwith a declared dictionary.",
+            "properties": {
+              "connections": {
+                "description": "One entry per connection that served rows, in name order.",
+                "items": {
+                  "$ref": "#/$defs/ServedFields"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to read `connections`.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "note",
+              "connections"
+            ],
+            "type": "object"
+          },
           "FilledFieldSummary": {
             "description": "One field a merged session took from another recording of it.",
             "properties": {
@@ -9959,6 +9991,39 @@
               "sport_type",
               "window_start",
               "window_end"
+            ],
+            "type": "object"
+          },
+          "ServedFields": {
+            "description": "What one connection that served the rows never supplies.",
+            "properties": {
+              "detail_only": {
+                "description": "Fields its rows carry only after a detail read (`mode=detailed`).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "not_supplied": {
+                "description": "Fields this connection never supplies: absent on its rows means not\navailable, never zero.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "provider": {
+                "description": "The provider, as the athlete names it.",
+                "type": "string"
+              },
+              "via": {
+                "description": "`mirror` or `oauth`: how it was read.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "via",
+              "not_supplied"
             ],
             "type": "object"
           },
@@ -11427,6 +11492,73 @@
             ],
             "type": "object"
           },
+          "FieldDictionary": {
+            "description": "A provider's field dictionary: what each way of reading it supplies.\n\nA field neither mode lists is never supplied, so its absence on a row\nmeans \"not available from this connection\", never zero or \"did not\nhappen\".",
+            "properties": {
+              "mirror": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ModeFields"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the mirror supplies; absent when the provider has none."
+              },
+              "oauth": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ModeFields"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "What the provider's API supplies; absent when it has none."
+              },
+              "serving": {
+                "description": "The mode serving the athlete: `mirror` (read by signing in as the\nathlete) or `oauth` (the provider's API). Absent when none serves.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "ModeFields": {
+            "description": "What one mode supplies, by the keys the activity rows use.",
+            "properties": {
+              "detail_only": {
+                "description": "Fields only a detail read (`mode=detailed`) adds.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "list": {
+                "description": "Fields every list row carries when the activity recorded them.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "streams": {
+                "description": "Channels of the activity's sample streams.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "list",
+              "detail_only",
+              "streams"
+            ],
+            "type": "object"
+          },
           "ProviderConnectionStatus": {
             "description": "One provider's connection state, as reported inside the all-providers map.",
             "properties": {
@@ -11444,6 +11576,17 @@
                   "string",
                   "null"
                 ]
+              },
+              "fields": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FieldDictionary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Which activity fields each way of reading the provider supplies, and\nwhich way serves. Absent for a provider that serves no activities."
               },
               "needs_reauth": {
                 "description": "Whether the athlete must authorize again.",
@@ -11482,6 +11625,17 @@
                   "string",
                   "null"
                 ]
+              },
+              "fields": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/FieldDictionary"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Which activity fields each way of reading the provider supplies,\nand which way serves. Absent for a provider that serves no\nactivities."
               },
               "needs_reauth": {
                 "description": "Whether the athlete must authorize again.",

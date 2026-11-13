@@ -972,6 +972,9 @@ impl ProviderFactory for WahooProviderFactory {
     }
 }
 
+/// The field dictionary guard for this mapper.
+mod field_guard;
+
 #[cfg(test)]
 mod tests {
     use super::*;

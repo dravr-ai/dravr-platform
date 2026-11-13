@@ -49,6 +49,31 @@ describe('SignInCheck', () => {
     expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'connected' }));
   });
 
+  it('tells the app which grant a connected sign-in goes on to', async () => {
+    const socket = await running();
+    const body = { status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } };
+    act(() => socket.event({ type: 'outcome', status_code: 200, body }));
+    await screen.findByTestId('sign-in-check-connected');
+    expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'connected', follow_on: 'garmin' }));
+  });
+
+  it('opens the grant authorization a hosted sign-in goes on to, with no app to tell', async () => {
+    delete (window as Window & { ReactNativeWebView?: unknown }).ReactNativeWebView;
+    const assign = vi.fn();
+    vi.stubGlobal('location', { ...window.location, assign });
+    const socket = await running();
+    const authorization_url = 'https://connect.garmin.test/oauth2Confirm?state=s';
+    const body = {
+      status: 'connected',
+      provider: 'sciotte_garmin',
+      oauth_follow_on: { provider: 'garmin', authorization_url },
+    };
+    act(() => socket.event({ type: 'outcome', status_code: 200, body }));
+    await screen.findByTestId('sign-in-check-connected');
+    expect(assign).toHaveBeenCalledWith(authorization_url);
+    expect(postMessage).not.toHaveBeenCalled();
+  });
+
   it('tells the app the takeover closed, with the answer it ended with', async () => {
     const socket = await running();
     const outcome = { type: 'outcome', status_code: 200, body: { status: 'failed', error: 'x' } };

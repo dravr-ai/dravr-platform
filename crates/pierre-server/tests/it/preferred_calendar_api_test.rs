@@ -15,9 +15,10 @@ use std::sync::Arc;
 use axum::http::StatusCode;
 use serde_json::{json, Value};
 
+use chrono::Utc;
 use common::{create_test_server_resources, create_test_user, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::calendar_preference::CalendarPreferenceRoutes;
 use pierre_services::plan_calendar_push::connected_calendars;
@@ -74,10 +75,29 @@ async fn setup() -> Setup {
 }
 
 impl Setup {
+    /// Connect `provider` as a connect does: the athlete's own connection
+    /// holds its token row, which decides whether a grant is live (Garmin's
+    /// calendar is written only through a live grant, carnet#1494); a link's
+    /// connection holds none.
     async fn connect(&self, provider: &str, connection_type: ConnectionType) {
-        self.resources
-            .common
-            .repos
+        let repos = &self.resources.common.repos;
+        if connection_type != ConnectionType::Delegated {
+            let token = UserOAuthToken::new(
+                self.user_id,
+                self.tenant.to_string(),
+                provider.to_owned(),
+                "test_access_token".to_owned(),
+                Some("test_refresh_token".to_owned()),
+                Some(Utc::now() + chrono::Duration::hours(1)),
+                None,
+            );
+            repos
+                .oauth_tokens
+                .upsert_token(&token)
+                .await
+                .expect("token");
+        }
+        repos
             .provider_connections
             .register_connection(self.user_id, self.tenant, provider, &connection_type, None)
             .await
@@ -195,6 +215,9 @@ async fn a_calendar_held_only_through_a_link_or_not_at_all_is_refused() {
         "a link's calendar is the coach's to write"
     );
     let (status, refused) = setup.put(&second).await;
+    // Held through a coach's link the athlete has no session of their own,
+    // so even Garmin's calendar is not owed as a grant (carnet#1494): it is
+    // simply not one of the athlete's connected calendars.
     assert_eq!(status, StatusCode::BAD_REQUEST.as_u16(), "{refused}");
     let none = setup
         .resources
@@ -258,4 +281,76 @@ async fn the_route_requires_a_session() {
         .await
         .status();
     assert_eq!(status, StatusCode::UNAUTHORIZED.as_u16());
+}
+
+/// Garmin's calendar, chosen while its grant is owed.
+#[cfg(all(feature = "provider-garmin", feature = "health-sync"))]
+mod owed_grant {
+    use super::*;
+
+    use crate::garmin_sign_in_test::{
+        athlete, hold_grant, hold_session, server_with_garmin_oauth, spawn_switchable_scraper,
+        ScraperSwitch, LIVE_SESSION,
+    };
+    use pierre_core::constants::oauth::providers as oauth_providers;
+    use pierre_middleware::provider_link_token::HOSTED_SIGNIN_PATH;
+    use pierre_providers::backend_resolver::GRANT_OWED_REASON;
+
+    /// An athlete signed in to Garmin whose Garmin grant is dead who picks
+    /// Garmin's calendar is refused, never recorded: only the grant writes
+    /// Garmin's calendar, and the refusal carries the grant's own
+    /// authorization link (JF's directive 8), never the hosted sign-in.
+    #[tokio::test]
+    async fn a_garmin_calendar_whose_grant_is_dead_is_refused_with_its_authorization_link() {
+        let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+        let resources = server_with_garmin_oauth(&scraper).await;
+        let (user_id, _user, tenant, token) = athlete(&resources).await;
+        hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
+        hold_grant(&resources, user_id, tenant).await;
+        resources
+            .common
+            .repos
+            .provider_connections
+            .mark_needs_reauth(
+                user_id,
+                tenant,
+                oauth_providers::GARMIN,
+                Some("refresh_refused"),
+                Utc::now(),
+            )
+            .await
+            .unwrap();
+
+        let response = AxumTestRequest::put(ROUTE)
+            .header("Authorization", &format!("Bearer {token}"))
+            .json(&json!({ "provider": oauth_providers::GARMIN }))
+            .send(CalendarPreferenceRoutes::routes(Arc::clone(&resources)))
+            .await;
+        let status = response.status();
+        let refused = response.json::<Value>();
+
+        assert_ne!(status, StatusCode::OK.as_u16(), "bug: recorded: {refused}");
+        let rendered = refused.to_string();
+        assert!(
+            rendered.contains(GRANT_OWED_REASON),
+            "bug: the refusal is not the owed grant's: {refused}"
+        );
+        let url = refused
+            .pointer("/error/details/authorization_url")
+            .or_else(|| refused.pointer("/details/authorization_url"))
+            .and_then(Value::as_str)
+            .unwrap_or_else(|| panic!("bug: no authorization link on the refusal: {refused}"));
+        assert!(
+            url.contains("client_id=") && !url.contains(HOSTED_SIGNIN_PATH),
+            "bug: the link is not Garmin's authorization: {url}"
+        );
+        let recorded = resources
+            .common
+            .repos
+            .calendar_preferences
+            .get_calendar_preference(tenant, user_id)
+            .await
+            .expect("read");
+        assert_eq!(recorded, None, "a refused choice records nothing");
+    }
 }

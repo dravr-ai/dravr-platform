@@ -39,7 +39,7 @@ use crate::activity_backfill::{
     backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
-use crate::activity_detail_store::{store_detail, stored_details};
+use crate::activity_detail_store::{listed_key, store_detail, stored_details};
 use crate::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
@@ -47,8 +47,8 @@ use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use crate::activity_fetch::uploads::{resolve_with_own_copies, user_provided_rows};
 use crate::activity_fetch::{
     activity_date_span, activity_window_totals, maybe_merge_other_connections, read_cached_window,
-    read_live_window, serve_historical_window, serve_stale_activities, serve_without_primary,
-    sort_activities, touch_connection_used, StaleReason,
+    read_live_window, serve_historical_window, serve_stale_activities, sort_activities,
+    touch_connection_used, StaleReason,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -61,9 +61,10 @@ use crate::implementations::activity_detail_promotion::{
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
-    attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
-    historical_window_read_limit, pagination_has_more, response_cache_eligible, window_fetch_limit,
-    AskedWindow, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
+    attach_stand_in_caveat, backfill_placeholder_message, deep_window_grant,
+    historical_backfill_fetch_limit, historical_window_read_limit, pagination_has_more,
+    response_cache_eligible, serve_in_place, window_fetch_limit, AskedWindow, PrimaryStandIn,
+    HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -475,7 +476,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // `provider_name` is already canonicalized to the backend above, so
             // route on it directly: a deep window on a scrape-backed mirror
             // (sciotte / sciotte_garmin) goes to background backfill; a fast OAuth
-            // API provider fetches inline.
+            // API provider fetches inline. A deep window on a session whose live
+            // grant reads history on request goes to that grant instead, read
+            // exactly as named (`deep_window_grant`, carnet#1494).
+            let deep_grant = deep_window_grant(&context, &provider_name, is_historical).await;
+            let read_exactly = deep_grant.is_some();
+            let provider_name = deep_grant.unwrap_or(provider_name);
             let route_to_backfill =
                 is_historical && backend_resolver::is_mirror_backend(&provider_name);
             // Set when the elected provider could not answer and a sibling
@@ -612,21 +618,20 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // the tool loop scans for, and `auth_recovery` hands back the
                         // short reconnect link this turn. The link is re-sent on EVERY
                         // such ask until a real reconnect clears the flag via `mark_active`.
-                        let fallback = if provider_pinned {
-                            None
-                        } else {
-                            serve_without_primary(
-                                &context,
-                                &provider_name,
-                                is_historical,
-                                &query_params,
-                            )
-                            .await
-                        };
+                        let fallback = serve_in_place(
+                            &context,
+                            &provider_name,
+                            provider_pinned,
+                            is_historical,
+                            &query_params,
+                        )
+                        .await;
                         let Some(fallback) = fallback else {
                             return Err(AppError::provider_auth_required(provider_name.clone()));
                         };
-                        stood_in = Some(PrimaryStandIn::Dead(provider_name.clone()));
+                        let dead = PrimaryStandIn::Dead(provider_name.clone());
+                        stood_in =
+                            Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, dead));
                         served_by = fallback.served_by;
                         stand_in_merge = Some(fallback.merge_report);
                         (fallback.activities, None)
@@ -648,7 +653,6 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
-                            history_import: false,
                         };
                         match backfill_inline_and_serve(job, &coverage_params, before).await {
                             InlineHistoricalServe::AuthRequired => {
@@ -684,7 +688,6 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                             provider_name: provider_name.clone(),
                             query_params: backfill_params,
                             pierre_conversation_id: context.conversation_id.clone(),
-                            history_import: false,
                         })
                         .await;
                         // `started == false` means a backfill for this window is
@@ -728,14 +731,25 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // cached window with a caveat, never as "no activities".
                 let executor = UniversalExecutor::new(context.resources.clone());
                 let attempt_started_at = Utc::now();
-                let authenticated = executor
-                    .auth_service
-                    .create_authenticated_provider(
-                        &provider_name,
-                        context.user_id,
-                        tenant_id_str.as_deref(),
-                    )
-                    .await;
+                let authenticated = if read_exactly {
+                    executor
+                        .auth_service
+                        .create_exact_provider(
+                            &provider_name,
+                            context.user_id,
+                            tenant_id_str.as_deref(),
+                        )
+                        .await
+                } else {
+                    executor
+                        .auth_service
+                        .create_authenticated_provider(
+                            &provider_name,
+                            context.user_id,
+                            tenant_id_str.as_deref(),
+                        )
+                        .await
+                };
 
                 match authenticated {
                     Ok(provider) => 'live: {
@@ -779,16 +793,21 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         };
                         let live = match read {
                             Ok(HeadRead {
-                                activities,
-                                verdict: HeadVerdict::Complete | HeadVerdict::Incomplete,
-                            }) => Ok(activities),
-                            Ok(HeadRead {
                                 verdict: HeadVerdict::EmptyOverCached { cached },
                                 ..
                             }) => Err(format!(
                                 "{display_provider} answered with no activities for a window \
                                  the platform holds {cached} of its activities in"
                             )),
+                            // Its grant answered in the session's place (carnet#1494).
+                            Ok(head) => {
+                                if head.served_by_grant.is_some() {
+                                    stood_in = Some(PrimaryStandIn::ServedByGrant(
+                                        provider_name.clone(),
+                                    ));
+                                }
+                                Ok(head.activities)
+                            }
                             // The model reads the provider's name; the log keeps the whole error.
                             Err(e) => {
                                 warn!(provider = %provider_name, error = %e, "live activity read failed");
@@ -838,17 +857,14 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         // and carry why this one is missing as a caveat; only a
                         // total blackout becomes the failure alone.
                         let dead = auth_required_provider(&response);
-                        let fallback = if provider_pinned {
-                            None
-                        } else {
-                            serve_without_primary(
-                                &context,
-                                &provider_name,
-                                is_historical,
-                                &query_params,
-                            )
-                            .await
-                        };
+                        let fallback = serve_in_place(
+                            &context,
+                            &provider_name,
+                            provider_pinned,
+                            is_historical,
+                            &query_params,
+                        )
+                        .await;
                         let Some(fallback) = fallback else {
                             // An auth-shaped creation failure surfaces as the typed
                             // provider_auth_required error: the executor re-raises
@@ -868,10 +884,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                     .unwrap_or_else(|| json!({ "error": fallback_error })),
                             ));
                         };
-                        stood_in = Some(dead.map_or_else(
+                        let missing = dead.map_or_else(
                             || PrimaryStandIn::Unreachable(provider_name.clone()),
                             PrimaryStandIn::Dead,
-                        ));
+                        );
+                        stood_in =
+                            Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, missing));
                         served_by = fallback.served_by;
                         stand_in_merge = Some(fallback.merge_report);
                         (fallback.activities, None)
@@ -888,7 +906,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // Record the serve against the connection that produced it, so the
             // activity-source election picks the backend the athlete trains on. A
             // sibling's answer is not its serve; its own cache's is (carnet#1278).
-            if stood_in.as_ref().is_none_or(PrimaryStandIn::served_from_own_cache)
+            if stood_in.as_ref().is_none_or(PrimaryStandIn::served_by_the_provider)
                 && context.tenant_id.is_some()
             {
                 touch_connection_used(
@@ -1007,12 +1025,16 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     &stored,
                 )
                 .await;
-                for fresh in &promoted.fresh {
+                // Each detail goes beside the row its summary was listed
+                // under: a ride the grant listed is a grant row in the
+                // session's window (carnet#1494).
+                for (listed_by, fresh) in &promoted.fresh {
                     store_detail(
                         context.resources.repos(),
+                        context.resources.live_activities().as_ref(),
                         tenant_id,
                         context.user_id,
-                        &provider_name,
+                        listed_key(&provider_name, listed_by),
                         fresh,
                     )
                     .await;
@@ -1069,13 +1091,12 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 window_span,
                 window_totals: Some(window_totals),
                 asked: AskedWindow { after, before },
-                completeness: stood_in.as_ref().map_or(
+                completeness: stood_in.as_ref().and_then(PrimaryStandIn::completeness).unwrap_or(
                     if provider_filled_page {
                         Completeness::Incomplete(IncompleteReason::ReadCapped)
                     } else {
                         Completeness::Complete
                     },
-                    PrimaryStandIn::completeness,
                 ),
                 merge_report: Some(&merge_report),
             });

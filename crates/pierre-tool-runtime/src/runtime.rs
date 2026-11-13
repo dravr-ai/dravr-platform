@@ -124,18 +124,33 @@ pub trait BackfillNotifier: Send + Sync {
     /// hosted login, and the same sentence without one otherwise. Returns how
     /// many channels accepted it.
     ///
-    /// Called only by [`crate::protocol::reauth_notice::notify_needs_reauth`],
-    /// after it won the connection's once-per-transition claim, so an
-    /// implementation sends unconditionally. Best-effort: a channel that is
-    /// unconfigured is logged and skipped; one that refuses the send is
-    /// queued for retry on its own, bounded by the link's life and by the
-    /// connection staying `needs_reauth`, and is not counted.
+    /// Called only by [`crate::protocol::reauth_notice`], after it won the
+    /// connection's once-per-transition claim, so an implementation sends
+    /// unconditionally. Best-effort: a channel that is unconfigured is logged
+    /// and skipped; one that refuses the send is queued for retry on its own,
+    /// bounded by the link's life and, as `retry` says, by the connection
+    /// staying `needs_reauth`, and is not counted.
     async fn push_reauth_to_linked_channels(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
+        retry: ReauthRetry,
     ) -> usize;
+}
+
+/// How long a reconnect notice's chat copy that a channel refused stays owed
+/// to the athlete, for the retry worker that re-sends it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReauthRetry {
+    /// While the connection stays `needs_reauth`: the athlete reconnecting,
+    /// or the connection going, makes the notice moot, and the queued copy
+    /// is cancelled. Bounded by the link's life too.
+    WhileFlagged,
+    /// Until the link in it would expire, whatever the connection's rows: a
+    /// withdrawn grant's rows are deleted right after its notice is claimed,
+    /// so they cannot say whether the athlete is still owed it.
+    UntilLinkExpires,
 }
 
 /// Narrow façade over the server's shared services that tool implementations

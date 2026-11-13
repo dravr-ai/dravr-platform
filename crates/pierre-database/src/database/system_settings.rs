@@ -35,11 +35,11 @@ pub const SETTING_SIGNUP_DAILY_LIMIT_RESET_AT: &str = "signup_daily_limit_reset_
 /// Whether proving the address activates a self-registered account that no
 /// auto-approval rule admitted. `"true"` opens sign-up to verified addresses.
 pub const SETTING_SIGNUP_ACTIVATE_ON_VERIFIED_EMAIL: &str = "signup_activate_on_verified_email";
-/// Which way a new Strava connection goes first: `"oauth_first"` (the
-/// default, an absent row) or `"sign_in_first"` (carnet#1472).
-pub const SETTING_CONNECT_ORDER_STRAVA: &str = "connect_order_strava";
-/// Which way a new Garmin connection goes first, as for Strava.
-pub const SETTING_CONNECT_ORDER_GARMIN: &str = "connect_order_garmin";
+/// Prefix of the key holding a provider's connect order (`connect_order_strava`).
+///
+/// The value says which way a new connection goes first: `"sign_in_first"`
+/// (the default, an absent row) or `"oauth_first"` (carnet#1472, carnet#1494).
+pub const SETTING_CONNECT_ORDER_PREFIX: &str = "connect_order_";
 
 /// A system setting entry
 #[derive(Debug, Clone, Serialize, Deserialize)]

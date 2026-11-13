@@ -145,6 +145,9 @@ pub mod coaching_workers;
 /// fetches, so a quiet athlete's window still gets counted.
 pub mod commitment_refresher;
 
+/// The disconnect chokepoint for a withdrawn OAuth grant, and the reconnect
+/// notice of the grant-only athlete it served (carnet#1494).
+pub mod grant_withdrawal;
 /// Assembles and starts the Strava seat reclaimer (carnet#505).
 pub mod seat_reclaim_worker;
 

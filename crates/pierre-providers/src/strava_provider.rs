@@ -1100,3 +1100,6 @@ fn strava_utc_offset(seconds: f64) -> Option<i32> {
     }
     seconds.to_i64().and_then(utc_offset_seconds_if_civil)
 }
+
+/// The field dictionary guard for this mapper.
+mod field_guard;

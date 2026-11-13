@@ -16,10 +16,14 @@ interface ReactNativeBridge {
   postMessage: (message: string) => void;
 }
 
+/** The bridge of the phone app that loaded this page, when one did. */
+function appBridge(): ReactNativeBridge | undefined {
+  return (window as Window & { ReactNativeWebView?: ReactNativeBridge }).ReactNativeWebView;
+}
+
 /** Tell the phone app that loaded this page, when one did, how the takeover ended. */
 function tellApp(message: SciotteTakeoverBridgeMessage): void {
-  const bridge = (window as Window & { ReactNativeWebView?: ReactNativeBridge }).ReactNativeWebView;
-  bridge?.postMessage(JSON.stringify(message));
+  appBridge()?.postMessage(JSON.stringify(message));
 }
 
 /** Where the page stands: the takeover runs, it connected, or it is over without connecting. */
@@ -47,8 +51,17 @@ export default function SignInCheck({ token }: SignInCheckProps) {
   const onOutcome = useCallback(
     (outcome: SciotteTakeoverOutcome, result: TakeoverResult) => {
       if (result.kind === 'answer' && result.data.status === 'connected') {
+        // A sign-in owing its grant goes on to that authorization (Garmin's,
+        // which pushes workouts; carnet#1494): the phone app starts it its
+        // own way, and a hosted sign-in, whose page is gone, opens the
+        // authorization URL the server minted for it.
+        const followOn = result.data.oauth_follow_on ?? null;
         setState({ kind: 'connected' });
-        tellApp({ type: 'connected' });
+        if (appBridge()) {
+          tellApp(followOn ? { type: 'connected', follow_on: followOn.provider } : { type: 'connected' });
+        } else if (followOn?.authorization_url) {
+          window.location.assign(followOn.authorization_url);
+        }
         return;
       }
       // Anything else ends the takeover here: a page has no code step or

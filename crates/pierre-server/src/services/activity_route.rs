@@ -103,6 +103,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::polyline::decode_polyline;
 use pierre_fitness_compute::route_track::{RouteTrack, RouteTrackError, MAP_MAX_POINTS};
 use pierre_tool_runtime::activity_detail_store;
+use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::protocol::provider_helpers::configured_provider;
 use pierre_tool_runtime::reauth_retry::flagged_session;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -685,12 +686,19 @@ impl DetachedRead {
             provider: &self.provider,
             activity: &self.activity,
         };
-        let outcome = read_streams_by(&self.runtime, self.tenant_id, self.user_id, cached).await?;
+        let (answered_by, outcome) =
+            read_streams_by(&self.runtime, self.tenant_id, self.user_id, cached).await?;
+        // A track drawn from what the Strava grant answered in the session's
+        // place is Strava API data, kept under the grant (carnet#1494).
+        let answered = CachedActivityRef {
+            provider: &answered_by,
+            activity: &self.activity,
+        };
         settle(
             self.runtime.repos(),
             self.tenant_id,
             self.user_id,
-            cached,
+            answered,
             RouteGeometrySource::Streams,
             outcome,
         )
@@ -700,7 +708,7 @@ impl DetachedRead {
 
 /// [`read_streams`] bounded by [`route_provider_read_bound`]: a read that
 /// fails for any reason but authentication, or does not finish in time, is
-/// [`RouteMiss::Unavailable`].
+/// [`RouteMiss::Unavailable`], under the cached row's own key.
 ///
 /// # Errors
 ///
@@ -711,10 +719,11 @@ async fn read_streams_by(
     tenant_id: TenantId,
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
-) -> AppResult<ActivityRouteOutcome> {
+) -> AppResult<(String, ActivityRouteOutcome)> {
     let bound = route_provider_read_bound(&runtime.config().timeouts);
+    let unread = || Ok((cached.provider.to_owned(), Err(RouteMiss::Unavailable)));
     match timeout(bound, read_streams(runtime, tenant_id, user_id, cached)).await {
-        Ok(Ok(outcome)) => Ok(outcome),
+        Ok(Ok(read)) => Ok(read),
         Ok(Err(e)) if e.provider_auth_required_provider().is_some() => Err(e),
         Ok(Err(e)) => {
             warn!(
@@ -723,7 +732,7 @@ async fn read_streams_by(
                 error = %e,
                 "route detail read failed; answered unavailable"
             );
-            Ok(Err(RouteMiss::Unavailable))
+            unread()
         }
         Err(_) => {
             warn!(
@@ -732,7 +741,7 @@ async fn read_streams_by(
                 timeout_secs = bound.as_secs(),
                 "route detail read did not finish in time; answered unavailable"
             );
-            Ok(Err(RouteMiss::Unavailable))
+            unread()
         }
     }
 }
@@ -804,6 +813,10 @@ async fn settle(
 /// activity without them when the streams request fails — so it is
 /// [`RouteMiss::Unavailable`].
 ///
+/// Answers with the cache key the read belongs under
+/// (`activity_detail_store::answered_key`): the Strava grant's when the grant
+/// answered in the session's place.
+///
 /// # Errors
 ///
 /// Returns the provider's error when the provider cannot be authenticated or
@@ -813,18 +826,26 @@ async fn read_streams(
     tenant_id: TenantId,
     user_id: Uuid,
     cached: CachedActivityRef<'_>,
-) -> AppResult<ActivityRouteOutcome> {
+) -> AppResult<(String, ActivityRouteOutcome)> {
     // A session already flagged for a reconnect is not signed in to again:
     // every read of a Home page's burst would fail the same way, each a
-    // headless sign-in attempt on the scraper.
-    if let Some(backend) = flagged_session(runtime, user_id, tenant_id, cached.provider).await {
-        return Err(AppError::provider_auth_required(backend));
-    }
+    // headless sign-in attempt on the scraper. The Strava grant behind it
+    // reads the activity in its place (carnet#1494).
     let tenant = tenant_id.to_string();
-    let provider =
-        configured_provider(runtime, user_id, cached.provider, Some(tenant.as_str())).await?;
+    let provider = match flagged_session(runtime, user_id, tenant_id, cached.provider).await {
+        Some(backend) => AuthService::new(Arc::clone(runtime))
+            .create_by_id_grant_provider(&backend, user_id, tenant_id)
+            .await
+            .ok_or_else(|| AppError::provider_auth_required(backend))??,
+        None => {
+            configured_provider(runtime, user_id, cached.provider, Some(tenant.as_str())).await?
+        }
+    };
     if !provider.serves_activity_streams() {
-        return Ok(Err(RouteMiss::Settled(RouteTrackError::NoGps)));
+        return Ok((
+            cached.provider.to_owned(),
+            Err(RouteMiss::Settled(RouteTrackError::NoGps)),
+        ));
     }
     let detailed = provider
         .get_activity_with_streams(cached.activity.id())
@@ -833,17 +854,20 @@ async fn read_streams(
     // leaves the route's outcome as the read settled it.
     activity_detail_store::store_detail(
         runtime.repos(),
+        runtime.live_activities().as_ref(),
         tenant_id,
         user_id,
         cached.provider,
         &detailed,
     )
     .await;
-    Ok(detailed
+    let answered_by = activity_detail_store::answered_key(cached.provider, &detailed).to_owned();
+    let outcome = detailed
         .time_series_data()
         .map_or(Err(RouteMiss::Unavailable), |streams| {
             RouteTrack::from_streams(streams).map_err(RouteMiss::Settled)
-        }))
+        });
+    Ok((answered_by, outcome))
 }
 
 /// The drawable track the activity's own route overview yields, or `None`

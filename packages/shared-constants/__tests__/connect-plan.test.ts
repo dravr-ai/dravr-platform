@@ -1,14 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Pins what every provider card offers — its connect or reconnect, the sign-in its history needs, the move to OAuth — one case per row
-// ABOUTME: Garmin with no seat signs in, a refused Garmin grant retries on its card, and no authorization ever names a sciotte_* key
+// ABOUTME: Pins what every provider card offers — its connect or reconnect, and the sign-in its history needs — one case per row
+// ABOUTME: Every reconnect signs in (a dead grant's too), a refused Garmin grant retries on its card, no authorization names a sciotte_* key
 
 import { describe, expect, it } from 'vitest';
 import type { HistoryState } from '@pierre/shared-types';
 import {
   OAUTH_NO_SEAT,
-  SIGN_IN_OAUTH_REQUIRED,
   cardForSlug,
   cardStatus,
   connectPlan,
@@ -18,6 +17,7 @@ import {
   type ConnectPlanCard,
   SIGN_IN_UNAVAILABLE,
   oauthFallbackTarget,
+  oauthFollowOn,
   signInFallsBackToOAuth,
 } from '../src/connect-plan';
 
@@ -65,30 +65,24 @@ const garminSession = (overrides: Partial<ConnectPlanCard> = {}): ConnectPlanCar
   });
 
 describe('connectPlan — Garmin grant holder (carnet#1386)', () => {
-  it('names the Garmin sign-in that copies the history while it is needed (carnet#1472)', () => {
+  it('names the Garmin sign-in that brings the history in while it is needed (carnet#1472)', () => {
     const plan = connectPlan(garminGrant('needed'));
     expect(plan.primary).toEqual({ kind: 'oauth', provider: 'garmin' });
-    expect(plan.migrate).toBe(false);
     expect(plan.history).toEqual({ state: 'needed', signIn: 'garmin' });
     expect(cardStatus(garminGrant('needed'))).toBe('history_needed');
   });
 
-  it('names it again after a copy that did not finish', () => {
-    expect(connectPlan(garminGrant('incomplete')).history.signIn).toBe('garmin');
-    expect(cardStatus(garminGrant('incomplete'))).toBe('history_incomplete');
+  it('names no sign-in once the history is in', () => {
+    expect(connectPlan(garminGrant('imported')).history).toEqual({ state: 'imported', signIn: null });
+    expect(cardStatus(garminGrant('imported'))).toBe('history_imported');
   });
 
-  it('names no sign-in while the copy runs or once the history is in', () => {
-    for (const state of ['importing', 'imported'] as const) {
-      expect(connectPlan(garminGrant(state)).history).toEqual({ state, signIn: null });
-      expect(cardStatus(garminGrant(state))).toBe(`history_${state}`);
+  it('reconnects a flagged grant through the Garmin sign-in, whatever the seats (carnet#1494)', () => {
+    for (const recommended of ['mirror', 'oauth'] as const) {
+      const flagged = { ...garminGrant('imported'), needs_reauth: true, recommended_backend: recommended };
+      expect(connectPlan(flagged).primary).toEqual({ kind: 'sign_in', target: 'garmin' });
+      expect(cardStatus(flagged)).toBe('reconnect');
     }
-  });
-
-  it('reconnects a flagged grant through Garmin even with no seat left', () => {
-    const flagged = { ...garminGrant('imported'), needs_reauth: true, recommended_backend: 'mirror' as const };
-    expect(connectPlan(flagged).primary).toEqual({ kind: 'oauth', provider: 'garmin' });
-    expect(cardStatus(flagged)).toBe('reconnect');
   });
 });
 
@@ -112,29 +106,18 @@ describe('connectPlan — a new Garmin connection', () => {
     const old = card({ provider: 'sciotte_garmin', recommended_backend: 'oauth' });
     expect(connectPlan(old)).toEqual({
       primary: { kind: 'oauth', provider: 'garmin' },
-      migrate: false,
       history: { state: 'not_applicable', signIn: null },
     });
   });
 });
 
 describe('connectPlan — a Garmin sign-in session alone', () => {
-  it('moves to the official connection when the server asks, reconnecting through Garmin', () => {
-    const asked = garminSession({ migration: 'oauth_required', recommended_backend: 'oauth' });
-    expect(connectPlan(asked)).toMatchObject({ primary: { kind: 'oauth', provider: 'garmin' }, migrate: true });
-    expect(cardStatus(asked)).toBe('migrate');
-  });
-
-  it('a dead session the server asks to move reconnects through Garmin, read as a reconnect', () => {
-    const dead = garminSession({ migration: 'oauth_required', needs_reauth: true, recommended_backend: 'oauth' });
-    expect(connectPlan(dead)).toMatchObject({ primary: { kind: 'oauth', provider: 'garmin' }, migrate: true });
-    expect(cardStatus(dead)).toBe('reconnect');
-  });
-
-  it('signs in again when no seat is free, so the server asks no move', () => {
-    const dead = garminSession({ needs_reauth: true });
-    expect(connectPlan(dead)).toMatchObject({ primary: { kind: 'sign_in', target: 'garmin' }, migrate: false });
-    expect(cardStatus(dead)).toBe('reconnect');
+  it('signs in again when it dies, whatever the seats', () => {
+    for (const recommended of ['mirror', 'oauth'] as const) {
+      const dead = garminSession({ needs_reauth: true, recommended_backend: recommended });
+      expect(connectPlan(dead).primary).toEqual({ kind: 'sign_in', target: 'garmin' });
+      expect(cardStatus(dead)).toBe('reconnect');
+    }
     expect(cardStatus(garminSession())).toBe('connected');
   });
 });
@@ -147,17 +130,20 @@ describe('connectPlan — Strava', () => {
       ...overrides,
     });
 
-  it('goes through Strava while a seat is free, and signs in once they are gone', () => {
+  it('goes through Strava while the server recommends it, and signs in otherwise', () => {
     expect(connectPlan(strava({ recommended_backend: 'oauth' })).primary).toEqual({ kind: 'oauth', provider: 'strava' });
     expect(connectPlan(strava({ recommended_backend: 'mirror' })).primary).toEqual({ kind: 'sign_in', target: 'strava' });
   });
 
-  it('reconnects the way it is connected, whatever the seats', () => {
+  it('reconnects through the Strava sign-in whichever backend died, whatever the seats (carnet#1494)', () => {
     const flagged = (backend: string, recommended: 'oauth' | 'mirror') =>
       strava({ connected: true, needs_reauth: true, connected_backend: backend, recommended_backend: recommended });
-    expect(connectPlan(flagged('strava', 'mirror')).primary).toEqual({ kind: 'oauth', provider: 'strava' });
-    expect(connectPlan(flagged('sciotte', 'oauth')).primary).toEqual({ kind: 'sign_in', target: 'strava' });
-    expect(cardStatus(flagged('sciotte', 'oauth'))).toBe('reconnect');
+    for (const backend of ['strava', 'sciotte']) {
+      for (const recommended of ['oauth', 'mirror'] as const) {
+        expect(connectPlan(flagged(backend, recommended)).primary).toEqual({ kind: 'sign_in', target: 'strava' });
+        expect(cardStatus(flagged(backend, recommended))).toBe('reconnect');
+      }
+    }
   });
 
   it('chains no history sign-in after a Strava grant', () => {
@@ -179,7 +165,6 @@ describe('connectPlan — other providers', () => {
       });
       expect(connectPlan(signIn)).toEqual({
         primary: { kind: 'sign_in', target },
-        migrate: false,
         history: { state: 'not_applicable', signIn: null },
       });
     }
@@ -233,9 +218,7 @@ describe('connectPlan — an authorization never names a sign-in backend', () =>
     const cards = [
       garminGrant('needed'),
       garminNew(2),
-      garminSession({ migration: 'oauth_required', recommended_backend: 'oauth' }),
       card({ provider: 'sciotte', recommended_backend: 'oauth' }),
-      card({ provider: 'sciotte', connected: true, needs_reauth: true, connected_backend: 'strava' }),
       card({ provider: 'whoop' }),
     ];
     for (const each of cards) {
@@ -280,10 +263,9 @@ describe('a refused connect', () => {
     expect(refusalReturnsToCard('whoop')).toBe(false);
   });
 
-  it('reads the cards again when a seat went or a seat came free', () => {
-    for (const reason of [OAUTH_NO_SEAT, SIGN_IN_OAUTH_REQUIRED]) {
-      expect(refusalReloadsCards(reason)).toBe(true);
-    }
+  it('reads the cards again when the seat it was shown went', () => {
+    expect(refusalReloadsCards(OAUTH_NO_SEAT)).toBe(true);
+    expect(refusalReloadsCards('login_flow_expired')).toBe(false);
     expect(refusalReloadsCards('login_challenge')).toBe(false);
     expect(refusalReloadsCards(undefined)).toBe(false);
   });
@@ -298,10 +280,16 @@ describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
     expect(oauthFallbackTarget(signInFirst('sciotte_garmin', 1))).toBe('garmin');
   });
 
-  it('has no OAuth to fall back to with the pool full, on OAuth first, once connected, or for COROS', () => {
+  it('has no OAuth to fall back to with the pool full, on OAuth first, once connected (a reconnect too), or for COROS', () => {
     expect(oauthFallbackTarget(signInFirst('sciotte', 0))).toBeNull();
     expect(oauthFallbackTarget(card({ provider: 'sciotte', recommended_backend: 'oauth', seats_left: 3 }))).toBeNull();
     expect(oauthFallbackTarget(signInFirst('sciotte', 3, true))).toBeNull();
+    const deadGrant: ConnectPlanCard = {
+      ...signInFirst('sciotte_garmin', 3, true),
+      connected_backend: 'garmin',
+      needs_reauth: true,
+    };
+    expect(oauthFallbackTarget(deadGrant)).toBeNull();
     expect(oauthFallbackTarget(signInFirst('sciotte_coros', 3))).toBeNull();
     expect(oauthFallbackTarget(card({ provider: 'sciotte', recommended_backend: 'mirror' }))).toBeNull();
   });
@@ -309,8 +297,22 @@ describe('the OAuth a failed sign-in falls back to (carnet#1477)', () => {
   it('falls back on a sign-in that could not complete or met a challenge, never on any other refusal', () => {
     expect(signInFallsBackToOAuth(SIGN_IN_UNAVAILABLE)).toBe(true);
     expect(signInFallsBackToOAuth('login_challenge')).toBe(true);
-    for (const reason of ['oauth_required', 'login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
+    for (const reason of ['login_flow_expired', 'login_cancelled', 'no_seat', null, undefined]) {
       expect(signInFallsBackToOAuth(reason)).toBe(false);
     }
+  });
+});
+
+describe('oauthFollowOn', () => {
+  it('names the grant a connected Garmin sign-in goes on to (carnet#1494)', () => {
+    expect(
+      oauthFollowOn({ status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } }),
+    ).toBe('garmin');
+  });
+
+  it('is null when no grant is owed, and for any step short of connected', () => {
+    expect(oauthFollowOn({ status: 'connected', provider: 'sciotte', oauth_follow_on: null })).toBeNull();
+    expect(oauthFollowOn({ status: 'connected', provider: 'sciotte_coros' })).toBeNull();
+    expect(oauthFollowOn({ status: 'otp_required' })).toBeNull();
   });
 });

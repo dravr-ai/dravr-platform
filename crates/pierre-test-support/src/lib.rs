@@ -11,6 +11,8 @@
 //! Fixtures the integration tests share, moved out of production code by
 //! ADR-027: no `src/` of a shipped crate exports test helpers.
 //!
+//! - [`activity_fields`] — whether a mapped activity carries a field the
+//!   field dictionary names, for the guards that check each mapper.
 //! - [`db`] — the single factory every test opens a database through
 //!   ([`db::create_test_db`] and friends), honouring `DATABASE_URL`.
 //! - [`delegation`] — the group, agent and membership a coach's delegated
@@ -46,6 +48,8 @@
 
 /// Deleting an account the way production does.
 pub mod account;
+/// Whether a mapped activity carries a field or stream channel, by dictionary name.
+pub mod activity_fields;
 /// The test-database factory: `SQLite` image clones, `PostgreSQL` template clones.
 pub mod db;
 /// Coaching-group rows a coach's delegated link rests on.

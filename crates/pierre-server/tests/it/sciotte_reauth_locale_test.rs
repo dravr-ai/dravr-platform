@@ -6,8 +6,8 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-//! Unit-level coverage for `KEY_PROVIDER_REAUTH_REQUIRED`, and which copy a
-//! Garmin reconnect reads while a seat is free on Garmin's OAuth.
+//! Unit-level coverage for `KEY_PROVIDER_REAUTH_REQUIRED`, and that every
+//! mirrored provider's reconnect reads it with its own sign-in link.
 //!
 //! The chat pipeline's `auth_recovery` stage short-circuits a turn with a
 //! deterministic localized message when a tool emits `ProviderAuthRequired`.
@@ -19,7 +19,6 @@
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
-use pierre_contremaitre::reauth_strings::KEY_PROVIDER_REAUTH_OAUTH_REQUIRED;
 use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PATH};
 
 use crate::common::create_test_server_resources;
@@ -164,65 +163,39 @@ fn the_link_less_copy_is_not_the_linked_copy() {
 }
 
 // ============================================================================
-// carnet#1454 — the reconnect copy a seat on Garmin's OAuth changes
+// carnet#1494 — every mirrored provider reconnects through its sign-in
 // ============================================================================
 
-/// A Garmin athlete with no grant, reconnecting their own usr/pwd session
-/// while a seat is free, reads the move to Garmin's official connection in
-/// their language; COROS, with no OAuth to move to, keeps its sign-in link.
+/// A Garmin athlete reconnecting their own usr/pwd session reads the sign-in
+/// copy in their language, with the Garmin sign-in link, whatever the seats
+/// on Garmin's OAuth; COROS, with no OAuth at all, reads the same.
 #[tokio::test]
-async fn a_seat_free_garmin_reads_the_oauth_copy_and_coros_keeps_its_sign_in_link() {
+async fn a_usr_pwd_garmin_and_coros_both_read_the_sign_in_copy_with_their_link() {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, tenant) = usr_pwd_garmin_athlete(&resources).await;
     let reg = MessagingStringsRegistry::new();
 
-    let mut garmin = loop_result(Some("sciotte_garmin"), None);
-    let prompt = recover_in(&resources, user_id, tenant, "en", &mut garmin)
-        .await
-        .prompt
-        .expect("a Garmin reconnect control");
-    assert_eq!(
-        garmin.content,
-        reg.render(
-            KEY_PROVIDER_REAUTH_OAUTH_REQUIRED,
-            "en",
-            &[prompt.display_name.as_str(), prompt.url.as_str()],
-        ),
-        "bug: Garmin with a seat free reads the OAuth copy"
-    );
-    assert_ne!(
-        garmin.content,
-        reg.render(
-            KEY_PROVIDER_REAUTH_REQUIRED,
-            "en",
-            &[prompt.display_name.as_str(), prompt.url.as_str()],
-        ),
-        "bug: not the usr/pwd sign-in copy"
-    );
-    token_after(
-        &offer_target(&resources, &prompt.url).await,
-        "/providers/connect",
-    );
-
-    let mut coros = loop_result(Some("sciotte_coros"), None);
-    let prompt = recover_in(&resources, user_id, tenant, "en", &mut coros)
-        .await
-        .prompt
-        .expect("a COROS reconnect control");
-    assert_eq!(
-        coros.content,
-        reg.render(
-            KEY_PROVIDER_REAUTH_REQUIRED,
-            "en",
-            &[prompt.display_name.as_str(), prompt.url.as_str()],
-        ),
-        "bug: COROS keeps the sign-in copy"
-    );
-    let token = token_after(
-        &offer_target(&resources, &prompt.url).await,
-        HOSTED_SIGNIN_PATH,
-    );
-    let claims =
-        verify_link_token(&token, RECOVERY_LINK_SECRET, "sciotte").expect("a hosted-login token");
-    assert_eq!(claims.tgt, "coros", "bug: COROS opens its own sign-in");
+    for (backend, target) in [("sciotte_garmin", "garmin"), ("sciotte_coros", "coros")] {
+        let mut result = loop_result(Some(backend), None);
+        let prompt = recover_in(&resources, user_id, tenant, "en", &mut result)
+            .await
+            .prompt
+            .unwrap_or_else(|| panic!("a {backend} reconnect control"));
+        assert_eq!(
+            result.content,
+            reg.render(
+                KEY_PROVIDER_REAUTH_REQUIRED,
+                "en",
+                &[prompt.display_name.as_str(), prompt.url.as_str()],
+            ),
+            "bug: {backend} reads the sign-in copy"
+        );
+        let token = token_after(
+            &offer_target(&resources, &prompt.url).await,
+            HOSTED_SIGNIN_PATH,
+        );
+        let claims = verify_link_token(&token, RECOVERY_LINK_SECRET, "sciotte")
+            .expect("a hosted-login token");
+        assert_eq!(claims.tgt, target, "bug: {backend} opens its own sign-in");
+    }
 }

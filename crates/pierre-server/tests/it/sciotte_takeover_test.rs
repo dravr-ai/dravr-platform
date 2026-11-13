@@ -16,6 +16,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::garmin_sign_in_test::server_with_garmin_oauth;
 use crate::helpers;
 
 use std::net::SocketAddr;
@@ -33,11 +34,13 @@ use common::{create_test_user_with_email, generate_test_token};
 use futures_util::{SinkExt, StreamExt};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
+use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_takeover_link_token, MintTakeoverTokenArgs,
+    mint_connect_link_token, mint_takeover_link_token, MintTakeoverTokenArgs, TakeoverLink,
+    CONNECT_PROVIDER,
 };
 use pierre_routes_auth::AuthRoutes;
 use serde_json::{json, Value};
@@ -246,6 +249,16 @@ impl Athlete {
         )
         .await
         .unwrap();
+        Self::on(resources).await
+    }
+
+    /// An athlete of a platform whose Garmin OAuth is served too, so a
+    /// sign-in goes on to the grant it owes (carnet#1494).
+    async fn with_garmin_oauth() -> Self {
+        Self::on(server_with_garmin_oauth(&scraper().1).await).await
+    }
+
+    async fn on(resources: Arc<ServerContext>) -> Self {
         let (user_id, user) = create_test_user_with_email(
             &resources.agent.database,
             &format!("athlete-{}@example.com", Uuid::new_v4()),
@@ -505,6 +518,80 @@ async fn the_athlete_signs_in_through_the_relay_and_the_session_is_stored() {
         inputs[0],
         json!({"type": "text", "text": "aa"}),
         "the typed text reaches the service exact"
+    );
+}
+
+/// Sign the athlete in through an open takeover: the stand-in's pointer `up`
+/// authenticates. The step answer the viewer receives.
+async fn sign_in_through(viewer: &mut Viewer) -> Value {
+    read_event(viewer, "status").await;
+    for action in ["down", "up"] {
+        send(
+            viewer,
+            json!({"type": "pointer", "action": action, "x": 30.0, "y": 310.0}),
+        )
+        .await;
+    }
+    let (outcome, _) = read_event(viewer, "outcome").await;
+    assert_eq!(outcome["status_code"], 200, "{outcome}");
+    assert_eq!(outcome["body"]["status"], "connected", "{outcome}");
+    outcome["body"].clone()
+}
+
+/// A Garmin sign-in a takeover concluded goes on to the grant it owes, as
+/// the same sign-in over HTTP does (carnet#1494): the app starts it from the
+/// provider it names.
+#[tokio::test]
+async fn a_takeover_sign_in_goes_on_to_the_garmin_grant_it_owes() {
+    let athlete = Athlete::with_garmin_oauth().await;
+    let token = athlete.park(&email(CHALLENGED), &attempt()).await;
+    let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
+
+    let answer = sign_in_through(&mut viewer).await;
+    assert_eq!(
+        answer["oauth_follow_on"]["provider"], GARMIN,
+        "bug: a takeover sign-in does not go on to its grant: {answer}"
+    );
+    assert!(
+        answer["oauth_follow_on"].get("authorization_url").is_none(),
+        "the app starts the authorization its own way: {answer}"
+    );
+}
+
+/// The hosted connect picker starts a grant with its own token, but a
+/// takeover concludes on the takeover page, where that page is gone: the
+/// answer carries Garmin's authorization URL itself.
+#[tokio::test]
+async fn a_hosted_takeover_sign_in_carries_its_grants_authorization_url() {
+    let athlete = Athlete::with_garmin_oauth().await;
+    let attempt_id = attempt();
+    athlete.park(&email(CHALLENGED), &attempt_id).await;
+    // The takeover token the picker's sign-in would have been handed.
+    let token = mint_takeover_link_token(
+        &MintTakeoverTokenArgs {
+            user_id: athlete.user_id,
+            tenant_id: athlete.tenant_id.as_uuid(),
+            provider: SCIOTTE_GARMIN,
+            attempt_id: &attempt_id,
+            link: Some(TakeoverLink {
+                channel: "telegram".to_owned(),
+                channel_thread: None,
+                target: CONNECT_PROVIDER.to_owned(),
+            }),
+        },
+        &athlete.resources.auth_routes_context().admin_jwt_secret,
+    )
+    .unwrap();
+    let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
+
+    let answer = sign_in_through(&mut viewer).await;
+    assert_eq!(answer["oauth_follow_on"]["provider"], GARMIN, "{answer}");
+    let url = answer["oauth_follow_on"]["authorization_url"]
+        .as_str()
+        .unwrap_or_else(|| panic!("bug: the takeover page has no way on to the grant: {answer}"));
+    assert!(
+        url.contains("client_id="),
+        "bug: the follow-on is not Garmin's authorization: {url}"
     );
 }
 

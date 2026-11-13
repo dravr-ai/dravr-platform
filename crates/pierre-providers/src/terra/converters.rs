@@ -525,3 +525,44 @@ const fn has_recovery_reading(day: &StoredRecoveryMetrics) -> bool {
         || day.respiratory_rate.is_some()
         || day.skin_temp_deviation.is_some()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::models::{TerraActivity, TerraUser};
+    use super::super::provider::TerraDescriptor;
+    use super::TerraConverters;
+    use crate::field_support::tests::assert_mapper_fills;
+    use crate::spi::ProviderDescriptor;
+
+    #[test]
+    fn the_terra_mapper_fills_what_its_descriptor_declares() {
+        let terra: TerraActivity = serde_json::from_value(serde_json::json!({
+            "metadata": {
+                "summary_id": "act_1",
+                "name": "Morning Ride",
+                "start_time": "2024-01-15T08:00:00-05:00",
+                "end_time": "2024-01-15T09:00:00-05:00",
+                "type": 1
+            },
+            "distance_data": { "distance_meters": 30_000.0 },
+            "calories_data": { "total_burned_calories": 980.0 },
+            "heart_rate_data": { "avg_hr_bpm": 141.0, "max_hr_bpm": 176.0 },
+            "movement_data": { "avg_cadence": 84.0 },
+            "power_data": { "avg_watts": 196.0, "normalized_watts": 214.0 }
+        }))
+        .unwrap();
+        let user = TerraUser {
+            user_id: "terra_user_1".to_owned(),
+            provider: Some("GARMIN".to_owned()),
+            last_webhook_update: None,
+            reference_id: None,
+        };
+        let activity = TerraConverters::activity_from_terra(&terra, &user).unwrap();
+        assert_mapper_fills(
+            "terra",
+            TerraDescriptor.activity_fields(),
+            &activity,
+            &activity,
+        );
+    }
+}

@@ -30,7 +30,7 @@ use pierre_core::constants::oauth_providers;
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
+use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, read_exact_backend};
 use pierre_tool_runtime::reauth_retry::{claimed_retry, flagged_session};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::SecretString;
@@ -236,26 +236,68 @@ impl Fixture {
     }
 }
 
-/// Beside a Garmin grant the session serves nothing (carnet#1386): a read
-/// naming either Garmin backend goes to the grant, the dead session is never
-/// signed in to, and neither connection is flagged by a read that never
-/// reached it.
+/// Beside a Garmin grant the session still serves first (carnet#1494): a read
+/// naming either Garmin backend reaches the dead session once, flags it, and
+/// leaves the grant behind it untouched; once flagged the session is not
+/// signed in to again.
 #[tokio::test]
-async fn a_dead_session_beside_a_garmin_grant_is_never_read() {
+async fn a_dead_session_beside_a_garmin_grant_is_read_and_flagged_not_the_grant() {
     let f = fixture("attribution", true).await;
 
     f.read(oauth_providers::GARMIN).await;
-    f.read(oauth_providers::SCIOTTE_GARMIN).await;
-
     assert_eq!(
         f.scraper.reads(),
-        0,
-        "bug: the session beside the grant must never be signed in to"
+        1,
+        "bug: the session serving first must be the one read"
+    );
+    assert_eq!(
+        f.status(oauth_providers::SCIOTTE_GARMIN).await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the session that refused must be the one flagged"
     );
     assert_eq!(
         f.status(oauth_providers::GARMIN).await,
         ConnectionStatus::Active,
         "bug: the Garmin grant was fine and must stay active"
+    );
+
+    f.read(oauth_providers::SCIOTTE_GARMIN).await;
+    f.read(oauth_providers::GARMIN).await;
+    assert_eq!(
+        f.scraper.reads(),
+        1,
+        "bug: a flagged session must not be signed in to again"
+    );
+}
+
+/// A read naming one backend exactly (a webhook's, a first sync's) reaches
+/// that backend whatever the read plan serves first (carnet#1494): the Garmin
+/// grant answers from its pushes and the session beside it, which serves the
+/// athlete's own reads, is never signed in to nor flagged.
+#[tokio::test]
+async fn an_exact_read_of_the_grant_never_starts_a_scrape_of_the_session_beside_it() {
+    let f = fixture("exact", true).await;
+    let params = ActivityQueryParams {
+        after: Some((Utc::now() - Duration::days(14)).timestamp()),
+        before: None,
+        limit: Some(20),
+        offset: None,
+    };
+
+    let read = read_exact_backend(
+        &f.runtime(),
+        oauth_providers::GARMIN,
+        f.user_id,
+        &f.tenant.to_string(),
+        &params,
+    )
+    .await;
+
+    assert!(read.is_ok(), "the grant's own window answers: {read:?}");
+    assert_eq!(
+        f.scraper.reads(),
+        0,
+        "bug: an exact read of the grant started a scrape of the session"
     );
     assert_eq!(
         f.status(oauth_providers::SCIOTTE_GARMIN).await,

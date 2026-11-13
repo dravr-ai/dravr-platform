@@ -26,7 +26,6 @@ import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key
 import { PROVIDER_COLORS, useCardStyle, useThemeColors } from '../constants/theme';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
-import { signInOauthRequiredLine } from '../utils/connectFlow';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
 import type { SciotteLoginResponse, SciotteTakeoverBridgeMessage, SciotteTarget } from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
@@ -37,8 +36,8 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
-  SIGN_IN_OAUTH_REQUIRED,
   loginIdentifierField,
+  oauthFollowOn,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -73,7 +72,12 @@ type LoginMethod = 'email' | 'google' | 'apple';
 interface SciotteLoginModalProps {
   visible: boolean;
   onClose: () => void;
-  onConnected: () => void;
+  /**
+   * The sign-in stored its session. `followOn` names the provider's own
+   * authorization the sign-in goes on to (Garmin's grant, which pushes
+   * workouts; carnet#1494), which the caller starts.
+   */
+  onConnected: (followOn?: string) => void;
   target: SciotteTarget;
   /**
    * The account has not yet accepted this provider's exposure notice (the
@@ -87,13 +91,6 @@ interface SciotteLoginModalProps {
    * success says the copy is running.
    */
   historyMode?: boolean;
-  /**
-   * The server refused the sign-in because the provider now connects through
-   * its official authorization (`details.reason` `oauth_required`): the
-   * window stays open and says so, as the web's does, and the caller reads
-   * its cards again, whose plan then leads to that authorization.
-   */
-  onOAuthRequired?: () => void;
   /**
    * The card's account sign-in goes first with an OAuth seat free
    * (`oauthFallbackTarget`): a sign-in that cannot complete, or that the
@@ -240,7 +237,6 @@ export function SciotteLoginModal({
   target,
   consentRequired = false,
   historyMode = false,
-  onOAuthRequired,
   onFallBackToOAuth,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
@@ -370,7 +366,6 @@ export function SciotteLoginModal({
       if (reason === SCIOTTE_LOGIN_CHALLENGE) {
         return t('hosted.common.signInChallenged').split('{0}').join(platformName);
       }
-      if (reason === SIGN_IN_OAUTH_REQUIRED) return signInOauthRequiredLine(t, platformName);
       return describeApiError(err, { t, fallbackKey });
     },
     [platformName, t]
@@ -382,7 +377,7 @@ export function SciotteLoginModal({
     if (data.status === 'connected') {
       setPhase('success');
       setStatus(t('app.connectedBang'));
-      onConnected();
+      onConnected(oauthFollowOn(data) ?? undefined);
       setTimeout(onClose, 1500);
     } else if (data.status === 'two_factor_choice') {
       setTwoFactorOptions(data.options || []);
@@ -417,8 +412,7 @@ export function SciotteLoginModal({
     }
     setError(refusalMessage(err, 'auth.loginFailed'));
     setPhase('error');
-    if (refusalReason(err) === SIGN_IN_OAUTH_REQUIRED) onOAuthRequired?.();
-  }, [onFallBackToOAuth, onOAuthRequired, refusalMessage]);
+  }, [onFallBackToOAuth, refusalMessage]);
 
   const handleLogin = useCallback(async () => {
     if (!email || !password) return;
@@ -457,7 +451,8 @@ export function SciotteLoginModal({
   const handleTakeoverMessage = useCallback((message: SciotteTakeoverBridgeMessage) => {
     setTakeoverUrl(null);
     if (message.type === 'connected') {
-      applyLoginAnswer({ status: 'connected', provider: preset.backend });
+      const followOn = message.follow_on ? { provider: message.follow_on } : null;
+      applyLoginAnswer({ status: 'connected', provider: preset.backend, oauth_follow_on: followOn });
       return;
     }
     const result = message.outcome ? takeoverResult(message.outcome) : { kind: 'ended' as const };
@@ -496,7 +491,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected();
+        onConnected(oauthFollowOn(data) ?? undefined);
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');
@@ -552,7 +547,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected();
+        onConnected(oauthFollowOn(data) ?? undefined);
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');

@@ -18,8 +18,8 @@ use chrono::{DateTime, NaiveDate, Utc};
 use dravr_sciotte::client::{ClientError, SciotteClient};
 use dravr_sciotte::models::{
     Activity as SciotteActivity, ActivityComment as SciotteComment, ActivityParams, AthleteId,
-    AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap,
-    RouteTrack as SciotteRouteTrack, Split as SciotteSplit, SportType as SciotteSportType,
+    AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap, Split as SciotteSplit,
+    SportType as SciotteSportType,
 };
 use pierre_core::untrusted::fence_athlete_text;
 use secrecy::ExposeSecret;
@@ -31,15 +31,14 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 use crate::core::{
-    no_recorded_samples, planned_workouts_unsupported, ActivityQueryParams, FitnessProvider,
-    OAuth2Credentials, ProviderConfig, TokenRefreshCallback,
+    planned_workouts_unsupported, ActivityQueryParams, FitnessProvider, OAuth2Credentials,
+    ProviderConfig, TokenRefreshCallback,
 };
 use crate::delegation::coach_credential_expired;
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     activity::{Lap, Split},
     Activity, ActivityBuilder, ActivityComment, Athlete, PlannedWorkout, SportType, Stats,
-    TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_error::{
@@ -55,7 +54,10 @@ use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 
 mod activity_times;
 mod factory;
+/// The field dictionary guard for the four scraped targets.
+mod field_guard;
 mod rotation;
+mod streams;
 
 pub use factory::{
     startup_client, SciotteCorosProviderFactory, SciotteGarminProviderFactory,
@@ -585,11 +587,12 @@ pub fn convert_sport_type(s: &SciotteSportType) -> SportType {
 /// then its timestamped thread, oldest first — whichever platform they were
 /// scraped from.
 ///
-/// The activity carries no description, on purpose. Sciotte's `Activity`
-/// has none to give, and the text `TrainingPeaks` keeps in a workout's
-/// description is the coach's prescription for the session: it belongs to
-/// the planned workout, not to the athlete's account of the activity that
-/// completed it.
+/// The athlete's description and private note cross from Strava alone. The
+/// text `TrainingPeaks` keeps in a workout's description is the coach's
+/// prescription for the session: it belongs to the planned workout, not to
+/// the athlete's account of the activity that completed it. Both are
+/// untrusted text, fenced where they reach a model, and the private note is
+/// withheld from every reader but the athlete (`fence_athlete_only`).
 fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activity {
     let sport_type = convert_sport_type(&sciotte.sport_type);
     let (perceived_exertion, feel) = self_report(sciotte, target);
@@ -606,6 +609,7 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
         .map(|v| v.iter().map(convert_lap).collect());
 
     let (duration_seconds, moving_time_seconds) = activity_times::elapsed_and_moving(sciotte);
+    let own_words = matches!(target, SciotteTarget::Strava);
 
     ActivityBuilder::new(
         &sciotte.id,
@@ -642,12 +646,16 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .start_longitude_opt(sciotte.start_longitude)
     .splits_opt(splits)
     .laps_opt(laps)
-    .time_series_data_opt(sciotte.route.as_ref().map(route_to_time_series))
+    .time_series_data_opt(streams::time_series(sciotte))
     .perceived_exertion_opt(perceived_exertion)
     .feel_opt(feel)
     .comments_opt(comments)
     .moving_time_seconds_opt(moving_time_seconds)
     .workout_type_opt(sciotte.workout_type)
+    .commute_opt(sciotte.commute)
+    .trainer_opt(sciotte.trainer)
+    .description_opt(sciotte.description.clone().filter(|_| own_words))
+    .private_note_opt(sciotte.private_note.clone().filter(|_| own_words))
     .device_name_opt(activity_times::device_name(sciotte))
     .gear_opt(activity_times::gear(sciotte))
     .build()
@@ -661,68 +669,6 @@ fn convert_comment(comment: &SciotteComment) -> ActivityComment {
         author: comment.author.clone(),
         text: comment.text.clone(),
         created_at: comment.created_at,
-    }
-}
-
-/// Fold sciotte's GPS [`SciotteRouteTrack`] into cageux's [`TimeSeriesData`],
-/// the channel every route consumer reads — `export_routes` and the endurance
-/// route endpoint hydrate their geometry from `gps_coordinates` + `altitude`.
-///
-/// A track is the only stream a scrape carries, so the numeric channels the
-/// API providers fill from device streams stay absent here. `timestamps` is
-/// empty: sciotte's `RouteTrack` carries coordinates, elevations, distances
-/// and bounds but no time, and its coordinate list may be downsampled, so a
-/// sample index is not a second and no time axis can be read from it. The
-/// route consumers read `gps_coordinates` and `altitude` alone, and a stream
-/// set without a time axis gives every time-based consumer nothing to time.
-///
-/// The two ways a detail answer can lack a route mean different things, and
-/// the conversion keeps them apart. No `route` at all is the scraper not
-/// having read one — a page read before its map rendered, a detail read past
-/// the navigation budget — and the activity carries no time series, which
-/// proves nothing. A `route` whose coordinate list is empty is the scraper
-/// saying it read the page and the activity recorded no GPS (a trainer ride):
-/// it becomes a stream set of zero samples, the same answer Strava's streams
-/// give for a ride without a `latlng` channel, and the route read settles
-/// `no_gps` on it.
-fn route_to_time_series(route: &SciotteRouteTrack) -> TimeSeriesData {
-    if route.coordinates.is_empty() {
-        return no_recorded_samples();
-    }
-
-    // cageux's altitude channel is f32. Elevation in metres spans roughly
-    // -430 (Dead Sea) to 8849 (Everest), well inside f32's exactly-representable
-    // integer range, so narrowing costs sub-millimetre precision that no
-    // barometric or GPS altimeter resolves.
-    let altitude = match route.altitudes_meters.as_ref() {
-        Some(meters) if meters.len() == route.coordinates.len() => {
-            Some(meters.iter().map(|m| Some(*m as f32)).collect())
-        }
-        // An elevation series of a different length is not index-aligned with
-        // the track, and a caller reading the pair position by position would
-        // attribute each reading to the wrong point. Dropping it reports the
-        // track's elevation as unknown, which is what a misaligned series means.
-        Some(meters) => {
-            warn!(
-                coordinates = route.coordinates.len(),
-                altitudes = meters.len(),
-                "sciotte route elevation series is not index-aligned with its track; dropping it"
-            );
-            None
-        }
-        None => None,
-    };
-
-    TimeSeriesData {
-        timestamps: Vec::new(),
-        heart_rate: None,
-        power: None,
-        cadence: None,
-        speed: None,
-        altitude,
-        temperature: None,
-        gps_coordinates: Some(route.coordinates.iter().copied().map(Some).collect()),
-        distance: None,
     }
 }
 
@@ -917,7 +863,7 @@ impl FitnessProvider for SciotteProvider {
     }
 
     // A scraped Strava, Garmin or COROS detail folds the page's recorded
-    // track into the activity's streams (`route_to_time_series`); a
+    // streams or track into the activity's (`streams::time_series`); a
     // TrainingPeaks calendar workout carries no track at all.
     fn serves_activity_streams(&self) -> bool {
         !matches!(

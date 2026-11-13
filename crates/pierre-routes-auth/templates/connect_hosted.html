@@ -157,14 +157,15 @@
                 token: "{{LINK_TOKEN}}",
                 channel: "{{CHANNEL}}",
                 // Providers JSON embedded server-side (mirrors GET /api/providers):
-                // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, migrate, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username', oauth_fallback }]
-                // `history_state` ('needed'|'importing'|'incomplete'|'imported'|'not_applicable'):
-                // a connected card whose history is `needed` or `incomplete`
-                // opens the credential sign-in that copies it when
-                // `history_sign_in`; one `importing` is disabled while the
-                // copy runs. `archive_url`: the hosted import page for the
-                // provider's own export. `migrate`: a usr/pwd-only card asked
-                // to move to its provider's OAuth, which picking it starts.
+                // [{ provider, display_name, description, connected, history_state, history_sign_in, archive_url?, kind: 'oauth'|'credentials'|'api_key', target, consent_required, notice?, form_url?, login_identifier: 'email'|'username'|'email_or_username', oauth_fallback, oauth_owed? }]
+                // `oauth_owed`: the provider whose own authorization the card
+                // still owes for its writes (Garmin's grant, which pushes
+                // workouts): a connected card stays pickable and starts it.
+                // `history_state` ('needed'|'imported'|'not_applicable'):
+                // a connected card whose history is `needed` opens the
+                // credential sign-in that brings it in when
+                // `history_sign_in`. `archive_url`: the hosted import page for the
+                // provider's own export.
                 // `notice` is shown before the credential form (credentials) or before the
                 // OAuth redirect (oauth) while `consent_required` holds.
                 providers: {{PROVIDERS_JSON}},
@@ -175,9 +176,6 @@
                 loginChallengeReason: "{{LOGIN_CHALLENGE_REASON}}",
                 // `reason` of an `otp_required` answer to a refused code.
                 codeRejectedReason: "{{CODE_REJECTED_REASON}}",
-                // `details.reason` of a usr/pwd sign-in refused because the
-                // provider now connects through its own OAuth.
-                oauthRequiredReason: "{{OAUTH_REQUIRED_REASON}}",
                 // `details.reason` of a sign-in that could not complete for a
                 // reason that is not the athlete's credentials.
                 signInUnavailableReason: "{{SIGN_IN_UNAVAILABLE_REASON}}",
@@ -336,20 +334,18 @@
                     label.appendChild(description);
                     btn.appendChild(label);
                     const tag = document.createElement('span');
-                    // A connected card whose history is still to bring in, or
-                    // that is asked to move to its provider's OAuth, names
-                    // what picking it does.
-                    const historyOpen = p.connected
-                        && (p.history_state === 'needed' || p.history_state === 'incomplete');
-                    const importing = p.connected && p.history_state === 'importing';
-                    const settled = p.connected && !historyOpen && !importing && !p.migrate;
+                    // A connected card whose history is still to bring in
+                    // names what picking it does.
+                    const historyOpen = p.connected && p.history_state === 'needed';
+                    // A connected card whose own authorization is still owed
+                    // for its writes starts it (carnet#1494).
+                    const grantOwed = p.connected && !historyOpen && Boolean(p.oauth_owed);
+                    const settled = p.connected && !historyOpen && !grantOwed;
                     tag.className = 'pc-tag' + (settled ? ' connected' : '');
-                    tag.textContent = p.migrate
-                        ? fmt(S.tagMoveToOfficial, p.display_name)
-                        : historyOpen
-                        ? (p.history_state === 'incomplete' ? S.tagHistoryIncomplete : S.tagImportHistory)
-                        : importing
-                        ? S.tagHistoryImporting
+                    tag.textContent = historyOpen
+                        ? S.tagImportHistory
+                        : grantOwed
+                        ? S.tagAuthorize
                         : p.connected
                         ? S.tagConnected
                         : (p.kind === 'oauth'
@@ -358,15 +354,15 @@
                                 ? S.tagApiKey
                                 : identifierTag(p.login_identifier)));
                     btn.appendChild(tag);
-                    if (p.migrate) {
-                        btn.addEventListener('click', () => {
-                            clearError();
-                            startOAuth(p.target, false);
-                        });
-                    } else if (historyOpen && p.history_sign_in) {
+                    if (historyOpen && p.history_sign_in) {
                         btn.addEventListener('click', () => {
                             clearError();
                             pickCredentials(p, true);
+                        });
+                    } else if (grantOwed) {
+                        btn.addEventListener('click', () => {
+                            clearError();
+                            startOAuth(p.oauth_owed, false);
                         });
                     } else if (p.connected) {
                         btn.disabled = true;
@@ -481,9 +477,6 @@
                 if (failure.reason === CONFIG.loginChallengeReason) {
                     return fmt(S.signInChallenged, credLabel);
                 }
-                if (failure.reason === CONFIG.oauthRequiredReason) {
-                    return fmt(S.signInOauthRequired, credLabel);
-                }
                 return fmt(S.signInUnavailable, credLabel);
             }
             function showFailure(failure) {
@@ -538,6 +531,14 @@
                 clearError();
                 switch (data.status) {
                     case 'connected':
+                        // A provider whose own grant is still owed for its
+                        // writes (Garmin's, which pushes workouts) goes on to
+                        // that authorization: sign-in first, then the grant
+                        // (carnet#1494).
+                        if (!historyMode && data.oauth_follow_on && data.oauth_follow_on.provider) {
+                            startOAuth(data.oauth_follow_on.provider, false);
+                            break;
+                        }
                         if (historyMode) {
                             document.getElementById('success-message').textContent = S.historyCopying;
                         }

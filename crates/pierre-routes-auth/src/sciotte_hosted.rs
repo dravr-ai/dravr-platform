@@ -27,8 +27,7 @@ use axum::extract::{Query, State};
 use axum::http::HeaderMap;
 use axum::response::{Html, IntoResponse, Response};
 use pierre_contremaitre::hosted_strings::{
-    KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED, KEY_HOSTED_ERROR_GENERIC,
-    KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LINK_ALREADY_OPENED,
+    KEY_HOSTED_ERROR_GENERIC, KEY_HOSTED_ERROR_INVALID_LINK, KEY_HOSTED_ERROR_LINK_ALREADY_OPENED,
     KEY_HOSTED_ERROR_MISSING_TOKEN,
 };
 use secrecy::{ExposeSecret, SecretString};
@@ -37,11 +36,9 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::hosted_page::{locale_for_claims, locale_for_token, PageStrings};
-use crate::sciotte_grant_gate::require_garmin_grant;
 use crate::sciotte_hosted_templates;
 use crate::short_link::preferred_locale;
 use crate::AuthRoutesContext;
-use pierre_core::models::TenantId;
 use pierre_middleware::provider_link_token::{verify_link_token, ProviderLinkTokenClaims};
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_provider::SciotteTarget;
@@ -154,9 +151,7 @@ pub(crate) async fn handle_sciotte_hosted_login_page(
     };
 
     // Target is clamped server-side at mint time; re-validate on render in case of tampering.
-    let target = backend_resolver::mirror_backend_for(&claims.tgt)
-        .and_then(backend_resolver::hosted_login_target)
-        .unwrap_or(DEFAULT_TARGET);
+    let target = backend_resolver::reconnect_target(&claims.tgt).unwrap_or(DEFAULT_TARGET);
 
     let locale = claims_locale(&resources, &claims, &headers).await;
     info!(
@@ -174,23 +169,6 @@ pub(crate) async fn handle_sciotte_hosted_login_page(
     let backend = SciotteTarget::from_target_param(target).provider_name();
     let ids = (Uuid::parse_str(&claims.sub), Uuid::parse_str(&claims.tid));
     let strings = PageStrings::new(&resources.messaging_strings, locale);
-    // A sign-in link minted before Garmin moved to its OAuth opens the
-    // refusal its login would get, never a form that cannot succeed
-    // (carnet#1454).
-    if let (Ok(user_id), Ok(tenant_id)) = ids {
-        if require_garmin_grant(&resources, user_id, TenantId::from_uuid(tenant_id), backend)
-            .await
-            .is_err()
-        {
-            let brand = backend_resolver::brand_name(&resources.provider_registry, backend)
-                .unwrap_or("Garmin");
-            return Html(sciotte_hosted_templates::render_error_page(
-                &strings,
-                &strings.render(KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED, &[brand]),
-            ))
-            .into_response();
-        }
-    }
     let consent_required = match ids {
         (Ok(user_id), Ok(tenant_id)) => {
             asks_for_notice(&resources.repos, tenant_id, user_id, backend).await

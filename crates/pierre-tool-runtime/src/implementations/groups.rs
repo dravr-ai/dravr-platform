@@ -71,7 +71,7 @@ use super::coach_scope;
 use super::group_member_plan::GetGroupMemberPlanStatusTool;
 use super::group_roster::GetRosterOverviewTool;
 use super::provider_roster::GetProviderRosterTool;
-use crate::activity_fetch::fetch_provider_activities;
+use crate::activity_fetch::{connection_grant_beside_session, fetch_provider_activities};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
@@ -733,9 +733,16 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
             // still answers `ok` with a zero count — that emptiness is real.
             // Each connection is read under the member's own AI consents in
             // the tenant it lives under, never the requester's (carnet#1419).
+            // A grant beside a usr/pwd session of its provider is passed
+            // over: its name resolves to the session (carnet#1494), so
+            // reading it too would scrape the session a second time, and the
+            // session's own read serves the grant's stored rows.
             let mut activities = Vec::new();
             let mut any_fetch_succeeded = false;
             for conn in &connections {
+                if connection_grant_beside_session(runtime, peer_id, conn).await {
+                    continue;
+                }
                 let fetch = fetch_provider_activities(
                     runtime,
                     &conn.provider,

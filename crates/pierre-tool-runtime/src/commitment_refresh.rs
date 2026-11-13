@@ -15,18 +15,20 @@
 //! the athlete has connected, through the same authenticate-and-fetch path a
 //! chat turn uses (so every provider — OAuth API or scrape — is covered by the
 //! one seam), and the write-through plus its fetch-freshness mark is what lets
-//! the next sweep tick trust the count. De-duplicated per `(tenant, user)` so
-//! hourly ticks cannot stack fetches for the same athlete.
+//! the next sweep tick trust the count. An OAuth grant beside a usr/pwd
+//! session of its provider is passed over: its name resolves to the session,
+//! which its own connection reads once (carnet#1494). De-duplicated per
+//! `(tenant, user)` so hourly ticks cannot stack fetches for the same athlete.
 
 use std::collections::HashSet;
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use pierre_core::models::TenantId;
+use pierre_core::models::{ProviderConnection, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::fetch_provider_activities;
+use crate::activity_fetch::{connection_grant_beside_session, fetch_provider_activities};
 use crate::runtime::ToolRuntime;
 
 /// Cap on activities pulled per provider for one refresh. A commitment window
@@ -109,28 +111,33 @@ async fn run_commitment_refresh(
         return;
     }
 
-    let providers: Vec<&str> = connections.iter().map(|c| c.provider.as_str()).collect();
-    let fetched =
-        fetch_window_across_providers(runtime, user_id, tenant_id, window_start_ts, &providers)
+    let (providers, fetched) =
+        fetch_window_across_providers(runtime, user_id, tenant_id, window_start_ts, &connections)
             .await;
 
     info!(
         user_id = %user_id,
-        providers = providers.len(),
+        providers,
         fetched,
         "Commitment refresh: fetched the commitment window across connected providers"
     );
 }
 
-/// Fetch `[window_start_ts, now]` from each provider through the shared
-/// authenticate-and-fetch path, returning the total activities fetched.
+/// Fetch `[window_start_ts, now]` from the provider of each of
+/// `connections` through the shared authenticate-and-fetch path, returning
+/// how many providers were read and the total activities fetched.
+///
+/// A grant beside a session is passed over: it is the session's fallback,
+/// and its name resolves to the session, which its own connection reads, so
+/// the session is scraped once and the API is never read beside it
+/// (carnet#1494).
 async fn fetch_window_across_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     window_start_ts: i64,
-    providers: &[&str],
-) -> usize {
+    connections: &[ProviderConnection],
+) -> (usize, usize) {
     let params = ActivityQueryParams {
         limit: Some(REFRESH_FETCH_LIMIT),
         offset: None,
@@ -138,13 +145,18 @@ async fn fetch_window_across_providers(
         after: Some(window_start_ts),
     };
     let tenant_str = tenant_id.to_string();
-    let mut fetched = 0_usize;
-    for provider in providers {
+    let (mut read, mut fetched) = (0_usize, 0_usize);
+    for connection in connections {
+        if connection_grant_beside_session(runtime, user_id, connection).await {
+            continue;
+        }
+        read += 1;
         if let Some(activities) =
-            fetch_provider_activities(runtime, provider, user_id, &tenant_str, &params).await
+            fetch_provider_activities(runtime, &connection.provider, user_id, &tenant_str, &params)
+                .await
         {
             fetched += activities.len();
         }
     }
-    fetched
+    (read, fetched)
 }

@@ -671,4 +671,26 @@ mod tests {
         assert_eq!(activity.sport_type(), &SportType::Ride);
         assert_eq!(activity.sport_type_detail(), Some("whoop_sport_1"));
     }
+
+    #[test]
+    fn the_whoop_mapper_fills_what_its_descriptor_declares() {
+        use crate::field_support::tests::assert_mapper_fills;
+        use crate::spi::{ProviderDescriptor, WhoopDescriptor};
+
+        let mut scored = workout(Some("cycling"), Some(1));
+        scored.score = Some(WhoopWorkoutScore {
+            average_heart_rate: Some(141),
+            max_heart_rate: Some(176),
+            kilojoule: Some(4_100.0),
+            distance_meter: Some(30_000.0),
+            altitude_gain_meter: Some(300.0),
+        });
+        let activity = WhoopProvider::convert_workout(&scored).unwrap();
+        assert_mapper_fills(
+            "whoop",
+            WhoopDescriptor.activity_fields(),
+            &activity,
+            &activity,
+        );
+    }
 }

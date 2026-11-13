@@ -32,6 +32,7 @@ use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId};
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
@@ -125,20 +126,30 @@ fn reads_of(reads: &Reads, session: &str) -> usize {
         .count()
 }
 
-/// Whether the ledger holds a backfill job for `(user, provider)` in `tenant`.
-async fn job_on_file(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant: TenantId,
-    provider: &str,
-) -> bool {
-    runtime
-        .repos()
-        .activity_backfill_jobs
-        .backfill_job_state(user_id, tenant, provider)
-        .await
-        .unwrap()
-        .is_some()
+/// Whether the ledger holds a backfill job for `(user, provider)` in `tenant`,
+/// read from the table itself.
+async fn job_on_file(database: &Database, user_id: Uuid, tenant: TenantId, provider: &str) -> bool {
+    const SQL: &str = "SELECT COUNT(*) FROM activity_backfill_jobs \
+                       WHERE user_id = $1 AND tenant_id = $2 AND provider = $3";
+    let user = user_id.to_string();
+    let rows: i64 = match database.backend() {
+        DatabaseBackend::SQLite(db) => sqlx::query_scalar(SQL)
+            .bind(&user)
+            .bind(tenant)
+            .bind(provider)
+            .fetch_one(db.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => sqlx::query_scalar(SQL)
+            .bind(&user)
+            .bind(tenant)
+            .bind(provider)
+            .fetch_one(db.pool())
+            .await
+            .unwrap(),
+    };
+    rows > 0
 }
 
 /// Connect `provider` for the athlete under a live scrape session `session`.
@@ -184,6 +195,7 @@ async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
     .unwrap();
     connect(&resources, user_id, tenant, PROVIDER_A, SESSION_A).await;
     connect(&resources, user_id, tenant, PROVIDER_B, SESSION_B).await;
+    let database = Arc::clone(&resources.agent.database);
     let runtime: Arc<dyn ToolRuntime> = resources;
 
     // The depth the training-history capture asks for: the default window and
@@ -201,14 +213,13 @@ async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
             ..ActivityQueryParams::default()
         },
         pierre_conversation_id: None,
-        history_import: false,
     })
     .await;
     assert!(started, "a fresh pair starts a backfill");
 
     // A's job row is removed only after its run, warm included, returns.
     let deadline = Instant::now() + RUN_BUDGET;
-    while job_on_file(&runtime, user_id, tenant, PROVIDER_A).await {
+    while job_on_file(&database, user_id, tenant, PROVIDER_A).await {
         assert!(
             Instant::now() < deadline,
             "A's backfill never finished its job within {RUN_BUDGET:?}"
@@ -236,7 +247,7 @@ async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
     let quiet_until = Instant::now() + STRAY_WINDOW;
     loop {
         assert!(
-            !job_on_file(&runtime, user_id, tenant, PROVIDER_B).await,
+            !job_on_file(&database, user_id, tenant, PROVIDER_B).await,
             "bug: A's warm started a backfill on B (carnet#1478)"
         );
         assert_eq!(

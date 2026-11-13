@@ -1,5 +1,5 @@
-// ABOUTME: Resolves user-facing provider names to the actual backend implementation
-// ABOUTME: Routes Strava and Garmin to OAuth when a token exists, else to the sciotte* mirror; a session beside a grant serves nothing
+// ABOUTME: Resolves user-facing provider names to the backend that serves an athlete's reads and writes
+// ABOUTME: Sciotte first: a session that is not revoked serves, its live OAuth grant stands behind it as the fallback
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,24 +20,24 @@
 //! detail that must never be surfaced to an end user via chat, messaging, or
 //! tool output.
 //!
-//! When a user has a sciotte* token row in the database (regardless of
-//! whether the session cookies are still valid — a stale row still encodes
-//! their explicit choice to use the mirror backend), a request targeting the
-//! user-facing provider name is routed to the mirror backend. If the mirror
-//! session is stale the user is prompted to re-authenticate through the mirror
-//! flow.
+//! Sciotte first (carnet#1494): every provider with a mirror is read through
+//! its usr/pwd session, and the provider's own OAuth grant (Strava's API,
+//! Garmin's Developer Program push, carnet#1155) stands behind it as the
+//! fallback while it is live. One rule decides, [`read_plan`]:
 //!
-//! Strava is migrating to its OAuth API: when a user holds an OAuth token for
-//! Strava it takes precedence over the sciotte mirror. Garmin works the same
-//! way since Dravr joined the Garmin Connect Developer Program (carnet#1155):
-//! a user holding a `garmin` token is served from what Garmin pushed, and every
-//! other Garmin athlete stays on the connection using usr/pwd from Dravr.
-//! The grant is then the only ongoing source: a usr/pwd session beside it
-//! ([`session_beside_grant`]) serves no read, and is never retried or
-//! surfaced as a reconnect. What such a session imported stays served, read
-//! beside the grant's pushes under the mirror's key (carnet#1386).
-//! TrainingPeaks and COROS stay on the mirror: neither has an API Pierre can
-//! call.
+//! | The athlete holds | `primary` | `fallback` |
+//! |---|---|---|
+//! | a session that is not revoked, with or without a grant | mirror | the grant, while its connection is active |
+//! | a live grant only | grant | none |
+//! | a dead grant only | mirror, whose read raises the hosted sign-in | none |
+//! | a revoked session and a live grant | grant | none |
+//! | nothing | mirror ([`mirror_is_default`]) | none |
+//!
+//! [`resolve_backend`] is the plan's primary. A read that must reach one
+//! backend exactly (a Strava webhook, the first read of a connection just
+//! made) never goes through it. A write goes to the backend of the plan that
+//! carries the write's capability ([`write_backend`]). TrainingPeaks and
+//! COROS have no API Pierre can call, so their mirror is their only backend.
 //!
 //! This module centralises that decision so handlers do not each re-invent
 //! the alias rules.
@@ -46,25 +46,21 @@ use std::iter;
 
 use chrono::{DateTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::MIRROR_PAIRS;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
 use crate::registry::ProviderRegistry;
-use pierre_core::models::{DelegatedConnection, TenantId};
+use crate::spi::ProviderCapabilities;
+use pierre_core::models::{ConnectionStatus, DelegatedConnection, ProviderConnection, TenantId};
+use tracing::warn;
 
-/// Every mirror pair: the user-facing provider and the sciotte backend that
-/// scrapes it. The single table the name mappings below read, so a provider
-/// added here is known to routing, status, the hosted login and the reconnect
-/// copy at once.
-const MIRROR_PAIRS: [(&str, &str); 4] = [
-    (oauth_providers::STRAVA, oauth_providers::SCIOTTE),
-    (oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN),
-    (
-        oauth_providers::TRAININGPEAKS,
-        oauth_providers::SCIOTTE_TRAININGPEAKS,
-    ),
-    (oauth_providers::COROS, oauth_providers::SCIOTTE_COROS),
-];
+mod writes;
+
+pub use writes::{
+    grant_owed, grant_owed_refusal, grant_writes_beside_mirror,
+    grant_writes_beside_serving_session, write_backend, GRANT_OWED_REASON,
+};
 
 /// Return the mirror-backend provider name for a user-facing provider, if any.
 ///
@@ -79,30 +75,39 @@ pub fn mirror_backend_for(user_facing: &str) -> Option<&'static str> {
 }
 
 /// The mirror-backed providers whose own OAuth backend serves them too: a
-/// token row for that backend wins over the mirror. Strava's API is the
-/// migration target; Garmin's is the Developer Program API, fed by push
-/// (carnet#1155).
+/// live grant stands behind the mirror as the fallback, and serves alone for
+/// an athlete with no session. Strava's is its public API; Garmin's is the
+/// Developer Program API, fed by push (carnet#1155).
 const OAUTH_SERVED: [&str; 2] = [oauth_providers::STRAVA, oauth_providers::GARMIN];
 
-/// Whether `provider`'s own OAuth backend serves it beside its mirror, and so
-/// wins over the mirror when the user holds a token row for it.
+/// Whether `provider`'s own OAuth backend serves it beside its mirror.
 fn oauth_serves(provider: &str) -> bool {
     OAUTH_SERVED.contains(&provider)
+}
+
+/// Whether `provider`'s own OAuth backend reads the provider's data on
+/// request, an API a caller can page through: Strava's. Garmin's is fed by
+/// push, and TrainingPeaks and COROS have no API Pierre can call.
+///
+/// Such a provider keeps its own name where a mirror-only provider takes its
+/// mirror's: the health sync pulls nothing through Strava's session
+/// ([`sync_backend`]), and a build without Strava's mirror still shows
+/// Strava's own card. Accepts either half of a pair.
+#[must_use]
+pub fn api_reads_on_request(provider: &str) -> bool {
+    let user_facing = user_facing_name(provider);
+    oauth_serves(user_facing) && pushed_backend_for(user_facing).is_none()
 }
 
 /// Whether a request for `provider` goes to its mirror when the user holds no
 /// row for either backend.
 ///
-/// True for every mirror-backed provider but Strava. TrainingPeaks and COROS
-/// have no API Pierre can call. Garmin's API is push-only and holds nothing
-/// until the athlete connects it, so an unconnected Garmin request stays on
-/// the connection using usr/pwd from Dravr, whose missing session surfaces as
-/// a clean reconnect. Strava's API is the one a not-yet-connected user is
-/// sent to connect. Accepts either half of a pair.
+/// True for every mirror-backed provider (carnet#1494): the athlete connects
+/// through the hosted sign-in, and a missing session surfaces as that
+/// sign-in's reconnect. Accepts either half of a pair.
 #[must_use]
 pub fn mirror_is_default(provider: &str) -> bool {
-    let user_facing = user_facing_name(provider);
-    mirror_backend_for(user_facing).is_some() && user_facing != oauth_providers::STRAVA
+    mirror_backend_for(user_facing_name(provider)).is_some()
 }
 
 /// The hosted login page's `target` for a mirror backend (`strava`, `garmin`,
@@ -118,6 +123,19 @@ pub fn hosted_login_target(backend: &str) -> Option<&'static str> {
         .iter()
         .find(|(_, mirror)| *mirror == backend)
         .map(|(provider, _)| *provider)
+}
+
+/// The hosted sign-in `target` an athlete reconnects `provider` through, or
+/// `None` for a provider with no mirror, which reconnects through its own
+/// authorization (WHOOP, Intervals.icu).
+///
+/// The one link rule of every reconnect (carnet#1494): a dead Strava or
+/// Garmin grant reconnects through its mirror's hosted sign-in, never its
+/// OAuth, as a dead session does. Accepts either half of a pair: both name
+/// one target.
+#[must_use]
+pub fn reconnect_target(provider: &str) -> Option<&'static str> {
+    mirror_backend_for(user_facing_name(provider)).and_then(hosted_login_target)
 }
 
 /// The hosted-login targets, in table order — for a refusal that names them.
@@ -149,8 +167,7 @@ pub fn user_facing_name(backend: &str) -> &str {
     hosted_login_target(backend).unwrap_or(backend)
 }
 
-/// The backends whose token row actually makes a user-facing provider usable,
-/// in the order [`resolve_backend`] prefers them.
+/// The backends whose token row actually makes a user-facing provider usable.
 ///
 /// Connectedness is a ROUTING question, not a row-existence one. A status
 /// surface that counted a row routing never reads reported
@@ -158,8 +175,8 @@ pub fn user_facing_name(backend: &str) -> &str {
 /// with "Provider `sciotte_garmin` requires authentication" (carnet#352): at
 /// the time the raw `garmin` OAuth backend was never routed to.
 ///
-/// Strava and Garmin accept either backend: the OAuth one takes precedence
-/// when a token exists, falling back to the mirror. Garmin's OAuth backend
+/// Strava and Garmin accept either backend: which one serves an athlete is
+/// [`read_plan`]'s to say, never this list's order. Garmin's OAuth backend
 /// serves since carnet#1155, reading what Garmin pushed. TrainingPeaks and
 /// COROS are served by their mirror alone (COROS's partner API is not
 /// approved, carnet#509). Providers with no mirror serve themselves.
@@ -184,24 +201,21 @@ pub fn serving_backends(provider: &str) -> Vec<String> {
 /// The backend whose token row the background health sync reads for a
 /// provider, by the name the sync knows it under (`garmin`, `coros`, `whoop`).
 ///
-/// A provider routed to its mirror by default ([`mirror_is_default`]: Garmin,
-/// COROS) is pulled through its mirror's browser session, and every other
-/// provider through its own backend. Garmin's OAuth backend is never pulled:
-/// Garmin pushes its data ([`pushed_backend_for`]), so a user whose grant
-/// serves Garmin ([`oauth_grant`]) is skipped by the sync rather than read
-/// through it, whatever usr/pwd session stands beside the grant. The sync
-/// stamps its rows
-/// with the provider name, so a stored night is `coros` whichever backend fed
-/// it, while the session lives on `sciotte_coros`.
+/// A mirror-backed provider whose own API does not read on request
+/// ([`api_reads_on_request`]: Garmin, COROS, TrainingPeaks) is pulled through
+/// its mirror's browser session, and every other provider through its own
+/// backend: Strava has no wellness to pull. Garmin's OAuth backend is never
+/// pulled: Garmin pushes its data ([`pushed_backend_for`]), so a user whose
+/// live grant is in their read plan ([`read_plan`]) is left to the pushes
+/// rather than pulled. The sync stamps its rows with the provider name, so a
+/// stored night is `coros` whichever backend fed it, while the session lives
+/// on `sciotte_coros`.
 #[must_use]
 pub fn sync_backend(provider: &str) -> String {
     let user_facing = user_facing_name(provider);
     match mirror_backend_for(user_facing) {
-        Some(mirror) if mirror_is_default(user_facing) => mirror.to_owned(),
-        _ => serving_backends(provider)
-            .into_iter()
-            .next()
-            .unwrap_or_else(|| provider.to_owned()),
+        Some(mirror) if !api_reads_on_request(user_facing) => mirror.to_owned(),
+        _ => user_facing.to_owned(),
     }
 }
 
@@ -210,9 +224,9 @@ pub fn sync_backend(provider: &str) -> String {
 ///
 /// Garmin's Developer Program API pushes every summary to Dravr (carnet#1155),
 /// so the background sync, which pulls through [`sync_backend`], leaves alone
-/// a user whose grant for this backend serves Garmin ([`oauth_grant`]):
-/// reading them through the usr/pwd session as well would write the same days
-/// twice.
+/// a user whose live grant for this backend is in their read plan
+/// ([`read_plan`]): the pushes feed the wellness, and reading it through the
+/// usr/pwd session as well would write the same days twice.
 #[must_use]
 pub fn pushed_backend_for(provider: &str) -> Option<&'static str> {
     (user_facing_name(provider) == oauth_providers::GARMIN).then_some(oauth_providers::GARMIN)
@@ -285,6 +299,35 @@ async fn has_token_row(
     )
 }
 
+/// Whether the user holds a token row for `backend` in this tenant, for the
+/// read plan. A row that cannot be read (a store failure, a ciphertext that
+/// does not decrypt) counts as held: routing the athlete away from it would
+/// read a store failure as a missing credential and send them to reconnect
+/// an intact connection.
+async fn token_row_held(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> bool {
+    match repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, backend)
+        .await
+    {
+        Ok(row) => row.is_some(),
+        Err(e) => {
+            warn!(
+                user_id = %user_id,
+                provider = backend,
+                error = %e,
+                "could not read the token row; routing as though it is held"
+            );
+            true
+        }
+    }
+}
+
 /// Whether the user holds any activity under the cache `key` in this tenant.
 ///
 /// Read from the rows themselves. A store that cannot be read counts as
@@ -311,189 +354,404 @@ pub async fn holds_activities(
     )
 }
 
-/// The activity-cache keys a read of `backend`'s own window serves.
+/// The activity-cache keys a read of `backend`'s own window serves, its own
+/// key first.
 ///
-/// The backend itself, and for a push-fed OAuth backend
-/// ([`pushed_backend_for`]) its mirror too, whose usr/pwd session's imported
-/// history keeps being served beside the pushes (carnet#1386). One key per
-/// backend otherwise.
+/// - A mirror whose provider's OAuth backend serves it beside the mirror
+///   (`sciotte`, `sciotte_garmin`) serves its grant's key too: the rows the
+///   API stored before the session became the primary (carnet#1494) stay
+///   served, and the pushes a live Garmin grant keeps storing merge into the
+///   session's window.
+/// - A push-fed OAuth backend ([`pushed_backend_for`]: `garmin`) serves its
+///   mirror's key too, the history a usr/pwd session imported before the
+///   grant retired it (carnet#1386).
+/// - Every other backend has its one key: Strava's API reads history on
+///   request, so a read naming it exactly serves what it stored.
 ///
-/// The athlete's own uploads
+/// Rows of both keys are one window: the readers merge every recording of a
+/// workout into one session. The athlete's own uploads
 /// ([`companion_keys`](oauth_providers::companion_keys)) are not among them:
 /// those are served by their own path.
 #[must_use]
 pub fn history_keys(backend: &str) -> Vec<&str> {
-    let mirror = (pushed_backend_for(backend) == Some(backend))
-        .then(|| mirror_backend_for(backend))
-        .flatten();
-    iter::once(backend).chain(mirror).collect()
+    let other = if is_mirror_backend(backend) {
+        Some(user_facing_name(backend)).filter(|grant| oauth_serves(grant))
+    } else if pushed_backend_for(backend) == Some(backend) {
+        mirror_backend_for(backend)
+    } else {
+        None
+    };
+    iter::once(backend).chain(other).collect()
 }
 
-/// Whether `backend` is a usr/pwd session standing beside an OAuth grant that
-/// serves its provider.
-///
-/// It is when `backend` is a mirror whose user-facing provider's own OAuth
-/// backend serves it (Garmin, Strava), for a user who holds a token row for
-/// that OAuth backend in this tenant.
-///
-/// Such a session serves nothing: the grant is the provider's one ongoing
-/// source, so the session is never read, retried, elected or surfaced as a
-/// reconnect, and a flag on it sends no notice (carnet#1386). The grant's row
-/// alone decides, whatever its connection's status: a dead grant raises its
-/// own reconnect. `false` for COROS and TrainingPeaks (no OAuth backend
-/// serves them), for a session with no grant beside it, and for any backend
-/// that is not a mirror.
-pub async fn session_beside_grant(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) -> bool {
-    if !is_mirror_backend(backend) {
-        return false;
+/// What one half of a mirror pair (the session or the grant) amounts to for
+/// an athlete in a tenant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Half {
+    /// No token row.
+    Absent,
+    /// A token row whose connection is active, or that has no connection
+    /// row: nothing ever flagged it.
+    Live,
+    /// A token row whose connection is `needs_reauth`: a refused refresh, a
+    /// dead scrape session.
+    Flagged,
+    /// A token row whose connection was revoked.
+    Revoked,
+}
+
+impl Half {
+    /// Whether a session in this state is the athlete's way in: it is held
+    /// and not revoked. A flagged session still is, so its read raises the
+    /// hosted sign-in rather than passing to the grant for good.
+    const fn signed_in(self) -> bool {
+        matches!(self, Self::Live | Self::Flagged)
     }
-    let user_facing = user_facing_name(backend);
-    oauth_serves(user_facing) && has_token_row(repos, user_id, tenant_id, user_facing).await
 }
 
-/// Whether a sign-in of `backend` is a one-time history import (carnet#1386).
+/// The state of `backend`'s half among the athlete's `connections`, given
+/// whether they hold a token row for it.
+fn half(held: bool, connections: &[ProviderConnection], backend: &str) -> Half {
+    if !held {
+        return Half::Absent;
+    }
+    match connections
+        .iter()
+        .find(|connection| connection.provider == backend)
+        .map(|connection| connection.status)
+    {
+        Some(ConnectionStatus::NeedsReauth) => Half::Flagged,
+        Some(ConnectionStatus::Revoked) => Half::Revoked,
+        Some(ConnectionStatus::Active) | None => Half::Live,
+    }
+}
+
+/// Both halves of a pair whose grant serves beside its mirror, for one
+/// athlete in one tenant.
+#[derive(Debug, Clone, Copy)]
+struct PairHalves {
+    session: Half,
+    grant: Half,
+}
+
+impl PairHalves {
+    /// Read the session `mirror` and the grant `grant`. A token row or a
+    /// connection list that cannot be read counts as held and live: the
+    /// athlete keeps the credential they hold rather than lose it to a guess,
+    /// and the read that follows reports what it finds.
+    async fn read(
+        repos: &RepositoryRegistry,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        grant: &str,
+        mirror: &str,
+    ) -> Self {
+        let session_held = token_row_held(repos, user_id, tenant_id, mirror).await;
+        let grant_held = token_row_held(repos, user_id, tenant_id, grant).await;
+        let connections = if session_held || grant_held {
+            repos
+                .provider_connections
+                .get_for_user(user_id, Some(tenant_id))
+                .await
+                .inspect_err(|e| {
+                    warn!(
+                        user_id = %user_id,
+                        provider = grant,
+                        error = %e,
+                        "could not read the connection statuses; reading every held row as live"
+                    );
+                })
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        Self {
+            session: half(session_held, &connections, mirror),
+            grant: half(grant_held, &connections, grant),
+        }
+    }
+}
+
+/// Where an athlete's reads of a provider go: the backend that serves them,
+/// and the one that answers in its place when it has an unexpected error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReadPlan {
+    /// The backend every read of the provider goes to first.
+    pub primary: String,
+    /// The provider's live OAuth grant standing behind a session that serves
+    /// as the primary; `None` when no live grant stands behind it.
+    pub fallback: Option<String>,
+}
+
+impl ReadPlan {
+    /// A plan served by `backend` alone.
+    fn alone(backend: &str) -> Self {
+        Self {
+            primary: backend.to_owned(),
+            fallback: None,
+        }
+    }
+
+    /// The plan's backends, the primary first.
+    pub fn backends(&self) -> impl Iterator<Item = &str> {
+        iter::once(self.primary.as_str()).chain(self.fallback.as_deref())
+    }
+
+    /// Whether `backend` serves in this plan, as its primary or its fallback.
+    #[must_use]
+    pub fn serves(&self, backend: &str) -> bool {
+        self.backends().any(|served| served == backend)
+    }
+
+    /// The first of the plan's backends whose descriptor in `registry`
+    /// carries `capability`, or `None` when neither does.
+    #[must_use]
+    pub fn carrying(
+        &self,
+        registry: &ProviderRegistry,
+        capability: ProviderCapabilities,
+    ) -> Option<&str> {
+        self.backends().find(|backend| {
+            registry
+                .get_capabilities(backend)
+                .is_some_and(|capabilities| capabilities.contains(capability))
+        })
+    }
+}
+
+/// The athlete's read plan for `provider` in this tenant.
 ///
-/// It is for a usr/pwd session beside a grant whose own reads serve what that
-/// session stores ([`history_keys`]), which is then no ongoing source.
+/// The one rule [`resolve_backend`], [`coalesced_status`], the connect cards
+/// and the wellness sync read, so routing and every status surface agree
+/// (carnet#1302, carnet#1494).
 ///
-/// It is when [`session_beside_grant`] holds and the grant is push-fed, so
-/// the rows the session imports keep being served through the grant's
-/// window (Garmin). `false` for `sciotte` beside a Strava grant: Strava's
-/// API reads history on request and never serves the session's rows, and
-/// for every session no grant stands beside.
-pub async fn session_imports_history(
+/// For a pair whose own OAuth backend serves beside its mirror (Strava,
+/// Garmin), in order:
+/// 1. a session that is not revoked (active or `needs_reauth`) is the
+///    primary, and the grant its fallback while the grant's connection is
+///    active;
+/// 2. else a live grant serves alone;
+/// 3. else the mirror, so a dead grant's read raises the hosted sign-in, and
+///    an athlete with nothing connects through it ([`mirror_is_default`]).
+///
+/// TrainingPeaks and COROS are their mirror alone, and a provider with no
+/// mirror is itself alone. Accepts either half of a pair: both name one plan.
+pub async fn read_plan(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> ReadPlan {
+    let user_facing = user_facing_name(provider);
+    let Some(mirror) = mirror_backend_for(user_facing) else {
+        return ReadPlan::alone(provider);
+    };
+    if !oauth_serves(user_facing) {
+        return ReadPlan::alone(mirror);
+    }
+    let halves = PairHalves::read(repos, user_id, tenant_id, user_facing, mirror).await;
+    if halves.session.signed_in() {
+        return ReadPlan {
+            primary: mirror.to_owned(),
+            fallback: (halves.grant == Half::Live).then(|| user_facing.to_owned()),
+        };
+    }
+    if halves.grant == Half::Live {
+        return ReadPlan::alone(user_facing);
+    }
+    ReadPlan::alone(mirror)
+}
+
+/// Whether `backend` is an OAuth grant standing beside a usr/pwd session of
+/// its provider that is not revoked, in this tenant.
+///
+/// The session is then the provider's primary ([`read_plan`]), so a walk of
+/// the athlete's connections reads the session and passes over the grant:
+/// the API is never read beside the scrape. `false` for a mirror, for a
+/// provider whose OAuth backend never serves beside its mirror, and for a
+/// grant with no session beside it, a dead grant alone included, whose flag
+/// is the athlete's reconnect.
+pub async fn grant_beside_session(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
 ) -> bool {
-    let Some(grant) = pushed_backend_for(backend) else {
+    let Some(mirror) = mirror_backend_for(backend) else {
         return false;
     };
-    history_keys(grant).contains(&backend)
-        && session_beside_grant(repos, user_id, tenant_id, backend).await
+    oauth_serves(backend)
+        && PairHalves::read(repos, user_id, tenant_id, backend, mirror)
+            .await
+            .session
+            .signed_in()
 }
 
-/// What the user's OAuth grant for a mirror-backed provider amounts to.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum OAuthGrant {
-    /// The user holds no OAuth token row for the provider.
-    Absent,
-    /// The grant serves the provider's reads. Where the athlete's history
-    /// from before it stands is the card's own `history`, read apart.
-    Serves,
-}
-
-impl OAuthGrant {
-    /// Whether the OAuth backend serves the provider's reads.
-    #[must_use]
-    pub const fn serves(self) -> bool {
-        matches!(self, Self::Serves)
-    }
-}
-
-/// Classify the user's OAuth grant for `user_facing` in this tenant — the one
-/// rule [`resolve_backend`], [`coalesced_status`] and the connect cards read,
-/// so routing and every status surface agree (carnet#1302).
+/// Whether the dead or withdrawn OAuth grant `backend` asks nothing of its
+/// athlete because of the usr/pwd session beside it, in this tenant.
 ///
-/// Strava's grant serves whenever its row exists: its API reads history on
-/// request. Garmin's grant serves whenever its row exists too, whatever
-/// usr/pwd session stands beside it (carnet#1386), so one user resolves to
-/// one backend whatever they ask for. Whether the history from before the
-/// grant is in is the card's to say, never the routing's.
-/// Providers whose OAuth backend never serves beside its mirror, and those
-/// with no mirror, read [`OAuthGrant::Absent`].
-pub async fn oauth_grant(
+/// True beside a session that serves (held, its connection active): the
+/// session keeps the provider syncing, and the grant is replaced at the
+/// athlete's next sign-in. True too beside a session flagged after the grant
+/// was: no live grant stood behind the session when it died, so its own
+/// notice was the ordinary reconnect, which still holds.
+///
+/// False beside a session flagged before the grant died, or before a live
+/// grant is withdrawn: that session's notice said the grant kept the
+/// provider syncing for now (carnet#1494), which the grant's end makes
+/// false, and nothing serves the athlete any more. False too with no
+/// session, or a revoked one, and for a mirror or a provider whose OAuth
+/// backend never serves beside its mirror. Flags of the same instant, or a
+/// flag whose instant is unknown, read as the session's first: the athlete
+/// is told rather than left believing a sync goes on. A store that cannot
+/// be read reads every held row as live, as [`read_plan`] reads it.
+///
+/// Unlike [`grant_beside_session`], which routes a walk of the athlete's
+/// connections, a flagged session counts here only by when it was flagged:
+/// a grant's name still resolves to its flagged session for reads.
+pub async fn session_answers_for_grant(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
-    user_facing: &str,
-) -> OAuthGrant {
-    if mirror_backend_for(user_facing).is_none()
-        || !oauth_serves(user_facing)
-        || !has_token_row(repos, user_id, tenant_id, user_facing).await
-    {
-        return OAuthGrant::Absent;
+    backend: &str,
+) -> bool {
+    let Some(mirror) = mirror_backend_for(backend) else {
+        return false;
+    };
+    if !oauth_serves(backend) {
+        return false;
     }
-    OAuthGrant::Serves
+    match PairHalves::read(repos, user_id, tenant_id, backend, mirror)
+        .await
+        .session
+    {
+        Half::Live => true,
+        Half::Flagged => grant_flagged_first(repos, user_id, tenant_id, backend, mirror).await,
+        Half::Absent | Half::Revoked => false,
+    }
+}
+
+/// Whether the grant `grant`'s connection was flagged strictly before the
+/// session `mirror`'s, in this tenant. `false` when either instant is
+/// unknown, the grant is not flagged, or the connections cannot be read.
+async fn grant_flagged_first(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    grant: &str,
+    mirror: &str,
+) -> bool {
+    let Ok(connections) = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+    else {
+        return false;
+    };
+    let flagged_at = |backend: &str| {
+        connections
+            .iter()
+            .find(|connection| {
+                connection.provider == backend && connection.status == ConnectionStatus::NeedsReauth
+            })
+            .and_then(|connection| connection.status_changed_at)
+    };
+    matches!(
+        (flagged_at(grant), flagged_at(mirror)),
+        (Some(grant_at), Some(session_at)) if grant_at < session_at
+    )
+}
+
+/// The live OAuth grant that keeps `backend` syncing when `backend` is the
+/// athlete's session for its provider, else `None`.
+///
+/// It is the session's [`read_plan`] fallback: a session that is not revoked
+/// serves first, and a live grant answers when it cannot. A session that
+/// dies with such a grant beside it is still told, once, that the provider
+/// keeps syncing for now and that a fresh sign-in keeps it that way
+/// (carnet#1494). `None` for a grant, a provider with no mirror, and a
+/// session with no live grant beside it.
+pub async fn fallback_grant(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> Option<String> {
+    if !is_mirror_backend(backend) {
+        return None;
+    }
+    let plan = read_plan(repos, user_id, tenant_id, backend).await;
+    if plan.primary == backend {
+        plan.fallback
+    } else {
+        None
+    }
+}
+
+/// The OAuth grant of `provider`'s pair when the athlete holds it dead in
+/// this tenant (its connection `needs_reauth`: a refused refresh), else
+/// `None`.
+///
+/// A dead grant reconnects only through its mirror's hosted sign-in
+/// ([`reconnect_target`]), and a sign-in over it replaces it (carnet#1494).
+/// `None` for a provider whose OAuth backend never serves beside its mirror,
+/// for a live or absent grant, and when the store cannot be read: nothing is
+/// rerouted or deleted on a guess. Accepts either half of a pair.
+pub async fn flagged_grant(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> Option<&'static str> {
+    let user_facing = user_facing_name(provider);
+    mirror_backend_for(user_facing)?;
+    let grant = OAUTH_SERVED
+        .iter()
+        .copied()
+        .find(|served| *served == user_facing)?;
+    if !has_token_row(repos, user_id, tenant_id, grant).await {
+        return None;
+    }
+    let connections = repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant_id))
+        .await
+        .inspect_err(|e| {
+            warn!(
+                user_id = %user_id,
+                provider = grant,
+                error = %e,
+                "could not read the connection statuses; the grant reads as live"
+            );
+        })
+        .ok()?;
+    (half(true, &connections, grant) == Half::Flagged).then_some(grant)
 }
 
 /// Resolve a user-facing provider name to the backend that should actually
-/// serve the request.
+/// serve the request: its [`read_plan`]'s primary.
 ///
-/// Rules:
-/// - `strava` → `strava` when the user holds a Strava OAuth token row, else
-///   `sciotte` when a sciotte token row exists, else `strava`
-/// - `garmin` → `garmin` when the user holds a Garmin API token row, whatever
-///   usr/pwd session stands beside it; else `sciotte_garmin`, with or without
-///   a session row (carnet#1155, carnet#1386 — [`oauth_grant`])
+/// - `strava`, `garmin` → the session (`sciotte`, `sciotte_garmin`) when one
+///   that is not revoked is held, else a live grant, else the session
 /// - `trainingpeaks` → `sciotte_trainingpeaks` always (no API to call)
 /// - `coros` → `sciotte_coros` always (its partner API is not approved)
-/// - `sciotte_garmin` named directly → `garmin` when the session stands
-///   beside a Garmin grant ([`session_beside_grant`]): that session serves
-///   nothing, and the grant's window carries what it stored
-///   ([`history_keys`]), so a read naming it is the grant's. `sciotte` beside
-///   a Strava grant stays `sciotte`: Strava's API never serves the session's
-///   rows, and every caller that walks connections leaves that session out
-///   by [`session_beside_grant`] itself
-/// - any other name (including a mirror backend name passed through
-///   directly with no grant beside it) is returned unchanged
+/// - a mirror named directly stays that mirror, and any other name is
+///   returned unchanged
 ///
-/// The resolver honours the user's explicit preference even when the
-/// mirror session is stale. Downstream code surfaces an auth failure in
-/// that case, which the caller is expected to translate into a
-/// mirror-re-login prompt — never a fallback to OAuth.
-///
-/// A provider routed to its mirror by default ([`mirror_is_default`])
-/// resolves to the mirror even with no mirror token: returning the
-/// user-facing name would send an unconnected Garmin athlete to an API that
-/// holds nothing for them (and TrainingPeaks to an unknown provider), where
-/// staying on the mirror makes a missing session surface as a clean reconnect
-/// auth error instead.
+/// A read that must reach one backend exactly whatever the plan (a Strava
+/// webhook, the first read of a connection just made) never comes here.
 pub async fn resolve_backend(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: Option<TenantId>,
     requested: &str,
 ) -> String {
-    let Some(tid) = tenant_id else {
-        return requested.to_owned();
-    };
-    let Some(mirror) = mirror_backend_for(requested) else {
-        // Only a grant whose own reads serve the session's stored history
-        // (`history_keys`) takes over a read naming the session: Strava's API
-        // reads on request and never serves what a `sciotte` session stored.
-        let user_facing = user_facing_name(requested);
-        if pushed_backend_for(user_facing) == Some(user_facing)
-            && session_beside_grant(repos, user_id, tid, requested).await
-        {
-            return user_facing.to_owned();
+    match tenant_id {
+        Some(tid) if mirror_backend_for(requested).is_some() => {
+            read_plan(repos, user_id, tid, requested).await.primary
         }
-        return requested.to_owned();
-    };
-    // Strava → OAuth-API migration, and the Garmin Developer Program API
-    // (carnet#1155): the OAuth backend wins whenever the user holds a token
-    // row for it (carnet#1386). Mirror-only users have no such row, so they
-    // keep the mirror until they authorize OAuth.
-    if oauth_grant(repos, user_id, tid, requested).await.serves() {
-        return requested.to_owned();
+        _ => requested.to_owned(),
     }
-    if has_token_row(repos, user_id, tid, mirror).await {
-        return mirror.to_owned();
-    }
-    // No row of either backend. Strava keeps returning the OAuth name (a real,
-    // connectable backend) so a not-yet-connected user is routed into the OAuth
-    // connect flow rather than a dead scraper; every other pair stays on its
-    // mirror (see `mirror_is_default`).
-    if mirror_is_default(requested) {
-        return mirror.to_owned();
-    }
-    requested.to_owned()
 }
 
 /// Connection status for a user-facing provider after mirror coalescing.
@@ -546,44 +804,44 @@ impl BackendKind {
 
 /// Probe connection status for a single user-facing provider.
 ///
-/// For Strava and Garmin a serving OAuth grant ([`oauth_grant`]) wins over the
-/// sciotte mirror, matching `resolve_backend`. For every other mirror-backed
-/// provider (TrainingPeaks, COROS) the mirror wins when present — even if
-/// stale — because the user's stated preference is to keep using it. With
-/// no credential of the user's own, a confirmed link their group coach reads
-/// one of the provider's backends through ([`BackendKind::Delegated`])
-/// connects it, found the way the read path finds it, so the status and the
-/// read cannot disagree. A link that
-/// cannot be read counts as none, as an unreadable token row does.
+/// For Strava and Garmin the backend [`read_plan`] serves first is the one
+/// reported: a session that is not revoked is `mirror`, whatever grant
+/// stands behind it, so its flag is the card's reconnect. Without one, a
+/// grant is `oauth` — live it serves, flagged its reconnect is the card's
+/// to show — and a revoked session alone is still `mirror`. For every other
+/// mirror-backed provider (TrainingPeaks, COROS) the mirror wins when
+/// present — even if stale — because the user's stated preference is to keep
+/// using it. With no credential of the user's own, a confirmed link their
+/// group coach reads one of the provider's backends through
+/// ([`BackendKind::Delegated`]) connects it, found the way the read path
+/// finds it, so the status and the read cannot disagree. A link that cannot
+/// be read counts as none, as an unreadable token row does.
 pub async fn coalesced_status(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
     user_facing: &'static str,
 ) -> CoalescedStatus {
-    // Strava and Garmin prefer their OAuth backend: report it as the active
-    // backend when its grant serves, even if a mirror row also lingers — by
-    // the same rule `resolve_backend` routes by ([`oauth_grant`]).
-    if oauth_grant(repos, user_id, tenant_id, user_facing)
-        .await
-        .serves()
-    {
-        return CoalescedStatus {
-            user_facing,
-            connected: true,
-            backend_kind: BackendKind::Oauth,
-            delegation: None,
-        };
-    }
-
+    let held = |backend_kind| CoalescedStatus {
+        user_facing,
+        connected: true,
+        backend_kind,
+        delegation: None,
+    };
     if let Some(mirror) = mirror_backend_for(user_facing) {
-        if has_token_row(repos, user_id, tenant_id, mirror).await {
-            return CoalescedStatus {
-                user_facing,
-                connected: true,
-                backend_kind: BackendKind::Mirror,
-                delegation: None,
-            };
+        if oauth_serves(user_facing) {
+            let halves = PairHalves::read(repos, user_id, tenant_id, user_facing, mirror).await;
+            if halves.session.signed_in() {
+                return held(BackendKind::Mirror);
+            }
+            if halves.grant != Half::Absent {
+                return held(BackendKind::Oauth);
+            }
+            if halves.session != Half::Absent {
+                return held(BackendKind::Mirror);
+            }
+        } else if has_token_row(repos, user_id, tenant_id, mirror).await {
+            return held(BackendKind::Mirror);
         }
     }
 
@@ -632,31 +890,149 @@ pub async fn coalesced_status(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::models::ConnectionType;
 
-    /// A Garmin grant's reads serve its pushes and the usr/pwd session's
-    /// copy beside it; no other grant serves a session's rows.
+    /// A session's window serves its grant's key too, a Garmin grant's
+    /// window serves its session's, and every other backend has one key
+    /// (carnet#1494, carnet#1386).
     #[test]
-    fn only_a_push_fed_grant_serves_its_sessions_rows() {
+    fn a_session_serves_its_grants_rows_and_a_push_fed_grant_its_sessions() {
+        assert_eq!(
+            history_keys(oauth_providers::SCIOTTE),
+            vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA],
+            "bug: the Strava session's window drops the rows the API stored"
+        );
+        assert_eq!(
+            history_keys(oauth_providers::SCIOTTE_GARMIN),
+            vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN],
+            "bug: the Garmin session's window drops the grant's pushes"
+        );
         assert_eq!(
             history_keys(oauth_providers::GARMIN),
             vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN],
-            "bug: a Garmin grant's window serves its pushes and its session's copy"
+            "bug: a Garmin grant's window drops the history its session imported"
         );
         assert_eq!(
             history_keys(oauth_providers::STRAVA),
             vec![oauth_providers::STRAVA],
             "bug: a Strava grant's window serves only its own key"
         );
+        for single in [
+            oauth_providers::COROS,
+            oauth_providers::SCIOTTE_COROS,
+            oauth_providers::SCIOTTE_TRAININGPEAKS,
+            oauth_providers::WHOOP,
+        ] {
+            assert_eq!(
+                history_keys(single),
+                vec![single],
+                "bug: {single} has no grant beside it and one key"
+            );
+        }
+    }
+
+    /// A held row's half reads its connection's status; a row with no
+    /// connection was never flagged, and no row is absent whatever a stray
+    /// connection says.
+    #[test]
+    fn a_half_reads_its_connections_status() {
+        let connection = |provider: &str, status| ProviderConnection {
+            id: "id".to_owned(),
+            user_id: Uuid::nil(),
+            tenant_id: Uuid::nil().to_string(),
+            provider: provider.to_owned(),
+            connection_type: ConnectionType::Manual,
+            connected_at: Utc::now(),
+            last_used_at: None,
+            status,
+            metadata: None,
+            account_role: None,
+            status_changed_at: None,
+        };
+        let connections = [
+            connection(oauth_providers::SCIOTTE, ConnectionStatus::NeedsReauth),
+            connection(oauth_providers::STRAVA, ConnectionStatus::Revoked),
+            connection(oauth_providers::GARMIN, ConnectionStatus::Active),
+        ];
         assert_eq!(
-            history_keys(oauth_providers::COROS),
-            vec![oauth_providers::COROS],
-            "bug: COROS has one key"
+            half(true, &connections, oauth_providers::SCIOTTE),
+            Half::Flagged,
+            "bug: a session whose connection needs a reconnect does not read as flagged"
+        );
+        assert_eq!(
+            half(true, &connections, oauth_providers::STRAVA),
+            Half::Revoked,
+            "bug: a grant whose connection was revoked does not read as revoked"
+        );
+        assert_eq!(
+            half(true, &connections, oauth_providers::GARMIN),
+            Half::Live,
+            "bug: a grant whose connection is active does not read as live"
+        );
+        assert_eq!(
+            half(true, &connections, oauth_providers::SCIOTTE_GARMIN),
+            Half::Live,
+            "bug: a token row no connection flagged reads as dead"
+        );
+        assert_eq!(
+            half(false, &connections, oauth_providers::GARMIN),
+            Half::Absent,
+            "bug: a connection with no token row reads as a credential"
+        );
+        assert!(
+            Half::Flagged.signed_in() && Half::Live.signed_in(),
+            "bug: a held session that is not revoked is not the athlete's way in"
+        );
+        assert!(
+            !Half::Revoked.signed_in() && !Half::Absent.signed_in(),
+            "bug: a revoked or absent session reads as the athlete's way in"
         );
     }
 
-    /// `session_imports_history` reads the grant a session imports for
-    /// through `pushed_backend_for`: Garmin's session has one, Strava's has
-    /// none, so a Strava sign-in beside a Strava grant is never an import.
+    /// Only Strava's own API reads on request; the health sync keeps pulling
+    /// every other mirror-backed provider through its session, and Strava
+    /// through nothing.
+    #[test]
+    fn only_stravas_api_reads_on_request() {
+        assert!(
+            api_reads_on_request(oauth_providers::STRAVA),
+            "bug: Strava's API does not read on request"
+        );
+        assert!(
+            api_reads_on_request(oauth_providers::SCIOTTE),
+            "bug: Strava's mirror does not answer for its pair's API"
+        );
+        for provider in [
+            oauth_providers::GARMIN,
+            oauth_providers::COROS,
+            oauth_providers::TRAININGPEAKS,
+            oauth_providers::WHOOP,
+        ] {
+            assert!(
+                !api_reads_on_request(provider),
+                "bug: {provider}'s API reads nothing on request"
+            );
+        }
+        assert_eq!(
+            sync_backend(oauth_providers::STRAVA),
+            oauth_providers::STRAVA,
+            "bug: the health sync pulls Strava through its session"
+        );
+        assert_eq!(
+            sync_backend(oauth_providers::SCIOTTE),
+            oauth_providers::STRAVA,
+            "bug: Strava's mirror does not sync under Strava's own name"
+        );
+        assert_eq!(
+            sync_backend(oauth_providers::GARMIN),
+            oauth_providers::SCIOTTE_GARMIN,
+            "bug: the health sync does not pull Garmin through its session"
+        );
+    }
+
+    /// `pushed_backend_for` names the push-fed grant beside a session:
+    /// Garmin's session has one, Strava's has none, and only the Garmin
+    /// grant's window serves its session's rows.
     #[test]
     fn only_the_garmin_session_has_a_pushed_grant() {
         assert_eq!(
@@ -704,6 +1080,31 @@ mod tests {
         assert!(
             !is_mirror_backend(oauth_providers::GARMIN),
             "bug: the Garmin grant is no mirror"
+        );
+    }
+
+    /// A dead grant reconnects through its mirror's hosted sign-in, as a dead
+    /// session does; a provider with no mirror through its own authorization.
+    #[test]
+    fn every_half_of_a_pair_reconnects_through_its_mirrors_sign_in() {
+        for (provider, target) in [
+            (oauth_providers::STRAVA, "strava"),
+            (oauth_providers::SCIOTTE, "strava"),
+            (oauth_providers::GARMIN, "garmin"),
+            (oauth_providers::SCIOTTE_GARMIN, "garmin"),
+            (oauth_providers::TRAININGPEAKS, "trainingpeaks"),
+            (oauth_providers::SCIOTTE_COROS, "coros"),
+        ] {
+            assert_eq!(
+                reconnect_target(provider),
+                Some(target),
+                "bug: {provider} reconnects through another sign-in"
+            );
+        }
+        assert_eq!(
+            reconnect_target(oauth_providers::WHOOP),
+            None,
+            "bug: a provider with no mirror is sent to a sign-in it has none of"
         );
     }
 }

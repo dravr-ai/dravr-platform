@@ -12,11 +12,10 @@ pub(crate) mod auth;
 pub(crate) mod barrage;
 pub(crate) mod canary;
 pub(crate) mod config;
-/// `pierre-cli settings connect-order`: which way a new Strava or Garmin connection goes first.
+/// `pierre-cli settings connect-order`: which way a new connection of a provider goes first.
 pub(crate) mod connect_order;
 pub(crate) mod deletion;
 pub(crate) mod drift;
-pub(crate) mod garmin;
 pub(crate) mod guardian_settings;
 #[cfg(feature = "tools-verification")]
 pub(crate) mod harness;

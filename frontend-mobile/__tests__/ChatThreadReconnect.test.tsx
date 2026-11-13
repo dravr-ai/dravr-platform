@@ -31,14 +31,12 @@ jest.mock('../src/components/SciotteLoginModal', () => {
       target,
       consentRequired,
       onConnected,
-      onOAuthRequired,
       onFallBackToOAuth,
     }: {
       visible: boolean;
       target: string;
       consentRequired?: boolean;
       onConnected: () => void;
-      onOAuthRequired?: () => void;
       onFallBackToOAuth?: () => void;
     }) =>
       visible
@@ -49,12 +47,6 @@ jest.mock('../src/components/SciotteLoginModal', () => {
               Text,
               { onPress: onConnected, testID: 'sciotte-modal' },
               `sciotte-modal:${target}${consentRequired ? ':consent' : ''}`,
-            ),
-            // The server's oauth_required refusal: the window stays open and says why.
-            React.createElement(
-              Text,
-              { onPress: () => onOAuthRequired?.(), testID: 'sciotte-modal-oauth-required' },
-              'refuse:oauth_required',
             ),
             // A sign-in that could not complete, offered only with a fallback.
             onFallBackToOAuth
@@ -151,15 +143,15 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
   });
 
-  it('starts the Garmin authorization by its name, reading the sciotte_garmin card', () => {
+  it('signs in to Garmin for a dead Garmin grant, reading the sciotte_garmin card, never its OAuth (carnet#1494)', () => {
     mockSlug = 'garmin';
     const status = providerStatus([garmin('oauth')]);
     renderThread(status);
 
     fireEvent.press(screen.getByText('reply:reconnect'));
 
-    expect(status.handleConnectProvider).toHaveBeenCalledWith('garmin');
-    expect(screen.queryByTestId('sciotte-modal')).toBeNull();
+    expect(screen.getByText('sciotte-modal:garmin')).toBeTruthy();
+    expect(status.handleConnectProvider).not.toHaveBeenCalled();
   });
 
   it('signs in to Garmin while its card has no seat for the authorization', () => {
@@ -173,14 +165,15 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
   });
 
-  it('starts the Strava authorization for a Strava card served by its grant', () => {
+  it('signs in to Strava for a dead Strava grant, never its OAuth (carnet#1494)', () => {
     mockSlug = 'sciotte';
     const status = providerStatus([strava('strava', 'oauth')]);
     renderThread(status);
 
     fireEvent.press(screen.getByText('reply:reconnect'));
 
-    expect(status.handleConnectProvider).toHaveBeenCalledWith('strava');
+    expect(screen.getByText('sciotte-modal:strava')).toBeTruthy();
+    expect(status.handleConnectProvider).not.toHaveBeenCalled();
   });
 
   it('falls back to the Strava OAuth when a sign-in-first card\'s sign-in cannot complete (carnet#1477)', () => {
@@ -232,18 +225,6 @@ describe('ChatThread — a reply reconnects the way its card connects', () => {
 
     expect(screen.getByText('sciotte-modal:trainingpeaks')).toBeTruthy();
     expect(status.handleConnectProvider).not.toHaveBeenCalled();
-  });
-
-  it('keeps the window open on an oauth_required refusal and re-reads the statuses, whose plan then authorizes', () => {
-    mockSlug = 'garmin';
-    const status = providerStatus([garmin('mirror', 'sciotte_garmin')]);
-    renderThread(status);
-
-    fireEvent.press(screen.getByText('reply:reconnect'));
-    fireEvent.press(screen.getByTestId('sciotte-modal-oauth-required'));
-
-    expect(status.refreshAfterLink).toHaveBeenCalledTimes(1);
-    expect(screen.getByTestId('sciotte-modal')).toBeTruthy();
   });
 
   it('re-reads the statuses once the sign-in connects', () => {

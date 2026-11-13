@@ -28,9 +28,8 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
-  SIGN_IN_OAUTH_REQUIRED,
   loginIdentifierField,
-  refusalReloadsCards,
+  oauthFollowOn,
   providerGlyphInk,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
@@ -60,7 +59,12 @@ type LoginMethod = 'email' | 'google' | 'apple';
 interface SciotteLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onConnected: () => void;
+  /**
+   * The sign-in stored its session. `followOn` names the provider's own
+   * authorization the sign-in goes on to (Garmin's grant, which pushes
+   * workouts; carnet#1494), which the caller starts.
+   */
+  onConnected: (followOn?: string) => void;
   /** Target platform: "strava", "garmin", "trainingpeaks" or "coros" */
   target?: SciotteTarget;
   /**
@@ -76,13 +80,6 @@ interface SciotteLoginModalProps {
    * itself; this changes the words only.
    */
   historyMode?: boolean;
-  /**
-   * The server refused the sign-in because the card now connects another way
-   * (`oauth_required`: a Garmin seat is free, so a new connection goes
-   * through Garmin's authorization): the caller reads its cards again so the
-   * next tap follows the new plan.
-   */
-  onPlanChanged?: () => void;
   /**
    * The card's account sign-in goes first with an OAuth seat free
    * (`oauthFallbackTarget`): a sign-in that cannot complete, or that the
@@ -109,7 +106,6 @@ export default function SciotteLoginModal({
   target = 'strava',
   consentRequired = false,
   historyMode = false,
-  onPlanChanged,
   onFallBackToOAuth,
 }: SciotteLoginModalProps) {
   const { t } = useTranslation();
@@ -199,9 +195,6 @@ export default function SciotteLoginModal({
       if (reason === SCIOTTE_LOGIN_CHALLENGE) {
         return t('hosted.common.signInChallenged').split('{0}').join(providerLabel);
       }
-      if (reason === SIGN_IN_OAUTH_REQUIRED) {
-        return t('hosted.common.signInOauthRequired').split('{0}').join(providerLabel);
-      }
       return describeApiError(err, { online, t, fallbackKey });
     },
     [online, providerLabel, t]
@@ -214,7 +207,7 @@ export default function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected();
+        onConnected(oauthFollowOn(data) ?? undefined);
         setTimeout(onClose, 1500);
       } else if (data.status === 'two_factor_choice') {
         setTwoFactorOptions(data.options || []);
@@ -266,9 +259,8 @@ export default function SciotteLoginModal({
       }
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
-      if (refusalReloadsCards(refusalReason(err))) onPlanChanged?.();
     },
-    [onFallBackToOAuth, onPlanChanged, refusalMessage]
+    [onFallBackToOAuth, refusalMessage]
   );
 
   // Email/password login — in-process headless Chrome
@@ -356,7 +348,7 @@ export default function SciotteLoginModal({
         if (data.status === 'connected') {
           setPhase('success');
           setStatus(t('app.connectedBang'));
-          onConnected();
+          onConnected(oauthFollowOn(data) ?? undefined);
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');
@@ -459,7 +451,7 @@ export default function SciotteLoginModal({
         if (data.status === 'connected') {
           setPhase('success');
           setStatus(t('app.connectedBang'));
-          onConnected();
+          onConnected(oauthFollowOn(data) ?? undefined);
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');

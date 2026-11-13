@@ -1,16 +1,19 @@
 // ABOUTME: The seats left on the server's Strava and Garmin OAuth clients, read once per provider list
-// ABOUTME: A card with a seat recommends its provider's OAuth for a new connection, a full one its mirror
+// ABOUTME: A new connection follows the operator's order and the seats; a reconnect always signs in through the mirror
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Which backend the Strava and Garmin cards recommend for a new connection.
+//! Which backend the Strava and Garmin cards recommend.
 //!
-//! Both providers cap the athletes one client may connect, so a new
-//! connection goes through the provider's OAuth while a seat remains and
-//! through the mirror once the pool is full (carnet#1155 for Garmin). A count
-//! that fails, or a server with no client configured, reads as no seat left,
-//! so a connect is never sent into an OAuth flow that cannot finish.
+//! Both providers cap the athletes one client may connect. A new connection
+//! signs in through the mirror by default, and goes through the provider's
+//! OAuth while a seat remains only under the operator's OAuth-first order
+//! (carnet#1472). A reconnect signs in through the mirror whatever the order
+//! and the seats: a dead grant reconnects only through the hosted sign-in
+//! (carnet#1494). A count that fails, or a server with no client configured,
+//! reads as no seat left, so a connect is never sent into an OAuth flow that
+//! cannot finish.
 
 use tracing::debug;
 use uuid::Uuid;
@@ -66,40 +69,27 @@ impl CardSeats {
         }
     }
 
-    /// Seats left on the Garmin client, as counted for this provider list.
-    pub(crate) const fn garmin_left(&self) -> u32 {
-        self.garmin
-    }
-
-    /// The operator's Garmin connect order, as read for this provider list.
-    pub(crate) const fn garmin_order(&self) -> ConnectOrder {
-        self.garmin_order
-    }
-
     /// The `recommended_backend` and `seats_left` of `provider_name`'s card,
-    /// for an athlete whose own grant serves it when `grant_serves`.
+    /// for an athlete whose card asks for a `reconnect`.
     ///
     /// The Sciotte entries are the user-facing "Strava" and "Garmin" cards:
-    /// `oauth` (the card's `hosted_login_target`) while seats remain, else
-    /// `mirror`; with the operator's sign-in-first order
-    /// ([`ConnectOrder::SignInFirst`]) `mirror` whatever the seats. A card the
-    /// athlete's own grant serves recommends `oauth`
-    /// whatever the pool holds: their reconnect re-signs the seat they hold
-    /// ([`require_garmin_seat`] lets it through), while a usr/pwd session
-    /// signed in beside that grant would serve nothing (carnet#1386). Any
+    /// `oauth` (the card's provider's authorization) only while the
+    /// operator's order puts the OAuth first ([`ConnectOrder::OAuthFirst`])
+    /// and a seat remains, else `mirror`. A card asking for a reconnect
+    /// recommends `mirror` whatever the order and the seats: a dead grant
+    /// reconnects through the hosted sign-in, as a dead session does. Any
     /// other card carries neither.
     pub(crate) fn recommendation(
         &self,
         provider_name: &str,
-        grant_serves: bool,
+        reconnect: bool,
     ) -> (Option<String>, Option<u32>) {
         let (left, order) = match provider_name {
             oauth_providers::SCIOTTE => (self.strava, self.strava_order),
             oauth_providers::SCIOTTE_GARMIN => (self.garmin, self.garmin_order),
             _ => return (None, None),
         };
-        let oauth_first = new_connection_through_oauth(order, left);
-        let backend = if oauth_first || grant_serves {
+        let backend = if !reconnect && new_connection_through_oauth(order, left) {
             "oauth"
         } else {
             "mirror"
@@ -138,7 +128,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_card_with_a_seat_recommends_oauth_and_a_full_one_its_mirror() {
+    fn an_oauth_first_card_with_a_seat_recommends_oauth_and_a_full_one_its_mirror() {
         let seats = CardSeats {
             strava: 0,
             garmin: 3,
@@ -153,7 +143,7 @@ mod tests {
         assert_eq!(
             seats.recommendation(oauth_providers::SCIOTTE_GARMIN, false),
             (Some("oauth".to_owned()), Some(3)),
-            "bug: a Garmin pool with seats recommends OAuth"
+            "bug: an OAuth-first Garmin pool with seats recommends OAuth"
         );
         assert_eq!(
             seats.recommendation(oauth_providers::WHOOP, false),
@@ -162,26 +152,26 @@ mod tests {
         );
     }
 
-    /// A grant holder reconnects through the OAuth whose seat they hold: a
-    /// usr/pwd session signed in beside their grant serves nothing.
+    /// A dead grant reconnects through the hosted sign-in only (carnet#1494),
+    /// even where a new connection would take the OAuth.
     #[test]
-    fn a_card_its_own_grant_serves_recommends_oauth_with_the_pool_full() {
+    fn a_card_asking_for_a_reconnect_recommends_the_mirror_whatever_the_order_and_seats() {
         let seats = CardSeats {
-            strava: 0,
-            garmin: 0,
-            strava_order: ConnectOrder::SignInFirst,
-            garmin_order: ConnectOrder::SignInFirst,
+            strava: 5,
+            garmin: 5,
+            strava_order: ConnectOrder::OAuthFirst,
+            garmin_order: ConnectOrder::OAuthFirst,
         };
         for card in [oauth_providers::SCIOTTE, oauth_providers::SCIOTTE_GARMIN] {
             assert_eq!(
                 seats.recommendation(card, true),
-                (Some("oauth".to_owned()), Some(0)),
-                "bug: the {card} card of a grant holder sends a reconnect to the usr/pwd login"
+                (Some("mirror".to_owned()), Some(5)),
+                "bug: the {card} card sends a reconnect to the OAuth"
             );
         }
     }
 
-    /// The operator's sign-in-first order (carnet#1472) sends a new
+    /// The sign-in-first order (the default, carnet#1494) sends a new
     /// connection to the account sign-in with seats to spare, one provider at
     /// a time.
     #[test]

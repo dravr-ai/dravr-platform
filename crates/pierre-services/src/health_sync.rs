@@ -53,8 +53,8 @@ use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, Welln
 
 mod push_fed;
 
-pub use push_fed::{history_import_scope, wellness_pull_stands_down};
-use push_fed::{history_import_writes, history_import_writes_night, wellness_fed_by_push};
+use push_fed::wellness_fed_by_push;
+pub use push_fed::wellness_pull_stands_down;
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
 ///
@@ -531,9 +531,6 @@ impl SleepStore for PierreSyncStorage {
         let mut writes = WellnessStore::new(&self.registry).writes("sleep");
         let mut count = 0u64;
         for session in sessions {
-            if !history_import_writes_night(&session.user_id, session.end_datetime) {
-                continue;
-            }
             let tenant_id = self
                 .resolve_tenant_id(&session.user_id, &session.source_name)
                 .await?;
@@ -582,9 +579,6 @@ impl RecoveryStore for PierreSyncStorage {
         let mut writes = WellnessStore::new(&self.registry).writes("recovery");
         let mut count = 0u64;
         for metric in metrics {
-            if !history_import_writes(&metric.user_id, metric.date) {
-                continue;
-            }
             let tenant_id = self
                 .resolve_tenant_id(&metric.user_id, &metric.source_name)
                 .await?;
@@ -632,9 +626,6 @@ impl HealthStore for PierreSyncStorage {
         let mut writes = WellnessStore::new(&self.registry).writes("health");
         let mut count = 0u64;
         for snapshot in snapshots {
-            if !history_import_writes(&snapshot.user_id, snapshot.date) {
-                continue;
-            }
             let tenant_id = self
                 .resolve_tenant_id(&snapshot.user_id, &snapshot.source_name)
                 .await?;
@@ -683,9 +674,7 @@ impl DailyActivityStore for PierreSyncStorage {
         for day in days {
             // A link files only what the member's consent names: sleep,
             // recovery and weight. A day's activity totals are none of them.
-            if delegated_private_of_row(&day.user_id).is_some()
-                || !history_import_writes(&day.user_id, day.date)
-            {
+            if delegated_private_of_row(&day.user_id).is_some() {
                 continue;
             }
             let tenant_id = self

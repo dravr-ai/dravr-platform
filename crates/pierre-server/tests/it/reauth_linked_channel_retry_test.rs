@@ -42,15 +42,16 @@ use pierre_middleware::provider_link_token::{verify_link_token, HOSTED_SIGNIN_PA
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::messaging_outbound::{process_pending_batch, OutboundRetryContext};
-use pierre_tool_runtime::activity_backfill::backfill_session_expired;
-use pierre_tool_runtime::protocol::reauth_notice::{notify_needs_reauth, ReauthNotice};
+use pierre_tool_runtime::protocol::reauth_notice::{
+    notify_grant_withdrawn, notify_needs_reauth, ReauthNotice,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tokio_util::task::TaskTracker;
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
-use crate::messaging_fixtures::{seed_channel_link, seed_conversation, seed_session, strings};
+use crate::messaging_fixtures::{seed_channel_link, strings};
 
 /// The secret the notifier under test signs reconnect-link tokens with.
 const LINK_SECRET: &str = "test-jwt-secret";
@@ -228,19 +229,8 @@ struct Fixture {
 }
 
 /// A fresh athlete whose notifier sends through `first_send`, with a stored
-/// channel config for each channel so the retry worker can load one. The
-/// notifier weighs no Garmin seat.
+/// channel config for each channel so the retry worker can load one.
 async fn fixture(first_send: ScriptedChannels, worker: ScriptedChannels) -> Fixture {
-    fixture_over(first_send, worker, false).await
-}
-
-/// [`fixture`], whose notifier weighs Garmin's seats under the server's own
-/// OAuth clients when `weighs_garmin_seats` (carnet#1454).
-async fn fixture_over(
-    first_send: ScriptedChannels,
-    worker: ScriptedChannels,
-    weighs_garmin_seats: bool,
-) -> Fixture {
     let resources = create_test_server_resources().await.unwrap();
     let (user_id, _user) = create_test_user(&resources.agent.database).await.unwrap();
     let tenant = resources
@@ -262,11 +252,6 @@ async fn fixture_over(
         Arc::from(LINK_SECRET),
         BASE_URL.to_owned(),
     );
-    let notifier = if weighs_garmin_seats {
-        notifier.with_oauth(context.common.config.oauth.clone())
-    } else {
-        notifier
-    };
     context.mcp.backfill_notifier = Some(Arc::new(notifier));
     let service = Arc::new(match context.agent.database.backend() {
         DatabaseBackend::SQLite(sqlite) => {
@@ -619,8 +604,8 @@ async fn a_queued_notice_is_cancelled_once_the_connection_is_active_again() {
     let queued = f.pending().await;
     assert_eq!(queued.len(), 1);
     assert!(
-        queued[0]["expires_at"].is_null(),
-        "an OAuth provider's notice carries no link, so nothing in it expires"
+        !queued[0]["expires_at"].is_null(),
+        "bug: a dead grant's notice carries the hosted sign-in link, so it expires with it"
     );
     assert_eq!(queued[0]["reauth_provider"], "strava");
 
@@ -731,87 +716,85 @@ async fn an_entry_past_its_link_expiry_is_given_up_unsent() {
     assert_eq!(rows[0]["status"], "dlq");
 }
 
-/// The detached backfill's answer to the conversation that asked, for a dead
-/// usr/pwd Garmin session of the athlete's own while a seat is free on
-/// Garmin's OAuth: it names the move to Garmin's official connection with no
-/// sign-in link, and a refused send is queued with no link expiry to bound
-/// it, then delivered as written (carnet#1454).
+/// A withdrawn grant's notice whose chat send failed is still retried after
+/// the withdrawal deletes the grant's rows: the athlete is owed the hosted
+/// sign-in whether or not a connection row is left to guard it. Before, the
+/// queued copy was guarded on that connection staying `needs_reauth`, so the
+/// deletion cancelled it and the athlete never heard on that chat.
 #[tokio::test]
-async fn a_refused_oauth_move_nudge_is_queued_with_no_link_expiry() {
-    let whatsapp_first = ScriptedChannel::new(ChannelType::WhatsApp, 1, 0);
-    let whatsapp_retry = ScriptedChannel::new(ChannelType::WhatsApp, 0, 0);
-    let f = fixture_over(
-        channels(&[(ChannelType::WhatsApp, Arc::clone(&whatsapp_first))]),
-        channels(&[(ChannelType::WhatsApp, Arc::clone(&whatsapp_retry))]),
-        true,
+async fn a_withdrawn_grants_refused_chat_is_retried_after_its_rows_are_deleted() {
+    let first = ScriptedChannel::new(ChannelType::WhatsApp, 1, 0);
+    let retry = ScriptedChannel::new(ChannelType::WhatsApp, 0, 0);
+    let f = fixture(
+        channels(&[(ChannelType::WhatsApp, Arc::clone(&first))]),
+        channels(&[(ChannelType::WhatsApp, Arc::clone(&retry))]),
     )
     .await;
-    f.connect("sciotte_garmin").await;
-    let user = f.user_id.to_string();
-    let conversation = seed_conversation(&f.database, &user, f.tenant).await;
-    seed_session(
-        &f.database,
-        &user,
-        f.tenant,
-        "whatsapp",
-        "15145550660",
-        None,
-        &conversation,
-    )
-    .await;
+    f.connect("strava").await;
+    f.link_chat("whatsapp", "15145550660").await;
 
-    backfill_session_expired(
-        &f.runtime,
-        f.user_id,
-        f.tenant,
-        "sciotte_garmin",
-        Some(&conversation),
-        Utc::now(),
-    )
-    .await;
-    assert!(
-        whatsapp_first.delivered.lock().unwrap().is_empty(),
-        "the first send was refused"
+    let notice = notify_grant_withdrawn(&f.runtime, f.user_id, f.tenant, "strava").await;
+    assert!(notice.claimed, "the withdrawn grant's notice is claimed");
+    assert_eq!(
+        notice.chat_channels, 0,
+        "the only chat refused the first send"
     );
-
+    assert_eq!(
+        f.app_notice_count().await,
+        1,
+        "bug: the withdrawn grant's app notice was not sent exactly once"
+    );
     let queued = f.pending().await;
-    assert_eq!(queued.len(), 1, "the refused nudge is queued: {queued:?}");
-    let entry = &queued[0];
-    assert_eq!(
-        entry["channel_type"], "whatsapp",
-        "bug: queued for the channel it was refused on"
-    );
-    assert_eq!(
-        entry["reauth_provider"], "sciotte_garmin",
-        "bug: the retry is guarded by the dead connection"
-    );
+    assert_eq!(queued.len(), 1, "the refused chat is queued: {queued:?}");
+    let send_by = chrono::DateTime::parse_from_rfc3339(queued[0]["expires_at"].as_str().unwrap())
+        .unwrap()
+        .with_timezone(&Utc);
     assert!(
-        entry["expires_at"].is_null(),
-        "bug: the move carries no link, so nothing in it expires: {entry}"
+        send_by - Utc::now() < Duration::hours(24),
+        "the queued copy stops before its link dies: {send_by}"
     );
+
+    // The withdrawal deletes the grant's rows once its notice is claimed.
+    let repos = f.runtime.repos();
+    repos
+        .oauth_tokens
+        .delete_token(f.user_id, f.tenant, "strava")
+        .await
+        .unwrap();
+    repos
+        .provider_connections
+        .remove_connection(f.user_id, f.tenant, "strava")
+        .await
+        .unwrap();
 
     f.run_worker().await;
-    let delivered = whatsapp_retry.raw_delivered.lock().unwrap().clone();
-    assert_eq!(delivered.len(), 1, "delivered once on the retry");
+    let delivered = retry.raw_delivered.lock().unwrap().clone();
+    assert_eq!(
+        delivered.len(),
+        1,
+        "bug: the withdrawn grant's notice died with its rows: {:?}",
+        f.queue().await
+    );
     assert_eq!(
         delivered[0]["to"], "15145550660",
-        "bug: the retry reaches the athlete's number"
+        "bug: the retried notice reached another number"
     );
     let body = delivered[0]["text"].as_str().unwrap();
-    let moves = ["fr", "en"].map(|locale| {
-        strings().render(
-            "messaging.provider.reauth_oauth_required_no_link",
-            locale,
-            &["Garmin"],
-        )
-    });
-    assert!(
-        moves.iter().any(|copy| copy == body),
-        "bug: the nudge names the move to Garmin's official connection: {body}"
-    );
-    assert!(
-        !body.contains("/r/") && !body.contains(HOSTED_SIGNIN_PATH),
-        "bug: no usr/pwd sign-in link: {body}"
-    );
-    assert!(!body.contains("sciotte"), "never the backend slug: {body}");
+    let target = f
+        .runtime
+        .repos()
+        .short_links
+        .resolve_short_link(&short_code(body))
+        .await
+        .unwrap()
+        .expect("the short link still resolves");
+    let token = target
+        .split_once(&format!("{HOSTED_SIGNIN_PATH}?token="))
+        .map_or_else(
+            || panic!("the link opens the hosted login: {target}"),
+            |(_, token)| urlencoding::decode(token).unwrap().into_owned(),
+        );
+    let claims = verify_link_token(&token, LINK_SECRET, "sciotte").unwrap();
+    assert_eq!(claims.tgt, "strava", "the hosted sign-in reconnects Strava");
+    assert_eq!(f.app_notice_count().await, 1, "no second app notice");
 }

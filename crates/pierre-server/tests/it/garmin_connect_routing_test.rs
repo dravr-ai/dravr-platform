@@ -9,7 +9,8 @@
 // This `//!` precedes the module-level `#![cfg]` so the docs survive a build
 // without the features.
 //
-// The Garmin card works as the Strava card does: a new connection goes
+// The Garmin card works as the Strava card does: a new connection signs in
+// with usr/pwd by default, and under the operator's OAuth-first order goes
 // through Garmin's OAuth while the Developer Program client has a seat, and
 // through the connection using usr/pwd from Dravr once the pool is full, the
 // count fails or no Garmin client is configured. Which card is listed, its
@@ -30,11 +31,15 @@ use crate::helpers::sciotte_mock::{seed_scrape_session, spawn_mock_scraper_with_
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use axum::http::StatusCode;
+use axum::routing::{get, post};
+use axum::{Json, Router};
 use chrono::{Duration, Utc};
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
+use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_config::environment::{OAuthProviderConfig, ProviderEndpointOverride, ServerConfig};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_seats::GARMIN_SEAT_CAPACITY_DEFAULT;
@@ -47,7 +52,7 @@ use pierre_middleware::provider_link_token::mint_connect_link_token;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::health_sync::PierreSyncStorage;
-use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
+use pierre_tool_runtime::activity_fetch::{fetch_provider_activities, fetch_provider_head};
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 use pierre_tool_runtime::implementations::data::GetActivitiesTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -184,10 +189,28 @@ fn config_with_garmin_cap(cap: u32) -> ServerConfig {
     config
 }
 
+/// Put Garmin's OAuth first, the operator's kill switch (carnet#1494).
+async fn garmin_oauth_first(resources: &Arc<ServerContext>) {
+    set_connect_order(
+        resources.common.repos.system_settings.as_ref(),
+        oauth_providers::GARMIN,
+        ConnectOrder::OAuthFirst,
+    )
+    .await
+    .unwrap();
+}
+
 #[tokio::test]
-async fn the_garmin_card_offers_garmin_oauth_while_seats_remain() {
+async fn the_garmin_card_offers_garmin_oauth_while_seats_remain_under_the_oauth_first_order() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (_, user, _) = user_and_tenant(&resources, "garmin-seat-open@example.com").await;
+    let by_default = cards(&resources, &user).await;
+    let garmin = card(&by_default, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        garmin["recommended_backend"], "mirror",
+        "bug: by default a new Garmin connection is sent to the OAuth: {garmin}"
+    );
+    garmin_oauth_first(&resources).await;
 
     let cards = cards(&resources, &user).await;
     let garmin = card(&cards, oauth_providers::SCIOTTE_GARMIN);
@@ -363,9 +386,10 @@ async fn a_server_without_a_garmin_client_offers_the_usr_pwd_connection() {
 }
 
 #[tokio::test]
-async fn the_hosted_picker_starts_garmin_oauth_while_seats_remain() {
+async fn the_hosted_picker_starts_garmin_oauth_while_seats_remain_under_the_oauth_first_order() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, _, tenant) = user_and_tenant(&resources, "garmin-picker@example.com").await;
+    garmin_oauth_first(&resources).await;
 
     let page = picker_page(&resources, user_id, tenant).await;
     let start = page
@@ -586,11 +610,11 @@ async fn counting_garmin_api() -> (String, Arc<AtomicUsize>) {
     (format!("http://{addr}"), seen)
 }
 
-/// The routing order slice C asked for: a Garmin read of a user holding the
-/// API backend goes to `GarminProvider`, which serves the cached pushes
+/// The routing order slice C asked for: a Garmin read of a user whose API
+/// grant serves alone goes to `GarminProvider`, which serves the cached pushes
 /// through the head read and never calls Garmin for data — no Connect path,
-/// no `user/id`, nothing. The usr/pwd session beside the grant serves nothing,
-/// dead or live (carnet#1386).
+/// no `user/id`, nothing. A session beside the grant would serve first
+/// (carnet#1494), so this athlete holds the grant alone.
 #[tokio::test]
 async fn a_garmin_api_users_read_serves_the_pushes_and_never_calls_garmin() {
     common::init_server_config();
@@ -609,15 +633,6 @@ async fn a_garmin_api_users_read_serves_the_pushes_and_never_calls_garmin() {
         .await
         .unwrap();
     let (user_id, _, tenant) = user_and_tenant(&resources, "garmin-routed@example.com").await;
-    connect(
-        &resources,
-        user_id,
-        tenant,
-        oauth_providers::SCIOTTE_GARMIN,
-        None,
-    )
-    .await;
-    mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await;
     connect(
         &resources,
         user_id,
@@ -716,12 +731,13 @@ async fn mark_dead(
         .unwrap();
 }
 
-/// An athlete whose usr/pwd session died reconnects through Garmin's OAuth:
-/// the API now serves the card, so the dead session beside it must not keep
-/// the card, and with it the reconnect banner, saying "reconnect". The flag
-/// follows the backend that serves the card, so a dead API grant still asks.
+/// An athlete whose usr/pwd session died and who then connects Garmin's OAuth
+/// keeps the session's reconnect up: the session still serves the card first
+/// (carnet#1494), so the card reads "Reconnect" until they sign in again, the
+/// grant only standing behind it. The flag follows the backend that serves
+/// the card, the session, whatever the grant does.
 #[tokio::test]
-async fn a_garmin_oauth_reconnect_clears_the_reconnect_left_by_a_dead_usr_pwd_session() {
+async fn a_garmin_oauth_grant_beside_a_dead_usr_pwd_session_keeps_its_reconnect_up() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, user, tenant) =
         user_and_tenant(&resources, "garmin-reconnect-oauth@example.com").await;
@@ -754,24 +770,20 @@ async fn a_garmin_oauth_reconnect_clears_the_reconnect_left_by_a_dead_usr_pwd_se
     let after = card(&cards_after, oauth_providers::SCIOTTE_GARMIN);
     assert_eq!(
         after["connected"], true,
-        "bug: the Garmin card must read connected through its OAuth grant: {after}"
+        "bug: the Garmin card must read connected: {after}"
     );
     assert_eq!(
         after["connected_backend"],
-        oauth_providers::GARMIN,
-        "bug: the live Garmin OAuth grant must serve the card ahead of the dead usr/pwd session: {after}"
+        oauth_providers::SCIOTTE_GARMIN,
+        "bug: the session must serve the card ahead of the grant behind it: {after}"
     );
     assert_eq!(
-        after["history"]["state"], "needed",
-        "a grant with nothing copied, beside a dead session, asks for its history again: {after}"
-    );
-    assert!(
-        after.get("oauth_awaiting_activities").is_none(),
-        "the card carries its history in `history` alone: {after}"
+        after["history"]["state"], "not_applicable",
+        "a session serving the card reads its own history: {after}"
     );
     assert_eq!(
-        after["needs_reauth"], false,
-        "bug: the dead usr/pwd session kept the reconnect up beside a live Garmin OAuth grant: {after}"
+        after["needs_reauth"], true,
+        "bug: a live grant hid the dead session's reconnect: {after}"
     );
     assert!(
         after.get("session_needs_reauth").is_none(),
@@ -783,7 +795,7 @@ async fn a_garmin_oauth_reconnect_clears_the_reconnect_left_by_a_dead_usr_pwd_se
     let dead = card(&cards_dead, oauth_providers::SCIOTTE_GARMIN);
     assert_eq!(
         dead["needs_reauth"], true,
-        "bug: a dead Garmin OAuth grant must ask for a reconnect: {dead}"
+        "bug: the dead session still asks for its reconnect: {dead}"
     );
 }
 
@@ -833,9 +845,10 @@ async fn store_under(
         .unwrap();
 }
 
-/// A grant holder's Garmin read serves what the usr/pwd session imported
-/// under its mirror key beside what Garmin pushed, so history survives the
-/// session (carnet#1386). A workout both recorded is one session, the API's
+/// A grant holder whose session the carnet#1386 import retired keeps the
+/// history it imported: their Garmin read serves what the session stored
+/// under its mirror key beside what Garmin pushed (`history_keys(garmin)`,
+/// kept by carnet#1494). A workout both recorded is one session, the API's
 /// copy standing for it; nothing calls Garmin or the scraper.
 #[tokio::test]
 async fn a_grant_holders_garmin_read_serves_the_sessions_history_merged_with_the_pushes() {
@@ -855,14 +868,6 @@ async fn a_grant_holders_garmin_read_serves_the_sessions_history_merged_with_the
         .await
         .unwrap();
     let (user_id, _, tenant) = user_and_tenant(&resources, "garmin-dual-key@example.com").await;
-    connect(
-        &resources,
-        user_id,
-        tenant,
-        oauth_providers::SCIOTTE_GARMIN,
-        None,
-    )
-    .await;
     connect(
         &resources,
         user_id,
@@ -1023,7 +1028,7 @@ async fn a_garmin_api_grant_with_nothing_pushed_and_no_session_answers_empty() {
 /// session dying asks nothing: the card stays "Connected" until the grant
 /// itself is flagged.
 #[tokio::test]
-async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
+async fn the_garmin_card_follows_the_session_once_one_stands_beside_the_grant() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, user, tenant) = user_and_tenant(&resources, "garmin-card-flag@example.com").await;
     connect(
@@ -1082,12 +1087,12 @@ async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
     let beside = card(&beside, oauth_providers::SCIOTTE_GARMIN);
     assert_eq!(
         beside["connected_backend"],
-        oauth_providers::GARMIN,
-        "bug: the grant serves the card beside a live usr/pwd session: {beside}"
+        oauth_providers::SCIOTTE_GARMIN,
+        "bug: the live usr/pwd session serves the card before the grant: {beside}"
     );
     assert_eq!(
-        beside["history"]["state"], "needed",
-        "a session holding no history yet leaves the history needed: {beside}"
+        beside["history"]["state"], "not_applicable",
+        "a session serving the card reads its own history: {beside}"
     );
 
     let imported = ActivityBuilder::new(
@@ -1111,32 +1116,37 @@ async fn the_garmin_card_follows_the_grant_whatever_session_stands_beside_it() {
     let after_import = cards(&resources, &user).await;
     let after_import = card(&after_import, oauth_providers::SCIOTTE_GARMIN);
     assert_eq!(
-        after_import["history"]["state"], "imported",
-        "bug: what the session stored is the grant's history: {after_import}"
-    );
-
-    mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await;
-    let dead = cards(&resources, &user).await;
-    let dead = card(&dead, oauth_providers::SCIOTTE_GARMIN);
-    assert_eq!(dead["connected_backend"], oauth_providers::GARMIN, "{dead}");
-    assert_eq!(
-        dead["needs_reauth"], false,
-        "bug: a dead usr/pwd session beside a serving grant must leave the card Connected: {dead}"
+        after_import["history"]["state"], "not_applicable",
+        "the session's own rows are its window, not a history to import: {after_import}"
     );
 
     mark_dead(&resources, user_id, tenant, oauth_providers::GARMIN).await;
     let grant_dead = cards(&resources, &user).await;
     let grant_dead = card(&grant_dead, oauth_providers::SCIOTTE_GARMIN);
     assert_eq!(
-        grant_dead["needs_reauth"], true,
-        "bug: a flagged Garmin grant must ask for a reconnect: {grant_dead}"
+        grant_dead["needs_reauth"], false,
+        "bug: a flagged grant behind a live session asked the athlete to reconnect: {grant_dead}"
+    );
+
+    mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await;
+    let dead = cards(&resources, &user).await;
+    let dead = card(&dead, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        dead["connected_backend"],
+        oauth_providers::SCIOTTE_GARMIN,
+        "{dead}"
+    );
+    assert_eq!(
+        dead["needs_reauth"], true,
+        "bug: the dead session serving the card must ask for its reconnect: {dead}"
     );
 }
 
 /// The rule holds for every mirror pair: a dead Strava usr/pwd session beside
-/// a serving Strava grant asks nothing of the athlete, the grant still syncing.
+/// a live Strava grant still serves the card first, so the card asks for the
+/// session's reconnect (carnet#1494).
 #[tokio::test]
-async fn a_dead_strava_usr_pwd_session_beside_a_serving_grant_leaves_the_card_connected() {
+async fn a_dead_strava_usr_pwd_session_beside_a_live_grant_asks_for_its_reconnect() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, user, tenant) =
         user_and_tenant(&resources, "strava-session-reauth@example.com").await;
@@ -1148,12 +1158,12 @@ async fn a_dead_strava_usr_pwd_session_beside_a_serving_grant_leaves_the_card_co
     let strava = card(&cards, oauth_providers::SCIOTTE);
     assert_eq!(
         strava["connected_backend"],
-        oauth_providers::STRAVA,
-        "bug: the live Strava grant must serve the card over the dead session: {strava}"
+        oauth_providers::SCIOTTE,
+        "bug: the session must serve the card before the grant behind it: {strava}"
     );
     assert_eq!(
-        strava["needs_reauth"], false,
-        "bug: the grant still serves, so the card keeps reading Connected: {strava}"
+        strava["needs_reauth"], true,
+        "bug: the dead session serving the card must ask for its reconnect: {strava}"
     );
 }
 
@@ -1312,16 +1322,52 @@ async fn a_read_naming_the_session_beside_a_flagged_grant_is_the_grants() {
     );
 }
 
-/// A dead Garmin grant with a usr/pwd session row beside it keeps serving
-/// what the athlete holds (carnet#1386): with no other provider to stand in,
-/// the turn answers through that session row from the grant's stored window,
-/// the session's imported history merged in, rather than a bare reconnect. A
-/// grant with no session row beside it gets the reconnect every dead primary
-/// gets.
+/// A scraper stand-in whose activity list fails with a `500`: the session
+/// authenticates, and its read fails.
+async fn scraper_failing_its_list() -> String {
+    let app = Router::new()
+        .route(
+            "/auth/import-session",
+            post(|| async { Json(json!({ "session_id": "garmin-dual-session" })) }),
+        )
+        .route(
+            "/api/activities",
+            get(|| async {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(json!({ "error": "the browser closed under the read" })),
+                )
+            }),
+        );
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    format!("http://{addr}")
+}
+
+/// A dead Garmin grant beside a usr/pwd session is no stand-in: the session
+/// is the primary (carnet#1494), and when its read fails the session's own
+/// window answers, which carries what the grant stored
+/// (`backend_resolver::history_keys`) merged with the session's rows. The
+/// dead grant is never read.
 #[tokio::test]
 async fn a_dead_garmin_grant_still_serves_the_stored_history() {
-    let resources = common::create_test_server_resources().await.unwrap();
+    let scraper = scraper_failing_its_list().await;
+    let config = common::test_server_config_with_sciotte(&scraper);
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
     let (user_id, _, tenant) = dual_key_athlete(&resources, "garmin-dead-grant@example.com").await;
+    seed_scrape_session(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        "garmin-dual-session",
+    )
+    .await;
     mark_dead(&resources, user_id, tenant, oauth_providers::GARMIN).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let ctx = ToolContext::new()
@@ -1341,13 +1387,126 @@ async fn a_dead_garmin_grant_still_serves_the_stored_history() {
         ["20123456789", "18000000001"],
         "bug: the dead grant's stored history must still be served: {payload}"
     );
+    assert!(
+        payload.get("reconnect_required").is_none(),
+        "the session stands, so nothing is reconnected: {payload}"
+    );
 }
 
-/// A grant holder whose Garmin grant is flagged reconnects through Garmin
-/// OAuth even with the pool full: their reconnect re-signs the seat they
-/// hold, while a usr/pwd login beside the grant would serve nothing.
+/// A live Garmin grant behind a usr/pwd session answers a session read that
+/// failed with what it pushed (carnet#1494): the pushed window, the session's
+/// own rows merged in. The session's failure is recorded under the session,
+/// and the pushed rows are not written back, so the grant's freshness stays
+/// its last push. An empty pushed window vouches for nothing the failed read
+/// missed, so it does not stand in.
 #[tokio::test]
-async fn a_flagged_garmin_grant_reconnects_through_oauth_with_the_pool_full() {
+async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
+    let scraper = scraper_failing_its_list().await;
+    let config = common::test_server_config_with_sciotte(&scraper);
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let head = ActivityQueryParams {
+        after: Some((Utc::now() - Duration::days(30)).timestamp()),
+        before: None,
+        limit: Some(50),
+        offset: None,
+    };
+    let last_sync = |user_id: Uuid, tenant: TenantId, key: &'static str| {
+        let resources = Arc::clone(&resources);
+        async move {
+            resources
+                .common
+                .repos
+                .activity_cache
+                .latest_activity_sync(user_id, &tenant, key)
+                .await
+                .unwrap()
+        }
+    };
+
+    let (user_id, _, tenant) = dual_key_athlete(&resources, "garmin-live-grant@example.com").await;
+    seed_scrape_session(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        "garmin-dual-session",
+    )
+    .await;
+    let pushed_at = last_sync(user_id, tenant, oauth_providers::GARMIN).await;
+    let served = fetch_provider_head(&runtime, "garmin", user_id, &tenant.to_string(), &head)
+        .await
+        .expect("the grant's pushes answer the failed session read");
+    let ids: Vec<&str> = served.iter().map(Activity::id).collect();
+    assert_eq!(
+        ids,
+        ["20123456789", "18000000001"],
+        "bug: the grant's pushes did not answer the failed session read, newest first"
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .activity_cache
+            .latest_activity_fetch_failure(user_id, &tenant, oauth_providers::SCIOTTE_GARMIN)
+            .await
+            .unwrap()
+            .is_some(),
+        "the session's failure is recorded under the session"
+    );
+    assert_eq!(
+        last_sync(user_id, tenant, oauth_providers::GARMIN).await,
+        pushed_at,
+        "bug: the pushed rows were written back, restamping the grant's freshness"
+    );
+
+    let (empty_user, _, empty_tenant) =
+        user_and_tenant(&resources, "garmin-nothing-pushed@example.com").await;
+    connect(
+        &resources,
+        empty_user,
+        empty_tenant,
+        oauth_providers::GARMIN,
+        Some("garmin-user-nothing-pushed"),
+    )
+    .await;
+    connect(
+        &resources,
+        empty_user,
+        empty_tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        None,
+    )
+    .await;
+    seed_scrape_session(
+        &resources,
+        empty_user,
+        empty_tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        "garmin-dual-session",
+    )
+    .await;
+    let read = fetch_provider_head(
+        &runtime,
+        "garmin",
+        empty_user,
+        &empty_tenant.to_string(),
+        &head,
+    )
+    .await;
+    assert!(
+        read.is_err(),
+        "bug: an empty pushed window stood in for a failed session read: {read:?}"
+    );
+}
+
+/// A grant holder whose Garmin grant is flagged, with the pool full, is
+/// recommended the usr/pwd sign-in: a dead grant alone reads through the
+/// mirror (carnet#1494), so the grant does not pin the card to its OAuth.
+#[tokio::test]
+async fn a_flagged_garmin_grant_alone_is_recommended_the_sign_in_with_the_pool_full() {
     let resources = common::create_test_server_resources_with_config(config_with_garmin_cap(1))
         .await
         .unwrap();
@@ -1378,17 +1537,17 @@ async fn a_flagged_garmin_grant_reconnects_through_oauth_with_the_pool_full() {
     assert_eq!(garmin["needs_reauth"], true, "{garmin}");
     assert_eq!(garmin["seats_left"], 0, "the pool is full: {garmin}");
     assert_eq!(
-        garmin["recommended_backend"], "oauth",
-        "bug: a flagged grant's reconnect was sent to the usr/pwd login: {garmin}"
+        garmin["recommended_backend"], "mirror",
+        "bug: a dead grant alone kept the card on its OAuth: {garmin}"
     );
 }
 
 /// The group agent's connection alerts follow the same rule as the card
-/// (carnet#1386): a flagged usr/pwd session beside a serving Garmin grant
-/// asks nothing of the athlete, so the room is not told to reconnect Garmin
-/// until the grant itself is flagged.
+/// (carnet#1494): a flagged grant behind a live usr/pwd session asks nothing
+/// of the athlete, so the room is not told to reconnect Garmin until the
+/// session that serves first is flagged.
 #[tokio::test]
-async fn a_flagged_session_beside_a_garmin_grant_raises_no_group_alert() {
+async fn a_flagged_grant_behind_a_garmin_session_raises_no_group_alert() {
     let resources = common::create_test_server_resources().await.unwrap();
     let (user_id, _, tenant) = user_and_tenant(&resources, "garmin-group-alert@example.com").await;
     connect(
@@ -1407,21 +1566,21 @@ async fn a_flagged_session_beside_a_garmin_grant_raises_no_group_alert() {
         Some("garmin-user-group"),
     )
     .await;
-    mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await;
+    mark_dead(&resources, user_id, tenant, oauth_providers::GARMIN).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
 
     let quiet = fetch_member_snapshots(&runtime, &[user_id], tenant).await;
     assert!(
         quiet[0].needs_reauth_providers.is_empty(),
-        "bug: the session beside the grant told the room to reconnect: {:?}",
+        "bug: the grant behind the session told the room to reconnect: {:?}",
         quiet[0].needs_reauth_providers
     );
 
-    mark_dead(&resources, user_id, tenant, oauth_providers::GARMIN).await;
+    mark_dead(&resources, user_id, tenant, oauth_providers::SCIOTTE_GARMIN).await;
     let flagged = fetch_member_snapshots(&runtime, &[user_id], tenant).await;
     assert_eq!(
         flagged[0].needs_reauth_providers,
         ["garmin"],
-        "a dead grant is the athlete's to reconnect"
+        "a dead session that serves first is the athlete's to reconnect"
     );
 }

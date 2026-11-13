@@ -98,6 +98,9 @@ pub mod configuration_output;
 #[cfg(feature = "tools-config")]
 pub mod configuration_document;
 
+/// The field dictionary as `get_connection_status` and `get_activities` carry it.
+pub mod field_dictionary;
+
 /// Provider connection tools: `connect_provider`, `get_connection_status`,
 /// `disconnect_provider` (`tools-connection` feature).
 #[cfg(feature = "tools-connection")]
@@ -265,6 +268,9 @@ pub mod guided_flow;
 /// Memory tools: agent-authored fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
+/// The provider authorization URL tools mint, and the link a write refused
+/// for an owed grant carries.
+pub mod oauth_authorize;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
 /// recommend_plan_flavour — the profile through the selection rule, and the season it implies.
 pub mod plan_flavour;

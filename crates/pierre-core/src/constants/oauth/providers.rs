@@ -140,6 +140,30 @@ pub const SCIOTTE_TRAININGPEAKS: &str = "sciotte_trainingpeaks";
 /// (carnet#509) is approved.
 pub const SCIOTTE_COROS: &str = "sciotte_coros";
 
+/// Every mirror pair: a user-facing provider and its sciotte backend.
+///
+/// The one table routing, status, the hosted sign-in, the reconnect copy and
+/// the operator's connect order read (carnet#1494), so a provider added here
+/// is known to all of them at once.
+pub const MIRROR_PAIRS: [(&str, &str); 4] = [
+    (STRAVA, SCIOTTE),
+    (GARMIN, SCIOTTE_GARMIN),
+    (TRAININGPEAKS, SCIOTTE_TRAININGPEAKS),
+    (COROS, SCIOTTE_COROS),
+];
+
+/// The user-facing half of every [`MIRROR_PAIRS`] entry, in its order: the
+/// providers with an account sign-in.
+pub const MIRRORED_PROVIDERS: [&str; MIRROR_PAIRS.len()] = {
+    let mut providers = [""; MIRROR_PAIRS.len()];
+    let mut index = 0;
+    while index < MIRROR_PAIRS.len() {
+        providers[index] = MIRROR_PAIRS[index].0;
+        index += 1;
+    }
+    providers
+};
+
 // LIMITATION(registre#657): no `NOLIO` provider identifier, descriptor or factory exists, so a
 // coach whose roster and plans live in Nolio (OAuth 2.0 API at nolio.io) cannot connect it.
 

@@ -30,7 +30,7 @@ use pierre_services::provider_notice::under_ai_consent;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::connection_beside_grant;
+use crate::activity_fetch::connection_grant_beside_session;
 use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
 use crate::group_activity_cache::fetch_member_activities;
 use crate::implementations::stored_physiology::member_athlete_inputs;
@@ -182,10 +182,7 @@ async fn persist_fetched(
             tenant_id,
             provider_name,
             &fetched.activities,
-            WriteThrough {
-                read: params,
-                announces_sessions: true,
-            },
+            WriteThrough { read: params },
         )
         .await;
     } else {
@@ -679,13 +676,13 @@ async fn fetch_single_member_snapshot(
     // Named as the athlete knows it: a row stored under a mirror backend
     // (`sciotte_garmin`) is their Garmin, signed in with the username and
     // password they gave Dravr, so both halves of a pair name it once.
-    // A usr/pwd session beside a grant that serves its provider serves
-    // nothing, so its flag asks nothing of the athlete (carnet#1386): only the
-    // grant's own flag names the provider.
+    // A grant behind a session that is not revoked is the session's
+    // fallback, so its flag asks nothing of the athlete (carnet#1494): the
+    // session's own flag names the provider.
     let mut needs_reauth: Vec<String> = Vec::new();
     let flagged = connections.iter().filter(|c| c.status.requires_reauth());
     for connection in flagged {
-        if !connection_beside_grant(runtime, user_id, connection).await {
+        if !connection_grant_beside_session(runtime, user_id, connection).await {
             needs_reauth.push(backend_resolver::user_facing_name(&connection.provider).to_owned());
         }
     }

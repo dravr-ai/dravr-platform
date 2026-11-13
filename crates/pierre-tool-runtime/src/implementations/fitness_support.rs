@@ -31,6 +31,7 @@ use crate::implementations::activity_summary::{detail_json, summary_json, Activi
 use crate::implementations::data_helpers::{
     activity_coverage_note, pagination_has_more, AskedWindow,
 };
+use crate::implementations::field_dictionary::served_header;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
 use chrono::{DateTime, Utc};
@@ -953,6 +954,10 @@ pub(crate) fn build_activities_success_response(
         page_merge.as_ref(),
     );
 
+    // What the connections behind these rows never supply, so the model reads
+    // an absent field as unknown rather than zero.
+    let field_support = served_header(activities);
+
     // One payload, three ways of filling it. The TOON key stays
     // `activities_toon` rather than the fixed `toon` the other typed tools
     // use: `prefetch.rs` reads `activity_list` and `count` at the top level
@@ -975,6 +980,7 @@ pub(crate) fn build_activities_success_response(
         // Calculate token estimate for context management
         token_estimate: TokenEstimate::from_activities(activities_len, mode_used),
         retrieval_context: retrieval_context.clone(),
+        field_support: field_support.clone(),
         coverage: None,
         reconnect_required: None,
         provider_unavailable: None,
