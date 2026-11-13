@@ -1331,14 +1331,14 @@ impl Fixture {
             .common
             .repos
             .activity_backfill_jobs
-            .claim_stale_backfill_jobs(self.claim_at(Utc::now().timestamp_millis()))
+            .claim_stale_backfill_jobs(Self::claim_at(Utc::now().timestamp_millis()))
             .await
             .unwrap();
         assert_eq!(claimed.len(), 1, "the dead runner holds the walk's row");
     }
 
     /// The resume sweep's claim at `now_ms`, over every row however fresh.
-    fn claim_at(&self, now_ms: i64) -> BackfillJobClaim {
+    fn claim_at(now_ms: i64) -> BackfillJobClaim {
         BackfillJobClaim {
             now_ms,
             queued_older_than_ms: 0,
@@ -1591,7 +1591,7 @@ async fn a_failed_walk_steps_retry_is_due_a_whole_lease_later() {
     let ledger = &fx.resources.common.repos.activity_backfill_jobs;
     for now_ms in [after + 60_000, before + lease - 2_000] {
         let swept = ledger
-            .claim_stale_backfill_jobs(fx.claim_at(now_ms))
+            .claim_stale_backfill_jobs(Fixture::claim_at(now_ms))
             .await
             .unwrap();
         assert!(
@@ -1601,7 +1601,7 @@ async fn a_failed_walk_steps_retry_is_due_a_whole_lease_later() {
         );
     }
     let swept = ledger
-        .claim_stale_backfill_jobs(fx.claim_at(after + lease + 2_000))
+        .claim_stale_backfill_jobs(Fixture::claim_at(after + lease + 2_000))
         .await
         .unwrap();
     assert_eq!(
@@ -1643,7 +1643,7 @@ async fn a_walk_reopened_after_a_failed_step_is_claimable_at_once() {
         .common
         .repos
         .activity_backfill_jobs
-        .claim_stale_backfill_jobs(fx.claim_at(Utc::now().timestamp_millis() + 1_000))
+        .claim_stale_backfill_jobs(Fixture::claim_at(Utc::now().timestamp_millis() + 1_000))
         .await
         .unwrap();
     assert_eq!(
