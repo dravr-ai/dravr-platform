@@ -613,6 +613,7 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
             paused: 1,
             held: 0,
             awaiting_history: 0,
+            walks_started: 0,
             budget_spent: true
         }
     );
@@ -825,6 +826,7 @@ async fn each_athletes_streams_requests_equal_their_runs() {
             paused: 0,
             held: 0,
             awaiting_history: 0,
+            walks_started: 0,
             budget_spent: false
         }
     );
@@ -926,6 +928,7 @@ async fn two_runs_failing_in_a_row_pause_the_walk_until_strava_answers() {
             paused: 1,
             held: 0,
             awaiting_history: 0,
+            walks_started: 0,
             budget_spent: false
         }
     );

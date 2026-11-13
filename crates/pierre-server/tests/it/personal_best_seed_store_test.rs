@@ -15,7 +15,9 @@
 // lists the athlete's activities at Strava, and it measures each run on the
 // grant's streams, the session declaring no distance channel. A ride stored
 // under both keys is one workout, measured once. Until a walk under either
-// key has ended, the seed waits: no request, no cursor, not complete.
+// key has ended, the seed waits: no request, no cursor, not complete. An
+// athlete whose history no walk was ever asked for has theirs asked by the
+// pass, once.
 //
 // The Strava stand-in is `personal_best_seed_test`'s, which counts every
 // listing, streams request and profile read it answers.
@@ -37,6 +39,7 @@ use std::sync::Arc;
 
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::Activity;
+use pierre_database::repositories::{BackfillJobKind, BackfillJobState};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::personal_best_seed::{
     exact_provider, run_personal_best_seed_pass, SeedPassReport,
@@ -252,10 +255,87 @@ async fn after_the_walk_the_seed_reads_the_store_and_streams_through_the_grant()
     );
 }
 
-/// While the walk is owed, and while no walk was ever asked, the seed waits:
-/// no athlete is a candidate, a direct advance makes no request and saves no
-/// cursor, and the seed is not complete. Once the walk ends the next pass
-/// seeds the history.
+/// An athlete whose history no walk was ever asked for is no candidate, and
+/// their seed waits, asking nothing of Strava itself; the pass asks their
+/// walk instead, once, which nothing else would until a read of their
+/// history found depth missing. A later pass asks none again.
+#[tokio::test]
+async fn a_seed_asks_the_walk_no_one_asked() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = context_pointed_at(&api_base, 100).await;
+    let runs = [run(9_201, 90, 300), run(9_202, 30, 290)];
+    let athlete = connected_athlete(
+        &resources,
+        &mock,
+        "store_unwalked@example.com",
+        43,
+        runs.to_vec(),
+    )
+    .await;
+    store_as_grant(&resources, &athlete, &runs).await;
+    open_window(&resources).await;
+    assert_eq!(
+        walk_state(&resources, &athlete).await,
+        None,
+        "no walk asked yet"
+    );
+
+    assert_eq!(
+        run_personal_best_seed_pass(&resources).await.unwrap(),
+        SeedPassReport {
+            walks_started: 1,
+            ..SeedPassReport::default()
+        },
+        "bug: the pass asks the walk of an athlete no walk was asked for, and seeds no one"
+    );
+    assert!(
+        walk_state(&resources, &athlete).await.is_some(),
+        "bug: the athlete's history walk is on the ledger"
+    );
+    assert_eq!(
+        advance(&resources, &athlete).await,
+        SeedProgress::AwaitingHistory,
+        "the seed waits for the walk it asked"
+    );
+    assert_eq!(
+        mock.total_streams_hits(),
+        0,
+        "a waiting seed asks Strava for no samples"
+    );
+    assert!(
+        !seed_started(&resources, &athlete).await,
+        "no cursor is saved"
+    );
+
+    assert_eq!(
+        run_personal_best_seed_pass(&resources)
+            .await
+            .unwrap()
+            .walks_started,
+        0,
+        "bug: a walk on the ledger is never asked twice"
+    );
+}
+
+/// What the ledger holds for the athlete's history walk of Strava.
+async fn walk_state(resources: &ServerContext, athlete: &Athlete) -> Option<BackfillJobState> {
+    resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .backfill_job_state(
+            athlete.user_id,
+            athlete.tenant_id,
+            oauth_providers::STRAVA,
+            BackfillJobKind::HistoryWalk,
+        )
+        .await
+        .unwrap()
+}
+
+/// While the walk is owed the seed waits: no athlete is a candidate, a
+/// direct advance makes no request and saves no cursor, and the seed is not
+/// complete. Once the walk ends the next pass seeds the history.
 #[tokio::test]
 async fn the_seed_waits_until_the_walk_has_ended() {
     let (api_base, mock) = mock_strava().await;
@@ -270,23 +350,7 @@ async fn the_seed_waits_until_the_walk_has_ended() {
     )
     .await;
     store_as_grant(&resources, &athlete, &runs).await;
-
-    // No walk asked yet.
     open_window(&resources).await;
-    assert_eq!(
-        run_personal_best_seed_pass(&resources).await.unwrap(),
-        SeedPassReport::default(),
-        "an athlete no walk filled the store for is no candidate"
-    );
-    assert_eq!(
-        advance(&resources, &athlete).await,
-        SeedProgress::AwaitingHistory
-    );
-    assert_eq!(mock.total_requests(), 0, "a waiting seed makes no request");
-    assert!(
-        !seed_started(&resources, &athlete).await,
-        "no cursor is saved"
-    );
 
     // The walk is running.
     let lease = owe_history_walk(

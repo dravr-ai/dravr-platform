@@ -11,7 +11,10 @@
 //! before any is (see [`pierre_services::personal_bests`]). The history is
 //! read from the activity store once a history walk copied it there; each
 //! pass looks only at athletes whose walk ended, so one waiting on theirs
-//! never takes another's turn. Each provider's runs are measured on the
+//! never takes another's turn. An athlete whose history no walk was ever
+//! asked for has their walk asked by the pass ([`WALKS_ASKED_PER_PASS`] at
+//! most): nothing else asks it until a read of their history finds depth
+//! missing, and their seed would otherwise wait forever. Each provider's runs are measured on the
 //! samples of the backend [`seed_stream_sources`] names for it: the Strava
 //! grant for a Strava history, whichever key the store holds it under. The
 //! walk runs on [`spawn_periodic`], the loop every background worker shares:
@@ -57,8 +60,12 @@ use pierre_providers::core::FitnessProvider;
 use pierre_services::periodic::spawn_periodic;
 use pierre_services::personal_bests::{seed_stream_sources, SeedPause, SeedProgress};
 use pierre_services::training_history_read::history_store_keys;
+#[cfg(feature = "tools-data")]
+use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
+#[cfg(feature = "tools-data")]
+use pierre_tool_runtime::runtime::WalkTrigger;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -78,6 +85,13 @@ pub const TICK_INTERVAL: Duration = Duration::from_mins(5);
 /// next time.
 const CANDIDATES_PER_PASS: i64 = 50;
 
+/// The most history walks one pass asks per provider.
+///
+/// They are the walks of athletes whose history no walk was ever asked for:
+/// the first passes after a rollout spread every connected athlete's walk
+/// over many, so their scrapes and pages never start at once.
+pub const WALKS_ASKED_PER_PASS: i64 = 10;
+
 /// What one pass did.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct SeedPassReport {
@@ -91,6 +105,9 @@ pub struct SeedPassReport {
     /// Athletes passed over because no history walk has filled the store
     /// for them yet.
     pub awaiting_history: usize,
+    /// History walks this pass started, for athletes whose history no walk
+    /// was ever asked for.
+    pub walks_started: usize,
     /// Whether a provider's turn in the pass ended because the background
     /// share of its shared budget was spent, rather than on a refusal or with
     /// no athlete left to walk.
@@ -118,6 +135,7 @@ pub fn start_personal_best_seed(resources: &Arc<ServerContext>) {
                     paused = report.paused,
                     held = report.held,
                     awaiting_history = report.awaiting_history,
+                    walks_started = report.walks_started,
                     budget_spent = report.budget_spent,
                     "personal best seed pass finished"
                 );
@@ -154,7 +172,7 @@ pub async fn run_personal_best_seed_pass(
 }
 
 /// [`run_personal_best_seed_pass`]'s turn for the athletes whose samples
-/// `source` serves.
+/// `source` serves; then the walks of those no walk was ever asked for.
 async fn seed_provider_pass(
     resources: &Arc<ServerContext>,
     source: &str,
@@ -200,7 +218,61 @@ async fn seed_provider_pass(
             }
         }
     }
+    ask_missing_walks(resources, source, paired, report).await
+}
+
+/// Ask the history walk of up to [`WALKS_ASKED_PER_PASS`] athletes whose
+/// `source` history no walk was ever asked for, under `source` or its
+/// `paired` key: their seed waits for one. The walk reads the provider's own
+/// source order, the session first (`start_history_walk`).
+///
+/// # Errors
+/// Returns a database error when those athletes cannot be listed.
+#[cfg(feature = "tools-data")]
+async fn ask_missing_walks(
+    resources: &Arc<ServerContext>,
+    source: &str,
+    paired: Option<&str>,
+    report: &mut SeedPassReport,
+) -> AppResult<()> {
+    let unwalked = resources
+        .common
+        .repos
+        .personal_bests
+        .list_personal_best_seed_unwalked(source, paired, WALKS_ASKED_PER_PASS)
+        .await?;
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
+    for athlete in unwalked {
+        let Ok(tenant_id) = TenantId::parse_str(&athlete.tenant_id) else {
+            warn!(user_id = %athlete.user_id, provider = source, "token carries an unparseable tenant id; no walk asked");
+            continue;
+        };
+        if start_history_walk(
+            &runtime,
+            athlete.user_id,
+            tenant_id,
+            source,
+            WalkTrigger::Seed,
+        )
+        .await
+        {
+            report.walks_started += 1;
+        }
+    }
     Ok(())
+}
+
+/// No walk rail in this build (`tools-data` off): no walk can be asked, so
+/// none is. Answers as a ready future so the pass awaits it as it awaits the
+/// rail.
+#[cfg(not(feature = "tools-data"))]
+fn ask_missing_walks(
+    _resources: &Arc<ServerContext>,
+    _source: &str,
+    _paired: Option<&str>,
+    _report: &mut SeedPassReport,
+) -> std::future::Ready<AppResult<()>> {
+    std::future::ready(Ok(()))
 }
 
 /// The athlete's authenticated `provider` handle exactly as named, or `None`
