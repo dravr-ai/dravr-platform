@@ -1,5 +1,5 @@
 // ABOUTME: A walk step lands its rows in the store only while its row is owed under its lease, checked before and after
-// ABOUTME: Only a purge of the step's own key landing between the two checks gets rows taken back, and only the ones it reached
+// ABOUTME: A purge of the step's own key between the two checks takes back what it reached; an unread second check, what it added
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,8 +15,9 @@
 //! checks its row again right after the write, and takes rows back, through
 //! the store
 //! ([`LiveActivityStore::discard`](pierre_services::live_activities::LiveActivityStore::discard)),
-//! only on positive evidence that the key it wrote under was purged for the
-//! athlete in between ([`KeyPurge`]):
+//! on positive evidence that the key it wrote under was purged for the
+//! athlete in between ([`KeyPurge`]), and, when that second check cannot be
+//! read, only the activities its write added (below):
 //!
 //! - **Every activity of the key went** (a disconnect, a revocation, an
 //!   ended link, the operator's termination): every activity of the page
