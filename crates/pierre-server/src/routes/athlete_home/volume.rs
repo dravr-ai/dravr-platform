@@ -65,6 +65,7 @@ pub(super) async fn get_training_volume(
         asked_to: Some(today),
         oldest: oldest_read,
         total: Some(u64::try_from(rows.len()).unwrap_or(u64::MAX)),
+        total_is_lower_bound: read_full,
         returned: u64::try_from(rows.len()).unwrap_or(u64::MAX),
         ..CoverageWindow::default()
     };

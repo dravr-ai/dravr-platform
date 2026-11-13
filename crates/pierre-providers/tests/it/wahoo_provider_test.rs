@@ -424,7 +424,8 @@ async fn stats_are_a_recent_sample_and_say_so() {
             total: Some(2),
             returned: 2,
             ..CoverageWindow::default()
-        })
+        }),
+        "bug: Wahoo totals are a sample of its recent workouts, from the oldest to the newest"
     );
     assert_eq!(stub.await.unwrap().len(), 1);
 }

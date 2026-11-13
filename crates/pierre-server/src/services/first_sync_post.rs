@@ -70,6 +70,8 @@
 
 use std::fmt;
 use std::future::Future;
+#[cfg(not(feature = "tools-data"))]
+use std::future::{ready, Ready};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
@@ -335,8 +337,8 @@ fn walk_history(
     _tenant_id: TenantId,
     _provider: &str,
     _trigger: WalkTrigger,
-) -> std::future::Ready<()> {
-    std::future::ready(())
+) -> Ready<()> {
+    ready(())
 }
 
 /// Claim the first post to the athlete. `false` when an earlier trigger holds

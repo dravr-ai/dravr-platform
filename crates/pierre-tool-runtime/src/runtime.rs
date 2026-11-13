@@ -62,15 +62,15 @@ use pierre_notifications::NotificationService;
 /// A background read that finished, and the conversation it answers
 /// ([`BackfillNotifier::push_backfill_complete`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct BackfillCompletion<'a> {
+pub struct BackfillCompletion<'job> {
     /// The athlete.
     pub user_id: Uuid,
     /// The tenant that owns the rows.
     pub tenant_id: TenantId,
     /// The conversation that asked.
-    pub pierre_conversation_id: &'a str,
+    pub pierre_conversation_id: &'job str,
     /// The backend that was read.
-    pub provider: &'a str,
+    pub provider: &'job str,
     /// The read window's `after` lower bound in unix seconds (`0` when the
     /// read had none).
     pub after_ts: i64,
@@ -81,7 +81,7 @@ pub struct BackfillCompletion<'a> {
     pub kind: BackfillJobKind,
     /// The athlete's message a live read answers; `None` for every other
     /// kind, and for a read no stored message asked.
-    pub asked_message_id: Option<&'a str>,
+    pub asked_message_id: Option<&'job str>,
     /// A [`BackfillJobKind::LiveRead`] that never landed: every attempt
     /// failed, so nothing new is stored. Its re-ask is answered from what
     /// was, labelled as the provider being unavailable, which the model
@@ -89,15 +89,15 @@ pub struct BackfillCompletion<'a> {
     pub provider_unavailable: bool,
 }
 
-impl<'a> BackfillCompletion<'a> {
+impl<'job> BackfillCompletion<'job> {
     /// A finished [`BackfillJobKind::Backfill`] of `activity_count`
     /// activities from `provider`, back to `after_ts`.
     #[must_use]
     pub const fn backfill(
         user_id: Uuid,
         tenant_id: TenantId,
-        pierre_conversation_id: &'a str,
-        provider: &'a str,
+        pierre_conversation_id: &'job str,
+        provider: &'job str,
         after_ts: i64,
         activity_count: usize,
     ) -> Self {
@@ -139,13 +139,13 @@ pub enum WalkTrigger {
 /// ([`BackfillNotifier::push_history_walk_complete`]). No conversation asked
 /// for it: a connection or a first sync did.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct HistoryWalkCompletion<'a> {
+pub struct HistoryWalkCompletion<'job> {
     /// The athlete.
     pub user_id: Uuid,
     /// The tenant that owns the rows.
     pub tenant_id: TenantId,
     /// The backend that was walked.
-    pub provider: &'a str,
+    pub provider: &'job str,
     /// The start of the oldest activity the walked key holds.
     pub oldest: DateTime<Utc>,
     /// The activities the whole walk wrote, every step's.

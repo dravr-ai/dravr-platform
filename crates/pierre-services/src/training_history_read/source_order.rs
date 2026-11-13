@@ -275,24 +275,25 @@ pub async fn walk_across_pair(
 }
 
 /// Whether the user holds `backend` live in the tenant
-/// ([`history_source_order`]). A connection list that cannot be read counts
-/// the held token row as live, as the read plan does: the walk's read then
-/// reports what it finds.
+/// ([`history_source_order`]). A token row or a connection list that cannot
+/// be read counts the token row as held and live, as the read plan does: the
+/// walk's read then reports what it finds.
 async fn holds_live(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
 ) -> bool {
-    let token = matches!(
-        repos
-            .oauth_tokens
-            .get_token(user_id, tenant_id, backend)
-            .await,
-        Ok(Some(_))
-    );
-    if !token {
-        return false;
+    match repos
+        .oauth_tokens
+        .get_token(user_id, tenant_id, backend)
+        .await
+    {
+        Ok(Some(_)) => {}
+        Ok(None) => return false,
+        Err(e) => {
+            warn!(user_id = %user_id, backend, error = %e, "History sources: the token row could not be read; it reads as held");
+        }
     }
     match repos
         .provider_connections

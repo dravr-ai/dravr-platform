@@ -312,9 +312,11 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// `leased_until_ms`. Idempotent on `(user_id, provider, kind)`: returns
     /// `true` when this call inserted the row, `false` when one of the kind
     /// was already owed — the same job, already on file. A row that only
-    /// records how an earlier job ended ([`BackfillJobState::Incomplete`]) is
-    /// replaced by an ask in its own tenant: it owes nothing. An ask from
-    /// another tenant leaves it, and returns `false`.
+    /// records how an earlier job ended ([`BackfillJobState::Incomplete`],
+    /// [`BackfillJobState::Walked`]) is replaced by an ask in its own tenant:
+    /// it owes nothing. An ask from another tenant leaves it, and returns
+    /// `false`; so does a history walk in [`BackfillJobState::PhasePurged`],
+    /// which a step may still hold.
     ///
     /// A [`BackfillJobKind::LiveRead`] asked again while one is owed still
     /// returns `false`, but rebinds the owed row to the new ask's
@@ -650,8 +652,9 @@ pub(crate) const fn phase_purged_outcome() -> &'static str {
 /// it with its own type and its lock clause for [`claim_backfill_jobs_sql!`],
 /// and sqlx resolves the driver from `self.pool()`.
 ///
-/// The body names its consts, helpers and types unqualified, so the invoking
-/// shell must `use` every one of them.
+/// The body names most of its consts, helpers and types unqualified, so the
+/// invoking shell must `use` every one of those; the rest it reaches through
+/// `$crate::repositories::activity_backfill_jobs::…`.
 macro_rules! impl_activity_backfill_job_repository {
     ($ty:ty, $lock:literal) => {
         #[async_trait::async_trait]

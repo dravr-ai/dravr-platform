@@ -63,10 +63,16 @@ fn coverage_present_when_window_exceeds_returned() {
     )
     .expect("a truncated window must emit its Coverage");
 
-    assert_eq!(coverage["window"]["total"], 552);
-    assert_eq!(coverage["window"]["returned"], 200);
-    assert_eq!(coverage["window"]["oldest"], "2024-01-15");
-    assert_eq!(coverage["window"]["newest"], "2024-12-28");
+    assert_eq!(coverage["window"]["total"], 552, "bug: {coverage}");
+    assert_eq!(coverage["window"]["returned"], 200, "bug: {coverage}");
+    assert_eq!(
+        coverage["window"]["oldest"], "2024-01-15",
+        "bug: {coverage}"
+    );
+    assert_eq!(
+        coverage["window"]["newest"], "2024-12-28",
+        "bug: {coverage}"
+    );
     // The note must steer the model toward the full count, not the shown slice.
     let text = coverage["note"].as_str().unwrap();
     assert!(text.contains("552"), "note cites the full total: {text}");
@@ -92,37 +98,46 @@ fn coverage_present_when_window_exceeds_returned() {
 fn coverage_absent_when_whole_window_returned() {
     let span = (day(2024, 1, 15), day(2024, 12, 28));
     // returned == total → nothing was hidden, so no framing.
-    assert!(coverage_json(
-        Some(200),
-        200,
-        Some(span),
-        AskedWindow::default(),
-        Completeness::Complete
-    )
-    .is_none());
+    assert!(
+        coverage_json(
+            Some(200),
+            200,
+            Some(span),
+            AskedWindow::default(),
+            Completeness::Complete
+        )
+        .is_none(),
+        "bug: a whole, complete, undated window needs no coverage"
+    );
     // returned > total can't happen, but treat it as "nothing hidden" too.
-    assert!(coverage_json(
-        Some(150),
-        200,
-        Some(span),
-        AskedWindow::default(),
-        Completeness::Complete
-    )
-    .is_none());
+    assert!(
+        coverage_json(
+            Some(150),
+            200,
+            Some(span),
+            AskedWindow::default(),
+            Completeness::Complete
+        )
+        .is_none(),
+        "bug: more returned than the total hides nothing"
+    );
 }
 
 #[test]
 fn coverage_absent_when_window_total_unknown() {
     let span = (day(2024, 1, 15), day(2024, 12, 28));
     // The cached-snapshot path passes None — no coverage sidecar.
-    assert!(coverage_json(
-        None,
-        200,
-        Some(span),
-        AskedWindow::default(),
-        Completeness::Complete
-    )
-    .is_none());
+    assert!(
+        coverage_json(
+            None,
+            200,
+            Some(span),
+            AskedWindow::default(),
+            Completeness::Complete
+        )
+        .is_none(),
+        "bug: a complete window with no known total carries no coverage"
+    );
 }
 
 #[test]
@@ -135,8 +150,8 @@ fn coverage_is_count_only_without_a_span() {
         Completeness::Complete,
     )
     .expect("a truncated window still emits a count-only Coverage");
-    assert_eq!(coverage["window"]["total"], 552);
-    assert_eq!(coverage["window"]["returned"], 200);
+    assert_eq!(coverage["window"]["total"], 552, "bug: {coverage}");
+    assert_eq!(coverage["window"]["returned"], 200, "bug: {coverage}");
     assert!(
         coverage["window"].get("oldest").is_none(),
         "no span fields without dates"
@@ -165,7 +180,10 @@ fn coverage_frames_count_as_lower_bound_when_read_is_capped() {
     .expect("a capped, truncated window must emit its Coverage");
 
     // The numeric key stays the exact figure read; the bound and the prose hedge.
-    assert_eq!(coverage["window"]["total"], HISTORICAL_WINDOW_READ_LIMIT);
+    assert_eq!(
+        coverage["window"]["total"], HISTORICAL_WINDOW_READ_LIMIT,
+        "bug: {coverage}"
+    );
     assert_eq!(
         coverage["window"]["total_is_lower_bound"], true,
         "bug: {coverage}"
@@ -206,8 +224,16 @@ fn date_span_spans_oldest_to_newest_regardless_of_order() {
         act_on("c", 2024, 6, 1),
     ];
     let (oldest, newest) = activity_date_span(&activities, None).expect("non-empty span");
-    assert_eq!(oldest, day(2024, 1, 15));
-    assert_eq!(newest, day(2024, 12, 28));
+    assert_eq!(
+        oldest,
+        day(2024, 1, 15),
+        "bug: the span starts at the oldest"
+    );
+    assert_eq!(
+        newest,
+        day(2024, 12, 28),
+        "bug: the span ends at the newest"
+    );
 }
 
 #[test]
@@ -303,7 +329,8 @@ fn window_totals_sum_the_whole_window() {
             "distance_km": 120.0,
             "duration_seconds": 46_800,
             "elevation_gain_m": 1500.0,
-        })
+        }),
+        "bug: the totals serialize as the window's `totals` object"
     );
 }
 

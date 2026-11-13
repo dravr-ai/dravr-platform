@@ -46,7 +46,7 @@ use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::CoreFitnessProvider;
 use tokio::sync::{oneshot, watch};
-use tokio::time::timeout;
+use tokio::time;
 use tracing::{info, instrument, warn};
 
 use super::{
@@ -62,12 +62,12 @@ use crate::revalidation::revalidation_timeout;
 use crate::runtime::BackfillCompletion;
 
 /// What one attempt of a live read answered, for the turn waiting on it.
-pub struct LiveReadOutput {
+pub(crate) struct LiveReadOutput {
     /// What [`read_live_window`] returned, unfiltered: the turn filters it
     /// for the model it answers.
-    pub read: AppResult<HeadRead>,
+    pub(crate) read: AppResult<HeadRead>,
     /// The authenticated provider, when the attempt still holds one.
-    pub provider: Option<Box<dyn CoreFitnessProvider>>,
+    pub(crate) provider: Option<Box<dyn CoreFitnessProvider>>,
 }
 
 impl fmt::Debug for LiveReadOutput {
@@ -83,11 +83,11 @@ impl fmt::Debug for LiveReadOutput {
 ///
 /// The attempt began before the credential was read, so a reconnect that
 /// lands while the read is in flight is newer than any refusal it reports.
-pub struct Authenticated {
+pub(crate) struct Authenticated {
     /// The provider.
-    pub provider: Box<dyn CoreFitnessProvider>,
+    pub(crate) provider: Box<dyn CoreFitnessProvider>,
     /// When the turn's attempt began.
-    pub attempt_started_at: DateTime<Utc>,
+    pub(crate) attempt_started_at: DateTime<Utc>,
 }
 
 impl fmt::Debug for Authenticated {
@@ -107,7 +107,7 @@ pub(super) struct LiveReadHandoff {
 
 /// How asking for a live read went.
 #[derive(Debug)]
-pub enum LiveReadStart {
+pub(crate) enum LiveReadStart {
     /// This ask started the read: its first attempt answers on the receiver.
     /// Dropping or closing the receiver before the answer tells the read the
     /// turn stopped waiting, and the read then owes the conversation a
@@ -121,7 +121,7 @@ pub enum LiveReadStart {
 /// Record `job` (a [`BackfillJobKind::LiveRead`]) and start its first
 /// attempt with the provider the turn already holds, or with one the
 /// attempt authenticates when `authenticated` is `None`.
-pub async fn start_live_read(
+pub(crate) async fn start_live_read(
     job: ActivityBackfillJob,
     authenticated: Option<Authenticated>,
 ) -> LiveReadStart {
@@ -156,7 +156,7 @@ pub async fn start_live_read(
 /// turn that waited for the read's rows and answered with them is owed no
 /// follow-up. An ask joined to a read owed elsewhere was rebound to it as it
 /// was recorded.
-pub struct JoinedRead {
+pub(crate) struct JoinedRead {
     job: ActivityBackfillJob,
     authenticated: Option<Authenticated>,
     /// The run joined, when it runs in this process.
@@ -183,7 +183,7 @@ impl JoinedRead {
     /// this ask's own, and the answer says where they are filed. Still
     /// answered once the run has ended.
     #[must_use]
-    pub fn landed_over_its_window(&self) -> Option<LandedOver> {
+    pub(crate) fn landed_over_its_window(&self) -> Option<LandedOver> {
         let run = self.here.as_ref()?;
         let state = run.borrow();
         match &*state {
@@ -203,7 +203,7 @@ impl JoinedRead {
     /// provider unavailable, and reads nothing. Still answered once the run
     /// has ended.
     #[must_use]
-    pub fn gave_up(&self) -> bool {
+    pub(crate) fn gave_up(&self) -> bool {
         self.here
             .as_ref()
             .is_some_and(|run| matches!(*run.borrow(), InFlight::GaveUp))
@@ -213,7 +213,7 @@ impl JoinedRead {
     /// or an attempt holds the lease of the read the ledger owes. A run here
     /// that landed reads nothing more, and an owed row no attempt holds is
     /// waiting for a retry, not running.
-    pub async fn running(&self) -> bool {
+    pub(crate) async fn running(&self) -> bool {
         if let Some(run) = &self.here {
             if matches!(*run.borrow(), InFlight::Landed { .. } | InFlight::GaveUp) {
                 return false;
@@ -237,7 +237,7 @@ impl JoinedRead {
     /// or is answered as no read owes it, rather than be told a read is
     /// coming. A row of its own that is gone was finished by the read that
     /// landed it, whose follow-up answers the ask the row was bound to.
-    pub async fn owe_follow_up(&self) -> bool {
+    pub(crate) async fn owe_follow_up(&self) -> bool {
         let Some(run) = &self.here else {
             return self.bound_elsewhere
                 && matches!(
@@ -255,7 +255,7 @@ impl JoinedRead {
     }
 
     /// Ask for the read again, now that the one joined has ended.
-    pub async fn restart(self) -> LiveReadStart {
+    pub(crate) async fn restart(self) -> LiveReadStart {
         start_live_read(self.job, self.authenticated).await
     }
 }
@@ -287,17 +287,17 @@ async fn owed_lease(job: &ActivityBackfillJob) -> AppResult<Option<JobLeaseState
 
 /// A joined read that landed over the ask's window.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LandedOver {
+pub(crate) struct LandedOver {
     /// The grant that answered in the session's place, when one did: the
     /// rows are filed under it, not under the session the ask named.
-    pub served_by_grant: Option<String>,
+    pub(crate) served_by_grant: Option<String>,
 }
 
 impl LandedOver {
     /// The cache key the landed rows are filed under, for an ask of
     /// `provider_slug`.
     #[must_use]
-    pub fn filed_under<'a>(&'a self, provider_slug: &'a str) -> &'a str {
+    pub(crate) fn filed_under<'a>(&'a self, provider_slug: &'a str) -> &'a str {
         self.served_by_grant.as_deref().unwrap_or(provider_slug)
     }
 }
@@ -648,7 +648,7 @@ async fn read_once(
         live,
         Some(job.tenant_id),
     ));
-    timeout(cap, read).await.map_or_else(
+    time::timeout(cap, read).await.map_or_else(
         |_| {
             warn!(
                 user_id = %job.user_id,
@@ -839,16 +839,18 @@ mod tests {
     #[test]
     fn a_read_covers_a_later_ask_of_its_window() {
         let read = window(Some(1_000), None, Some(50));
-        assert!(covers(&read, 12, &window(Some(1_000), None, Some(50))));
+        assert!(
+            covers(&read, 12, &window(Some(1_000), None, Some(50))),
+            "bug: a read covers the same ask again"
+        );
         assert!(
             covers(&read, 12, &window(Some(1_060), None, Some(200))),
             "a read that ran out before its limit saw the whole window, whatever the ask's limit"
         );
-        assert!(covers(
-            &read,
-            12,
-            &window(Some(1_060), Some(5_000), Some(10))
-        ));
+        assert!(
+            covers(&read, 12, &window(Some(1_060), Some(5_000), Some(10))),
+            "bug: a read covers a closed window inside its own"
+        );
     }
 
     #[test]
@@ -866,7 +868,10 @@ mod tests {
             !covers(&read, 50, &window(Some(1_000), None, Some(200))),
             "a read cut at its limit did not reach the bottom of a deeper ask"
         );
-        assert!(covers(&read, 50, &window(Some(1_000), None, Some(50))));
+        assert!(
+            covers(&read, 50, &window(Some(1_000), None, Some(50))),
+            "bug: a read cut at its limit still covers an ask no deeper than it"
+        );
         let paged = ActivityQueryParams {
             offset: Some(10),
             ..window(Some(1_000), None, Some(50))

@@ -22,7 +22,6 @@ use std::sync::Mutex;
 use std::time::Instant;
 
 use pierre_core::models::coverage::IncompleteReason;
-use serde::Deserialize;
 use serde_json::Value;
 
 use crate::guardian::state::TURN_TTL;
@@ -41,6 +40,8 @@ const MARK_CAP: usize = 10_000;
 /// raise it — a nested field of some other tool's output cannot.
 #[must_use]
 pub fn incomplete_window_in_payload(tool_name: &str, payload: &Value) -> bool {
+    use serde::Deserialize;
+
     let Some(coverage) = payload
         .get("coverage")
         .filter(|_| tool_name == "get_activities")

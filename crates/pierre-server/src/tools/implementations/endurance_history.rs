@@ -443,10 +443,10 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
             // history too short to warm the window from a window never
             // computed; the stored sessions can, and the rows and their
             // coverage then come from that one read, unless it warms no day
-            // the rollup does. It writes no row, so a
-            // read-only grant stays one. Without it, an athlete with too short
-            // a history read `days: []` beside a fitness score computed from
-            // the same sessions. A window short of history then reads the walk
+            // the rollup does. It writes no row, so a read-only grant stays
+            // one. Without it, an athlete with too short a history read
+            // `days: []` beside a fitness score computed from the same
+            // sessions. A window short of history then reads the walk
             // owed for it, and asks one where none ever ran: a background
             // capture of the athlete's account, as `get_activities` asks for a
             // deep window it does not hold.

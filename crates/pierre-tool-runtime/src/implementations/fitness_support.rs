@@ -998,10 +998,11 @@ pub(crate) fn build_activities_success_response(
         OutputFormat::Json => (base(Some(data_value), None, "json"), "json"),
     };
 
-    // Surface honest window coverage when the served slice was truncated, so
-    // the LLM frames "N total in this window, showing the most recent M"
-    // instead of anchoring on the oldest shown activity. LLM-facing (tool
-    // result, not the input schema) → no SDK/contremaitre/locale drift.
+    // Surface honest window coverage when the served slice was truncated, the
+    // window was asked by date, or it is incomplete, so the LLM frames "N total
+    // in this window, showing the most recent M" instead of anchoring on the
+    // oldest shown activity. LLM-facing (tool result, not the input schema) →
+    // no contremaitre/locale drift.
     payload.coverage = activity_coverage(
         window_total,
         activities_len,

@@ -473,11 +473,11 @@ pub(crate) async fn serve_flagged_session(
 }
 
 /// A live read that failed, for [`serve_after_failed_read`].
-pub(crate) struct FailedRead<'a> {
-    pub(crate) provider_slug: &'a str,
+pub(crate) struct FailedRead<'read> {
+    pub(crate) provider_slug: &'read str,
     pub(crate) user_id: Uuid,
     pub(crate) tenant: Option<TenantId>,
-    pub(crate) params: &'a ActivityQueryParams,
+    pub(crate) params: &'read ActivityQueryParams,
     pub(crate) attempt_started_at: DateTime<Utc>,
 }
 

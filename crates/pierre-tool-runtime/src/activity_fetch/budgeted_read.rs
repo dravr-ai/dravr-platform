@@ -15,7 +15,7 @@ use pierre_database::repositories::BackfillJobKind;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::{ai_scope, CoreFitnessProvider};
 use tokio::sync::oneshot::{self, error::RecvError};
-use tokio::time::{sleep_until, timeout, timeout_at, Instant};
+use tokio::time::{self, Instant};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -187,7 +187,7 @@ pub async fn read_live_window_within_budget(
             }
         }
     };
-    if let Ok(landed) = timeout_at(deadline, &mut answer).await {
+    if let Ok(landed) = time::timeout_at(deadline, &mut answer).await {
         return answered(runtime, landed);
     }
     if let Some(cached) =
@@ -216,11 +216,11 @@ const JOINED_READ_POLL: Duration = Duration::from_millis(250);
 
 /// The window a budgeted read answers.
 #[derive(Clone, Copy)]
-struct Window<'a> {
-    provider_slug: &'a str,
+struct Window<'read> {
+    provider_slug: &'read str,
     user_id: Uuid,
     tenant_id: TenantId,
-    params: &'a ActivityQueryParams,
+    params: &'read ActivityQueryParams,
 }
 
 /// How waiting on a joined read ended.
@@ -285,7 +285,7 @@ async fn wait_on_joined(
                 LiveReadStart::Joined(again) => joined = again,
             }
         }
-        sleep_until(deadline.min(Instant::now() + JOINED_READ_POLL)).await;
+        time::sleep_until(deadline.min(Instant::now() + JOINED_READ_POLL)).await;
     }
 }
 
@@ -508,7 +508,7 @@ async fn head_within_budget(
         );
         return None;
     };
-    match timeout(budget, &mut answer).await {
+    match time::timeout(budget, &mut answer).await {
         Ok(Ok(landed)) => Some(landed),
         Ok(Err(RecvError { .. })) => {
             warn!(

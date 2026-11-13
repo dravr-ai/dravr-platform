@@ -35,9 +35,10 @@ use pierre_services::health_sync::history_walk_scope;
 use tracing::{info, warn};
 
 /// Copy the wellness before the grant when `job` walks a session whose read
-/// plan stands a live push-fed grant behind it ([`fallback_grant`]). Returns whether nothing of it is left to copy: `true`
-/// once copied, and for every walk that has none to copy; `false` when a
-/// read or a write failed, so a retry of the walk's last step copies again.
+/// plan stands a live push-fed grant behind it ([`fallback_grant`]). Returns
+/// whether nothing of it is left to copy: `true` once copied, and for every
+/// walk that has none to copy; `false` when a read or a write failed, so a
+/// retry of the walk's last step copies again.
 #[cfg(feature = "health-sync")]
 pub(super) async fn copy_before_grant(job: &ActivityBackfillJob) -> bool {
     use pierre_providers::backend_resolver::user_facing_name;

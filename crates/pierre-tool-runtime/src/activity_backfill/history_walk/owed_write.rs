@@ -78,7 +78,7 @@ use std::time::Duration as StdDuration;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::Activity;
 use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, PurgeReason};
-use tokio::time::sleep;
+use tokio::time;
 use tracing::{info, warn};
 
 use super::super::{persist_backfill_activities, ActivityBackfillJob};
@@ -197,7 +197,7 @@ async fn check_after_write(
         };
         match (read, waits.next()) {
             (Ok(after), _) => return Ok(after),
-            (Err(()), Some(wait)) => sleep(*wait).await,
+            (Err(()), Some(wait)) => time::sleep(*wait).await,
             (Err(()), None) => return Err(()),
         }
     }
@@ -265,9 +265,9 @@ async fn held_before(
 /// The purges of the step's key attested from `since` on, as read before
 /// its first check.
 #[derive(Debug, Clone, Copy)]
-struct Attested<'a> {
+struct Attested<'step> {
     since: DateTime<Utc>,
-    before: &'a [String],
+    before: &'step [String],
 }
 
 /// The reasons of the purges of the step's key that reached the athlete,
@@ -396,33 +396,46 @@ mod tests {
 
     #[test]
     fn only_activity_purges_count_and_an_expiry_alone_reaches_what_was_added() {
-        assert_eq!(purge_of(&[]), None);
+        assert_eq!(
+            purge_of(&[]),
+            None,
+            "bug: no purge attested takes nothing back"
+        );
         assert_eq!(
             purge_of(&reasons(&[PurgeReason::WellnessConsentWithdrawn])),
-            None
+            None,
+            "bug: a wellness consent withdrawn deletes no activity"
         );
-        assert_eq!(purge_of(&reasons(&[PurgeReason::WellnessExpired])), None);
+        assert_eq!(
+            purge_of(&reasons(&[PurgeReason::WellnessExpired])),
+            None,
+            "bug: a wellness expiry deletes no activity"
+        );
         assert_eq!(
             purge_of(&reasons(&[PurgeReason::CacheExpired])),
-            Some(KeyPurge::Expired)
+            Some(KeyPurge::Expired),
+            "bug: a retention expiry reaches only what the step added"
         );
         assert_eq!(
             purge_of(&reasons(&[
                 PurgeReason::WellnessExpired,
                 PurgeReason::CacheExpired
             ])),
-            Some(KeyPurge::Expired)
+            Some(KeyPurge::Expired),
+            "bug: a wellness purge beside an expiry leaves it an expiry"
         );
         assert_eq!(
             purge_of(&reasons(&[
                 PurgeReason::CacheExpired,
                 PurgeReason::ProviderRevoked
             ])),
-            Some(KeyPurge::Whole)
+            Some(KeyPurge::Whole),
+            "bug: a revocation beside an expiry takes the whole page back"
         );
         assert_eq!(
             purge_of(&reasons(&[PurgeReason::Termination])),
-            Some(KeyPurge::Whole)
+            Some(KeyPurge::Whole),
+            "bug: a termination takes the whole page back"
         );
     }
 }

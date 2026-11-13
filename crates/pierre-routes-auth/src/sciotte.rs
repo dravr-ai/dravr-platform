@@ -433,9 +433,13 @@ pub(crate) fn warm_from_session(
         prefetch,
     );
     #[cfg(feature = "health-sync")]
+    let backend = provider_name.to_owned();
+    #[cfg(feature = "health-sync")]
     spawn_connection_report(resources, user_id, provider_name, async move {
         if let Some(backfill) = settled {
-            drop(backfill.await);
+            if let Err(e) = backfill.await {
+                warn!(user_id = %user_id, provider = %backend, error = %e, "the connect's health backfill task failed; the connection is still reported");
+            }
         }
     });
     #[cfg(not(feature = "health-sync"))]

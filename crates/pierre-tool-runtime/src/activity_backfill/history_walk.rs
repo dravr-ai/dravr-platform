@@ -94,7 +94,7 @@
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
 
-use chrono::{DateTime, Datelike, Utc};
+use chrono::{DateTime, Utc};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
@@ -109,7 +109,7 @@ use pierre_services::training_history_read::{
     history_sources_for, history_store_keys, walk_across_pair, walk_hand_off, walk_source,
     HistorySourceRole, PairWalk,
 };
-use tokio::time::timeout;
+use tokio::time;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
@@ -142,13 +142,13 @@ pub const SCIOTTE_WALK_STEP_MONTHS: i64 = 36;
 /// How long one session step may take: under the scraper service's own
 /// 320 s request deadline, so the step fails here, cleanly, before the
 /// service gives up on it.
-pub const SCIOTTE_STEP_TIMEOUT: StdDuration = StdDuration::from_secs(300);
+const SCIOTTE_STEP_TIMEOUT: StdDuration = StdDuration::from_secs(300);
 
 /// Months one API window spans.
 const API_WALK_STEP_MONTHS: i64 = 12;
 
 /// Activities one API page asks for: Strava's largest page.
-pub const API_WALK_PAGE: usize = 200;
+const API_WALK_PAGE: usize = 200;
 
 /// Consecutive empty API windows that end a walk: after two empty years, or
 /// at its floor (the account's creation, or [`WHOLE_ACCOUNT_AFTER`]),
@@ -886,7 +886,7 @@ async fn session_step(
         offset: None,
     };
     let started = Instant::now();
-    let Ok(fetched) = timeout(
+    let Ok(fetched) = time::timeout(
         SCIOTTE_STEP_TIMEOUT,
         ai_scope::unfiltered(provider.get_activities_with_params(&read)),
     )
@@ -1038,9 +1038,9 @@ fn failed_read(job: &ActivityBackfillJob, error: &AppError) -> Step {
 
 /// The span one step read.
 #[derive(Debug, Clone, Copy)]
-struct StepSpan<'a> {
+struct StepSpan<'step> {
     /// The request that returned the rows.
-    read: &'a ActivityQueryParams,
+    read: &'step ActivityQueryParams,
     /// The newest instant the step covers (unix seconds).
     top: i64,
     /// The oldest instant the request covered.
@@ -1051,7 +1051,7 @@ struct StepSpan<'a> {
     started: Instant,
     /// The lease the step holds its row under; none for a walk the ledger
     /// could not record.
-    lease: Option<&'a JobLease>,
+    lease: Option<&'step JobLease>,
 }
 
 /// Write a step's `activities` through the store while its row is still its
@@ -1142,6 +1142,8 @@ async fn record_walk_coverage(job: &ActivityBackfillJob, reached_ts: i64, hit_fe
 /// oldest year any of its history keys now holds and the `landed`
 /// activities the walk wrote. A walk that brought nothing in says nothing.
 async fn announce_walked(job: &ActivityBackfillJob, landed: i64) {
+    use chrono::Datelike;
+
     let Some(notifier) = job.resources.backfill_notifier() else {
         return;
     };

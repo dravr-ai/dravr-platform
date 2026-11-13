@@ -27,7 +27,6 @@ use std::time::Duration;
 
 use chrono::NaiveDate;
 use schemars::{JsonSchema, Schema, SchemaGenerator};
-use serde::de::Error as DeError;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 /// Why a served window is not the whole truth for the window asked.
@@ -135,23 +134,29 @@ pub enum WindowScope {
 /// December rides (carnet#874). Serialized with distance and elevation to one
 /// decimal and the duration exact, which the agent quotes and derives pace
 /// from (carnet#1015).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, PartialEq, Deserialize, JsonSchema)]
 pub struct WindowTotals {
     /// Activities in the window.
     pub count: u64,
     /// Summed distance in kilometres, over the activities that report one.
-    #[serde(serialize_with = "one_decimal")]
     pub distance_km: f64,
     /// Summed duration in seconds, exact.
     pub duration_seconds: u64,
     /// Summed elevation gain in metres, over the activities that report one.
-    #[serde(serialize_with = "one_decimal")]
     pub elevation_gain_m: f64,
 }
 
-#[allow(clippy::trivially_copy_pass_by_ref)] // serde passes the field by reference
-fn one_decimal<S: Serializer>(value: &f64, serializer: S) -> Result<S::Ok, S::Error> {
-    serializer.serialize_f64((value * 10.0).round() / 10.0)
+impl Serialize for WindowTotals {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let one_decimal = |value: f64| (value * 10.0).round() / 10.0;
+        let mut totals = serializer.serialize_struct("WindowTotals", 4)?;
+        totals.serialize_field("count", &self.count)?;
+        totals.serialize_field("distance_km", &one_decimal(self.distance_km))?;
+        totals.serialize_field("duration_seconds", &self.duration_seconds)?;
+        totals.serialize_field("elevation_gain_m", &one_decimal(self.elevation_gain_m))?;
+        totals.end()
+    }
 }
 
 /// What a served window spans.
@@ -415,17 +420,18 @@ impl Serialize for Coverage {
 
 impl<'de> Deserialize<'de> for Coverage {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
         let wire = CoverageWire::deserialize(deserializer)?;
         let completeness = match (wire.complete, wire.incomplete_reason) {
             (true, None) => Completeness::Complete,
             (false, Some(reason)) => Completeness::Incomplete(reason),
             (true, Some(_)) => {
-                return Err(DeError::custom(
+                return Err(D::Error::custom(
                     "a complete coverage names no incomplete_reason",
                 ))
             }
             (false, None) => {
-                return Err(DeError::custom(
+                return Err(D::Error::custom(
                     "an incomplete coverage names its incomplete_reason",
                 ))
             }
@@ -480,11 +486,24 @@ mod tests {
             pending: Some(Pending::running(12, Some(48), Some(10.0))),
         };
         let wire = serde_json::to_value(&coverage)?;
-        assert_eq!(wire["complete"], false);
-        assert_eq!(wire["incomplete_reason"], "shallow_history");
-        assert_eq!(wire["trustworthy_from"], "2026-06-01");
-        assert_eq!(wire["window"]["scope"], json!({ "kind": "asked" }));
-        assert_eq!(wire["window"]["asked_from"], "2026-01-01");
+        assert_eq!(wire["complete"], false, "bug: a shallow window is incomplete");
+        assert_eq!(
+            wire["incomplete_reason"], "shallow_history",
+            "bug: the reason travels snake_case"
+        );
+        assert_eq!(
+            wire["trustworthy_from"], "2026-06-01",
+            "bug: the vouched day travels as YYYY-MM-DD"
+        );
+        assert_eq!(
+            wire["window"]["scope"],
+            json!({ "kind": "asked" }),
+            "bug: an asked window's scope is tagged `asked`"
+        );
+        assert_eq!(
+            wire["window"]["asked_from"], "2026-01-01",
+            "bug: the window names the first day asked"
+        );
         assert_eq!(
             wire["pending"],
             json!({
@@ -493,16 +512,16 @@ mod tests {
                 "months_total": 48,
                 "eta_secs": 360,
             }),
-            "36 months left at 10 s a month"
+            "bug: 36 months left at 10 s a month"
         );
         assert!(
             wire["note"]
                 .as_str()
                 .is_some_and(|note| note.contains("being fetched")),
-            "a pending walk is named in the note: {wire}"
+            "bug: a pending walk is named in the note: {wire}"
         );
         let back: Coverage = serde_json::from_value(wire)?;
-        assert_eq!(back, coverage);
+        assert_eq!(back, coverage, "bug: the wire shape reads back as written");
         Ok(())
     }
 
@@ -510,7 +529,8 @@ mod tests {
     fn a_walk_not_yet_walked_has_no_progress_fields() -> TestResult {
         assert_eq!(
             serde_json::to_value(Pending::HistoryNotWalked)?,
-            json!({ "kind": "history_not_walked" })
+            json!({ "kind": "history_not_walked" }),
+            "bug: a walk not yet run carries only its kind"
         );
         assert_eq!(
             Pending::running(3, None, Some(5.0)),
@@ -519,7 +539,7 @@ mod tests {
                 months_total: None,
                 eta_secs: None,
             },
-            "no floor, no ETA"
+            "bug: no floor, no ETA"
         );
         assert_eq!(
             Pending::running(40, Some(36), Some(5.0)),
@@ -528,7 +548,7 @@ mod tests {
                 months_total: Some(36),
                 eta_secs: Some(0),
             },
-            "a walk past its total has nothing left"
+            "bug: a walk past its total has nothing left"
         );
         Ok(())
     }
@@ -548,11 +568,12 @@ mod tests {
                 "complete": true,
                 "window": { "scope": { "kind": "lifetime" }, "total": 150, "returned": 150 },
             }),
-            "lifetime totals carry no note"
+            "bug: lifetime totals carry no note"
         );
         assert_eq!(
             serde_json::to_value(WindowScope::LastDays { days: 90 })?,
-            json!({ "kind": "last_days", "days": 90 })
+            json!({ "kind": "last_days", "days": 90 }),
+            "bug: a last-days scope is tagged and names its days"
         );
         Ok(())
     }
@@ -563,7 +584,10 @@ mod tests {
             "complete": false,
             "window": { "returned": 0 },
         });
-        assert!(serde_json::from_value::<Coverage>(wire).is_err());
+        assert!(
+            serde_json::from_value::<Coverage>(wire).is_err(),
+            "bug: an incomplete coverage without its reason is refused"
+        );
     }
 
     #[test]
@@ -575,9 +599,18 @@ mod tests {
             pending: None,
         };
         let note = coverage.note().ok_or("no note")?;
-        assert!(note.contains("2026-08-01 to 2026-11-01"), "{note}");
-        assert!(note.contains("Do not estimate"), "{note}");
-        assert!(!note.contains("being fetched"), "nothing pending: {note}");
+        assert!(
+            note.contains("2026-08-01 to 2026-11-01"),
+            "bug: the note names the window: {note}"
+        );
+        assert!(
+            note.contains("Do not estimate"),
+            "bug: the note forbids an estimate: {note}"
+        );
+        assert!(
+            !note.contains("being fetched"),
+            "bug: nothing pending is named: {note}"
+        );
         Ok(())
     }
 
@@ -590,9 +623,18 @@ mod tests {
             pending: Some(Pending::HistoryNotWalked),
         };
         let note = coverage.note().ok_or("no note")?;
-        assert!(note.contains("compute from 2026-09-15 onward"), "{note}");
-        assert!(note.contains("between 2026-08-01 and 2026-09-15"), "{note}");
-        assert!(note.contains("being fetched"), "{note}");
+        assert!(
+            note.contains("compute from 2026-09-15 onward"),
+            "bug: the note cites only the vouched days: {note}"
+        );
+        assert!(
+            note.contains("between 2026-08-01 and 2026-09-15"),
+            "bug: the note names the days with no rows: {note}"
+        );
+        assert!(
+            note.contains("being fetched"),
+            "bug: the pending walk is named: {note}"
+        );
         Ok(())
     }
 
@@ -608,14 +650,20 @@ mod tests {
         let note = Coverage::complete(window.clone()).note().ok_or("no note")?;
         assert!(
             note.contains("552 activities spanning 2024-01-15 to 2024-12-28"),
-            "{note}"
+            "bug: the note frames the full count and span: {note}"
         );
-        assert!(note.contains("only 200 are shown"), "{note}");
-        assert!(!note.contains("at least"), "an exact count: {note}");
+        assert!(
+            note.contains("only 200 are shown"),
+            "bug: the note says how many are shown: {note}"
+        );
+        assert!(!note.contains("at least"), "bug: an exact count: {note}");
 
         window.total_is_lower_bound = true;
         let capped = Coverage::complete(window).note().ok_or("no note")?;
-        assert!(capped.contains("at least 552"), "{capped}");
+        assert!(
+            capped.contains("at least 552"),
+            "bug: a capped count is a lower bound: {capped}"
+        );
         Ok(())
     }
 
@@ -635,9 +683,12 @@ mod tests {
         let note = live.note().ok_or("no note")?;
         assert!(
             note.contains("INCOMPLETE: the live read of the provider is still running"),
-            "{note}"
+            "bug: a running live read is named: {note}"
         );
-        assert!(note.contains("Do not state a count"), "{note}");
+        assert!(
+            note.contains("Do not state a count"),
+            "bug: an incomplete window forbids a count: {note}"
+        );
 
         let walking = Coverage {
             completeness: Completeness::Incomplete(IncompleteReason::HistoryWalkRunning),
@@ -652,7 +703,7 @@ mod tests {
                  so only the activities stored so far are shown; older ones land as the walk \
                  reaches them. Do not state a count"
             ),
-            "{note}"
+            "bug: a running walk is named and forbids a count: {note}"
         );
         Ok(())
     }
@@ -673,7 +724,7 @@ mod tests {
                 "duration_seconds": 46_800,
                 "elevation_gain_m": 1500.0,
             }),
-            "distance and climb to one decimal, duration exact"
+            "bug: distance and climb to one decimal, duration exact"
         );
         let note = Coverage::complete(CoverageWindow {
             total: Some(13),
@@ -683,7 +734,10 @@ mod tests {
         })
         .note()
         .ok_or("no note")?;
-        assert!(note.contains("use window.totals"), "{note}");
+        assert!(
+            note.contains("use window.totals"),
+            "bug: the note points at the whole window's totals: {note}"
+        );
         Ok(())
     }
 
@@ -696,7 +750,11 @@ mod tests {
             returned: 30,
             ..CoverageWindow::default()
         });
-        assert_eq!(coverage.note(), None);
+        assert_eq!(
+            coverage.note(),
+            None,
+            "bug: a provider's sample of totals carries no note"
+        );
         Ok(())
     }
 }

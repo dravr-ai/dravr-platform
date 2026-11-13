@@ -92,13 +92,13 @@ const CACHE_READ_EDGE_SLACK_DAYS: i64 = 2;
 /// What a history read needs: the stored data, the provider terms that govern
 /// what a model may see of it, and the algorithm configuration it is scored by.
 #[derive(Clone, Copy)]
-pub struct HistoryHandles<'a> {
+pub struct HistoryHandles<'read> {
     /// The repositories the activities, thresholds and rollup are read from.
-    pub repos: &'a RepositoryRegistry,
+    pub repos: &'read RepositoryRegistry,
     /// Each provider's terms (the provider registry).
-    pub terms: &'a dyn ProviderTerms,
+    pub terms: &'read dyn ProviderTerms,
     /// The training-load algorithm configuration the series is scored by.
-    pub algorithms: &'a AlgorithmConfig,
+    pub algorithms: &'read AlgorithmConfig,
 }
 
 impl fmt::Debug for HistoryHandles<'_> {

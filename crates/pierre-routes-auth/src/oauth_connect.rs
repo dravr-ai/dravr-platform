@@ -15,6 +15,8 @@
 //! post either leads to, let go of the connection (carnet#1482).
 
 #[cfg(feature = "health-sync")]
+use tracing::warn;
+#[cfg(feature = "health-sync")]
 use uuid::Uuid;
 
 use pierre_providers::backend_resolver;
@@ -49,9 +51,13 @@ pub(crate) fn spawn_connect_follow_ups(
         .flatten();
     #[cfg(feature = "health-sync")]
     if let Ok(user_id) = Uuid::parse_str(user_id) {
+        let backend = provider.to_owned();
         spawn_connection_report(resources, user_id, provider, async move {
-            for started in [backfill, first_read].into_iter().flatten() {
-                drop(started.await);
+            let started = [backfill, first_read].into_iter().flatten();
+            for task in started {
+                if let Err(e) = task.await {
+                    warn!(user_id = %user_id, provider = %backend, error = %e, "a connect follow-up task failed; the connection is still reported");
+                }
             }
         });
     }

@@ -65,9 +65,10 @@ pub struct Athlete {
 /// athlete's whole history only when its window's scope is
 /// [`WindowScope::Lifetime`]. A provider with no aggregate endpoint sums a
 /// recent page of workouts or a window of days, and says so there, so a
-/// sample is never read as a lifetime figure (carnet#919). When the provider also exposes calendar-year figures,
-/// `year_to_date` carries the current-year totals so a consumer can
-/// distinguish "annual" from "lifetime" without inferring it from the numbers.
+/// sample is never read as a lifetime figure (carnet#919). When the provider
+/// also exposes calendar-year figures, `year_to_date` carries the
+/// current-year totals so a consumer can distinguish "annual" from "lifetime"
+/// without inferring it from the numbers.
 ///
 /// # Examples
 ///

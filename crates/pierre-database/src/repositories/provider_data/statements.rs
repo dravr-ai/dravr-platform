@@ -297,10 +297,9 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
 ///   When the ledger stays unreadable through those reads, it takes nothing
 ///   back and fails: the page its write landed after this purge's delete
 ///   then stays, since the step's retry stops at its check before writing.
-///   Once no step holds the lease
-///   the phase is reopened below the session's own rows, or the row is kept
-///   as walked when no grant is live — by the step that stopped, a reconnect,
-///   or the resume sweep when the step died.
+///   Once no step holds the lease the phase is reopened below the session's
+///   own rows, or the row is kept as walked when no grant is live — by the
+///   step that stopped, a reconnect, or the resume sweep when the step died.
 ///
 /// Not a removal: it is never counted as one.
 pub(crate) const USER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \

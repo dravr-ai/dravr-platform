@@ -100,11 +100,11 @@ pub(crate) use statements::{
 };
 
 /// The statements one user's purge runs, in order.
-pub(crate) struct PurgeStatements<'a> {
+pub(crate) struct PurgeStatements<'purge> {
     /// Run first, each also binding the source marker as `$4`.
-    pub marked: Option<(&'a [(&'static str, &'static str)], &'a str)>,
+    pub marked: Option<(&'purge [(&'static str, &'static str)], &'purge str)>,
     /// Run next, in order.
-    pub sets: &'a [&'a [(&'static str, &'static str)]],
+    pub sets: &'purge [&'purge [(&'static str, &'static str)]],
     /// Whether the purge takes the provider's activities, and with them
     /// what a history walk's API phase brought in: the walk then no longer
     /// claims that phase ([`USER_WALK_PHASE_RESET_SQL`]).
@@ -461,8 +461,9 @@ pub(crate) use insert_purge_record;
 ///
 /// The statements are identical on both engines, so the shell passes only its
 /// type; sqlx resolves the driver from `self.pool()` per expansion. The body
-/// names its consts, types and helpers unqualified, so the invoking shell must
-/// `use` every one of them.
+/// names most of its consts, types and helpers unqualified, so the invoking
+/// shell must `use` every one of those; the rest it reaches through
+/// `$crate::repositories::…`.
 macro_rules! impl_provider_data_repository {
     ($ty:ty) => {
         impl $ty {

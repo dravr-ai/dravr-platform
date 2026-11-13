@@ -14,13 +14,14 @@
 //! never takes another's turn. An athlete whose history no walk was ever
 //! asked for has their walk asked by the pass ([`WALKS_ASKED_PER_PASS`] at
 //! most): nothing else asks it until a read of their history finds depth
-//! missing, and their seed would otherwise wait forever. Each provider's runs are measured on the
-//! samples of the backend [`seed_stream_sources`] names for it: the Strava
-//! grant for a Strava history, whichever key the store holds it under. The
-//! walk runs on [`spawn_periodic`], the loop every background worker shares:
-//! the worker ledger runs a due pass once across instances, and a pass that
-//! dies leaves its progress in the database — the cursor the walk saved and
-//! the runs `best_effort_scans` holds — for the next one to resume from.
+//! missing, and their seed would otherwise wait forever. Each provider's
+//! runs are measured on the samples of the backend [`seed_stream_sources`]
+//! names for it: the Strava grant for a Strava history, whichever key the
+//! store holds it under. The walk runs on [`spawn_periodic`], the loop every
+//! background worker shares: the worker ledger runs a due pass once across
+//! instances, and a pass that dies leaves its progress in the database — the
+//! cursor the walk saved and the runs `best_effort_scans` holds — for the
+//! next one to resume from.
 //!
 //! This is a worker rather than a job of the historical-activity backfill
 //! pipeline because that pipeline serves one athlete's ask for a window,
@@ -32,11 +33,11 @@
 //! Every request a pass makes is admitted against the background share of
 //! the signing app's budget in the
 //! [`ProviderRateLimiter`](pierre_providers::request_budget::ProviderRateLimiter),
-//! whose windows (Strava's 15-minute and daily ones) are counted in the database, so
-//! every instance of the backend draws on the same windows — Cloud Run runs up
-//! to three — and together they never spend more than the walk's share: when
-//! it is spent the pass ends, and a later pass picks up in the next window
-//! with the athlete it stopped on.
+//! whose windows (Strava's 15-minute and daily ones) are counted in the
+//! database, so every instance of the backend draws on the same windows —
+//! Cloud Run runs up to three — and together they never spend more than the
+//! walk's share: when it is spent the pass ends, and a later pass picks up in
+//! the next window with the athlete it stopped on.
 //!
 //! Each athlete is walked under a lease in the worker ledger, so two passes —
 //! on two instances, or one outliving its tick's lease — never walk the same
@@ -51,6 +52,8 @@
 //! runs are in the database — only the seed takes longer to complete for an
 //! athlete of a quiet deployment.
 
+#[cfg(not(feature = "tools-data"))]
+use std::future::{ready, Ready};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -271,8 +274,8 @@ fn ask_missing_walks(
     _source: &str,
     _paired: Option<&str>,
     _report: &mut SeedPassReport,
-) -> std::future::Ready<AppResult<()>> {
-    std::future::ready(Ok(()))
+) -> Ready<AppResult<()>> {
+    ready(Ok(()))
 }
 
 /// The athlete's authenticated `provider` handle exactly as named, or `None`

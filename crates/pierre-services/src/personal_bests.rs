@@ -87,7 +87,7 @@ use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
 use dravr_cageux::best_efforts::{best_efforts, STANDARD_RUNNING_DISTANCES_METERS};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, SportType, TenantId, TimeSeriesData};
@@ -636,7 +636,7 @@ impl PersonalBests {
         walk: Option<i64>,
     ) -> AppResult<Vec<Activity>> {
         let end = walk
-            .and_then(|ts| Utc.timestamp_opt(ts, 0).single())
+            .and_then(|ts| DateTime::from_timestamp(ts, 0))
             .unwrap_or_else(Utc::now);
         let limit = i64::try_from(SEED_PAGE_SIZE).unwrap_or(i64::MAX);
         let mut seen = HashSet::new();

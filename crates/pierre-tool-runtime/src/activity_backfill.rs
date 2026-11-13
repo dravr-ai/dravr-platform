@@ -73,7 +73,7 @@ pub mod history_walk;
 /// Which run holds a job's in-flight key in this process
 mod in_flight;
 /// A chat turn's live list read as a durable job
-pub mod live_read;
+pub(crate) mod live_read;
 /// What a job does when it finds its provider session dead
 mod reauth;
 
@@ -377,10 +377,12 @@ pub(crate) fn answer_reaped_live_read(job: ActivityBackfillJob) -> bool {
         );
         return false;
     };
-    tokio::spawn(async move {
+    let (user_id, provider, kind) = (job.user_id, job.provider_name.clone(), job.kind);
+    let task = tokio::spawn(async move {
         live_read::answer_reaped(&job, &claim).await;
         release_in_flight(&claim);
     });
+    observe_job_task(task, user_id, provider, kind);
     true
 }
 
@@ -397,6 +399,7 @@ fn spawn_backfill_run(
     handoff: Option<live_read::LiveReadHandoff>,
 ) {
     let awaited = job.pierre_conversation_id.is_some() || handoff.is_some();
+    let (user_id, provider, kind) = (job.user_id, job.provider_name.clone(), job.kind);
     let run = async move {
         let after = match job.kind {
             BackfillJobKind::LiveRead => {
@@ -416,11 +419,28 @@ fn spawn_backfill_run(
             history_walk::ask_again(&job).await;
         }
     };
-    if awaited {
-        tokio::spawn(run);
+    let task = if awaited {
+        tokio::spawn(run)
     } else {
-        tokio::spawn(in_background(run));
-    }
+        tokio::spawn(in_background(run))
+    };
+    observe_job_task(task, user_id, provider, kind);
+}
+
+/// Watch a job's task, so a panic in it is logged rather than lost with its
+/// dropped handle.
+fn observe_job_task(task: JoinHandle<()>, user_id: Uuid, provider: String, kind: BackfillJobKind) {
+    tokio::spawn(async move {
+        if let Err(join_error) = task.await {
+            warn!(
+                user_id = %user_id,
+                provider = %provider,
+                kind = %kind,
+                error = %join_error,
+                "Activity job task failed"
+            );
+        }
+    });
 }
 
 /// Run a backfill, and settle its row when it is on file.
