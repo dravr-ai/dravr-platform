@@ -685,7 +685,7 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
     assert_eq!(
         mock.total_streams_hits(),
         3,
-        "bug: the first pass did not stream each stored run once before its budget ran out"
+        "bug: the first pass streamed other than the three runs its window's budget allows"
     );
 
     let second = run_personal_best_seed_pass(&resources).await.unwrap();

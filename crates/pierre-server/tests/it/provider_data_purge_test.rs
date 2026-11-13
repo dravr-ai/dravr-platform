@@ -1645,7 +1645,7 @@ async fn a_grants_purge_releases_only_its_users_walk_through_it() {
     assert_eq!(
         elsewhere.total(),
         0,
-        "bug: a grant's purge released another athlete's walk"
+        "bug: a purge under another tenant released the athlete's walk"
     );
     let api_phase = HistoryWalkRowState {
         state: BackfillJobState::Owed,
@@ -1774,7 +1774,7 @@ async fn a_whole_provider_purge_settles_a_walk_a_grants_purge_left_owed() {
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
         Some(purged("strava")),
-        "bug: the whole-provider purge left the session's walk unsettled"
+        "the grant's purge left the walk owed a reopen"
     );
 
     repos
@@ -2155,7 +2155,11 @@ async fn a_purged_walk_with_no_grant_settles_as_walked_once_no_step_holds_it() {
         })
         .await
         .unwrap();
-    assert_eq!(running.len(), 1, "the running walk is the one owed");
+    assert_eq!(
+        running.len(),
+        1,
+        "the sweep claims the walk through the grant"
+    );
     repos
         .provider_data
         .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
