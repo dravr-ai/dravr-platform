@@ -1226,11 +1226,15 @@ async fn imported_rows_are_never_expired_by_retention() {
         ],
     )
     .await;
-    let pass = retention_sweeper(&resources, Arc::clone(&stores.records))
-        .expect("the test server carries the admin config service")
-        .run(Utc::now() + Duration::days(365))
-        .await
-        .expect("the sweep runs");
+    let pass = retention_sweeper(
+        &resources,
+        Arc::clone(&stores.records),
+        Some(Arc::clone(&stores.blobs)),
+    )
+    .expect("the test server carries the admin config service")
+    .run(Utc::now() + Duration::days(365))
+    .await
+    .expect("the sweep runs");
 
     assert!(pass.activities.is_empty(), "{pass:?}");
     assert_eq!(

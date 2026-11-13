@@ -390,7 +390,7 @@ impl World {
 
     /// One pass of the sweep the server boots, at `now`.
     async fn sweep(&self) -> RetentionPass {
-        retention_sweeper(&self.resources, Arc::clone(&self.records))
+        retention_sweeper(&self.resources, Arc::clone(&self.records), None)
             .expect("the test server carries the admin config service")
             .run(self.now)
             .await

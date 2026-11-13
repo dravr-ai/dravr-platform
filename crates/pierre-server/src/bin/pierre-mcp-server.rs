@@ -540,12 +540,12 @@ async fn create_server(
             turn_runner,
             archive_imports: Some(archive_imports),
             live_records: Some(Arc::clone(&live_records)),
-            blobs: Some(blobs),
+            blobs: Some(blobs.clone()),
         },
     )
     .await?;
 
-    let resources = spawn_background_workers(resources_instance, live_records);
+    let resources = spawn_background_workers(resources_instance, live_records, blobs.ok());
 
     server_lifecycle::notify_started();
 
@@ -590,6 +590,7 @@ async fn select_original_stores(
 fn spawn_background_workers(
     resources_instance: ServerContext,
     live_records: Arc<dyn ActivityRecordStore>,
+    blobs: Option<Arc<dyn BlobStore>>,
 ) -> Arc<ServerContext> {
     let resources = Arc::new(resources_instance);
 
@@ -702,7 +703,7 @@ fn spawn_background_workers(
     // activity_retention.*` holds. Both start unset, so nothing expires (D9).
     {
         use pierre_mcp_server::start_retention_sweep_worker;
-        start_retention_sweep_worker(&resources, live_records);
+        start_retention_sweep_worker(&resources, live_records, blobs);
     }
 
     // Start the Firebase identity deletion sweeper (carnet#798): retries, with

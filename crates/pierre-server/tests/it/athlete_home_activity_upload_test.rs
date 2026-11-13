@@ -423,7 +423,7 @@ async fn retention_never_expires_an_uploaded_workout() {
         ],
     )
     .await;
-    let pass = retention_sweeper(&resources, records)
+    let pass = retention_sweeper(&resources, records, None)
         .expect("the test server carries the admin config service")
         .run(Utc::now() + Duration::days(365))
         .await

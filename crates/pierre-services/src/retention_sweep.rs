@@ -28,6 +28,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::{DateTime, TimeDelta, Utc};
+use dravr_barrage::blob::BlobStore;
 use dravr_barrage::store::ActivityRecordStore;
 use dravr_barrage::{ProjectionSink, RetentionSweep, SourceKey};
 use pierre_core::errors::{AppError, AppResult};
@@ -78,20 +79,23 @@ impl fmt::Debug for RetentionSweeper {
 }
 
 impl RetentionSweeper {
-    /// A sweep over the activity store's `records`, retracting through
-    /// `sink`, and over `provider_data`'s wellness of `wellness_providers`
-    /// (the registry's providers; the policy's overrides are added to them),
-    /// under the policy `config` holds.
+    /// A sweep over the activity store's `records` and the originals they
+    /// keep in `blobs` (`None` on a deployment with no blob store, which
+    /// keeps none), retracting through `sink`, and over `provider_data`'s
+    /// wellness of `wellness_providers` (the registry's providers; the
+    /// policy's overrides are added to them), under the policy `config`
+    /// holds.
     #[must_use]
     pub fn new(
         records: Arc<dyn ActivityRecordStore>,
+        blobs: Option<Arc<dyn BlobStore>>,
         sink: Arc<dyn ProjectionSink>,
         provider_data: Arc<dyn ProviderDataRepository>,
         config: Arc<dyn AdminConfigLookup>,
         wellness_providers: Vec<String>,
     ) -> Self {
         Self {
-            sweep: RetentionSweep::new(records, sink),
+            sweep: RetentionSweep::new(records, blobs, sink),
             provider_data,
             config,
             wellness_providers,
