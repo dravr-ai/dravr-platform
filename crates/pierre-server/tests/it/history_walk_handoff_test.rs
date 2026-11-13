@@ -2561,15 +2561,33 @@ async fn a_wellness_expiry_landing_while_a_step_writes_takes_nothing_back() {
     assert!(warmed, "the step that kept its page warmed the rollup");
 }
 
+/// How long after a step resumed from its write the tests mend a read they
+/// broke: past the step's first check and its first retry (250 ms after),
+/// well before its last retry (3.25 s after).
+const MID_RETRY: Duration = Duration::from_millis(500);
+
+/// Longer than every retry of a step's check after its write takes
+/// (250 ms, 1 s and 2 s of waiting, and four reads).
+const RETRIES_SPENT: Duration = Duration::from_secs(6);
+
+impl Fixture {
+    /// Run `mend` once the step that just resumed from its write found its
+    /// check after it unreadable, and before its retries are spent.
+    async fn mend_mid_retry(&self, mend: &str) {
+        sleep(MID_RETRY).await;
+        self.execute(mend).await;
+    }
+}
+
 /// The ledger cannot be read once a step of the walk's API phase wrote the
 /// grant's second year, a year holding a ride an earlier read had stored
-/// with its samples and gear, and a ride no read stored yet. The step cannot
-/// rule a purge out: it takes back the ride its write added, never the one
-/// it found stored, and gives its row back with its retry due a lease later,
-/// as any failed step does. Nothing was purged: the retry reads the same
-/// year again and lands the ride it took back.
+/// with its samples and gear, and a ride no read stored yet, and it stays
+/// unreadable through every retry of the step's check. The step takes
+/// nothing back: it gives its row back with its retry due a lease later, as
+/// any failed step does. Nothing was purged: the retry reads the same year
+/// again and lands it over the rows that stayed.
 #[tokio::test]
-async fn a_ledger_unread_after_a_steps_write_takes_back_only_what_it_added() {
+async fn a_ledger_unread_after_a_steps_write_takes_nothing_back_and_fails() {
     let now = Utc::now().timestamp();
     let session_oldest = now - 2 * YEAR;
     let second_year = session_oldest - 3 * YEAR / 2;
@@ -2607,8 +2625,8 @@ async fn a_ledger_unread_after_a_steps_write_takes_back_only_what_it_added() {
     fx.execute(MEND_WALK_ROW_READS).await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
-        2,
-        "bug: a step that could not rule a purge out after its write left the ride it added"
+        3,
+        "bug: a step whose check after its write stayed unreadable took back rows no purge reached"
     );
     assert_eq!(
         fx.kept(oauth_providers::STRAVA, &earlier, second_year)
@@ -2646,21 +2664,22 @@ async fn a_ledger_unread_after_a_steps_write_takes_back_only_what_it_added() {
     let listed = fx.strava.listing_count();
     fx.retry_due_now().await;
     let deadline = Instant::now() + WALK_DEADLINE;
-    while !(fx.rows(oauth_providers::STRAVA).await == 3 && fx.idle().await) {
+    while !(fx.strava.listing_count() > listed && fx.idle().await) {
         assert!(
             Instant::now() < deadline,
-            "bug: the step's retry never landed the ride it took back"
+            "bug: the step's retry never read the page again"
         );
         fx.sweep(false).await;
     }
-    assert!(
-        fx.strava.listing_count() > listed,
-        "bug: the step's retry never read the page again"
-    );
     assert_eq!(
         fx.strava.listings().last().copied(),
         failed_listing,
         "the retry read the same year again"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "the retry landed the year over the rows that stayed"
     );
     assert_eq!(
         fx.kept(oauth_providers::STRAVA, &earlier, second_year)
@@ -2670,18 +2689,26 @@ async fn a_ledger_unread_after_a_steps_write_takes_back_only_what_it_added() {
     );
 }
 
-/// The grant is revoked while a step of the walk's API phase writes its
-/// second year, and the ledger cannot be read once the write landed: the
-/// step cannot see the purge. It takes back the ride its write added, which
-/// the purge never saw, and fails; its retry finds its phase purged and
-/// writes nothing. Nothing the step added of the purged grant is left.
+/// The grant's second year holds a ride an earlier read stored, and the
+/// grant is revoked while a step of the walk's API phase writes that year:
+/// the purge deleted the earlier ride before the write landed it again. The
+/// ledger cannot be read for a moment once the write landed; the step's
+/// retry reads it, finds its phase purged, and takes its whole page back,
+/// the ride it found stored included: nothing of the purged grant is left.
 #[tokio::test]
-async fn a_purge_unread_after_a_steps_write_leaves_none_of_what_it_added() {
+async fn a_ledger_unread_for_a_moment_after_a_steps_write_takes_back_what_a_purge_reached() {
     let now = Utc::now().timestamp();
     let session_oldest = now - 2 * YEAR;
+    let second_year = session_oldest - 3 * YEAR / 2;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
     let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.hold_earlier_read(
+        oauth_providers::STRAVA,
+        &second_year.to_string(),
+        second_year,
+    )
+    .await;
     let write = store.hold_and_pause_next_write(oauth_providers::STRAVA);
     listing.notify_one();
     write.reached.notified().await;
@@ -2691,16 +2718,16 @@ async fn a_purge_unread_after_a_steps_write_leaves_none_of_what_it_added() {
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
         1,
-        "the step's write landed after the purge"
+        "the step's write put back the ride the purge deleted"
     );
     fx.execute(BREAK_WALK_ROW_READS).await;
     write.resume.as_ref().unwrap().notify_one();
+    fx.mend_mid_retry(MEND_WALK_ROW_READS).await;
     fx.step_stopped().await;
-    fx.execute(MEND_WALK_ROW_READS).await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
         0,
-        "bug: a step that could not read its row after its write left the purged grant's ride it added"
+        "bug: a step whose check after its write failed once left what the grant's purge reached"
     );
 }
 
@@ -2713,17 +2740,25 @@ const MEND_PURGE_READS: &str =
     "ALTER TABLE provider_data_purges RENAME COLUMN reason_unread TO reason";
 
 /// The athlete drops both connections while a step of the walk's API phase
-/// writes the grant's second year, and the purge attestations cannot be read
-/// once the write landed: the step finds its row gone and cannot tell
-/// whether a purge of the grant landed. It takes back the ride its write
-/// added, and fails: nothing it added of the purged grant is left.
+/// writes the grant's second year, a year holding a ride an earlier read
+/// stored, and the purge attestations cannot be read for a moment once the
+/// write landed. The step finds its row gone; its retry reads the grant's
+/// purge and takes its whole page back, the ride it found stored included:
+/// nothing of the purged grant is left.
 #[tokio::test]
-async fn a_purge_attestation_unread_after_a_steps_write_leaves_none_of_what_it_added() {
+async fn a_purge_attestation_unread_for_a_moment_takes_back_what_the_purge_reached() {
     let now = Utc::now().timestamp();
     let session_oldest = now - 2 * YEAR;
+    let second_year = session_oldest - 3 * YEAR / 2;
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
     let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.hold_earlier_read(
+        oauth_providers::STRAVA,
+        &second_year.to_string(),
+        second_year,
+    )
+    .await;
     let write = store.hold_and_pause_next_write(oauth_providers::STRAVA);
     listing.notify_one();
     write.reached.notified().await;
@@ -2749,19 +2784,93 @@ async fn a_purge_attestation_unread_after_a_steps_write_leaves_none_of_what_it_a
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
         1,
-        "the step's write landed after both purges"
+        "the step's write put back the ride the grant's purge deleted"
     );
     fx.execute(BREAK_PURGE_READS).await;
     write.resume.as_ref().unwrap().notify_one();
+    fx.mend_mid_retry(MEND_PURGE_READS).await;
     let deadline = Instant::now() + WALK_DEADLINE;
     while fx.rows(oauth_providers::STRAVA).await != 0 && Instant::now() < deadline {
         sleep(Duration::from_millis(50)).await;
     }
-    fx.execute(MEND_PURGE_READS).await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
         0,
-        "bug: a step that could not read the purges after its write left the purged grant's ride it added"
+        "bug: a step whose purge read failed once left what the grant's purge reached"
+    );
+}
+
+/// The walk's row is removed by no purge while the session's first step
+/// writes, and the purge attestations cannot be read for a moment once the
+/// write landed. The step's retry reads them: no purge of the session's key
+/// landed, so it keeps its page and warms the training-history rollup.
+#[tokio::test]
+async fn a_purge_attestation_unread_for_a_moment_with_no_purge_keeps_the_page() {
+    let now = Utc::now().timestamp();
+    let mut fx = fixture(vec![now - 3 * DAY, now - 2 * YEAR], 400, true).await;
+    let store = fx.hold_writes();
+    let write = store.hold_and_pause_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.remove_walk_row().await;
+    fx.base_the_rollup(oauth_providers::SCIOTTE).await;
+    fx.clear_rollup().await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    fx.execute(BREAK_PURGE_READS).await;
+    write.resume.as_ref().unwrap().notify_one();
+    fx.mend_mid_retry(MEND_PURGE_READS).await;
+    let warmed = fx.rollup_warmed().await;
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        3,
+        "bug: a step whose purge read failed once took back the page of a key no purge reached"
+    );
+    assert!(
+        warmed,
+        "bug: a step whose retry read no purge never kept its page"
+    );
+}
+
+/// The walk's row is removed by no purge while the session's first step
+/// writes, after another writer stored one of the step's rides with its
+/// samples and gear, and the purge attestations stay unreadable through
+/// every retry of the step's check. The step cannot tell whether a purge
+/// landed and takes nothing back: its page and the other writer's ride stay
+/// whole, and it fails without warming the rollup.
+#[tokio::test]
+async fn a_purge_attestation_unread_through_every_retry_deletes_nothing() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let other = format!("9{recent}");
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let write = store.hold_and_pause_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &other, recent)
+        .await;
+    fx.remove_walk_row().await;
+    fx.base_the_rollup(oauth_providers::SCIOTTE).await;
+    fx.clear_rollup().await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    fx.execute(BREAK_PURGE_READS).await;
+    write.resume.as_ref().unwrap().notify_one();
+    sleep(RETRIES_SPENT).await;
+    fx.execute(MEND_PURGE_READS).await;
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        3,
+        "bug: a step whose purge reads stayed unreadable deleted rows of a key no purge reached"
+    );
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &other, recent).await,
+        KEPT_WHOLE,
+        "bug: a step whose purge reads stayed unreadable deleted a ride another writer stored"
+    );
+    assert_eq!(
+        fx.rollup_days().await,
+        0,
+        "bug: a step whose purge reads stayed unreadable kept its page instead of failing"
     );
 }
 

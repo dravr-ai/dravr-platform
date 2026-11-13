@@ -1,5 +1,5 @@
 // ABOUTME: A walk step lands its rows in the store only while its row is owed under its lease, checked before and after
-// ABOUTME: A purge of the step's own key between the two checks takes back what it reached; an unread second check, what it added
+// ABOUTME: A purge of the step's own key between the two checks takes back what it reached; an unreadable second check, nothing
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,9 +15,8 @@
 //! checks its row again right after the write, and takes rows back, through
 //! the store
 //! ([`LiveActivityStore::discard`](pierre_services::live_activities::LiveActivityStore::discard)),
-//! on positive evidence that the key it wrote under was purged for the
-//! athlete in between ([`KeyPurge`]), and, when that second check cannot be
-//! read, only the activities its write added (below):
+//! only on positive evidence that the key it wrote under was purged for the
+//! athlete in between ([`KeyPurge`]):
 //!
 //! - **Every activity of the key went** (a disconnect, a revocation, an
 //!   ended link, the operator's termination): every activity of the page
@@ -48,17 +47,20 @@
 //!   and the step ends: its row is no longer there to record it.
 //!
 //! A purge that commits after the second check deletes the step's rows
-//! itself. When the ledger or the attestations cannot be read after the
-//! write, no purge can be ruled out: the step takes back the activities its
-//! write added (those the store did not hold under its key before it),
-//! never those it found stored, and fails. Its retry is due a lease later.
-//! With no purge, that attempt reads the page again and lands it; after a
-//! purge, its check before the write stops it, so nothing it added of the
-//! purged key stays. Two things are left as they are then: an activity the
-//! store held before the write, which a purge of every activity of the key
-//! deleted and the write put back, stays; and on the walk's last attempt no
-//! retry follows, so the walk ends incomplete without the activities taken
-//! back.
+//! itself.
+//!
+//! **A second check that cannot be read.** When the ledger or the
+//! attestations cannot be read after the write, the step reads them again
+//! after each of [`AFTER_WRITE_RETRY_WAITS`] (250 ms, 1 s, 2 s): a transient
+//! error is then decided as above. Still unreadable after those, it takes
+//! nothing back and fails. Taking back what it cannot prove purged would
+//! delete rides of a key no purge reached, with no retry to read them again
+//! when the row is gone, and could delete a row another writer stored under
+//! the same key since the step read what the store held. When its row
+//! remains, its retry is due a lease later and checks the row again before
+//! writing. So a purge of the step's key that committed just before such an
+//! outage, whose delete ran before the write landed, leaves the page the
+//! write landed in the store (the limitation marked in `settle`).
 //!
 //! Only the activities are taken back: a step that read the list head also
 //! stamped the grant's fetch freshness through the write-through, and that
@@ -68,10 +70,12 @@
 //! purges it, and its rows land as any read's do.
 
 use std::collections::HashSet;
+use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::Activity;
 use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, PurgeReason};
+use tokio::time::sleep;
 use tracing::{info, warn};
 
 use super::super::{persist_backfill_activities, ActivityBackfillJob};
@@ -84,6 +88,15 @@ use crate::protocol::UniversalExecutor;
 /// checks is seen though its clock ran behind.
 const PURGE_CLOCK_SKEW_SECS: i64 = 60;
 
+/// How long a step waits before each retry of its check after its write,
+/// when that check could not be read: four reads in all, the last about
+/// 3.25 s after the first.
+const AFTER_WRITE_RETRY_WAITS: [StdDuration; 3] = [
+    StdDuration::from_millis(250),
+    StdDuration::from_secs(1),
+    StdDuration::from_secs(2),
+];
+
 /// What writing a step's activities came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Landed {
@@ -95,8 +108,9 @@ pub(super) enum Landed {
     /// The step's row is no longer its own: it records nothing on it, and
     /// whatever of its page a purge of its key reached is not in the store.
     Stopped,
-    /// The write, or a check around it, failed: nothing is recorded. When
-    /// the check after the write failed, what the write added is taken back.
+    /// The write, or a check around it, failed: nothing is recorded. A check
+    /// after the write that stays unreadable through its retries takes
+    /// nothing back.
     Failed,
 }
 
@@ -154,17 +168,35 @@ pub(super) async fn land_owed(
         return Landed::Failed;
     };
     let landed = persist_backfill_activities(job, executor, activities, write).await;
-    let after = match leased_row(job, lease).await {
-        Ok(after) => {
-            let attested = Attested {
-                since,
-                before: &attested_before,
-            };
-            after_write(job, &row.provider, after.as_ref(), attested).await
-        }
-        Err(()) => Err(()),
+    let attested = Attested {
+        since,
+        before: &attested_before,
     };
+    let after = check_after_write(job, lease, &row.provider, attested).await;
     settle(job, activities, &held, landed, after).await
+}
+
+/// The step's check after its write of what became of its row, filed under
+/// `key`, read again after each of [`AFTER_WRITE_RETRY_WAITS`] while the
+/// ledger or the attestations cannot be read; `Err` once every read failed.
+async fn check_after_write(
+    job: &ActivityBackfillJob,
+    lease: &JobLease,
+    key: &str,
+    attested: Attested<'_>,
+) -> Result<AfterWrite, ()> {
+    let mut waits = AFTER_WRITE_RETRY_WAITS.iter();
+    loop {
+        let read = match leased_row(job, lease).await {
+            Ok(after) => after_write(job, key, after.as_ref(), attested).await,
+            Err(()) => Err(()),
+        };
+        match (read, waits.next()) {
+            (Ok(after), _) => return Ok(after),
+            (Err(()), Some(wait)) => sleep(*wait).await,
+            (Err(()), None) => return Err(()),
+        }
+    }
 }
 
 /// What the step's write of `activities`, which persisted `landed`, comes
@@ -187,9 +219,9 @@ async fn settle(
             take_back(job, activities, held, Reach::from(purge)).await;
             Landed::Stopped
         }
+        // LIMITATION(registre#1555): `settle`'s unreadable arm takes nothing back, so a purge just before the outage leaves the page.
         Err(()) => {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: no purge could be ruled out after the step's write; what it added is taken back, and its retry reads the page again");
-            take_back(job, activities, held, Reach::Added).await;
+            warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's check after its write stayed unreadable through its retries; nothing is taken back and the step fails");
             Landed::Failed
         }
     }
