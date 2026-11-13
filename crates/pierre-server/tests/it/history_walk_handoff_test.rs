@@ -1230,3 +1230,69 @@ async fn a_reconnect_during_a_purged_step_that_fails_is_walked_once_it_stops() {
         "bug: the reconnected grant's purged history is not read back"
     );
 }
+
+/// An old live read left one deep page under the grant's key before the walk
+/// ever ran: a ride well below the session's reach. When the session's phase
+/// ends, the API phase starts below the oldest row the session itself
+/// stored, never below that stray page, so the years between the session's
+/// oldest row and the stray ride are paged too.
+#[tokio::test]
+async fn the_api_phase_starts_below_the_sessions_own_oldest_row_not_a_stray_grant_page() {
+    use pierre_core::models::{ActivityBuilder, SportType};
+
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let stray = session_oldest - 5 * YEAR / 2;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+        stray,
+    ]);
+    fx.strava.created(now - 6 * YEAR);
+    let stray_ride = ActivityBuilder::new(
+        stray.to_string(),
+        "Morning ride".to_owned(),
+        SportType::Ride,
+        Utc.timestamp_opt(stray, 0).unwrap(),
+        3_600,
+        oauth_providers::STRAVA.to_owned(),
+    )
+    .build();
+    fx.resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::STRAVA,
+            &[stray_ride],
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    fx.walk_to_the_end().await;
+
+    let listings = fx.strava.listings();
+    assert_eq!(
+        listings.first().and_then(|(_, before)| *before),
+        Some(session_oldest),
+        "bug: the API phase starts below a stray grant page, not the session's oldest row: {listings:?}"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "bug: the years between the session's oldest row and the stray page are never paged"
+    );
+}

@@ -22,18 +22,16 @@
 //!
 //! **Two phases, one row.** Once the session finds nothing more, a live API
 //! grant beside it ([`walk_hand_off`]) pages strictly below the oldest row
-//! the session stored, under any history key: what the scraper never listed
-//! is still the API's. The hand-off is written on the row before the API is
+//! the session itself stored: what the scraper never listed is still the
+//! API's, and a deep page an old live read left under the grant's key never
+//! makes it skip the years above that page. The hand-off is written on the row before the API is
 //! asked anything ([`WalkHandOff`]), so a restart or a budget pause resumes
 //! the API phase. The row keeps the session's key and stays owed through
 //! both phases, so every reader of the walk sees one walk until its very
 //! end, its progress covering both. A session walked alone while no grant
 //! stood beside it is reopened for the API phase when one connects
 //! ([`start_history_walk`]); its end was told, so the API phase tells only
-//! what it brings in, and nothing when that is nothing. A reopened phase
-//! pages below the session's own oldest row: a purge of the grant reset the
-//! phase, and a step that ran through it may have left one deeper page under
-//! the grant's key. A purge never takes a running step's lease: the step's
+//! what it brings in, and nothing when that is nothing. A purge never takes a running step's lease: the step's
 //! next write finds the phase reset, it records nothing, gives the lease up
 //! and asks for the walk again ([`AfterStep::AskAgain`]), and the walk is
 //! reopened only then, so no two steps ever page the grant at once.
@@ -225,10 +223,8 @@ async fn walk_of_pair(
 /// no grant stands beside the session, the walk already ran that phase, a
 /// step still holds its lease, or the ledger could not be read or written.
 ///
-/// The phase pages below the oldest row the session itself stored, never
-/// below a page under the grant's key: a walk reopened here is one whose API
-/// phase a purge took, and a step that ran through that purge may have
-/// written one deep page after it, which would hide the purged range above.
+/// The phase pages below the oldest row the session itself stored, as every
+/// hand-off does ([`hand_off_below`]).
 async fn reopen_for_grant(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -236,7 +232,7 @@ async fn reopen_for_grant(
     backend: &str,
     trigger: WalkTrigger,
 ) -> bool {
-    let below = hand_off_below(runtime, user_id, tenant_id, backend, &[backend], 0).await;
+    let below = hand_off_below(runtime, user_id, tenant_id, backend, 0).await;
     let Ok(Some(hand_off)) = below else {
         return false;
     };
@@ -272,25 +268,25 @@ async fn reopen_for_grant(
 
 /// Where the walk of `backend` goes on once its session found nothing more
 /// ([`WalkHandOff`]): the live API grant beside it ([`walk_hand_off`]),
-/// below the oldest activity stored under `keys` — every one of the
-/// provider's history keys ([`history_store_keys`]) as the session ends, the
-/// session's own on a reopen ([`reopen_for_grant`]). `Ok(None)` when
-/// `backend` is no session or no such grant is live; `Err` when the store
-/// could not be read, so the hand-off is tried again rather than paging the
-/// API from the head.
+/// below the oldest activity the session itself stored, under `backend`'s
+/// own key. Never below a page under the grant's key: an old live read, or a
+/// step that ran through a purge of the grant, may have left one deep page
+/// there, and paging below it would skip every year above it. `Ok(None)`
+/// when `backend` is no session or no such grant is live; `Err` when the
+/// store could not be read, so the hand-off is tried again rather than
+/// paging the API from the head.
 async fn hand_off_below(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
-    keys: &[&str],
     rows_landed: i64,
 ) -> Result<Option<WalkHandOff>, ()> {
     let repos = runtime.repos();
     let Some(grant) = walk_hand_off(repos, user_id, tenant_id, backend).await else {
         return Ok(None);
     };
-    let before_ts = oldest_stored(runtime, user_id, tenant_id, keys)
+    let before_ts = oldest_stored(runtime, user_id, tenant_id, &[backend])
         .await?
         .map(|oldest| oldest.timestamp());
     Ok(Some(WalkHandOff {
@@ -433,7 +429,6 @@ async fn settle_step(
                 job.user_id,
                 job.tenant_id,
                 &job.provider_name,
-                &history_store_keys(&job.provider_name),
                 step.rows_landed,
             )
             .await;
@@ -591,7 +586,6 @@ async fn walk_unrecorded(job: &ActivityBackfillJob, executor: &UniversalExecutor
                     phase.user_id,
                     phase.tenant_id,
                     &phase.provider_name,
-                    &history_store_keys(&phase.provider_name),
                     0,
                 )
                 .await;
