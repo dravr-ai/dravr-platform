@@ -132,12 +132,12 @@ mod wellness;
 /// The hard floor of every walk, in unix seconds: 2000-01-01T00:00:00Z,
 /// older than any account a walk reads. A walk whose source names no floor
 /// of its own ends before it, at the first empty step.
-pub const WHOLE_ACCOUNT_AFTER: i64 = 946_684_800;
+pub(crate) const WHOLE_ACCOUNT_AFTER: i64 = 946_684_800;
 
 /// Months one session step reads in one request. Three years of a busy
 /// athlete is a few hundred list rows, which the scraper reads well inside
 /// its request deadline with the detail pass off.
-pub const SCIOTTE_WALK_STEP_MONTHS: i64 = 36;
+pub(crate) const SCIOTTE_WALK_STEP_MONTHS: i64 = 36;
 
 /// How long one session step may take: under the scraper service's own
 /// 320 s request deadline, so the step fails here, cleanly, before the

@@ -31,14 +31,13 @@ use pierre_database::repositories::{
     BackfillJobKind, BackfillJobState, JobFloor, JobLease, JobProgressStep,
 };
 use pierre_mcp_server::tools::implementations::endurance_history::GetTrainingHistoryTool;
-use pierre_tool_runtime::activity_backfill::history_walk::WHOLE_ACCOUNT_AFTER;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::{compute_and_persist_history, default_window};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
-use crate::helpers::history_walk_ledger::owe_history_walk;
+use crate::helpers::history_walk_ledger::{owe_history_walk, WALK_FLOOR};
 use crate::helpers::sciotte_mock::seed_scrape_session;
 
 /// The athlete's connection: a usr/pwd session, the source a walk reads.
@@ -149,7 +148,7 @@ async fn walk_a_third_down(fx: &Fixture) -> JobLease {
         rows_landed: 140,
         secs_per_unit: Some(4.0),
         floor: Some(JobFloor {
-            after_ts: WHOLE_ACCOUNT_AFTER,
+            after_ts: WALK_FLOOR,
             months_total: Some(120),
         }),
     };
@@ -307,7 +306,12 @@ async fn rows_over_nothing_stored_say_they_answer_from_their_first_day() {
     );
     assert_eq!(
         coverage["trustworthy_from"].as_str(),
-        Some((to - Duration::days(9)).format("%Y-%m-%d").to_string().as_str()),
+        Some(
+            (to - Duration::days(9))
+                .format("%Y-%m-%d")
+                .to_string()
+                .as_str()
+        ),
         "bug: the coverage does not vouch from the first row it returns: {result}"
     );
     assert!(

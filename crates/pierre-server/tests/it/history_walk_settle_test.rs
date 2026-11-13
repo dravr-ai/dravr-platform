@@ -26,8 +26,8 @@ use crate::garmin_sign_in_test::{
     LIVE_SESSION, SIGNED_IN_SESSION,
 };
 use crate::history_walk_test::{
-    age_job_rows, ask_walk, job_row, job_state, job_state_of, rows_under, spawn_switchable_scraper,
-    walk_ended, ScraperSwitch, WALK_DEADLINE,
+    age_job_rows, ask_walk, job_row, job_state, job_state_of, query_bound, rows_under,
+    spawn_switchable_scraper, walk_ended, ScraperSwitch, WALK_DEADLINE,
 };
 
 use std::slice;
@@ -49,9 +49,7 @@ use pierre_notifications::{
     DispatchOutcome, DispatchRequest, NotificationEvent, PushTier, TenantId as CommTenantId,
 };
 use pierre_providers::core::ActivityQueryParams;
-use pierre_tool_runtime::activity_backfill::history_walk::{
-    start_history_walk, WHOLE_ACCOUNT_AFTER,
-};
+use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::activity_fetch::write_through::write_through_served_window;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -182,12 +180,13 @@ async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_walk() {
     hold_grant(&resources, user_id, tenant).await;
     hold_session(&resources, user_id, tenant, LIVE_SESSION).await;
     let long_ago = Utc::now().timestamp_millis() - 600_000;
+    let ordinary = ordinary_row(user_id, tenant, long_ago, 0);
     assert!(
         resources
             .common
             .repos
             .activity_backfill_jobs
-            .record_backfill_job(&ordinary_row(user_id, tenant, long_ago, 0))
+            .record_backfill_job(&ordinary)
             .await
             .unwrap(),
         "bug: the ledger records the ordinary job"
@@ -215,11 +214,14 @@ async fn a_resumed_ordinary_backfill_beside_a_grant_is_no_walk() {
         session_token_held(&resources, user_id, tenant).await,
         "bug: an ordinary backfill never retires the session"
     );
+    let reads = calls_matching(&calls, &format!("activities {LIVE_SESSION}"));
     assert!(
-        calls_matching(&calls, &format!("activities {LIVE_SESSION}"))
-            .iter()
-            .all(|call| !call.contains(&WHOLE_ACCOUNT_AFTER.to_string())),
-        "bug: the ordinary backfill keeps its own window"
+        !reads.is_empty()
+            && reads.iter().all(|read| {
+                query_bound(read.rsplit(' ').next().unwrap_or_default(), "after")
+                    == ordinary.after_ts
+            }),
+        "bug: the ordinary backfill keeps its own window: {reads:?}"
     );
     assert_eq!(
         calls_matching(&calls, "drop"),

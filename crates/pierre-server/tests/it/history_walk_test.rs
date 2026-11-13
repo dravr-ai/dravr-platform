@@ -32,6 +32,7 @@ use crate::garmin_sign_in_test::{
     session_header, session_json, session_token_held, sign_in, workout, Calls, LIVE_SESSION,
     SIGNED_IN_SESSION,
 };
+use crate::helpers::history_walk_ledger::WALK_FLOOR;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -54,9 +55,7 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_notifications::TenantId as CommereTenantId;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_tool_runtime::activity_backfill::history_walk::{
-    start_history_walk, SCIOTTE_WALK_STEP_MONTHS, WHOLE_ACCOUNT_AFTER,
-};
+use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::activity_fetch::serve_stale_activities;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -273,7 +272,7 @@ pub(crate) async fn spawn_switchable_scraper(switch: ScraperSwitch) -> (String, 
 }
 
 /// The epoch-seconds bound `name` an activities read's query names.
-fn query_bound(query: &str, name: &str) -> Option<i64> {
+pub(crate) fn query_bound(query: &str, name: &str) -> Option<i64> {
     query
         .split('&')
         .find_map(|pair| pair.strip_prefix(&format!("{name}=")))
@@ -506,16 +505,21 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
         reads[1..].iter().all(|read| read.contains("before=")),
         "bug: every later step reads below the last one: {reads:?}"
     );
+    // Each step reads 36 months (the 11-12 directive): its `after` lies at
+    // most 36 months of 31 days below its `before`, or below now for the head.
+    let read_at = Utc::now().timestamp();
     assert!(
-        reads
-            .iter()
-            .all(|read| !read.contains(&format!("after={WHOLE_ACCOUNT_AFTER}"))),
+        reads.iter().all(|read| {
+            let query = read.rsplit(' ').next().unwrap_or_default();
+            let before = query_bound(query, "before").unwrap_or(read_at);
+            query_bound(query, "after").is_some_and(|after| before - after <= 36 * 31 * 86_400)
+        }),
         "bug: a step reads 36 months, never the whole account at once: {reads:?}"
     );
     let progress = walk_progress(&resources, user_id, tenant).await;
     assert_eq!(
         progress.months_done,
-        4 * SCIOTTE_WALK_STEP_MONTHS,
+        4 * 36,
         "bug: each step adds its 36 months to the walk's progress"
     );
     assert_eq!(
@@ -865,7 +869,7 @@ pub(crate) fn job_row(
         tenant_id: tenant,
         user_id,
         provider: oauth_providers::SCIOTTE_GARMIN.to_owned(),
-        after_ts: Some(WHOLE_ACCOUNT_AFTER),
+        after_ts: Some(WALK_FLOOR),
         before_ts: None,
         fetch_limit: Some(2_000),
         conversation_id: None,

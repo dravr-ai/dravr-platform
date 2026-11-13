@@ -15,8 +15,11 @@ use pierre_database::repositories::{
     JobProgressStep,
 };
 use pierre_database::RepositoryRegistry;
-use pierre_tool_runtime::activity_backfill::history_walk::WHOLE_ACCOUNT_AFTER;
 use uuid::Uuid;
+
+/// 2000-01-01T00:00:00Z, the floor a walk that names none of its own is
+/// recorded with: the value its ledger rows hold, as a walk writes them.
+pub(crate) const WALK_FLOOR: i64 = 946_684_800;
 
 /// Record a history walk of `backend` owed for the user, leased for ten
 /// minutes as a running walk holds it, so no resume sweep takes it.
@@ -33,7 +36,7 @@ pub(crate) async fn owe_history_walk(
         user_id,
         provider: backend.to_owned(),
         kind: BackfillJobKind::HistoryWalk,
-        after_ts: Some(WHOLE_ACCOUNT_AFTER),
+        after_ts: Some(WALK_FLOOR),
         before_ts: None,
         fetch_limit: Some(200),
         conversation_id: None,
@@ -70,7 +73,7 @@ pub(crate) async fn end_history_walk(
     lease: &JobLease,
 ) {
     let step = JobProgressStep {
-        before_ts: WHOLE_ACCOUNT_AFTER,
+        before_ts: WALK_FLOOR,
         months_walked: 12,
         rows_landed: 0,
         secs_per_unit: None,
