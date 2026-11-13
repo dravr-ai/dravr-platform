@@ -1471,6 +1471,15 @@
     },
     "phase": {
       "draft": "Entwurf"
+    },
+    "pendingInvite": {
+      "status": "Eingeladen · noch nicht beigetreten",
+      "why": "Noch niemand ist der Gruppe über diesen Link beigetreten. Er gilt bis zum {{date}}.",
+      "whyNoExpiry": "Noch niemand ist der Gruppe über diesen Link beigetreten.",
+      "copyAgain": "Link erneut kopieren",
+      "copied": "Link kopiert",
+      "copyFailed": "Der Link konnte nicht kopiert werden.",
+      "after": "Sobald eine Athletin oder ein Athlet beitritt und Daten teilt, erscheint sie oder er hier an den Morgen, an denen etwas deine Aufmerksamkeit braucht."
     }
   },
   "coachReview": {
@@ -2440,7 +2449,8 @@
       "routeDistanceDraft": "Schlag mir eine {{distance}} lange Strecke in meiner Nähe für meine Einheit am {{date}} vor: {{workout}}",
       "loadFailed": "Dein Plan konnte nicht geladen werden.",
       "hideSuggestion": "Ausblenden",
-      "hideSuggestionAria": "Planvorschlag ausblenden"
+      "hideSuggestionAria": "Planvorschlag ausblenden",
+      "emptyBodyHealthFirst": "Erst der Gesundheitscheck, dann plant dein Agent deine Saison Woche für Woche."
     },
     "activities": {
       "heading": "Letzte Aktivitäten",
@@ -2600,7 +2610,8 @@
           "hintThreePerWeek": "Drei Morgen pro Woche um {{time}}",
           "hintWeekly": "Einmal pro Woche um {{time}}",
           "needsData": "Beginnt, sobald deine ersten Daten da sind",
-          "title": "Dein täglicher Check-in"
+          "title": "Dein täglicher Check-in",
+          "hint": "Wie oft deine Morgennachricht kommt"
         },
         "connect": {
           "doneHint": "{{provider}} verbunden",
@@ -2622,6 +2633,14 @@
         "chatApp": {
           "title": "Schreib mir auch anderswo",
           "doneHint": "{{app}} eingerichtet"
+        },
+        "healthCheck": {
+          "title": "Gesundheitscheck",
+          "hint": "1 Min. · vor deinem ersten Plan"
+        },
+        "goalWhy": {
+          "title": "Dein Ziel und dein Warum",
+          "hint": "3 Fragen · dein Agent kommt darauf zurück"
         }
       },
       "title": "Erste Schritte"
@@ -2641,6 +2660,9 @@
       "planSuggestionHint": "Wird auf der Startseite angezeigt, solange du keinen Plan hast.",
       "gettingStarted": "Erste Schritte",
       "gettingStartedHint": "Wird oben bei Heute angezeigt, bis deine ersten Schritte erledigt sind."
+    },
+    "firstSteps": {
+      "saveFailed": "Das konnte nicht gespeichert werden. Versuch es noch einmal."
     }
   },
   "hosted": {
@@ -2882,13 +2904,13 @@
       "linkAccount": "Coach-Konto verknüpfen",
       "routesLabel": "Oder verknüpfe dein Coach-Konto",
       "pendingTitle": "Coach-Zugang angefragt am {{date}}",
-      "pendingBody": "Das Dravr-Team prüft deine Anfrage, meist innerhalb von 24 Std.",
+      "pendingBody": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
       "pendingBlockTitle": "Coach-Zugang angefragt",
       "timelineLabel": "Stand deiner Anfrage",
       "stepSent": "Anfrage gesendet",
       "stepSentWhen": "Am {{date}} um {{time}}.",
       "stepReview": "Das Dravr-Team prüft sie",
-      "stepReviewWhen": "Meist innerhalb von 24 Std. Jeden Coach-Zugang schaltet eine Person frei, nie automatisch.",
+      "stepReviewWhen": "Jeden Coach-Zugang schaltet eine Person frei, nie automatisch. Wir sagen dir hier und per E-Mail Bescheid.",
       "stepSeat": "Du bist der Coach dieser Gruppe",
       "stepSeatWhat": "Du siehst das Training, das deine Athleten mit dir teilen, erstellst ihre Pläne mit dem Agenten, und deine Startseite als Coach öffnet sich.",
       "stepDone": "erledigt",
@@ -2900,7 +2922,17 @@
       "rosterPending": "Du · Coach-Zugang ausstehend",
       "subtitleToRequest": "Coach-Zugang anfragen",
       "subtitlePending": "Coach-Zugang ausstehend",
-      "subtitleDeclined": "Coach-Zugang abgelehnt"
+      "subtitleDeclined": "Coach-Zugang abgelehnt",
+      "cancel": "Anfrage zurückziehen",
+      "cancelling": "Wird zurückgezogen…",
+      "cancelled": "Anfrage zurückgezogen. Du kannst jederzeit erneut anfragen.",
+      "cancelFailed": "Wir konnten deine Anfrage nicht zurückziehen. Bitte versuche es erneut.",
+      "declinedReason": "Grund: {{reason}}",
+      "panelTitle": "Hol dir deinen Coach-Zugang",
+      "panelBody": "Ohne ihn siehst du das Training deiner Athleten nicht und erstellst keine Pläne für sie. Das Dravr-Team schaltet ihn frei.",
+      "settingsTitle": "Coach-Zugang",
+      "listPending": "Coach-Zugang ausstehend · angefragt am {{date}}",
+      "listCoach": "Du bist der Coach · seit {{time}}"
     },
     "stepSeat": "Coach-Platz",
     "seatHeading": "Hol dir deinen Coach-Platz",
@@ -2908,17 +2940,38 @@
     "seatNeither": "Ich nutze keins von beiden →",
     "seatSkip": "Vorerst überspringen",
     "seatCoach": "Du bist der Coach deiner Gruppen",
-    "seatRequestSent": "Anfrage gesendet · meist innerhalb von 24 Std.",
-    "seatRequestSentOn": "Gesendet am {{date}}",
+    "seatRequestSent": "Anfrage gesendet",
+    "seatRequestSentOn": "Am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
     "seatChecking": "Wir prüfen dein Konto …",
     "seatNothing": "{{provider}} ist verbunden, hat dir aber keinen Coach-Platz gegeben.",
     "seatAskTeam": "Das Dravr-Team fragen",
     "inviteSeatCoach": "Du bist der Coach dieser Gruppe",
     "inviteSeatCoachBody": "Sobald dein Athlet beitritt, siehst du sein Training.",
     "inviteSeatPending": "Du bist noch nicht der Coach dieser Gruppe",
-    "inviteSeatRequested": "Anfrage gesendet am {{date}}. Das Dravr-Team antwortet meist innerhalb von 24 Std.",
+    "inviteSeatRequested": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
     "inviteSeatNotRequested": "Du hast deinen Platz noch nicht angefragt.",
-    "inviteSeatMeanwhile": "Bis dahin kann dein Athlet der Gruppe schon beitreten und mit dem Agenten sprechen."
+    "inviteSeatMeanwhile": "Bis dahin kann dein Athlet der Gruppe schon beitreten und mit dem Agenten sprechen.",
+    "access": {
+      "grantedTitle": "Dein Coach-Zugang ist freigeschaltet",
+      "grantedBody": "Deine Startseite als Coach ist bereit: deine Athleten, ihre Pläne und was deine Aufmerksamkeit braucht.",
+      "declinedTitle": "Deine Anfrage auf Coach-Zugang wurde abgelehnt",
+      "declinedBody": "Das Dravr-Team hat deine Anfrage abgelehnt. Du kannst jederzeit erneut anfragen.",
+      "declinedReasonBody": "Das Dravr-Team hat deine Anfrage abgelehnt, und du kannst jederzeit erneut anfragen. Grund: {0}",
+      "openHome": "Meine Startseite als Coach öffnen",
+      "roomLineCoach": "{0} ist jetzt der Coach dieser Gruppe. Deine Athleten sehen diese Nachricht und entscheiden, was sie mit dir teilen.",
+      "roomLineAthlete": "{0} ist jetzt der Coach dieser Gruppe und sieht das Training, den Plan und die Nachrichten, die du hier teilst. Was du teilst, entscheidest du in den Gruppeninfos."
+    },
+    "seatInvite": {
+      "title": "Erstelle dein Coach-Konto",
+      "subtitle": "Einladung vom Dravr-Team: Dein Coach-Platz ist inklusive.",
+      "emailLocked": "Dein Konto wird mit der Adresse deiner Einladung erstellt, mit keiner anderen.",
+      "doneTitle": "Dein Coach-Konto ist bereit",
+      "doneBody": "Melde dich mit dieser Adresse und deinem Passwort an: Dein Coach-Platz ist schon aktiv.",
+      "expiredTitle": "Dieser Einladungslink funktioniert nicht mehr",
+      "expiredBody": "Er ist abgelaufen, wurde schon benutzt oder zurückgezogen. Bitte das Dravr-Team um einen neuen: Dein Coach-Platz wartet auf dich.",
+      "seatActive": "Dein Coach-Platz ist aktiv: vom Dravr-Team vergeben.",
+      "openCoachHome": "Meine Startseite als Coach öffnen"
+    }
   },
   "messaging": {
     "account": {
@@ -3619,7 +3672,7 @@
         "strength": "wegen deines Krafttrainings"
       },
       "start": "Mit meinem Team starten · <num>{{count}}</num>",
-      "subline": "Ausgewählt nach deinem Training und dem, was du uns erzählt hast.",
+      "subline": "Ausgewählt nach deinem Training.",
       "sublineNoProvider": "Ein paar Agenten für den Anfang. Verbinde einen Dienst, dann richtet sich deine Auswahl nach deinem Training.",
       "summary": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten, vor allem {{sport}}.",
       "summaryNoSport": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten.",
@@ -3655,7 +3708,25 @@
     "groupShowQr": "QR-Code anzeigen",
     "groupHideQr": "QR-Code ausblenden",
     "groupDoneNamed": "Zur Gruppe von {{name}}",
-    "groupInviteLinkIntro": "Schick diesen Link an deinen Athleten: Ein Tippen genügt, um „{{group}}“ beizutreten. Er gilt {{days}} Tage."
+    "groupInviteLinkIntro": "Schick diesen Link an deinen Athleten: Ein Tippen genügt, um „{{group}}“ beizutreten. Er gilt {{days}} Tage.",
+    "connect": {
+      "heading": "Verbinde dein Training",
+      "intro": "Dein Agent liest, was deine Uhr oder deine App schon aufzeichnet. Ohne Dienst hat er nichts zu lesen.",
+      "continueWithout": "Ohne Verbindung weiter",
+      "moreServices": "Weitere Dienste",
+      "moreServicesFile": "Datei"
+    },
+    "parq": {
+      "intro": "Sieben Standardfragen (PAR-Q+). Ein Ja blockiert nichts: Es sagt deinem Agenten, wo er besonders vorsichtig sein soll.",
+      "noneApply": "Nichts davon trifft zu",
+      "someApply": "Manches trifft zu",
+      "answerEach": "Beantworte jede. Was dich nicht betrifft, ist ein „Nein“.",
+      "backToNone": "Zurück zu „Nichts davon trifft zu“",
+      "yesNote": "Notiert: Dein Agent berücksichtigt das. Nichts hält dich vom Training ab, und ein Wort mit deiner Ärztin oder deinem Arzt lohnt sich, bevor du dich voll forderst.",
+      "saveFailed": "Deine Antworten konnten nicht gespeichert werden. Versuch es noch einmal.",
+      "loadFailed": "Die Fragen konnten nicht geladen werden."
+    },
+    "settledByInvite": "{{steps}} durch deine Einladung erledigt"
   },
   "password": {
     "change": "Passwort ändern",
