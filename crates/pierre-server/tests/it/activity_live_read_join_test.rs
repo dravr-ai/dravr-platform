@@ -626,3 +626,113 @@ async fn an_ask_joined_past_its_deadline_to_a_read_that_owes_it_nothing_is_not_p
         "bug: a follow-up reached an ask no read owed one"
     );
 }
+
+/// A notifier whose first follow-up holds its run until the test lets it
+/// go, recording the conversation and message every follow-up answers.
+#[derive(Default)]
+struct HeldOnceNotifier {
+    entered: Notify,
+    release: Notify,
+    sent: Mutex<Vec<(String, Option<String>)>>,
+}
+
+#[async_trait]
+impl BackfillNotifier for HeldOnceNotifier {
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>) {
+        let first = {
+            let mut sent = self.sent.lock().unwrap();
+            sent.push((
+                completion.pierre_conversation_id.to_owned(),
+                completion.asked_message_id.map(ToOwned::to_owned),
+            ));
+            sent.len() == 1
+        };
+        if first {
+            self.entered.notify_one();
+            self.release.notified().await;
+        }
+    }
+
+    async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
+        0
+    }
+}
+
+/// A read landed over thirty days and its run is busy with its follow-up; a
+/// wider ask from another conversation succeeded it and runs past its own
+/// budget, owed its follow-up. The landed read's follow-up then re-asks its
+/// thirty days: the rows its own run landed answer it as current. It never
+/// rebinds the wider read's row, so the wider ask's follow-up still reaches
+/// the wider ask's conversation, once.
+#[tokio::test]
+async fn a_follow_ups_re_ask_never_takes_the_successors_follow_up() {
+    let notifier = Arc::new(HeldOnceNotifier::default());
+    let (runtime, user_id, tenant_id) = runtime_with(notifier.clone()).await;
+    let gate = Arc::new(Notify::new());
+    let first = read_live_window_within_budget(
+        &runtime,
+        gated(&gate, vec![activity("cached", 3), activity("fresh", 0)]),
+        asked(user_id, tenant_id, "conv-1", "msg-1"),
+        BUDGET,
+    )
+    .await;
+    assert!(matches!(answer_of(first), Answer::Cached(_)));
+    gate.notify_one();
+    timeout(StdDuration::from_secs(10), notifier.entered.notified())
+        .await
+        .expect("the landed read follows up");
+
+    let wide_gate = Arc::new(Notify::new());
+    let wide = read_live_window_within_budget(
+        &runtime,
+        gated(&wide_gate, wider_rows()),
+        wider(user_id, tenant_id, "conv-2", "msg-wide"),
+        BUDGET,
+    )
+    .await;
+    assert!(
+        matches!(answer_of(wide), Answer::Cached(_)),
+        "the wider ask reads for itself and outlives its budget"
+    );
+
+    let unread = Arc::new(Notify::new());
+    let re_ask = timeout(
+        StdDuration::from_secs(5),
+        read_live_window_within_budget(
+            &runtime,
+            gated(&unread, vec![activity("never", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-re-ask"),
+            TURN_BUDGET,
+        ),
+    )
+    .await
+    .expect("bug: the re-ask waited on the wider read");
+    assert_eq!(
+        answer_of(re_ask),
+        Answer::Landed(names(&["cached", "fresh"])),
+        "bug: the follow-up's re-ask is not answered from the rows its own run landed"
+    );
+
+    wide_gate.notify_one();
+    notifier.release.notify_one();
+    wait_until_finished(&runtime, user_id, tenant_id).await;
+    sleep(StdDuration::from_millis(300)).await;
+    assert_eq!(
+        notifier.sent.lock().unwrap().as_slice(),
+        [
+            ("conv-1".to_owned(), Some("msg-1".to_owned())),
+            ("conv-2".to_owned(), Some("msg-wide".to_owned())),
+        ],
+        "bug: the wider ask's follow-up was taken by the older conversation's re-ask"
+    );
+}
