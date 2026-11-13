@@ -14,8 +14,8 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::BackfillJobKind;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::{ai_scope, CoreFitnessProvider};
-use tokio::sync::oneshot::error::RecvError;
-use tokio::time::{timeout, timeout_at, Instant};
+use tokio::sync::oneshot::{self, error::RecvError};
+use tokio::time::{sleep_until, timeout, timeout_at, Instant};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -108,9 +108,10 @@ impl fmt::Debug for BudgetedRead {
 /// back in the job's read. A turn never reads both backends inline past its
 /// budget.
 ///
-/// A read of the provider already running here takes this ask over instead,
-/// and the turn answers from the cache at once — or, when that read landed
-/// over this window, with what it wrote, as current.
+/// A read of the provider already running — here, or owed in the ledger —
+/// is joined rather than read twice ([`wait_on_joined`]): with rows cached
+/// they answer at once and the running read owes this ask its follow-up;
+/// with nothing cached the turn waits for that read, inside the same budget.
 ///
 /// The read runs unfiltered, as a cache write does, on another task than the
 /// turn's: what it answers is filtered here, back in the turn.
@@ -155,15 +156,16 @@ pub async fn read_live_window_within_budget(
     let mut answer = match start_live_read(job, Some(authenticated)).await {
         LiveReadStart::Started(answer) => answer,
         LiveReadStart::Joined(joined) => {
-            return answer_joined(
-                runtime,
-                &joined,
-                &provider_slug,
+            let window = Window {
+                provider_slug: &provider_slug,
                 user_id,
                 tenant_id,
-                &params,
-            )
-            .await;
+                params: &params,
+            };
+            match wait_on_joined(runtime, joined, &window, deadline).await {
+                AfterJoin::Answered(answered) => return answered,
+                AfterJoin::Started(answer) => answer,
+            }
         }
     };
     if let Ok(landed) = timeout_at(deadline, &mut answer).await {
@@ -190,32 +192,84 @@ pub async fn read_live_window_within_budget(
     answered(runtime, answer.await)
 }
 
-/// Answer an ask that joined a live read of the pair already running.
-///
-/// A read that landed over this window and is settling — its follow-up's
-/// re-ask of the question lands here — answers with what it wrote, as
-/// current. Otherwise the cached window answers at once, and the running
-/// read owes this ask its follow-up.
-async fn answer_joined(
-    runtime: &Arc<dyn ToolRuntime>,
-    joined: &JoinedRead,
-    provider_slug: &str,
+/// How often a turn that joined a running read looks at it again.
+const JOINED_READ_POLL: Duration = Duration::from_millis(250);
+
+/// The window a budgeted read answers.
+#[derive(Clone, Copy)]
+struct Window<'a> {
+    provider_slug: &'a str,
     user_id: Uuid,
     tenant_id: TenantId,
-    params: &ActivityQueryParams,
-) -> BudgetedRead {
-    if joined.landed_over_its_window() {
-        let rows = read_cached_page(runtime, provider_slug, user_id, tenant_id, params).await;
-        return BudgetedRead::Landed(rows.unwrap_or_default());
-    }
+    params: &'a ActivityQueryParams,
+}
+
+/// How waiting on a joined read ended.
+enum AfterJoin {
+    /// The turn's answer.
+    Answered(BudgetedRead),
+    /// The joined read ended without answering this window, and this ask
+    /// started its own read.
+    Started(oneshot::Receiver<LiveReadOutput>),
+}
+
+/// Wait, until `deadline`, on the live read of the pair this ask joined.
+///
+/// - The read landed here over this window: its rows answer as current
+///   ([`BudgetedRead::Landed`]). The follow-up of a read that outlived its
+///   turn re-asks the question while the run still holds the pair, and
+///   lands here.
+/// - Rows are cached: they answer at once, and the joined read owes this
+///   ask its follow-up.
+/// - Nothing is cached: the turn waits for the read, as it would for its
+///   own. Once it ended without landing over this window, this ask starts
+///   its own read; past the deadline the empty window answers, and the
+///   joined read owes this ask its follow-up.
+async fn wait_on_joined(
+    runtime: &Arc<dyn ToolRuntime>,
+    mut joined: Box<JoinedRead>,
+    window: &Window<'_>,
+    deadline: Instant,
+) -> AfterJoin {
+    let Window {
+        provider_slug,
+        user_id,
+        tenant_id,
+        params,
+    } = *window;
     info!(
         user_id = %user_id,
         provider = %provider_slug,
-        "a live activity read of this provider is already running; answering from the cached window"
+        "a live activity read of this provider is already running; joining it"
     );
-    joined.owe_follow_up().await;
-    let cached = serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await;
-    BudgetedRead::Cached(cached.unwrap_or_default())
+    loop {
+        if joined.landed_over_its_window() {
+            let rows = read_cached_page(runtime, provider_slug, user_id, tenant_id, params).await;
+            return AfterJoin::Answered(BudgetedRead::Landed(rows.unwrap_or_default()));
+        }
+        if let Some(cached) =
+            serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await
+        {
+            joined.owe_follow_up().await;
+            return AfterJoin::Answered(BudgetedRead::Cached(cached));
+        }
+        if !joined.running().await {
+            match (*joined).restart().await {
+                LiveReadStart::Started(answer) => return AfterJoin::Started(answer),
+                LiveReadStart::Joined(again) => joined = again,
+            }
+        }
+        if Instant::now() >= deadline {
+            info!(
+                user_id = %user_id,
+                provider = %provider_slug,
+                "the joined live activity read did not land within the turn's budget; nothing is cached to answer with"
+            );
+            joined.owe_follow_up().await;
+            return AfterJoin::Answered(BudgetedRead::Cached(Vec::new()));
+        }
+        sleep_until(deadline.min(Instant::now() + JOINED_READ_POLL)).await;
+    }
 }
 
 /// The job a live read runs as.

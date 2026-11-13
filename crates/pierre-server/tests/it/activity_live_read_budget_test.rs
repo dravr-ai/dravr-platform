@@ -739,6 +739,22 @@ fn answer_of(outcome: BudgetedRead) -> Answer {
     }
 }
 
+/// A runtime whose follow-ups the test reads, with nothing cached.
+#[cfg(feature = "client-messaging")]
+async fn uncached_notified_runtime(
+) -> (Arc<dyn ToolRuntime>, Arc<RecordingNotifier>, Uuid, TenantId) {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&resources.agent.database)
+        .await
+        .unwrap();
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
+    let notifier = Arc::new(RecordingNotifier::default());
+    let mut context = (*resources).clone();
+    context.mcp.backfill_notifier = Some(notifier.clone());
+    let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
+    (runtime, notifier, user_id, tenant_id)
+}
+
 /// A notifier that does what the chat pipeline does with a landed read's
 /// follow-up: it re-asks the question, in process, while the read's run
 /// still holds the pair, through a provider that must not be read again.
@@ -879,5 +895,199 @@ async fn a_follow_ups_re_ask_reads_what_just_landed_as_current() {
             "newest".to_owned()
         ]),
         "bug: an ask after the run ended must read live"
+    );
+}
+
+/// A second ask finds the first read running and nothing cached. It waits
+/// for that read inside its budget instead of answering an empty window, is
+/// answered with the rows the read landed, and is owed no follow-up: it got
+/// its answer.
+#[cfg(feature = "client-messaging")]
+#[tokio::test]
+async fn a_joined_ask_with_nothing_cached_waits_for_the_running_read() {
+    let (runtime, notifier, user_id, tenant_id) = uncached_notified_runtime().await;
+    let gate = Arc::new(Notify::new());
+    let first_runtime = Arc::clone(&runtime);
+    let first_gate = Arc::clone(&gate);
+    let first = tokio::spawn(async move {
+        read_live_window_within_budget(
+            &first_runtime,
+            gated(&first_gate, vec![activity("fresh", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-1"),
+            BUDGET,
+        )
+        .await
+    });
+    sleep(StdDuration::from_millis(100)).await;
+
+    let release = Arc::clone(&gate);
+    tokio::spawn(async move {
+        sleep(StdDuration::from_millis(400)).await;
+        release.notify_one();
+    });
+    let unread = Arc::new(Notify::new());
+    let second = timeout(
+        StdDuration::from_secs(5),
+        read_live_window_within_budget(
+            &runtime,
+            gated(&unread, vec![activity("other", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-2"),
+            StdDuration::from_secs(10),
+        ),
+    )
+    .await
+    .expect("bug: the joined ask never answered");
+    assert_eq!(
+        answer_of(second),
+        Answer::Landed(vec!["fresh".to_owned()]),
+        "bug: a joined ask with nothing cached must wait for the running read's rows"
+    );
+    assert_eq!(
+        answer_of(first.await.unwrap()),
+        Answer::Answered(vec!["fresh".to_owned()]),
+        "the first turn waited for its own read"
+    );
+    wait_until_finished(&runtime, user_id, tenant_id).await;
+    sleep(StdDuration::from_millis(300)).await;
+    assert!(
+        notifier.sent.lock().unwrap().is_empty(),
+        "bug: an ask answered in its turn is owed no follow-up"
+    );
+}
+
+/// The read the second ask joined does not land within its budget, and
+/// nothing is cached: the turn waits out its budget, not a moment less, then
+/// answers the empty window — which the caller labels a read still running
+/// — and the read owes it the follow-up.
+#[cfg(feature = "client-messaging")]
+#[tokio::test]
+async fn a_joined_ask_past_its_budget_is_owed_the_follow_up() {
+    let (runtime, notifier, user_id, tenant_id) = uncached_notified_runtime().await;
+    let gate = Arc::new(Notify::new());
+    let first_runtime = Arc::clone(&runtime);
+    let first_gate = Arc::clone(&gate);
+    let first = tokio::spawn(async move {
+        read_live_window_within_budget(
+            &first_runtime,
+            gated(&first_gate, vec![activity("fresh", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-1"),
+            BUDGET,
+        )
+        .await
+    });
+    sleep(StdDuration::from_millis(100)).await;
+
+    let joined_budget = StdDuration::from_millis(600);
+    let started = std::time::Instant::now();
+    let unread = Arc::new(Notify::new());
+    let second = read_live_window_within_budget(
+        &runtime,
+        gated(&unread, vec![activity("other", 0)]),
+        asked(user_id, tenant_id, "conv-1", "msg-2"),
+        joined_budget,
+    )
+    .await;
+    assert!(
+        started.elapsed() >= joined_budget,
+        "bug: a joined ask with nothing cached answered before its budget ({:?})",
+        started.elapsed()
+    );
+    assert_eq!(
+        answer_of(second),
+        Answer::Cached(Vec::new()),
+        "past its budget the joined ask answers the empty window, as still running"
+    );
+
+    gate.notify_one();
+    assert_eq!(
+        answer_of(first.await.unwrap()),
+        Answer::Answered(vec!["fresh".to_owned()]),
+        "the first turn waited for its own read"
+    );
+    let sent = settled_follow_ups(&notifier).await;
+    assert_eq!(
+        sent.iter().map(|f| f.asked.as_deref()).collect::<Vec<_>>(),
+        vec![Some("msg-2")],
+        "bug: the joined ask that gave up is owed the one follow-up: {sent:?}"
+    );
+}
+
+/// Another instance owes the pair's live read and nothing is cached here.
+/// The ask waits for it inside its budget, and once that instance wrote its
+/// rows and finished its row, they answer — still labelled as the read the
+/// other instance follows up on, since this ask was rebound to it.
+#[tokio::test]
+async fn an_ask_beside_a_read_owed_elsewhere_waits_for_its_rows() {
+    use pierre_database::repositories::{ActivityBackfillJobRow, JobLease, JobProgress};
+
+    let (runtime, user_id, tenant_id) = runtime_and_user().await;
+    let now_ms = Utc::now().timestamp_millis();
+    let lease = JobLease {
+        id: Uuid::new_v4().to_string(),
+        token: Uuid::new_v4().to_string(),
+    };
+    let row = ActivityBackfillJobRow {
+        id: lease.id.clone(),
+        tenant_id,
+        user_id,
+        provider: PROVIDER.to_owned(),
+        kind: BackfillJobKind::LiveRead,
+        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        before_ts: None,
+        fetch_limit: Some(50),
+        conversation_id: Some("conv-1".to_owned()),
+        created_at_ms: now_ms,
+        leased_until_ms: now_ms + 600_000,
+        attempts: 1,
+        lease_token: Some(lease.token.clone()),
+        progress: JobProgress::default(),
+        turn_id: Some("turn-msg-1".to_owned()),
+        asked_message_id: Some("msg-1".to_owned()),
+    };
+    assert!(
+        runtime
+            .repos()
+            .activity_backfill_jobs
+            .record_backfill_job(&row)
+            .await
+            .unwrap(),
+        "the other instance's live read is on file"
+    );
+
+    // The other instance lands: its rows are written through, then its row
+    // is finished.
+    let elsewhere = Arc::clone(&runtime);
+    tokio::spawn(async move {
+        sleep(StdDuration::from_millis(400)).await;
+        elsewhere
+            .repos()
+            .activity_cache
+            .upsert_activities(user_id, &tenant_id, PROVIDER, &[activity("landed", 0)])
+            .await
+            .unwrap();
+        elsewhere
+            .repos()
+            .activity_backfill_jobs
+            .finish_live_read(&lease)
+            .await
+            .unwrap();
+    });
+
+    let unread = Arc::new(Notify::new());
+    let outcome = timeout(
+        StdDuration::from_secs(5),
+        read_live_window_within_budget(
+            &runtime,
+            gated(&unread, vec![activity("other", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-2"),
+            StdDuration::from_secs(10),
+        ),
+    )
+    .await
+    .expect("bug: the ask never answered");
+    assert_eq!(
+        answer_of(outcome),
+        Answer::Cached(vec!["landed".to_owned()]),
+        "bug: with nothing cached the ask waits for the read owed elsewhere, not an empty window"
     );
 }

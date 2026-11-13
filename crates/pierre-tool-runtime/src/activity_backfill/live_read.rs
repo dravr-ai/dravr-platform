@@ -17,16 +17,16 @@
 //! finishes, which a newer ask rebinds.
 //!
 //! An ask that finds a read of the pair already running joins it
-//! ([`JoinedRead`]). A read that landed here over the ask's window answers
-//! it as current: that is how its own follow-up's re-ask of the question,
-//! asked while the run still holds the pair, reads the rows the run just
-//! wrote.
+//! ([`JoinedRead`]) and waits on it rather than reading twice. A read that
+//! landed here over the ask's window answers it as current: that is how its
+//! own follow-up's re-ask of the question, asked while the run still holds
+//! the pair, reads the rows the run just wrote.
 
 use std::fmt;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_database::repositories::{BackfillJobKind, JobLease, LiveReadAsk};
+use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobLease, LiveReadAsk};
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::CoreFitnessProvider;
@@ -130,9 +130,11 @@ pub async fn start_live_read(
 /// An ask that found a live read of its pair already running, here or owed
 /// in the ledger, and was not started.
 ///
-/// The read is rebound to this ask when the turn answers without it
-/// ([`Self::owe_follow_up`]); an ask joined to a read owed elsewhere was
-/// rebound to it as it was recorded.
+/// It waits on that read instead of reading twice. The read is rebound to
+/// this ask only when the turn stops waiting ([`Self::owe_follow_up`]): a
+/// turn that waited for the read's rows and answered with them is owed no
+/// follow-up. An ask joined to a read owed elsewhere was rebound to it as it
+/// was recorded.
 pub struct JoinedRead {
     job: ActivityBackfillJob,
     authenticated: Option<Authenticated>,
@@ -162,6 +164,42 @@ impl JoinedRead {
         })
     }
 
+    /// Whether the read joined still runs: the run here still holds the
+    /// pair, or the ledger owes a live read of it.
+    pub async fn running(&self) -> bool {
+        if self
+            .here
+            .as_ref()
+            .is_some_and(|run| run.has_changed().is_ok())
+        {
+            return true;
+        }
+        let job = &self.job;
+        match job
+            .resources
+            .repos()
+            .activity_backfill_jobs
+            .backfill_job_state(
+                job.user_id,
+                job.tenant_id,
+                &job.provider_name,
+                BackfillJobKind::LiveRead,
+            )
+            .await
+        {
+            Ok(state) => state == Some(BackfillJobState::Owed),
+            Err(e) => {
+                warn!(
+                    user_id = %job.user_id,
+                    provider = %job.provider_name,
+                    error = %e,
+                    "Live read: the ledger could not say whether a read of the pair is owed"
+                );
+                false
+            }
+        }
+    }
+
     /// The turn stops waiting: the read joined owes this ask its follow-up
     /// once it lands. A read running here is rebound to it now; one owed
     /// elsewhere was rebound as this ask was recorded.
@@ -169,6 +207,11 @@ impl JoinedRead {
         if self.here.is_some() {
             rebind_live_read(&self.job).await;
         }
+    }
+
+    /// Ask for the read again, now that the one joined has ended.
+    pub async fn restart(self) -> LiveReadStart {
+        start_live_read(self.job, self.authenticated).await
     }
 }
 
