@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Guard — the history walk keeps one source order, one live-read order, one Coverage and no history import
-# ABOUTME: A spawn in the budgeted read, a history_import, history_keys or coverage_note symbol, a second order or coverage type fails
+# ABOUTME: A spawn in the budgeted read, a history_import, history_keys or coverage_note symbol, a second order or a folded coverage type fails
 #
 # The history walk (carnet#1482) replaced the history import and folded every
 # answer about a served window into one Coverage type. Each of these came back
@@ -23,10 +23,13 @@
 #      from the one source table (`history_store_keys`, beside
 #      `history_sources_for`). No identifier holding `coverage_note` either:
 #      the note a model reads is Coverage's own, built by `activity_coverage`.
-#   4. No struct, enum, type alias, trait or union whose name contains
-#      `Coverage` except the (name, file) pairs listed in ALLOWED_COVERAGE
-#      below, each with why it is not a second answer about a served window.
-#      Every served window answers in pierre_core::models::Coverage.
+#   4. None of the coverage types the history walk folded into
+#      pierre_core::models::Coverage comes back: no struct, enum, type alias,
+#      trait or union named `HistoryCoverage`, `VolumeCoverage` or
+#      `StatsCoverage` anywhere, and none named `Coverage` outside
+#      pierre-core's coverage.rs. Every served window answers in that one
+#      Coverage; a type named for something else that happens to contain
+#      `Coverage` (`DossierCoverage`, `CoverageGap`) is not a second one.
 #   5. One history source order and one live-read order:
 #      - `history_source_order`, `history_sources_for`, `history_store_keys`,
 #        `walk_source` and the `HistorySource` / `HistorySourceRole` types are
@@ -62,30 +65,6 @@ BUDGETED_READ="crates/pierre-tool-runtime/src/activity_fetch/budgeted_read.rs"
 SOURCE_ORDER="crates/pierre-services/src/training_history_read/source_order.rs"
 RESOLVER="crates/pierre-providers/src/backend_resolver.rs"
 COVERAGE="crates/pierre-core/src/models/coverage.rs"
-
-# name|file — every type whose name contains `Coverage`, and why it is not a
-# second answer about how much of an asked window was read.
-ALLOWED_COVERAGE=(
-    # The one answer about a served window, its window and its wire shape.
-    "Coverage|$COVERAGE"
-    "CoverageWindow|$COVERAGE"
-    "CoverageWire|$COVERAGE"
-    # The eval fixture's shape of a source's sync and depth (decision B7).
-    "SourceCoverage|crates/pierre-evals/src/athlete_data/period/coverage.rs"
-    # The ledger's record of the depth a backfill or walk reached.
-    "BackfillCoverage|crates/pierre-database/src/repositories/activity_cache.rs"
-    # How many pillars the athlete's dossier has a fact for.
-    "DossierCoverage|crates/pierre-services/src/athlete_state.rs"
-    # Whether a stored plan's weeks run past the fortnight ahead.
-    "CoverageReading|crates/pierre-services/src/fortnight.rs"
-    # Which way a stored plan's weeks stop covering the athlete.
-    "CoverageGap|crates/pierre-tool-runtime/src/implementations/training_plan_telemetry.rs"
-    # The onboarding topics a pillar walk still owes.
-    "CoverageTarget|crates/pierre-core/src/models/onboarding.rs"
-    "CoverageMap|crates/pierre-core/src/models/onboarding.rs"
-    # What a blind-grading pool holds of its window's verdicts.
-    "PoolCoverage|crates/pierre-evals/src/blind_grading.rs"
-)
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -183,25 +162,14 @@ notes="$(scan -g '*.rs' 'coverage_note' crates)"
 report "the retired coverage_note is named" "$notes" \
     "The note is Coverage's own: name it after Coverage (activity_coverage, coverage_*)."
 
-# 4. Coverage types outside the allowed (name, file) pairs.
-declared="$(scan -o -r '$1' -g '*.rs' '\b(?:struct|enum|type|trait|union)\s+(\w*Coverage\w*)' crates)"
-stray=""
-while IFS= read -r hit; do
-    [ -z "$hit" ] && continue
-    file="${hit%%:*}"
-    name="${hit##*:}"
-    allowed=0
-    for pair in "${ALLOWED_COVERAGE[@]}"; do
-        if [ "$pair" = "$name|$file" ]; then
-            allowed=1
-            break
-        fi
-    done
-    [ "$allowed" -eq 0 ] && stray="${stray}${hit}"$'\n'
-done <<< "$declared"
-report "a coverage type beside pierre_core::models::Coverage" "$stray" \
-    "Answer a served window with Coverage; a type about something else takes a name" \
-    "without 'Coverage', or a listed (name, file) pair with its reason in this gate."
+# 4. A coverage type the history walk folded into Coverage, come back.
+folded="$(scan -g '*.rs' '\b(struct|enum|type|trait|union)\s+(HistoryCoverage|VolumeCoverage|StatsCoverage)\b' crates)"
+report "a coverage type folded into pierre_core::models::Coverage is back" "$folded" \
+    "Answer the window with pierre_core::models::Coverage (decision B7)."
+second="$(scan -g '*.rs' '\b(struct|enum|type|trait|union)\s+Coverage\b' crates)"
+report "a second Coverage beside pierre_core::models::Coverage" \
+    "$(outside "$COVERAGE" "$second")" \
+    "There is one Coverage, in $COVERAGE; import it."
 
 # 5. One history source order, one live-read order.
 history_order="$(scan -g '*.rs' '\b(fn\s+(history_source_order|history_sources_for|history_store_keys|walk_source)|(struct|enum)\s+(HistorySource|HistorySourceRole))\b' crates)"
@@ -231,4 +199,4 @@ report "a second source or read order is defined" \
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
-echo -e "${GREEN}✅ budgeted read spawns nothing; no history import, history_keys or coverage_note; one Coverage (${#ALLOWED_COVERAGE[@]} listed coverage names); one history source order and one live-read order${NC}"
+echo -e "${GREEN}✅ budgeted read spawns nothing; no history import, history_keys or coverage_note; one Coverage and no folded coverage type; one history source order and one live-read order${NC}"

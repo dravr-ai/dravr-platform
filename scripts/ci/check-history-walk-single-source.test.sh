@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-history-walk-single-source.sh — makes each rule fire on a planted copy, pass and fail closed
-# ABOUTME: A spawn, a history_import, history_keys or coverage_note symbol, a stray coverage type or a second order fails; wire values do not
+# ABOUTME: A spawn, a history_import, history_keys or coverage_note symbol, a folded coverage type or a second order fails; wire values do not
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -161,10 +161,14 @@ expect_fires "a regrown VolumeCoverage alias" \
 expect_fires "a second Coverage in another crate" \
     "crates/pierre-services/src/training_history_read.rs" \
     'pub struct Coverage { pub complete: bool }'
-expect_fires "a listed coverage name in a different file" \
-    "crates/pierre-services/src/athlete_state_v2.rs" \
-    'pub struct DossierCoverage { pub covered: usize }'
+expect_fires "a second Coverage enum in pierre-core" \
+    "crates/pierre-core/src/models/athlete.rs" \
+    'pub(crate) enum Coverage { Whole, Partial }'
+expect_fires "a Coverage alias in another crate" \
+    "crates/pierre-tool-runtime/src/volume.rs" \
+    'type Coverage = pierre_core::models::Coverage;'
 
+# Types named for something else that contain `Coverage`, in any file.
 scaffold
 mkdir -p "$WORK/root/crates/pierre-evals/src/athlete_data/period"
 printf '%s\n' 'pub struct SourceCoverage { pub last_sync: Option<i64> }' \
@@ -172,11 +176,15 @@ printf '%s\n' 'pub struct SourceCoverage { pub last_sync: Option<i64> }' \
 mkdir -p "$WORK/root/crates/pierre-services/src"
 printf '%s\n' 'pub enum CoverageReading { Covered, RunningOut }' \
     > "$WORK/root/crates/pierre-services/src/fortnight.rs"
+printf '%s\n' 'pub struct DossierCoverage { pub covered: usize }' \
+    > "$WORK/root/crates/pierre-services/src/athlete_state_v2.rs"
+printf '%s\n' 'pub struct HistoryCoverageGap { pub days: u32 }' \
+    >> "$WORK/root/crates/pierre-services/src/fortnight.rs"
 code="$(run)"
 if [ "$code" -eq 0 ]; then
-    pass "a listed coverage name in its own file passes"
+    pass "a type named for something else that contains Coverage passes, in any file"
 else
-    fail "SourceCoverage and CoverageReading in their files should pass (exit $code)"; sed 's/^/       /' "$WORK/out"
+    fail "SourceCoverage, CoverageReading, DossierCoverage and HistoryCoverageGap should pass (exit $code)"; sed 's/^/       /' "$WORK/out"
 fi
 
 # 5. A second order.
