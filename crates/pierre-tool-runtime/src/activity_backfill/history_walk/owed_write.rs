@@ -48,8 +48,16 @@
 //!
 //! A purge that commits after the second check deletes the step's rows
 //! itself. When the ledger or the attestations cannot be read after the
-//! write, nothing is taken back: the step fails, its retry due a lease
-//! later, and that attempt's own check before its write decides.
+//! write, no purge can be ruled out: the step takes back the activities its
+//! write added (those the store did not hold under its key before it),
+//! never those it found stored, and fails. Its retry is due a lease later.
+//! With no purge, that attempt reads the page again and lands it; after a
+//! purge, its check before the write stops it, so nothing it added of the
+//! purged key stays. Two things are left as they are then: an activity the
+//! store held before the write, which a purge of every activity of the key
+//! deleted and the write put back, stays; and on the walk's last attempt no
+//! retry follows, so the walk ends incomplete without the activities taken
+//! back.
 //!
 //! Only the activities are taken back: a step that read the list head also
 //! stamped the grant's fetch freshness through the write-through, and that
@@ -86,8 +94,8 @@ pub(super) enum Landed {
     /// The step's row is no longer its own: it records nothing on it, and
     /// whatever of its page a purge of its key reached is not in the store.
     Stopped,
-    /// The write, or a check around it, failed: nothing is recorded, and
-    /// nothing is taken back.
+    /// The write, or a check around it, failed: nothing is recorded. When
+    /// the check after the write failed, what the write added is taken back.
     Failed,
 }
 
@@ -175,11 +183,12 @@ async fn settle(
             Landed::Kept
         }),
         Ok(AfterWrite::Purged(purge)) => {
-            take_back(job, activities, held, purge).await;
+            take_back(job, activities, held, Reach::from(purge)).await;
             Landed::Stopped
         }
         Err(()) => {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: no purge could be ruled out after the step's write; nothing is taken back, and its retry checks again");
+            warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: no purge could be ruled out after the step's write; what it added is taken back, and its retry reads the page again");
+            take_back(job, activities, held, Reach::Added).await;
             Landed::Failed
         }
     }
@@ -293,20 +302,38 @@ fn purge_of(reasons: &[String]) -> Option<KeyPurge> {
     }
 }
 
-/// Take back from the store, under the step's key, what `purge` reached of
+/// Which of its page's activities a step takes back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    /// All of them.
+    Page,
+    /// Those the store did not hold under the step's key before its write.
+    Added,
+}
+
+impl From<KeyPurge> for Reach {
+    fn from(purge: KeyPurge) -> Self {
+        match purge {
+            KeyPurge::Whole => Self::Page,
+            KeyPurge::Expired => Self::Added,
+        }
+    }
+}
+
+/// Take back from the store, under the step's key, what `reach` names of
 /// `activities`: all of them, or those not `held` before the write.
 async fn take_back(
     job: &ActivityBackfillJob,
     activities: &[Activity],
     held: &HashSet<String>,
-    purge: KeyPurge,
+    reach: Reach,
 ) {
     let store = job.resources.live_activities();
     let mut taken = 0_usize;
     let reached = activities
         .iter()
         .map(Activity::id)
-        .filter(|id| purge == KeyPurge::Whole || !held.contains(*id));
+        .filter(|id| reach == Reach::Page || !held.contains(*id));
     for id in reached {
         match store
             .discard(job.user_id, job.tenant_id, &job.provider_name, id)
@@ -314,11 +341,11 @@ async fn take_back(
         {
             Ok(_) => taken += 1,
             Err(e) => {
-                warn!(user_id = %job.user_id, provider = %job.provider_name, activity_id = id, error = %e, "History walk: a row the step wrote through a purge could not be taken back");
+                warn!(user_id = %job.user_id, provider = %job.provider_name, activity_id = id, error = %e, "History walk: a row the step wrote could not be taken back");
             }
         }
     }
-    info!(user_id = %job.user_id, provider = %job.provider_name, taken, ?purge, "History walk: a purge of the step's key landed while it wrote; what it reached is taken back");
+    info!(user_id = %job.user_id, provider = %job.provider_name, taken, ?reach, "History walk: rows the step wrote are taken back");
 }
 
 #[cfg(test)]

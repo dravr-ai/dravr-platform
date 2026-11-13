@@ -1883,6 +1883,14 @@ impl HeldWrite {
     /// Hold the next write of `provider` until the returned hold's `gate` is
     /// notified, then, once it landed, hold it again before it returns to
     /// its step until `resume` is notified.
+    fn hold_and_pause_next_write(&self, provider: &str) -> Hold {
+        let hold = Hold {
+            resume: Some(Arc::new(Notify::new())),
+            ..self.hold_next_write(provider)
+        };
+        *self.armed.lock().unwrap() = Some(hold.clone());
+        hold
+    }
 }
 
 #[async_trait]
@@ -2279,6 +2287,14 @@ impl Fixture {
 
     /// Make the retry a failed step owes due now: no lease holds its row and
     /// its wait is over.
+    async fn retry_due_now(&self) {
+        self.execute_for_athlete(
+            "UPDATE activity_backfill_jobs SET leased_until_ms = 0, next_attempt_ms = 0 \
+             WHERE user_id = $1",
+        )
+        .await;
+    }
+
     /// The athlete's training-history rollup days, over every year the
     /// tests walk.
     async fn rollup_days(&self) -> usize {
@@ -2546,12 +2562,14 @@ async fn a_wellness_expiry_landing_while_a_step_writes_takes_nothing_back() {
 }
 
 /// The ledger cannot be read once a step of the walk's API phase wrote the
-/// grant's second year, a year whose ride an earlier read had stored with
-/// its samples and gear. Nothing was purged: the step takes nothing back,
-/// and gives its row back with its retry due a lease later, as any failed
-/// step does, so the next attempt checks the row again before it writes.
+/// grant's second year, a year holding a ride an earlier read had stored
+/// with its samples and gear, and a ride no read stored yet. The step cannot
+/// rule a purge out: it takes back the ride its write added, never the one
+/// it found stored, and gives its row back with its retry due a lease later,
+/// as any failed step does. Nothing was purged: the retry reads the same
+/// year again and lands the ride it took back.
 #[tokio::test]
-async fn a_ledger_unread_after_a_steps_write_takes_nothing_back() {
+async fn a_ledger_unread_after_a_steps_write_takes_back_only_what_it_added() {
     let now = Utc::now().timestamp();
     let session_oldest = now - 2 * YEAR;
     let second_year = session_oldest - 3 * YEAR / 2;
@@ -2559,11 +2577,22 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back() {
     let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
     let store = fx.hold_writes();
     let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        second_year + DAY,
+        second_year,
+        session_oldest - 5 * YEAR / 2,
+    ]);
     fx.hold_earlier_read(oauth_providers::STRAVA, &earlier, second_year)
         .await;
     let write = store.pause_after_next_write(oauth_providers::STRAVA);
     listing.notify_one();
     write.landed.notified().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "the step's write added the year's new ride"
+    );
     fx.execute(BREAK_WALK_ROW_READS).await;
     let failed_at = Utc::now().timestamp_millis();
     write.resume.as_ref().unwrap().notify_one();
@@ -2575,12 +2604,11 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back() {
         );
         sleep(Duration::from_millis(50)).await;
     }
-    sleep(STEP_SETTLE).await;
     fx.execute(MEND_WALK_ROW_READS).await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
         2,
-        "bug: a step that could not read its row after its write took its page back"
+        "bug: a step that could not rule a purge out after its write left the ride it added"
     );
     assert_eq!(
         fx.kept(oauth_providers::STRAVA, &earlier, second_year)
@@ -2593,7 +2621,6 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back() {
         Some(BackfillJobState::Owed),
         "the walk stays owed for the step's retry"
     );
-    let lease = i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap();
     let ledger = &fx.resources.common.repos.activity_backfill_jobs;
     let early = ledger
         .claim_stale_backfill_jobs(Fixture::claim_at(failed_at + 60_000))
@@ -2603,6 +2630,7 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back() {
         early.is_empty(),
         "bug: the step is retried before a whole lease passed: {early:?}"
     );
+    let lease = i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap();
     let due = ledger
         .claim_stale_backfill_jobs(Fixture::claim_at(
             Utc::now().timestamp_millis() + lease + 2_000,
@@ -2613,6 +2641,61 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back() {
         due.len(),
         1,
         "bug: the step's retry is not due once a whole lease passed"
+    );
+    let failed_listing = fx.strava.listings().last().copied();
+    fx.retry_due_now().await;
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while !(fx.rows(oauth_providers::STRAVA).await == 3 && fx.idle().await) {
+        assert!(
+            Instant::now() < deadline,
+            "bug: the step's retry never landed the ride it took back"
+        );
+        fx.sweep(false).await;
+    }
+    assert_eq!(
+        fx.strava.listings().last().copied(),
+        failed_listing,
+        "the retry read the same year again"
+    );
+    assert_eq!(
+        fx.kept(oauth_providers::STRAVA, &earlier, second_year)
+            .await,
+        KEPT_WHOLE,
+        "the retry kept the ride an earlier read stored"
+    );
+}
+
+/// The grant is revoked while a step of the walk's API phase writes its
+/// second year, and the ledger cannot be read once the write landed: the
+/// step cannot see the purge. It takes back the ride its write added, which
+/// the purge never saw, and fails; its retry finds its phase purged and
+/// writes nothing. Nothing the step added of the purged grant is left.
+#[tokio::test]
+async fn a_purge_unread_after_a_steps_write_leaves_none_of_what_it_added() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    let write = store.hold_and_pause_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.revoke_grant().await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        1,
+        "the step's write landed after the purge"
+    );
+    fx.execute(BREAK_WALK_ROW_READS).await;
+    write.resume.as_ref().unwrap().notify_one();
+    fx.step_stopped().await;
+    fx.execute(MEND_WALK_ROW_READS).await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: a step that could not read its row after its write left the purged grant's ride it added"
     );
 }
 
