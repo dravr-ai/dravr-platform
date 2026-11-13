@@ -35,7 +35,10 @@
 //!
 //! **A purge of the grant mid-phase.** No purge takes a running step's
 //! lease, and the step records nothing on the row once the purge took its
-//! phase: each of its row writes requires an owed row.
+//! phase: each of its row writes requires an owed row. Nor does it leave the
+//! purged grant's activities in the store: it writes its page only while its
+//! row is still owed under its lease, and takes back exactly what it wrote
+//! when a purge landed during the write ([`owed_write`]).
 //!
 //! - A purge of one athlete's grant (a disconnect, a revocation) keeps the
 //!   row owed a reopen, still the walk of the pair ([`PairWalk::Purged`]),
@@ -108,8 +111,8 @@ use uuid::Uuid;
 
 use super::{
     capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms,
-    persist_backfill_activities, provider_tenant_id_str, spawn_activity_backfill,
-    warm_training_history, ActivityBackfillJob, BackfillFetch, MAX_BACKFILL_ATTEMPTS,
+    provider_tenant_id_str, spawn_activity_backfill, warm_training_history, ActivityBackfillJob,
+    BackfillFetch, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::implementations::data_helpers::historical_backfill_fetch_limit;
@@ -117,6 +120,8 @@ use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::{HistoryWalkCompletion, ToolRuntime, WalkTrigger};
 
+/// A step's write to the store, against a purge of what it reads
+mod owed_write;
 /// What a walk copies on top of the activities: the wellness before a push grant
 mod wellness;
 
@@ -355,9 +360,9 @@ pub(crate) async fn resolve_purged_walk(
 /// Where the walk of `backend` goes on once its session found nothing more
 /// ([`WalkHandOff`]): the live API grant beside it ([`walk_hand_off`]),
 /// below the oldest activity the session itself stored, under `backend`'s
-/// own key. Never below a page under the grant's key: an old live read, or a
-/// step that ran through a purge of the grant, may have left one deep page
-/// there, and paging below it would skip every year above it. `Ok(None)`
+/// own key. Never below a page under the grant's key: an old live read may
+/// have left one deep page there, and paging below it would skip every year
+/// above it. `Ok(None)`
 /// when `backend` is no session or no such grant is live; `Err` when the
 /// store could not be read, so the hand-off is tried again rather than
 /// paging the API from the head.
@@ -420,6 +425,9 @@ enum Step {
     AuthRequired,
     /// A transient failure: nothing of the step is recorded.
     Failed,
+    /// The step's row was no longer its own when it came to write: nothing
+    /// it read is in the store ([`owed_write`]).
+    Stopped,
 }
 
 /// What is left to do once a step settled its row.
@@ -456,7 +464,7 @@ pub(super) async fn run_history_walk(
     };
     let renewal = keep_backfill_lease(job, &lease);
     let attempt_started_at = Utc::now();
-    let step = walk_step(job, &executor, &job.query_params).await;
+    let step = walk_step(job, &executor, &job.query_params, Some(&lease)).await;
     let kept = settle_step(job, &lease, attempts, step, attempt_started_at).await;
     drop(renewal);
     if kept {
@@ -570,6 +578,7 @@ async fn settle_step(
                 .await,
             job,
         ),
+        Step::Stopped => log_write("the step's row was taken; it wrote nothing", Ok(false), job),
     }
 }
 
@@ -669,7 +678,7 @@ async fn walk_unrecorded(job: &ActivityBackfillJob, executor: &UniversalExecutor
     let mut grant_phase: Option<ActivityBackfillJob> = None;
     loop {
         let phase = grant_phase.as_ref().unwrap_or(job);
-        match walk_step(phase, executor, &window).await {
+        match walk_step(phase, executor, &window, None).await {
             Step::Walked(step) => {
                 landed = landed.saturating_add(step.rows_landed);
                 window.before = Some(step.before_ts);
@@ -740,11 +749,13 @@ fn source_role(backend: &str) -> HistorySourceRole {
 }
 
 /// Read and write one step of the walk below `window.before` (now, for the
-/// first step), down to no lower than `window.after`, the floor.
+/// first step), down to no lower than `window.after`, the floor, for the
+/// row `lease` holds (none for a walk the ledger could not record).
 async fn walk_step(
     job: &ActivityBackfillJob,
     executor: &UniversalExecutor,
     window: &ActivityQueryParams,
+    lease: Option<&JobLease>,
 ) -> Step {
     let floor = window
         .after
@@ -786,8 +797,10 @@ async fn walk_step(
         },
     };
     match role {
-        HistorySourceRole::Session => session_step(job, executor, provider.as_ref(), cursor).await,
-        HistorySourceRole::Grant => api_step(job, executor, provider.as_ref(), cursor).await,
+        HistorySourceRole::Session => {
+            session_step(job, executor, provider.as_ref(), cursor, lease).await
+        }
+        HistorySourceRole::Grant => api_step(job, executor, provider.as_ref(), cursor, lease).await,
         HistorySourceRole::Pushed => {
             warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: a push holds no history to page");
             Step::Failed
@@ -842,6 +855,7 @@ async fn session_step(
     executor: &UniversalExecutor,
     provider: &dyn CoreFitnessProvider,
     cursor: Cursor,
+    lease: Option<&JobLease>,
 ) -> Step {
     let bottom = cursor
         .top
@@ -878,6 +892,7 @@ async fn session_step(
         bottom,
         cursor,
         started,
+        lease,
     };
     land(job, executor, provider, activities, span).await
 }
@@ -890,6 +905,7 @@ async fn api_step(
     executor: &UniversalExecutor,
     provider: &dyn CoreFitnessProvider,
     mut cursor: Cursor,
+    lease: Option<&JobLease>,
 ) -> Step {
     let learned = if cursor.learn_floor {
         match account_floor(job, provider).await {
@@ -929,6 +945,7 @@ async fn api_step(
                 bottom,
                 cursor,
                 started,
+                lease,
             };
             return with_floor(
                 land(job, executor, provider, activities, span).await,
@@ -1014,11 +1031,15 @@ struct StepSpan<'a> {
     cursor: Cursor,
     /// When the step started, for its seconds per month.
     started: Instant,
+    /// The lease the step holds its row under; none for a walk the ledger
+    /// could not record.
+    lease: Option<&'a JobLease>,
 }
 
-/// Write a step's `activities` through the store, and say where the next
-/// step starts: below the oldest activity when the request filled its limit
-/// (more lies in its window), else below the window.
+/// Write a step's `activities` through the store while its row is still its
+/// own ([`owed_write::land_owed`]), and say where the next step starts: below
+/// the oldest activity when the request filled its limit (more lies in its
+/// window), else below the window.
 async fn land(
     job: &ActivityBackfillJob,
     executor: &UniversalExecutor,
@@ -1042,8 +1063,10 @@ async fn land(
         // A walk copies the past: it lands no new session.
         announces_sessions: false,
     };
-    let Some(landed) = persist_backfill_activities(job, executor, &activities, write).await else {
-        return Step::Failed;
+    let landed = match owed_write::land_owed(job, executor, &activities, write, span.lease).await {
+        owed_write::Landed::Rows(landed) => landed,
+        owed_write::Landed::Stopped => return Step::Stopped,
+        owed_write::Landed::Failed => return Step::Failed,
     };
     warm_training_history(job).await;
     let next = if fetched >= span.cursor.limit && oldest < span.top {

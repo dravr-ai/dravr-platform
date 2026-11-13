@@ -8,6 +8,12 @@ pub(crate) const HISTORY_WALK_ROW_SQL: &str = "SELECT outcome, walk_backend \
      FROM activity_backfill_jobs \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
 
+/// The history walk row a step's lease (`$1`, its id) was taken on, the
+/// user's (`$2`) in the tenant (`$3`), whoever holds it now.
+pub(crate) const LEASED_WALK_ROW_SQL: &str = "SELECT provider, outcome, walk_backend, lease_token \
+     FROM activity_backfill_jobs \
+     WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND kind = $4";
+
 /// Adds a landed step to the progress and releases the row for the next
 /// step, below where this one reached.
 pub(crate) const RECORD_JOB_PROGRESS_SQL: &str = "UPDATE activity_backfill_jobs \

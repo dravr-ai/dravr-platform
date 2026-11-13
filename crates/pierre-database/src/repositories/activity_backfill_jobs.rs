@@ -22,11 +22,11 @@ pub(crate) use record_statements::{
 };
 /// What a history walk's API phase is reopened from
 mod walk_rows;
-pub use walk_rows::ReopenFrom;
+pub use walk_rows::{HistoryWalkRowState, LeasedWalkRow, PurgedHistoryWalk, ReopenFrom};
 /// The statements that move a history walk down its window, through its phases
 mod walk_statements;
 pub(crate) use walk_statements::{
-    END_HISTORY_WALK_SQL, HAND_OFF_HISTORY_WALK_SQL, HISTORY_WALK_ROW_SQL,
+    END_HISTORY_WALK_SQL, HAND_OFF_HISTORY_WALK_SQL, HISTORY_WALK_ROW_SQL, LEASED_WALK_ROW_SQL,
     PURGED_HISTORY_WALKS_SQL, RECORD_JOB_PROGRESS_SQL, REOPEN_HISTORY_WALK_SQL,
     SETTLE_PURGED_HISTORY_WALK_SQL,
 };
@@ -253,8 +253,10 @@ pub enum BackfillJobState {
     /// A purge of the grant a history walk's API phase was paging took that
     /// phase while it was owed. The row is still the walk of the pair: a step
     /// may still hold its lease and be paging the grant, so no walk of the
-    /// grant starts beside it, and the step records nothing on the row. Once
-    /// no step holds the lease, the phase is reopened below the session's own
+    /// grant starts beside it, and the step records nothing on the row and
+    /// leaves none of what it read in the store (it checks the row around its
+    /// write, [`ActivityBackfillJobRepository::leased_walk_row`]). Once no
+    /// step holds the lease, the phase is reopened below the session's own
     /// rows when a grant is live, or the row is kept as
     /// [`Self::Walked`] when none is
     /// ([`ActivityBackfillJobRepository::reopen_history_walk`],
@@ -274,27 +276,6 @@ pub enum JobLeaseState {
     /// lease back, or the one that held it died. Nothing runs it until the
     /// resume sweep, or the next ask of a live read, takes it.
     Idle,
-}
-
-/// What the ledger holds for one history walk row.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HistoryWalkRowState {
-    /// Owed, or how it ended.
-    pub state: BackfillJobState,
-    /// The API grant the walk reads once its session handed off
-    /// ([`WalkHandOff`]); `None` while it reads the key it is filed under.
-    pub walk_backend: Option<String>,
-}
-
-/// A history walk in [`BackfillJobState::PhasePurged`] no step holds.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PurgedHistoryWalk {
-    /// Athlete whose walk it is.
-    pub user_id: Uuid,
-    /// Tenant the row is filed under.
-    pub tenant_id: TenantId,
-    /// The key the walk is filed under: its session.
-    pub provider: String,
 }
 
 /// The `outcome` an ended row carries in [`BackfillJobState::Incomplete`].
@@ -433,6 +414,16 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<HistoryWalkRowState>>;
+
+    /// The history walk row `lease` was taken on, `user_id`'s in
+    /// `tenant_id`, as it stands now, the lease or not; `None` when it is
+    /// gone. What a step reads around its write to the store.
+    async fn leased_walk_row(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        lease: &JobLease,
+    ) -> AppResult<Option<LeasedWalkRow>>;
 
     /// A step of a job that walks down its window landed: add `step` to the
     /// row's [`JobProgress`] and keep the row owed for the next step, read
@@ -937,6 +928,38 @@ macro_rules! impl_activity_backfill_job_repository {
                     Ok($crate::repositories::activity_backfill_jobs::HistoryWalkRowState {
                         state: backfill_job_state_of(outcome.as_deref())?,
                         walk_backend: row.try_get("walk_backend").map_err(failed)?,
+                    })
+                })
+                .transpose()
+            }
+
+            async fn leased_walk_row(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                lease: &JobLease,
+            ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::LeasedWalkRow>>
+            {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to read a leased history walk row: {e}"))
+                };
+                let row =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::LEASED_WALK_ROW_SQL)
+                        .bind(&lease.id)
+                        .bind(user_id.to_string())
+                        .bind(tenant_id)
+                        .bind(BackfillJobKind::HistoryWalk.as_str())
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(failed)?;
+                row.map(|row| {
+                    let outcome: Option<String> = row.try_get("outcome").map_err(failed)?;
+                    let token: Option<String> = row.try_get("lease_token").map_err(failed)?;
+                    Ok($crate::repositories::activity_backfill_jobs::LeasedWalkRow {
+                        provider: row.try_get("provider").map_err(failed)?,
+                        state: backfill_job_state_of(outcome.as_deref())?,
+                        walk_backend: row.try_get("walk_backend").map_err(failed)?,
+                        leased_here: token.as_deref() == Some(lease.token.as_str()),
                     })
                 })
                 .transpose()

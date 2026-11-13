@@ -289,8 +289,11 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
 /// - A walk still owed in its API phase is kept as owed a reopen (`$5`),
 ///   naming the grant still. A step of the phase may be running, its lease
 ///   left as it stands: the row stays the walk of the pair, so no walk of
-///   the grant starts beside it on any instance, and none of the step's
-///   writes land (each requires an owed row). Once no step holds the lease
+///   the grant starts beside it on any instance. The step records nothing
+///   on the row (each of its row writes requires an owed row), and leaves
+///   none of what it read in the store: it writes its page only while the
+///   row is owed under its lease, and takes back exactly what it wrote when
+///   this purge landed during the write. Once no step holds the lease
 ///   the phase is reopened below the session's own rows, or the row is kept
 ///   as walked when no grant is live — by the step that stopped, a reconnect,
 ///   or the resume sweep when the step died.

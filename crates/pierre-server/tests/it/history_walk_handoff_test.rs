@@ -49,12 +49,14 @@ use axum::{Json, Router};
 use chrono::{DateTime, Datelike, TimeZone, Utc};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::{ConnectionType, TenantId};
+use pierre_core::errors::AppResult;
+use pierre_core::models::{Activity, ConnectionType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
     BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_services::live_activities::{LiveActivityStore, LiveIngest};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
@@ -1098,10 +1100,10 @@ impl Fixture {
 }
 
 /// The grant is revoked while a step of the walk's API phase is reading its
-/// second year. The step still writes that year's ride through, under the
-/// grant's key, below the first year the purge took. A reconnect afterwards
-/// reopens the walk below the session's own oldest row, never below that
-/// stray page, so the purged first year is read again.
+/// second year. The step finds its phase purged before it writes, so none of
+/// that year lands under the purged grant's key. A reconnect afterwards
+/// reopens the walk below the session's own oldest row, so the purged
+/// history is read again.
 #[tokio::test]
 async fn a_purge_mid_step_then_a_reconnect_reads_the_purged_range_again() {
     let now = Utc::now().timestamp();
@@ -1110,15 +1112,14 @@ async fn a_purge_mid_step_then_a_reconnect_reads_the_purged_range_again() {
     let gate = hold_the_second_api_year(&fx, session_oldest).await;
     fx.revoke_grant().await;
     gate.notify_one();
-    let deadline = Instant::now() + WALK_DEADLINE;
-    while fx.rows(oauth_providers::STRAVA).await == 0 {
-        assert!(
-            Instant::now() < deadline,
-            "the held step never wrote its year"
-        );
-        sleep(Duration::from_millis(50)).await;
-    }
+    fx.step_stopped().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: a step whose grant was purged mid-request wrote the purged grant's rows back"
+    );
 
+    let deadline = Instant::now() + WALK_DEADLINE;
     let listed = fx.strava.listing_count();
     // A reconnect the running step refused is asked again by that step once
     // it stops, which reopens the walk itself.
@@ -1761,6 +1762,11 @@ async fn a_termination_under_a_running_step_reopens_nothing() {
     let listed = fx.strava.listing_count();
     gate.notify_one();
     fx.step_stopped().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: the step wrote the terminated provider's rows back"
+    );
     fx.assert_walked_alone(listed, "the step a termination stopped")
         .await;
 }
@@ -1819,4 +1825,195 @@ async fn a_termination_settles_a_purged_walk_the_sweep_would_have_reopened() {
     fx.terminate_strava().await;
     let listed = fx.strava.listing_count();
     fx.assert_walked_alone(listed, "the resume sweep").await;
+}
+
+/// The live activity store the server writes through, with one write held:
+/// once armed, the next write of `provider` waits for the test before it
+/// lands, so a purge can commit between a step's check of its row and its
+/// write.
+struct HeldWrite {
+    inner: Arc<dyn LiveActivityStore>,
+    armed: Mutex<Option<Hold>>,
+}
+
+/// One armed hold: the provider whose next write waits, the gate that lets
+/// it land, and the signal that it reached the store.
+struct Hold {
+    provider: String,
+    gate: Arc<Notify>,
+    reached: Arc<Notify>,
+}
+
+impl HeldWrite {
+    /// Hold the next write of `provider`; returns the gate that lets it land
+    /// and the signal that it reached the store.
+    fn hold_next_write(&self, provider: &str) -> (Arc<Notify>, Arc<Notify>) {
+        let (gate, reached) = (Arc::new(Notify::new()), Arc::new(Notify::new()));
+        *self.armed.lock().unwrap() = Some(Hold {
+            provider: provider.to_owned(),
+            gate: Arc::clone(&gate),
+            reached: Arc::clone(&reached),
+        });
+        (gate, reached)
+    }
+}
+
+#[async_trait]
+impl LiveActivityStore for HeldWrite {
+    async fn ingest(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+        synced_at: DateTime<Utc>,
+    ) -> AppResult<LiveIngest> {
+        let held = {
+            let mut armed = self.armed.lock().unwrap();
+            if armed.as_ref().is_some_and(|hold| hold.provider == provider) {
+                armed.take()
+            } else {
+                None
+            }
+        };
+        if let Some(hold) = held {
+            hold.reached.notify_one();
+            hold.gate.notified().await;
+        }
+        self.inner
+            .ingest(user_id, tenant_id, provider, activities, synced_at)
+            .await
+    }
+
+    async fn ingest_received(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activity: &Activity,
+        received_at: DateTime<Utc>,
+    ) -> AppResult<bool> {
+        self.inner
+            .ingest_received(user_id, tenant_id, provider, activity, received_at)
+            .await
+    }
+
+    async fn amend(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activity: &Activity,
+    ) -> AppResult<bool> {
+        self.inner
+            .amend(user_id, tenant_id, provider, activity)
+            .await
+    }
+
+    async fn erase(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activity_id: &str,
+    ) -> AppResult<bool> {
+        self.inner
+            .erase(user_id, tenant_id, provider, activity_id)
+            .await
+    }
+
+    async fn discard(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activity_id: &str,
+    ) -> AppResult<bool> {
+        self.inner
+            .discard(user_id, tenant_id, provider, activity_id)
+            .await
+    }
+
+    async fn discard_between(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> AppResult<u64> {
+        self.inner
+            .discard_between(user_id, tenant_id, provider, start, end)
+            .await
+    }
+
+    async fn held(&self, user_id: Uuid, tenant_id: TenantId, provider: &str) -> AppResult<u64> {
+        self.inner.held(user_id, tenant_id, provider).await
+    }
+
+    async fn delete_source(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<()> {
+        self.inner.delete_source(user_id, tenant_id, provider).await
+    }
+
+    fn keeps(&self, provider: &str) -> bool {
+        self.inner.keeps(provider)
+    }
+
+    async fn delete_source_everywhere(&self, provider: &str) -> AppResult<u64> {
+        self.inner.delete_source_everywhere(provider).await
+    }
+
+    async fn delete_user(&self, user_id: Uuid) -> AppResult<u64> {
+        self.inner.delete_user(user_id).await
+    }
+}
+
+impl Fixture {
+    /// Write every activity through a store whose writes the test can hold
+    /// ([`HeldWrite`]), before any walk runs.
+    fn hold_writes(&mut self) -> Arc<HeldWrite> {
+        let mut context = (*self.resources).clone();
+        let held = Arc::new(HeldWrite {
+            inner: Arc::clone(&context.common.live_activities),
+            armed: Mutex::new(None),
+        });
+        let store: Arc<dyn LiveActivityStore> = held.clone();
+        context.common.live_activities = store;
+        self.resources = Arc::new(context);
+        held
+    }
+}
+
+/// The grant is revoked after a step of the walk's API phase found its row
+/// still owed and before its write landed: the write lands after the purge.
+/// The step sees its phase purged once it wrote, and takes back exactly the
+/// rows it wrote, so nothing of the purged grant is left in the store.
+#[tokio::test]
+async fn a_purge_landing_while_a_step_writes_leaves_none_of_its_rows() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    let (write, reached) = store.hold_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    reached.notified().await;
+    fx.revoke_grant().await;
+    write.notify_one();
+    fx.step_stopped().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: a step's write that landed after its grant's purge left the purged grant's rows in the store"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        2,
+        "the session's rows stay with the session"
+    );
 }
