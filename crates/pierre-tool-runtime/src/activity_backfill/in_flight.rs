@@ -67,7 +67,7 @@ pub(crate) enum InFlight {
         served_by_grant: Option<String>,
     },
     /// A live read spent its last attempt and its row is gone: what is left
-    /// of the run is the follow-up it owed the ask it was bound to. That
+    /// of the run is its owed follow-up to the ask it was bound to. That
     /// follow-up's re-ask, and every ask meanwhile, is answered from what is
     /// stored, the provider unavailable: nothing reads it again, or a
     /// provider that keeps failing would be re-asked in a loop.

@@ -27,7 +27,7 @@
 //! so the ask reads for itself ([`succeeds`]). A failed attempt gives its
 //! lease back: its row stays owed for the sweep's bounded retries, but the
 //! next ask finds it idle, takes it over and reads it in its own turn
-//! ([`take_over_idle`]) — that ask's answer is the follow-up it was owed.
+//! ([`take_over_idle`]) — that ask's answer stands as its owed follow-up.
 //!
 //! A read whose last attempt fails still owes the ask it is bound to its
 //! follow-up ([`give_up`]). Its run then reads [`InFlight::GaveUp`]: the
