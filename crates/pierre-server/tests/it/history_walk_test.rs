@@ -55,7 +55,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_notifications::TenantId as CommereTenantId;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::history_walk::{
-    start_history_walk, SCIOTTE_WALK_STEP_MONTHS, WHOLE_ACCOUNT_AFTER,
+    start_history_walk, WalkTrigger, SCIOTTE_WALK_STEP_MONTHS, WHOLE_ACCOUNT_AFTER,
 };
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::activity_fetch::serve_stale_activities;
@@ -381,7 +381,14 @@ pub(crate) async fn ask_walk(
     tenant: TenantId,
 ) -> bool {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    start_history_walk(&runtime, user_id, tenant, oauth_providers::GARMIN).await
+    start_history_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::GARMIN,
+        WalkTrigger::DepthMissing,
+    )
+    .await
 }
 
 /// The athlete's cached activities under `key`.
@@ -869,6 +876,7 @@ pub(crate) fn job_row(
         progress: JobProgress::default(),
         turn_id: None,
         asked_message_id: None,
+        walk_backend: None,
     }
 }
 

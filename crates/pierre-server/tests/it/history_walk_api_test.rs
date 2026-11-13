@@ -1,5 +1,5 @@
 // ABOUTME: A history walk through an API grant: a year a window, the Strava account's creation as its floor, a budget pause
-// ABOUTME: And a finished walk never re-asked by a depth ask, while a new connection walks it again
+// ABOUTME: And a finished walk never re-asked by a depth ask
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -48,7 +48,8 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, ONE_DAY};
-use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
+use pierre_providers::sciotte_provider::startup_client;
+use pierre_tool_runtime::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::SecretString;
@@ -94,6 +95,26 @@ impl MockStrava {
     /// How many activity detail reads the stand-in has answered.
     pub(crate) fn detail_count(&self) -> usize {
         self.details.lock().unwrap().len()
+    }
+
+    /// Name `created` (unix seconds) as the account's creation on the profile.
+    pub(crate) fn created(&self, created: i64) {
+        *self.created_at.lock().unwrap() = Some(created);
+    }
+
+    /// Every listing's `after` and `before`, in the order they came.
+    pub(crate) fn listings(&self) -> Vec<(Option<i64>, Option<i64>)> {
+        self.listings.lock().unwrap().clone()
+    }
+
+    /// Every listing's `per_page`, in the order they came.
+    pub(crate) fn page_sizes(&self) -> Vec<usize> {
+        self.page_sizes.lock().unwrap().clone()
+    }
+
+    /// How many profile reads the stand-in has answered.
+    pub(crate) fn profile_count(&self) -> usize {
+        *self.profiles.lock().unwrap()
     }
 }
 
@@ -186,24 +207,30 @@ pub(crate) async fn server(api_base: &str, per_window: u32) -> Arc<ServerContext
     with_window(&resources, per_window)
 }
 
-/// `resources` with a Strava window of `per_window` requests a day.
-fn with_window(resources: &Arc<ServerContext>, per_window: u32) -> Arc<ServerContext> {
+/// `resources` with a Strava window of `per_window` requests a day, reaching
+/// the scraper service its config names.
+pub(crate) fn with_window(resources: &Arc<ServerContext>, per_window: u32) -> Arc<ServerContext> {
     let limiter = ProviderRateLimiter::new(
         Arc::clone(&resources.common.repos.usage_counters),
         Arc::clone(&resources.common.repos.provider_connections),
     );
     limiter.set_budgets("strava", &[(per_window, ONE_DAY)]);
     let mut context = (**resources).clone();
+    let sciotte = &resources.common.config.external_services.sciotte;
     context.fitness.provider_registry = Arc::new(
         ProviderRegistry::new()
             .with_endpoint_overrides(&resources.common.config.oauth.endpoints)
-            .with_request_limiter(Arc::new(limiter)),
+            .with_request_limiter(Arc::new(limiter))
+            .with_sciotte_client(startup_client(
+                sciotte.remote_url.as_deref(),
+                sciotte.audience.as_deref(),
+            )),
     );
     Arc::new(context)
 }
 
 /// Open a fresh Strava window: the windows are counted in the database.
-async fn open_window(resources: &Arc<ServerContext>) {
+pub(crate) async fn open_window(resources: &Arc<ServerContext>) {
     resources
         .common
         .repos
@@ -222,6 +249,16 @@ pub(crate) async fn strava_athlete(resources: &Arc<ServerContext>) -> (Uuid, Ten
     )
     .await
     .unwrap();
+    hold_strava_grant(resources, user_id, tenant).await;
+    (user_id, tenant)
+}
+
+/// Give the athlete a live Strava grant and its connection.
+pub(crate) async fn hold_strava_grant(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) {
     let now = Utc::now();
     let repos = &resources.common.repos;
     repos
@@ -255,7 +292,6 @@ pub(crate) async fn strava_athlete(resources: &Arc<ServerContext>) -> (Uuid, Ten
         )
         .await
         .unwrap();
-    (user_id, tenant)
 }
 
 /// What the ledger holds for the athlete's walk of `backend`.
@@ -316,7 +352,7 @@ async fn walk_ended(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Tenan
 }
 
 /// The athlete's activities stored under `key`.
-async fn rows_under(
+pub(crate) async fn rows_under(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
@@ -351,7 +387,14 @@ async fn a_strava_grant_is_walked_a_year_a_window_down_to_the_account_creation()
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
         "bug: a live grant is walked"
     );
     walk_ended(&resources, user_id, tenant).await;
@@ -426,7 +469,14 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
         "bug: a live grant is walked"
     );
     let deadline = Instant::now() + WALK_DEADLINE;
@@ -516,7 +566,14 @@ async fn an_api_walk_with_no_floor_ends_after_two_empty_years() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
         "bug: a live grant is walked"
     );
     walk_ended(&resources, user_id, tenant).await;
@@ -562,7 +619,15 @@ async fn a_depth_ask_never_rewalks_a_walked_source() {
     *mock.created_at.lock().unwrap() = Some(now - 200 * DAY);
     open_window(&resources).await;
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let walk = || start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA);
+    let walk = || {
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing,
+        )
+    };
 
     assert!(walk().await, "bug: a depth ask walks a source never walked");
     walk_ended(&resources, user_id, tenant).await;
@@ -601,7 +666,14 @@ async fn a_full_api_page_reads_the_next_below_its_oldest_activity() {
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
-        start_history_walk(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
         "bug: a live grant is walked"
     );
     walk_ended(&resources, user_id, tenant).await;

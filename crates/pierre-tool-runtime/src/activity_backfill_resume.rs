@@ -133,13 +133,16 @@ async fn reap_exhausted_jobs(ledger: &dyn ActivityBackfillJobRepository, now_ms:
 /// hold now rather than a dead session. A history walk's row keeps the
 /// source it names: the walk reads the source its own order chose
 /// (`history_source_order`, carnet#1482), which the live-read plan a
-/// resolution reads does not follow.
+/// resolution reads does not follow — its session, or the API grant its
+/// phase handed off to (`walk_backend`).
 async fn job_from_row(
     resources: &Arc<dyn ToolRuntime>,
     row: ActivityBackfillJobRow,
 ) -> ActivityBackfillJob {
     let provider_name = if row.kind == BackfillJobKind::HistoryWalk {
-        row.provider.clone()
+        row.walk_backend
+            .clone()
+            .unwrap_or_else(|| row.provider.clone())
     } else {
         backend_resolver::resolve_backend(
             resources.repos(),

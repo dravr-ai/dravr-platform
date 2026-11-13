@@ -50,6 +50,7 @@ fn owed_row(tenant: TenantId, user: Uuid, kind: BackfillJobKind) -> ActivityBack
         progress: JobProgress::default(),
         turn_id: Some("turn-1".to_owned()),
         asked_message_id: Some("message-1".to_owned()),
+        walk_backend: None,
     }
 }
 

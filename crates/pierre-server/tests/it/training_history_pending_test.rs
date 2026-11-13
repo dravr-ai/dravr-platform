@@ -150,7 +150,7 @@ async fn walk_a_third_down(fx: &Fixture) -> JobLease {
         secs_per_unit: Some(4.0),
         floor: Some(JobFloor {
             after_ts: WHOLE_ACCOUNT_AFTER,
-            months_total: 120,
+            months_total: Some(120),
         }),
     };
     assert!(

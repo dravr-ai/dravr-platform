@@ -1,5 +1,5 @@
 // ABOUTME: The history walk: one durable job per athlete and source that pages their whole history into the store
-// ABOUTME: Session first, 36 months a step; an API a year at a time; ends at the account's floor, then says so once
+// ABOUTME: Session first, 36 months a step, then its API grant below what it reached; ends at the floor, then says so once
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -20,6 +20,17 @@
 //! stays after the walk (B1): the next walk reads it again. A push is never
 //! walked.
 //!
+//! **Two phases, one row.** Once the session finds nothing more, a live API
+//! grant beside it ([`walk_hand_off`]) pages strictly below the oldest row
+//! the session stored, under any history key: what the scraper never listed
+//! is still the API's. The hand-off is written on the row before the API is
+//! asked anything ([`WalkHandOff`]), so a restart or a budget pause resumes
+//! the API phase. The row keeps the session's key and stays owed through
+//! both phases, so every reader of the walk sees one walk until its very
+//! end, its progress covering both. A session walked alone while no grant
+//! stood beside it is reopened for the API phase when one connects
+//! ([`start_history_walk`]).
+//!
 //! **One step per run.** A run reads one step below the row's cursor
 //! (`before_ts`), writes it through the activity store, and records the step
 //! on the row ([`JobProgress`]): the months it covered, the rows it landed,
@@ -36,10 +47,11 @@
 //! **Where it ends (B3).** At the floor: a Strava account's creation, which
 //! the first API step reads from the athlete's profile, and never below
 //! [`WHOLE_ACCOUNT_AFTER`]. Before it, a session step that finds nothing ends
-//! the walk, and an API walk ends after two consecutive empty years. The row
-//! is then kept as [`BackfillJobState::Walked`], which a later depth ask
-//! reads as done, and the athlete is told once, in their personal thread,
-//! how far back their history now reaches (B4).
+//! the session's phase (and the walk, with no grant beside it), and an API
+//! walk ends after two consecutive empty years. The row is then kept as
+//! [`BackfillJobState::Walked`], which a later depth ask reads as done, and
+//! the athlete is told once, in their personal thread, how far back their
+//! history now reaches (B4).
 //!
 //! A session walked beside a push-fed grant (Garmin) also copies the year of
 //! wellness before the grant once its activities are in ([`wellness`]).
@@ -54,11 +66,14 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{
     BackfillCoverage, BackfillJobKind, BackfillJobState, JobFloor, JobLease, JobProgressStep,
+    WalkHandOff,
 };
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::CoreFitnessProvider;
-use pierre_services::training_history_read::{history_sources_for, walk_source, HistorySourceRole};
+use pierre_services::training_history_read::{
+    history_sources_for, history_store_keys, walk_hand_off, walk_source, HistorySourceRole,
+};
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
@@ -105,26 +120,44 @@ const EMPTY_WINDOWS_ENDING_A_WALK: u32 = 2;
 /// span is counted in the months the row reports.
 const SECS_PER_MONTH: i64 = 2_629_746;
 
+/// What asked for a walk: it changes nothing of what the walk does, and is
+/// logged so a walk can be traced to its ask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalkTrigger {
+    /// The athlete just connected the provider: a sign-in stored a session,
+    /// or an OAuth grant landed.
+    Connected,
+    /// A connect's first data landed (the first sync).
+    FirstSync,
+    /// A read of the history found depth missing.
+    DepthMissing,
+    /// The personal-best seed found an athlete whose history no walk copied.
+    Seed,
+}
+
 /// Start a walk of `provider`'s history for the user.
 ///
-/// It reads the provider's first live, pageable source ([`walk_source`]),
-/// asked when a read of the history finds depth missing. Returns whether a
-/// walk was started; `false` when the user holds no such source, or a walk
-/// of it is already owed, running, or reached the end of the history: one
-/// that did holds all there is, and a new source the athlete connects is a
-/// source of its own, walked on its first ask.
+/// It reads the provider's first live, pageable source ([`walk_source`]).
+/// Returns whether a walk was started; `false` when the user holds no such
+/// source, or a walk of it is already owed, running, or reached the end of
+/// the history: one that did holds all there is, and a new source the
+/// athlete connects is a source of its own, walked on its first ask. The
+/// one exception is a session walked alone while no API grant stood beside
+/// it: once one does, the walk is reopened for the grant's phase below what
+/// the session reached ([`walk_hand_off`]).
 pub async fn start_history_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
+    trigger: WalkTrigger,
 ) -> bool {
     let Some(source) = walk_source(runtime.repos(), user_id, tenant_id, provider).await else {
-        info!(user_id = %user_id, provider, "History walk: no live source to walk");
+        info!(user_id = %user_id, provider, ?trigger, "History walk: no live source to walk");
         return false;
     };
     if walked(runtime, user_id, tenant_id, &source.backend).await {
-        return false;
+        return reopen_for_grant(runtime, user_id, tenant_id, &source.backend, trigger).await;
     }
     let limit = match source.role {
         HistorySourceRole::Session => historical_backfill_fetch_limit(),
@@ -151,10 +184,101 @@ pub async fn start_history_walk(
     info!(
         user_id = %user_id,
         backend = %source.backend,
+        ?trigger,
         started,
         "History walk: asked"
     );
     started
+}
+
+/// Owe a walk `backend`'s session ended alone the API phase of the grant now
+/// live beside it ([`walk_hand_off`]); the resume sweep runs it. `false` when
+/// no grant stands beside the session, the walk already ran that phase, or
+/// the ledger could not be read or written.
+async fn reopen_for_grant(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+    trigger: WalkTrigger,
+) -> bool {
+    let Ok(Some(hand_off)) = hand_off_below(runtime, user_id, tenant_id, backend, 0).await else {
+        return false;
+    };
+    match runtime
+        .repos()
+        .activity_backfill_jobs
+        .reopen_history_walk(user_id, tenant_id, backend, &hand_off)
+        .await
+    {
+        Ok(reopened) => {
+            info!(
+                user_id = %user_id,
+                backend,
+                grant = %hand_off.backend,
+                ?trigger,
+                reopened,
+                "History walk: a walked session owes its grant's phase"
+            );
+            reopened
+        }
+        Err(e) => {
+            warn!(user_id = %user_id, backend, error = %e, "History walk: the walked row could not be reopened for the grant");
+            false
+        }
+    }
+}
+
+/// Where the walk of `backend` goes on once its session found nothing more
+/// ([`WalkHandOff`]): the live API grant beside it ([`walk_hand_off`]),
+/// below the oldest activity any of the provider's history keys stores.
+/// `Ok(None)` when `backend` is no session or no such grant is live; `Err`
+/// when the store could not be read, so the hand-off is tried again rather
+/// than paging the API from the head.
+async fn hand_off_below(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+    rows_landed: i64,
+) -> Result<Option<WalkHandOff>, ()> {
+    let repos = runtime.repos();
+    let Some(grant) = walk_hand_off(repos, user_id, tenant_id, backend).await else {
+        return Ok(None);
+    };
+    let before_ts = oldest_stored(runtime, user_id, tenant_id, backend)
+        .await?
+        .map(|oldest| oldest.timestamp());
+    Ok(Some(WalkHandOff {
+        backend: grant.backend,
+        before_ts,
+        months_done: before_ts.map_or(0, |before| months_between(Utc::now().timestamp(), before)),
+        rows_landed,
+        fetch_limit: i64::try_from(API_WALK_PAGE).unwrap_or(i64::MAX),
+    }))
+}
+
+/// The start of the oldest activity stored under any of `backend`'s history
+/// keys ([`history_store_keys`]); `Err` (logged) when a key could not be
+/// read.
+async fn oldest_stored(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> Result<Option<DateTime<Utc>>, ()> {
+    let cache = &runtime.repos().activity_cache;
+    let mut oldest: Option<DateTime<Utc>> = None;
+    for key in history_store_keys(backend) {
+        match cache.oldest_activity_start(user_id, &tenant_id, key).await {
+            Ok(start) => oldest = oldest.into_iter().chain(start).min(),
+            Err(e) => {
+                warn!(user_id = %user_id, key, error = %e, "History walk: the oldest stored activity could not be read");
+                return Err(());
+            }
+        }
+    }
+    Ok(oldest)
 }
 
 /// Whether a walk of `backend` already reached the end of the user's
@@ -235,7 +359,25 @@ async fn settle_step(
                 job,
             );
         }
-        Step::Ended(step) => end_walk(job, lease, attempts, step).await,
+        Step::Ended(step) => {
+            let below = hand_off_below(
+                &job.resources,
+                job.user_id,
+                job.tenant_id,
+                &job.provider_name,
+                step.rows_landed,
+            )
+            .await;
+            match below {
+                Ok(Some(hand_off)) => hand_off_to_grant(job, lease, step, &hand_off).await,
+                Ok(None) => end_walk(job, lease, attempts, step).await,
+                Err(()) => log_write(
+                    "the store could not be read for the hand-off; the sweep retries the step",
+                    Ok(true),
+                    job,
+                ),
+            }
+        }
         Step::Paused => log_write(
             "a request budget refused the step; it resumes in a later window",
             ledger.release_backfill_job_claim(lease).await,
@@ -262,6 +404,27 @@ async fn settle_step(
             job,
         ),
     }
+}
+
+/// Move the walk to its API phase once the session's last `step` found
+/// nothing more: what the session reached is recorded as its coverage, and
+/// the row reads the grant from now on, below the oldest stored row.
+async fn hand_off_to_grant(
+    job: &ActivityBackfillJob,
+    lease: &JobLease,
+    step: JobProgressStep,
+    hand_off: &WalkHandOff,
+) {
+    record_walk_coverage(job, step.before_ts, false).await;
+    log_write(
+        "the session found nothing more; the grant pages below its oldest row",
+        job.resources
+            .repos()
+            .activity_backfill_jobs
+            .hand_off_history_walk(lease, hand_off)
+            .await,
+        job,
+    );
 }
 
 /// End the walk on its last `step`: the wellness before a push grant first,
@@ -325,8 +488,10 @@ fn log_write(what: &str, written: AppResult<bool>, job: &ActivityBackfillJob) {
 async fn walk_unrecorded(job: &ActivityBackfillJob, executor: &UniversalExecutor) {
     let mut window = job.query_params.clone();
     let mut landed: i64 = 0;
+    let mut grant_phase: Option<ActivityBackfillJob> = None;
     loop {
-        match walk_step(job, executor, &window).await {
+        let phase = grant_phase.as_ref().unwrap_or(job);
+        match walk_step(phase, executor, &window).await {
             Step::Walked(step) => {
                 landed = landed.saturating_add(step.rows_landed);
                 window.before = Some(step.before_ts);
@@ -336,16 +501,55 @@ async fn walk_unrecorded(job: &ActivityBackfillJob, executor: &UniversalExecutor
             }
             Step::Ended(step) => {
                 landed = landed.saturating_add(step.rows_landed);
-                wellness::copy_before_grant(job).await;
-                record_walk_coverage(job, step.before_ts, true).await;
-                announce_walked(job, landed).await;
+                let below = hand_off_below(
+                    &phase.resources,
+                    phase.user_id,
+                    phase.tenant_id,
+                    &phase.provider_name,
+                    0,
+                )
+                .await;
+                if let Ok(Some(hand_off)) = below {
+                    record_walk_coverage(phase, step.before_ts, false).await;
+                    window = ActivityQueryParams {
+                        before: hand_off.before_ts,
+                        after: None,
+                        limit: Some(API_WALK_PAGE),
+                        offset: None,
+                    };
+                    grant_phase = Some(phase_reading(job, hand_off.backend, window.clone()));
+                    continue;
+                }
+                wellness::copy_before_grant(phase).await;
+                record_walk_coverage(phase, step.before_ts, true).await;
+                announce_walked(phase, landed).await;
                 return;
             }
             other => {
-                warn!(user_id = %job.user_id, provider = %job.provider_name, step = ?other, "History walk: an unrecorded walk stopped; the next ask walks again");
+                warn!(user_id = %job.user_id, provider = %phase.provider_name, step = ?other, "History walk: an unrecorded walk stopped; the next ask walks again");
                 return;
             }
         }
+    }
+}
+
+/// `job` reading `backend` over `window`: the walk's API phase.
+fn phase_reading(
+    job: &ActivityBackfillJob,
+    backend: String,
+    window: ActivityQueryParams,
+) -> ActivityBackfillJob {
+    ActivityBackfillJob {
+        resources: Arc::clone(&job.resources),
+        user_id: job.user_id,
+        tenant_id: job.tenant_id,
+        tenant_id_str: job.tenant_id_str.clone(),
+        provider_name: backend,
+        query_params: window,
+        pierre_conversation_id: None,
+        kind: BackfillJobKind::HistoryWalk,
+        turn_id: None,
+        asked_message_id: None,
     }
 }
 
@@ -390,13 +594,20 @@ async fn walk_step(
             };
         }
     };
+    let role = source_role(&job.provider_name);
     let cursor = Cursor {
         top,
         floor,
         first: window.before.is_none(),
-        limit: window.limit.unwrap_or(API_WALK_PAGE),
+        // The head, or an API phase whose floor is still to learn (a
+        // hand-off clears it): the grant's profile names it.
+        learn_floor: window.before.is_none() || window.after.is_none(),
+        limit: match role {
+            HistorySourceRole::Session => window.limit.unwrap_or(API_WALK_PAGE),
+            HistorySourceRole::Grant | HistorySourceRole::Pushed => API_WALK_PAGE,
+        },
     };
-    match source_role(&job.provider_name) {
+    match role {
         HistorySourceRole::Session => session_step(job, executor, provider.as_ref(), cursor).await,
         HistorySourceRole::Grant => api_step(job, executor, provider.as_ref(), cursor).await,
         HistorySourceRole::Pushed => {
@@ -415,6 +626,9 @@ struct Cursor {
     floor: i64,
     /// Whether this is the walk's first step, which reads the list head.
     first: bool,
+    /// Whether the step reads the athlete's profile for the walk's floor:
+    /// on the head, and on an API phase's first step below the session.
+    learn_floor: bool,
     /// Activities one request asks for.
     limit: usize,
 }
@@ -499,7 +713,7 @@ async fn api_step(
     provider: &dyn CoreFitnessProvider,
     mut cursor: Cursor,
 ) -> Step {
-    let learned = if cursor.first {
+    let learned = if cursor.learn_floor {
         match account_floor(job, provider).await {
             Ok(learned) => learned,
             Err(()) => return Step::Paused,
@@ -571,20 +785,25 @@ fn with_floor(step: Step, learned: Option<JobFloor>) -> Step {
 }
 
 /// The floor the athlete's profile names: a Strava account's creation, and
-/// the months from now down to it. `Ok(None)` when the profile names none,
-/// or cannot be read for any reason but a spent budget, which is `Err`.
+/// the months from now down to it; [`WHOLE_ACCOUNT_AFTER`] with no length
+/// when it names none, so the walk ends on its empty years and the profile
+/// is not read again. `Ok(None)` when the profile cannot be read for any
+/// reason but a spent budget, which is `Err`.
 async fn account_floor(
     job: &ActivityBackfillJob,
     provider: &dyn CoreFitnessProvider,
 ) -> Result<Option<JobFloor>, ()> {
     match ai_scope::unfiltered(provider.get_athlete()).await {
-        Ok(athlete) => Ok(athlete.created_at.map(|created| {
-            let after_ts = created.timestamp().max(WHOLE_ACCOUNT_AFTER);
-            JobFloor {
-                after_ts,
-                months_total: months_between(Utc::now().timestamp(), after_ts),
-            }
-        })),
+        Ok(athlete) => {
+            let created = athlete
+                .created_at
+                .map(|created| created.timestamp().max(WHOLE_ACCOUNT_AFTER));
+            Ok(Some(JobFloor {
+                after_ts: created.unwrap_or(WHOLE_ACCOUNT_AFTER),
+                months_total: created
+                    .map(|after_ts| months_between(Utc::now().timestamp(), after_ts)),
+            }))
+        }
         Err(e) if e.code == ErrorCode::ExternalRateLimited => Err(()),
         Err(e) => {
             warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the athlete's profile could not be read; walking to the empty years");
@@ -697,8 +916,8 @@ async fn record_walk_coverage(job: &ActivityBackfillJob, reached_ts: i64, hit_fe
 }
 
 /// Tell the athlete the walk reached the end of their history, naming the
-/// oldest year the walked key now holds and the `landed` activities the
-/// walk wrote. A walk that brought nothing in says nothing.
+/// oldest year any of its history keys now holds and the `landed`
+/// activities the walk wrote. A walk that brought nothing in says nothing.
 async fn announce_walked(job: &ActivityBackfillJob, landed: i64) {
     let Some(notifier) = job.resources.backfill_notifier() else {
         return;
@@ -708,19 +927,15 @@ async fn announce_walked(job: &ActivityBackfillJob, landed: i64) {
         info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: ended with nothing new; nothing to announce");
         return;
     }
-    let oldest = match job
-        .resources
-        .repos()
-        .activity_cache
-        .oldest_activity_start(job.user_id, &job.tenant_id, &job.provider_name)
-        .await
-    {
-        Ok(Some(oldest)) => oldest,
-        Ok(None) => return,
-        Err(e) => {
-            warn!(user_id = %job.user_id, error = %e, "History walk: the oldest activity could not be read; not announcing");
-            return;
-        }
+    let Ok(Some(oldest)) = oldest_stored(
+        &job.resources,
+        job.user_id,
+        job.tenant_id,
+        &job.provider_name,
+    )
+    .await
+    else {
+        return;
     };
     info!(
         user_id = %job.user_id,

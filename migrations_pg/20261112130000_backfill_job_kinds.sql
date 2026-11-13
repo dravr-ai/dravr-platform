@@ -26,6 +26,7 @@ ALTER TABLE activity_backfill_jobs ADD COLUMN IF NOT EXISTS rows_landed BIGINT N
 ALTER TABLE activity_backfill_jobs ADD COLUMN IF NOT EXISTS secs_per_unit DOUBLE PRECISION;
 ALTER TABLE activity_backfill_jobs ADD COLUMN IF NOT EXISTS turn_id TEXT;
 ALTER TABLE activity_backfill_jobs ADD COLUMN IF NOT EXISTS asked_message_id TEXT;
+ALTER TABLE activity_backfill_jobs ADD COLUMN IF NOT EXISTS walk_backend TEXT;
 
 ALTER TABLE activity_backfill_jobs DROP CONSTRAINT IF EXISTS activity_backfill_jobs_user_id_provider_key;
 ALTER TABLE activity_backfill_jobs DROP CONSTRAINT IF EXISTS activity_backfill_jobs_user_kind_key;

@@ -222,6 +222,7 @@ fn seeded_row(
         progress: JobProgress::default(),
         turn_id: None,
         asked_message_id: None,
+        walk_backend: None,
     }
 }
 

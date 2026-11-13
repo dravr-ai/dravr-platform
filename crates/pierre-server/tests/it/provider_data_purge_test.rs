@@ -543,6 +543,7 @@ async fn seed_provider_rows(
                 progress: JobProgress::default(),
                 turn_id: None,
                 asked_message_id: None,
+                walk_backend: None,
             })
             .await
             .unwrap();

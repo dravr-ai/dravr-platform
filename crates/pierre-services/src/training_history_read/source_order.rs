@@ -15,8 +15,10 @@
 //! A history walk reads the first source that is live and can be paged
 //! ([`history_source_order`], [`walk_source`]): the session first, even
 //! while a grant is alive, because it reads years in one request where an
-//! API pages a few hundred activities at a time (D2). The push is never
-//! walked: it holds only what arrived after the athlete connected it.
+//! API pages a few hundred activities at a time (D2). Once the session finds
+//! nothing more, a live API grant beside it pages below the oldest row the
+//! session stored ([`walk_hand_off`]). The push is never walked: it holds
+//! only what arrived after the athlete connected it.
 //!
 //! A live read of the provider is not ordered here: it follows the athlete's
 //! read plan ([`pierre_providers::backend_resolver::read_plan`], carnet#1494),
@@ -160,6 +162,33 @@ pub async fn walk_source(
         .await
         .into_iter()
         .find(|source| source.live && source.role.walks())
+}
+
+/// The API grant a walk of the usr/pwd session `backend` goes on to.
+///
+/// Once the session finds nothing more, the walk reads the next source of
+/// `backend`'s order that is live and pages its history on request
+/// (carnet#1482).
+///
+/// The session reads years a request, so it walks first; what it never
+/// listed (a workout older than the scraper reaches) is still the API's to
+/// page, below the oldest row the session stored. `None` when `backend` is
+/// not a session, and when no such grant is live: a push holds nothing from
+/// before the athlete connected it, so it is never walked.
+pub async fn walk_hand_off(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> Option<HistorySource> {
+    let mut order = history_source_order(repos, user_id, tenant_id, backend)
+        .await
+        .into_iter()
+        .skip_while(|source| source.backend != backend);
+    if order.next()?.role != HistorySourceRole::Session {
+        return None;
+    }
+    order.find(|source| source.live && source.role == HistorySourceRole::Grant)
 }
 
 /// Whether the user holds `backend` live in the tenant

@@ -56,7 +56,7 @@ use pierre_services::training_history_read::{
 };
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::history_walk::start_history_walk;
+use crate::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
 use crate::runtime::ToolRuntime;
 
 /// Default backfill window when the caller does not specify one.
@@ -574,7 +574,14 @@ async fn request_capture(
     user_id: Uuid,
     backend: &str,
 ) -> bool {
-    start_history_walk(resources, user_id, tenant_id, backend).await
+    start_history_walk(
+        resources,
+        user_id,
+        tenant_id,
+        backend,
+        WalkTrigger::DepthMissing,
+    )
+    .await
 }
 
 /// No walk rail in this build, so no walk is started. Answers as a ready

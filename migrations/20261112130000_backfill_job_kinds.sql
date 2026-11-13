@@ -27,6 +27,10 @@
 --   secs_per_unit     measured seconds per walked month, NULL until measured
 --   turn_id           the conversation turn a live read answers
 --   asked_message_id  the user message that asked it
+--   walk_backend      the backend a history walk's current phase reads: NULL
+--                     reads `provider`, the walk's own source; the API grant
+--                     once the session's phase handed off below the oldest
+--                     row it reached
 --
 -- SQLite cannot change an inline UNIQUE, so the table is rebuilt with every
 -- column, default and index it carries (20260918000003 plus the lease-token
@@ -53,6 +57,7 @@ CREATE TABLE activity_backfill_jobs_new ( -- idempotency-ok: table rebuild — S
     secs_per_unit REAL,
     turn_id TEXT,
     asked_message_id TEXT,
+    walk_backend TEXT,
     UNIQUE (user_id, provider, kind)
 );
 INSERT INTO activity_backfill_jobs_new

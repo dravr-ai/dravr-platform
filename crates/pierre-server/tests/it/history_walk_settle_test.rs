@@ -50,7 +50,7 @@ use pierre_notifications::{
 };
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::history_walk::{
-    start_history_walk, WHOLE_ACCOUNT_AFTER,
+    start_history_walk, WalkTrigger, WHOLE_ACCOUNT_AFTER,
 };
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::activity_fetch::write_through::write_through_served_window;
@@ -121,7 +121,15 @@ async fn a_walk_is_recorded_beside_the_ordinary_job_owed_for_its_session() {
     );
 
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let walk = || start_history_walk(&runtime, user_id, tenant, oauth_providers::SCIOTTE_GARMIN);
+    let walk = || {
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::SCIOTTE_GARMIN,
+            WalkTrigger::DepthMissing,
+        )
+    };
     assert!(walk().await, "bug: a walk is on file for the session");
     assert!(!walk().await, "a second ask finds the walk already on file");
     assert!(

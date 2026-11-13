@@ -96,13 +96,42 @@ pub struct JobProgressStep {
 }
 
 /// Where a walk's history ends, once a step has learned it: a Strava
-/// account's creation.
+/// account's creation, or the hard floor when the profile names none.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct JobFloor {
     /// The oldest instant the job reads to (unix seconds).
     pub after_ts: i64,
-    /// Months from the job's start down to `after_ts`.
-    pub months_total: i64,
+    /// Months from the job's start down to `after_ts`; `None` keeps the
+    /// stored one, when the floor is only the hard one and the walk ends on
+    /// its empty years before it.
+    pub months_total: Option<i64>,
+}
+
+/// Where a history walk goes on once its session phase found nothing more:
+/// the API grant beside the session, paged strictly below the oldest row the
+/// session reached (carnet#1482).
+///
+/// Written over a running walk's row
+/// ([`ActivityBackfillJobRepository::hand_off_history_walk`]) or a walk the
+/// session ended alone ([`ActivityBackfillJobRepository::reopen_history_walk`]).
+/// The row keeps its key, the session's: every reader of the walk reads it
+/// there, owed until the API phase ends too.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalkHandOff {
+    /// The backend the walk reads from now on: the row's `walk_backend`.
+    pub backend: String,
+    /// The API phase reads strictly below this (unix seconds); `None` reads
+    /// from the head of the list, when the session stored nothing.
+    pub before_ts: Option<i64>,
+    /// Months the walk covered, from now down to `before_ts`: the row's
+    /// `months_done` is set to it, since the API phase pages again the years
+    /// the session's last step found empty.
+    pub months_done: i64,
+    /// Activities the session's last step wrote, added to the row's
+    /// `rows_landed`.
+    pub rows_landed: i64,
+    /// Activities one API request asks for: the row's `fetch_limit`.
+    pub fetch_limit: i64,
 }
 
 /// One backfill owed: the window that was asked for and where its finished
@@ -143,6 +172,10 @@ pub struct ActivityBackfillJobRow {
     pub turn_id: Option<String>,
     /// The user message that asked a live read.
     pub asked_message_id: Option<String>,
+    /// The backend a history walk's current phase reads: `None` reads
+    /// `provider`, the walk's own source; the API grant once the session's
+    /// phase handed off below the oldest row it reached ([`WalkHandOff`]).
+    pub walk_backend: Option<String>,
 }
 
 /// Prints every field but the lease token, which grants the right to renew
@@ -166,6 +199,7 @@ impl fmt::Debug for ActivityBackfillJobRow {
             .field("progress", &self.progress)
             .field("turn_id", &self.turn_id)
             .field("asked_message_id", &self.asked_message_id)
+            .field("walk_backend", &self.walk_backend)
             .finish()
     }
 }
@@ -303,6 +337,33 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         step: JobProgressStep,
     ) -> AppResult<Option<JobProgress>>;
 
+    /// A history walk's session phase found nothing more and a live API grant
+    /// stands beside it: keep the row owed under its key, reading
+    /// `hand_off.backend` from now on, below `hand_off.before_ts`, with its
+    /// floor to learn again from the grant's profile, its attempts reset and
+    /// its lease released so the resume sweep runs the first API step.
+    /// `false` when this lease no longer holds the row.
+    async fn hand_off_history_walk(
+        &self,
+        lease: &JobLease,
+        hand_off: &WalkHandOff,
+    ) -> AppResult<bool>;
+
+    /// A history walk of `provider` that its session ended alone, with no
+    /// grant beside it then, owes the API phase now that one is: the walked
+    /// row of `(user_id, provider)` in `tenant_id` is owed again as
+    /// [`Self::hand_off_history_walk`] leaves it, its progress kept so the
+    /// walk's one message counts the whole history. `false` when no such row
+    /// stands: none walked, one still owed, or one whose API phase already
+    /// ran.
+    async fn reopen_history_walk(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        hand_off: &WalkHandOff,
+    ) -> AppResult<bool>;
+
     /// How far the `kind` job for `(user_id, provider)` in `tenant_id` has
     /// got, owed or ended, or `None` when the ledger holds no such row.
     async fn job_progress(
@@ -349,7 +410,7 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
        lease_token = excluded.lease_token, months_total = excluded.months_total, \
        months_done = excluded.months_done, rows_landed = excluded.rows_landed, \
        secs_per_unit = excluded.secs_per_unit, turn_id = excluded.turn_id, \
-       asked_message_id = excluded.asked_message_id, outcome = NULL \
+       asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL \
      WHERE activity_backfill_jobs.outcome IS NOT NULL \
        AND activity_backfill_jobs.tenant_id = excluded.tenant_id";
 
@@ -409,7 +470,7 @@ macro_rules! claim_backfill_jobs_sql {
              RETURNING id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
                        conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, \
                        kind, months_total, months_done, rows_landed, secs_per_unit, turn_id, \
-                       asked_message_id"
+                       asked_message_id, walk_backend"
         )
     };
 }
@@ -459,6 +520,27 @@ pub(crate) const END_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
          leased_until_ms = 0, lease_token = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL \
      RETURNING months_total, months_done, rows_landed, secs_per_unit";
+
+/// Moves a running walk to its API phase ([`WalkHandOff`]) and releases it
+/// for that phase's first step. The floor is learned again from the grant's
+/// profile (`after_ts` NULL), and the pace measured anew (`secs_per_unit`
+/// NULL): an API page is not a scrape.
+pub(crate) const HAND_OFF_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET walk_backend = $3, before_ts = $4, months_done = $5, \
+         rows_landed = rows_landed + $6, fetch_limit = $7, after_ts = NULL, \
+         secs_per_unit = NULL, attempts = 0, leased_until_ms = 0, lease_token = NULL \
+     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
+
+/// Owes a walk its session ended alone the API phase
+/// ([`HAND_OFF_HISTORY_WALK_SQL`]'s row), only while it stands walked and
+/// no API phase ran on it. Its `created_at_ms` is kept, so the resume sweep
+/// takes it on its next pass.
+pub(crate) const REOPEN_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET walk_backend = $5, before_ts = $6, months_done = $7, fetch_limit = $8, \
+         after_ts = NULL, secs_per_unit = NULL, outcome = NULL, attempts = 0, \
+         leased_until_ms = 0, lease_token = NULL \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
+       AND outcome = $9 AND walk_backend IS NULL";
 
 pub(crate) const JOB_PROGRESS_SQL: &str =
     "SELECT months_total, months_done, rows_landed, secs_per_unit FROM activity_backfill_jobs \
@@ -575,6 +657,9 @@ where
         asked_message_id: row
             .try_get("asked_message_id")
             .map_err(|e| column_error("asked_message_id", &e))?,
+        walk_backend: row
+            .try_get("walk_backend")
+            .map_err(|e| column_error("walk_backend", &e))?,
     })
 }
 
@@ -756,7 +841,7 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(step.rows_landed)
                     .bind(step.secs_per_unit)
                     .bind(step.floor.map(|floor| floor.after_ts))
-                    .bind(step.floor.map(|floor| floor.months_total))
+                    .bind(step.floor.and_then(|floor| floor.months_total))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -778,12 +863,58 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(step.rows_landed)
                     .bind(step.secs_per_unit)
                     .bind(step.floor.map(|floor| floor.after_ts))
-                    .bind(step.floor.map(|floor| floor.months_total))
+                    .bind(step.floor.and_then(|floor| floor.months_total))
                     .bind(walked_outcome())
                     .fetch_optional(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to end history walk: {e}")))?;
                 row.as_ref().map(job_progress_from_row).transpose()
+            }
+
+            async fn hand_off_history_walk(
+                &self,
+                lease: &JobLease,
+                hand_off: &$crate::repositories::activity_backfill_jobs::WalkHandOff,
+            ) -> AppResult<bool> {
+                let handed = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::HAND_OFF_HISTORY_WALK_SQL,
+                )
+                .bind(&lease.id)
+                .bind(&lease.token)
+                .bind(&hand_off.backend)
+                .bind(hand_off.before_ts)
+                .bind(hand_off.months_done)
+                .bind(hand_off.rows_landed)
+                .bind(hand_off.fetch_limit)
+                .execute(self.pool())
+                .await
+                .map_err(|e| AppError::database(format!("Failed to hand off history walk: {e}")))?;
+                Ok(handed.rows_affected() == 1)
+            }
+
+            async fn reopen_history_walk(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                hand_off: &$crate::repositories::activity_backfill_jobs::WalkHandOff,
+            ) -> AppResult<bool> {
+                let reopened = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::REOPEN_HISTORY_WALK_SQL,
+                )
+                .bind(user_id.to_string())
+                .bind(tenant_id)
+                .bind(provider)
+                .bind(BackfillJobKind::HistoryWalk.as_str())
+                .bind(&hand_off.backend)
+                .bind(hand_off.before_ts)
+                .bind(hand_off.months_done)
+                .bind(hand_off.fetch_limit)
+                .bind(walked_outcome())
+                .execute(self.pool())
+                .await
+                .map_err(|e| AppError::database(format!("Failed to reopen history walk: {e}")))?;
+                Ok(reopened.rows_affected() == 1)
             }
 
             async fn job_progress(

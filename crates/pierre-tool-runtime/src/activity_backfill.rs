@@ -520,6 +520,7 @@ fn job_row(job: &ActivityBackfillJob) -> ActivityBackfillJobRow {
         progress: JobProgress::default(),
         turn_id: job.turn_id.clone(),
         asked_message_id: job.asked_message_id.clone(),
+        walk_backend: None,
     }
 }
 

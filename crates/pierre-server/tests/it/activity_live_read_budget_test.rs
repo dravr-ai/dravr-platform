@@ -632,6 +632,7 @@ async fn the_sweep_resumes_a_live_read_whose_instance_died() {
         progress: JobProgress::default(),
         turn_id: Some("turn-dead".to_owned()),
         asked_message_id: Some("msg-dead".to_owned()),
+        walk_backend: None,
     };
     assert!(
         runtime
@@ -1051,6 +1052,7 @@ async fn an_ask_beside_a_read_owed_elsewhere_waits_for_its_rows() {
         progress: JobProgress::default(),
         turn_id: Some("turn-msg-1".to_owned()),
         asked_message_id: Some("msg-1".to_owned()),
+        walk_backend: None,
     };
     assert!(
         runtime
