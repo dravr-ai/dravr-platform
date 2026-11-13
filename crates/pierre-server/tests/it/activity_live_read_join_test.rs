@@ -36,7 +36,7 @@ use pierre_database::repositories::{
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS};
 use pierre_tool_runtime::activity_fetch::budgeted_read::{
-    read_live_window_within_budget, OwnedLiveRead,
+    read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
 use pierre_tool_runtime::runtime::{
     BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry, ToolRuntime,
@@ -987,6 +987,75 @@ async fn a_read_no_ask_is_bound_to_spends_its_attempts_silently() {
     assert!(
         notifier.sent.lock().unwrap().is_empty(),
         "bug: a read no ask is bound to posted a follow-up"
+    );
+}
+
+/// The read's third attempt is taken over by an ask that waits for it, and
+/// a newer ask joins it past its own budget: answered from the cache, owed
+/// the follow-up. The attempt fails — the turn that waits hears so itself —
+/// and it was the read's last. The newer ask is told once, as a read that
+/// gave up, rather than left on a row no sweep will ever run again.
+#[tokio::test]
+async fn a_newer_ask_joined_to_a_last_attempt_that_fails_is_followed_up_once() {
+    let (runtime, notifier, user_id, tenant_id) = unavailable_runtime().await;
+    fail_an_ask(
+        &runtime,
+        asked(user_id, tenant_id, "conv-1", "msg-1"),
+        false,
+    )
+    .await;
+    fail_an_ask(
+        &runtime,
+        asked(user_id, tenant_id, "conv-1", "msg-2"),
+        false,
+    )
+    .await;
+
+    let gate = Arc::new(Notify::new());
+    let mut failing = gated(&gate, Vec::new());
+    failing.fails = true;
+    let waiting_runtime = Arc::clone(&runtime);
+    let waiting = tokio::spawn(async move {
+        read_live_window_within_budget(
+            &waiting_runtime,
+            failing,
+            asked(user_id, tenant_id, "conv-1", "msg-3"),
+            TURN_BUDGET,
+        )
+        .await
+    });
+    let leased = timeout(StdDuration::from_secs(5), async {
+        while lease_state(&runtime, user_id, tenant_id).await != Some(JobLeaseState::Leased) {
+            sleep(StdDuration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(leased.is_ok(), "the waiting ask takes the idle row over");
+    let newer = read_live_window_within_budget(
+        &runtime,
+        gated(&Arc::new(Notify::new()), Vec::new()),
+        asked(user_id, tenant_id, "conv-1", "msg-4"),
+        BUDGET,
+    )
+    .await;
+    assert_eq!(answer_of(newer), Answer::Cached(names(&["cached"])));
+
+    gate.notify_one();
+    let heard = waiting.await.unwrap();
+    assert!(
+        matches!(heard, BudgetedRead::Answered { read: Err(_), .. }),
+        "the turn that waited hears its read failed"
+    );
+    sleep(StdDuration::from_millis(500)).await;
+    assert_eq!(
+        notifier.sent.lock().unwrap().as_slice(),
+        [("conv-1".to_owned(), Some("msg-4".to_owned()), true)],
+        "bug: the newer ask a read's last attempt was rebound to is never followed up"
+    );
+    assert_eq!(
+        live_read_state(&runtime, user_id, tenant_id).await,
+        None,
+        "bug: a read with no attempts left is put back on file"
     );
 }
 
