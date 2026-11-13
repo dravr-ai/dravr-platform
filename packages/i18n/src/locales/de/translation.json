@@ -1791,7 +1791,8 @@
       "athlete_ambiguous": "„{0}“ passt auf mehrere deiner Athleten: {1}. Bitte gib einen genaueren Namen an.",
       "athlete_not_sharing": "{0} teilt keine Daten mehr mit dir, daher wird der Plan nicht angezeigt. Mit `/group consent coach yes` lässt sich das Teilen wieder einschalten.",
       "athlete_several_tenants": "{0} gehört zu mehreren Arbeitsbereichen, daher kann der Plan nicht zuverlässig angezeigt werden.",
-      "athlete_plans_disabled": "Trainingspläne sind im Arbeitsbereich von {0} ausgeschaltet."
+      "athlete_plans_disabled": "Trainingspläne sind im Arbeitsbereich von {0} ausgeschaltet.",
+      "session_notes": "{0} ({1})"
     },
     "plan-share": {
       "description": "Deinen Trainingsplan in den Raum posten, in dem du tippst — Countdown zum Ziel plus heute und morgen, die ganze Woche oder nur heute"
@@ -3009,6 +3010,15 @@
       "source_from": "von {0}",
       "source_own": "dein eigener Wert"
     },
+    "evidence": {
+      "convention": "Trainingskonvention",
+      "transposed": "Aus einer anderen Sportart übertragen",
+      "acute_only": "Nur Kurzzeitdaten",
+      "uncontrolled_only": "Nur Studien ohne Kontrollgruppe",
+      "acute_uncontrolled": "Nur Einzeleinheit-Studien ohne Kontrollgruppe",
+      "counts_as": "Zählt als {0}",
+      "outside": "Außerhalb der Evidenz"
+    },
     "flavour": {
       "hvlit_foundation": "alles locker, viel davon, eine lange Einheit pro Woche",
       "norwegian_singles_subthreshold": "mehrere kontrollierte Einheiten knapp unter der Schwelle pro Woche, nach Tempo oder Puls",
@@ -3680,6 +3690,10 @@
       "alsoRacing": "Ebenfalls im Kalender",
       "envelope": {
         "badge": "Außerhalb der Evidenz"
+      },
+      "evidence": {
+        "sheetTitle": "Die Evidenz hinter dieser Einheit",
+        "noStudies": "Keine Studie deckt diese Einheit in dieser Sportart ab; sie folgt der üblichen Trainingspraxis."
       }
     },
     "limits": {

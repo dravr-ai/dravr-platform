@@ -1791,7 +1791,8 @@
       "athlete_ambiguous": "«{0}» corresponde a vários dos teus atletas: {1}. Usa um nome mais preciso.",
       "athlete_not_sharing": "{0} deixou de partilhar os dados contigo, por isso o plano não é mostrado. Pode voltar a partilhá-los com `/group consent coach yes`.",
       "athlete_several_tenants": "{0} pertence a vários espaços de trabalho, por isso o plano não pode ser mostrado de forma fiável.",
-      "athlete_plans_disabled": "Os planos de treino estão desativados no espaço de trabalho de {0}."
+      "athlete_plans_disabled": "Os planos de treino estão desativados no espaço de trabalho de {0}.",
+      "session_notes": "{0} ({1})"
     },
     "plan-share": {
       "description": "Publicar o teu plano de treino na sala onde o escreves — contagem decrescente para o objetivo mais hoje e amanhã, a semana completa, ou só hoje"
@@ -3009,6 +3010,15 @@
       "source_from": "de {0}",
       "source_own": "o teu próprio valor"
     },
+    "evidence": {
+      "convention": "Convenção de treino",
+      "transposed": "Transposto de outro desporto",
+      "acute_only": "Apenas dados de curto prazo",
+      "uncontrolled_only": "Apenas ensaios sem grupo de controlo",
+      "acute_uncontrolled": "Apenas estudos de uma sessão, sem grupo de controlo",
+      "counts_as": "Conta como {0}",
+      "outside": "Fora da evidência"
+    },
     "flavour": {
       "hvlit_foundation": "tudo leve, muito volume, uma sessão longa por semana",
       "norwegian_singles_subthreshold": "várias sessões controladas mesmo abaixo do limiar por semana, por ritmo ou pulsação",
@@ -3680,6 +3690,10 @@
       "alsoRacing": "Também no calendário",
       "envelope": {
         "badge": "Fora da evidência"
+      },
+      "evidence": {
+        "sheetTitle": "A evidência por trás desta sessão",
+        "noStudies": "Nenhum ensaio cobre esta sessão neste desporto; segue a prática habitual do treino."
       }
     },
     "limits": {

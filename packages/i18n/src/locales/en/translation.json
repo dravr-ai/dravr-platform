@@ -1791,7 +1791,8 @@
       "athlete_ambiguous": "“{0}” matches several of your athletes: {1}. Use a more specific name.",
       "athlete_not_sharing": "{0} stopped sharing their data with you, so their plan isn't shown. They can share it again with `/group consent coach yes`.",
       "athlete_several_tenants": "{0} belongs to several workspaces, so their plan can't be shown reliably.",
-      "athlete_plans_disabled": "Training plans are turned off in {0}'s workspace."
+      "athlete_plans_disabled": "Training plans are turned off in {0}'s workspace.",
+      "session_notes": "{0} ({1})"
     },
     "plan-share": {
       "description": "Post your training plan into the room you type it in — goal countdown plus today and tomorrow, the full week, or today alone"
@@ -3009,6 +3010,15 @@
       "source_from": "from {0}",
       "source_own": "your own value"
     },
+    "evidence": {
+      "convention": "Coaching convention",
+      "transposed": "Transposed from another sport",
+      "acute_only": "Short-term data only",
+      "uncontrolled_only": "Uncontrolled trials only",
+      "acute_uncontrolled": "Single-session, uncontrolled studies only",
+      "counts_as": "Counts as {0}",
+      "outside": "Outside the evidence"
+    },
     "flavour": {
       "hvlit_foundation": "all easy, lots of it, one long session a week",
       "norwegian_singles_subthreshold": "several controlled just-below-threshold sessions a week, by pace or heart rate",
@@ -3680,6 +3690,10 @@
       "alsoRacing": "Also racing",
       "envelope": {
         "badge": "Outside the evidence"
+      },
+      "evidence": {
+        "sheetTitle": "The evidence behind this session",
+        "noStudies": "No trial covers this session in this sport; it follows coaching practice."
       }
     },
     "limits": {
