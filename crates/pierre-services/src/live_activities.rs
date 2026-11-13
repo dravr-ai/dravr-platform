@@ -13,6 +13,8 @@
 //! activity store, under one retention policy, and projects it into
 //! `cached_activities`, which every reader reads (carnet#1482).
 
+use std::collections::HashSet;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
@@ -150,6 +152,21 @@ pub trait LiveActivityStore: Send + Sync {
     /// Returns an error when `provider` is not a live source, or the store
     /// fails.
     async fn held(&self, user_id: Uuid, tenant_id: TenantId, provider: &str) -> AppResult<u64>;
+
+    /// The ids among `activities` the athlete's `provider` rows already
+    /// hold, read in one pass over the window their start dates span: a
+    /// write of them adds the rest.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when the rows cannot be read.
+    async fn held_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>>;
 
     /// Delete everything the store holds of `provider` for the athlete — a
     /// disconnect or a purge — after its cached rows stop being served, and

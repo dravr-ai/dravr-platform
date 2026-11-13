@@ -410,8 +410,8 @@ fn spawn_backfill_run(
             }
         };
         release_in_flight(&claim);
-        // Asked once the key is free: a walk of the grant alone starts
-        // under this very key.
+        // Asked once the key is free: a walk a purge of its grant left owed
+        // a reopen is resolved now; nothing else is asked (`ask_again`).
         if after == history_walk::AfterStep::AskAgain {
             history_walk::ask_again(&job).await;
         }

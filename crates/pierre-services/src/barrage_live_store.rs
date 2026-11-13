@@ -17,7 +17,7 @@
 //! tests. The server builds its store here at boot, and `pierre-cli` builds the
 //! same one for the seeders that warm the cache.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::fmt;
 #[cfg(not(feature = "postgresql"))]
@@ -479,6 +479,32 @@ impl LiveActivityStore for BarrageLiveStore {
             offset = page.next_offset;
         }
         Ok(held)
+    }
+
+    async fn held_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>> {
+        let starts = activities.iter().map(Activity::start_date);
+        let (Some(first), Some(last)) = (starts.clone().min(), starts.max()) else {
+            return Ok(HashSet::new());
+        };
+        let wanted: HashSet<&str> = activities.iter().map(Activity::id).collect();
+        // The cache serves every record the store holds, and the rows it
+        // served before the store held the provider's reads.
+        Ok(self
+            .repos
+            .activity_cache
+            .get_cached_activities(user_id, &tenant_id, Some(provider), first, last, i64::MAX)
+            .await?
+            .iter()
+            .map(Activity::id)
+            .filter(|id| wanted.contains(id))
+            .map(str::to_owned)
+            .collect())
     }
 
     async fn delete_source(

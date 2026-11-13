@@ -37,8 +37,8 @@
 //! lease, and the step records nothing on the row once the purge took its
 //! phase: each of its row writes requires an owed row. Nor does it leave the
 //! purged grant's activities in the store: it writes its page only while its
-//! row is still owed under its lease, and takes back exactly what it wrote
-//! when a purge landed during the write ([`owed_write`]).
+//! row is still owed under its lease, and takes back what a purge of the key
+//! it writes under reached when one landed during the write ([`owed_write`]).
 //!
 //! - A purge of one athlete's grant (a disconnect, a revocation) keeps the
 //!   row owed a reopen, still the walk of the pair ([`PairWalk::Purged`]),

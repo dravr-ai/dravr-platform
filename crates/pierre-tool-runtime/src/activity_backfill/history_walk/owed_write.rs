@@ -1,5 +1,5 @@
 // ABOUTME: A walk step lands its rows in the store only while its row is owed under its lease, checked before and after
-// ABOUTME: A purge that lands between the two checks gets exactly the step's rows taken back, so none of the purged grant stays
+// ABOUTME: Only a purge of the step's own key landing between the two checks gets rows taken back, and only the ones it reached
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,15 +7,45 @@
 //! A step's write to the activity store, against a purge of what it reads.
 //!
 //! A step reads its page from the provider, then writes it through the store
-//! ([`persist_backfill_activities`]); the purge of the grant it reads can
-//! land at any point of that. The step checks its row right before the
-//! write and lands nothing unless the row is still owed under its own lease.
-//! It checks again right after: when a purge took the row in between, the
-//! step's write may have landed after the purge deleted the grant's rows, so
-//! the step takes back exactly the activities it wrote, through the store
+//! ([`persist_backfill_activities`]) under the key it reads
+//! (`job.provider_name`); a purge of that key can land at any point of that.
+//! The step checks its row right before the write and lands nothing unless
+//! the row is still owed under its own lease, and notes, in one read, which
+//! of the page's activities the store already holds under that key. It
+//! checks its row again right after the write, and takes rows back, through
+//! the store
 //! ([`LiveActivityStore::discard`](pierre_services::live_activities::LiveActivityStore::discard)),
-//! as the purge itself deletes them. A purge that commits after the second
-//! check deletes the step's rows itself.
+//! only on positive evidence that the key it wrote under was purged for the
+//! athlete in between ([`KeyPurge`]):
+//!
+//! - **Every activity of the key went** (a disconnect, a revocation, an
+//!   ended link, the operator's termination): every activity of the page
+//!   goes back, those the store held before the step included. The purge
+//!   deleted them, with their samples and gear; what stands of them now the
+//!   step's write put back.
+//! - **A retention expiry** deleted some of the key's activities and reset
+//!   its sync state: only the activities the step added go back. Those the
+//!   store held before the write stay, with their samples and gear.
+//!
+//! The evidence:
+//!
+//! - A step writing under the key its row is filed under (a session's
+//!   phase, or a grant walked alone): the row's removal. Only a purge or an
+//!   expiry of that very key deletes it; the purge's attestation says which.
+//! - A step of a session's API phase, writing under its grant's key while
+//!   the row stays filed under the session's: the grant's purge leaves the
+//!   row owed a reopen, and the operator's termination settles it as its
+//!   session walked alone. A row that is gone went with the session's own
+//!   purge, which says nothing of the grant: only an attestation of the
+//!   grant's purge for the athlete, or of the provider's termination,
+//!   committed since the step's first check, takes the page back. With none,
+//!   the grant's page stays and the step ends: its row is no longer there to
+//!   record it.
+//!
+//! A purge that commits after the second check deletes the step's rows
+//! itself. When the ledger or the attestations cannot be read after the
+//! write, nothing is taken back: the step fails, its retry due a lease
+//! later, and that attempt's own check before its write decides.
 //!
 //! Only the activities are taken back: a step that read the list head also
 //! stamped the grant's fetch freshness through the write-through, and that
@@ -24,24 +54,56 @@
 //! A walk the ledger could not record holds no row and no lease: nothing
 //! purges it, and its rows land as any read's do.
 
+use std::collections::HashSet;
+
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::Activity;
-use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow};
+use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, PurgeReason};
 use tracing::{info, warn};
 
 use super::super::{persist_backfill_activities, ActivityBackfillJob};
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::protocol::UniversalExecutor;
 
+/// How far behind the step's clock a purging instance's may run, in
+/// seconds: a purge attested this long before the step's first check still
+/// counts as landing after it.
+const PURGE_CLOCK_SKEW_SECS: i64 = 60;
+
 /// What writing a step's activities came to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum Landed {
     /// The step's rows landed and stay: the net distinct rows persisted.
     Rows(usize),
-    /// The step's row is no longer its own: nothing it read is in the store.
+    /// The step's row is no longer its own: it records nothing on it, and
+    /// whatever of its page a purge of its key reached is not in the store.
     Stopped,
     /// The write, or a check around it, failed: nothing is recorded, and
-    /// nothing the step read stays when the row could not be read after it.
+    /// nothing is taken back.
     Failed,
+}
+
+/// What a purge of the key a step wrote under deleted of the athlete's
+/// activities under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum KeyPurge {
+    /// All of them: the whole page goes back.
+    Whole,
+    /// Those a retention expiry reached: only what the step added goes back.
+    Expired,
+}
+
+/// What became of the step's row, and of the key it wrote under, once its
+/// write landed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AfterWrite {
+    /// The row is still the step's.
+    Owed,
+    /// The row went with its session's purge alone; the key the step wrote
+    /// under was not purged.
+    Gone,
+    /// The key the step wrote under was purged for the athlete.
+    Purged(KeyPurge),
 }
 
 /// Write `activities` through the store for the step holding `lease`, only
@@ -59,6 +121,7 @@ pub(super) async fn land_owed(
             .await
             .map_or(Landed::Failed, Landed::Rows);
     };
+    let checked_at = Utc::now() - Duration::seconds(PURGE_CLOCK_SKEW_SECS);
     let Ok(before) = leased_row(job, lease).await else {
         return Landed::Failed;
     };
@@ -67,17 +130,39 @@ pub(super) async fn land_owed(
         info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's row is no longer its own; nothing it read is written");
         return Landed::Stopped;
     };
+    let Ok(held) = held_before(job, activities).await else {
+        return Landed::Failed;
+    };
     let landed = persist_backfill_activities(job, executor, activities, write).await;
-    match leased_row(job, lease).await {
-        Ok(after) if !purged(job, &row.provider, after.as_ref()) => {
-            landed.map_or(Landed::Failed, Landed::Rows)
+    let after = match leased_row(job, lease).await {
+        Ok(after) => after_write(job, &row.provider, after.as_ref(), checked_at).await,
+        Err(()) => Err(()),
+    };
+    settle(job, activities, &held, landed, after).await
+}
+
+/// What the step's write of `activities`, which persisted `landed`, comes
+/// to once its row is known `after` it; `held` are the ids the store held
+/// before the write.
+async fn settle(
+    job: &ActivityBackfillJob,
+    activities: &[Activity],
+    held: &HashSet<String>,
+    landed: Option<usize>,
+    after: Result<AfterWrite, ()>,
+) -> Landed {
+    match after {
+        Ok(AfterWrite::Owed) => landed.map_or(Landed::Failed, Landed::Rows),
+        Ok(AfterWrite::Gone) => {
+            info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's row went with its session's purge alone; its page stays");
+            Landed::Stopped
         }
-        Ok(_) => {
-            take_back(job, activities).await;
+        Ok(AfterWrite::Purged(purge)) => {
+            take_back(job, activities, held, purge).await;
             Landed::Stopped
         }
         Err(()) => {
-            take_back(job, activities).await;
+            warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: no purge could be ruled out after the step's write; nothing is taken back, and its retry checks again");
             Landed::Failed
         }
     }
@@ -99,37 +184,92 @@ async fn leased_row(
         })
 }
 
-/// Whether a purge took the row filed under `key` that the step reading
-/// `job.provider_name` checked before its write, given the row `after` it.
-///
-/// - A row that is gone was removed by a purge of the key it was filed
-///   under. For a step of a session's API phase that may be the session's
-///   own purge alone, or the session's and then the grant's, which found no
-///   row left to mark; the step cannot tell which, so it counts as purged,
-///   and a grant still live is paged again by its next walk.
-/// - A step reading the key the row is filed under (a session's phase, or a
-///   grant walked alone) is purged only with the row.
-/// - A step of a session's API phase, reading its grant: the grant's purge
-///   left the row owed a reopen, or a whole-provider purge settled it as its
-///   session walked alone, naming no grant.
-fn purged(job: &ActivityBackfillJob, key: &str, after: Option<&LeasedWalkRow>) -> bool {
+/// The ids among `activities` the store already holds under the step's key,
+/// before its write; `Err` (logged) when the store could not be read.
+async fn held_before(
+    job: &ActivityBackfillJob,
+    activities: &[Activity],
+) -> Result<HashSet<String>, ()> {
+    job.resources
+        .live_activities()
+        .held_among(job.user_id, job.tenant_id, &job.provider_name, activities)
+        .await
+        .map_err(|e| {
+            warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the store could not be read before the step's write");
+        })
+}
+
+/// What became of the row filed under `key`, which the step writing under
+/// `job.provider_name` checked at `checked_at`, given the row `after` its
+/// write; `Err` (logged) when the attestations could not be read.
+async fn after_write(
+    job: &ActivityBackfillJob,
+    key: &str,
+    after: Option<&LeasedWalkRow>,
+    checked_at: DateTime<Utc>,
+) -> Result<AfterWrite, ()> {
+    let own_key = key == job.provider_name;
     match after {
-        None => true,
-        Some(_) if key == job.provider_name => false,
-        Some(row) => {
-            row.state == BackfillJobState::PhasePurged
-                || row.walk_backend.as_deref() != Some(job.provider_name.as_str())
+        Some(_) if own_key => Ok(AfterWrite::Owed),
+        Some(row)
+            if row.state == BackfillJobState::PhasePurged
+                || row.walk_backend.as_deref() != Some(job.provider_name.as_str()) =>
+        {
+            Ok(AfterWrite::Purged(KeyPurge::Whole))
+        }
+        Some(_) => Ok(AfterWrite::Owed),
+        None => {
+            let reasons = job
+                .resources
+                .repos()
+                .provider_data
+                .purge_reasons_since(job.user_id, &job.tenant_id, &job.provider_name, checked_at)
+                .await
+                .map_err(|e| {
+                    warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the purges of the step's key could not be read after its write");
+                })?;
+            Ok(match attested(&reasons) {
+                Some(purge) => AfterWrite::Purged(purge),
+                // The row filed under the very key the step wrote went:
+                // that key's purge, attested or not (an account's deletion
+                // leaves no attestation).
+                None if own_key => AfterWrite::Purged(KeyPurge::Whole),
+                None => AfterWrite::Gone,
+            })
         }
     }
 }
 
-/// Take back from the store exactly the `activities` the step wrote under
-/// its source's key, a purge having landed while it wrote.
-async fn take_back(job: &ActivityBackfillJob, activities: &[Activity]) {
+/// What the purges attested by `reasons` deleted of the key's activities;
+/// `None` when none of them deleted any.
+fn attested(reasons: &[String]) -> Option<KeyPurge> {
+    let mut deleting = reasons
+        .iter()
+        .filter(|reason| reason.as_str() != PurgeReason::WellnessConsentWithdrawn.as_str())
+        .peekable();
+    deleting.peek()?;
+    if deleting.all(|reason| reason.as_str() == PurgeReason::CacheExpired.as_str()) {
+        Some(KeyPurge::Expired)
+    } else {
+        Some(KeyPurge::Whole)
+    }
+}
+
+/// Take back from the store, under the step's key, what `purge` reached of
+/// `activities`: all of them, or those not `held` before the write.
+async fn take_back(
+    job: &ActivityBackfillJob,
+    activities: &[Activity],
+    held: &HashSet<String>,
+    purge: KeyPurge,
+) {
     let store = job.resources.live_activities();
     let mut taken = 0_usize;
-    for activity in activities {
-        let id = activity.id();
+    let reached = activities
+        .iter()
+        .map(Activity::id)
+        .filter(|id| purge == KeyPurge::Whole || !held.contains(*id));
+    for id in reached {
         match store
             .discard(job.user_id, job.tenant_id, &job.provider_name, id)
             .await
@@ -140,5 +280,39 @@ async fn take_back(job: &ActivityBackfillJob, activities: &[Activity]) {
             }
         }
     }
-    info!(user_id = %job.user_id, provider = %job.provider_name, taken, "History walk: a purge landed while the step wrote; its rows are taken back");
+    info!(user_id = %job.user_id, provider = %job.provider_name, taken, ?purge, "History walk: a purge of the step's key landed while it wrote; what it reached is taken back");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{attested, KeyPurge};
+    use pierre_database::repositories::PurgeReason;
+
+    fn reasons(of: &[PurgeReason]) -> Vec<String> {
+        of.iter().map(|reason| reason.as_str().to_owned()).collect()
+    }
+
+    #[test]
+    fn only_activity_purges_count_and_an_expiry_alone_reaches_what_was_added() {
+        assert_eq!(attested(&[]), None);
+        assert_eq!(
+            attested(&reasons(&[PurgeReason::WellnessConsentWithdrawn])),
+            None
+        );
+        assert_eq!(
+            attested(&reasons(&[PurgeReason::CacheExpired])),
+            Some(KeyPurge::Expired)
+        );
+        assert_eq!(
+            attested(&reasons(&[
+                PurgeReason::CacheExpired,
+                PurgeReason::ProviderRevoked
+            ])),
+            Some(KeyPurge::Whole)
+        );
+        assert_eq!(
+            attested(&reasons(&[PurgeReason::Termination])),
+            Some(KeyPurge::Whole)
+        );
+    }
 }

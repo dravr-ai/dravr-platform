@@ -39,6 +39,7 @@ use crate::history_walk_api_test::{
 };
 use crate::history_walk_test::age_job_rows;
 
+use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -50,10 +51,14 @@ use chrono::{DateTime, Datelike, TimeZone, Utc};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, ConnectionType, TenantId};
+use pierre_core::models::{
+    Activity, ActivityBuilder, ActivityGearKey, AttributionSource, ConnectionType, GearAttribution,
+    SportType, TenantId, TimeSeriesData,
+};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress, PurgeReason,
+    ActivityStreamsWrite, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState,
+    JobProgress, PurgeReason, StreamOrigin,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::live_activities::{LiveActivityStore, LiveIngest};
@@ -69,7 +74,7 @@ use pierre_tool_runtime::runtime::{
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// Seconds in a day.
@@ -1837,13 +1842,15 @@ struct HeldWrite {
 }
 
 /// One armed hold: the provider whose next write waits, the gate that lets
-/// it land, and the signals that it reached the store and that it landed.
+/// it land, the signals that it reached the store and that it landed, and,
+/// when set, the gate that lets the write return to its step once landed.
 #[derive(Clone)]
 struct Hold {
     provider: String,
     gate: Arc<Notify>,
     reached: Arc<Notify>,
     landed: Arc<Notify>,
+    resume: Option<Arc<Notify>>,
 }
 
 impl HeldWrite {
@@ -1854,7 +1861,21 @@ impl HeldWrite {
             gate: Arc::new(Notify::new()),
             reached: Arc::new(Notify::new()),
             landed: Arc::new(Notify::new()),
+            resume: None,
         };
+        *self.armed.lock().unwrap() = Some(hold.clone());
+        hold
+    }
+
+    /// Let the next write of `provider` land at once, then hold it before
+    /// it returns to its step, until the returned hold's `resume` is
+    /// notified.
+    fn pause_after_next_write(&self, provider: &str) -> Hold {
+        let hold = Hold {
+            resume: Some(Arc::new(Notify::new())),
+            ..self.hold_next_write(provider)
+        };
+        hold.gate.notify_one();
         *self.armed.lock().unwrap() = Some(hold.clone());
         hold
     }
@@ -1888,6 +1909,9 @@ impl LiveActivityStore for HeldWrite {
             .await;
         if let Some(hold) = held {
             hold.landed.notify_one();
+            if let Some(resume) = hold.resume {
+                resume.notified().await;
+            }
         }
         ingested
     }
@@ -1956,6 +1980,18 @@ impl LiveActivityStore for HeldWrite {
 
     async fn held(&self, user_id: Uuid, tenant_id: TenantId, provider: &str) -> AppResult<u64> {
         self.inner.held(user_id, tenant_id, provider).await
+    }
+
+    async fn held_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>> {
+        self.inner
+            .held_among(user_id, tenant_id, provider, activities)
+            .await
     }
 
     async fn delete_source(
@@ -2068,5 +2104,398 @@ async fn a_step_whose_row_both_purges_took_leaves_none_of_its_rows() {
         fx.rows(oauth_providers::STRAVA).await,
         0,
         "bug: a step whose row a purge removed left the purged grant's rows in the store"
+    );
+}
+
+/// How long a step gets, once its write landed, to check its row and take
+/// back whatever it owes: two reads of the ledger and the store.
+const STEP_SETTLE: Duration = Duration::from_secs(1);
+
+/// What an earlier read left of one activity: its row, the samples its
+/// provider pushed, and the athlete's gear choice for it.
+#[derive(Debug, PartialEq, Eq)]
+struct Kept {
+    row: bool,
+    samples: bool,
+    gear: bool,
+}
+
+/// All three of [`Kept`].
+const KEPT_WHOLE: Kept = Kept {
+    row: true,
+    samples: true,
+    gear: true,
+};
+
+impl Fixture {
+    /// Store the ride `id` starting at `start` under `key` as an earlier read
+    /// did, with the samples its provider pushed and the athlete's declared
+    /// gear choice for it.
+    async fn hold_earlier_read(&self, key: &str, id: &str, start: i64) {
+        let started = Utc.timestamp_opt(start, 0).unwrap();
+        let ride = ActivityBuilder::new(
+            id.to_owned(),
+            "Morning ride".to_owned(),
+            SportType::Ride,
+            started,
+            3_600,
+            key.to_owned(),
+        )
+        .distance_meters(20_000.0)
+        .build();
+        self.resources
+            .common
+            .live_activities
+            .ingest(self.user_id, self.tenant, key, &[ride], Utc::now())
+            .await
+            .unwrap();
+        let repos = &self.resources.common.repos;
+        repos
+            .activity_streams
+            .upsert_activity_streams(&ActivityStreamsWrite {
+                tenant_id: &self.tenant,
+                user_id: self.user_id,
+                provider: key,
+                activity_id: id,
+                origin: StreamOrigin::Push,
+                source_ref: None,
+                streams: &TimeSeriesData {
+                    timestamps: vec![0, 1],
+                    heart_rate: Some(vec![Some(140), Some(141)]),
+                    power: None,
+                    cadence: None,
+                    speed: None,
+                    altitude: None,
+                    temperature: None,
+                    gps_coordinates: None,
+                    distance: None,
+                },
+                synced_at: Utc::now(),
+            })
+            .await
+            .unwrap();
+        repos
+            .athlete_gear
+            .declare_gear_attribution(
+                self.user_id,
+                &GearAttribution {
+                    key: ActivityGearKey {
+                        provider: key.to_owned(),
+                        activity_id: id.to_owned(),
+                    },
+                    gear_id: None,
+                    source: AttributionSource::Declared,
+                    start_date: started,
+                    distance_meters: 20_000.0,
+                },
+                &[],
+            )
+            .await
+            .unwrap();
+        assert_eq!(self.kept(key, id, start).await, KEPT_WHOLE);
+    }
+
+    /// What is left of the ride `id` starting at `start` under `key`.
+    async fn kept(&self, key: &str, id: &str, start: i64) -> Kept {
+        let repos = &self.resources.common.repos;
+        let started = Utc.timestamp_opt(start, 0).unwrap();
+        let gear_key = ActivityGearKey {
+            provider: key.to_owned(),
+            activity_id: id.to_owned(),
+        };
+        Kept {
+            row: repos
+                .activity_cache
+                .get_cached_activity(self.user_id, &self.tenant, key, id)
+                .await
+                .unwrap()
+                .is_some(),
+            samples: repos
+                .activity_streams
+                .get_activity_streams(&self.tenant, self.user_id, key, id)
+                .await
+                .unwrap()
+                .is_some(),
+            gear: repos
+                .athlete_gear
+                .list_gear_attributions(
+                    self.user_id,
+                    started - chrono::Duration::hours(1),
+                    started + chrono::Duration::hours(1),
+                )
+                .await
+                .unwrap()
+                .iter()
+                .any(|attribution| attribution.key == gear_key),
+        }
+    }
+
+    /// Run `sql` on the server's database.
+    async fn execute(&self, sql: &str) {
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                sqlx::query(sql).execute(sqlite.pool()).await.unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => {
+                sqlx::query(sql).execute(pg.pool()).await.unwrap();
+            }
+        }
+    }
+}
+
+/// While renamed, every read of a walk's row fails (each names
+/// `walk_backend`), and the lease writes, which never name it, still land.
+const BREAK_WALK_ROW_READS: &str =
+    "ALTER TABLE activity_backfill_jobs RENAME COLUMN walk_backend TO walk_backend_unread";
+
+/// Undoes [`BREAK_WALK_ROW_READS`].
+const MEND_WALK_ROW_READS: &str =
+    "ALTER TABLE activity_backfill_jobs RENAME COLUMN walk_backend_unread TO walk_backend";
+
+/// The grant's second year below the session holds a ride an earlier read
+/// of the grant stored, with its samples and gear; the athlete then drops
+/// the session alone while a step of the walk's API phase writes that year.
+/// The session's purge takes the walk's row, but the grant was never
+/// purged: the step keeps the page it wrote, the earlier ride whole beside
+/// it.
+#[tokio::test]
+async fn a_session_purge_landing_while_a_step_writes_keeps_the_grants_page() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let second_year = session_oldest - 3 * YEAR / 2;
+    let earlier = second_year.to_string();
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.hold_earlier_read(oauth_providers::STRAVA, &earlier, second_year)
+        .await;
+    let write = store.hold_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fx.state().await,
+        None,
+        "the session's purge took the walk's row"
+    );
+    write.gate.notify_one();
+    write.landed.notified().await;
+    sleep(STEP_SETTLE).await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        2,
+        "bug: a step whose session alone was purged took the never-purged grant's page back"
+    );
+    assert_eq!(
+        fx.kept(oauth_providers::STRAVA, &earlier, second_year)
+            .await,
+        KEPT_WHOLE,
+        "bug: the step took back a ride an earlier read stored, with its samples or gear"
+    );
+}
+
+/// The ledger cannot be read once a step of the walk's API phase wrote the
+/// grant's second year, a year whose ride an earlier read had stored with
+/// its samples and gear. Nothing was purged: the step takes nothing back,
+/// and gives its row back with its retry due a lease later, as any failed
+/// step does, so the next attempt checks the row again before it writes.
+#[tokio::test]
+async fn a_ledger_unread_after_a_steps_write_takes_nothing_back() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let second_year = session_oldest - 3 * YEAR / 2;
+    let earlier = second_year.to_string();
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.hold_earlier_read(oauth_providers::STRAVA, &earlier, second_year)
+        .await;
+    let write = store.pause_after_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.landed.notified().await;
+    fx.execute(BREAK_WALK_ROW_READS).await;
+    let failed_at = Utc::now().timestamp_millis();
+    write.resume.as_ref().unwrap().notify_one();
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while !fx.idle().await {
+        assert!(
+            Instant::now() < deadline,
+            "the step never gave its row back"
+        );
+        sleep(Duration::from_millis(50)).await;
+    }
+    sleep(STEP_SETTLE).await;
+    fx.execute(MEND_WALK_ROW_READS).await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        2,
+        "bug: a step that could not read its row after its write took its page back"
+    );
+    assert_eq!(
+        fx.kept(oauth_providers::STRAVA, &earlier, second_year)
+            .await,
+        KEPT_WHOLE,
+        "bug: a step that could not read its row took back a ride an earlier read stored"
+    );
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Owed),
+        "the walk stays owed for the step's retry"
+    );
+    let lease = i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap();
+    let ledger = &fx.resources.common.repos.activity_backfill_jobs;
+    let early = ledger
+        .claim_stale_backfill_jobs(Fixture::claim_at(failed_at + 60_000))
+        .await
+        .unwrap();
+    assert!(
+        early.is_empty(),
+        "bug: the step is retried before a whole lease passed: {early:?}"
+    );
+    let due = ledger
+        .claim_stale_backfill_jobs(Fixture::claim_at(
+            Utc::now().timestamp_millis() + lease + 2_000,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(
+        due.len(),
+        1,
+        "bug: the step's retry is not due once a whole lease passed"
+    );
+}
+
+/// The operator terminates Strava after a step of the walk's API phase
+/// found its row owed and before its write of the grant's second year
+/// landed: the write lands after the termination deleted the provider's
+/// rows. The step sees the walk settled as its session walked alone once it
+/// wrote, and takes its page back: nothing of the terminated provider is
+/// left in the store.
+#[tokio::test]
+async fn a_termination_landing_while_a_step_writes_leaves_none_of_its_rows() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    let write = store.hold_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.terminate_strava().await;
+    write.gate.notify_one();
+    fx.step_stopped().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: a step's write that landed after its provider's termination left the terminated provider's rows in the store"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        2,
+        "the session's rows stay with the session"
+    );
+}
+
+/// The grant's second year holds a ride an earlier read of the grant
+/// stored, and the grant is revoked while a step of the walk's API phase
+/// writes that year: the purge deleted the earlier ride before the write
+/// landed it again. The whole page goes back, the ride the step found
+/// already stored included: nothing of the purged grant is left.
+#[tokio::test]
+async fn a_grant_purge_landing_while_a_step_writes_takes_back_its_whole_page() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let second_year = session_oldest - 3 * YEAR / 2;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.hold_earlier_read(
+        oauth_providers::STRAVA,
+        &second_year.to_string(),
+        second_year,
+    )
+    .await;
+    let write = store.hold_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.revoke_grant().await;
+    write.gate.notify_one();
+    fx.step_stopped().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: a ride the purge deleted and the step's write stored again is left in the store"
+    );
+}
+
+/// The session's first step reads its two rides; the recent one an earlier
+/// read already stored, with its samples and gear. The retention expiry of
+/// an old session ride settles while the step writes, resetting the
+/// session's sync state, the walk's row with it. The expiry deleted none of
+/// the page: the step takes back only the ride it added, and the earlier
+/// ride stays whole.
+#[tokio::test]
+async fn an_expiry_landing_while_a_step_writes_takes_back_only_what_it_added() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let earlier = format!("9{recent}");
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &earlier, recent)
+        .await;
+    let write = store.hold_next_write(oauth_providers::SCIOTTE);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    timeout(WALK_DEADLINE, write.reached.notified())
+        .await
+        .expect("the session's first step never wrote");
+    fx.resources
+        .common
+        .repos
+        .provider_data
+        .expire_provider_activities(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            &["9100000000"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(fx.state().await, None, "the expiry reset the walk's row");
+    write.gate.notify_one();
+    write.landed.notified().await;
+    let deadline = Instant::now() + STEP_SETTLE;
+    while fx.rows(oauth_providers::SCIOTTE).await != 1 && Instant::now() < deadline {
+        sleep(Duration::from_millis(50)).await;
+    }
+    sleep(STEP_SETTLE).await;
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &earlier, recent).await,
+        KEPT_WHOLE,
+        "bug: an expiry that deleted none of the page took back a ride an earlier read stored"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        1,
+        "bug: the step left the ride it added after the expiry reset its row"
     );
 }
