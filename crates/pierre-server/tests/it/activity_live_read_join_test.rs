@@ -34,7 +34,7 @@ use pierre_database::repositories::{
     JobProgress,
 };
 use pierre_providers::core::ActivityQueryParams;
-use pierre_tool_runtime::activity_backfill::MAX_BACKFILL_ATTEMPTS;
+use pierre_tool_runtime::activity_backfill::{BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS};
 use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, OwnedLiveRead,
 };
@@ -987,5 +987,45 @@ async fn a_read_no_ask_is_bound_to_spends_its_attempts_silently() {
     assert!(
         notifier.sent.lock().unwrap().is_empty(),
         "bug: a read no ask is bound to posted a follow-up"
+    );
+}
+
+/// A failed read gives its row back for a retry a whole lease later: the
+/// sweep claims it at no earlier instant, not a minute after the failure,
+/// and the retry is due once that lease has passed.
+#[tokio::test]
+async fn a_failed_reads_retry_is_due_a_whole_lease_later() {
+    let (runtime, _notifier, user_id, tenant_id) = notified_runtime().await;
+    let before = Utc::now().timestamp_millis();
+    fail_past_the_budget(&runtime, user_id, tenant_id).await;
+    let after = Utc::now().timestamp_millis();
+    let lease = i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap();
+    let claim_at = |now_ms: i64| BackfillJobClaim {
+        now_ms,
+        queued_older_than_ms: 0,
+        lease_ms: 600_000,
+        max_attempts: MAX_BACKFILL_ATTEMPTS,
+        limit: 10,
+    };
+    let ledger = &runtime.repos().activity_backfill_jobs;
+    for now_ms in [after + 60_000, before + lease - 2_000] {
+        let swept = ledger
+            .claim_stale_backfill_jobs(claim_at(now_ms))
+            .await
+            .unwrap();
+        assert!(
+            swept.is_empty(),
+            "bug: a failed read is retried {}s after it failed, before a whole lease: {swept:?}",
+            (now_ms - after) / 1_000
+        );
+    }
+    let swept = ledger
+        .claim_stale_backfill_jobs(claim_at(after + lease + 2_000))
+        .await
+        .unwrap();
+    assert_eq!(
+        swept.len(),
+        1,
+        "bug: the failed read is not due once a whole lease has passed"
     );
 }
