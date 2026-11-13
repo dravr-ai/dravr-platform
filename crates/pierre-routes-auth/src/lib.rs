@@ -97,6 +97,8 @@ mod intervals_icu;
 mod invitation;
 mod login;
 mod oauth;
+/// What a provider's OAuth callback starts once its grant is stored.
+mod oauth_connect;
 mod password_attempts;
 mod pending_session;
 mod provider_ai_consent;
