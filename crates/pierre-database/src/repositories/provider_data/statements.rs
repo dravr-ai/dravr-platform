@@ -293,11 +293,11 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
 ///   on the row (each of its row writes requires an owed row). It writes
 ///   its page only while the row is owed under its lease, and takes its
 ///   whole page back when it reads, after the write, that this purge landed
-///   during it. When the ledger cannot be read after the write, it takes
-///   back only the activities its write added and fails: an activity the
-///   store held before the write, which this purge deleted and the write
-///   put back, then stays, since the step's retry stops at its check before
-///   writing. Once no step holds the lease
+///   during it, reading again a few times in process when that read fails.
+///   When the ledger stays unreadable through those reads, it takes nothing
+///   back and fails: the page its write landed after this purge's delete
+///   then stays, since the step's retry stops at its check before writing.
+///   Once no step holds the lease
 ///   the phase is reopened below the session's own rows, or the row is kept
 ///   as walked when no grant is live — by the step that stopped, a reconnect,
 ///   or the resume sweep when the step died.
