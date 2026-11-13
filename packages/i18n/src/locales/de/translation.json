@@ -2932,7 +2932,9 @@
       "panelBody": "Ohne ihn siehst du das Training deiner Athleten nicht und erstellst keine Pläne für sie. Das Dravr-Team schaltet ihn frei.",
       "settingsTitle": "Coach-Zugang",
       "listPending": "Coach-Zugang ausstehend · angefragt am {{date}}",
-      "listCoach": "Du bist der Coach · seit {{time}}"
+      "listCoach": "Du bist der Coach · seit {{time}}",
+      "pendingSentBody": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
+      "stepReviewNotice": "Jeden Coach-Zugang schaltet eine Person frei, nie automatisch. Wir sagen dir hier und per E-Mail Bescheid."
     },
     "stepSeat": "Coach-Platz",
     "seatHeading": "Hol dir deinen Coach-Platz",
@@ -2971,7 +2973,10 @@
       "expiredBody": "Er ist abgelaufen, wurde schon benutzt oder zurückgezogen. Bitte das Dravr-Team um einen neuen: Dein Coach-Platz wartet auf dich.",
       "seatActive": "Dein Coach-Platz ist aktiv: vom Dravr-Team vergeben.",
       "openCoachHome": "Meine Startseite als Coach öffnen"
-    }
+    },
+    "seatRequestDone": "Anfrage gesendet",
+    "seatRequestSentNotice": "Am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
+    "inviteSeatRequestedNotice": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid."
   },
   "messaging": {
     "account": {
@@ -3677,7 +3682,8 @@
       "summary": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten, vor allem {{sport}}.",
       "summaryNoSport": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten.",
       "summaryOne": "Letzte {{days}} Tage · <num>1</num> Aktivität.",
-      "whatWeReadAria": "Was wir gelesen haben"
+      "whatWeReadAria": "Was wir gelesen haben",
+      "sublineTraining": "Ausgewählt nach deinem Training."
     },
     "tellMeAboutTraining": "Erzähl mir von deinem Training",
     "welcomeNamed": "Willkommen, {{name}}",

@@ -2932,7 +2932,9 @@
       "panelBody": "Sem ele, não vês o treino dos teus atletas nem crias os planos deles. É a equipa Dravr que o ativa.",
       "settingsTitle": "Acesso de coach",
       "listPending": "Acesso de coach pendente · pedido a {{date}}",
-      "listCoach": "És o coach · desde as {{time}}"
+      "listCoach": "És o coach · desde as {{time}}",
+      "pendingSentBody": "Pedido enviado a {{date}}. Avisamos-te aqui e por e-mail.",
+      "stepReviewNotice": "Cada acesso de coach é ativado por uma pessoa, nunca automaticamente. Avisamos-te aqui e por e-mail."
     },
     "stepSeat": "Lugar de coach",
     "seatHeading": "Garante o teu lugar de coach",
@@ -2971,7 +2973,10 @@
       "expiredBody": "Expirou, já foi usado ou foi retirado. Pede à equipa Dravr que te envie um novo: o teu lugar de coach está à tua espera.",
       "seatActive": "O teu lugar de coach está ativo: atribuído pela equipa Dravr.",
       "openCoachHome": "Abrir o meu Início de coach"
-    }
+    },
+    "seatRequestDone": "Pedido enviado",
+    "seatRequestSentNotice": "A {{date}}. Avisamos-te aqui e por e-mail.",
+    "inviteSeatRequestedNotice": "Pedido enviado a {{date}}. Avisamos-te aqui e por e-mail."
   },
   "messaging": {
     "account": {
@@ -3677,7 +3682,8 @@
       "summary": "Últimos {{days}} dias · <num>{{count}}</num> atividades, sobretudo {{sport}}.",
       "summaryNoSport": "Últimos {{days}} dias · <num>{{count}}</num> atividades.",
       "summaryOne": "Últimos {{days}} dias · <num>1</num> atividade.",
-      "whatWeReadAria": "O que lemos"
+      "whatWeReadAria": "O que lemos",
+      "sublineTraining": "Escolhida a partir do teu treino."
     },
     "tellMeAboutTraining": "Fala-me do teu treino",
     "welcomeNamed": "Bem-vindo, {{name}}",

@@ -2932,7 +2932,9 @@
       "panelBody": "Without it, you can't see your athletes' training or build their plans. The Dravr team turns it on.",
       "settingsTitle": "Coach access",
       "listPending": "Coach access pending · requested {{date}}",
-      "listCoach": "You're the coach · since {{time}}"
+      "listCoach": "You're the coach · since {{time}}",
+      "pendingSentBody": "Request sent {{date}}. We'll let you know here and by email.",
+      "stepReviewNotice": "A person turns on every coach access, never automatically. We'll let you know here and by email."
     },
     "stepSeat": "Coach seat",
     "seatHeading": "Get your coach seat",
@@ -2971,7 +2973,10 @@
       "expiredBody": "It expired, was already used, or was withdrawn. Ask the Dravr team to send you a new one: your coach seat is waiting.",
       "seatActive": "Your coach seat is active: granted by the Dravr team.",
       "openCoachHome": "Open my coach Home"
-    }
+    },
+    "seatRequestDone": "Request sent",
+    "seatRequestSentNotice": "{{date}}. We'll let you know here and by email.",
+    "inviteSeatRequestedNotice": "Request sent {{date}}. We'll let you know here and by email."
   },
   "messaging": {
     "account": {
@@ -3677,7 +3682,8 @@
       "summary": "Last {{days}} days · <num>{{count}}</num> activities, mostly {{sport}}.",
       "summaryNoSport": "Last {{days}} days · <num>{{count}}</num> activities.",
       "summaryOne": "Last {{days}} days · <num>1</num> activity.",
-      "whatWeReadAria": "What we read"
+      "whatWeReadAria": "What we read",
+      "sublineTraining": "Picked from your training."
     },
     "tellMeAboutTraining": "Tell me about your training",
     "welcomeNamed": "Welcome, {{name}}",
