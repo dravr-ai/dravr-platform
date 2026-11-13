@@ -367,6 +367,18 @@ export { parsePreferredCalendar } from './preferred-calendar.js';
 export type { UnitPreferences, UnitSystem } from './units.js';
 export { parseUnitPreferences } from './units.js';
 
+// The athlete's physiology: each anchor per sport family with its range, source, date and confidence (carnet#1516)
+export type {
+  AnchorConfidence,
+  AnchorUnit,
+  PhysiologyAnchor,
+  PhysiologyResponse,
+  SportAnchorName,
+  SportFamily,
+  SportPhysiology,
+} from './physiology.js';
+export { parsePhysiologyResponse } from './physiology.js';
+
 // Notification types (push notifications, device tokens, preferences)
 export type {
   NotificationCategory,

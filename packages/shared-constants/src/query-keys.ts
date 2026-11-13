@@ -37,6 +37,12 @@ export const QUERY_KEYS = {
     coachAccessRequest: () => ['user-coach-access-request'] as const,
     /** The units the athlete reads, and the Settings choice behind them. */
     units: () => ['user-units'] as const,
+    /**
+     * The athlete's anchors per sport family (carnet#1516). The server writes
+     * their words in the app's language and the athlete's units, so both are
+     * in the key: a language or units switch reads them again.
+     */
+    physiology: (locale: string, units: string) => ['user-physiology', locale, units] as const,
     /** How often the coach checks in on its own (carnet#831). */
     checkIn: () => ['user-check-in'] as const,
     /** The calendar Dravr's plan and workout pushes go to (carnet#1393). */

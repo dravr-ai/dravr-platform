@@ -20,6 +20,8 @@
 //! Compiled-in `include_str!()` constants in `pierre-llm` serve as the
 //! ultimate fallback when the store is unreachable.
 
+/// How an athlete's anchor reads: its value, range or estimate, its pace and who set it
+pub mod anchor_strings;
 /// Hot-reloadable `IntelligenceConfig` snapshot registry — populated by the sync engine.
 pub mod cageux_config;
 /// Catalogue keys and the registry read for slash-command descriptions.

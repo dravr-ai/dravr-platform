@@ -386,6 +386,8 @@ export const ENDPOINTS = {
     /** Home's Getting started list: connect, then the first-run flows, done or not (`GET`) */
     /** The athlete's units, metric unless they chose imperial (`GET`, `PUT`) */
     UNITS: '/api/me/units',
+    /** The athlete's own anchors per sport family, with range, source and date (`GET`, `?locale=`) */
+    PHYSIOLOGY: '/api/me/physiology',
     /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */
     CHECK_IN: '/api/me/check-in',
     /** The connected calendar Dravr's pushes go to, chosen in Connections (`GET`, `PUT`, `DELETE`) */

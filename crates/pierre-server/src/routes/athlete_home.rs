@@ -91,6 +91,9 @@
 //!   [`home_preferences`]).
 //! - `GET`/`PUT /api/me/units` — the unit system the athlete reads distances
 //!   in, chosen in Settings (see [`units`]).
+//! - `GET /api/me/physiology?locale=xx` — the athlete's own anchors per sport
+//!   family, each with its range, source and date, worded as the envelope
+//!   notice words an anchor.
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
@@ -98,6 +101,8 @@ pub mod activity_view;
 pub mod calendar;
 /// The athlete's Home preferences: what Home offers or holds back.
 pub mod home_preferences;
+/// The athlete's own anchors per sport family, as Settings shows them.
+mod physiology;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
 /// The athlete's units: metric unless they chose imperial in Settings.
@@ -542,6 +547,7 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
             get(home_preferences::get_home_preferences).put(home_preferences::put_home_preferences),
         )
         .route("/api/me/units", get(units::get_units).put(units::put_units))
+        .route("/api/me/physiology", get(physiology::get_physiology))
         .route("/api/me/calendar", get(calendar::get_calendar))
         .merge(upload::upload_routes())
 }

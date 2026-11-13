@@ -43,6 +43,7 @@ import type { SettingsTab } from './settings/settingsTabs';
 import { visibleSettingsTabs } from './settings/visibleSettingsTabs';
 import ApiKeysSettings from './settings/ApiKeysSettings';
 import GearSettings from './settings/GearSettings';
+import PhysiologySettings from './settings/PhysiologySettings';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
@@ -1016,6 +1017,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           </Section>
           </>
         )}
+
+        {activeTab === 'physiology' && <PhysiologySettings />}
 
         {activeTab === 'gear' && <GearSettings />}
 

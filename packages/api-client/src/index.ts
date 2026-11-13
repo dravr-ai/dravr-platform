@@ -158,6 +158,7 @@ export { createAthleteApi } from './domains/athlete';
 export type {
   AthleteApi,
   HomeActivity,
+  PhysiologyResponse,
   RecentActivitiesResponse,
   ActivityRouteResponse,
   ActivityRouteUnavailableReason,

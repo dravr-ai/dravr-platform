@@ -27,7 +27,7 @@ use pierre_llm::provider_stop::ProviderStop;
 use super::provider_stop;
 
 use super::acronym_expansion::expand_acronyms_first_use;
-use super::envelope_notice::{envelope_notice_block, notice_only_blocks, NoticeReader};
+use super::envelope_notice::{envelope_notice_block, notice_only_blocks, notice_reader};
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
     apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
@@ -406,7 +406,7 @@ pub(crate) async fn post_process_assistant_reply(
         notice_only_blocks(
             &ctx.messaging_strings_registry,
             locale,
-            NoticeReader::of(conv),
+            notice_reader(conv),
             notice_units,
             envelope_days,
         )
@@ -579,7 +579,7 @@ pub(crate) async fn post_process_assistant_reply(
     let content_blocks = match envelope_notice_block(
         &ctx.messaging_strings_registry,
         locale,
-        NoticeReader::of(conv),
+        notice_reader(conv),
         notice_units,
         envelope_days,
     ) {

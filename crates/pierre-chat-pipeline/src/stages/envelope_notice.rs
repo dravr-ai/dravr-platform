@@ -21,21 +21,15 @@
 //! plan card is, so a reload shows it again; the envelope renders it as its
 //! own block where the surface has one and folds it into the prose otherwise.
 
+use pierre_contremaitre::anchor_strings::{anchor_source_text, anchor_value_text, AnchorReader};
 use pierre_contremaitre::messaging_strings::{
     envelope_anchor_label_key, envelope_finding_key, envelope_param_key, envelope_purpose_key,
-    MessagingStringsRegistry, KEY_ENVELOPE_ANCHOR, KEY_ENVELOPE_ANCHOR_ESTIMATE,
-    KEY_ENVELOPE_ANCHOR_RANGE, KEY_ENVELOPE_DAY, KEY_ENVELOPE_HEADING, KEY_ENVELOPE_RELABELLED,
-    KEY_ENVELOPE_SOURCE_ATHLETE, KEY_ENVELOPE_SOURCE_FROM, KEY_ENVELOPE_SOURCE_OWN,
+    MessagingStringsRegistry, KEY_ENVELOPE_ANCHOR, KEY_ENVELOPE_DAY, KEY_ENVELOPE_HEADING,
+    KEY_ENVELOPE_RELABELLED,
 };
 use pierre_core::civil_time::format_civil_day;
-use pierre_core::constants::units::METERS_PER_KM;
-use pierre_core::models::periodization::{
-    AnchorConfidence, EnvelopeFinding, FindingCode, SportFamily,
-};
-use pierre_core::models::{
-    AnchorOrigin, AnchorUnit, TargetAnchor, UnitSystem, ATHLETE_REPORTED_ORIGIN,
-    ENVELOPE_NOTICE_BLOCK_TYPE,
-};
+use pierre_core::models::periodization::{EnvelopeFinding, FindingCode, SportFamily};
+use pierre_core::models::{TargetAnchor, UnitSystem, ENVELOPE_NOTICE_BLOCK_TYPE};
 use pierre_database::database::ConversationRecord;
 use pierre_memory::training_plans;
 use pierre_services::notification_text;
@@ -56,32 +50,13 @@ const PARAM_KEYS: [&str; 6] = [
     "duration_minutes",
 ];
 
-/// Seconds in a minute, for writing a pace.
-const SECONDS_PER_MINUTE: u32 = 60;
-
-/// The distance a swim pace is written per, in metres, in either unit system:
-/// the app has no pool setting, and the activity view writes pool pace per
-/// 100 m too.
-const SWIM_PACE_METRES: f64 = 100.0;
-
-/// Who reads the notice, which decides how an anchor the athlete set is named.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NoticeReader {
-    /// The athlete, in their own thread: "your own value".
-    Athlete,
-    /// A coach, in a thread about one athlete: "the athlete's own value".
-    Coach,
-}
-
-impl NoticeReader {
-    /// Who reads a reply in `conv`: a coach in a thread about one athlete,
-    /// the athlete otherwise.
-    pub(crate) fn of(conv: &ConversationRecord) -> Self {
-        if conv.subject().is_some() {
-            Self::Coach
-        } else {
-            Self::Athlete
-        }
+/// Who reads a reply in `conv`, which decides how an anchor the athlete set
+/// is named: a coach in a thread about one athlete, the athlete otherwise.
+pub(crate) fn notice_reader(conv: &ConversationRecord) -> AnchorReader {
+    if conv.subject().is_some() {
+        AnchorReader::Coach
+    } else {
+        AnchorReader::Athlete
     }
 }
 
@@ -92,7 +67,7 @@ impl NoticeReader {
 pub(crate) fn notice_only_blocks(
     strings: &MessagingStringsRegistry,
     locale: &str,
-    reader: NoticeReader,
+    reader: AnchorReader,
     units: UnitSystem,
     days: &[NoticeDay],
 ) -> Option<String> {
@@ -106,7 +81,7 @@ pub(crate) fn notice_only_blocks(
 pub(crate) fn envelope_notice_block(
     strings: &MessagingStringsRegistry,
     locale: &str,
-    reader: NoticeReader,
+    reader: AnchorReader,
     units: UnitSystem,
     days: &[NoticeDay],
 ) -> Option<Value> {
@@ -136,7 +111,7 @@ pub(crate) fn envelope_notice_block(
 fn day_line(
     strings: &MessagingStringsRegistry,
     locale: &str,
-    reader: NoticeReader,
+    reader: AnchorReader,
     units: UnitSystem,
     day: &NoticeDay,
 ) -> Option<String> {
@@ -215,7 +190,7 @@ fn finding_sentence(
 fn anchor_sentence(
     strings: &MessagingStringsRegistry,
     locale: &str,
-    reader: NoticeReader,
+    reader: AnchorReader,
     units: UnitSystem,
     anchor: &TargetAnchor,
 ) -> Option<String> {
@@ -223,92 +198,19 @@ fn anchor_sentence(
     if label.is_empty() {
         return None;
     }
-    let unit = anchor.anchor.unit();
     // An anchor stored before it named its sport: a speed reads as run pace,
     // the sport the profile row's speeds belong to.
     let sport = anchor.sport.unwrap_or(SportFamily::Run);
-    let point = &anchor.value;
-    let value = if point.confidence == AnchorConfidence::Low {
-        match (point.low, point.high) {
-            (Some(low), Some(high)) => {
-                let (first, second) = ordered_for_display(unit, low, high);
-                strings.render(
-                    KEY_ENVELOPE_ANCHOR_RANGE,
-                    locale,
-                    &[
-                        &bare(unit, sport, units, first),
-                        &with_unit(unit, sport, units, second),
-                    ],
-                )
-            }
-            _ => strings.render(
-                KEY_ENVELOPE_ANCHOR_ESTIMATE,
-                locale,
-                &[&with_unit(unit, sport, units, point.value)],
-            ),
-        }
-    } else {
-        with_unit(unit, sport, units, point.value)
-    };
-    let origin = point
-        .origin
-        .as_deref()
-        .unwrap_or(AnchorOrigin::Athlete.as_str());
-    let source = if origin == AnchorOrigin::Athlete.as_str() || origin == ATHLETE_REPORTED_ORIGIN {
-        strings.get(
-            match reader {
-                NoticeReader::Athlete => KEY_ENVELOPE_SOURCE_OWN,
-                NoticeReader::Coach => KEY_ENVELOPE_SOURCE_ATHLETE,
-            },
-            locale,
-        )
-    } else {
-        strings.render(KEY_ENVELOPE_SOURCE_FROM, locale, &[origin])
-    };
+    let value = anchor_value_text(
+        strings,
+        locale,
+        anchor.anchor.unit(),
+        sport,
+        units,
+        &anchor.value,
+    );
+    let source = anchor_source_text(strings, locale, reader, anchor.value.origin.as_deref());
     filled(strings.render(KEY_ENVELOPE_ANCHOR, locale, &[&label, &value, &source]))
-}
-
-/// A range's ends in the order they read: a pace range runs from the faster
-/// pace (the higher speed) to the slower one.
-fn ordered_for_display(unit: AnchorUnit, low: f32, high: f32) -> (f32, f32) {
-    if unit == AnchorUnit::MetresPerSecond {
-        (high, low)
-    } else {
-        (low, high)
-    }
-}
-
-/// A value with its unit: watts, beats per minute, or a speed as a pace — per
-/// 100 m in the pool, per kilometre or mile on land as `units` reads.
-fn with_unit(unit: AnchorUnit, sport: SportFamily, units: UnitSystem, value: f32) -> String {
-    let number = bare(unit, sport, units, value);
-    match unit {
-        AnchorUnit::Watts => format!("{number} W"),
-        AnchorUnit::BeatsPerMinute => format!("{number} bpm"),
-        AnchorUnit::MetresPerSecond if sport == SportFamily::Swim => format!("{number}/100 m"),
-        AnchorUnit::MetresPerSecond => format!("{number}/{}", units.distance_symbol()),
-    }
-}
-
-/// A value without its unit: a whole number, or a speed as `m:ss` of pace.
-fn bare(unit: AnchorUnit, sport: SportFamily, units: UnitSystem, value: f32) -> String {
-    if unit != AnchorUnit::MetresPerSecond || value <= 0.0 {
-        return format!("{:.0}", value.round());
-    }
-    let per = if sport == SportFamily::Swim {
-        SWIM_PACE_METRES
-    } else {
-        // A kilometre, or a mile: the metres in one of `units`' distance units.
-        METERS_PER_KM / units.distance_from_km(1.0)
-    };
-    // A pace of at most a few minutes: far inside u32.
-    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let seconds = (per / f64::from(value)).round() as u32;
-    format!(
-        "{}:{:02}",
-        seconds / SECONDS_PER_MINUTE,
-        seconds % SECONDS_PER_MINUTE
-    )
 }
 
 /// `rendered` when it carries text and no slot left unfilled.
@@ -324,7 +226,7 @@ mod tests {
     use std::slice;
 
     use super::*;
-    use pierre_core::models::periodization::{AnchorValue, WorkoutPurpose};
+    use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, WorkoutPurpose};
     use pierre_core::models::SportAnchorName;
     use pierre_tool_runtime::envelope_notices::NoticeSource;
     use serde_json::json;
@@ -386,7 +288,7 @@ mod tests {
         let block = envelope_notice_block(
             &strings,
             "en",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Metric,
             &[notice],
         )
@@ -442,7 +344,7 @@ mod tests {
         let block = envelope_notice_block(
             &strings,
             "en",
-            NoticeReader::Coach,
+            AnchorReader::Coach,
             UnitSystem::Metric,
             &[notice],
         )
@@ -480,7 +382,7 @@ mod tests {
         let block = envelope_notice_block(
             &strings,
             "en",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Metric,
             &[notice],
         )
@@ -505,7 +407,7 @@ mod tests {
         let block = envelope_notice_block(
             &strings,
             "fr",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Metric,
             &[day(vec![out_of_range])],
         )
@@ -533,7 +435,7 @@ mod tests {
         let fr = envelope_notice_block(
             &strings,
             "fr",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Metric,
             slice::from_ref(&ratio),
         )
@@ -545,7 +447,7 @@ mod tests {
         let en = envelope_notice_block(
             &strings,
             "en",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Metric,
             &[ratio],
         )
@@ -564,7 +466,7 @@ mod tests {
             envelope_notice_block(
                 &strings,
                 "en",
-                NoticeReader::Athlete,
+                AnchorReader::Athlete,
                 UnitSystem::Metric,
                 &[day(Vec::new())]
             )
@@ -576,7 +478,7 @@ mod tests {
             envelope_notice_block(
                 &strings,
                 "en",
-                NoticeReader::Athlete,
+                AnchorReader::Athlete,
                 UnitSystem::Metric,
                 &[missing]
             )
@@ -593,7 +495,7 @@ mod tests {
         let blocks = notice_only_blocks(
             &strings,
             "en",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Metric,
             slice::from_ref(&warned),
         )
@@ -612,7 +514,7 @@ mod tests {
             notice_only_blocks(
                 &strings,
                 "en",
-                NoticeReader::Athlete,
+                AnchorReader::Athlete,
                 UnitSystem::Metric,
                 &[day(Vec::new())]
             )
@@ -620,74 +522,6 @@ mod tests {
             "bug: a turn whose writes found nothing adds no block to a reply the platform wrote"
         );
         Ok(())
-    }
-
-    #[test]
-    fn a_swim_speed_reads_as_pace_per_100_metres() {
-        assert_eq!(
-            with_unit(
-                AnchorUnit::MetresPerSecond,
-                SportFamily::Swim,
-                UnitSystem::Metric,
-                1.25
-            ),
-            "1:20/100 m",
-            "bug: a pool speed reads as pace per 100 m"
-        );
-        assert_eq!(
-            with_unit(
-                AnchorUnit::MetresPerSecond,
-                SportFamily::Run,
-                UnitSystem::Metric,
-                4.0
-            ),
-            "4:10/km",
-            "bug: a run speed reads as pace per km"
-        );
-        assert_eq!(
-            with_unit(
-                AnchorUnit::BeatsPerMinute,
-                SportFamily::Run,
-                UnitSystem::Metric,
-                171.6
-            ),
-            "172 bpm",
-            "bug: a heart rate reads as whole beats per minute"
-        );
-    }
-
-    #[test]
-    fn an_imperial_reader_reads_run_pace_per_mile_and_pool_pace_per_100_metres() {
-        assert_eq!(
-            with_unit(
-                AnchorUnit::MetresPerSecond,
-                SportFamily::Run,
-                UnitSystem::Imperial,
-                4.0
-            ),
-            "6:42/mi",
-            "bug: an imperial runner reads 4 m/s as pace per mile (1609.344 m / 4 m/s = 402 s)"
-        );
-        assert_eq!(
-            with_unit(
-                AnchorUnit::MetresPerSecond,
-                SportFamily::Swim,
-                UnitSystem::Imperial,
-                1.25
-            ),
-            "1:20/100 m",
-            "bug: there is no pool setting, so pool pace stays per 100 m on imperial"
-        );
-        assert_eq!(
-            with_unit(
-                AnchorUnit::Watts,
-                SportFamily::Ride,
-                UnitSystem::Imperial,
-                285.0
-            ),
-            "285 W",
-            "bug: watts are watts in either system"
-        );
     }
 
     #[test]
@@ -711,7 +545,7 @@ mod tests {
         let imperial = envelope_notice_block(
             &strings,
             "en",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Imperial,
             slice::from_ref(&notice),
         )
@@ -744,7 +578,7 @@ mod tests {
         let range = envelope_notice_block(
             &strings,
             "en",
-            NoticeReader::Athlete,
+            AnchorReader::Athlete,
             UnitSystem::Imperial,
             &[estimate],
         )

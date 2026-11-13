@@ -373,6 +373,14 @@ export {
   weekMinutesSeconds,
 } from './training-volume';
 
+// Settings › Physiology: each anchor's label, each sport family's heading, each confidence (carnet#1516)
+export {
+  ANCHOR_CONFIDENCE_LABEL_KEY,
+  PHYSIOLOGY_ANCHOR_LABEL_KEY,
+  PHYSIOLOGY_KEY,
+  SPORT_FAMILY_LABEL_KEY,
+} from './physiology';
+
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';
 

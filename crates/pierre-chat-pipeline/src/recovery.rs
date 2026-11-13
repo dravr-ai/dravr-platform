@@ -37,7 +37,7 @@ use crate::recorders::{
     turn_call_recorder, CAPABILITY_REASK_CALL_TYPE, PEER_CLAIM_VERIFIER_CALL_TYPE,
 };
 use crate::stages;
-use crate::stages::envelope_notice::NoticeReader;
+use crate::stages::envelope_notice::notice_reader;
 use crate::stages::peer_grounding::PeerGroundingBlock;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
@@ -147,7 +147,7 @@ pub(crate) async fn run_recovery_and_post_process(
         stages::envelope_notice::notice_only_blocks(
             &ctx.messaging_strings_registry,
             &profile.locale,
-            NoticeReader::of(conv),
+            notice_reader(conv),
             notice_units,
             days,
         )

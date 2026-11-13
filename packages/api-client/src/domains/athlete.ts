@@ -8,6 +8,7 @@ import type { AxiosInstance } from 'axios';
 import {
   parseActivityUploadResponse,
   parseHomePreferences,
+  parsePhysiologyResponse,
   parseUnitPreferences,
   parsePreferredCalendar,
   parseCheckInPreference,
@@ -28,6 +29,7 @@ import {
   type HomeActivity,
   type HomePreferences,
   type HomePreferencesUpdate,
+  type PhysiologyResponse,
   type UnitPreferences,
   type PreferredCalendar,
   type UnitSystem,
@@ -49,6 +51,7 @@ export type {
   ActivityRouteResponse,
   ActivityRouteUnavailableReason,
   HomeActivity,
+  PhysiologyResponse,
   RecentActivitiesResponse,
   TrainingPlanResponse,
   TrainingStatusResponse,
@@ -293,6 +296,21 @@ export function createAthleteApi(axios: AxiosInstance) {
     async updateUnitPreferences(units: UnitSystem): Promise<UnitPreferences> {
       const response = await axios.put<unknown>(ENDPOINTS.ATHLETE.UNITS, { units });
       return requireShape(parseUnitPreferences(response.data), ENDPOINTS.ATHLETE.UNITS);
+    },
+
+    /**
+     * The athlete's own anchors per sport family — ride, run, swim, a family
+     * holding none left out — each with what is stored (value, range, origin,
+     * day, method, confidence) and the words the server writes for it: the
+     * value as the envelope notice writes it, in the athlete's units, and who
+     * set it. `locale` names the language the app is rendering, as the
+     * training plan's does; omitted, the server uses the account's locale.
+     */
+    async getPhysiology(locale?: string): Promise<PhysiologyResponse> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.PHYSIOLOGY, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parsePhysiologyResponse(response.data), ENDPOINTS.ATHLETE.PHYSIOLOGY);
     },
 
     /** The calendar Dravr's pushes go to, and the athlete's connected calendars to choose from. */
