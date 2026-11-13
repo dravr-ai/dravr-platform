@@ -1688,9 +1688,20 @@ fn purged(grant: &str) -> HistoryWalkRowState {
     }
 }
 
+/// What a walk released with no reopen owed reads as: a session walked
+/// alone, which only a grant connected later reopens.
+fn walked_alone() -> HistoryWalkRowState {
+    HistoryWalkRowState {
+        state: BackfillJobState::Walked,
+        walk_backend: None,
+    }
+}
+
 /// The operator's whole-provider purge takes every athlete's rows of the
 /// provider, in every tenant: every walk whose API phase read it is
-/// released, and a walk reading another provider stays as it was.
+/// released as a session walked alone — never owed a reopen through a
+/// terminated provider, which would ask every athlete to reconnect it — and
+/// a walk reading another provider stays as it was.
 #[tokio::test]
 async fn the_whole_provider_purge_releases_every_walk_through_it_and_no_other() {
     let db = create_test_db().await.unwrap();
@@ -1711,12 +1722,12 @@ async fn the_whole_provider_purge_releases_every_walk_through_it_and_no_other() 
         .unwrap();
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(purged("strava")),
-        "bug: the whole-provider purge left a walk claiming its API phase"
+        Some(walked_alone()),
+        "bug: the whole-provider purge left a walk claiming its API phase, or owed a reopen through a terminated provider"
     );
     assert_eq!(
         session_walk(repos, elsewhere, other_tenant).await,
-        Some(purged("strava")),
+        Some(walked_alone()),
         "bug: the whole-provider purge left another tenant's walk claiming its API phase"
     );
     assert_eq!(

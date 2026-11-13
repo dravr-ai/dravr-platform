@@ -302,13 +302,20 @@ pub(crate) const USER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_job
      WHERE CAST(user_id AS TEXT) = $1 AND CAST(tenant_id AS TEXT) = $2 \
        AND kind = $4 AND walk_backend = $3";
 
-/// [`USER_WALK_PHASE_RESET_SQL`] across every user and tenant, for the
-/// whole-provider purge, binding `$1` provider, `$2` the history-walk kind and
-/// `$3` the purged-phase outcome. Same isolation exemption as
-/// [`PROVIDER_PURGE_SQL`].
+/// The whole-provider purge's release of every walk whose API phase read the
+/// terminated provider, across every user and tenant, binding `$1` provider,
+/// `$2` the history-walk kind and `$3` the walked outcome. Same isolation
+/// exemption as [`PROVIDER_PURGE_SQL`].
+///
+/// Unlike [`USER_WALK_PHASE_RESET_SQL`], no walk is owed a reopen: the
+/// provider is terminated, its grants left standing would only answer a
+/// reopened step with a refusal, and every athlete would be asked to
+/// reconnect a provider that is gone. Each walk reads as a session walked
+/// alone (`walk_backend` NULL), which only a grant connected later reopens.
+/// A step still running keeps its lease and finds every write refused (each
+/// requires an owed row).
 pub(crate) const PROVIDER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET outcome = CASE WHEN outcome IS NULL THEN $3 ELSE outcome END, \
-         walk_backend = CASE WHEN outcome IS NULL THEN walk_backend ELSE NULL END \
+     SET walk_backend = NULL, outcome = COALESCE(outcome, $3) \
      WHERE kind = $2 AND walk_backend = $1";
 
 /// The sync state describing a user's provider activities alone: every

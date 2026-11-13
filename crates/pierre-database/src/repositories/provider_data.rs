@@ -653,7 +653,7 @@ macro_rules! impl_provider_data_repository {
                 sqlx::query($crate::repositories::provider_data::PROVIDER_WALK_PHASE_RESET_SQL)
                     .bind(provider)
                     .bind($crate::repositories::BackfillJobKind::HistoryWalk.as_str())
-                    .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
+                    .bind($crate::repositories::activity_backfill_jobs::walked_outcome())
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| {
