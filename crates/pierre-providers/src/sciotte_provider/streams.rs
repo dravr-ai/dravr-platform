@@ -20,13 +20,18 @@ use crate::models::TimeSeriesData;
 /// request (`/activities/{id}/streams`), so when its streams answered, their
 /// `latlng` and `altitude` channels hold every fix and elevation the route
 /// holds, now on the time axis the route lacks. A stream set with no `latlng`
-/// channel is the activity recording no GPS, as Strava's API streams say it.
+/// channel is the activity recording no GPS, as Strava's API streams say it,
+/// unless the route beside it has points: the scraper then dropped a `latlng`
+/// stream it could not place on the axis, and the route keeps the map.
 pub(super) fn time_series(sciotte: &SciotteActivity) -> Option<TimeSeriesData> {
-    sciotte
-        .streams
-        .as_ref()
-        .map(streams_to_time_series)
-        .or_else(|| sciotte.route.as_ref().map(route_to_time_series))
+    let route = sciotte.route.as_ref();
+    let mapped = route.is_some_and(|route| !route.coordinates.is_empty());
+    match sciotte.streams.as_ref() {
+        Some(streams) if streams.gps_coordinates.is_some() || !mapped => {
+            Some(streams_to_time_series(streams))
+        }
+        _ => route.map(route_to_time_series),
+    }
 }
 
 /// Sciotte's [`SciotteStreams`] as cageux's [`TimeSeriesData`]: the two
@@ -152,6 +157,34 @@ mod tests {
         assert_eq!(
             series.altitude, None,
             "nothing the streams lack is invented"
+        );
+    }
+
+    #[test]
+    fn an_indoor_ride_keeps_its_sensor_streams_with_no_fix() {
+        let activity = scraped(&json!({
+            "route": { "coordinates": [] },
+            "streams": { "timestamps": [0, 1], "heart_rate": [120, 122] }
+        }));
+        let series = time_series(&activity).unwrap_or_else(|| panic!("bug: no series"));
+        assert_eq!(series.heart_rate, Some(vec![Some(120), Some(122)]));
+        assert!(
+            series.gps_coordinates.is_none(),
+            "a stream set without a fix is the provider's word that none was recorded"
+        );
+    }
+
+    #[test]
+    fn streams_that_lost_their_fixes_leave_the_map_to_the_route() {
+        let activity = scraped(&json!({
+            "route": { "coordinates": [[45.5, -73.6]] },
+            "streams": { "timestamps": [0, 1], "heart_rate": [120, 122] }
+        }));
+        let series = time_series(&activity).unwrap_or_else(|| panic!("bug: no series"));
+        assert_eq!(
+            series.gps_coordinates,
+            Some(vec![Some((45.5, -73.6))]),
+            "bug: the route's map was dropped for streams without a fix"
         );
     }
 

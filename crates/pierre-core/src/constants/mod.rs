@@ -491,8 +491,9 @@ pub mod provider_capture {
     /// service captured before that carry no elevation.
     ///
     /// 2: a list row carries the athlete's description, the workout tag, the
-    /// trainer and commute flags, the moving time and the average heart rate
-    /// (dravr-sciotte 2.0.0). Rows backfilled before carry none of them.
+    /// commute flag and the average heart rate, and the newest rows the
+    /// trainer flag and the moving time (dravr-sciotte 2.0.0). Rows
+    /// backfilled before carry none of them.
     pub const SCIOTTE_STRAVA_CAPTURE_VERSION: u32 = 2;
 
     /// Intervals.icu.
