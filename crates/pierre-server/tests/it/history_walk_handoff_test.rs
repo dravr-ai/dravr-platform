@@ -1656,3 +1656,167 @@ async fn a_walk_reopened_after_a_failed_step_is_claimable_at_once() {
         Some(oauth_providers::STRAVA)
     );
 }
+
+impl Fixture {
+    /// Wait until no step holds the walk's row under the session's key: the
+    /// step that ran stopped and gave its lease up, and whatever it asked
+    /// for after had time to run.
+    async fn step_stopped(&self) {
+        let sql = "SELECT leased_until_ms FROM activity_backfill_jobs \
+                   WHERE user_id = $1 AND provider = $2 AND kind = $3";
+        let deadline = Instant::now() + WALK_DEADLINE;
+        loop {
+            let leased_until: i64 = match self.resources.agent.database.backend() {
+                DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(sql)
+                    .bind(self.user_id.to_string())
+                    .bind(oauth_providers::SCIOTTE)
+                    .bind(BackfillJobKind::HistoryWalk.as_str())
+                    .fetch_one(sqlite.pool())
+                    .await
+                    .unwrap(),
+                #[cfg(feature = "postgresql")]
+                DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(sql)
+                    .bind(self.user_id.to_string())
+                    .bind(oauth_providers::SCIOTTE)
+                    .bind(BackfillJobKind::HistoryWalk.as_str())
+                    .fetch_one(pg.pool())
+                    .await
+                    .unwrap(),
+            };
+            if leased_until <= Utc::now().timestamp_millis() {
+                sleep(Duration::from_millis(300)).await;
+                return;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the held step never gave its lease up"
+            );
+            sleep(Duration::from_millis(50)).await;
+        }
+    }
+
+    /// The operator terminates Strava: every athlete's Strava data goes,
+    /// from the tables and the activity store. The grants stay: the purge
+    /// deletes data, never tokens.
+    async fn terminate_strava(&self) {
+        self.resources
+            .common
+            .provider_purge
+            .purge_provider_data(oauth_providers::STRAVA)
+            .await
+            .unwrap();
+        assert_eq!(
+            self.rows(oauth_providers::STRAVA).await,
+            0,
+            "the termination took the grant's rows"
+        );
+    }
+
+    /// The walk under the session's key: walked alone, with no API phase
+    /// owed, and no step of the grant beside it.
+    async fn assert_walked_alone(&self, listed: usize, what: &str) {
+        for _ in 0..2 {
+            self.lapse_leases().await;
+            self.sweep(true).await;
+        }
+        let row = self
+            .resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .history_walk_row(self.user_id, self.tenant, oauth_providers::SCIOTTE)
+            .await
+            .unwrap()
+            .expect("the walk's row is kept");
+        assert_eq!(
+            (row.state, row.walk_backend),
+            (BackfillJobState::Walked, None),
+            "bug: {what} reopened the walk through the terminated provider"
+        );
+        assert_eq!(
+            self.grant_row().await,
+            None,
+            "bug: {what} started a walk of the terminated grant from the head"
+        );
+        assert_eq!(
+            self.strava.listing_count(),
+            listed,
+            "bug: {what} paged the terminated provider again"
+        );
+    }
+}
+
+/// The operator terminates Strava while a step of the walk's API phase is
+/// reading its second year. The grant stays live — the purge deletes data,
+/// never tokens — yet the step that finds its phase gone asks nothing of it:
+/// the walk is left as its session walked alone, never reopened through the
+/// terminated provider.
+#[tokio::test]
+async fn a_termination_under_a_running_step_reopens_nothing() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let gate = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.terminate_strava().await;
+    let listed = fx.strava.listing_count();
+    gate.notify_one();
+    fx.step_stopped().await;
+    fx.assert_walked_alone(listed, "the step a termination stopped")
+        .await;
+}
+
+/// The same termination under a running step, but the session lapsed
+/// meanwhile, so the still-live grant is the pair's source: the step that
+/// stops starts no walk of the terminated grant from the head.
+#[tokio::test]
+async fn a_termination_under_a_running_step_starts_no_walk_of_the_grant() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let gate = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.terminate_strava().await;
+    fx.lapse_session().await;
+    let listed = fx.strava.listing_count();
+    gate.notify_one();
+    fx.step_stopped().await;
+    fx.assert_walked_alone(listed, "the step a termination stopped")
+        .await;
+}
+
+/// A grant's purge left the walk owed a reopen under a runner that died, the
+/// grant connected again, and the operator then terminates Strava before
+/// the dead runner's lease lapsed. The termination settles the walk as its
+/// session walked alone, so once the lease lapses the resume sweep reopens
+/// nothing through the terminated provider's live grant.
+#[tokio::test]
+async fn a_termination_settles_a_purged_walk_the_sweep_would_have_reopened() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![
+        session_oldest - YEAR / 2,
+        session_oldest - 3 * YEAR / 2,
+        session_oldest - 5 * YEAR / 2,
+    ]);
+    fx.strava.created(now - 6 * YEAR);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    fx.reach_the_api_phase().await;
+    fx.claim_as_a_runner_that_dies().await;
+    fx.revoke_grant().await;
+    assert!(
+        !fx.reconnect().await,
+        "a reconnect cannot reopen the walk under the dead runner's lease"
+    );
+    fx.terminate_strava().await;
+    let listed = fx.strava.listing_count();
+    fx.assert_walked_alone(listed, "the resume sweep").await;
+}

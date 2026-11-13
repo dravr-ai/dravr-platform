@@ -654,6 +654,7 @@ macro_rules! impl_provider_data_repository {
                     .bind(provider)
                     .bind($crate::repositories::BackfillJobKind::HistoryWalk.as_str())
                     .bind($crate::repositories::activity_backfill_jobs::walked_outcome())
+                    .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| {

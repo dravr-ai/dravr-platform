@@ -20,6 +20,9 @@ mod record_statements;
 pub(crate) use record_statements::{
     REBIND_LIVE_READ_SQL, RECORD_BACKFILL_JOB_SQL, RECORD_LIVE_READ_SQL,
 };
+/// What a history walk's API phase is reopened from
+mod walk_rows;
+pub use walk_rows::ReopenFrom;
 /// The statements that move a history walk down its window, through its phases
 mod walk_statements;
 pub(crate) use walk_statements::{
@@ -250,14 +253,15 @@ pub enum BackfillJobState {
     /// A purge of the grant a history walk's API phase was paging took that
     /// phase while it was owed. The row is still the walk of the pair: a step
     /// may still hold its lease and be paging the grant, so no walk of the
-    /// grant starts beside it, and none of that step's writes land. Once no
-    /// step holds the lease, the phase is reopened below the session's own
+    /// grant starts beside it, and the step records nothing on the row. Once
+    /// no step holds the lease, the phase is reopened below the session's own
     /// rows when a grant is live, or the row is kept as
     /// [`Self::Walked`] when none is
     /// ([`ActivityBackfillJobRepository::reopen_history_walk`],
     /// [`ActivityBackfillJobRepository::settle_purged_history_walk`]); the
     /// resume sweep does it for a row whose step died
-    /// ([`ActivityBackfillJobRepository::purged_history_walks`]).
+    /// ([`ActivityBackfillJobRepository::purged_history_walks`]). A
+    /// whole-provider purge of that grant settles it as walked at once.
     PhasePurged,
 }
 
@@ -465,14 +469,14 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// again as [`Self::hand_off_history_walk`] leaves it, its retry due at
     /// once. Its count of rows starts over: the session's end was told
     /// already, so the API phase's message counts what it brings in, and none
-    /// is sent when that is nothing. Only a row whose session walked alone
-    /// with no grant beside it, or one in [`BackfillJobState::PhasePurged`],
-    /// and only once no step holds its lease at `now_ms`; `false` otherwise.
+    /// is sent when that is nothing. Only a row in the state `from` names, and
+    /// only once no step holds its lease at `now_ms`; `false` otherwise.
     async fn reopen_history_walk(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
+        from: ReopenFrom,
         hand_off: &WalkHandOff,
         now_ms: i64,
     ) -> AppResult<bool>;
@@ -1007,6 +1011,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
                 provider: &str,
+                from: $crate::repositories::activity_backfill_jobs::ReopenFrom,
                 hand_off: &$crate::repositories::activity_backfill_jobs::WalkHandOff,
                 now_ms: i64,
             ) -> AppResult<bool> {
@@ -1021,7 +1026,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 .bind(hand_off.before_ts)
                 .bind(hand_off.months_done)
                 .bind(hand_off.fetch_limit)
-                .bind(walked_outcome())
+                .bind(from.outcome())
                 .bind(now_ms)
                 .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
                 .execute(self.pool())

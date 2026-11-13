@@ -60,8 +60,8 @@ use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
     BackfillCoverage, BackfillJobClaim, BackfillJobKind, BackfillJobState, HistoryWalkRowState,
     JobLease, JobProgress, JobProgressStep, PersonalBest, PersonalBestSeed, ProviderDataPurge,
-    PurgeReason, PurgedHistoryWalk, StoredRouteTrack, StreamOrigin, SyncCursorRow, WalkHandOff,
-    STREAMS_FORMAT_VERSION,
+    PurgeReason, PurgedHistoryWalk, ReopenFrom, StoredRouteTrack, StreamOrigin, SyncCursorRow,
+    WalkHandOff, STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -1689,7 +1689,7 @@ fn purged(grant: &str) -> HistoryWalkRowState {
 }
 
 /// What a walk released with no reopen owed reads as: a session walked
-/// alone, which only a grant connected later reopens.
+/// alone, which the next ask for the walk reopens while a grant is live.
 fn walked_alone() -> HistoryWalkRowState {
     HistoryWalkRowState {
         state: BackfillJobState::Walked,
@@ -1734,6 +1734,64 @@ async fn the_whole_provider_purge_releases_every_walk_through_it_and_no_other() 
         session_walk(repos, other_grant, tenant).await,
         Some(reading("wahoo")),
         "bug: the whole-provider purge released a walk reading another provider"
+    );
+}
+
+/// A grant's purge left the walk owed a reopen, and the operator terminates
+/// the provider before anything resolved it. The termination settles that
+/// walk too, as a session walked alone: the resume sweep no longer lists it,
+/// and the purged walk's resolution reopens nothing through the terminated
+/// provider, even one that had listed it before the termination committed.
+#[tokio::test]
+async fn a_whole_provider_purge_settles_a_walk_a_grants_purge_left_owed() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let ledger = &repos.activity_backfill_jobs;
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava"))
+    );
+
+    repos
+        .provider_data
+        .purge_provider_data("strava")
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(walked_alone()),
+        "bug: a walk a grant's purge left owed a reopen survives the whole-provider purge still owed"
+    );
+    let lapsed = Utc::now().timestamp_millis() + 700_000;
+    assert!(
+        ledger
+            .purged_history_walks(lapsed, 10)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the sweep lists a walk the whole-provider purge settled"
+    );
+    assert!(
+        !ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                ReopenFrom::PhasePurged,
+                &reconnect_below_session(),
+                lapsed,
+            )
+            .await
+            .unwrap(),
+        "bug: the purged walk's resolution reopened a walk the whole-provider purge settled"
     );
 }
 
@@ -1913,6 +1971,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
                 athlete,
                 tenant,
                 "sciotte",
+                ReopenFrom::PhasePurged,
                 &reconnect_below_session(),
                 Utc::now().timestamp_millis(),
             )
@@ -1983,6 +2042,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
                 athlete,
                 tenant,
                 "sciotte",
+                ReopenFrom::PhasePurged,
                 &reconnect_below_session(),
                 Utc::now().timestamp_millis(),
             )
@@ -2121,6 +2181,7 @@ async fn a_purged_walk_with_no_grant_settles_as_walked_once_no_step_holds_it() {
                 athlete,
                 tenant,
                 "sciotte",
+                ReopenFrom::WalkedAlone,
                 &reconnect_below_session(),
                 now + 700_000,
             )

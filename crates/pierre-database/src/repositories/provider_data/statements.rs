@@ -304,18 +304,24 @@ pub(crate) const USER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_job
 
 /// The whole-provider purge's release of every walk whose API phase read the
 /// terminated provider, across every user and tenant, binding `$1` provider,
-/// `$2` the history-walk kind and `$3` the walked outcome. Same isolation
-/// exemption as [`PROVIDER_PURGE_SQL`].
+/// `$2` the history-walk kind, `$3` the walked outcome and `$4` the
+/// purged-phase outcome. Same isolation exemption as [`PROVIDER_PURGE_SQL`].
 ///
 /// Unlike [`USER_WALK_PHASE_RESET_SQL`], no walk is owed a reopen: the
-/// provider is terminated, its grants left standing would only answer a
-/// reopened step with a refusal, and every athlete would be asked to
-/// reconnect a provider that is gone. Each walk reads as a session walked
-/// alone (`walk_backend` NULL), which only a grant connected later reopens.
-/// A step still running keeps its lease and finds every write refused (each
-/// requires an owed row).
+/// purge deletes data, never tokens, so the terminated provider's grants
+/// still stand, and a reopen would page them again. A walk still owed in its
+/// API phase, or one a purge of its grant had already left owed a reopen,
+/// is kept as walked; every walk reads as a session walked alone
+/// (`walk_backend` NULL), owed nothing. Neither the step that stops nor the
+/// resume sweep reopens it: both resolve only a row still owed a reopen. A
+/// step still running keeps its lease; it records nothing on the row, and
+/// lands nothing in the store once it sees the row settled. Like any session
+/// walked alone, it is reopened by the next ask for the walk (a connect, a
+/// first sync, a depth miss, the personal-best seed) while a grant of the
+/// provider stands live beside it.
 pub(crate) const PROVIDER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET walk_backend = NULL, outcome = COALESCE(outcome, $3) \
+     SET walk_backend = NULL, \
+         outcome = CASE WHEN outcome IS NULL OR outcome = $4 THEN $3 ELSE outcome END \
      WHERE kind = $2 AND walk_backend = $1";
 
 /// The sync state describing a user's provider activities alone: every

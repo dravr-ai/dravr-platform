@@ -33,18 +33,31 @@
 //! connects ([`start_history_walk`]); its end was told, so the API phase
 //! tells only what it brings in, and nothing when that is nothing.
 //!
-//! **A purge of the grant mid-phase.** The purge never takes a running
-//! step's lease: it keeps the row owed a reopen, still the walk of the pair
-//! ([`PairWalk::Purged`]), so no walk of the grant starts beside the step on
-//! any instance, and none of the step's writes land. Once no step holds the
-//! lease the walk is resolved ([`resolve_purged_walk`]) — by the step that
-//! stopped ([`AfterStep::AskAgain`]), by a reconnect, or by the resume sweep
-//! when the step died or ended on a write that failed — and reopened below
-//! the session's own rows when a grant is live. A running step renews its
-//! lease, so one step pages the grant at a time across instances; only a
-//! step whose renewals fail can see its lease lapse mid-request, and then a
-//! reopened step may page beside it for the rest of that one request, whose
-//! write is refused.
+//! **A purge of the grant mid-phase.** No purge takes a running step's
+//! lease, and the step records nothing on the row once the purge took its
+//! phase: each of its row writes requires an owed row.
+//!
+//! - A purge of one athlete's grant (a disconnect, a revocation) keeps the
+//!   row owed a reopen, still the walk of the pair ([`PairWalk::Purged`]),
+//!   so no walk of the grant starts beside the step on any instance. Once no
+//!   step holds the lease the walk is resolved ([`resolve_purged_walk`]) —
+//!   by the step that stopped ([`AfterStep::AskAgain`]), by a reconnect, or
+//!   by the resume sweep when the step died or ended on a write that failed
+//!   — and reopened below the session's own rows when a grant is live.
+//! - The operator's whole-provider purge deletes data, never tokens, so the
+//!   terminated provider's grants still stand. It settles the row as its
+//!   session walked alone, owed nothing, a row it finds already owed a
+//!   reopen included: neither the step that stops nor the resume sweep
+//!   resolves it, since both act only on a row still owed a reopen. The next
+//!   ask for the walk (a connect, a first sync, a depth miss, the seed)
+//!   treats it as any session walked alone while that grant stands: it
+//!   reopens the phase once no step holds the lease, or, with the session
+//!   lapsed, starts a walk of the grant under the grant's own key.
+//!
+//! A running step renews its lease, so one step pages the grant at a time
+//! across instances; only a step whose renewals fail can see its lease lapse
+//! mid-request, and then a reopened step may page beside it for the rest of
+//! that one request, whose write to the row is refused.
 //!
 //! **One step per run.** A run reads one step below the row's cursor
 //! (`before_ts`), writes it through the activity store, and records the step
@@ -80,7 +93,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{
-    BackfillCoverage, BackfillJobKind, JobFloor, JobLease, JobProgressStep, WalkHandOff,
+    BackfillCoverage, BackfillJobKind, JobFloor, JobLease, JobProgressStep, ReopenFrom, WalkHandOff,
 };
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
@@ -251,14 +264,16 @@ async fn reopen_for_grant(
     let Ok(Some(hand_off)) = below else {
         return false;
     };
-    reopen(runtime, (user_id, tenant_id), backend, &hand_off, trigger).await
+    let walk = (backend, ReopenFrom::WalkedAlone);
+    reopen(runtime, (user_id, tenant_id), walk, &hand_off, trigger).await
 }
 
-/// Write `hand_off` on the walk filed under `backend` ([`reopen_for_grant`]).
+/// Write `hand_off` on the walk filed under `backend`, when it is still in
+/// the state `from` names ([`reopen_for_grant`], [`resolve_purged_walk`]).
 async fn reopen(
     runtime: &Arc<dyn ToolRuntime>,
     (user_id, tenant_id): (Uuid, TenantId),
-    backend: &str,
+    (backend, from): (&str, ReopenFrom),
     hand_off: &WalkHandOff,
     trigger: WalkTrigger,
 ) -> bool {
@@ -269,6 +284,7 @@ async fn reopen(
             user_id,
             tenant_id,
             backend,
+            from,
             hand_off,
             Utc::now().timestamp_millis(),
         )
@@ -297,7 +313,9 @@ async fn reopen(
 ///
 /// It is reopened below its session's own rows through the grant now live
 /// beside it, as a walked session is ([`reopen_for_grant`]), or kept as
-/// walked when none is, which a grant connected later reopens. Returns
+/// walked when none is, which the next ask for the walk reopens once a grant
+/// is live. Both write only a row still owed a reopen: one a whole-provider
+/// purge settled meanwhile is left as its session walked alone. Returns
 /// whether the walk was reopened; `false` too while a step still holds the
 /// lease, or when the store or the ledger could not be read or written — the
 /// resume sweep, which asks again for every such row whose lease lapsed,
@@ -310,7 +328,10 @@ pub(crate) async fn resolve_purged_walk(
     trigger: WalkTrigger,
 ) -> bool {
     match hand_off_below(runtime, user_id, tenant_id, key, 0).await {
-        Ok(Some(hand_off)) => reopen(runtime, (user_id, tenant_id), key, &hand_off, trigger).await,
+        Ok(Some(hand_off)) => {
+            let walk = (key, ReopenFrom::PhasePurged);
+            reopen(runtime, (user_id, tenant_id), walk, &hand_off, trigger).await
+        }
         Ok(None) => {
             let settled = runtime
                 .repos()
@@ -411,8 +432,8 @@ pub(super) enum AfterStep {
     /// from under it ([`WalkTrigger::PhaseReset`]), or another runner took
     /// the lease. The step gave its lease up and recorded nothing; the walk
     /// is asked for again ([`ask_again`]) once the run released its key, so
-    /// a purged phase is resolved at once rather than on the sweep's next
-    /// pass.
+    /// a phase a purge left owed a reopen is resolved at once rather than on
+    /// the sweep's next pass.
     AskAgain,
 }
 
@@ -455,19 +476,29 @@ pub(super) async fn run_history_walk(
     AfterStep::AskAgain
 }
 
-/// Ask for the walk of `job`'s source again, as a connect does
-/// ([`AfterStep::AskAgain`]): the phase a purge took from under the step
-/// that stopped is resolved now ([`resolve_purged_walk`]), reopened through
-/// a grant connected meanwhile.
+/// Resolve the walk of the pair the step that stopped ran for
+/// ([`AfterStep::AskAgain`]), when a purge of its grant left it owed a
+/// reopen ([`PairWalk::Purged`]): reopened through a grant connected
+/// meanwhile, or kept as walked ([`resolve_purged_walk`]).
+///
+/// Nothing else is asked. A row a whole-provider purge settled as walked,
+/// or removed, owes no reopen, and starting the walk again here would page
+/// the terminated provider through a grant its purge left standing; one
+/// another runner holds is that runner's.
 pub(super) async fn ask_again(job: &ActivityBackfillJob) {
-    start_history_walk(
-        &job.resources,
-        job.user_id,
-        job.tenant_id,
-        &job.provider_name,
-        WalkTrigger::PhaseReset,
-    )
-    .await;
+    let (user_id, provider) = (job.user_id, job.provider_name.as_str());
+    match walk_across_pair(job.resources.repos(), user_id, job.tenant_id, provider).await {
+        Ok(PairWalk::Purged { key }) => {
+            let trigger = WalkTrigger::PhaseReset;
+            resolve_purged_walk(&job.resources, user_id, job.tenant_id, &key, trigger).await;
+        }
+        Ok(walk) => {
+            info!(user_id = %user_id, provider, ?walk, "History walk: the stopped step's walk owes no reopen; nothing asked");
+        }
+        Err(e) => {
+            warn!(user_id = %user_id, provider, error = %e, "History walk: the ledger could not be read; the resume sweep resolves a purged walk");
+        }
+    }
 }
 
 /// What `step` does to the walk's row; `false` when a write found the row no

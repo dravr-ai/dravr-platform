@@ -38,9 +38,10 @@ pub(crate) const HAND_OFF_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_job
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
 
 /// Owes a walk its API phase through the grant now live beside its session
-/// ([`HAND_OFF_HISTORY_WALK_SQL`]'s row): a walk whose session ended alone
-/// (`$9` walked, no API phase on it), or one a purge left owed a reopen
-/// (`$11`, the purged phase). Only once no step holds its lease at `$10`: a
+/// ([`HAND_OFF_HISTORY_WALK_SQL`]'s row), from the one state `$9` names
+/// ([`super::ReopenFrom`]): a walk whose session ended alone (walked, no API
+/// phase on it), or one a purge left owed a reopen (`$11`, the purged phase)
+/// and still is. Only once no step holds its lease at `$10`: a
 /// step of a purged phase may still be paging the grant, and a second step
 /// beside it would page it twice. Its rows start over at zero, its end
 /// having been told; its retry is due at once, whatever a failed step before
@@ -51,7 +52,7 @@ pub(crate) const REOPEN_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs 
          rows_landed = 0, after_ts = NULL, secs_per_unit = NULL, outcome = NULL, \
          attempts = 0, leased_until_ms = 0, lease_token = NULL, next_attempt_ms = 0 \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
-       AND ((outcome = $9 AND walk_backend IS NULL) OR outcome = $11) \
+       AND outcome = $9 AND (walk_backend IS NULL OR outcome = $11) \
        AND leased_until_ms <= $10";
 
 /// Keeps a walk a purge left owed a reopen (`$6`) as walked (`$5`), its
