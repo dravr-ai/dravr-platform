@@ -1340,11 +1340,17 @@ async fn a_seven_day_retention_expires_an_eight_day_old_wellness_copy_and_its_cu
         .unwrap();
     let expired = recorded
         .iter()
-        .filter(|record| record.reason == "cache_expired")
+        .filter(|record| record.reason == "wellness_expired")
         .count();
     assert_eq!(
         expired, 4,
-        "one attestation row per expired scope: {recorded:?}"
+        "one wellness attestation row per expired scope: {recorded:?}"
+    );
+    assert!(
+        recorded
+            .iter()
+            .all(|record| record.reason != "cache_expired"),
+        "bug: a wellness expiry attests as an activity expiry: {recorded:?}"
     );
 }
 

@@ -41,8 +41,10 @@
 //!   attestation a purge of the step's key writes, for the athlete or for
 //!   the whole provider, committed between the step's first check and its
 //!   second (the attestations read at both, compared), takes rows back, and
-//!   names how much. With none, the page stays and warms the training-history
-//!   rollup, and the step ends: its row is no longer there to record it.
+//!   names how much. A purge of wellness alone (a wellness consent
+//!   withdrawn, a wellness expiry) deleted no activity and takes nothing
+//!   back. With none, the page stays and warms the training-history rollup,
+//!   and the step ends: its row is no longer there to record it.
 //!
 //! A purge that commits after the second check deletes the step's rows
 //! itself. When the ledger or the attestations cannot be read after the
@@ -266,12 +268,22 @@ async fn after_write(
     }
 }
 
+/// The purges that delete wellness alone, never an activity.
+const WELLNESS_ONLY: [PurgeReason; 2] = [
+    PurgeReason::WellnessConsentWithdrawn,
+    PurgeReason::WellnessExpired,
+];
+
 /// What the purges attested by `reasons` deleted of the key's activities;
 /// `None` when none of them deleted any.
 fn purge_of(reasons: &[String]) -> Option<KeyPurge> {
     let mut deleting = reasons
         .iter()
-        .filter(|reason| reason.as_str() != PurgeReason::WellnessConsentWithdrawn.as_str())
+        .filter(|reason| {
+            !WELLNESS_ONLY
+                .iter()
+                .any(|only| only.as_str() == reason.as_str())
+        })
         .peekable();
     deleting.peek()?;
     if deleting.all(|reason| reason.as_str() == PurgeReason::CacheExpired.as_str()) {
@@ -325,8 +337,16 @@ mod tests {
             purge_of(&reasons(&[PurgeReason::WellnessConsentWithdrawn])),
             None
         );
+        assert_eq!(purge_of(&reasons(&[PurgeReason::WellnessExpired])), None);
         assert_eq!(
             purge_of(&reasons(&[PurgeReason::CacheExpired])),
+            Some(KeyPurge::Expired)
+        );
+        assert_eq!(
+            purge_of(&reasons(&[
+                PurgeReason::WellnessExpired,
+                PurgeReason::CacheExpired
+            ])),
             Some(KeyPurge::Expired)
         );
         assert_eq!(

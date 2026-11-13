@@ -165,9 +165,13 @@ pub enum PurgeReason {
     PermissionWithdrawn,
     /// The operator's whole-provider purge, on termination of access.
     Termination,
-    /// The retention policy's days passed since those copies were last read
-    /// from the provider (`activity_retention.*`).
+    /// The retention policy's days passed since those activity copies were
+    /// last read from the provider (`activity_retention.*`).
     CacheExpired,
+    /// The retention policy's days passed since those wellness copies were
+    /// last synced from the provider (`activity_retention.*`): no activity
+    /// was deleted.
+    WellnessExpired,
     /// The athlete deleted a history they imported from their own export.
     AthleteDeletedImport,
     /// The activities were another athlete's, filed under the user's account
@@ -190,6 +194,7 @@ impl PurgeReason {
             Self::PermissionWithdrawn => PERMISSION_WITHDRAWN,
             Self::Termination => "termination",
             Self::CacheExpired => "cache_expired",
+            Self::WellnessExpired => "wellness_expired",
             Self::AthleteDeletedImport => "athlete_deleted_import",
             Self::MisfiledActivities => "misfiled_activities",
         }
@@ -336,7 +341,7 @@ pub trait ProviderDataRepository: Send + Sync {
     /// Expire every wellness copy of `provider`'s data last synced before
     /// `cutoff`, scope by scope: in each `(user, tenant)` holding one, the
     /// expired rows and the health sync's cursors over that provider go in
-    /// one transaction with its `cache_expired` attestation row, so the next
+    /// one transaction with its `wellness_expired` attestation row, so the next
     /// sync reads what expired again instead of trusting a cursor over an
     /// emptied history. Activities are not touched: the activity store
     /// expires them.
@@ -753,7 +758,7 @@ macro_rules! impl_provider_data_repository {
                         Some(&tenant),
                         Some(&user),
                         provider,
-                        PurgeReason::CacheExpired,
+                        PurgeReason::WellnessExpired,
                         evicted.total()
                     )?;
                     tx.commit().await.map_err(|e| {

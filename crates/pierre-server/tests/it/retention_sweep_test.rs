@@ -9,8 +9,9 @@
 //! activity_retention.*`), both unset at start so nothing expires (JF,
 //! 2026-11-10, D9). The sweep the server boots applies it to the activities
 //! the activity store (dravr-barrage) holds, by when each was last read, and
-//! to the provider's wellness, by its sync time. Every expiry writes a
-//! `cache_expired` attestation row.
+//! to the provider's wellness, by its sync time. Every expiry writes an
+//! attestation row: `cache_expired` for activities, `wellness_expired` for
+//! wellness.
 //
 // This `//!` must precede any crate-level `#![cfg]`: when a feature is off the
 // cfg empties the crate (dropping any inner `#![allow(missing_docs)]`), so
@@ -231,9 +232,9 @@ impl World {
         keys
     }
 
-    /// The `cache_expired` attestations written for `provider`: rows removed
-    /// by each, sorted.
-    async fn expiries(&self, provider: &str) -> Vec<i64> {
+    /// The attestations naming `reason` written for `provider`: rows
+    /// removed by each, sorted.
+    async fn expiries(&self, provider: &str, reason: &str) -> Vec<i64> {
         let mut removed: Vec<i64> = self
             .repos()
             .provider_data
@@ -241,7 +242,7 @@ impl World {
             .await
             .unwrap()
             .into_iter()
-            .filter(|record| record.reason == "cache_expired")
+            .filter(|record| record.reason == reason)
             .map(|record| record.rows_removed)
             .collect();
         removed.sort_unstable();
@@ -336,15 +337,22 @@ impl World {
     }
 
     /// One attestation for the expired Strava activity, one for its
-    /// wellness scope, none for Garmin.
+    /// wellness scope, each naming what expired, none for Garmin.
     async fn assert_strava_attested_once(&self, pass: &RetentionPass) {
-        assert_eq!(self.expiries("strava").await.len(), 2, "{pass:?}");
-        assert!(
-            self.expiries("strava").await.contains(&1),
-            "bug: the expired activity is not attested"
+        assert_eq!(
+            self.expiries("strava", "cache_expired").await,
+            [1],
+            "bug: the expired activity is not attested as one: {pass:?}"
         );
-        let got = self.expiries("garmin").await;
-        assert!(got.is_empty(), "expected none, got {got:?}");
+        assert_eq!(
+            self.expiries("strava", "wellness_expired").await.len(),
+            1,
+            "bug: the expired wellness scope is not attested as wellness: {pass:?}"
+        );
+        for reason in ["cache_expired", "wellness_expired"] {
+            let got = self.expiries("garmin", reason).await;
+            assert!(got.is_empty(), "expected no {reason}, got {got:?}");
+        }
     }
 
     /// The expiry of Strava's 40-day-old `old_strava` emptied part of its
@@ -619,11 +627,13 @@ async fn the_default_reaches_every_provider_the_overrides_do_not_name() {
     );
     let got = world.day_providers().await;
     assert!(got.is_empty(), "expected none, got {got:?}");
-    assert_eq!(
-        world.expiries("garmin").await.len(),
-        2,
-        "bug: Garmin's expiries are not attested"
-    );
+    for reason in ["cache_expired", "wellness_expired"] {
+        assert_eq!(
+            world.expiries("garmin", reason).await.len(),
+            1,
+            "bug: Garmin's {reason} is not attested"
+        );
+    }
 }
 
 #[tokio::test]
@@ -658,8 +668,10 @@ async fn with_no_setting_nothing_expires_for_anyone() {
         ["strava"],
         "bug: Strava's wellness day was dropped"
     );
-    let got = world.expiries("strava").await;
-    assert!(got.is_empty(), "expected none, got {got:?}");
+    for reason in ["cache_expired", "wellness_expired"] {
+        let got = world.expiries("strava", reason).await;
+        assert!(got.is_empty(), "expected no {reason}, got {got:?}");
+    }
 }
 
 #[tokio::test]

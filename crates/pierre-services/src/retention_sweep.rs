@@ -1,5 +1,5 @@
 // ABOUTME: The one retention sweep — hourly, it expires provider activities in barrage and wellness in the platform
-// ABOUTME: Both halves apply one policy read from activity_retention.* config; each expiry writes a cache_expired attestation
+// ABOUTME: Both halves apply one policy read from activity_retention.* config; each expiry writes its attestation (cache_expired, wellness_expired)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,7 +17,7 @@
 //! 2. **Wellness**, in the platform's tables:
 //!    [`ProviderDataRepository::expire_provider_wellness`] deletes, per
 //!    provider, the rows last synced before the same cutoff, each scope with
-//!    its `cache_expired` attestation.
+//!    its `wellness_expired` attestation, which names no activity.
 //!
 //! The policy is read on every pass, so a `pierre-cli config set` takes
 //! effect on the next one without a restart. Under the start values nothing

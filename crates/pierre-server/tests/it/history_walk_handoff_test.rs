@@ -52,13 +52,13 @@ use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
-    Activity, ActivityBuilder, ActivityGearKey, AttributionSource, ConnectionType, GearAttribution,
-    SportType, TenantId, TimeSeriesData,
+    Activity, ActivityBuilder, ActivityGearKey, AttributionSource, ConnectionType, DataSource,
+    DeviceType, GearAttribution, SportType, StoredDailyActivity, TenantId, TimeSeriesData,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
     ActivityStreamsWrite, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState,
-    JobProgress, PurgeReason, StreamOrigin,
+    JobProgress, PurgeReason, StreamOrigin, WellnessWriteMode,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_services::live_activities::{LiveActivityStore, LiveIngest};
@@ -2331,7 +2331,64 @@ impl Fixture {
     }
 
     /// Store a day of the grant's wellness, synced `age_days` ago.
+    async fn sync_grant_wellness(&self, age_days: i64) {
+        let synced_at = Utc::now() - chrono::Duration::days(age_days);
+        let repos = &self.resources.common.repos;
+        let source_id = repos
+            .data_sources
+            .upsert_data_source(
+                &self.tenant,
+                &DataSource {
+                    id: String::new(),
+                    user_id: self.user_id.to_string(),
+                    provider: oauth_providers::STRAVA.to_owned(),
+                    device_model: None,
+                    software_version: None,
+                    source: None,
+                    device_type: DeviceType::Unknown,
+                    original_source_name: None,
+                },
+            )
+            .await
+            .unwrap();
+        repos
+            .daily_activity
+            .upsert_daily_activity(
+                &self.tenant,
+                &StoredDailyActivity {
+                    id: String::new(),
+                    user_id: self.user_id.to_string(),
+                    data_source_id: source_id,
+                    date: synced_at.date_naive(),
+                    steps: Some(9_000),
+                    active_kcal: None,
+                    total_kcal: None,
+                    intensity_minutes: None,
+                    source_name: oauth_providers::STRAVA.to_owned(),
+                    recorded_at: synced_at,
+                },
+                WellnessWriteMode::PartialSummary,
+                synced_at,
+            )
+            .await
+            .unwrap();
+    }
+
     /// The reasons of the purges of `key` attested for the athlete.
+    async fn attested_for_athlete(&self, key: &str) -> Vec<String> {
+        let athlete = self.user_id.to_string();
+        self.resources
+            .common
+            .repos
+            .provider_data
+            .list_provider_data_purges(key, 20)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|record| record.user_id.as_deref() == Some(athlete.as_str()))
+            .map(|record| record.reason)
+            .collect()
+    }
 }
 
 /// The days the rollup checks look over: every year the tests walk.
@@ -2425,6 +2482,67 @@ async fn a_session_purge_landing_while_a_step_writes_keeps_the_grants_page() {
         warmed,
         "bug: a step that kept the grant's page never warmed the training-history rollup over it"
     );
+}
+
+/// The athlete drops the session alone while a step of the walk's API phase
+/// writes the grant's second year, and the hourly retention sweep expires
+/// the grant's wellness in that same moment. The session's purge took the
+/// walk's row; the wellness expiry deleted none of the grant's activities,
+/// and attests as much: the step keeps the page it wrote.
+#[tokio::test]
+async fn a_wellness_expiry_landing_while_a_step_writes_takes_nothing_back() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.sync_grant_wellness(40).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    let write = store.hold_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fx.state().await,
+        None,
+        "the session's purge took the walk's row"
+    );
+    let expiry = fx
+        .resources
+        .common
+        .repos
+        .provider_data
+        .expire_provider_wellness(
+            oauth_providers::STRAVA,
+            Utc::now() - chrono::Duration::days(30),
+        )
+        .await
+        .unwrap();
+    assert_eq!(expiry.scopes, 1, "the grant's wellness expired");
+    fx.base_the_rollup(oauth_providers::STRAVA).await;
+    fx.clear_rollup().await;
+    write.gate.notify_one();
+    let warmed = fx.rollup_warmed().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "bug: a wellness expiry of the grant's key took back the activities its step added"
+    );
+    assert_eq!(
+        fx.attested_for_athlete(oauth_providers::STRAVA).await,
+        ["wellness_expired"],
+        "bug: the wellness expiry attests as an activity expiry"
+    );
+    assert!(warmed, "the step that kept its page warmed the rollup");
 }
 
 /// The ledger cannot be read once a step of the walk's API phase wrote the
