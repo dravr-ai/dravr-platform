@@ -123,8 +123,9 @@ async fn seed_started(resources: &ServerContext, athlete: &Athlete) -> bool {
         .is_some()
 }
 
-/// A Strava history is measured through the grant: the session declares
-/// only its route, so it never serves a best effort's distance channel.
+/// A Strava history is measured through the grant: a session is never a
+/// stream source, even now that a Strava scrape declares the channels, since
+/// its samples would be one scrape per run.
 #[tokio::test]
 async fn a_strava_history_is_measured_on_the_grants_streams() {
     let (api_base, _mock) = mock_strava().await;
@@ -152,7 +153,7 @@ async fn a_strava_history_is_measured_on_the_grants_streams() {
 }
 
 /// A push holds no samples of the history a walk copied, so Garmin, whose
-/// grant only receives pushes beside a route-only session, is never seeded:
+/// grant only receives pushes beside a session, is never seeded:
 /// its older runs would be recorded scanned without a best.
 #[cfg(feature = "provider-garmin")]
 #[tokio::test]

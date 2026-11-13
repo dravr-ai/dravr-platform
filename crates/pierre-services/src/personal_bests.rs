@@ -64,13 +64,15 @@
 //! scan read the same record.
 //!
 //! **Where the samples come from.** [`seed_stream_source`] picks, for each
-//! provider, the backend of its history order ([`history_sources_for`]) whose
-//! field dictionary ([`field_support`](pierre_providers::field_support))
+//! provider, the OAuth grant of its history order ([`history_sources_for`])
+//! whose field dictionary ([`field_support`](pierre_providers::field_support))
 //! declares the channels a best effort is read from: time and cumulative
 //! distance ([`BEST_EFFORT_CHANNELS`]), and that holds the walked history. A
-//! session declares only its route, so a Strava history read through it is
-//! measured through the grant, by the activity id both share; a push holds
-//! no samples from before the athlete connected it, so Garmin is not seeded.
+//! session is never read for samples, whatever its dictionary declares: each
+//! run's samples would be one scrape, and the seed never starts one, so a
+//! Strava history read through the session is measured through the grant, by
+//! the activity id both share. A push holds no samples from before the
+//! athlete connected it, so Garmin is not seeded.
 //!
 //! Only runs are measured, as cageux's own record detection does: `Run`,
 //! `VirtualRun` and `TrailRunning`.
@@ -131,23 +133,27 @@ pub const BEST_EFFORT_CHANNELS: StreamChannels =
 
 /// The backend whose samples the seed of `provider`'s history is measured on.
 ///
-/// The first of [`history_sources_for`] `provider` that holds the walked
-/// history and whose descriptor declares every one of
-/// [`BEST_EFFORT_CHANNELS`] in its field dictionary.
+/// The first grant of [`history_sources_for`] `provider`
+/// ([`HistorySourceRole::Grant`]) that holds the walked history and whose
+/// descriptor declares every one of [`BEST_EFFORT_CHANNELS`] in its field
+/// dictionary.
 ///
-/// A backend that declares fewer is skipped: a usr/pwd session declares
-/// only its route, so Strava's history is measured through the grant. So is
+/// A usr/pwd session ([`HistorySourceRole::Session`]) is skipped even when
+/// its dictionary declares the channels, as a Strava scrape's now does: its
+/// samples are one scrape per run, and the seed never starts a scrape
+/// (carnet#1494), so Strava's history is measured through the grant. So is
 /// a push ([`HistorySourceRole::Pushed`]): it holds the samples of what
 /// arrived after the athlete connected it, none of the history a walk
 /// copied, and would record every older run scanned without a best (Garmin).
-/// `None` when no backend of the provider serves them (Garmin, COROS,
-/// TrainingPeaks, and Intervals.icu, which sends no distance channel): its
-/// history is never seeded, rather than recorded scanned without a best.
+/// A grant that declares fewer channels is skipped too. `None` when no grant
+/// of the provider serves them (Garmin, COROS, TrainingPeaks, and
+/// Intervals.icu, which sends no distance channel): its history is never
+/// seeded, rather than recorded scanned without a best.
 #[must_use]
 pub fn seed_stream_source(registry: &ProviderRegistry, provider: &str) -> Option<&'static str> {
     history_sources_for(provider)
         .into_iter()
-        .filter(|(_, role)| *role != HistorySourceRole::Pushed)
+        .filter(|(_, role)| *role == HistorySourceRole::Grant)
         .filter_map(|(backend, _)| registry.get_descriptor(backend))
         .find(|descriptor| {
             descriptor
