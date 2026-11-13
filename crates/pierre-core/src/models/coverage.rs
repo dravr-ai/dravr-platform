@@ -486,7 +486,10 @@ mod tests {
             pending: Some(Pending::running(12, Some(48), Some(10.0))),
         };
         let wire = serde_json::to_value(&coverage)?;
-        assert_eq!(wire["complete"], false, "bug: a shallow window is incomplete");
+        assert_eq!(
+            wire["complete"], false,
+            "bug: a shallow window is incomplete"
+        );
         assert_eq!(
             wire["incomplete_reason"], "shallow_history",
             "bug: the reason travels snake_case"
