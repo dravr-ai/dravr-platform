@@ -41,8 +41,8 @@
 //!   attestation a purge of the step's key writes, for the athlete or for
 //!   the whole provider, committed between the step's first check and its
 //!   second (the attestations read at both, compared), takes rows back, and
-//!   names how much. With none, the page stays and the step ends: its row is
-//!   no longer there to record it.
+//!   names how much. With none, the page stays and warms the training-history
+//!   rollup, and the step ends: its row is no longer there to record it.
 //!
 //! A purge that commits after the second check deletes the step's rows
 //! itself. When the ledger or the attestations cannot be read after the
@@ -78,6 +78,9 @@ const PURGE_CLOCK_SKEW_SECS: i64 = 60;
 pub(super) enum Landed {
     /// The step's rows landed and stay: the net distinct rows persisted.
     Rows(usize),
+    /// The step's rows landed and stay, but its row went while it wrote
+    /// with no purge of its key attested: there is no row to record them on.
+    Kept,
     /// The step's row is no longer its own: it records nothing on it, and
     /// whatever of its page a purge of its key reached is not in the store.
     Stopped,
@@ -165,10 +168,10 @@ async fn settle(
 ) -> Landed {
     match after {
         Ok(AfterWrite::Owed) => landed.map_or(Landed::Failed, Landed::Rows),
-        Ok(AfterWrite::Gone) => {
-            info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's row went with no purge of its key; its page stays");
-            Landed::Stopped
-        }
+        Ok(AfterWrite::Gone) => landed.map_or(Landed::Failed, |rows| {
+            info!(user_id = %job.user_id, provider = %job.provider_name, rows, "History walk: the step's row went with no purge of its key; its page stays");
+            Landed::Kept
+        }),
         Ok(AfterWrite::Purged(purge)) => {
             take_back(job, activities, held, purge).await;
             Landed::Stopped

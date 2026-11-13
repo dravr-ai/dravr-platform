@@ -425,9 +425,14 @@ enum Step {
     AuthRequired,
     /// A transient failure: nothing of the step is recorded.
     Failed,
-    /// The step's row was no longer its own when it came to write: nothing
-    /// it read is in the store ([`owed_write`]).
+    /// The step's row was no longer its own when it came to write, or a
+    /// purge of its key landed while it wrote: nothing of its page that a
+    /// purge reached is in the store ([`owed_write`]).
     Stopped,
+    /// The step's row went while it wrote, with no purge of its key
+    /// attested: its page stays and warmed the training-history rollup, and
+    /// there is no row to record it on ([`owed_write`]).
+    Kept,
 }
 
 /// What is left to do once a step settled its row.
@@ -578,7 +583,16 @@ async fn settle_step(
                 .await,
             job,
         ),
-        Step::Stopped => log_write("the step's row was taken; it wrote nothing", Ok(false), job),
+        Step::Stopped => log_write(
+            "the step's row was taken; nothing of its page a purge reached stays",
+            Ok(false),
+            job,
+        ),
+        Step::Kept => log_write(
+            "the step's row went with no purge of its key; its page stays, recorded on no row",
+            Ok(false),
+            job,
+        ),
     }
 }
 
@@ -1065,6 +1079,10 @@ async fn land(
     };
     let landed = match owed_write::land_owed(job, executor, &activities, write, span.lease).await {
         owed_write::Landed::Rows(landed) => landed,
+        owed_write::Landed::Kept => {
+            warm_training_history(job).await;
+            return Step::Kept;
+        }
         owed_write::Landed::Stopped => return Step::Stopped,
         owed_write::Landed::Failed => return Step::Failed,
     };

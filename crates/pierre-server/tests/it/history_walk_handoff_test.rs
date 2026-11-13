@@ -47,7 +47,7 @@ use async_trait::async_trait;
 use axum::extract::RawQuery;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{DateTime, Datelike, TimeZone, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, TimeZone, Utc};
 use pierre_config::environment::ProviderEndpointOverride;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::errors::AppResult;
@@ -1879,6 +1879,10 @@ impl HeldWrite {
         *self.armed.lock().unwrap() = Some(hold.clone());
         hold
     }
+
+    /// Hold the next write of `provider` until the returned hold's `gate` is
+    /// notified, then, once it landed, hold it again before it returns to
+    /// its step until `resume` is notified.
 }
 
 #[async_trait]
@@ -2243,6 +2247,118 @@ impl Fixture {
             }
         }
     }
+
+    /// Run `sql`, binding the athlete's id as `$1`, on the server's database.
+    async fn execute_for_athlete(&self, sql: &str) {
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                sqlx::query(sql)
+                    .bind(self.user_id.to_string())
+                    .execute(sqlite.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => {
+                sqlx::query(sql)
+                    .bind(self.user_id.to_string())
+                    .execute(pg.pool())
+                    .await
+                    .unwrap();
+            }
+        }
+    }
+
+    /// Remove the walk's row by no purge at all, as the reaper of a row whose
+    /// lease lapsed deletes it.
+    async fn remove_walk_row(&self) {
+        self.execute_for_athlete("DELETE FROM activity_backfill_jobs WHERE user_id = $1")
+            .await;
+        assert_eq!(self.state().await, None, "the walk's row is gone");
+    }
+
+    /// Make the retry a failed step owes due now: no lease holds its row and
+    /// its wait is over.
+    /// The athlete's training-history rollup days, over every year the
+    /// tests walk.
+    async fn rollup_days(&self) -> usize {
+        let (from, to) = rollup_span();
+        self.resources
+            .common
+            .repos
+            .training_history
+            .get_training_history(self.tenant, self.user_id, from, to)
+            .await
+            .unwrap()
+            .len()
+    }
+
+    /// Store a ride of `key` 100 days back, an earlier read's: the walked
+    /// rides are older than the rollup's default window reaches back, and
+    /// with this one the rollup has days to warm.
+    async fn base_the_rollup(&self, key: &str) {
+        let start = Utc::now().timestamp() - 100 * DAY;
+        self.hold_earlier_read(key, &format!("8{start}"), start)
+            .await;
+    }
+
+    /// Empty the athlete's training-history rollup, so a step's warm of it
+    /// shows.
+    async fn clear_rollup(&self) {
+        let (from, to) = rollup_span();
+        self.resources
+            .common
+            .repos
+            .training_history
+            .delete_training_history_range(self.tenant, self.user_id, from, to)
+            .await
+            .unwrap();
+        assert_eq!(self.rollup_days().await, 0, "the rollup is empty");
+    }
+
+    /// Wait for a step that keeps its page to end: the last thing it writes
+    /// is the training-history rollup [`Self::clear_rollup`] emptied, after
+    /// any take-back. `false` when the rollup was never warmed.
+    async fn rollup_warmed(&self) -> bool {
+        let deadline = Instant::now() + WALK_DEADLINE;
+        while self.rollup_days().await == 0 {
+            if Instant::now() >= deadline {
+                return false;
+            }
+            sleep(Duration::from_millis(50)).await;
+        }
+        true
+    }
+
+    /// Store a day of the grant's wellness, synced `age_days` ago.
+    /// The reasons of the purges of `key` attested for the athlete.
+}
+
+/// The days the rollup checks look over: every year the tests walk.
+fn rollup_span() -> (NaiveDate, NaiveDate) {
+    let today = Utc::now().date_naive();
+    (
+        today - chrono::Duration::days(12 * 365),
+        today + chrono::Duration::days(1),
+    )
+}
+
+/// Start the walk, and wait until its session's first step reached the
+/// held `write`.
+async fn start_with_the_first_step_held(fx: &Fixture, write: &Hold) {
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    timeout(WALK_DEADLINE, write.reached.notified())
+        .await
+        .expect("the session's first step never wrote");
 }
 
 /// While renamed, every read of a walk's row fails (each names
@@ -2290,12 +2406,13 @@ async fn a_session_purge_landing_while_a_step_writes_keeps_the_grants_page() {
         None,
         "the session's purge took the walk's row"
     );
+    fx.base_the_rollup(oauth_providers::STRAVA).await;
+    fx.clear_rollup().await;
     write.gate.notify_one();
-    write.landed.notified().await;
-    sleep(STEP_SETTLE).await;
+    let warmed = fx.rollup_warmed().await;
     assert_eq!(
         fx.rows(oauth_providers::STRAVA).await,
-        2,
+        3,
         "bug: a step whose session alone was purged took the never-purged grant's page back"
     );
     assert_eq!(
@@ -2303,6 +2420,10 @@ async fn a_session_purge_landing_while_a_step_writes_keeps_the_grants_page() {
             .await,
         KEPT_WHOLE,
         "bug: the step took back a ride an earlier read stored, with its samples or gear"
+    );
+    assert!(
+        warmed,
+        "bug: a step that kept the grant's page never warmed the training-history rollup over it"
     );
 }
 
@@ -2505,7 +2626,8 @@ async fn an_expiry_landing_while_a_step_writes_takes_back_only_what_it_added() {
 /// read already stored with its samples and gear, and the walk's row is
 /// removed while the step writes by no purge at all (the reaper of a row
 /// whose lease lapsed deletes it the same way). Nothing attests a purge of
-/// the session's key: the step keeps its page and ends.
+/// the session's key: the step keeps its page, warms the training-history
+/// rollup over it, and ends.
 #[tokio::test]
 async fn a_row_removed_by_no_purge_while_a_step_writes_keeps_its_page() {
     let now = Utc::now().timestamp();
@@ -2516,49 +2638,24 @@ async fn a_row_removed_by_no_purge_while_a_step_writes_keeps_its_page() {
     fx.hold_earlier_read(oauth_providers::SCIOTTE, &earlier, recent)
         .await;
     let write = store.hold_next_write(oauth_providers::SCIOTTE);
-    assert!(
-        start_history_walk(
-            &fx.runtime(),
-            fx.user_id,
-            fx.tenant,
-            oauth_providers::STRAVA,
-            WalkTrigger::Connected
-        )
-        .await
-    );
-    timeout(WALK_DEADLINE, write.reached.notified())
-        .await
-        .expect("the session's first step never wrote");
-    let sql = "DELETE FROM activity_backfill_jobs WHERE user_id = $1";
-    match fx.resources.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => {
-            sqlx::query(sql)
-                .bind(fx.user_id.to_string())
-                .execute(sqlite.pool())
-                .await
-                .unwrap();
-        }
-        #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => {
-            sqlx::query(sql)
-                .bind(fx.user_id.to_string())
-                .execute(pg.pool())
-                .await
-                .unwrap();
-        }
-    }
-    assert_eq!(fx.state().await, None, "the walk's row is gone");
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.remove_walk_row().await;
+    fx.base_the_rollup(oauth_providers::SCIOTTE).await;
+    fx.clear_rollup().await;
     write.gate.notify_one();
-    write.landed.notified().await;
-    sleep(STEP_SETTLE).await;
+    let warmed = fx.rollup_warmed().await;
     assert_eq!(
         fx.rows(oauth_providers::SCIOTTE).await,
-        2,
+        3,
         "bug: a step whose row no purge removed took its page back"
     );
     assert_eq!(
         fx.kept(oauth_providers::SCIOTTE, &earlier, recent).await,
         KEPT_WHOLE,
         "bug: a step whose row no purge removed took back a ride an earlier read stored"
+    );
+    assert!(
+        warmed,
+        "bug: a step that kept its page never warmed the training-history rollup over it"
     );
 }
