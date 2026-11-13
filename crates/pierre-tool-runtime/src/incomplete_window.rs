@@ -19,21 +19,11 @@
 //! [`incomplete_window_in_payload`] is the one reader both shapes go through,
 //! and [`IncompleteWindows`] is that store.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
-
 use pierre_core::models::coverage::IncompleteReason;
 use serde_json::Value;
 
-use crate::guardian::state::TURN_TTL;
 use crate::guardian::TurnKey;
-
-/// Hard cap on retained unconsumed marks. The tool loop takes a turn's mark
-/// when it returns, so an entry outlives its turn only when the loop failed.
-/// Overflow drops the entries past [`TURN_TTL`] first, every entry only if
-/// that was not enough; a dropped mark costs the re-ask, not the answer.
-const MARK_CAP: usize = 10_000;
+use crate::turn_store::{Stamp, TurnStore};
 
 /// The tools whose result carries a window's coverage under `coverage`: a
 /// count stated over one that is short of the ask is re-asked.
@@ -102,7 +92,10 @@ const fn counted_short(reason: IncompleteReason) -> bool {
 /// writes into the same bucket the turn's loop reads.
 #[derive(Debug, Default)]
 pub struct IncompleteWindows {
-    marks: Mutex<HashMap<TurnKey, Instant>>,
+    /// The tool loop takes a turn's mark when it returns, so an entry outlives
+    /// its turn only when the loop failed. A mark the store's overflow drops
+    /// costs the re-ask, not the answer.
+    marks: TurnStore<()>,
 }
 
 impl IncompleteWindows {
@@ -116,29 +109,14 @@ impl IncompleteWindows {
     /// lock is skipped: the turn then keeps the coverage note the model read,
     /// without the re-ask, never a panic.
     pub fn mark(&self, key: &TurnKey) {
-        self.mark_at(key, Instant::now());
-    }
-
-    /// [`Self::mark`] as of `now`.
-    fn mark_at(&self, key: &TurnKey, now: Instant) {
-        if let Ok(mut marks) = self.marks.lock() {
-            if marks.len() >= MARK_CAP {
-                marks.retain(|_, at| now.duration_since(*at) < TURN_TTL);
-                if marks.len() >= MARK_CAP {
-                    marks.clear();
-                }
-            }
-            marks.insert(key.clone(), now);
-        }
+        self.marks.record(key, Stamp::Latest, |_| ());
     }
 
     /// Consume the mark recorded under `key`: whether the turn read an
     /// incomplete window.
     #[must_use]
     pub fn take(&self, key: &TurnKey) -> bool {
-        self.marks
-            .lock()
-            .is_ok_and(|mut marks| marks.remove(key).is_some())
+        self.marks.take(key).is_some()
     }
 }
 
@@ -227,23 +205,5 @@ mod tests {
         );
         assert!(store.take(&turn), "bug: the marking turn must take it");
         assert!(!store.take(&turn), "bug: a mark is consumed once");
-    }
-
-    #[test]
-    fn marks_stay_bounded() {
-        let store = IncompleteWindows::new();
-        for turn in 0..MARK_CAP {
-            store.mark(&TurnKey::new(None, format!("turn-{turn}")));
-        }
-        let past_the_cap = TurnKey::new(None, "turn-past-the-cap");
-        store.mark(&past_the_cap);
-        assert!(
-            store.marks.lock().expect("lock").len() <= MARK_CAP,
-            "bug: the store must stay under its cap"
-        );
-        assert!(
-            store.take(&past_the_cap),
-            "bug: the newest mark survives the overflow"
-        );
     }
 }

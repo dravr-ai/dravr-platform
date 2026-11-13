@@ -153,6 +153,8 @@ pub mod task_cancellation;
 pub mod tool_progress;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;
+/// The per-turn store a headless turn's signals leave the ACP loopback through.
+mod turn_store;
 
 /// Request construction and the provider call for the text-simulation CLI tool loop
 #[cfg(feature = "client-chat")]

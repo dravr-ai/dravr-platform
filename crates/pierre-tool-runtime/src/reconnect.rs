@@ -20,23 +20,10 @@
 //! [`ReconnectOffers`] is that store, on the same key and the same record/take
 //! discipline as the block channel in [`crate::guardian::GuardianTurns`].
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
-
 use serde_json::Value;
 
-use crate::guardian::state::TURN_TTL;
 use crate::guardian::TurnKey;
-
-/// Hard cap on retained unconsumed offers. The tool loop takes a turn's offer
-/// when it returns, so an entry outlives its turn only when the loop failed or a
-/// stage read `get_activities` after it (the capability recovery's verification
-/// fetch), and only for an athlete carrying a dead connection: the cap is
-/// unreachable in practice. Overflow drops the entries past [`TURN_TTL`] first,
-/// every entry only if that was not enough, and a dropped offer costs the
-/// clickable control, not the answer.
-const OFFER_CAP: usize = 10_000;
+use crate::turn_store::{Stamp, TurnStore};
 
 /// The `reconnect_required` key holding the dead connection's backend.
 ///
@@ -92,7 +79,12 @@ pub fn offer_in_payload(tool_name: &str, payload: &Value) -> Option<String> {
 /// ordinary success path of a `get_activities` dispatch.
 #[derive(Debug, Default)]
 pub struct ReconnectOffers {
-    offers: Mutex<HashMap<TurnKey, (Instant, String)>>,
+    /// The tool loop takes a turn's offer when it returns, so an entry
+    /// outlives its turn only when the loop failed or a stage read
+    /// `get_activities` after it (the capability recovery's verification
+    /// fetch), and only for an athlete carrying a dead connection. An offer
+    /// the store's overflow drops costs the clickable control, not the answer.
+    offers: TurnStore<String>,
 }
 
 impl ReconnectOffers {
@@ -109,74 +101,36 @@ impl ReconnectOffers {
     /// carries the model's own sentence about the missing source and no
     /// control, never a panic.
     pub fn record_offer(&self, key: &TurnKey, provider_slug: String) {
-        self.record_offer_at(key, provider_slug, Instant::now());
-    }
-
-    /// [`Self::record_offer`] as of `now`.
-    fn record_offer_at(&self, key: &TurnKey, provider_slug: String, now: Instant) {
-        if let Ok(mut offers) = self.offers.lock() {
-            if offers.len() >= OFFER_CAP {
-                offers.retain(|_, (at, _)| now.duration_since(*at) < TURN_TTL);
-                if offers.len() >= OFFER_CAP {
-                    offers.clear();
-                }
-            }
-            offers.insert(key.clone(), (now, provider_slug));
-        }
+        self.offers.record(key, Stamp::Latest, |_| provider_slug);
     }
 
     /// Consume and return the offer recorded under `key`, if any.
     #[must_use]
     pub fn take_offer(&self, key: &TurnKey) -> Option<String> {
-        self.offers.lock().ok()?.remove(key).map(|(_, slug)| slug)
+        self.offers.take(key)
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
-
     use super::*;
 
-    /// Ages the entries by reading them from a later `now`, because an `Instant`
-    /// cannot reach back past a freshly booted machine's clock start.
     #[test]
-    fn overflow_drops_abandoned_offers_before_a_live_one() {
+    fn a_turn_is_offered_its_latest_dead_connection_once() {
         let store = ReconnectOffers::new();
-        let later = Instant::now() + TURN_TTL + Duration::from_secs(1);
-        let live = TurnKey::new(None, "turn-live");
-        store.record_offer_at(&live, "strava".to_owned(), later);
-        for turn in 0..OFFER_CAP {
-            store.offers.lock().expect("lock").insert(
-                TurnKey::new(None, format!("turn-{turn}")),
-                (Instant::now(), "garmin".to_owned()),
-            );
-        }
-
-        let next = TurnKey::new(None, "turn-next");
-        store.record_offer_at(&next, "wahoo".to_owned(), later);
-
+        let turn = TurnKey::new(None, "turn-a");
+        store.record_offer(&turn, "strava".to_owned());
+        store.record_offer(&turn, "garmin".to_owned());
         assert_eq!(
-            store.offers.lock().expect("lock").len(),
-            2,
-            "only the abandoned entries went"
+            store.take_offer(&TurnKey::new(None, "turn-b")),
+            None,
+            "bug: another turn must not take this turn's offer"
         );
-        assert_eq!(store.take_offer(&live).as_deref(), Some("strava"));
-        assert_eq!(store.take_offer(&next).as_deref(), Some("wahoo"));
-    }
-
-    #[test]
-    fn offers_stay_bounded_when_none_has_been_abandoned() {
-        let store = ReconnectOffers::new();
-        for turn in 0..OFFER_CAP {
-            store.record_offer(
-                &TurnKey::new(None, format!("turn-{turn}")),
-                "garmin".to_owned(),
-            );
-        }
-        let past_the_cap = TurnKey::new(None, "turn-past-the-cap");
-        store.record_offer(&past_the_cap, "wahoo".to_owned());
-        assert!(store.offers.lock().expect("lock").len() <= OFFER_CAP);
-        assert_eq!(store.take_offer(&past_the_cap).as_deref(), Some("wahoo"));
+        assert_eq!(
+            store.take_offer(&turn).as_deref(),
+            Some("garmin"),
+            "bug: the latest dead connection of the turn is the one offered"
+        );
+        assert_eq!(store.take_offer(&turn), None, "bug: an offer is taken once");
     }
 }

@@ -19,10 +19,6 @@
 //! replaces what an earlier save reported for it, and the notice never warns
 //! about a session the agent already fixed.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
-
 use chrono::Days;
 use pierre_core::models::periodization::{EnvelopeFinding, WorkoutPurpose};
 use pierre_core::models::TargetAnchor;
@@ -32,8 +28,8 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::warn;
 
-use crate::guardian::state::TURN_TTL;
 use crate::guardian::TurnKey;
+use crate::turn_store::{Stamp, TurnStore};
 use pierre_llm::FunctionResponse;
 
 /// The plan write that reports the days it saved.
@@ -48,12 +44,6 @@ const PRESCRIBE_TOOL: &str = "prescribe_workout";
 /// The days a stored plan week holds, from its `week_start`: a save refuses a
 /// day outside them.
 const DAYS_PER_WEEK: u64 = 7;
-
-/// How many turns the store holds. A turn takes its notice when it returns,
-/// so the store only grows past this when turns die mid-flight. Overflow drops
-/// the entries past [`TURN_TTL`] first, every entry only if that was not
-/// enough, and costs those turns their notice, never an answer.
-const NOTICE_CAP: usize = 10_000;
 
 /// Which write reported a session, and so which earlier report it replaces.
 ///
@@ -288,7 +278,10 @@ pub fn merge_notice_days(days: &mut Vec<NoticeDay>, later: Vec<NoticeDay>) {
 /// run overlapping turns, and a one-shot MCP call records nothing.
 #[derive(Debug, Default)]
 pub struct EnvelopeNotices {
-    notices: Mutex<HashMap<TurnKey, (Instant, Vec<NoticeDay>)>>,
+    /// A turn takes its notice when it returns, so the store only grows when
+    /// turns die mid-flight. A notice the store's overflow drops costs that
+    /// turn its notice, never an answer.
+    notices: TurnStore<Vec<NoticeDay>>,
 }
 
 impl EnvelopeNotices {
@@ -301,45 +294,26 @@ impl EnvelopeNotices {
     /// Fold `days` into what `key`'s turn has recorded. A poisoned lock is
     /// skipped: the turn then carries no notice of its own, never a panic.
     pub fn record(&self, key: &TurnKey, days: Vec<NoticeDay>) {
-        self.record_at(key, days, Instant::now());
-    }
-
-    /// [`Self::record`] as of `now`.
-    fn record_at(&self, key: &TurnKey, days: Vec<NoticeDay>, now: Instant) {
         if days.is_empty() {
             return;
         }
-        if let Ok(mut notices) = self.notices.lock() {
-            if notices.len() >= NOTICE_CAP && !notices.contains_key(key) {
-                notices.retain(|_, (at, _)| now.duration_since(*at) < TURN_TTL);
-                if notices.len() >= NOTICE_CAP {
-                    notices.clear();
-                }
-            }
-            let (at, held) = notices
-                .entry(key.clone())
-                .or_insert_with(|| (now, Vec::new()));
-            *at = now;
-            merge_notice_days(held, days);
-        }
+        self.notices.record(key, Stamp::Latest, |held| {
+            let mut held = held.unwrap_or_default();
+            merge_notice_days(&mut held, days);
+            held
+        });
     }
 
     /// Consume and return what `key`'s turn recorded.
     #[must_use]
     pub fn take(&self, key: &TurnKey) -> Vec<NoticeDay> {
-        self.notices
-            .lock()
-            .ok()
-            .and_then(|mut notices| notices.remove(key))
-            .map(|(_, days)| days)
-            .unwrap_or_default()
+        self.notices.take(key).unwrap_or_default()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::error::Error;
-    use std::time::Duration;
 
     use super::*;
     use crate::implementations::endurance_workouts_output::PrescribeWorkoutResult;
@@ -860,41 +834,6 @@ mod tests {
             store.take(&turn),
             Vec::<NoticeDay>::new(),
             "bug: a notice is taken once"
-        );
-    }
-
-    /// Ages the entries by reading them from a later `now`, because an `Instant`
-    /// cannot reach back past a freshly booted machine's clock start.
-    #[test]
-    fn overflow_drops_abandoned_notices_before_a_live_one() {
-        let store = EnvelopeNotices::new();
-        let later = Instant::now() + TURN_TTL + Duration::from_secs(1);
-        let live = TurnKey::new(None, "turn-live");
-        store.record_at(&live, vec![day("ratio_ceiling")], later);
-        for turn in 0..NOTICE_CAP {
-            store.notices.lock().expect("lock").insert(
-                TurnKey::new(None, format!("turn-{turn}")),
-                (Instant::now(), vec![day("true_tabata")]),
-            );
-        }
-
-        let next = TurnKey::new(None, "turn-next");
-        store.record_at(&next, vec![day("true_tabata")], later);
-
-        assert_eq!(
-            store.notices.lock().expect("lock").len(),
-            2,
-            "bug: only the abandoned entries went"
-        );
-        assert_eq!(
-            store.take(&live).len(),
-            1,
-            "bug: a live turn keeps its notice through an overflow"
-        );
-        assert_eq!(
-            store.take(&next).len(),
-            1,
-            "bug: the turn that overflowed the store keeps its own"
         );
     }
 }
