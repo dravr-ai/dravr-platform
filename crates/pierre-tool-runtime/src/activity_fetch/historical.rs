@@ -11,9 +11,9 @@ use chrono::Utc;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
-use pierre_database::repositories::{historical_depth_covered, BackfillJobKind, BackfillJobState};
+use pierre_database::repositories::historical_depth_covered;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_services::training_history_read::history_store_keys;
+use pierre_services::training_history_read::{history_store_keys, walk_across_pair, PairWalk};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -238,31 +238,27 @@ pub async fn serve_covered_history(
 }
 
 /// Whether a history walk under any of `provider_slug`'s history keys is
-/// owed: recorded, running or waiting for the resume sweep. A ledger that
-/// cannot be read counts as no walk, so the window is read as before.
+/// owed: recorded, running or waiting for the resume sweep
+/// ([`walk_across_pair`]). A ledger that cannot be read counts as no walk,
+/// so the window is read as before.
 async fn history_walk_owed(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> bool {
-    let jobs = &runtime.repos().activity_backfill_jobs;
-    for key in history_store_keys(provider_slug) {
-        match jobs
-            .backfill_job_state(user_id, tenant_id, key, BackfillJobKind::HistoryWalk)
-            .await
-        {
-            Ok(Some(BackfillJobState::Owed)) => return true,
-            Ok(_) => {}
-            Err(e) => warn!(
+    match walk_across_pair(runtime.repos(), user_id, tenant_id, provider_slug).await {
+        Ok(walk) => matches!(walk, PairWalk::Owed { .. }),
+        Err(e) => {
+            warn!(
                 user_id = %user_id,
-                provider = %key,
+                provider = %provider_slug,
                 error = %e,
-                "history walk state read failed; the key counts as not walking"
-            ),
+                "history walk state read failed; the window reads as not walking"
+            );
+            false
         }
     }
-    false
 }
 
 /// Whether a walk or a backfill under any of `provider_slug`'s history keys
