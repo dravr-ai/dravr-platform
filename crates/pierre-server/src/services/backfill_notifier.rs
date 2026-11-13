@@ -605,6 +605,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
             activity_count,
             kind,
             asked_message_id,
+            provider_unavailable,
         } = completion;
         let Some(destination) = self
             .resolve_destination(user_id, tenant_id, pierre_conversation_id)
@@ -644,12 +645,17 @@ impl BackfillNotifier for ServerBackfillNotifier {
             }
         }
         // A live read the athlete has asked past gets one line, never an
-        // answer to the question they moved on from.
+        // answer to the question they moved on from. A read that gave up
+        // gets nothing: that line says data landed, and none did.
         if kind == BackfillJobKind::LiveRead
             && self
                 .overtaken(user_id, tenant_id, pierre_conversation_id, asked_message_id)
                 .await
         {
+            if provider_unavailable {
+                info!("A live read that gave up was asked past; nothing is left to tell");
+                return;
+            }
             let ask = (user_id, tenant_id, pierre_conversation_id);
             self.post_overtaken_note(destination, ask, &locale, activity_count)
                 .await;
@@ -682,7 +688,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
         match destination {
             Destination::Channel(route) => {
-                let reply = if warmed.is_empty() {
+                // A read that gave up is answered by the agent alone, which
+                // words the provider being unavailable: the nudge and the
+                // list both say data landed.
+                let reply = if warmed.is_empty() && !provider_unavailable {
                     // Cache read came back empty (it shouldn't, post-backfill):
                     // the user still hears that their history loaded.
                     RenderedReply::plain(self.ready_nudge(
@@ -726,6 +735,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
                             &self.strings,
                             &locale,
                         ),
+                        None if provider_unavailable => {
+                            info!("The re-ask of a live read that gave up was withheld; nothing is sent");
+                            return;
+                        }
                         None => RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
                     }
                 };
@@ -748,7 +761,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     notifications: self.notifications.as_ref(),
                     transport_policy: derived_from,
                 };
-                if warmed.is_empty() {
+                if warmed.is_empty() && !provider_unavailable {
                     let nudge =
                         self.ready_nudge(&locale, activity_count, &warmed, withheld.is_empty());
                     delivery
@@ -780,6 +793,8 @@ impl BackfillNotifier for ServerBackfillNotifier {
                         "Delivered the agent's backfill answer into the in-app conversation"
                     );
                     delivery.ping(user_id, tenant_id, &locale, count).await;
+                } else if provider_unavailable {
+                    info!("The re-ask of a live read that gave up was withheld; nothing is stored");
                 } else {
                     // The deterministic list is the spine here as on a
                     // channel — one text, no attachments.

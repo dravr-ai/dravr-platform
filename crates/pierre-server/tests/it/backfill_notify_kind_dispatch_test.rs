@@ -214,6 +214,58 @@ async fn a_live_read_whose_ask_is_still_the_newest_answers_it() {
     );
 }
 
+/// A live read whose every attempt failed still answers the ask it was bound
+/// to, by re-asking it: the agent words the provider being unavailable. When
+/// that answer is withheld nothing is sent — the list and the ready nudge
+/// both say data landed, and none did.
+#[tokio::test]
+async fn a_live_read_that_gave_up_re_asks_and_never_posts_the_list() {
+    let thread = telegram_thread().await;
+    let asked = add(&thread, "user", "How far did I run this month?", None).await;
+
+    thread
+        .notifier
+        .push_backfill_complete(BackfillCompletion {
+            provider_unavailable: true,
+            ..live_read(&thread, Some(&asked))
+        })
+        .await;
+
+    assert_eq!(
+        thread.post.asked.lock().unwrap().as_slice(),
+        ["How far did I run this month?"],
+        "bug: the ask a read that gave up was bound to is not re-asked"
+    );
+    assert!(
+        sent_bodies(&thread).is_empty(),
+        "bug: a read that gave up posted a list or a note saying its data landed: {:?}",
+        sent_bodies(&thread)
+    );
+}
+
+/// The same read, asked past: the overtaken note says the data landed, which
+/// is untrue here, so nothing is posted and nothing re-asked.
+#[tokio::test]
+async fn a_live_read_that_gave_up_and_was_asked_past_posts_nothing() {
+    let thread = telegram_thread().await;
+    let asked = add(&thread, "user", "How far did I run this month?", None).await;
+    add(&thread, "user", "Should I rest tomorrow?", None).await;
+
+    thread
+        .notifier
+        .push_backfill_complete(BackfillCompletion {
+            provider_unavailable: true,
+            ..live_read(&thread, Some(&asked))
+        })
+        .await;
+
+    assert!(
+        sent_bodies(&thread).is_empty(),
+        "bug: a read that gave up told the athlete its data landed"
+    );
+    assert!(thread.post.asked.lock().unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn a_backfill_is_never_taken_for_overtaken() {
     let thread = telegram_thread().await;

@@ -17,6 +17,7 @@
 
 use crate::common;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
 use std::sync::{Mutex, OnceLock};
@@ -62,6 +63,8 @@ pub(crate) struct GatedProvider {
     rows: Vec<Activity>,
     pub(crate) expired: bool,
     pub(crate) fails: bool,
+    /// Every list read the provider was asked for, counted as it starts.
+    pub(crate) reads: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -94,6 +97,7 @@ impl FitnessProvider for GatedProvider {
         &self,
         _params: &ActivityQueryParams,
     ) -> AppResult<Vec<Activity>> {
+        self.reads.fetch_add(1, Ordering::SeqCst);
         self.gate.notified().await;
         if self.expired {
             return Err(AppError::provider_auth_required(PROVIDER));
@@ -147,6 +151,7 @@ pub(crate) fn gated(gate: &Arc<Notify>, rows: Vec<Activity>) -> Box<GatedProvide
         rows,
         expired: false,
         fails: false,
+        reads: Arc::new(AtomicUsize::new(0)),
     })
 }
 

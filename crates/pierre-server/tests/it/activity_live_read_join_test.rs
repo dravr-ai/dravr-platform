@@ -18,10 +18,11 @@
 
 use crate::activity_live_read_budget_test::{
     activity, answer_of, asked, gated, live_read_state, notified_runtime, settled_follow_ups,
-    uncached_notified_runtime, wait_until_finished, Answer, BUDGET, PROVIDER,
+    uncached_notified_runtime, wait_until_finished, window, Answer, BUDGET, PROVIDER,
 };
 use crate::common;
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration as StdDuration;
 
@@ -784,4 +785,207 @@ async fn a_failed_read_waits_its_backoff_for_the_sweep_but_not_for_an_ask() {
         "bug: an ask takes a failed read's idle row over at once"
     );
     wait_until_finished(&runtime, user_id, tenant_id).await;
+}
+
+/// Ask past the budget through a provider that then fails, `ask` taking
+/// over the pair's idle row when a failed read left one: the turn answers
+/// from the cache, then the attempt fails once it is let through. Returns
+/// once the failed attempt settled its row.
+async fn fail_an_ask(runtime: &Arc<dyn ToolRuntime>, ask: OwnedLiveRead, last: bool) {
+    let (user_id, tenant_id) = (ask.user_id, ask.tenant_id);
+    let gate = Arc::new(Notify::new());
+    let mut failing = gated(&gate, Vec::new());
+    failing.fails = true;
+    let answer = read_live_window_within_budget(runtime, failing, ask, BUDGET).await;
+    assert!(
+        matches!(answer_of(answer), Answer::Cached(_)),
+        "the turn answers from the cache past its budget, owed a follow-up"
+    );
+    gate.notify_one();
+    let settled = timeout(StdDuration::from_secs(5), async {
+        loop {
+            let settled = if last {
+                live_read_state(runtime, user_id, tenant_id).await.is_none()
+            } else {
+                lease_state(runtime, user_id, tenant_id).await == Some(JobLeaseState::Idle)
+            };
+            if settled {
+                return;
+            }
+            sleep(StdDuration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        settled.is_ok(),
+        "bug: the failed attempt never settled its row"
+    );
+}
+
+/// A notifier that records every follow-up and re-asks its question in
+/// process, as the chat pipeline does, through a provider that counts its
+/// reads and never answers one.
+struct UnavailableReAsk {
+    runtime: OnceLock<Arc<dyn ToolRuntime>>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    reads: Arc<AtomicUsize>,
+    sent: Mutex<Vec<(String, Option<String>, bool)>>,
+    re_asks: Mutex<Vec<(Answer, StdDuration)>>,
+}
+
+impl UnavailableReAsk {
+    fn new(user_id: Uuid, tenant_id: TenantId) -> Self {
+        Self {
+            runtime: OnceLock::new(),
+            user_id,
+            tenant_id,
+            reads: Arc::default(),
+            sent: Mutex::default(),
+            re_asks: Mutex::default(),
+        }
+    }
+}
+
+#[async_trait]
+impl BackfillNotifier for UnavailableReAsk {
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>) {
+        self.sent.lock().unwrap().push((
+            completion.pierre_conversation_id.to_owned(),
+            completion.asked_message_id.map(ToOwned::to_owned),
+            completion.provider_unavailable,
+        ));
+        let runtime = Arc::clone(self.runtime.get().expect("the runtime is set"));
+        let never = Arc::new(Notify::new());
+        let provider = gated(&never, vec![activity("never", 0)]);
+        let reads = Arc::clone(&provider.reads);
+        let started = Instant::now();
+        let re_ask = timeout(
+            StdDuration::from_secs(5),
+            read_live_window_within_budget(
+                &runtime,
+                provider,
+                asked(
+                    self.user_id,
+                    self.tenant_id,
+                    completion.pierre_conversation_id,
+                    completion.asked_message_id.unwrap_or("msg-re-ask"),
+                ),
+                TURN_BUDGET,
+            ),
+        )
+        .await
+        .expect("bug: the re-ask of a read that gave up waited on a provider");
+        self.reads
+            .fetch_add(reads.load(Ordering::SeqCst), Ordering::SeqCst);
+        self.re_asks
+            .lock()
+            .unwrap()
+            .push((answer_of(re_ask), started.elapsed()));
+    }
+
+    async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
+        0
+    }
+}
+
+/// A runtime following up through an [`UnavailableReAsk`], one row cached.
+async fn unavailable_runtime() -> (Arc<dyn ToolRuntime>, Arc<UnavailableReAsk>, Uuid, TenantId) {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&resources.agent.database)
+        .await
+        .unwrap();
+    let tenant_id = TenantId::from_uuid(Uuid::new_v4());
+    let notifier = Arc::new(UnavailableReAsk::new(user_id, tenant_id));
+    let mut context = (*resources).clone();
+    context.mcp.backfill_notifier = Some(notifier.clone());
+    let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
+    assert!(notifier.runtime.set(Arc::clone(&runtime)).is_ok());
+    runtime
+        .repos()
+        .activity_cache
+        .upsert_activities(user_id, &tenant_id, PROVIDER, &[activity("cached", 3)])
+        .await
+        .unwrap();
+    (runtime, notifier, user_id, tenant_id)
+}
+
+/// Three asks each answered from the cache past their budget, each
+/// promised a follow-up, and each attempt fails: the last spends the read's
+/// attempts and its row is dropped. The ask it was bound to — the newest —
+/// still gets its one follow-up. Its re-ask reads no provider (the read gave
+/// up, and another would loop): it answers from what is stored, at once,
+/// as a read that did not run, which the model words as the provider being
+/// unavailable.
+#[tokio::test]
+async fn a_read_that_spends_its_attempts_still_follows_up_its_ask_once() {
+    let (runtime, notifier, user_id, tenant_id) = unavailable_runtime().await;
+    fail_an_ask(
+        &runtime,
+        asked(user_id, tenant_id, "conv-1", "msg-1"),
+        false,
+    )
+    .await;
+    fail_an_ask(
+        &runtime,
+        asked(user_id, tenant_id, "conv-1", "msg-2"),
+        false,
+    )
+    .await;
+    fail_an_ask(&runtime, asked(user_id, tenant_id, "conv-1", "msg-3"), true).await;
+    sleep(StdDuration::from_millis(500)).await;
+
+    assert_eq!(
+        notifier.sent.lock().unwrap().as_slice(),
+        [("conv-1".to_owned(), Some("msg-3".to_owned()), true)],
+        "bug: a read that spent its attempts owes the ask it is bound to exactly one follow-up, \
+         saying the provider stayed unavailable"
+    );
+    let re_asks = notifier.re_asks.lock().unwrap().clone();
+    assert_eq!(re_asks.len(), 1);
+    let (answer, took) = re_asks[0].clone();
+    assert_eq!(
+        answer,
+        Answer::Unread(names(&["cached"])),
+        "bug: the re-ask must answer what is stored, as a read that did not run"
+    );
+    assert!(
+        took < StdDuration::from_secs(2),
+        "bug: the re-ask waited out its budget ({took:?})"
+    );
+    assert_eq!(
+        notifier.reads.load(Ordering::SeqCst),
+        0,
+        "bug: the re-ask of a read that gave up read the provider again"
+    );
+    assert_eq!(
+        live_read_state(&runtime, user_id, tenant_id).await,
+        None,
+        "bug: the re-ask started another read"
+    );
+}
+
+/// The same three failures for reads no conversation asked (a stale head's
+/// top-up): nothing is bound to follow up, and nothing is posted.
+#[tokio::test]
+async fn a_read_no_ask_is_bound_to_spends_its_attempts_silently() {
+    let (runtime, notifier, user_id, tenant_id) = unavailable_runtime().await;
+    fail_an_ask(&runtime, window(user_id, tenant_id), false).await;
+    fail_an_ask(&runtime, window(user_id, tenant_id), false).await;
+    fail_an_ask(&runtime, window(user_id, tenant_id), true).await;
+    sleep(StdDuration::from_millis(500)).await;
+    assert!(
+        notifier.sent.lock().unwrap().is_empty(),
+        "bug: a read no ask is bound to posted a follow-up"
+    );
 }

@@ -234,6 +234,10 @@ enum AfterJoin {
 
 /// Wait, until `deadline`, on the live read of the pair this ask joined.
 ///
+/// - The read gave up here, its last attempt failed: the cached window
+///   answers at once, as a read that did not run ([`BudgetedRead::Unread`]).
+///   The follow-up that read owed re-asks the question here, and must not
+///   read the provider again.
 /// - The read landed here over this window: its rows answer as current
 ///   ([`BudgetedRead::Landed`]). The follow-up of a read that outlived its
 ///   turn re-asks the question while the run still holds the pair, and
@@ -358,8 +362,9 @@ async fn landed_answer(
     })
 }
 
-/// What the joined read answers this ask with now: the rows it landed over
-/// this window, or the cached rows while it still owes this ask a follow-up.
+/// What the joined read answers this ask with now: the cached rows as
+/// unread when it gave up, the rows it landed over this window, or the
+/// cached rows while it still owes this ask a follow-up.
 async fn answer_beside(
     runtime: &Arc<dyn ToolRuntime>,
     joined: &JoinedRead,
@@ -371,6 +376,17 @@ async fn answer_beside(
         tenant_id,
         params,
     } = *window;
+    if joined.gave_up() {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            "the live activity read of this provider gave up; answering the cached window as unread"
+        );
+        let cached = serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params)
+            .await
+            .unwrap_or_default();
+        return Some(BudgetedRead::Unread(cached));
+    }
     if let Some(landed) = landed_answer(runtime, joined, window).await {
         return Some(landed);
     }

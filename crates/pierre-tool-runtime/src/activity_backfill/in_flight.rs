@@ -66,6 +66,12 @@ pub(crate) enum InFlight {
         count: usize,
         served_by_grant: Option<String>,
     },
+    /// A live read spent its last attempt and its row is gone: what is left
+    /// of the run is the follow-up it owed the ask it was bound to. That
+    /// follow-up's re-ask, and every ask meanwhile, is answered from what is
+    /// stored, the provider unavailable: nothing reads it again, or a
+    /// provider that keeps failing would be re-asked in a loop.
+    GaveUp,
 }
 
 /// A run's hold on its in-flight key. Only the claim that holds the key
@@ -162,16 +168,17 @@ pub(super) fn release_in_flight(claim: &InFlightClaim) {
     }
 }
 
-/// Mark the run holding `claim` as `landed` ([`InFlight::Landed`]). A key
-/// the claim no longer holds is left alone: only its holder settles it.
-pub(super) fn mark_in_flight_landed(claim: &InFlightClaim, landed: InFlight) {
+/// Mark how far the run holding `claim` got: [`InFlight::Landed`] or
+/// [`InFlight::GaveUp`]. A key the claim no longer holds is left alone: only
+/// its holder settles it.
+pub(super) fn mark_in_flight(claim: &InFlightClaim, state: InFlight) {
     if let Some(run) = IN_FLIGHT_BACKFILLS
         .lock()
         .unwrap_or_else(PoisonError::into_inner)
         .get(&claim.key)
         .filter(|run| run.claim == claim.id)
     {
-        run.state.send_replace(landed);
+        run.state.send_replace(state);
     }
 }
 
@@ -196,7 +203,7 @@ mod tests {
         let Claim::Held(watcher) = claim(&key, |_| false) else {
             panic!("bug: a held key is watched, not taken");
         };
-        mark_in_flight_landed(&first, landed());
+        mark_in_flight(&first, landed());
         let Claim::Claimed(successor) = claim(&key, |run| matches!(run, InFlight::Landed { .. }))
         else {
             panic!("bug: a landed run an ask succeeds gives the key up");
@@ -207,7 +214,7 @@ mod tests {
         );
 
         release_in_flight(&first);
-        mark_in_flight_landed(&first, landed());
+        mark_in_flight(&first, landed());
         let Claim::Held(after) = claim(&key, |_| false) else {
             panic!("bug: the run succeeded released its successor's key");
         };
@@ -232,7 +239,7 @@ mod tests {
         let Claim::Claimed(first) = claim(&key, |_| true) else {
             panic!("a free key is claimed");
         };
-        mark_in_flight_landed(&first, landed());
+        mark_in_flight(&first, landed());
         let Claim::Claimed(successor) = claim(&key, |run| matches!(run, InFlight::Landed { .. }))
         else {
             panic!("a landed run a wider ask succeeds gives the key up");

@@ -28,6 +28,12 @@
 //! lease back: its row stays owed for the sweep's bounded retries, but the
 //! next ask finds it idle, takes it over and reads it in its own turn
 //! ([`take_over_idle`]) — that ask's answer is the follow-up it was owed.
+//!
+//! A read whose last attempt fails still owes the ask it is bound to its
+//! follow-up ([`give_up`]). Its run then reads [`InFlight::GaveUp`]: the
+//! follow-up's re-ask joins it and is answered from what is stored, the
+//! provider unavailable, never by another read that would fail and follow
+//! up again.
 
 use std::fmt;
 
@@ -44,9 +50,9 @@ use tokio::time::timeout;
 use tracing::{info, instrument, warn};
 
 use super::{
-    enqueue, job_row, keep_backfill_lease, lease_ms, mark_in_flight_landed, notify_backfill_reauth,
-    now_ms, rebind_live_read, remove_backfill_job, settle_backfill_job, ActivityBackfillJob,
-    BackfillRunOutcome, Enqueued, InFlight, InFlightClaim, MAX_BACKFILL_ATTEMPTS,
+    enqueue, job_row, keep_backfill_lease, lease_ms, mark_in_flight, notify_backfill_reauth,
+    now_ms, rebind_live_read, remove_backfill_job, ActivityBackfillJob, Enqueued, InFlight,
+    InFlightClaim, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::read_live_window;
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
@@ -188,8 +194,19 @@ impl JoinedRead {
             } if covers(params, *count, &self.job.query_params) => Some(LandedOver {
                 served_by_grant: served_by_grant.clone(),
             }),
-            InFlight::Landed { .. } | InFlight::Running => None,
+            InFlight::Landed { .. } | InFlight::Running | InFlight::GaveUp => None,
         }
+    }
+
+    /// Whether the read joined here spent its last attempt
+    /// ([`InFlight::GaveUp`]): the ask is answered from what is stored, the
+    /// provider unavailable, and reads nothing. Still answered once the run
+    /// has ended.
+    #[must_use]
+    pub fn gave_up(&self) -> bool {
+        self.here
+            .as_ref()
+            .is_some_and(|run| matches!(*run.borrow(), InFlight::GaveUp))
     }
 
     /// Whether the read joined still runs: the run here is still reading,
@@ -198,7 +215,7 @@ impl JoinedRead {
     /// waiting for a retry, not running.
     pub async fn running(&self) -> bool {
         if let Some(run) = &self.here {
-            if matches!(*run.borrow(), InFlight::Landed { .. }) {
+            if matches!(*run.borrow(), InFlight::Landed { .. } | InFlight::GaveUp) {
                 return false;
             }
             if run.has_changed().is_ok() {
@@ -228,7 +245,9 @@ impl JoinedRead {
                     Ok(Some(JobLeaseState::Leased) | None)
                 );
         };
-        if matches!(*run.borrow(), InFlight::Landed { .. }) || run.has_changed().is_err() {
+        if matches!(*run.borrow(), InFlight::Landed { .. } | InFlight::GaveUp)
+            || run.has_changed().is_err()
+        {
             return false;
         }
         // An ask with no conversation is owed nothing a follow-up could post.
@@ -431,33 +450,50 @@ pub(super) async fn run_live_read(
             count: *count,
             served_by_grant: head.served_by_grant.clone(),
         };
-        mark_in_flight_landed(claim, landed);
+        mark_in_flight(claim, landed);
     }
     let delivered = reply.is_some_and(|reply| reply.send(output).is_ok());
-    settle(job, attempt, recorded, bound, delivered, attempt_started_at).await;
+    let ended = Ended {
+        bound,
+        delivered,
+        attempt_started_at,
+    };
+    settle(job, claim, attempt, recorded, ended).await;
 }
 
-/// Settle the row of an attempt that ended as `attempt`; `bound` is the ask
-/// a landed read's finished row was bound to, `delivered` whether the turn
-/// that asked heard the answer itself.
+/// How an attempt's answer went out, for its row.
+struct Ended {
+    /// The ask a landed read's finished row was bound to.
+    bound: Option<LiveReadAsk>,
+    /// Whether the turn that asked heard the answer itself.
+    delivered: bool,
+    /// When the attempt began.
+    attempt_started_at: DateTime<Utc>,
+}
+
+/// Settle the row of an attempt that ended as `attempt`.
 async fn settle(
     job: &ActivityBackfillJob,
+    claim: &InFlightClaim,
     attempt: Attempt,
     recorded: Option<(JobLease, i64)>,
-    bound: Option<LiveReadAsk>,
-    delivered: bool,
-    attempt_started_at: DateTime<Utc>,
+    ended: Ended,
 ) {
+    let Ended {
+        bound,
+        delivered,
+        attempt_started_at,
+    } = ended;
     match (attempt, recorded) {
         (Attempt::Landed(count), Some(_)) => {
             if let Some(ask) = bound {
                 if !delivered || rebound(job, &ask) {
-                    follow_up(job, &ask, count).await;
+                    follow_up(job, &ask, count, Landing::Landed).await;
                 }
             }
         }
         (Attempt::Landed(count), None) if !delivered => {
-            follow_up(job, &own_ask(job), count).await;
+            follow_up(job, &own_ask(job), count, Landing::Landed).await;
         }
         (Attempt::AuthRequired, recorded) => {
             if !delivered {
@@ -468,13 +504,18 @@ async fn settle(
             }
         }
         (Attempt::Failed, Some((lease, attempts))) if !delivered => {
-            give_back(job, &lease, attempts).await;
+            give_back(job, claim, &lease, attempts).await;
         }
         (Attempt::Failed, Some((lease, attempts))) => {
             // The turn heard of the failure itself; only a newer ask the
-            // row was rebound to is still owed, and it keeps the row.
-            if let Some(ask) = finish(job, &lease).await {
-                if rebound(job, &ask) {
+            // row was rebound to is still owed. It keeps the row while the
+            // read has attempts left, and is told the read gave up once it
+            // has none.
+            let newer = finish(job, &lease).await.filter(|ask| rebound(job, ask));
+            if let Some(ask) = newer {
+                if attempts >= MAX_BACKFILL_ATTEMPTS {
+                    answer_given_up(job, claim, &ask).await;
+                } else {
                     owe(job, ask, attempts).await;
                 }
             }
@@ -489,10 +530,15 @@ async fn settle(
 /// runs ([`take_over_idle`]). The sweep waits a lease's length before that
 /// attempt, as it did while a failed attempt kept its lease, so a failing
 /// provider is not spent through every attempt in minutes. Its last attempt
-/// drops the row instead ([`settle_backfill_job`]).
-async fn give_back(job: &ActivityBackfillJob, lease: &JobLease, attempts: i64) {
+/// gives up instead ([`give_up`]).
+async fn give_back(
+    job: &ActivityBackfillJob,
+    claim: &InFlightClaim,
+    lease: &JobLease,
+    attempts: i64,
+) {
     if attempts >= MAX_BACKFILL_ATTEMPTS {
-        settle_backfill_job(job, lease, attempts, &BackfillRunOutcome::Failed).await;
+        give_up(job, claim, lease, attempts).await;
         return;
     }
     match job
@@ -518,6 +564,37 @@ async fn give_back(job: &ActivityBackfillJob, lease: &JobLease, attempts: i64) {
             "Live read: the failed read's lease could not be given back; it lapses on its own"
         ),
     }
+}
+
+/// The read's last attempt failed and no turn heard of it: drop its row, so
+/// the athlete's next ask starts a fresh read, and give the ask it was bound
+/// to the follow-up it was promised ([`answer_given_up`]). A row bound to no
+/// conversation (a stale head's top-up) owes nobody anything.
+async fn give_up(
+    job: &ActivityBackfillJob,
+    claim: &InFlightClaim,
+    lease: &JobLease,
+    attempts: i64,
+) {
+    warn!(
+        user_id = %job.user_id,
+        provider = %job.provider_name,
+        row_id = %lease,
+        attempts,
+        "Live read: failed on its last attempt; dropping the job and telling the ask it was bound to"
+    );
+    if let Some(ask) = finish(job, lease).await {
+        answer_given_up(job, claim, &ask).await;
+    }
+}
+
+/// Follow `ask` up for a read that gave up: the run reads
+/// [`InFlight::GaveUp`] first, so the follow-up's re-ask joins it and is
+/// answered from what is stored, the provider unavailable, without reading
+/// it again.
+async fn answer_given_up(job: &ActivityBackfillJob, claim: &InFlightClaim, ask: &LiveReadAsk) {
+    mark_in_flight(claim, InFlight::GaveUp);
+    follow_up(job, ask, 0, Landing::GaveUp).await;
 }
 
 /// Read the job's window once, through `authenticated` or a provider this
@@ -682,10 +759,24 @@ async fn owe(job: &ActivityBackfillJob, ask: LiveReadAsk, attempts: i64) {
     }
 }
 
-/// Answer the conversation `ask` names, now that the read landed: a re-ask of
-/// the athlete's question, or a note that its data landed when they have
-/// asked something newer since — the notifier tells which.
-async fn follow_up(job: &ActivityBackfillJob, ask: &LiveReadAsk, activity_count: usize) {
+/// Whether the read a follow-up answers for landed, or gave up.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Landing {
+    /// The read landed its rows.
+    Landed,
+    /// Every attempt failed: the provider stayed unavailable.
+    GaveUp,
+}
+
+/// Answer the conversation `ask` names, now that the read landed or gave up:
+/// a re-ask of the athlete's question, or a note that its data landed when
+/// they have asked something newer since — the notifier tells which.
+async fn follow_up(
+    job: &ActivityBackfillJob,
+    ask: &LiveReadAsk,
+    activity_count: usize,
+    landing: Landing,
+) {
     let (Some(conversation_id), Some(notifier)) = (
         ask.conversation_id.as_deref(),
         job.resources.backfill_notifier(),
@@ -697,7 +788,8 @@ async fn follow_up(job: &ActivityBackfillJob, ask: &LiveReadAsk, activity_count:
         provider = %job.provider_name,
         turn_id = ?ask.turn_id,
         activities = activity_count,
-        "Live read landed after its turn; answering the conversation that asked"
+        gave_up = landing == Landing::GaveUp,
+        "Live read ended after its turn; answering the conversation that asked"
     );
     notifier
         .push_backfill_complete(BackfillCompletion {
@@ -709,6 +801,7 @@ async fn follow_up(job: &ActivityBackfillJob, ask: &LiveReadAsk, activity_count:
             activity_count,
             kind: BackfillJobKind::LiveRead,
             asked_message_id: ask.asked_message_id.as_deref(),
+            provider_unavailable: landing == Landing::GaveUp,
         })
         .await;
 }

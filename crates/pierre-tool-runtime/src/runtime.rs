@@ -82,6 +82,11 @@ pub struct BackfillCompletion<'a> {
     /// The athlete's message a live read answers; `None` for every other
     /// kind, and for a read no stored message asked.
     pub asked_message_id: Option<&'a str>,
+    /// A [`BackfillJobKind::LiveRead`] that never landed: every attempt
+    /// failed, so nothing new is stored. Its re-ask is answered from what
+    /// was, labelled as the provider being unavailable, which the model
+    /// words; no note or list says data landed. `false` for every other kind.
+    pub provider_unavailable: bool,
 }
 
 impl<'a> BackfillCompletion<'a> {
@@ -105,6 +110,7 @@ impl<'a> BackfillCompletion<'a> {
             activity_count,
             kind: BackfillJobKind::Backfill,
             asked_message_id: None,
+            provider_unavailable: false,
         }
     }
 }

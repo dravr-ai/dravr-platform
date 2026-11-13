@@ -78,8 +78,8 @@ pub mod live_read;
 mod reauth;
 
 use in_flight::{
-    claim, claim_in_flight, in_flight_key, mark_in_flight_landed, release_in_flight, Claim,
-    InFlight, InFlightClaim,
+    claim, claim_in_flight, in_flight_key, mark_in_flight, release_in_flight, Claim, InFlight,
+    InFlightClaim,
 };
 pub use reauth::backfill_session_expired;
 use reauth::notify_backfill_reauth;
