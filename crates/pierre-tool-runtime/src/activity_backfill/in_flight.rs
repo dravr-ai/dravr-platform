@@ -301,7 +301,7 @@ mod tests {
             panic!("a free key is claimed");
         };
         let task = tokio::spawn(async move {
-            job_that_panics().await;
+            job_that_panics();
             release_in_flight(&claim);
         });
         assert!(task.await.is_err(), "the job's task panicked");
@@ -311,7 +311,7 @@ mod tests {
         );
     }
 
-    async fn job_that_panics() {
+    fn job_that_panics() {
         panic!("a job that panics mid-run");
     }
 
