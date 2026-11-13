@@ -121,7 +121,7 @@ pub(crate) async fn handle_redeem_signup_code(
     headers: HeaderMap,
     Json(body): Json<RedeemSignupCodeRequest>,
 ) -> AppResult<Response> {
-    let user = session_account(&resources, &headers, "redeem a signup code").await?;
+    let user = session_account(&resources, &headers).await?;
     let client = client_address(&resources.rate_limiter, peer, &headers);
     meter_signup_code(&resources.rate_limiter, client).await?;
 
