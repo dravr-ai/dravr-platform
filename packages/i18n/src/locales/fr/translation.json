@@ -3835,10 +3835,10 @@
       "incomplete": "La copie de ton historique {{provider}} ne s'est pas terminée",
       "needed": "Tes anciennes activités {{provider}} ne sont pas encore là",
       "retry": "Réessayer",
-      "explainer": "Connecte-toi une fois avec ton compte {{provider}} : on copie tes anciennes activités et un an de bien-être, puis on oublie cette connexion.",
+      "explainer": "Connecte-toi avec ton compte {{provider}} pour importer tes anciennes activités et un an de bien-être. Ta connexion les garde ensuite à jour.",
       "add": "Ajouter l'historique",
-      "modalIntro": "Connecte-toi une fois pour copier ton historique ; {{provider}} continue d'envoyer tes nouvelles séances.",
-      "modalCopying": "Copie de ton historique en cours — une seule fois."
+      "modalIntro": "Connecte-toi pour importer ton historique {{provider}}. Ta connexion continue aussi d'envoyer tes nouvelles séances.",
+      "modalCopying": "Import de ton historique en cours — cela peut prendre quelques minutes."
     },
     "migration": {
       "oauthRequired": "Passe à la connexion officielle de {{provider}}"

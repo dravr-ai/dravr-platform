@@ -3835,10 +3835,10 @@
       "incomplete": "Dein {{provider}}-Verlauf wurde nicht vollständig kopiert",
       "needed": "Deine früheren {{provider}}-Aktivitäten sind noch nicht da",
       "retry": "Erneut versuchen",
-      "explainer": "Melde dich einmal mit deinem {{provider}}-Konto an: Wir kopieren deine früheren Aktivitäten und ein Jahr Wellness-Daten und vergessen diese Anmeldung danach.",
+      "explainer": "Melde dich mit deinem {{provider}}-Konto an, um deine früheren Aktivitäten und ein Jahr Wellness-Daten zu übernehmen. Deine Anmeldung hält sie danach aktuell.",
       "add": "Verlauf hinzufügen",
-      "modalIntro": "Melde dich einmal an, um deinen Verlauf zu kopieren; {{provider}} liefert deine neuen Trainings weiter.",
-      "modalCopying": "Dein Verlauf wird kopiert – das passiert nur einmal."
+      "modalIntro": "Melde dich an, um deinen {{provider}}-Verlauf zu übernehmen. Über deine Anmeldung kommen auch deine neuen Trainings weiter an.",
+      "modalCopying": "Dein Verlauf wird übernommen – das kann ein paar Minuten dauern."
     },
     "migration": {
       "oauthRequired": "Wechsle zur offiziellen {{provider}}-Verbindung"

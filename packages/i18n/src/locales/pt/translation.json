@@ -3835,10 +3835,10 @@
       "incomplete": "A cópia do teu histórico do {{provider}} não terminou",
       "needed": "As tuas atividades anteriores do {{provider}} ainda não estão cá",
       "retry": "Tentar novamente",
-      "explainer": "Inicia sessão uma vez com a tua conta {{provider}}: copiamos as tuas atividades anteriores e um ano de bem-estar e depois esquecemos esse início de sessão.",
+      "explainer": "Inicia sessão com a tua conta {{provider}} para trazer as tuas atividades anteriores e um ano de bem-estar. Depois, o teu início de sessão mantém-nas atualizadas.",
       "add": "Adicionar histórico",
-      "modalIntro": "Inicia sessão uma vez para copiar o teu histórico; o {{provider}} continua a enviar os teus novos treinos.",
-      "modalCopying": "A copiar o teu histórico — só acontece uma vez."
+      "modalIntro": "Inicia sessão para trazer o teu histórico do {{provider}}. O teu início de sessão também continua a trazer os teus novos treinos.",
+      "modalCopying": "A trazer o teu histórico — pode demorar alguns minutos."
     },
     "migration": {
       "oauthRequired": "Muda para a ligação oficial do {{provider}}"

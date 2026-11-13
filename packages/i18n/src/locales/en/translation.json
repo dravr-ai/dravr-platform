@@ -3835,10 +3835,10 @@
       "incomplete": "Your {{provider}} history didn't finish copying",
       "needed": "Your past {{provider}} activities aren't here yet",
       "retry": "Try again",
-      "explainer": "Sign in once with your {{provider}} account: we copy your past activities and a year of wellness, then forget that sign-in.",
+      "explainer": "Sign in with your {{provider}} account to bring in your past activities and a year of wellness. Your sign-in then keeps them up to date.",
       "add": "Add history",
-      "modalIntro": "Sign in once to copy your history; {{provider}} keeps your new workouts coming.",
-      "modalCopying": "Copying your history — this runs once."
+      "modalIntro": "Sign in to bring in your {{provider}} history. Your sign-in keeps new workouts coming too.",
+      "modalCopying": "Bringing in your history — this can take a few minutes."
     },
     "migration": {
       "oauthRequired": "Move to {{provider}}'s official connection"
