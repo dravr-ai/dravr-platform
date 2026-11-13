@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, NaiveTime};
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::coverage::{Coverage, CoverageWindow};
+use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow, IncompleteReason};
 use pierre_core::models::{
     DailyTrainingState, FormBand, FormInterpretation, FormReading, TenantId,
 };
@@ -461,13 +461,22 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                 let read =
                     read_history_from_cache(&context.resources, tenant_id, user_id, from, to)
                         .await?;
-                // Rows the stored sessions do warm answer the window; when they
-                // warm none, what the rollup holds still answers, beside the
-                // reason the window is short.
-                if rows.is_empty() || !read.states.is_empty() {
-                    rows = read.states;
-                }
-                let mut coverage = read.coverage;
+                // Rows the stored sessions do warm answer the window, with the
+                // read's coverage. When they warm none, what the rollup holds
+                // still answers, and the coverage says so: the window is short,
+                // and stands behind the rollup from its first row on — never
+                // that nothing was computed, nor a first day past those rows.
+                let mut coverage = match rows.first() {
+                    Some(first) if read.states.is_empty() => Coverage {
+                        completeness: Completeness::Incomplete(IncompleteReason::ShallowHistory),
+                        trustworthy_from: Some(first.date),
+                        ..read.coverage
+                    },
+                    _ => {
+                        rows = read.states;
+                        read.coverage
+                    }
+                };
                 coverage.window.returned = u64::try_from(rows.len()).unwrap_or(u64::MAX);
                 with_pending(&context.resources, (tenant_id, user_id), coverage).await?
             };

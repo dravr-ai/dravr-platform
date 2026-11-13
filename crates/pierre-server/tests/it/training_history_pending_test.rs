@@ -272,11 +272,50 @@ async fn rows_that_start_late_over_a_short_store_ask_the_walk() {
     assert_eq!(coverage["incomplete_reason"], "shallow_history", "{result}");
     assert_eq!(coverage["window"]["returned"], 10, "{result}");
     assert_eq!(
+        coverage["trustworthy_from"].as_str(),
+        result["days"][0]["date"].as_str(),
+        "bug: the coverage vouches from a day other than the first row it returns: {result}"
+    );
+    assert_eq!(
         coverage["pending"],
         json!({ "kind": "history_not_walked" }),
         "{result}"
     );
     assert!(walk_state(&fx).await.is_some(), "bug: no walk was asked");
+}
+
+/// The rollup holds the last ten days and nothing is stored at all: the
+/// rollup's rows answer, and the coverage says they stand from their first
+/// day, never that no row was computed beside the rows it returns.
+#[tokio::test]
+async fn rows_over_nothing_stored_say_they_answer_from_their_first_day() {
+    let fx = fixture().await;
+    persist_last_ten_days(&fx).await;
+    let (_, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
+
+    let result = read_history(&fx).await;
+
+    assert_eq!(
+        result["days"].as_array().map(Vec::len),
+        Some(10),
+        "the rollup's rows still answer: {result}"
+    );
+    let coverage = &result["coverage"];
+    assert_eq!(
+        coverage["incomplete_reason"], "shallow_history",
+        "bug: the coverage says nothing was computed beside the rows it returns: {result}"
+    );
+    assert_eq!(
+        coverage["trustworthy_from"].as_str(),
+        Some((to - Duration::days(9)).format("%Y-%m-%d").to_string().as_str()),
+        "bug: the coverage does not vouch from the first row it returns: {result}"
+    );
+    assert!(
+        coverage["note"]
+            .as_str()
+            .is_some_and(|note| !note.contains("no CTL/ATL/TSB rows were computed")),
+        "bug: the note denies the rows the read returns: {result}"
+    );
 }
 
 /// A walk is running: the read reports its progress and the seconds left at
