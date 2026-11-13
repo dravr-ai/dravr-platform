@@ -33,10 +33,12 @@ use crate::common;
 use crate::history_walk_test::age_job_rows;
 
 use std::collections::HashMap;
+use std::mem;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, TimeZone, Utc};
@@ -85,6 +87,8 @@ pub(crate) struct MockStrava {
     hold: Mutex<Option<Arc<Notify>>>,
     /// Raised when a listing reached the gate.
     held: Notify,
+    /// Whether the held listing fails once the gate lets it go.
+    fail_held: Mutex<bool>,
 }
 
 impl MockStrava {
@@ -131,6 +135,11 @@ impl MockStrava {
         gate
     }
 
+    /// Fail the listing [`Self::hold_next_listing`] holds once it is let go.
+    pub(crate) fn fail_the_held_listing(&self) {
+        *self.fail_held.lock().unwrap() = true;
+    }
+
     /// Wait until a listing reached the gate [`Self::hold_next_listing`] set.
     pub(crate) async fn listing_held(&self) {
         timeout(Duration::from_secs(10), self.held.notified())
@@ -155,7 +164,7 @@ async fn athlete_profile(State(mock): State<Arc<MockStrava>>) -> Json<Value> {
 async fn list_activities(
     State(mock): State<Arc<MockStrava>>,
     Query(query): Query<HashMap<String, String>>,
-) -> Json<Value> {
+) -> Result<Json<Value>, StatusCode> {
     let bound = |name: &str| query.get(name).and_then(|value| value.parse::<i64>().ok());
     let (after, before) = (bound("after"), bound("before"));
     mock.listings.lock().unwrap().push((after, before));
@@ -163,6 +172,9 @@ async fn list_activities(
     if let Some(gate) = hold {
         mock.held.notify_one();
         gate.notified().await;
+        if mem::take(&mut *mock.fail_held.lock().unwrap()) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
     }
     let per_page: usize = query
         .get("per_page")
@@ -180,9 +192,9 @@ async fn list_activities(
         .collect();
     listed.sort_unstable_by(|a, b| b.cmp(a));
     listed.truncate(per_page);
-    Json(Value::Array(
+    Ok(Json(Value::Array(
         listed.iter().map(|start| ride_json(*start)).collect(),
-    ))
+    )))
 }
 
 /// `GET /activities/{id}`: the ride whose id is its start, as a detail.

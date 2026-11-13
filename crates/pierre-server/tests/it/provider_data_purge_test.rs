@@ -1926,6 +1926,16 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
         "bug: the running step records progress on a phase the purge reset"
     );
 
+    assert!(
+        !ledger.end_backfill_job_incomplete(&lease).await.unwrap(),
+        "bug: a step that failed through the purge ended the released walk incomplete"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(released()),
+        "bug: the released walk no longer reads as walked, so no reconnect reopens it"
+    );
+
     assert!(ledger.renew_backfill_job_lease(&lease, 0).await.unwrap());
     assert!(
         ledger

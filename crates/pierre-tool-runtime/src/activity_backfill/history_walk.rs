@@ -86,9 +86,9 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::{
-    capture_with_head, keep_backfill_lease, notify_backfill_reauth, persist_backfill_activities,
-    provider_tenant_id_str, spawn_activity_backfill, warm_training_history, ActivityBackfillJob,
-    BackfillFetch, MAX_BACKFILL_ATTEMPTS,
+    capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms,
+    persist_backfill_activities, provider_tenant_id_str, spawn_activity_backfill,
+    warm_training_history, ActivityBackfillJob, BackfillFetch, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::implementations::data_helpers::historical_backfill_fetch_limit;
@@ -467,9 +467,14 @@ async fn settle_step(
             ledger.end_backfill_job_incomplete(lease).await,
             job,
         ),
+        // Given back with its retry due a lease from now, as a failed live
+        // read's is: the sweep waits as long as it did while the lease ran
+        // out, and a step whose phase a purge reset meanwhile hears so.
         Step::Failed => log_write(
-            "a step failed; the sweep retries it once the lease lapses",
-            Ok(true),
+            "a step failed; the sweep retries it a lease from now",
+            ledger
+                .release_backfill_job_lease(lease, now_ms().saturating_add(lease_ms()))
+                .await,
             job,
         ),
     }

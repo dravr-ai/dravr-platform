@@ -1127,6 +1127,18 @@ async fn a_purge_mid_step_then_a_reconnect_reads_the_purged_range_again() {
         );
         sleep(Duration::from_millis(100)).await;
     }
+    let coverage = fx
+        .resources
+        .common
+        .repos
+        .activity_cache
+        .get_backfill_coverage(fx.user_id, &fx.tenant, oauth_providers::STRAVA)
+        .await
+        .unwrap();
+    assert!(
+        coverage.is_none(),
+        "bug: a step whose phase the purge reset claimed coverage for the grant: {coverage:?}"
+    );
     fx.walk_to_the_end().await;
     let again = fx.strava.listings()[listed..].to_vec();
     assert_eq!(
@@ -1182,4 +1194,39 @@ async fn a_reconnect_during_a_purged_step_is_walked_once_the_step_stops() {
         "bug: the reconnected grant's purged history is not read back"
     );
     assert_eq!(fx.state().await, Some(BackfillJobState::Walked));
+}
+
+/// The same reconnect during the purged step, but the step's request then
+/// fails, as a revoked grant's does: it writes nothing, yet it still hears
+/// its phase was reset as it gives its lease back, and asks for the walk
+/// again, which the reconnected grant reopens at once rather than a lease
+/// later.
+#[tokio::test]
+async fn a_reconnect_during_a_purged_step_that_fails_is_walked_once_it_stops() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let gate = hold_the_second_api_year(&fx, session_oldest).await;
+    fx.strava.fail_the_held_listing();
+    fx.revoke_grant().await;
+    assert!(
+        !fx.reconnect().await,
+        "bug: a reconnect reopened the walk under a step still running"
+    );
+
+    gate.notify_one();
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while fx.state().await != Some(BackfillJobState::Owed) {
+        assert!(
+            Instant::now() < deadline,
+            "bug: a failed step of a purged phase kept its lease and never asked for the walk again"
+        );
+        sleep(Duration::from_millis(50)).await;
+    }
+    fx.walk_to_the_end().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "bug: the reconnected grant's purged history is not read back"
+    );
 }
