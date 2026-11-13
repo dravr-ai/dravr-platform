@@ -89,6 +89,11 @@ async fn add(thread: &Thread, role: &str, content: &str, finish_reason: Option<&
 
 /// A Telegram thread for an `en` athlete, with a warmed window to list.
 async fn telegram_thread() -> Thread {
+    telegram_thread_warmed(true).await
+}
+
+/// A Telegram thread for an `en` athlete, with a warmed window when `warmed`.
+async fn telegram_thread_warmed(warmed: bool) -> Thread {
     let db = create_test_db().await;
     let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
     let (user, tenant) = seed_user(&db).await;
@@ -104,7 +109,9 @@ async fn telegram_thread() -> Thread {
         &conversation,
     )
     .await;
-    seed_activity_cache(&db, user, tenant, &[cached_activity("a-1", "Tempo run", 2)]).await;
+    if warmed {
+        seed_activity_cache(&db, user, tenant, &[cached_activity("a-1", "Tempo run", 2)]).await;
+    }
     let channel = Arc::new(CapturingChannel::default());
     let post = Arc::new(RecordingPost::default());
     let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
@@ -402,4 +409,297 @@ async fn a_walk_end_posts_one_line_in_the_personal_thread() {
             .is_none(),
         "bug: an athlete with no thread gets none forged for a walk's end"
     );
+}
+
+/// A Telegram thread with nothing warmed for the read: the cache read comes
+/// back empty, the case the "ask me again" nudge answers for a read that
+/// landed. A read that gave up never gets it — the nudge says data landed.
+#[tokio::test]
+async fn a_live_read_that_gave_up_on_an_empty_window_sends_no_nudge() {
+    let empty = telegram_thread_warmed(false).await;
+    let asked = add(&empty, "user", "What did I ride in 2019?", None).await;
+
+    empty
+        .notifier
+        .push_backfill_complete(BackfillCompletion {
+            provider_unavailable: true,
+            ..live_read(&empty, Some(&asked))
+        })
+        .await;
+
+    assert_eq!(
+        empty.post.asked.lock().unwrap().as_slice(),
+        ["What did I ride in 2019?"],
+        "the ask a read that gave up was bound to is re-asked"
+    );
+    assert!(
+        sent_bodies(&empty).is_empty(),
+        "bug: a read that gave up sent the ready nudge on a channel: {:?}",
+        sent_bodies(&empty)
+    );
+}
+
+/// The in-app arm of a read that gave up. The agent's re-ask is the only
+/// thing the athlete may receive: never the ready nudge, never the list,
+/// never the "your history is ready" push that a stored answer raises for a
+/// read that landed.
+#[cfg(feature = "client-notifications")]
+mod in_app {
+    use std::time::Duration as StdDuration;
+
+    use pierre_chat_pipeline::{AssistantTurn, ReplyBlock};
+    use pierre_core::models::MessageRecord;
+    use pierre_database::backends::factory::{Database, DatabaseBackend};
+    use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
+    use std::sync::OnceLock;
+    use tokio::time::sleep;
+    use tokio_util::task::TaskTracker;
+
+    use super::*;
+
+    /// How long the fire-and-forget push dispatch is given to store its row.
+    const DISPATCH_SETTLE: StdDuration = StdDuration::from_millis(400);
+
+    /// A platform post that answers in the agent's words and stores the turn,
+    /// or withholds it, as the pipeline does.
+    struct AgentPost {
+        posted: bool,
+        asked: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl PlatformPost for AgentPost {
+        async fn post(&self, req: PlatformPostRequest<'_>) -> Option<PostedReply> {
+            self.asked.lock().unwrap().push(req.prompt.to_owned());
+            if !self.posted {
+                return None;
+            }
+            Some(PostedReply {
+                assistant: AssistantTurn {
+                    message: MessageRecord {
+                        id: "msg-agent".to_owned(),
+                        conversation_id: req.conversation_id.to_owned(),
+                        role: "assistant".to_owned(),
+                        content: "Strava is not answering right now.".to_owned(),
+                        token_count: None,
+                        prompt_tokens: None,
+                        model: None,
+                        finish_reason: Some("stop".to_owned()),
+                        content_blocks: None,
+                        created_at: Utc::now().to_rfc3339(),
+                        transport_policy: TransportPolicy::AnyTransport,
+                        channel_type: None,
+                        about_user_id: None,
+                        turn_attempted_write: None,
+                    },
+                    blocks: vec![ReplyBlock::Prose {
+                        text: "Strava is not answering right now.".to_owned(),
+                    }],
+                    finish_reason: Some("stop".to_owned()),
+                },
+            })
+        }
+    }
+
+    struct InAppThread {
+        /// Held for the thread's life: the pool the notifier writes through.
+        _db: Database,
+        repos: Arc<RepositoryRegistry>,
+        user: Uuid,
+        tenant: TenantId,
+        conversation: String,
+        post: Arc<AgentPost>,
+        service: Arc<NotificationService>,
+        notifier: Arc<dyn BackfillNotifier>,
+    }
+
+    fn notification_service(db: &Database) -> Arc<NotificationService> {
+        Arc::new(match db.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => {
+                NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+            }
+        })
+    }
+
+    /// A web conversation (no channel session) for an `en` athlete, with the
+    /// app push wired, whose agent post is stored when `posted`, and with a
+    /// warmed window when `warmed`.
+    async fn in_app_thread(posted: bool, warmed: bool) -> InAppThread {
+        let db = create_test_db().await;
+        let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+        let (user, tenant) = seed_user(&db).await;
+        repos.users.update_locale(user, "en").await.unwrap();
+        let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
+        if warmed {
+            seed_activity_cache(&db, user, tenant, &[cached_activity("a-1", "Tempo run", 2)]).await;
+        }
+        let post = Arc::new(AgentPost {
+            posted,
+            asked: Mutex::new(Vec::new()),
+        });
+        let service = notification_service(&db);
+        let slot: Arc<dyn PlatformPost> = post.clone();
+        let notifier = ServerBackfillNotifier::from_handles(
+            Arc::clone(&repos),
+            strings(),
+            Arc::new(OnceLock::from(slot)),
+            Arc::from(LINK_SECRET),
+            BASE_URL.to_owned(),
+            Some(Arc::clone(&service)),
+        );
+        InAppThread {
+            _db: db,
+            repos,
+            user,
+            tenant,
+            conversation,
+            post,
+            service,
+            notifier,
+        }
+    }
+
+    impl InAppThread {
+        async fn ask(&self, content: &str) -> String {
+            self.repos
+                .chat
+                .add_message(&AddMessageParams {
+                    tenant_id: self.tenant,
+                    conversation_id: &self.conversation,
+                    user_id: &self.user.to_string(),
+                    role: "user",
+                    content,
+                    token_count: None,
+                    finish_reason: None,
+                    prompt_tokens: None,
+                    model: None,
+                    content_blocks: None,
+                    transport_policy: TransportPolicy::AnyTransport,
+                    channel_type: None,
+                    about_user_id: None,
+                    turn_attempted_write: None,
+                })
+                .await
+                .unwrap()
+                .id
+        }
+
+        async fn finish(&self, asked: &str, provider_unavailable: bool) {
+            self.notifier
+                .push_backfill_complete(BackfillCompletion {
+                    kind: BackfillJobKind::LiveRead,
+                    asked_message_id: Some(asked),
+                    provider_unavailable,
+                    ..BackfillCompletion::backfill(
+                        self.user,
+                        self.tenant,
+                        &self.conversation,
+                        "strava",
+                        (Utc::now() - Duration::days(30)).timestamp(),
+                        1,
+                    )
+                })
+                .await;
+        }
+
+        /// The turns the notifier itself stored in the thread.
+        async fn stored_turns(&self) -> Vec<String> {
+            self.repos
+                .chat
+                .get_messages(&self.conversation, &self.user.to_string(), self.tenant)
+                .await
+                .unwrap()
+                .into_iter()
+                .filter(|message| message.role == "assistant")
+                .map(|message| message.content)
+                .collect()
+        }
+
+        /// The "your history is ready" pushes the athlete holds.
+        async fn ready_pushes(&self) -> usize {
+            sleep(DISPATCH_SETTLE).await;
+            let (rows, _, _) = self
+                .service
+                .list_notifications(
+                    self.user,
+                    CommereTenantId(self.tenant.as_uuid()),
+                    50,
+                    0,
+                    None,
+                    false,
+                )
+                .await
+                .unwrap();
+            rows.iter()
+                .filter(|row| row.notification_type == "backfill_complete")
+                .count()
+        }
+    }
+
+    /// The control: a read that landed and whose answer the pipeline stored
+    /// raises the one push that says so. Without it the next test could not
+    /// tell a guard from a push that never fires.
+    #[tokio::test]
+    async fn a_landed_read_whose_answer_was_stored_pings_the_athlete() {
+        let thread = in_app_thread(true, true).await;
+        let asked = thread.ask("How far did I run this month?").await;
+        thread.finish(&asked, false).await;
+        assert_eq!(
+            thread.ready_pushes().await,
+            1,
+            "a landed read's stored answer raises the ready push"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_that_gave_up_never_pings_its_stored_re_ask() {
+        let thread = in_app_thread(true, true).await;
+        let asked = thread.ask("How far did I run this month?").await;
+        thread.finish(&asked, true).await;
+        assert_eq!(
+            thread.post.asked.lock().unwrap().as_slice(),
+            ["How far did I run this month?"],
+            "the ask a read that gave up was bound to is re-asked"
+        );
+        assert_eq!(
+            thread.ready_pushes().await,
+            0,
+            "bug: a read that gave up pushed \"your history is ready\" over the agent's re-ask"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_read_that_gave_up_stores_no_list_when_its_re_ask_is_withheld() {
+        let thread = in_app_thread(false, true).await;
+        let asked = thread.ask("How far did I run this month?").await;
+        thread.finish(&asked, true).await;
+        assert!(
+            thread.stored_turns().await.is_empty(),
+            "bug: a read that gave up stored the list of what landed: {:?}",
+            thread.stored_turns().await
+        );
+        assert_eq!(thread.ready_pushes().await, 0, "bug: and pinged it");
+    }
+
+    #[tokio::test]
+    async fn a_read_that_gave_up_on_an_empty_window_stores_no_nudge() {
+        let thread = in_app_thread(false, false).await;
+        let asked = thread.ask("How far did I run this month?").await;
+        thread.finish(&asked, true).await;
+        assert_eq!(
+            thread.post.asked.lock().unwrap().as_slice(),
+            ["How far did I run this month?"],
+            "the ask is re-asked, never answered with the nudge"
+        );
+        assert!(
+            thread.stored_turns().await.is_empty(),
+            "bug: a read that gave up stored the ready nudge: {:?}",
+            thread.stored_turns().await
+        );
+        assert_eq!(thread.ready_pushes().await, 0, "bug: and pinged it");
+    }
 }

@@ -787,12 +787,17 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     .is_some()
                 {
                     // The pipeline stored the agent's answer as the unread
-                    // turn: only the ping is left to raise.
+                    // turn: only the ping is left to raise. A read that gave
+                    // up raises none: the ping says the history is ready, and
+                    // the agent's answer says it is not.
                     info!(
                         count,
+                        provider_unavailable,
                         "Delivered the agent's backfill answer into the in-app conversation"
                     );
-                    delivery.ping(user_id, tenant_id, &locale, count).await;
+                    if !provider_unavailable {
+                        delivery.ping(user_id, tenant_id, &locale, count).await;
+                    }
                 } else if provider_unavailable {
                     info!("The re-ask of a live read that gave up was withheld; nothing is stored");
                 } else {
