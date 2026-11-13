@@ -277,7 +277,7 @@ async fn enqueue(
     job: ActivityBackfillJob,
     handoff: Option<live_read::LiveReadHandoff>,
 ) -> Enqueued {
-    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
+    let key = in_flight_key(job.tenant_id, job.user_id, &job.provider_name, job.kind);
     let claim = match claim(&key, |run| live_read::succeeds(&job, run)) {
         Claim::Claimed(claim) => claim,
         Claim::Held(run) => {
@@ -346,7 +346,7 @@ pub(crate) fn resume_recorded_backfill(
     row_id: JobLease,
     attempts: i64,
 ) -> bool {
-    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
+    let key = in_flight_key(job.tenant_id, job.user_id, &job.provider_name, job.kind);
     let Some(claim) = claim_in_flight(&key) else {
         info!(
             user_id = %job.user_id,
@@ -368,7 +368,7 @@ pub(crate) fn resume_recorded_backfill(
 /// `false` when a run of the pair already holds the key here: that run
 /// answers the newest ask itself.
 pub(crate) fn answer_reaped_live_read(job: ActivityBackfillJob) -> bool {
-    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
+    let key = in_flight_key(job.tenant_id, job.user_id, &job.provider_name, job.kind);
     let Some(claim) = claim_in_flight(&key) else {
         info!(
             user_id = %job.user_id,
@@ -642,9 +642,8 @@ const IN_FLIGHT_WAIT_POLL: StdDuration = StdDuration::from_millis(500);
 
 /// Upper bound on waiting for a concurrent job's claim. A full sciotte
 /// season scrape sits under its 330s client ceiling, so 8 minutes covers the
-/// slowest legitimate holder; past it the key is presumed leaked (a panicked
-/// job never removes its claim) and the wait gives up instead of hanging the
-/// task forever.
+/// slowest legitimate holder; past it the wait gives up instead of hanging
+/// the task on a holder that never ends.
 const IN_FLIGHT_WAIT_CAP: StdDuration = StdDuration::from_mins(8);
 
 /// Terminal outcome of one backfill run.
@@ -666,7 +665,7 @@ pub(crate) enum BackfillRunOutcome {
 
 /// Run a backfill to completion on the caller's own future, serializing on
 /// the same in-flight key as [`spawn_activity_backfill`] so concurrent asks
-/// for one `(user, provider)` never stack scrapes.
+/// for one `(tenant, user, provider)` never stack scrapes.
 ///
 /// When another job holds the key this waits for it to clear, then runs its
 /// own window anyway: the concurrent job may have paged a shallower `after`,
@@ -675,7 +674,7 @@ pub(crate) enum BackfillRunOutcome {
 /// serialized provider pass in the rare double-ask race; the wrong answer
 /// would cost serving a shallow window as if it were complete.
 async fn run_activity_backfill_inline(job: ActivityBackfillJob) -> BackfillRunOutcome {
-    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
+    let key = in_flight_key(job.tenant_id, job.user_id, &job.provider_name, job.kind);
     let mut waited = StdDuration::ZERO;
     let claim = loop {
         if let Some(claim) = claim_in_flight(&key) {

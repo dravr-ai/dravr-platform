@@ -1,4 +1,4 @@
-// ABOUTME: The process-local hold on a job's in-flight key: one run per (user, provider, kind) here, watched by asks that join it
+// ABOUTME: The process-local hold on a job's in-flight key: one run per (tenant, user, provider, kind) here, watched by asks that join it
 // ABOUTME: A live read that landed over a narrower window is succeeded by the ask it does not cover, and only a claim's holder releases it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,22 +7,26 @@
 //! In-flight job keys.
 //!
 //! The job row is the cross-instance truth; the in-flight key is this
-//! process's: one run per `(user, provider, kind)`, which an ask that finds
-//! it held watches instead of running twice ([`super::live_read::JoinedRead`]).
+//! process's: one run per `(tenant, user, provider, kind)`, which an ask that
+//! finds it held watches instead of running twice
+//! ([`super::live_read::JoinedRead`]).
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{LazyLock, Mutex, PoisonError};
 
+use pierre_core::models::TenantId;
 use pierre_database::repositories::BackfillJobKind;
 use pierre_providers::core::ActivityQueryParams;
 use tokio::sync::watch;
 use uuid::Uuid;
 
-/// In-flight job keys (`user_id:provider:kind`) so repeated asks while a job is
-/// already paginating a user's history don't stack duplicate scrapes. Each
-/// kind holds its own key, as it holds its own row: a chat's live read never
-/// waits behind a history walk of the same provider. The key is held for the
+/// In-flight job keys (`tenant_id:user_id:provider:kind`) so repeated asks
+/// while a job is already paginating a user's history don't stack duplicate
+/// scrapes. Each kind holds its own key, as it holds its own row: a chat's
+/// live read never waits behind a history walk of the same provider. Each
+/// tenant holds its own too: one athlete's run under one tenant never holds
+/// back, nor answers, an ask under another. The key is held for the
 /// whole run, a landed live read's follow-up included, and tells whoever
 /// watches it how far the run has got — unless an ask the landed read does
 /// not cover succeeds it ([`claim`]).
@@ -76,9 +80,22 @@ pub(crate) enum InFlight {
 
 /// A run's hold on its in-flight key. Only the claim that holds the key
 /// releases it or marks it, never a run an ask succeeded ([`claim`]).
+///
+/// Dropping the claim releases it ([`release_in_flight`]): the task a run is
+/// spawned in owns its claim, so a run that panics gives its key back as the
+/// task unwinds, and the next ask for the pair runs rather than finding it
+/// held until the process restarts. A run that must free its key at a given
+/// point (before asking again) releases it there; the drop that follows
+/// finds nothing left to release.
 pub(super) struct InFlightClaim {
     key: String,
     id: u64,
+}
+
+impl Drop for InFlightClaim {
+    fn drop(&mut self) {
+        release_in_flight(self);
+    }
 }
 
 /// Taking an in-flight key.
@@ -89,8 +106,13 @@ pub(super) enum Claim {
     Held(watch::Receiver<InFlight>),
 }
 
-pub(super) fn in_flight_key(user_id: Uuid, provider: &str, kind: BackfillJobKind) -> String {
-    format!("{user_id}:{provider}:{kind}")
+pub(super) fn in_flight_key(
+    tenant_id: TenantId,
+    user_id: Uuid,
+    provider: &str,
+    kind: BackfillJobKind,
+) -> String {
+    format!("{tenant_id}:{user_id}:{provider}:{kind}")
 }
 
 /// Take `key`, or watch the run in this process that holds it: one lock, so
@@ -149,7 +171,8 @@ pub(super) fn claim_in_flight(key: &str) -> Option<InFlightClaim> {
 
 /// Give the key `claim` holds back. Its watchers see the channel close,
 /// after the last state the run reached. A key a successor holds now is
-/// left to it, and no longer answers from this run's landed rows.
+/// left to it, and no longer answers from this run's landed rows. Releasing
+/// a claim again releases nothing: its key is gone, or another claim's.
 pub(super) fn release_in_flight(claim: &InFlightClaim) {
     let mut runs = IN_FLIGHT_BACKFILLS
         .lock()
@@ -261,5 +284,58 @@ mod tests {
             "once the landed run released its key, an ask joins the successor"
         );
         release_in_flight(&successor);
+    }
+
+    /// A job whose task panics never reaches its own release: the claim it
+    /// owns gives the key back as the task unwinds, so the next ask for the
+    /// pair runs instead of finding it held until the process restarts.
+    #[tokio::test]
+    async fn a_job_that_panics_gives_its_key_back() {
+        let key = in_flight_key(
+            TenantId::from_uuid(Uuid::new_v4()),
+            Uuid::new_v4(),
+            "strava",
+            BackfillJobKind::HistoryWalk,
+        );
+        let Some(claim) = claim_in_flight(&key) else {
+            panic!("a free key is claimed");
+        };
+        let task = tokio::spawn(async move {
+            job_that_panics().await;
+            release_in_flight(&claim);
+        });
+        assert!(task.await.is_err(), "the job's task panicked");
+        assert!(
+            claim_in_flight(&key).is_some(),
+            "bug: a job that panicked kept its in-flight key"
+        );
+    }
+
+    async fn job_that_panics() {
+        panic!("a job that panics mid-run");
+    }
+
+    /// One athlete in two tenants holds a key per tenant: a run under one
+    /// never holds back, nor is joined by, an ask under the other.
+    #[test]
+    fn two_tenants_of_one_user_hold_their_own_keys() {
+        let user_id = Uuid::new_v4();
+        let key_of = |tenant: Uuid| {
+            in_flight_key(
+                TenantId::from_uuid(tenant),
+                user_id,
+                "strava",
+                BackfillJobKind::LiveRead,
+            )
+        };
+        let (first, second) = (key_of(Uuid::new_v4()), key_of(Uuid::new_v4()));
+        let Some(held) = claim_in_flight(&first) else {
+            panic!("a free key is claimed");
+        };
+        let Some(other) = claim_in_flight(&second) else {
+            panic!("bug: a run under one tenant held the same user's key under another");
+        };
+        release_in_flight(&held);
+        release_in_flight(&other);
     }
 }
