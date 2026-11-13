@@ -3065,7 +3065,9 @@
       "uncontrolled_only": "Uncontrolled trials only",
       "acute_uncontrolled": "Single-session, uncontrolled studies only",
       "counts_as": "Counts as {0}",
-      "outside": "Outside the evidence"
+      "outside": "Outside the evidence",
+      "no_basis_convention": "No trial covers this session; it follows coaching practice.",
+      "no_basis_transposed": "Its trials ran in another sport; it reaches this one through the transposition rules."
     },
     "flavour": {
       "hvlit_foundation": "all easy, lots of it, one long session a week",
@@ -3759,8 +3761,7 @@
         "badge": "Outside the evidence"
       },
       "evidence": {
-        "sheetTitle": "The evidence behind this session",
-        "noStudies": "No trial covers this session in this sport; it follows coaching practice."
+        "sheetTitle": "The evidence behind this session"
       }
     },
     "limits": {

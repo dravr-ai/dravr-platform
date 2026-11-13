@@ -3065,7 +3065,9 @@
       "uncontrolled_only": "Nur Studien ohne Kontrollgruppe",
       "acute_uncontrolled": "Nur Einzeleinheit-Studien ohne Kontrollgruppe",
       "counts_as": "Zählt als {0}",
-      "outside": "Außerhalb der Evidenz"
+      "outside": "Außerhalb der Evidenz",
+      "no_basis_convention": "Keine Studie deckt diese Einheit ab; sie folgt der üblichen Trainingspraxis.",
+      "no_basis_transposed": "Ihre Studien liefen in einer anderen Sportart; in diese gelangt sie über die Übertragungsregeln."
     },
     "flavour": {
       "hvlit_foundation": "alles locker, viel davon, eine lange Einheit pro Woche",
@@ -3759,8 +3761,7 @@
         "badge": "Außerhalb der Evidenz"
       },
       "evidence": {
-        "sheetTitle": "Die Evidenz hinter dieser Einheit",
-        "noStudies": "Keine Studie deckt diese Einheit in dieser Sportart ab; sie folgt der üblichen Trainingspraxis."
+        "sheetTitle": "Die Evidenz hinter dieser Einheit"
       }
     },
     "limits": {

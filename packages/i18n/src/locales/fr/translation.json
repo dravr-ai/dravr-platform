@@ -3065,7 +3065,9 @@
       "uncontrolled_only": "Essais sans groupe témoin seulement",
       "acute_uncontrolled": "Études d'une seule séance, sans groupe témoin",
       "counts_as": "Compte comme {0}",
-      "outside": "Hors des données probantes"
+      "outside": "Hors des données probantes",
+      "no_basis_convention": "Aucun essai ne couvre cette séance ; elle suit la pratique courante de l'entraînement.",
+      "no_basis_transposed": "Ses essais ont porté sur un autre sport ; elle arrive dans celui-ci par les règles de transposition."
     },
     "flavour": {
       "hvlit_foundation": "tout en facile, beaucoup, avec une longue sortie par semaine",
@@ -3759,8 +3761,7 @@
         "badge": "Hors des données probantes"
       },
       "evidence": {
-        "sheetTitle": "Les données derrière cette séance",
-        "noStudies": "Aucun essai ne couvre cette séance dans ce sport ; elle suit la pratique courante de l'entraînement."
+        "sheetTitle": "Les données derrière cette séance"
       }
     },
     "limits": {

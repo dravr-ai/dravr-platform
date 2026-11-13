@@ -3065,7 +3065,9 @@
       "uncontrolled_only": "Solo ensayos sin grupo de control",
       "acute_uncontrolled": "Solo estudios de una sesión, sin grupo de control",
       "counts_as": "Cuenta como {0}",
-      "outside": "Fuera de la evidencia"
+      "outside": "Fuera de la evidencia",
+      "no_basis_convention": "Ningún ensayo cubre esta sesión; sigue la práctica habitual del entrenamiento.",
+      "no_basis_transposed": "Sus ensayos se hicieron en otro deporte; llega a este mediante las reglas de transposición."
     },
     "flavour": {
       "hvlit_foundation": "todo suave, mucho volumen, una sesión larga por semana",
@@ -3759,8 +3761,7 @@
         "badge": "Fuera de la evidencia"
       },
       "evidence": {
-        "sheetTitle": "La evidencia detrás de esta sesión",
-        "noStudies": "Ningún ensayo cubre esta sesión en este deporte; sigue la práctica habitual del entrenamiento."
+        "sheetTitle": "La evidencia detrás de esta sesión"
       }
     },
     "limits": {
