@@ -2643,6 +2643,7 @@ async fn a_ledger_unread_after_a_steps_write_takes_back_only_what_it_added() {
         "bug: the step's retry is not due once a whole lease passed"
     );
     let failed_listing = fx.strava.listings().last().copied();
+    let listed = fx.strava.listing_count();
     fx.retry_due_now().await;
     let deadline = Instant::now() + WALK_DEADLINE;
     while !(fx.rows(oauth_providers::STRAVA).await == 3 && fx.idle().await) {
@@ -2652,6 +2653,10 @@ async fn a_ledger_unread_after_a_steps_write_takes_back_only_what_it_added() {
         );
         fx.sweep(false).await;
     }
+    assert!(
+        fx.strava.listing_count() > listed,
+        "bug: the step's retry never read the page again"
+    );
     assert_eq!(
         fx.strava.listings().last().copied(),
         failed_listing,
@@ -2696,6 +2701,67 @@ async fn a_purge_unread_after_a_steps_write_leaves_none_of_what_it_added() {
         fx.rows(oauth_providers::STRAVA).await,
         0,
         "bug: a step that could not read its row after its write left the purged grant's ride it added"
+    );
+}
+
+/// While renamed, every read of the purge attestations fails.
+const BREAK_PURGE_READS: &str =
+    "ALTER TABLE provider_data_purges RENAME COLUMN reason TO reason_unread";
+
+/// Undoes [`BREAK_PURGE_READS`].
+const MEND_PURGE_READS: &str =
+    "ALTER TABLE provider_data_purges RENAME COLUMN reason_unread TO reason";
+
+/// The athlete drops both connections while a step of the walk's API phase
+/// writes the grant's second year, and the purge attestations cannot be read
+/// once the write landed: the step finds its row gone and cannot tell
+/// whether a purge of the grant landed. It takes back the ride its write
+/// added, and fails: nothing it added of the purged grant is left.
+#[tokio::test]
+async fn a_purge_attestation_unread_after_a_steps_write_leaves_none_of_what_it_added() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let mut fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let listing = hold_the_second_api_year(&fx, session_oldest).await;
+    let write = store.hold_and_pause_next_write(oauth_providers::STRAVA);
+    listing.notify_one();
+    write.reached.notified().await;
+    fx.resources
+        .common
+        .provider_purge
+        .purge_user_provider_data(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        fx.state().await,
+        None,
+        "the session's purge took the walk's row"
+    );
+    fx.revoke_grant().await;
+    write.gate.notify_one();
+    write.landed.notified().await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        1,
+        "the step's write landed after both purges"
+    );
+    fx.execute(BREAK_PURGE_READS).await;
+    write.resume.as_ref().unwrap().notify_one();
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while fx.rows(oauth_providers::STRAVA).await != 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(50)).await;
+    }
+    fx.execute(MEND_PURGE_READS).await;
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "bug: a step that could not read the purges after its write left the purged grant's ride it added"
     );
 }
 
