@@ -109,6 +109,23 @@ impl<'a> BackfillCompletion<'a> {
     }
 }
 
+/// What asked for a history walk
+/// (`activity_backfill::history_walk::start_history_walk`): it changes
+/// nothing of what the walk does, and is logged so a walk can be traced to
+/// its ask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalkTrigger {
+    /// The athlete just connected the provider: a sign-in stored a session,
+    /// or an OAuth grant landed.
+    Connected,
+    /// A connect's first data landed (the first sync).
+    FirstSync,
+    /// A read of the history found depth missing.
+    DepthMissing,
+    /// The personal-best seed found an athlete whose history no walk copied.
+    Seed,
+}
+
 /// A history walk that reached the end of the athlete's history
 /// ([`BackfillNotifier::push_history_walk_complete`]). No conversation asked
 /// for it: a connection or a first sync did.

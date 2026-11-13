@@ -26,6 +26,8 @@ use crate::card_history::card_history;
 use crate::card_seats::{require_garmin_seat, CardSeats};
 #[cfg(feature = "health-sync")]
 use crate::first_sync::health_sync_backfills;
+#[cfg(feature = "health-sync")]
+use crate::first_sync::spawn_connection_report;
 use crate::first_sync::spawn_on_demand_first_read;
 #[cfg(feature = "health-sync")]
 use crate::health_backfill::spawn_health_backfill;
@@ -169,8 +171,26 @@ pub(crate) async fn handle_oauth_callback(
             let pushed = backend_resolver::pushed_backend_for(&response.provider)
                 == Some(response.provider.as_str());
             #[cfg(feature = "health-sync")]
-            if !pushed {
-                spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
+            {
+                let settled = (!pushed)
+                    .then(|| {
+                        spawn_health_backfill(
+                            &resources,
+                            &response.user_id,
+                            &response.provider,
+                            None,
+                        )
+                    })
+                    .flatten();
+                // The grant's history walk, once the backfill let go of the
+                // connection (carnet#1482).
+                if let Ok(user_id) = Uuid::parse_str(&response.user_id) {
+                    spawn_connection_report(&resources, user_id, &response.provider, async move {
+                        if let Some(backfill) = settled {
+                            drop(backfill.await);
+                        }
+                    });
+                }
             }
             #[cfg(feature = "health-sync")]
             let read_on_demand = !health_sync_backfills(&resources, &response.provider);

@@ -87,7 +87,7 @@ use crate::activity_fetch::write_through::WriteThrough;
 use crate::implementations::data_helpers::historical_backfill_fetch_limit;
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
-use crate::runtime::{HistoryWalkCompletion, ToolRuntime};
+use crate::runtime::{HistoryWalkCompletion, ToolRuntime, WalkTrigger};
 
 /// What a walk copies on top of the activities: the wellness before a push grant
 mod wellness;
@@ -119,21 +119,6 @@ const EMPTY_WINDOWS_ENDING_A_WALK: u32 = 2;
 /// The mean Gregorian month in seconds (365.2425 days / 12): how a step's
 /// span is counted in the months the row reports.
 const SECS_PER_MONTH: i64 = 2_629_746;
-
-/// What asked for a walk: it changes nothing of what the walk does, and is
-/// logged so a walk can be traced to its ask.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WalkTrigger {
-    /// The athlete just connected the provider: a sign-in stored a session,
-    /// or an OAuth grant landed.
-    Connected,
-    /// A connect's first data landed (the first sync).
-    FirstSync,
-    /// A read of the history found depth missing.
-    DepthMissing,
-    /// The personal-best seed found an athlete whose history no walk copied.
-    Seed,
-}
 
 /// Start a walk of `provider`'s history for the user.
 ///

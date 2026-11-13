@@ -513,6 +513,7 @@ mod strava {
     use axum::{Json, Router};
     use pierre_config::environment::ProviderEndpointOverride;
     use pierre_core::models::{ConnectionType, UserOAuthToken};
+    use pierre_database::repositories::{BackfillJobKind, BackfillJobState};
     use serde_json::{json, Value};
     use tokio::net::TcpListener;
     use tokio::time::sleep;
@@ -703,6 +704,60 @@ mod strava {
         assert!(
             reached,
             "the connect asked Strava back to the status's warm-up floor: {afters:?}"
+        );
+    }
+
+    /// What the ledger holds for the athlete's history walk of Strava.
+    async fn strava_walk(fx: &Fixture) -> Option<BackfillJobState> {
+        fx.resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .backfill_job_state(
+                fx.user_id,
+                fx.tenant_id,
+                "strava",
+                BackfillJobKind::HistoryWalk,
+            )
+            .await
+            .unwrap()
+    }
+
+    /// A Strava grant landing starts the athlete's history walk, however
+    /// deep the history the status needs already is (carnet#1482).
+    #[tokio::test]
+    async fn a_strava_connection_starts_its_history_walk() {
+        let api = mock_strava(json!([])).await;
+        let fx = strava_fixture(&api).await;
+        assert_eq!(strava_walk(&fx).await, None, "no walk before the connect");
+
+        fx.poster
+            .connected(fx.user_id, fx.tenant_id, "strava")
+            .await;
+
+        assert!(
+            strava_walk(&fx).await.is_some(),
+            "bug: a connection landing starts the history walk"
+        );
+    }
+
+    /// The athlete's first data landing starts the history walk too, not
+    /// only the depth ask behind the status: an athlete whose status window
+    /// needs nothing still has years behind it (carnet#1482). The athlete
+    /// holds no connection row, so the depth ask finds nothing to compute
+    /// and asks no walk of its own.
+    #[tokio::test]
+    async fn a_first_sync_starts_the_history_walk() {
+        let api = mock_strava(json!([])).await;
+        let fx = strava_fixture(&api).await;
+
+        fx.poster
+            .data_landed(fx.user_id, fx.tenant_id, "strava")
+            .await;
+
+        assert!(
+            strava_walk(&fx).await.is_some(),
+            "bug: the first sync starts the history walk"
         );
     }
 }

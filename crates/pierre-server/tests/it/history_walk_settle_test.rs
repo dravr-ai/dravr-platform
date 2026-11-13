@@ -50,11 +50,12 @@ use pierre_notifications::{
 };
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::history_walk::{
-    start_history_walk, WalkTrigger, WHOLE_ACCOUNT_AFTER,
+    start_history_walk, WHOLE_ACCOUNT_AFTER,
 };
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::activity_fetch::write_through::write_through_served_window;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::runtime::WalkTrigger;
 use serde_json::json;
 use tokio::time::sleep;
 use uuid::Uuid;

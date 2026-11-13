@@ -55,11 +55,12 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_notifications::TenantId as CommereTenantId;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::history_walk::{
-    start_history_walk, WalkTrigger, SCIOTTE_WALK_STEP_MONTHS, WHOLE_ACCOUNT_AFTER,
+    start_history_walk, SCIOTTE_WALK_STEP_MONTHS, WHOLE_ACCOUNT_AFTER,
 };
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::activity_fetch::serve_stale_activities;
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::runtime::WalkTrigger;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 use tokio::time::sleep;

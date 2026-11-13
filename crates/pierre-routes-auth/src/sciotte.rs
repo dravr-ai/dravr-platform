@@ -32,6 +32,8 @@ use pierre_providers::sciotte_error::{
 };
 
 #[cfg(feature = "health-sync")]
+use crate::first_sync::spawn_connection_report;
+#[cfg(feature = "health-sync")]
 use crate::health_backfill::spawn_health_backfill;
 use crate::sciotte_caller::{authenticate, emit_provider_linked_webhook, LinkContext};
 use crate::sciotte_cancel::{
@@ -396,7 +398,9 @@ async fn store_sciotte_session(
 ///
 /// A session signed in beside a grant is the provider's primary source
 /// (carnet#1494) and is warmed like any other: its own reads bring its
-/// history in, and nothing retires it.
+/// history in, and nothing retires it. Once those reads let go of the
+/// session, the connection is reported, and its history walked
+/// ([`spawn_connection_report`], carnet#1482).
 pub(crate) fn warm_from_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
@@ -422,12 +426,18 @@ pub(crate) fn warm_from_session(
     // at the next scheduled cycle — once the pre-fetch has finished with the
     // session, so the two never hold two of the scraper's browsers at once.
     #[cfg(feature = "health-sync")]
-    spawn_health_backfill(
+    let settled = spawn_health_backfill(
         resources,
         &user_id.to_string(),
         backend_resolver::user_facing_name(provider_name),
         prefetch,
     );
+    #[cfg(feature = "health-sync")]
+    spawn_connection_report(resources, user_id, provider_name, async move {
+        if let Some(backfill) = settled {
+            drop(backfill.await);
+        }
+    });
     #[cfg(not(feature = "health-sync"))]
     drop(prefetch);
 }

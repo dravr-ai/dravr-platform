@@ -52,10 +52,11 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId};
 use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobProgress};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_tool_runtime::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
+use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::{
     BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry, ToolRuntime,
+    WalkTrigger,
 };
 use serde_json::{json, Value};
 use tokio::net::TcpListener;

@@ -56,8 +56,10 @@ use pierre_services::training_history_read::{
 };
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::history_walk::{start_history_walk, WalkTrigger};
+use crate::activity_backfill::history_walk::start_history_walk;
 use crate::runtime::ToolRuntime;
+#[cfg(feature = "tools-data")]
+use crate::runtime::WalkTrigger;
 
 /// Default backfill window when the caller does not specify one.
 pub const DEFAULT_BACKFILL_DAYS: i64 = 90;
