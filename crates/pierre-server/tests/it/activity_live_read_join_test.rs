@@ -18,7 +18,7 @@
 
 use crate::activity_live_read_budget_test::{
     activity, answer_of, asked, gated, live_read_state, notified_runtime, settled_follow_ups,
-    wait_until_finished, Answer, BUDGET, PROVIDER,
+    uncached_notified_runtime, wait_until_finished, Answer, BUDGET, PROVIDER,
 };
 use crate::common;
 
@@ -109,8 +109,18 @@ async fn fail_past_the_budget(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, ten
         "the turn answers from the cache past its budget"
     );
     gate.notify_one();
-    // The failed attempt settles its row and gives the pair back.
-    sleep(StdDuration::from_millis(400)).await;
+    // The failed attempt settles its row, then gives the pair back.
+    let idle = timeout(StdDuration::from_secs(5), async {
+        while lease_state(runtime, user_id, tenant_id).await != Some(JobLeaseState::Idle) {
+            sleep(StdDuration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(
+        idle.is_ok(),
+        "bug: a failed read holds its lease though nothing runs it"
+    );
+    sleep(StdDuration::from_millis(100)).await;
     assert_eq!(
         live_read_state(runtime, user_id, tenant_id).await,
         Some(BackfillJobState::Owed),
@@ -127,11 +137,6 @@ async fn fail_past_the_budget(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid, ten
 async fn an_ask_after_a_failed_read_reads_live_and_settles_the_row() {
     let (runtime, notifier, user_id, tenant_id) = notified_runtime().await;
     fail_past_the_budget(&runtime, user_id, tenant_id).await;
-    assert_eq!(
-        lease_state(&runtime, user_id, tenant_id).await,
-        Some(JobLeaseState::Idle),
-        "bug: a failed read holds its lease though nothing runs it"
-    );
 
     let open = Arc::new(Notify::new());
     open.notify_one();
@@ -304,6 +309,64 @@ async fn a_wider_ask_after_a_read_landed_reads_its_own_window() {
         live_read_state(&runtime, user_id, tenant_id).await,
         None,
         "every read settled its row"
+    );
+}
+
+/// A wider ask with nothing cached joins the read while it runs, and the
+/// read then lands over its narrower window. The ask does not wait out its
+/// budget on a run that reads nothing more: it reads its own window.
+#[tokio::test]
+async fn a_wider_ask_joined_before_a_narrower_landing_reads_its_own_window() {
+    let (runtime, notifier, user_id, tenant_id) = uncached_notified_runtime().await;
+    let gate = Arc::new(Notify::new());
+    let first_runtime = Arc::clone(&runtime);
+    let first_gate = Arc::clone(&gate);
+    let first = tokio::spawn(async move {
+        read_live_window_within_budget(
+            &first_runtime,
+            gated(&first_gate, vec![activity("fresh", 0)]),
+            asked(user_id, tenant_id, "conv-1", "msg-1"),
+            TURN_BUDGET,
+        )
+        .await
+    });
+    sleep(StdDuration::from_millis(100)).await;
+
+    let release = Arc::clone(&gate);
+    tokio::spawn(async move {
+        sleep(StdDuration::from_millis(400)).await;
+        release.notify_one();
+    });
+    let open = Arc::new(Notify::new());
+    open.notify_one();
+    let started = Instant::now();
+    let wide = timeout(
+        StdDuration::from_secs(5),
+        read_live_window_within_budget(
+            &runtime,
+            gated(&open, wider_rows()),
+            wider(user_id, tenant_id, "conv-1", "msg-2"),
+            TURN_BUDGET,
+        ),
+    )
+    .await
+    .expect("bug: the wider ask waited out its budget on a landed run");
+    assert_eq!(
+        answer_of(wide),
+        Answer::Answered(names(&["cached", "fresh", "older"])),
+        "bug: a joined ask the landed read does not cover must read its own window"
+    );
+    assert!(started.elapsed() < StdDuration::from_secs(2));
+    assert_eq!(
+        answer_of(first.await.unwrap()),
+        Answer::Answered(names(&["fresh"])),
+        "the first turn waited for its own read"
+    );
+    wait_until_finished(&runtime, user_id, tenant_id).await;
+    sleep(StdDuration::from_millis(300)).await;
+    assert!(
+        notifier.sent.lock().unwrap().is_empty(),
+        "bug: both asks answered in their turns, yet a follow-up was posted"
     );
 }
 
