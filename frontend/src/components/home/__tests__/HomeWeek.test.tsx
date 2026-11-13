@@ -20,7 +20,7 @@ import {
 
 const api = vi.hoisted(() => ({
   getTrainingPlan: vi.fn<(locale?: string) => Promise<TrainingPlanResponse>>(),
-  getCalendar: vi.fn<(from: string, to: string) => Promise<CalendarResponse>>(),
+  getCalendar: vi.fn<(from: string, to: string, locale?: string) => Promise<CalendarResponse>>(),
 }));
 
 vi.mock('../../../services/api', () => ({
@@ -75,7 +75,7 @@ describe('HomeWeek — this week', () => {
     expect(current[0]).toHaveAttribute('data-testid', `home-week-day-${TODAY}`);
     expect(screen.getByRole('heading', { name: 'This week' })).toBeInTheDocument();
     expect(screen.getByText('threshold volume')).toBeInTheDocument();
-    expect(api.getCalendar).toHaveBeenCalledWith('2026-09-21', '2026-09-27');
+    expect(api.getCalendar).toHaveBeenCalledWith('2026-09-21', '2026-09-27', 'en');
   });
 
   it.each(GARMIN_LINES)(
@@ -217,7 +217,7 @@ describe('HomeWeek — paging', () => {
 
     await userEvent.click(screen.getByTestId('home-week-previous'));
     await loadedStrip();
-    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-14', '2026-09-20');
+    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-14', '2026-09-20', 'en');
     const named = formatCivilDate('2026-09-14', 'en', { day: 'numeric', month: 'long' });
     expect(screen.getByRole('heading', { name: `Week of ${named}` })).toBeInTheDocument();
     expect(screen.getByTestId('home-week-day-2026-09-19')).toHaveTextContent('90 min');
@@ -225,7 +225,7 @@ describe('HomeWeek — paging', () => {
 
     await userEvent.click(screen.getByTestId('home-week-previous'));
     await loadedStrip();
-    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-07', '2026-09-13');
+    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-07', '2026-09-13', 'en');
     // The 8th is older than the cache: unknown, never an empty day.
     expect(screen.getByTestId('home-week-day-2026-09-08')).toHaveAccessibleName(
       /— This day is older than your stored activities\.$/,
@@ -252,7 +252,7 @@ describe('HomeWeek — paging', () => {
       steps += 1;
     }
     expect(steps).toBe(9);
-    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-11-23', '2026-11-29');
+    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-11-23', '2026-11-29', 'en');
   });
 
   it('renders without a plan: what was done, one quiet line, and the week ahead', async () => {
@@ -267,7 +267,7 @@ describe('HomeWeek — paging', () => {
 
     await userEvent.click(screen.getByTestId('home-week-next'));
     await loadedStrip();
-    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-28', '2026-10-04');
+    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-28', '2026-10-04', 'en');
     expect(screen.getByTestId('home-week-next')).toBeDisabled();
   });
 });
@@ -281,7 +281,7 @@ describe('HomeWeek — month sheet', () => {
     const sheet = await screen.findByRole('dialog', { name: 'September 2026' });
     const grid = within(sheet).getByTestId('home-month-grid');
     await waitFor(() => expect(grid).toHaveAttribute('aria-busy', 'false'));
-    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-08-31', '2026-10-04');
+    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-08-31', '2026-10-04', 'en');
     expect(within(sheet).getByTestId('home-month-done-2026-09-22')).toBeInTheDocument();
     expect(within(sheet).getByTestId('home-month-planned-2026-09-24')).toBeInTheDocument();
     expect(within(sheet).getByTestId('home-month-history-start')).toBeInTheDocument();
@@ -332,6 +332,6 @@ describe('HomeWeek — month sheet', () => {
     const sheet = await screen.findByRole('dialog', { name: 'September 2026' });
     await userEvent.click(within(sheet).getByTestId('home-month-next'));
     expect(await screen.findByRole('dialog', { name: 'October 2026' })).toBeInTheDocument();
-    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-28', '2026-11-01');
+    expect(api.getCalendar).toHaveBeenLastCalledWith('2026-09-28', '2026-11-01', 'en');
   });
 });

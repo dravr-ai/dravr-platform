@@ -10,6 +10,7 @@ import type { TFunction } from '@pierre/i18n';
 import { fuelParts, stepDuration } from '@pierre/chat-utils';
 import { countKey, PLAN_HARD_PER_WEEK_KEYS, PLAN_MORE_WEEKS_KEYS } from '@pierre/shared-constants';
 import { civilDayMonth, formatCivilDate, ROW_DATE, sportLabel } from '@pierre/ui-logic';
+import { EvidenceChip } from './EvidenceChip';
 import type {
   PlanDay,
   PlanPhase,
@@ -166,6 +167,12 @@ export function DayRow({ day }: { day: PlanDay }) {
               <span className="ml-2 badge-warning">
                 {t('plan.card.envelope.badge')}
               </span>
+            )}
+            {day.evidence && <EvidenceChip evidence={day.evidence} />}
+            {day.counts_as && (
+              <div className="mt-0.5 text-xs text-on-surface-variant" data-testid="plan-day-counts-as">
+                {day.counts_as}
+              </div>
             )}
           </>
         )}

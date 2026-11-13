@@ -110,8 +110,11 @@ export const QUERY_KEYS = {
      * one key, so Today's section and the narrow-screen Today line agree.
      */
     gettingStarted: () => ['home', 'getting-started'] as const,
-    /** The workouts and plan weeks over the days `from..=to` (`YYYY-MM-DD`) — one strip week or one month grid. */
-    calendar: (from: string, to: string) => ['home', 'calendar', from, to] as const,
+    /**
+     * The workouts and plan weeks over the days `from..=to` (`YYYY-MM-DD`) — one strip week or one month grid —
+     * with a plan day's evidence chip and relabel line in `locale`.
+     */
+    calendar: (from: string, to: string, locale: string) => ['home', 'calendar', from, to, locale] as const,
     /** Every calendar span: the prefix a pull to refresh or a return to Home invalidates. */
     calendars: ['home', 'calendar'] as const,
   },

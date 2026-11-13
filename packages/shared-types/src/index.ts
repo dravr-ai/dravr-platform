@@ -176,6 +176,7 @@ export type {
   PlanStep,
   PlanFueling,
   PlanDay,
+  PlanDayEvidence,
   PlanWeek,
   WorkoutPlan,
 } from './workout-plan.js';

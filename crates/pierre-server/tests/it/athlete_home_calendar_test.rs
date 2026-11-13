@@ -37,7 +37,7 @@ use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBun
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
-use serde_json::Value;
+use serde_json::{json, Value};
 use tower::ServiceExt;
 use uuid::Uuid;
 
@@ -203,6 +203,17 @@ fn week_days(start: NaiveDate) -> Vec<PlannedDay> {
 /// A plan whose weeks run from three weeks before this week's Monday to
 /// three weeks after it — seven weeks, where the card shows two.
 async fn seed_plan(resources: &Arc<ServerContext>, athlete: &Athlete, monday: NaiveDate) {
+    seed_plan_with(resources, athlete, monday, |_| {}).await;
+}
+
+/// [`seed_plan`], its weeks (`(week_start, days)`, oldest first) passed through
+/// `edit` before they are saved.
+async fn seed_plan_with(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    monday: NaiveDate,
+    edit: impl FnOnce(&mut Vec<(String, Vec<PlannedDay>)>),
+) {
     let first = monday - Days::new(21);
     let goal = GoalRace {
         name: "Harricana 65".to_owned(),
@@ -225,12 +236,13 @@ async fn seed_plan(resources: &Arc<ServerContext>, athlete: &Athlete, monday: Na
         loading_pattern: None,
         skeleton_id: None,
     }];
-    let starts: Vec<(String, Vec<PlannedDay>)> = (0..7)
+    let mut starts: Vec<(String, Vec<PlannedDay>)> = (0..7)
         .map(|w| {
             let start = first + Days::new(7 * w);
             (ymd(start), week_days(start))
         })
         .collect();
+    edit(&mut starts);
     let weeks: Vec<PlanWeekInput<'_>> = starts
         .iter()
         .map(|(week_start, days)| PlanWeekInput {
@@ -422,6 +434,62 @@ async fn no_active_plan_is_null_and_a_plan_answers_its_past_and_future_weeks() {
         format!("session {}", ymd(from))
     );
     assert_eq!(weeks[0]["days"][0]["duration_min"], 45);
+}
+
+/// A family day's evidence chip and relabel line reach Home's calendar in the
+/// language the app asks for, resolved from the badge and purpose the save
+/// stored (carnet#1495, step 3).
+#[tokio::test]
+async fn a_plan_days_evidence_chip_and_relabel_read_in_the_locale_asked_for() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = seed_athlete(&resources, "calendar-evidence").await;
+    let monday = monday_of(toronto_today());
+    seed_plan_with(&resources, &athlete, monday, |weeks| {
+        let current = &mut weeks[3].1[0];
+        current.template_slug = Some("vo2max_short".to_owned());
+        current.envelope = Some(
+            serde_json::from_value(json!({
+                "findings": [], "relabelled_purpose": "threshold",
+                "badge": { "status": "transposed", "basis": "Rønnestad 2015 [RCT]" }
+            }))
+            .expect("a stored envelope"),
+        );
+    })
+    .await;
+
+    let (status, body) = calendar_json(
+        &resources,
+        &athlete.token,
+        &format!(
+            "?from={}&to={}&locale=fr",
+            ymd(monday),
+            ymd(monday + Days::new(6))
+        ),
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "bug: a seven-day span with a supported locale is answered: {body}"
+    );
+    let day = &body["plan_weeks"][0]["days"][0];
+    assert_eq!(
+        day["evidence"]["label"], "Transposé d'un autre sport",
+        "bug: the chip reads in the locale the app asked for: {day}"
+    );
+    assert_eq!(
+        day["evidence"]["basis"], "Rønnestad 2015 [RCT]",
+        "bug: the chip carries the studies it opens on: {day}"
+    );
+    assert_eq!(
+        day["counts_as"], "Compte comme une séance au seuil",
+        "bug: the relabel line names the purpose in that locale: {day}"
+    );
+    let quiet = &body["plan_weeks"][0]["days"][1];
+    assert!(
+        quiet.get("evidence").is_none() && quiet.get("counts_as").is_none(),
+        "bug: a day no family measured carries neither: {quiet}"
+    );
 }
 
 #[tokio::test]

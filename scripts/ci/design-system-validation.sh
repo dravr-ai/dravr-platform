@@ -78,7 +78,10 @@ BASELINE_MOBILE_CARD_SITES=9
 # 35: the coach seat's room strip and request timeline — the strip's icon disc,
 # the timeline's three step markers and the current step's centre dot; a badge
 # and dots on the same `full` step.
-BASELINE_MOBILE_ROUNDED_FULL=35
+# 36: the plan card's per-day evidence chip (carnet#1495) — a badge, the web's
+# neutral `.badge` drawn on the phone; carnet#1518 moves every pill onto a
+# shared Badge component.
+BASELINE_MOBILE_ROUNDED_FULL=36
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=32
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,

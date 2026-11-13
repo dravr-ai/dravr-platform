@@ -339,10 +339,14 @@ export function createAthleteApi(axios: AxiosInstance) {
      * cached workouts on each day, the plan's weeks over them, and the first
      * day the cache still holds in full (`history_start`). Served from the
      * server's cache and plan store; reading an older span starts no provider
-     * fetch and no backfill.
+     * fetch and no backfill. `locale` names a plan day's evidence chip and
+     * relabel line in the language the app is rendering; omitted, the server
+     * uses the account's stored locale.
      */
-    async getCalendar(from: string, to: string): Promise<CalendarResponse> {
-      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.CALENDAR, { params: { from, to } });
+    async getCalendar(from: string, to: string, locale?: string): Promise<CalendarResponse> {
+      const response = await axios.get<unknown>(ENDPOINTS.ATHLETE.CALENDAR, {
+        params: locale ? { from, to, locale } : { from, to },
+      });
       return requireShape(parseCalendarResponse(response.data), ENDPOINTS.ATHLETE.CALENDAR);
     },
   };

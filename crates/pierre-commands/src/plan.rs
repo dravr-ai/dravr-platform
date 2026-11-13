@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use chrono::{NaiveDate, Utc};
 use dravr_canot::commands::CommandResponse;
 use dravr_canot::rich_text::escape_markdown;
+use pierre_contremaitre::evidence_strings::{self, KEY_EVIDENCE_OUTSIDE, KEY_PLAN_SESSION_NOTES};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_ATHLETE_AMBIGUOUS, KEY_PLAN_ATHLETE_EMPTY,
     KEY_PLAN_ATHLETE_HEADER, KEY_PLAN_ATHLETE_NOT_SHARING, KEY_PLAN_ATHLETE_NO_MATCH,
@@ -212,10 +213,34 @@ fn render_day(
             } else {
                 format!(" [{}]", d.intensity)
             };
-            format!("{}{duration}{intensity} — {}", d.sport, d.workout)
+            let session = format!("{}{duration}{intensity} — {}", d.sport, d.workout);
+            match session_notes(reg, locale, d) {
+                Some(notes) => reg.render(KEY_PLAN_SESSION_NOTES, locale, &[&session, &notes]),
+                None => session,
+            }
         }
     };
     reg.render(KEY_PLAN_DAY_LINE, locale, &[label, &session])
+}
+
+/// What a family day's stored envelope says about it, as `/plan` notes it:
+/// the outside-the-evidence warning, the evidence chip and the relabel line
+/// the plan card shows, in the reader's words (carnet#1495). `None` for a
+/// day with nothing to note.
+fn session_notes(reg: &MessagingStringsRegistry, locale: &str, day: &PlannedDay) -> Option<String> {
+    let envelope = day.envelope.as_ref()?;
+    let warning = (!envelope.findings.is_empty())
+        .then(|| reg.get(KEY_EVIDENCE_OUTSIDE, locale))
+        .filter(|warning| !warning.is_empty());
+    let chip = envelope
+        .badge
+        .as_ref()
+        .and_then(|badge| evidence_strings::evidence_chip_label(reg, locale, badge));
+    let counts_as = envelope
+        .relabelled_purpose
+        .and_then(|purpose| evidence_strings::counts_as_line(reg, locale, purpose));
+    let notes: Vec<String> = [warning, chip, counts_as].into_iter().flatten().collect();
+    (!notes.is_empty()).then(|| notes.join(" · "))
 }
 
 /// The goal line plus the current block, shared by every view.
@@ -710,6 +735,41 @@ mod tests {
             request.athlete.as_deref(),
             Some("JF Test"),
             "the words before the view are joined into one name"
+        );
+    }
+
+    /// A family day's `/plan` line carries what the plan card shows about it:
+    /// the warning, the evidence chip and the relabel, in the reader's words;
+    /// a plain day's line is unchanged (carnet#1495).
+    #[test]
+    fn a_family_days_line_notes_its_warning_chip_and_relabel() {
+        let reg = MessagingStringsRegistry::new();
+        let day: PlannedDay = serde_json::from_value(serde_json::json!({
+            "date": "2026-07-14", "sport": "run", "workout": "30/15", "duration_min": 45,
+            "template_slug": "vo2max_short",
+            "envelope": {
+                "findings": [{ "code": "cycle_mean_floor", "action": "warn", "message": "for the model" }],
+                "relabelled_purpose": "threshold",
+                "badge": { "status": "transposed" }
+            }
+        }))
+        .expect("a stored day");
+        let line = render_day(&reg, "en", "Today", DayStatus::Session(&day));
+        assert_eq!(
+            line,
+            "Today: run 45min — 30/15 (Outside the evidence · Transposed from another sport · \
+             Counts as threshold work)",
+            "bug: the line notes the warning, the chip and the relabel in order"
+        );
+
+        let plain: PlannedDay = serde_json::from_value(serde_json::json!({
+            "date": "2026-07-15", "sport": "ride", "workout": "endurance", "duration_min": 90
+        }))
+        .expect("a stored day");
+        assert_eq!(
+            render_day(&reg, "en", "Tomorrow", DayStatus::Session(&plain)),
+            "Tomorrow: ride 90min — endurance",
+            "bug: a day with no envelope keeps its line as it was"
         );
     }
 

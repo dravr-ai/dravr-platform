@@ -32,6 +32,8 @@ pub mod consent_strings;
 pub mod errors;
 /// Hot-reloadable evidence registry for the bullshit detector
 pub mod evidence_registry;
+/// Catalogue keys of the plan card's evidence chip and `/plan`'s day notes
+pub mod evidence_strings;
 /// Evidence-proposition half of the sync engine
 pub mod evidence_sync;
 /// GitHub Contents API client (used for admin writes; reads now go via [`store`])

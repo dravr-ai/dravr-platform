@@ -182,7 +182,7 @@ describe('the Home tab over the wire', () => {
         '/api/me/activities/recent',
         '/api/me/activities/strava/8998/route?burst=true',
         '/api/me/activities/strava/9001/route?burst=true',
-        '/api/me/calendar?from=2026-09-21&to=2026-09-27',
+        '/api/me/calendar?from=2026-09-21&to=2026-09-27&locale=en',
         '/api/me/features',
         '/api/me/training-plan?locale=en',
         '/api/me/training-status',

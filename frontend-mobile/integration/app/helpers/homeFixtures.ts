@@ -363,7 +363,7 @@ export const TEMPO_DETAIL_RESPONSE: ActivityDetailResponse = {
 export const HISTORY_START = '2026-09-09';
 
 /** The calendar read of the strip's own week, as the screen asks for it on arrival. */
-export const CALENDAR_URL = 'GET /api/me/calendar?from=2026-09-21&to=2026-09-27';
+export const CALENDAR_URL = 'GET /api/me/calendar?from=2026-09-21&to=2026-09-27&locale=en';
 
 /**
  * The calendar answer for `from..=to`, as the server gives it with `plan`
