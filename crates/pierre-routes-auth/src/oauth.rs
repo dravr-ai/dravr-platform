@@ -171,36 +171,35 @@ pub(crate) async fn handle_oauth_callback(
             let pushed = backend_resolver::pushed_backend_for(&response.provider)
                 == Some(response.provider.as_str());
             #[cfg(feature = "health-sync")]
-            {
-                let settled = (!pushed)
-                    .then(|| {
-                        spawn_health_backfill(
-                            &resources,
-                            &response.user_id,
-                            &response.provider,
-                            None,
-                        )
-                    })
-                    .flatten();
-                // The grant's history walk, once the backfill let go of the
-                // connection (carnet#1482).
-                if let Ok(user_id) = Uuid::parse_str(&response.user_id) {
-                    spawn_connection_report(&resources, user_id, &response.provider, async move {
-                        if let Some(backfill) = settled {
-                            drop(backfill.await);
-                        }
-                    });
-                }
-            }
+            let backfill = (!pushed)
+                .then(|| {
+                    spawn_health_backfill(&resources, &response.user_id, &response.provider, None)
+                })
+                .flatten();
             #[cfg(feature = "health-sync")]
             let read_on_demand = !health_sync_backfills(&resources, &response.provider);
             // Without the health sync no provider is backfilled after a
             // connect, so every one is read on demand.
             #[cfg(not(feature = "health-sync"))]
             let read_on_demand = true;
-            if read_on_demand && !pushed {
-                spawn_on_demand_first_read(&resources, &response.user_id, &response.provider);
+            let first_read = (read_on_demand && !pushed)
+                .then(|| {
+                    spawn_on_demand_first_read(&resources, &response.user_id, &response.provider)
+                })
+                .flatten();
+            // The grant's history walk, once the backfill or the first read,
+            // and the first post either leads to, let go of the connection
+            // (carnet#1482).
+            #[cfg(feature = "health-sync")]
+            if let Ok(user_id) = Uuid::parse_str(&response.user_id) {
+                spawn_connection_report(&resources, user_id, &response.provider, async move {
+                    for started in [backfill, first_read].into_iter().flatten() {
+                        drop(started.await);
+                    }
+                });
             }
+            #[cfg(not(feature = "health-sync"))]
+            drop(first_read);
 
             // Completion reaches the client through the durable path:
             // `complete_callback` has already written the notification row, and
