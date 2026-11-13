@@ -43,12 +43,13 @@ pub(crate) const HAND_OFF_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_job
 /// (`$11`, the purged phase). Only once no step holds its lease at `$10`: a
 /// step of a purged phase may still be paging the grant, and a second step
 /// beside it would page it twice. Its rows start over at zero, its end
-/// having been told; its `created_at_ms` is kept, so the resume sweep takes it
+/// having been told; its retry is due at once, whatever a failed step before
+/// the purge left; its `created_at_ms` is kept, so the resume sweep takes it
 /// on its next pass.
 pub(crate) const REOPEN_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
      SET walk_backend = $5, before_ts = $6, months_done = $7, fetch_limit = $8, \
          rows_landed = 0, after_ts = NULL, secs_per_unit = NULL, outcome = NULL, \
-         attempts = 0, leased_until_ms = 0, lease_token = NULL \
+         attempts = 0, leased_until_ms = 0, lease_token = NULL, next_attempt_ms = 0 \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
        AND ((outcome = $9 AND walk_backend IS NULL) OR outcome = $11) \
        AND leased_until_ms <= $10";

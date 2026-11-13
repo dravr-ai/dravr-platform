@@ -1852,7 +1852,7 @@ fn reconnect_below_session() -> WalkHandOff {
 /// reconnect cannot reopen the walk, the sweep neither claims it nor lists
 /// it to resolve, so no second step pages the grant beside the running one;
 /// once the step gives the lease up, the sweep lists it and a reconnect
-/// reopens the walk.
+/// reopens the walk, its retry due at once.
 #[tokio::test]
 async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() {
     let db = create_test_db().await.unwrap();
@@ -1978,6 +1978,15 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
             .await
             .unwrap(),
         "bug: once the step gave its lease up, a reconnect cannot reopen the walk"
+    );
+    assert_eq!(
+        ledger
+            .claim_stale_backfill_jobs(claim(Utc::now().timestamp_millis() + 1))
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "bug: the reopened walk is not claimable at once"
     );
 }
 

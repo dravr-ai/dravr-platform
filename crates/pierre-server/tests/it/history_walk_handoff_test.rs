@@ -1542,3 +1542,117 @@ async fn a_reconnect_after_the_session_lapsed_never_pages_the_grant_beside_a_pur
         "bug: the grant was walked under its own key"
     );
 }
+
+/// Fail the API phase's next step: its listing is answered with an error.
+/// Returns the instants just before the step ran and just after it settled.
+async fn fail_the_next_api_step(fx: &Fixture) -> (i64, i64) {
+    fx.reach_the_api_phase().await;
+    let gate = fx.strava.hold_next_listing();
+    fx.strava.fail_the_held_listing();
+    let before = Utc::now().timestamp_millis();
+    fx.sweep(true).await;
+    fx.strava.listing_held().await;
+    gate.notify_one();
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while !fx.idle().await {
+        assert!(Instant::now() < deadline, "the failed step never settled");
+        sleep(Duration::from_millis(50)).await;
+    }
+    (before, Utc::now().timestamp_millis())
+}
+
+/// A failed walk step gives its row back with its retry a whole lease
+/// later: the sweep takes it neither a minute after the failure nor just
+/// before that lease has passed, and does once it has.
+#[tokio::test]
+async fn a_failed_walk_steps_retry_is_due_a_whole_lease_later() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![session_oldest - YEAR / 2]);
+    fx.strava.created(now - 6 * YEAR);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    let (before, after) = fail_the_next_api_step(&fx).await;
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Owed),
+        "a failed step keeps the walk owed"
+    );
+    let lease = i64::try_from(BACKFILL_JOB_LEASE.as_millis()).unwrap();
+    let ledger = &fx.resources.common.repos.activity_backfill_jobs;
+    for now_ms in [after + 60_000, before + lease - 2_000] {
+        let swept = ledger
+            .claim_stale_backfill_jobs(fx.claim_at(now_ms))
+            .await
+            .unwrap();
+        assert!(
+            swept.is_empty(),
+            "bug: a failed walk step is retried {}s after it failed, before a whole lease: {swept:?}",
+            (now_ms - after) / 1_000
+        );
+    }
+    let swept = ledger
+        .claim_stale_backfill_jobs(fx.claim_at(after + lease + 2_000))
+        .await
+        .unwrap();
+    assert_eq!(
+        swept.len(),
+        1,
+        "bug: the failed walk step is not due once a whole lease has passed"
+    );
+}
+
+/// A step of the API phase failed, so its retry is due a lease later; then
+/// the grant is revoked and connected again. The reopened walk is a new
+/// phase, owed nothing of the failed step's backoff: the sweep takes it at
+/// once.
+#[tokio::test]
+async fn a_walk_reopened_after_a_failed_step_is_claimable_at_once() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, true).await;
+    fx.strava.serve(vec![session_oldest - YEAR / 2]);
+    fx.strava.created(now - 6 * YEAR);
+    assert!(
+        start_history_walk(
+            &fx.runtime(),
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::Connected
+        )
+        .await
+    );
+    fail_the_next_api_step(&fx).await;
+    fx.revoke_grant().await;
+    assert!(
+        fx.reconnect().await,
+        "a reconnect with no step holding the walk reopens it"
+    );
+    let swept = fx
+        .resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .claim_stale_backfill_jobs(fx.claim_at(Utc::now().timestamp_millis() + 1_000))
+        .await
+        .unwrap();
+    assert_eq!(
+        swept.len(),
+        1,
+        "bug: a reopened walk waits out the backoff of a step from before the purge"
+    );
+    assert_eq!(
+        swept[0].walk_backend.as_deref(),
+        Some(oauth_providers::STRAVA)
+    );
+}
