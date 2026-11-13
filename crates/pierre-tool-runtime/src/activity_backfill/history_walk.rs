@@ -302,7 +302,7 @@ async fn reopen(
 /// lease, or when the store or the ledger could not be read or written — the
 /// resume sweep, which asks again for every such row whose lease lapsed,
 /// retries it.
-pub async fn resolve_purged_walk(
+pub(crate) async fn resolve_purged_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,

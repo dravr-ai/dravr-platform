@@ -1990,6 +1990,57 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
     );
 }
 
+/// A walk ask recorded straight into the ledger — the path a walk takes when
+/// the pair's walks could not be read first — never replaces a walk a purge
+/// left owed a reopen: its step may still hold the lease and be paging the
+/// grant, and a fresh walk beside it would page the pair twice.
+#[tokio::test]
+async fn a_new_walk_ask_never_replaces_a_purged_walk() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    let now = Utc::now().timestamp_millis();
+    let ask = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: tenant,
+        user_id: athlete,
+        provider: "sciotte".to_owned(),
+        kind: BackfillJobKind::HistoryWalk,
+        after_ts: Some(946_684_800),
+        before_ts: None,
+        fetch_limit: Some(500),
+        conversation_id: None,
+        created_at_ms: now,
+        leased_until_ms: now + 600_000,
+        attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
+        walk_backend: None,
+    };
+    assert!(
+        !repos
+            .activity_backfill_jobs
+            .record_backfill_job(&ask)
+            .await
+            .unwrap(),
+        "bug: a new walk ask replaced a walk a purge left owed a reopen"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava")),
+        "bug: the purged walk no longer stands in the way of a second walk of the pair"
+    );
+}
+
 /// A purged phase with no grant live to reopen it through is kept as a
 /// session walked alone, once no step holds it — never while one does — and
 /// a grant connected later reopens it as any walked session.

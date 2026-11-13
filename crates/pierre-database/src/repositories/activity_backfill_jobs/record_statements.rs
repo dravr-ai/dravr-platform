@@ -9,7 +9,8 @@
 /// `rows_affected` tells the caller so. A row that only records an ended job
 /// is replaced whole by the new one, but only by an ask in the row's own
 /// tenant: an ask from another tenant never overwrites what this tenant's
-/// card reads.
+/// card reads. A history walk a purge left owed a reopen (`$20`) is not an
+/// ended job: a step may still hold it, and it is never replaced.
 pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_jobs \
      (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
@@ -26,6 +27,7 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
        asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL, \
        next_attempt_ms = 0 \
      WHERE activity_backfill_jobs.outcome IS NOT NULL \
+       AND activity_backfill_jobs.outcome <> $20 \
        AND activity_backfill_jobs.tenant_id = excluded.tenant_id";
 
 /// A live read asked again while one is owed answers the newest ask: the

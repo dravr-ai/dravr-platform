@@ -688,6 +688,11 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(row.progress.secs_per_unit)
                     .bind(&row.turn_id)
                     .bind(&row.asked_message_id);
+                let query = if live_read {
+                    query
+                } else {
+                    query.bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
+                };
                 let failed = |e: sqlx::Error| {
                     AppError::database(format!("Failed to record backfill job: {e}"))
                 };
