@@ -65,8 +65,8 @@ use uuid::Uuid;
 mod source_order;
 
 pub use source_order::{
-    history_source_order, history_sources_for, history_store_keys, walk_hand_off, walk_source,
-    HistorySource, HistorySourceRole,
+    history_source_order, history_sources_for, history_store_keys, walk_across_pair, walk_hand_off,
+    walk_source, HistorySource, HistorySourceRole, PairWalk,
 };
 
 /// Read limit for a single deterministic read of a historical window from the

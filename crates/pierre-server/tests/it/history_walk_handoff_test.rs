@@ -713,3 +713,112 @@ async fn a_reopened_walk_that_finds_nothing_older_tells_nothing() {
         "bug: a reopened walk that brought nothing in tells the athlete again: {told:?}"
     );
 }
+
+/// The walk handed off to the grant, then the session lapsed. The grant is
+/// now the walk's source while its walk still runs under the session's key:
+/// a depth ask, the seed or a connect report reaching the grant must see
+/// that walk across the pair, and never start a second walk of the same
+/// grant from the head. Once that walk paged the grant to its end, none
+/// starts either.
+#[tokio::test]
+async fn a_session_that_lapses_mid_api_phase_leaves_one_walk_of_the_grant() {
+    use pierre_core::models::coverage::Pending;
+    use pierre_tool_runtime::training_history_compute::history_walk_pending;
+
+    let now = Utc::now().timestamp();
+    let fx = fixture(vec![now - 3 * DAY, now - 2 * YEAR], 400, true).await;
+    fx.strava.serve(vec![now - 5 * YEAR]);
+    fx.strava.created(now - 6 * YEAR);
+    let walk = |trigger| {
+        let runtime = fx.runtime();
+        async move {
+            start_history_walk(
+                &runtime,
+                fx.user_id,
+                fx.tenant,
+                oauth_providers::STRAVA,
+                trigger,
+            )
+            .await
+        }
+    };
+    let repos = &fx.resources.common.repos;
+    let grant_row = || async {
+        repos
+            .activity_backfill_jobs
+            .backfill_job_state(
+                fx.user_id,
+                fx.tenant,
+                oauth_providers::STRAVA,
+                BackfillJobKind::HistoryWalk,
+            )
+            .await
+            .unwrap()
+    };
+
+    assert!(walk(WalkTrigger::Connected).await, "the session is walked");
+    let deadline = Instant::now() + WALK_DEADLINE;
+    loop {
+        let row = repos
+            .activity_backfill_jobs
+            .history_walk_row(fx.user_id, fx.tenant, oauth_providers::SCIOTTE)
+            .await
+            .unwrap()
+            .expect("the walk's row is kept");
+        if row.walk_backend.as_deref() == Some(oauth_providers::STRAVA) {
+            assert_eq!(row.state, BackfillJobState::Owed, "the API phase is owed");
+            break;
+        }
+        assert!(Instant::now() < deadline, "the session never handed off");
+        fx.sweep(true).await;
+    }
+    let listed = fx.strava.listing_count();
+
+    repos
+        .provider_connections
+        .mark_needs_reauth(
+            fx.user_id,
+            fx.tenant,
+            oauth_providers::SCIOTTE,
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    for trigger in [
+        WalkTrigger::DepthMissing,
+        WalkTrigger::Seed,
+        WalkTrigger::Connected,
+    ] {
+        assert!(
+            !walk(trigger).await,
+            "bug: a {trigger:?} ask starts a second walk of the grant the session's row is paging"
+        );
+    }
+    let pending = history_walk_pending(&fx.runtime(), fx.tenant, fx.user_id)
+        .await
+        .unwrap();
+    assert!(
+        matches!(pending, Some(Pending::HistoryWalkRunning { .. })),
+        "bug: the depth ask reports the walk paging the grant as running: {pending:?}"
+    );
+    assert_eq!(
+        grant_row().await,
+        None,
+        "bug: a second walk was filed under the grant's key"
+    );
+    sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        fx.strava.listing_count(),
+        listed,
+        "bug: the grant was paged by a second walk"
+    );
+
+    fx.walk_to_the_end().await;
+    assert_eq!(fx.state().await, Some(BackfillJobState::Walked));
+    assert!(
+        !walk(WalkTrigger::DepthMissing).await,
+        "bug: a grant the session's walk paged to its end is walked again from the head"
+    );
+    assert_eq!(grant_row().await, None, "bug: a walk filed under the grant");
+}

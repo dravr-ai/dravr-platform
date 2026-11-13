@@ -29,7 +29,9 @@
 
 use std::iter;
 
+use pierre_core::errors::AppResult;
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId};
+use pierre_database::repositories::BackfillJobState;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver::{
     mirror_backend_for, oauth_serves, pushed_backend_for, user_facing_name,
@@ -189,6 +191,72 @@ pub async fn walk_hand_off(
         return None;
     }
     order.find(|source| source.live && source.role == HistorySourceRole::Grant)
+}
+
+/// What the ledger holds for walks of `backend`'s history, read across every
+/// key its provider's history is filed under ([`history_store_keys`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PairWalk {
+    /// A walk filed under `key` is owed — running, or waiting for the resume
+    /// sweep — in either phase: a session's walk that handed off to
+    /// `backend`'s grant keeps the session's key.
+    Owed {
+        /// The key the owed walk is filed under.
+        key: String,
+    },
+    /// `backend`'s own walk reached the end of the history.
+    Walked,
+    /// A walk filed under another key paged `backend` to the end of the
+    /// history in its API phase.
+    WalkedThrough,
+    /// No walk is owed, and none walked `backend` to the end: never asked,
+    /// or ended before what it was asked for landed.
+    Open,
+}
+
+/// The walk of `backend`'s history the ledger holds, under `backend`'s own
+/// key or any other of its provider's ([`PairWalk`]).
+///
+/// A walk of the pair is one walk whichever source it reads: the session's
+/// row keeps its key while its API phase pages the grant, so a session that
+/// lapses mid-walk makes the grant the walk's source while its walk still
+/// runs under the session's key. Any walk owed under any of the keys is that
+/// walk, and none other is started beside it.
+///
+/// # Errors
+///
+/// Returns the ledger's error when a row cannot be read.
+pub async fn walk_across_pair(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> AppResult<PairWalk> {
+    let mut walked = PairWalk::Open;
+    for key in history_store_keys(backend) {
+        let Some(row) = repos
+            .activity_backfill_jobs
+            .history_walk_row(user_id, tenant_id, key)
+            .await?
+        else {
+            continue;
+        };
+        match row.state {
+            BackfillJobState::Owed => {
+                return Ok(PairWalk::Owed {
+                    key: key.to_owned(),
+                })
+            }
+            BackfillJobState::Walked if key == backend => walked = PairWalk::Walked,
+            BackfillJobState::Walked
+                if row.walk_backend.as_deref() == Some(backend) && walked == PairWalk::Open =>
+            {
+                walked = PairWalk::WalkedThrough;
+            }
+            BackfillJobState::Walked | BackfillJobState::Incomplete => {}
+        }
+    }
+    Ok(walked)
 }
 
 /// Whether the user holds `backend` live in the tenant

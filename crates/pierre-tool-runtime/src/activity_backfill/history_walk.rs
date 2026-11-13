@@ -50,9 +50,9 @@
 //! [`WHOLE_ACCOUNT_AFTER`]. Before it, a session step that finds nothing ends
 //! the session's phase (and the walk, with no grant beside it), and an API
 //! walk ends after two consecutive empty years. The row is then kept as
-//! [`BackfillJobState::Walked`], which a later depth ask reads as done, and
-//! the athlete is told once, in their personal thread, how far back their
-//! history now reaches (B4).
+//! [`pierre_database::repositories::BackfillJobState::Walked`], which a later
+//! depth ask reads as done, and the athlete is told once, in their personal
+//! thread, how far back their history now reaches (B4).
 //!
 //! A session walked beside a push-fed grant (Garmin) also copies the year of
 //! wellness before the grant once its activities are in ([`wellness`]).
@@ -66,14 +66,14 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{
-    BackfillCoverage, BackfillJobKind, BackfillJobState, JobFloor, JobLease, JobProgressStep,
-    WalkHandOff,
+    BackfillCoverage, BackfillJobKind, JobFloor, JobLease, JobProgressStep, WalkHandOff,
 };
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::CoreFitnessProvider;
 use pierre_services::training_history_read::{
-    history_sources_for, history_store_keys, walk_hand_off, walk_source, HistorySourceRole,
+    history_sources_for, history_store_keys, walk_across_pair, walk_hand_off, walk_source,
+    HistorySourceRole, PairWalk,
 };
 use tokio::time::timeout;
 use tracing::{info, instrument, warn};
@@ -126,7 +126,9 @@ const SECS_PER_MONTH: i64 = 2_629_746;
 /// It reads the provider's first live, pageable source ([`walk_source`]).
 /// Returns whether a walk was started; `false` when the user holds no such
 /// source, or a walk of it is already owed, running, or reached the end of
-/// the history: one that did holds all there is, and a new source the
+/// the history, under its key or any other of its provider's
+/// ([`walk_across_pair`]): a session's walk in its API phase is the grant's
+/// walk too. One that reached the end holds all there is, and a new source the
 /// athlete connects is a source of its own, walked on its first ask. The
 /// one exception is a session walked alone while no API grant stood beside
 /// it: once one does, the walk is reopened for the grant's phase below what
@@ -142,8 +144,10 @@ pub async fn start_history_walk(
         info!(user_id = %user_id, provider, ?trigger, "History walk: no live source to walk");
         return false;
     };
-    if walked(runtime, user_id, tenant_id, &source.backend).await {
-        return reopen_for_grant(runtime, user_id, tenant_id, &source.backend, trigger).await;
+    if let Some(answered) =
+        walk_of_pair(runtime, user_id, tenant_id, &source.backend, trigger).await
+    {
+        return answered;
     }
     let limit = match source.role {
         HistorySourceRole::Session => historical_backfill_fetch_limit(),
@@ -175,6 +179,36 @@ pub async fn start_history_walk(
         "History walk: asked"
     );
     started
+}
+
+/// What a walk of the pair already filed answers an ask to walk `backend`
+/// with ([`walk_across_pair`]); `None` when none stands in its way and a
+/// walk starts. One owed under any key is that walk; one that walked
+/// `backend` to the end holds all there is, save the API phase a session
+/// walked alone owes a grant that connected since.
+async fn walk_of_pair(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+    trigger: WalkTrigger,
+) -> Option<bool> {
+    match walk_across_pair(runtime.repos(), user_id, tenant_id, backend).await {
+        Ok(PairWalk::Open) => None,
+        Ok(PairWalk::Walked) => {
+            Some(reopen_for_grant(runtime, user_id, tenant_id, backend, trigger).await)
+        }
+        Ok(PairWalk::Owed { key }) => {
+            info!(user_id = %user_id, backend, key, ?trigger, "History walk: a walk of the pair is already owed");
+            Some(false)
+        }
+        Ok(PairWalk::WalkedThrough) => Some(false),
+        // A duplicate ask under the source's own key is refused by its row.
+        Err(e) => {
+            warn!(user_id = %user_id, backend, error = %e, "History walk: the ledger could not be read");
+            None
+        }
+    }
 }
 
 /// Owe a walk `backend`'s session ended alone the API phase of the grant now
@@ -265,29 +299,6 @@ async fn oldest_stored(
         }
     }
     Ok(oldest)
-}
-
-/// Whether a walk of `backend` already reached the end of the user's
-/// history. A ledger that cannot be read counts as not walked: a duplicate
-/// ask is refused by the row anyway.
-async fn walked(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    backend: &str,
-) -> bool {
-    match runtime
-        .repos()
-        .activity_backfill_jobs
-        .backfill_job_state(user_id, tenant_id, backend, BackfillJobKind::HistoryWalk)
-        .await
-    {
-        Ok(state) => state == Some(BackfillJobState::Walked),
-        Err(e) => {
-            warn!(user_id = %user_id, backend, error = %e, "History walk: the ledger could not be read");
-            false
-        }
-    }
 }
 
 /// What one step of a walk came to.

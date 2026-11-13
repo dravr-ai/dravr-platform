@@ -44,15 +44,15 @@ use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{Coverage, Pending};
 use pierre_core::models::{DailyTrainingState, TenantId};
-use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobProgress};
+use pierre_database::repositories::{BackfillJobKind, JobProgress};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::ai_scope;
 use pierre_runtime_context::DataContext;
 pub use pierre_services::training_history_read::TrainingHistoryRead;
 use pierre_services::training_history_read::{
     self as history_read, compute_states, first_vouched_day, load_stored_window,
-    resolve_compute_backends, series_coverage, user_timezone, validate_window, walk_source,
-    ComputeBackend, HistoryHandles,
+    resolve_compute_backends, series_coverage, user_timezone, validate_window, walk_across_pair,
+    walk_source, ComputeBackend, HistoryHandles, PairWalk,
 };
 
 #[cfg(feature = "tools-data")]
@@ -452,10 +452,12 @@ impl WalkAsk {
 /// owed for the missing depth.
 ///
 /// One walk per connection: the history is every provider's, so the depth
-/// missing from it may sit behind any of them. Each walk is read under the
-/// key it is recorded under, its source's ([`walk_source`]), never the
-/// connection's own slug. A source already walking is reported, with its
-/// progress, as [`Pending::HistoryWalkRunning`]; one whose walk reached the
+/// missing from it may sit behind any of them. Each walk is read for its
+/// source ([`walk_source`]), never the connection's own slug, under every
+/// key of the source's provider ([`walk_across_pair`]): a session's walk in
+/// its API phase keeps the session's key while the grant is its source. A
+/// source already walking is reported, with its progress, as
+/// [`Pending::HistoryWalkRunning`]; one whose walk reached the
 /// end of the history is not walked again: it holds all there is
 /// ([`start_history_walk`]). Any other, never walked or ended before its
 /// floor, is asked for a walk, and a started one is
@@ -475,15 +477,11 @@ async fn request_walks<'a>(
         let Some(source) = walk_source(repos, user_id, tenant_id, &backend.slug).await else {
             continue;
         };
-        let jobs = &repos.activity_backfill_jobs;
-        let kind = BackfillJobKind::HistoryWalk;
-        match jobs
-            .backfill_job_state(user_id, tenant_id, &source.backend, kind)
-            .await
-        {
-            Ok(Some(BackfillJobState::Owed)) => {
-                match jobs
-                    .job_progress(user_id, tenant_id, &source.backend, kind)
+        match walk_across_pair(repos, user_id, tenant_id, &source.backend).await {
+            Ok(PairWalk::Owed { key }) => {
+                match repos
+                    .activity_backfill_jobs
+                    .job_progress(user_id, tenant_id, &key, BackfillJobKind::HistoryWalk)
                     .await
                 {
                     Ok(progress) => running.push(progress.unwrap_or_default()),
@@ -495,8 +493,8 @@ async fn request_walks<'a>(
                     ),
                 }
             }
-            Ok(Some(BackfillJobState::Walked)) => {}
-            Ok(None | Some(BackfillJobState::Incomplete)) => {
+            Ok(PairWalk::Walked | PairWalk::WalkedThrough) => {}
+            Ok(PairWalk::Open) => {
                 started |= request_capture(resources, tenant_id, user_id, &backend.slug).await;
             }
             Err(e) => warn!(
