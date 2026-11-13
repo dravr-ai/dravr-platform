@@ -12,6 +12,13 @@ use uuid::Uuid;
 
 use crate::repositories::memory_extraction_jobs::JobLease;
 
+/// The statements that move a history walk down its window, through its phases
+mod walk_statements;
+pub(crate) use walk_statements::{
+    END_HISTORY_WALK_SQL, HAND_OFF_HISTORY_WALK_SQL, HISTORY_WALK_ROW_SQL, RECORD_JOB_PROGRESS_SQL,
+    REOPEN_HISTORY_WALK_SQL,
+};
+
 /// What a job row is for.
 ///
 /// Each kind is its own row beside the others for one `(user, provider)`: a
@@ -422,14 +429,18 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// [`Self::hand_off_history_walk`] leaves it. Its count of rows starts
     /// over: the session's end was told already, so the API phase's message
     /// counts what it brings in, and none is sent when that is nothing.
-    /// `false` when no such row stands: none walked, one still owed, or one
-    /// whose API phase already ran.
+    /// `false` when no such row stands: none walked, one still owed, one
+    /// whose API phase already ran, or one a step holds the lease of at
+    /// `now_ms`
+    /// (a purge took its phase from under that step, which asks for the
+    /// walk again once it stops).
     async fn reopen_history_walk(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
         hand_off: &WalkHandOff,
+        now_ms: i64,
     ) -> AppResult<bool>;
 
     /// How far the `kind` job for `(user_id, provider)` in `tenant_id` has
@@ -561,10 +572,11 @@ pub(crate) const FINISH_LIVE_READ_SQL: &str = "DELETE FROM activity_backfill_job
 pub(crate) const REAP_EXHAUSTED_BACKFILL_JOBS_SQL: &str = "DELETE FROM activity_backfill_jobs \
      WHERE attempts >= $1 AND leased_until_ms <= $2 AND outcome IS NULL";
 
-/// Keeps the row, released, with the outcome it ended on.
+/// Keeps the row, released, with the outcome it ended on — only while it is
+/// owed: a walk a purge already ended keeps the outcome the purge gave it.
 pub(crate) const END_BACKFILL_JOB_SQL: &str = "UPDATE activity_backfill_jobs \
      SET outcome = $3, leased_until_ms = 0, lease_token = NULL \
-     WHERE id = $1 AND lease_token = $2";
+     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
 
 /// Hands a claim back unrun, with the attempt it counted.
 pub(crate) const RELEASE_BACKFILL_JOB_CLAIM_SQL: &str = "UPDATE activity_backfill_jobs \
@@ -594,51 +606,6 @@ pub(crate) const TAKE_OVER_IDLE_LIVE_READ_SQL: &str = "UPDATE activity_backfill_
 pub(crate) const BACKFILL_JOB_LEASE_SQL: &str =
     "SELECT leased_until_ms FROM activity_backfill_jobs \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 AND outcome IS NULL";
-
-pub(crate) const HISTORY_WALK_ROW_SQL: &str = "SELECT outcome, walk_backend \
-     FROM activity_backfill_jobs \
-     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
-
-/// Adds a landed step to the progress and releases the row for the next
-/// step, below where this one reached.
-pub(crate) const RECORD_JOB_PROGRESS_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET before_ts = $3, months_done = months_done + $4, rows_landed = rows_landed + $5, \
-         secs_per_unit = COALESCE($6, secs_per_unit), after_ts = COALESCE($7, after_ts), \
-         months_total = COALESCE($8, months_total), \
-         attempts = 0, leased_until_ms = 0, lease_token = NULL \
-     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
-
-/// Adds a walk's last step to the progress and keeps the row, released, as
-/// walked.
-pub(crate) const END_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET before_ts = $3, months_done = months_done + $4, rows_landed = rows_landed + $5, \
-         secs_per_unit = COALESCE($6, secs_per_unit), after_ts = COALESCE($7, after_ts), \
-         months_total = COALESCE($8, months_total), outcome = $9, \
-         leased_until_ms = 0, lease_token = NULL \
-     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL \
-     RETURNING months_total, months_done, rows_landed, secs_per_unit";
-
-/// Moves a running walk to its API phase ([`WalkHandOff`]) and releases it
-/// for that phase's first step. The floor is learned again from the grant's
-/// profile (`after_ts` NULL), and the pace measured anew (`secs_per_unit`
-/// NULL): an API page is not a scrape.
-pub(crate) const HAND_OFF_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET walk_backend = $3, before_ts = $4, months_done = $5, \
-         rows_landed = rows_landed + $6, fetch_limit = $7, after_ts = NULL, \
-         secs_per_unit = NULL, attempts = 0, leased_until_ms = 0, lease_token = NULL \
-     WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
-
-/// Owes a walk its session ended alone the API phase
-/// ([`HAND_OFF_HISTORY_WALK_SQL`]'s row), only while it stands walked and
-/// no API phase ran on it. Its rows start over at zero, its end having been
-/// told; its `created_at_ms` is kept, so the resume sweep takes it on its
-/// next pass.
-pub(crate) const REOPEN_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET walk_backend = $5, before_ts = $6, months_done = $7, fetch_limit = $8, \
-         rows_landed = 0, after_ts = NULL, secs_per_unit = NULL, outcome = NULL, \
-         attempts = 0, leased_until_ms = 0, lease_token = NULL \
-     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
-       AND outcome = $9 AND walk_backend IS NULL";
 
 pub(crate) const JOB_PROGRESS_SQL: &str =
     "SELECT months_total, months_done, rows_landed, secs_per_unit FROM activity_backfill_jobs \
@@ -1114,6 +1081,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 tenant_id: TenantId,
                 provider: &str,
                 hand_off: &$crate::repositories::activity_backfill_jobs::WalkHandOff,
+                now_ms: i64,
             ) -> AppResult<bool> {
                 let reopened = sqlx::query(
                     $crate::repositories::activity_backfill_jobs::REOPEN_HISTORY_WALK_SQL,
@@ -1127,6 +1095,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 .bind(hand_off.months_done)
                 .bind(hand_off.fetch_limit)
                 .bind(walked_outcome())
+                .bind(now_ms)
                 .execute(self.pool())
                 .await
                 .map_err(|e| AppError::database(format!("Failed to reopen history walk: {e}")))?;

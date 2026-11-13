@@ -282,13 +282,17 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
 /// `walk_backend`. Left naming it, the row would tell a reconnect that the
 /// grant was walked to its end, and the deep history the purge took would
 /// never be read again. Its session phase did end, so the row reads as a
-/// session walked alone (`walk_backend` NULL), owed nothing and released;
-/// a grant connected beside it reopens the API phase, and a walk of the
-/// grant alone starts once the session lapsed. A row that ended incomplete
-/// keeps that outcome. Not a removal: it is never counted as one.
+/// session walked alone (`walk_backend` NULL), owed nothing; a grant
+/// connected beside it reopens the API phase, and a walk of the grant alone
+/// starts once the session lapsed. A row that ended incomplete keeps that
+/// outcome. Not a removal: it is never counted as one.
+///
+/// The lease is left as it stands. A step of the phase still running keeps
+/// it, so no reopen or sweep starts a second step beside it; that step's
+/// next write finds the phase reset (`outcome` no longer NULL), records no
+/// coverage, gives the lease up and asks for the walk again.
 pub(crate) const USER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET walk_backend = NULL, outcome = COALESCE(outcome, $5), \
-         leased_until_ms = 0, lease_token = NULL \
+     SET walk_backend = NULL, outcome = COALESCE(outcome, $5) \
      WHERE CAST(user_id AS TEXT) = $1 AND CAST(tenant_id AS TEXT) = $2 \
        AND kind = $4 AND walk_backend = $3";
 
@@ -296,8 +300,7 @@ pub(crate) const USER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_job
 /// whole-provider purge, binding `$1` provider, `$2` the history-walk kind and
 /// `$3` the walked outcome. Same isolation exemption as [`PROVIDER_PURGE_SQL`].
 pub(crate) const PROVIDER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
-     SET walk_backend = NULL, outcome = COALESCE(outcome, $3), \
-         leased_until_ms = 0, lease_token = NULL \
+     SET walk_backend = NULL, outcome = COALESCE(outcome, $3) \
      WHERE kind = $2 AND walk_backend = $1";
 
 /// The sync state describing a user's provider activities alone: every

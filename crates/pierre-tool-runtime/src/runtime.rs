@@ -130,6 +130,9 @@ pub enum WalkTrigger {
     DepthMissing,
     /// The personal-best seed found an athlete whose history no walk copied.
     Seed,
+    /// A step of the walk found its phase taken by a purge while it ran, and
+    /// asked again once it stopped: a grant connected meanwhile reopens it.
+    PhaseReset,
 }
 
 /// A history walk that reached the end of the athlete's history

@@ -56,7 +56,8 @@ use pierre_tool_runtime::runtime::WalkTrigger;
 use secrecy::SecretString;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
-use tokio::time::sleep;
+use tokio::sync::Notify;
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// Seconds in a day.
@@ -80,6 +81,10 @@ pub(crate) struct MockStrava {
     profiles: Mutex<usize>,
     /// Every activity detail read's id.
     details: Mutex<Vec<i64>>,
+    /// The gate the next listing waits on once it is counted, when one is set.
+    hold: Mutex<Option<Arc<Notify>>>,
+    /// Raised when a listing reached the gate.
+    held: Notify,
 }
 
 impl MockStrava {
@@ -117,6 +122,21 @@ impl MockStrava {
     pub(crate) fn profile_count(&self) -> usize {
         *self.profiles.lock().unwrap()
     }
+
+    /// Hold the next listing, once counted, until the returned gate is
+    /// notified: a walk step caught mid-request.
+    pub(crate) fn hold_next_listing(&self) -> Arc<Notify> {
+        let gate = Arc::new(Notify::new());
+        *self.hold.lock().unwrap() = Some(Arc::clone(&gate));
+        gate
+    }
+
+    /// Wait until a listing reached the gate [`Self::hold_next_listing`] set.
+    pub(crate) async fn listing_held(&self) {
+        timeout(Duration::from_secs(10), self.held.notified())
+            .await
+            .expect("no listing reached the hold");
+    }
 }
 
 /// `GET /athlete`: the profile, with its `created_at` when the mock has one.
@@ -139,6 +159,11 @@ async fn list_activities(
     let bound = |name: &str| query.get(name).and_then(|value| value.parse::<i64>().ok());
     let (after, before) = (bound("after"), bound("before"));
     mock.listings.lock().unwrap().push((after, before));
+    let hold = mock.hold.lock().unwrap().take();
+    if let Some(gate) = hold {
+        mock.held.notify_one();
+        gate.notified().await;
+    }
     let per_page: usize = query
         .get("per_page")
         .and_then(|value| value.parse().ok())

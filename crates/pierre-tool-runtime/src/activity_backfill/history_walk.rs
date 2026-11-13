@@ -30,7 +30,13 @@
 //! end, its progress covering both. A session walked alone while no grant
 //! stood beside it is reopened for the API phase when one connects
 //! ([`start_history_walk`]); its end was told, so the API phase tells only
-//! what it brings in, and nothing when that is nothing.
+//! what it brings in, and nothing when that is nothing. A reopened phase
+//! pages below the session's own oldest row: a purge of the grant reset the
+//! phase, and a step that ran through it may have left one deeper page under
+//! the grant's key. A purge never takes a running step's lease: the step's
+//! next write finds the phase reset, it records nothing, gives the lease up
+//! and asks for the walk again ([`AfterStep::AskAgain`]), and the walk is
+//! reopened only then, so no two steps ever page the grant at once.
 //!
 //! **One step per run.** A run reads one step below the row's cursor
 //! (`before_ts`), writes it through the activity store, and records the step
@@ -216,8 +222,13 @@ async fn walk_of_pair(
 
 /// Owe a walk `backend`'s session ended alone the API phase of the grant now
 /// live beside it ([`walk_hand_off`]); the resume sweep runs it. `false` when
-/// no grant stands beside the session, the walk already ran that phase, or
-/// the ledger could not be read or written.
+/// no grant stands beside the session, the walk already ran that phase, a
+/// step still holds its lease, or the ledger could not be read or written.
+///
+/// The phase pages below the oldest row the session itself stored, never
+/// below a page under the grant's key: a walk reopened here is one whose API
+/// phase a purge took, and a step that ran through that purge may have
+/// written one deep page after it, which would hide the purged range above.
 async fn reopen_for_grant(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -225,13 +236,20 @@ async fn reopen_for_grant(
     backend: &str,
     trigger: WalkTrigger,
 ) -> bool {
-    let Ok(Some(hand_off)) = hand_off_below(runtime, user_id, tenant_id, backend, 0).await else {
+    let below = hand_off_below(runtime, user_id, tenant_id, backend, &[backend], 0).await;
+    let Ok(Some(hand_off)) = below else {
         return false;
     };
     match runtime
         .repos()
         .activity_backfill_jobs
-        .reopen_history_walk(user_id, tenant_id, backend, &hand_off)
+        .reopen_history_walk(
+            user_id,
+            tenant_id,
+            backend,
+            &hand_off,
+            Utc::now().timestamp_millis(),
+        )
         .await
     {
         Ok(reopened) => {
@@ -254,22 +272,25 @@ async fn reopen_for_grant(
 
 /// Where the walk of `backend` goes on once its session found nothing more
 /// ([`WalkHandOff`]): the live API grant beside it ([`walk_hand_off`]),
-/// below the oldest activity any of the provider's history keys stores.
-/// `Ok(None)` when `backend` is no session or no such grant is live; `Err`
-/// when the store could not be read, so the hand-off is tried again rather
-/// than paging the API from the head.
+/// below the oldest activity stored under `keys` — every one of the
+/// provider's history keys ([`history_store_keys`]) as the session ends, the
+/// session's own on a reopen ([`reopen_for_grant`]). `Ok(None)` when
+/// `backend` is no session or no such grant is live; `Err` when the store
+/// could not be read, so the hand-off is tried again rather than paging the
+/// API from the head.
 async fn hand_off_below(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
+    keys: &[&str],
     rows_landed: i64,
 ) -> Result<Option<WalkHandOff>, ()> {
     let repos = runtime.repos();
     let Some(grant) = walk_hand_off(repos, user_id, tenant_id, backend).await else {
         return Ok(None);
     };
-    let before_ts = oldest_stored(runtime, user_id, tenant_id, backend)
+    let before_ts = oldest_stored(runtime, user_id, tenant_id, keys)
         .await?
         .map(|oldest| oldest.timestamp());
     Ok(Some(WalkHandOff {
@@ -281,18 +302,17 @@ async fn hand_off_below(
     }))
 }
 
-/// The start of the oldest activity stored under any of `backend`'s history
-/// keys ([`history_store_keys`]); `Err` (logged) when a key could not be
-/// read.
+/// The start of the oldest activity stored under any of `keys`; `Err`
+/// (logged) when a key could not be read.
 async fn oldest_stored(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
-    backend: &str,
+    keys: &[&str],
 ) -> Result<Option<DateTime<Utc>>, ()> {
     let cache = &runtime.repos().activity_cache;
     let mut oldest: Option<DateTime<Utc>> = None;
-    for key in history_store_keys(backend) {
+    for &key in keys {
         match cache.oldest_activity_start(user_id, &tenant_id, key).await {
             Ok(start) => oldest = oldest.into_iter().chain(start).min(),
             Err(e) => {
@@ -320,6 +340,20 @@ enum Step {
     Failed,
 }
 
+/// What is left to do once a step settled its row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[must_use]
+pub(super) enum AfterStep {
+    /// Nothing: the row says what comes next.
+    Settled,
+    /// The step's row was no longer its own: a purge took the phase it read
+    /// from under it ([`WalkTrigger::PhaseReset`]), or another runner took
+    /// the lease. The step gave its lease up and recorded nothing; the walk
+    /// is asked for again ([`ask_again`]) once the run released its key, so
+    /// a reconnect the running step held off reopens it.
+    AskAgain,
+}
+
 /// Run one step of the walk `job` is, and settle its row; a walk the ledger
 /// could not record walks to its end in this run instead.
 #[instrument(
@@ -327,37 +361,71 @@ enum Step {
     name = "history_walk",
     fields(user_id = %job.user_id, tenant_id = %job.tenant_id, provider = %job.provider_name)
 )]
-pub(super) async fn run_history_walk(job: &ActivityBackfillJob, recorded: Option<(JobLease, i64)>) {
+pub(super) async fn run_history_walk(
+    job: &ActivityBackfillJob,
+    recorded: Option<(JobLease, i64)>,
+) -> AfterStep {
     let executor =
         UniversalExecutor::new(job.resources.clone()).with_scopes(OAuthScope::self_grant());
     let Some((lease, attempts)) = recorded else {
         walk_unrecorded(job, &executor).await;
-        return;
+        return AfterStep::Settled;
     };
     let renewal = keep_backfill_lease(job, &lease);
     let attempt_started_at = Utc::now();
     let step = walk_step(job, &executor, &job.query_params).await;
-    settle_step(job, &lease, attempts, step, attempt_started_at).await;
+    let kept = settle_step(job, &lease, attempts, step, attempt_started_at).await;
     drop(renewal);
+    if kept {
+        return AfterStep::Settled;
+    }
+    // The lease ends now, renewed to no time at all: a lease another runner
+    // took is not this token's, and is left alone.
+    log_write(
+        "the row is no longer this step's; giving its lease up",
+        job.resources
+            .repos()
+            .activity_backfill_jobs
+            .renew_backfill_job_lease(&lease, 0)
+            .await,
+        job,
+    );
+    AfterStep::AskAgain
 }
 
-/// What `step` does to the walk's row.
+/// Ask for the walk of `job`'s source again, as a connect does
+/// ([`AfterStep::AskAgain`]): a grant connected while the step that stopped
+/// held the lease reopens the walk now.
+pub(super) async fn ask_again(job: &ActivityBackfillJob) {
+    start_history_walk(
+        &job.resources,
+        job.user_id,
+        job.tenant_id,
+        &job.provider_name,
+        WalkTrigger::PhaseReset,
+    )
+    .await;
+}
+
+/// What `step` does to the walk's row; `false` when a write found the row no
+/// longer this step's.
 async fn settle_step(
     job: &ActivityBackfillJob,
     lease: &JobLease,
     attempts: i64,
     step: Step,
     attempt_started_at: DateTime<Utc>,
-) {
+) -> bool {
     let ledger = &job.resources.repos().activity_backfill_jobs;
     match step {
+        // The coverage follows the row: a step whose phase a purge reset
+        // claims no depth for what it read.
         Step::Walked(step) => {
-            record_walk_coverage(job, step.before_ts, false).await;
-            log_write(
-                "a step landed; the next reads below it",
-                ledger.record_job_progress(lease, step).await,
-                job,
-            );
+            let written = ledger.record_job_progress(lease, step).await;
+            if matches!(written, Ok(true)) {
+                record_walk_coverage(job, step.before_ts, false).await;
+            }
+            log_write("a step landed; the next reads below it", written, job)
         }
         Step::Ended(step) => {
             let below = hand_off_below(
@@ -365,6 +433,7 @@ async fn settle_step(
                 job.user_id,
                 job.tenant_id,
                 &job.provider_name,
+                &history_store_keys(&job.provider_name),
                 step.rows_landed,
             )
             .await;
@@ -391,7 +460,7 @@ async fn settle_step(
                 "the source's credential is dead; the walk ends incomplete",
                 ledger.end_backfill_job_incomplete(lease).await,
                 job,
-            );
+            )
         }
         Step::Failed if attempts >= MAX_BACKFILL_ATTEMPTS => log_write(
             "failed on its last attempt; the walk ends incomplete",
@@ -407,43 +476,48 @@ async fn settle_step(
 }
 
 /// Move the walk to its API phase once the session's last `step` found
-/// nothing more: what the session reached is recorded as its coverage, and
-/// the row reads the grant from now on, below the oldest stored row.
+/// nothing more: the row reads the grant from now on, below the oldest
+/// stored row, and what the session reached is recorded as its coverage.
+/// `false` when the row is no longer this step's.
 async fn hand_off_to_grant(
     job: &ActivityBackfillJob,
     lease: &JobLease,
     step: JobProgressStep,
     hand_off: &WalkHandOff,
-) {
-    record_walk_coverage(job, step.before_ts, false).await;
+) -> bool {
+    let written = job
+        .resources
+        .repos()
+        .activity_backfill_jobs
+        .hand_off_history_walk(lease, hand_off)
+        .await;
+    if matches!(written, Ok(true)) {
+        record_walk_coverage(job, step.before_ts, false).await;
+    }
     log_write(
         "the session found nothing more; the grant pages below its oldest row",
-        job.resources
-            .repos()
-            .activity_backfill_jobs
-            .hand_off_history_walk(lease, hand_off)
-            .await,
+        written,
         job,
-    );
+    )
 }
 
 /// End the walk on its last `step`: the wellness before a push grant first,
 /// then the row kept as walked, the coverage, and the one message. A wellness
 /// copy that failed with attempts left leaves the row to the sweep, which
-/// re-runs the last step and copies again.
+/// re-runs the last step and copies again. `false` when the row is no longer
+/// this step's.
 async fn end_walk(
     job: &ActivityBackfillJob,
     lease: &JobLease,
     attempts: i64,
     step: JobProgressStep,
-) {
+) -> bool {
     if !wellness::copy_before_grant(job).await && attempts < MAX_BACKFILL_ATTEMPTS {
-        log_write(
+        return log_write(
             "the wellness copy failed; the sweep re-runs the last step",
             Ok(true),
             job,
         );
-        return;
     }
     let ended = job
         .resources
@@ -454,30 +528,36 @@ async fn end_walk(
     let landed = match ended {
         Ok(Some(progress)) => progress.rows_landed,
         other => {
-            log_write(
+            return log_write(
                 "reached the end of the history",
                 other.map(|ended| ended.is_some()),
                 job,
             );
-            return;
         }
     };
     log_write("reached the end of the history", Ok(true), job);
     record_walk_coverage(job, step.before_ts, true).await;
     announce_walked(job, landed).await;
+    true
 }
 
 /// Log how writing a step's settlement to the row went: `Ok(false)` is a
-/// row this lease no longer holds.
-fn log_write(what: &str, written: AppResult<bool>, job: &ActivityBackfillJob) {
+/// row this lease no longer holds, which returns `false`. A write that
+/// failed keeps the row the step's: its lease lapses and the sweep retries.
+fn log_write(what: &str, written: AppResult<bool>, job: &ActivityBackfillJob) -> bool {
     let (user_id, provider) = (job.user_id, job.provider_name.as_str());
     match written {
-        Ok(true) => info!(user_id = %user_id, provider, what, "History walk: step settled"),
+        Ok(true) => {
+            info!(user_id = %user_id, provider, what, "History walk: step settled");
+            true
+        }
         Ok(false) => {
             warn!(user_id = %user_id, provider, what, "History walk: the row is no longer this run's");
+            false
         }
         Err(e) => {
             warn!(user_id = %user_id, provider, what, error = %e, "History walk: the row could not be written");
+            true
         }
     }
 }
@@ -506,6 +586,7 @@ async fn walk_unrecorded(job: &ActivityBackfillJob, executor: &UniversalExecutor
                     phase.user_id,
                     phase.tenant_id,
                     &phase.provider_name,
+                    &history_store_keys(&phase.provider_name),
                     0,
                 )
                 .await;
@@ -931,7 +1012,7 @@ async fn announce_walked(job: &ActivityBackfillJob, landed: i64) {
         &job.resources,
         job.user_id,
         job.tenant_id,
-        &job.provider_name,
+        &history_store_keys(&job.provider_name),
     )
     .await
     else {

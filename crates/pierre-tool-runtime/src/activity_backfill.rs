@@ -374,14 +374,23 @@ fn spawn_backfill_run(
 ) {
     let awaited = job.pierre_conversation_id.is_some() || handoff.is_some();
     let run = async move {
-        match job.kind {
+        let after = match job.kind {
             BackfillJobKind::LiveRead => {
                 live_read::run_live_read(&job, &claim, recorded, handoff).await;
+                history_walk::AfterStep::Settled
             }
             BackfillJobKind::HistoryWalk => history_walk::run_history_walk(&job, recorded).await,
-            BackfillJobKind::Backfill => run_backfill(&job, recorded).await,
-        }
+            BackfillJobKind::Backfill => {
+                run_backfill(&job, recorded).await;
+                history_walk::AfterStep::Settled
+            }
+        };
         release_in_flight(&claim);
+        // Asked once the key is free: a walk of the grant alone starts
+        // under this very key.
+        if after == history_walk::AfterStep::AskAgain {
+            history_walk::ask_again(&job).await;
+        }
     };
     if awaited {
         tokio::spawn(run);

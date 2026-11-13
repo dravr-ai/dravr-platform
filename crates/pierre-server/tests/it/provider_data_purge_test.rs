@@ -58,9 +58,10 @@ use pierre_core::models::{
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
-    BackfillCoverage, BackfillJobKind, BackfillJobState, HistoryWalkRowState, JobLease,
-    JobProgress, PersonalBest, PersonalBestSeed, ProviderDataPurge, PurgeReason, StoredRouteTrack,
-    StreamOrigin, SyncCursorRow, WalkHandOff, STREAMS_FORMAT_VERSION,
+    BackfillCoverage, BackfillJobClaim, BackfillJobKind, BackfillJobState, HistoryWalkRowState,
+    JobLease, JobProgress, JobProgressStep, PersonalBest, PersonalBestSeed, ProviderDataPurge,
+    PurgeReason, StoredRouteTrack, StreamOrigin, SyncCursorRow, WalkHandOff,
+    STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -1669,5 +1670,119 @@ async fn a_grants_purge_releases_only_its_users_walk_through_it() {
             .and_then(|row| row.walk_backend),
         Some("wahoo".to_owned()),
         "bug: the purge released a walk reading another grant"
+    );
+}
+
+/// What a walk whose API phase a purge took reads as: a session walked
+/// alone, which a reconnect reopens.
+fn released() -> HistoryWalkRowState {
+    HistoryWalkRowState {
+        state: BackfillJobState::Walked,
+        walk_backend: None,
+    }
+}
+
+/// The walk below the session a reconnect owes, as `reopen_for_grant` asks.
+fn reconnect_below_session() -> WalkHandOff {
+    WalkHandOff {
+        backend: "strava".to_owned(),
+        before_ts: Some(1_700_000_000),
+        months_done: 24,
+        rows_landed: 0,
+        fetch_limit: 200,
+    }
+}
+
+/// A purge lands while a step of the walk's API phase is running. The purge
+/// releases the phase but never the step's lease: the step keeps renewing
+/// it, and its next write finds the phase reset. While it holds the lease a
+/// reconnect cannot reopen the walk and the sweep cannot claim it, so no
+/// second step pages the grant beside the running one; once the step gives
+/// the lease up, the reconnect reopens the walk.
+#[tokio::test]
+async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let ledger = &repos.activity_backfill_jobs;
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    let now = Utc::now().timestamp_millis();
+    let claim = |now_ms: i64| BackfillJobClaim {
+        now_ms,
+        queued_older_than_ms: 0,
+        lease_ms: 600_000,
+        max_attempts: 3,
+        limit: 10,
+    };
+    let running = ledger
+        .claim_stale_backfill_jobs(claim(now + 1))
+        .await
+        .unwrap();
+    assert_eq!(running.len(), 1, "a sweep runs the API phase's step");
+    let lease = JobLease {
+        id: running[0].id.clone(),
+        token: running[0].lease_token.clone().unwrap(),
+    };
+
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(session_walk(repos, athlete, tenant).await, Some(released()));
+    assert!(
+        !ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                &reconnect_below_session(),
+                Utc::now().timestamp_millis(),
+            )
+            .await
+            .unwrap(),
+        "bug: a reconnect reopened the walk while a step of its purged phase still runs"
+    );
+    assert!(
+        ledger
+            .claim_stale_backfill_jobs(claim(now + 2))
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a second step can page the grant beside the running one"
+    );
+    assert!(
+        ledger
+            .renew_backfill_job_lease(&lease, now + 600_000)
+            .await
+            .unwrap(),
+        "bug: the purge took the lease off a running step"
+    );
+    let step = JobProgressStep {
+        before_ts: 1_600_000_000,
+        months_walked: 12,
+        rows_landed: 1,
+        secs_per_unit: None,
+        floor: None,
+    };
+    assert!(
+        !ledger.record_job_progress(&lease, step).await.unwrap(),
+        "bug: the running step records progress on a phase the purge reset"
+    );
+
+    assert!(ledger.renew_backfill_job_lease(&lease, 0).await.unwrap());
+    assert!(
+        ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                &reconnect_below_session(),
+                Utc::now().timestamp_millis(),
+            )
+            .await
+            .unwrap(),
+        "bug: once the step gave its lease up, a reconnect cannot reopen the walk"
     );
 }
