@@ -838,6 +838,15 @@ async fn every_wellness_read_is_listed_with_athlete_over_mcp_and_offered_in_the_
         );
     }
 
+    // tools/list offers athlete= to a coach by the roster tool's rule: coach
+    // access and an active group (carnet#1426, carnet#1511).
+    f.res
+        .common
+        .repos
+        .users
+        .set_manages_roster(f.coach.id, true)
+        .await
+        .unwrap();
     // The MCP endpoint lists it on every one.
     let app = ProviderToolRouter::build_http_app(&f.res);
     let grant = format!(

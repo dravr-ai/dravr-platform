@@ -55,6 +55,7 @@ use super::peer_grounding::{
     PEER_FETCH_TOOL,
 };
 use super::prefetch::{REFRESH_GROUNDING_LEAD, STARTUP_GROUNDING_LEAD};
+use super::tool_dispatch::turn_executor;
 use super::turn_evidence::collect_turn_evidence;
 use crate::turn::TurnInput;
 use crate::ChatPipelineContext;
@@ -67,8 +68,7 @@ use pierre_llm::{ChatMessage, ChatRequest};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
 use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{
-    auth_required_provider, is_no_provider_refusal, UniversalExecutor, UniversalRequest,
-    UniversalResponse,
+    auth_required_provider, is_no_provider_refusal, UniversalRequest, UniversalResponse,
 };
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
@@ -685,7 +685,7 @@ pub(super) async fn run_verification_fetch(
         info!(seat = ?deps.seat, "capability_recovery: the sender is not this turn's subject; their activities are not fetched");
         return VerificationOutcome::NotTheSubject;
     }
-    fetch_sender_activities(deps.ctx, input).await
+    fetch_sender_activities(deps.ctx, input, deps.seat).await
 }
 
 /// The verification fetch itself.
@@ -699,16 +699,12 @@ pub(super) async fn run_verification_fetch(
 async fn fetch_sender_activities(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
+    seat: TurnSeat,
 ) -> VerificationOutcome {
-    // Same construction as tool dispatch (stage 9): conversation id for
-    // detached-work routing, per-utterance turn token so Guardian budget
-    // accumulates on THIS message and resets next one.
-    let executor = UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
-        // The turn's own grant — see stage 9's binding.
-        .with_scopes(input.grant.clone())
-        .with_conversation_id(input.conversation_id.clone())
-        .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
-        .with_turn_token(input.turn_id.0.to_string());
+    // The turn's own executor, on its seat (carnet#1448): were the gate above
+    // ever to let another seat through, the fetch would still read whom the
+    // turn is about, never the coach.
+    let executor = turn_executor(ctx, input, seat);
 
     let request = UniversalRequest {
         tool_name: VERIFICATION_TOOL.to_owned(),
@@ -936,16 +932,8 @@ async fn fetch_peer_evidence(
     peer_name: &str,
     result: &mut ToolLoopResult,
 ) -> Option<String> {
-    // Same construction as the verification fetch above: conversation id for
-    // detached-work routing, per-utterance turn token for Guardian budget.
-    let executor = Arc::new(
-        UniversalExecutor::new(Arc::clone(&deps.ctx.tool_runtime))
-            // The turn's own grant — see stage 9's binding.
-            .with_scopes(input.grant.clone())
-            .with_conversation_id(input.conversation_id.clone())
-            .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
-            .with_turn_token(input.turn_id.0.to_string()),
-    );
+    // The turn's own executor, on its seat (carnet#1448).
+    let executor = Arc::new(turn_executor(deps.ctx, input, deps.seat));
     let group_id = conversation_group_id(deps, input).await;
     let payload = fetch_peer_activities_outcome(
         &executor,

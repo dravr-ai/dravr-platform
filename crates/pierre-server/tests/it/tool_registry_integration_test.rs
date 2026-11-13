@@ -833,6 +833,8 @@ async fn test_list_tools_carries_every_declared_output_schema() {
                 && !registry
                     .get(name)
                     .is_some_and(|tool| tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY))
+                // The caller coaches no group: a coach-only tool is not listed (carnet#1426).
+                && !registry.is_coach_only(name)
         })
         .collect();
     declared.sort_unstable();

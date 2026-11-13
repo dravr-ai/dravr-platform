@@ -31,6 +31,7 @@ use pierre_fitness_compute::{
     RouteDiscoveryService, TargetFit, TargetUse,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::implementations::compose_route::ComposeRouteTool;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest};
 use pierre_tool_runtime::route_store::{self, StoredRoute};
@@ -1138,7 +1139,16 @@ async fn test_a_composed_route_is_drawn_from_the_ids_a_chat_turn_carries() {
     let tools_called = vec!["compose_route".to_owned()];
     let ctx = resources.chat_pipeline_context();
     let mut tracks = RouteTracks::new();
-    read_route_tracks(&ctx, &input, &granted, &tools_called, &reply, &mut tracks).await;
+    read_route_tracks(
+        &ctx,
+        &input,
+        TurnSeat::Subject,
+        &granted,
+        &tools_called,
+        &reply,
+        &mut tracks,
+    )
+    .await;
     let extraction = extract_viz_blocks(&ctx.viz_schemas, &granted, &tools_called, &tracks, &reply)
         .expect("the reply carries a fence");
 

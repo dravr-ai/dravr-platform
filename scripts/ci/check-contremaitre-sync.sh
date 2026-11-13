@@ -296,6 +296,7 @@ EXPECTED_FILE="crates/pierre-server/tests/it/contremaitre_test.rs"
 COUNT_FILE="crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
 TS_FILE="packages/mcp-types/src/tools.ts"
 SERVED_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+PUBLIC_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_public_names.json"
 
 # Whether SRC_TOOLS below holds the complete registered set. Checks 5 and 7
 # compare against it and must not run on a truncated scan.
@@ -387,11 +388,14 @@ else
         fi
 
         # 3c. generated TS SDK types — stale types red CI: Server E2E (SDK Types Up-to-Date)
-        # The SDK is generated from what /mcp serves, which is the registry minus
-        # the tools kept to Dravr's own surfaces (declare_security! first_party_only).
-        # The admin tools/list fixture is that served set, and
-        # mcp_surface_fixture_test pins it to the live wire, so the types are
-        # compared against it, and it against src.
+        # /mcp serves the registry minus the tools kept to Dravr's own surfaces
+        # (declare_security! first_party_only). The admin tools/list fixture is
+        # that whole set as a group's coach is offered it, checked against src.
+        # The SDK is generated from the public profile: what a caller who coaches
+        # no group is offered, a global admin included, which leaves out the
+        # coach-only tools (carnet#1426). mcp_surface_fixture_test pins both
+        # fixtures to the live wire, and the types are compared against the
+        # public one.
         if [[ ! -f "$TS_FILE" ]]; then
             echo -e "${RED}❌ ${TS_FILE} not found — this check is stale.${NC}"
             TOOL_DRIFT=true
@@ -409,7 +413,6 @@ else
             TOOL_DRIFT=true
         else
             SERVED_TOOLS="$(printf '%s\n' "$SERVED_SCAN" | sort -u)"
-            SERVED_COUNT="$(printf '%s\n' "$SERVED_TOOLS" | grep -c . || true)"
             PHANTOM_SERVED="$(comm -13 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$SERVED_TOOLS") || true)"
             if [[ -n "$PHANTOM_SERVED" ]]; then
                 echo -e "${RED}❌ ${SERVED_FIXTURE} serves tools src does not register:${NC}"
@@ -418,9 +421,18 @@ else
             fi
             TS_TOOLS="$(grep -oE '"[a-z0-9_]+"' "$TS_FILE" | tr -d '"' | sort -u || true)"
             TS_HEADER="$(grep -oE '^// Tool count: [0-9]+' "$TS_FILE" | grep -oE '[0-9]+' || true)"
-            TS_DIFF="$(comm -3 <(printf '%s\n' "$SERVED_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
-            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$SERVED_COUNT" ]]; then
-                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${SERVED_COUNT} tools /mcp serves (header says '${TS_HEADER}').${NC}"
+            if ! PUBLIC_SCAN="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))))' "$PUBLIC_FIXTURE")" \
+                || [[ -z "${PUBLIC_SCAN//[[:space:]]/}" ]]; then
+                # Fail closed, as for the served set above.
+                echo -e "${RED}❌ Could not read the public profile's tool names in ${PUBLIC_FIXTURE}.${NC}"
+                TOOL_DRIFT=true
+                PUBLIC_SCAN=""
+            fi
+            PUBLIC_TOOLS="$(printf '%s\n' "$PUBLIC_SCAN" | sort -u)"
+            PUBLIC_COUNT="$(printf '%s\n' "$PUBLIC_TOOLS" | grep -c . || true)"
+            TS_DIFF="$(comm -3 <(printf '%s\n' "$PUBLIC_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
+            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$PUBLIC_COUNT" ]]; then
+                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${PUBLIC_COUNT} tools /mcp offers the public profile (header says '${TS_HEADER}').${NC}"
                 [[ -n "$TS_DIFF" ]] && printf '%s\n' "$TS_DIFF" | sed 's/^/   /'
                 echo -e "${YELLOW}   Regenerate against a running server: cd packages/mcp-types && bun run generate${NC}"
                 TOOL_DRIFT=true
@@ -432,7 +444,7 @@ else
             echo -e "${YELLOW}   and regenerated SDK types in the SAME change — else main reds post-merge.${NC}"
             FAILED=true
         else
-            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS and the count assertion; the SDK types match the ${SERVED_COUNT} /mcp serves.${NC}"
+            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS and the count assertion; the SDK types match the ${PUBLIC_COUNT} tools of the public profile.${NC}"
         fi
     fi
 fi

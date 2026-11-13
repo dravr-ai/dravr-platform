@@ -42,6 +42,7 @@ use super::verification::{
 use super::{viz_blocks, viz_route};
 #[cfg(feature = "tools-verification")]
 use pierre_llm::stage::LlmStage;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::envelope_notices::NoticeDay;
 
 /// Aggregates the outputs of [`post_process_assistant_reply`] so the
@@ -95,6 +96,8 @@ pub(crate) struct PostProcessInputs<'a> {
     pub ctx: &'a ChatPipelineContext,
     pub input: &'a TurnInput,
     pub conv: &'a ConversationRecord,
+    /// Whose data the turn reads: a route map's track is read on it.
+    pub seat: TurnSeat,
     pub agent_ctx: Option<&'a AgentRuntimeContext>,
     pub prompt_guard: &'a prompt_leak::PromptGuard,
     /// What the turn's surface can render, plus its resolved locale. Read for
@@ -246,6 +249,7 @@ async fn apply_style_stages(
 async fn lift_viz_blocks(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
+    seat: TurnSeat,
     agent_ctx: Option<&AgentRuntimeContext>,
     tools_called: &[String],
     raw_content: String,
@@ -274,8 +278,16 @@ async fn lift_viz_blocks(
     // without its line has no map to render and is refused like any other
     // faulty one.
     let mut tracks = viz_route::RouteTracks::new();
-    viz_route::read_route_tracks(ctx, input, granted, tools_called, &raw_content, &mut tracks)
-        .await;
+    viz_route::read_route_tracks(
+        ctx,
+        input,
+        seat,
+        granted,
+        tools_called,
+        &raw_content,
+        &mut tracks,
+    )
+    .await;
     // A refused block is dropped from the reply and the prose stands alone:
     // the extraction already removed its fence and logged why. It is not
     // re-asked — over 30 days of dev traffic a repair never ran.
@@ -358,6 +370,7 @@ pub(crate) async fn post_process_assistant_reply(
         ctx,
         input,
         conv,
+        seat,
         agent_ctx,
         prompt_guard,
         profile,
@@ -437,7 +450,7 @@ pub(crate) async fn post_process_assistant_reply(
 
     // Stage 15.55: Inline visual blocks.
     let (raw_content, content_blocks, block_count) =
-        lift_viz_blocks(ctx, input, agent_ctx, tools_called, raw_content).await;
+        lift_viz_blocks(ctx, input, seat, agent_ctx, tools_called, raw_content).await;
 
     // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
     // model narrates about its hidden scaffolding («Je continue d'ignorer le

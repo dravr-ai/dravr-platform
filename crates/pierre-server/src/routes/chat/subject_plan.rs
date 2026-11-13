@@ -181,7 +181,11 @@ pub(super) async fn publish_subject_plan(
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
     // The push runs as the coach's own push_training_plan from this thread
     // would: the thread names the athlete, the coach is the requester, and an
-    // API-key caller is refused it as an external transport.
+    // API-key caller is refused it as an external transport. Only the coach
+    // reads this route's answer, and the thread is their own (checked by
+    // `coached_subject`), so the call is said to be a direct message: the
+    // room classifier takes a conversation with no group for private only
+    // then (carnet#1422).
     let coach_tenant = get_tenant_id(&auth, &resources).await?;
     let context = ToolExecutionContext::new(
         auth.user_id,
@@ -189,7 +193,8 @@ pub(super) async fn publish_subject_plan(
         into_runtime(&resources),
         tool_auth_method(&auth),
     )
-    .with_conversation_id(conversation_id.clone());
+    .with_conversation_id(conversation_id.clone())
+    .with_turn_direct_message(true);
     // The room the publish is said in is the group the thread acts under now:
     // reopening the thread from another group rebinds it there.
     let outcome = publish_draft_live(

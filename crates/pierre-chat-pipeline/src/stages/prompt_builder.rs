@@ -48,6 +48,11 @@ use pierre_core::models::groups::MemberFitnessSnapshot;
 use pierre_core::models::TenantId;
 #[cfg(feature = "tools-groups")]
 use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
+#[cfg(feature = "tools-groups")]
+use std::collections::BTreeSet;
+
+#[cfg(feature = "tools-groups")]
+use super::peer_grounding::mentioned_peers;
 
 /// Resolve group context strictly from the conversation record's
 /// `group_id`.
@@ -63,6 +68,10 @@ use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
 /// Returns `(Some(group_id), snapshots)` when the conversation is
 /// group-scoped and members are found, or `(None, empty_vec)` otherwise.
 ///
+/// `left_out` is a member whose card the turn must not carry: the group's
+/// coach on their seat, whose own training is not the group's. Their data is
+/// never read, so nothing it owes reaches the reply (carnet#1464).
+///
 /// # Errors
 ///
 /// Database errors from the group-member lookup are swallowed (the
@@ -74,6 +83,7 @@ pub async fn resolve_group_context(
     ctx: &ChatPipelineContext,
     conversation_group_id: Option<&str>,
     tool_tenant_id: TenantId,
+    left_out: Option<Uuid>,
 ) -> AppResult<(Option<String>, Vec<MemberFitnessSnapshot>)> {
     let Some(gid) = conversation_group_id else {
         return Ok((None, Vec::new()));
@@ -87,6 +97,7 @@ pub async fn resolve_group_context(
         .unwrap_or_default()
         .into_iter()
         .map(|m| m.user_id)
+        .filter(|member| Some(*member) != left_out)
         .collect();
 
     let snapshots = if member_ids.is_empty() {
@@ -96,6 +107,32 @@ pub async fn resolve_group_context(
     };
 
     Ok((Some(gid.to_owned()), snapshots))
+}
+
+/// The members whose cards a coach's room turn carries, when its message is
+/// about one athlete: the roster members `message` names, when they are all
+/// one athlete. `None` carries every card.
+///
+/// A coach writing about one athlete gets an answer from that athlete's card
+/// alone, so nothing another member's card holds informs the reply, and the
+/// Garmin attribution the reply owes is that athlete's (carnet#1464). A
+/// message naming no one, or two members, is about the room: every card is
+/// carried, and every card's data is owed. Matching is the same deterministic
+/// name match peer grounding runs ([`mentioned_peers`]), the coach excluded.
+#[cfg(feature = "tools-groups")]
+#[must_use]
+pub(crate) fn card_scope(
+    message: &str,
+    roster: &[MemberFitnessSnapshot],
+    coach: Uuid,
+) -> Option<BTreeSet<Uuid>> {
+    let [named] = mentioned_peers(message, roster, coach).try_into().ok()?;
+    let scope: BTreeSet<Uuid> = roster
+        .iter()
+        .filter(|member| member.user_id != coach && member.display_name == named.display_name)
+        .map(|member| member.user_id)
+        .collect();
+    (!scope.is_empty()).then_some(scope)
 }
 
 /// Build LLM messages from conversation history and optional system prompt.
@@ -721,6 +758,11 @@ mod tests {
     use pierre_core::transport::TransportPolicy;
     use pierre_llm::MessageRole;
 
+    #[cfg(feature = "tools-groups")]
+    use chrono::Utc;
+    #[cfg(feature = "tools-groups")]
+    use pierre_core::models::groups::OvertrainingRiskLevel;
+
     /// A summary the summariser was talked into framing as tool output reaches
     /// the model with the framing named, not as the platform's evidence.
     #[test]
@@ -917,6 +959,65 @@ mod tests {
                  \n\
                  Move her long run off Sunday",
                 "a quoted line after {terminator:?} stepped out of the quote"
+            );
+        }
+    }
+
+    /// A roster member named `name`, with no training.
+    #[cfg(feature = "tools-groups")]
+    fn member(name: &str) -> MemberFitnessSnapshot {
+        MemberFitnessSnapshot {
+            user_id: Uuid::new_v4(),
+            display_name: name.to_owned(),
+            ctl: None,
+            atl: None,
+            tsb: None,
+            form_ctl: None,
+            weekly_volume_km: 0.0,
+            previous_week_volume_km: None,
+            weekly_activity_count: 0,
+            weekly_duration_seconds: 0,
+            primary_sport: None,
+            vdot: None,
+            overtraining_risk: OvertrainingRiskLevel::Low,
+            days_since_last_activity: None,
+            last_activity_per_provider: HashMap::new(),
+            recent_activities: Vec::new(),
+            needs_reauth_providers: Vec::new(),
+            served_stale: false,
+            timezone: None,
+            deep_fatigue_mornings: Vec::new(),
+            computed_at: Utc::now(),
+        }
+    }
+
+    /// A coach's message naming one athlete carries her card alone; one
+    /// naming two members, no one, or only the coach carries every card
+    /// (carnet#1464).
+    #[cfg(feature = "tools-groups")]
+    #[test]
+    fn a_coachs_message_scopes_the_cards_to_the_one_athlete_it_names() {
+        let roster = [
+            member("Cole Coach"),
+            member("Mira Lambert"),
+            member("Olga Petrova"),
+        ];
+        let (coach, mira) = (roster[0].user_id, roster[1].user_id);
+
+        assert_eq!(
+            card_scope("Comment va Mira ?", &roster, coach),
+            Some(BTreeSet::from([mira])),
+            "a message naming one athlete carries her card alone"
+        );
+        for (message, about) in [
+            ("Mira et Olga ont bien roulé ?", "two members"),
+            ("Comment va le groupe ?", "no one"),
+            ("Cole a besoin de repos ?", "only the coach"),
+        ] {
+            assert_eq!(
+                card_scope(message, &roster, coach),
+                None,
+                "a message naming {about} is about the room: every card is carried"
             );
         }
     }

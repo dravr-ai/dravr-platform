@@ -30,6 +30,7 @@
 use crate::common;
 use secrecy::SecretString;
 
+use std::future::Future;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration as StdDuration, Instant};
@@ -64,7 +65,7 @@ use pierre_providers::delegation::{CoachRoster, DelegatedReads};
 use pierre_providers::registry::ProviderRegistry;
 use pierre_services::delegated_connections::roster_cache_key;
 use pierre_test_support::delegation::create_group_agent;
-use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::athlete_link::ProposeAthleteLinkTool;
 use pierre_tool_runtime::implementations::provider_roster::GetProviderRosterTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -917,11 +918,105 @@ async fn a_group_s_room_is_refused_before_any_roster_is_read() {
         )
         .await
         .unwrap();
-    let (payload, refused) = CONVERSATION_ID
-        .scope(Some(own.id), w.roster(w.coach, json!({})))
-        .await;
+    let (payload, refused) = in_turn(own.id, true, w.roster(w.coach, json!({}))).await;
     assert!(!refused, "{payload:#}");
     assert_eq!(w.roster.reads(), 1);
+}
+
+/// Run `call` in a turn of `conversation`, read by the caller alone when
+/// `direct_message`, as the chat pipeline scopes it.
+async fn in_turn<F: Future>(conversation: String, direct_message: bool, call: F) -> F::Output {
+    TURN_DIRECT_MESSAGE
+        .scope(
+            Some(direct_message),
+            CONVERSATION_ID.scope(Some(conversation), call),
+        )
+        .await
+}
+
+/// carnet#1422: a messaging group chat whose group binding failed keeps no
+/// group on its conversation, and a coach whose tenant is the bot tenant
+/// resolves that row under their own tenant. Nothing on the row tells it
+/// from their direct chat; the turn does. Read as private, it published the
+/// coach's coaching-platform roster to everyone in the chat.
+#[tokio::test]
+async fn an_ungrouped_shared_chat_under_the_coachs_own_tenant_is_refused() {
+    let w = World::new().await;
+    let squad = w.group("Squad", w.coach).await;
+    w.connect_intervals(w.coach).await;
+    let sam = person(&w.res, "sam@roster-tool.test", "Sam Swimmer", true).await;
+    w.join(&squad, sam, true).await;
+    w.roster.set(vec![athlete(
+        "i202",
+        "Samuel Roster",
+        Some("sam@roster-tool.test"),
+        Some(RosterAccess::Coach),
+    )]);
+
+    // The chat's row: under the coach's own tenant, with no group.
+    let chat = w
+        .res
+        .common
+        .repos
+        .chat
+        .create_conversation(
+            &w.coach.id.to_string(),
+            w.coach.tenant,
+            "telegram group",
+            "gemini-2.0-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    // A turn other people read is refused before any roster is read or any
+    // link proposed.
+    let (payload, refused) = in_turn(chat.id.clone(), false, w.roster(w.coach, json!({}))).await;
+    assert!(
+        refused,
+        "the roster was published to a shared chat: {payload:#}"
+    );
+    assert_eq!(payload["reason"], "group_room", "{payload:#}");
+    let (payload, refused) = in_turn(
+        chat.id.clone(),
+        false,
+        w.link(w.coach, json!({ "athlete": "Sam" })),
+    )
+    .await;
+    assert!(
+        refused,
+        "a link was proposed from a shared chat: {payload:#}"
+    );
+    assert_eq!(payload["reason"], "group_room", "{payload:#}");
+    assert_eq!(w.roster.reads(), 0, "no roster is read for a shared chat");
+    assert_eq!(
+        w.live_links(sam).await,
+        [],
+        "no link is proposed from a shared chat"
+    );
+
+    // A call that names the conversation without saying who reads it is not
+    // taken for private either.
+    let (payload, refused) = CONVERSATION_ID
+        .scope(Some(chat.id.clone()), w.roster(w.coach, json!({})))
+        .await;
+    assert!(refused, "{payload:#}");
+    assert_eq!(payload["reason"], "group_room", "{payload:#}");
+    assert_eq!(
+        w.roster.reads(),
+        0,
+        "a call that does not say who reads it reads no roster"
+    );
+
+    // The same row on a direct message is the coach's own chat.
+    let (payload, refused) = in_turn(chat.id, true, w.roster(w.coach, json!({}))).await;
+    assert!(!refused, "{payload:#}");
+    assert_eq!(
+        w.roster.reads(),
+        1,
+        "the coach's direct message reads their roster once"
+    );
 }
 
 #[tokio::test]

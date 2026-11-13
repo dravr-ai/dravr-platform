@@ -79,6 +79,8 @@ pub mod capabilities;
 pub mod capture_sweep;
 /// The tool declarations a chat turn sends, and their wire size (carnet#1196).
 pub mod chat_catalogue;
+/// The coach-only arguments and tools an external listing offers a group's human coach alone (carnet#1426).
+pub mod coach_listing;
 /// The coach roster both the agent tool and the coach REST read project from.
 #[cfg(feature = "tools-groups")]
 pub mod coach_roster;

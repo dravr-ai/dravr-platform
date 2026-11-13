@@ -44,6 +44,7 @@ mod live_incident_eval {
     use http::HeaderMap;
     use pierre_chat_pipeline::stages::viz_blocks::granted_visuals;
     use pierre_config::timeouts::ServerTimeouts;
+    use pierre_groups::service::MemberCards;
     use pierre_mcp_server::services::messaging_ingress::turn_watchdog;
     use pierre_providers::activity_source::resolve_activity_source;
     use pierre_providers::core::ActivityQueryParams;
@@ -406,10 +407,14 @@ mod live_incident_eval {
                 fixture.athlete,
                 fixture.athlete_tenant,
                 Some(&fixture.group.to_string()),
-                &after,
+                MemberCards {
+                    snapshots: &after,
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
         let alerts = context
             .split_once("## Connection alerts\n")
             .map_or("", |(_, section)| {

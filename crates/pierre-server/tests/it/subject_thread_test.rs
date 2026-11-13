@@ -25,7 +25,9 @@ use std::time::Duration;
 
 use axum::http::StatusCode;
 use chrono::Utc;
-use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use common::{
+    create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
+};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_commands::reset::ResetHandler;
@@ -247,12 +249,15 @@ impl Fixture {
             .with_tenant(self.coach.tenant.to_string())
             .with_auth_method("jwt_bearer");
         CONVERSATION_ID
-            .scope(Some(conversation.to_owned()), async {
-                tool.execute(&runtime, &ctx, args)
-                    .await
-                    .structured_content
-                    .expect("tool result carries structured content")
-            })
+            .scope(
+                Some(conversation.to_owned()),
+                in_web_turn(&self.res, self.coach.id, self.coach.tenant, async {
+                    tool.execute(&runtime, &ctx, args)
+                        .await
+                        .structured_content
+                        .expect("tool result carries structured content")
+                }),
+            )
             .await
     }
 }

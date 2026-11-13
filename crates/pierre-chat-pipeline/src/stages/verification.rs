@@ -727,7 +727,14 @@ async fn build_athlete_record(
     locale: &str,
 ) -> Option<AthleteRecord> {
     let sources = athlete_sources(ctx, user_id, tenant_id)?;
-    shared_athlete_record(&sources, Some(locale)).await
+    // The sender's own data, checked against and never put in the reply: what
+    // it owes is owed on them (carnet#1464). Boxed: the scope would otherwise
+    // ride inline in every verification future.
+    Box::pin(ai_scope::reading_about(
+        sources.user_id,
+        shared_athlete_record(&sources, Some(locale)),
+    ))
+    .await
 }
 
 /// Build the personalized-layer inputs (athlete snapshot + tolerance strategy) for a turn.
@@ -743,12 +750,16 @@ async fn build_personalized_inputs(
 ) -> Option<(AthleteMetrics, Box<dyn ToleranceStrategy>)> {
     let sources = athlete_sources(ctx, user_id, tenant_id)?;
     let cageux = ctx.cageux_config_registry.current();
-    shared_personalized_inputs(
-        &sources,
-        &cageux.algorithms,
-        &ctx.config.training_zones,
-        &config.personalized,
-    )
+    // The sender's own data, as for the athlete record (carnet#1464).
+    Box::pin(ai_scope::reading_about(
+        sources.user_id,
+        shared_personalized_inputs(
+            &sources,
+            &cageux.algorithms,
+            &ctx.config.training_zones,
+            &config.personalized,
+        ),
+    ))
     .await
 }
 

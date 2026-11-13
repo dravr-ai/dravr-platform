@@ -35298,9 +35298,9 @@
       },
       "annotations": {
         "title": "Verify factual claim",
-        "readOnlyHint": false,
+        "readOnlyHint": true,
         "destructiveHint": false,
-        "idempotentHint": false,
+        "idempotentHint": true,
         "openWorldHint": false
       }
     },

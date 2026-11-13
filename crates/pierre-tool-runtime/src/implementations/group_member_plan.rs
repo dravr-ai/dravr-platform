@@ -42,8 +42,8 @@ use pierre_services::athlete_clock;
 use pierre_services::coached_athlete::CoachedAthleteAccess;
 use pierre_tools_core::ToolResult;
 
+use super::call_room::{call_room, CallRoom};
 use super::coach_scope::refusal;
-use super::group_roster::{call_room, CallRoom};
 use super::plan_scope::{coached_plan_read_access, CoachedPlanRefusal};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{

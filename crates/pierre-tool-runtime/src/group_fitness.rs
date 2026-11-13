@@ -203,6 +203,9 @@ async fn persist_fetched(
 ///
 /// Errors are handled per-user: a failed provider connection or activity fetch
 /// does not prevent other members' snapshots from being returned.
+///
+/// Each member's reads run as reads of their data, so an attribution their
+/// sessions owe is owed on them alone (carnet#1464).
 pub async fn fetch_member_snapshots(
     runtime: &Arc<dyn ToolRuntime>,
     user_ids: &[Uuid],
@@ -217,7 +220,13 @@ pub async fn fetch_member_snapshots(
         .map(|&user_id| {
             let runtime = Arc::clone(runtime);
             let tid = tenant_id;
-            async move { fetch_single_member_snapshot(&runtime, user_id, tid).await }
+            async move {
+                ai_scope::reading_about(
+                    user_id,
+                    fetch_single_member_snapshot(&runtime, user_id, tid),
+                )
+                .await
+            }
         })
         .collect();
 

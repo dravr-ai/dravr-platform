@@ -49,6 +49,7 @@ use pierre_core::transport::Transport;
 use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
+use pierre_tool_runtime::coach_listing;
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
@@ -708,6 +709,20 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
         // `fitness:read` is shown no write tool, because the call path would
         // refuse it with the very same derivation.
         scope_listing::retain_granted(&self.resources.mcp.tool_registry, &mut schemas, &ctx.scopes);
+
+        // `athlete=` and the coach-only tools go to a group's human coach alone
+        // (carnet#1426). One coach lookup per listing, kept nowhere: `/mcp`
+        // holds no session and the list is `ttlMs: 0`, `cacheScope: private`.
+        // A caller with no user is listed nothing above and nothing here.
+        if let Some(user_id) = user_id {
+            let is_coach =
+                coach_listing::is_human_coach(&self.resources.common.repos, user_id).await;
+            coach_listing::retain_for_audience(
+                &self.resources.mcp.tool_registry,
+                &mut schemas,
+                is_coach,
+            );
+        }
 
         // A guided flow does not narrow this listing: it is the same whether or
         // not a walk is running, so the agent's cached prefix survives the walk

@@ -14,9 +14,9 @@ import {
   describeApiError,
   isSignInPhaseLive,
   refusalReason,
-  takeoverResult,
   useAbortOnClose,
   useSignInAttempt,
+  type TakeoverResult,
 } from '@pierre/ui-logic';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
@@ -302,9 +302,8 @@ export default function SciotteLoginModal({
   // try is a new attempt: the server may have ended this one with the
   // takeover, and refuses every later step that names it.
   const handleTakeoverOutcome = useCallback(
-    (outcome: SciotteTakeoverOutcome) => {
+    (_outcome: SciotteTakeoverOutcome, result: TakeoverResult) => {
       setTakeover(null);
-      const result = takeoverResult(outcome);
       if (result.kind !== 'answer' || result.data.status === 'failed') attemptId.renew();
       if (result.kind === 'answer') {
         applyLoginAnswer(result.data);

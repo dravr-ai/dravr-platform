@@ -123,9 +123,11 @@ async function revokeApiKey(sessionToken, keyId) {
  * configured API key.
  *
  * `GET /mcp/tools` answers exactly like JSON-RPC `tools/list`: the public
- * profile an external client is offered, for a global admin as for anyone, which
- * is what the generated types describe. An admin's tenant is on the top plan, so
- * no tool is left out by a plan. Resolution order, most explicit first:
+ * profile an external client is offered, for a global admin as for any user who
+ * coaches no group, which is what the generated types describe: a group's human
+ * coach is also offered `athlete` and the coach-only tools (carnet#1426). An
+ * admin's tenant is on the top plan, so no tool is left out by a plan.
+ * Resolution order, most explicit first:
  *
  *   1. `PIERRE_ADMIN_TOKEN` — CI and any caller minting its own token (an API
  *      key, or an admin session JWT this exchanges for one).

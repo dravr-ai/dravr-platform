@@ -896,7 +896,8 @@ mod tests {
         assert_eq!(read.records.len(), 1);
         assert_eq!(read.attribution.as_deref(), Some("Garmin Forerunner 965"));
         assert!(
-            turn.attributions().contains(&GARMIN_ATTRIBUTION),
+            turn.attributions_owed(|_| true)
+                .contains(&GARMIN_ATTRIBUTION),
             "the reply derived from it owes the Garmin line"
         );
     }
@@ -907,7 +908,7 @@ mod tests {
         let (read, turn) = attributed_mornings(&athlete).await;
         assert_eq!(read.records.len(), 1);
         assert_eq!(read.attribution, None);
-        assert!(turn.attributions().is_empty());
+        assert!(turn.attributions_owed(|_| true).is_empty());
     }
 
     /// Wellness a Garmin data source synced owes Garmin's attribution itself,
@@ -918,7 +919,8 @@ mod tests {
         let (read, turn) = attributed_mornings(&athlete).await;
         assert_eq!(read.attribution.as_deref(), Some(GARMIN_ATTRIBUTION));
         assert!(
-            turn.attributions().contains(&GARMIN_ATTRIBUTION),
+            turn.attributions_owed(|_| true)
+                .contains(&GARMIN_ATTRIBUTION),
             "the reply derived from it owes the Garmin line"
         );
     }
@@ -1122,7 +1124,7 @@ mod tests {
         .await;
         assert!(holds.unwrap());
         assert!(
-            turn.attributions().is_empty(),
+            turn.attributions_owed(|_| true).is_empty(),
             "a yes/no owes no Garmin line"
         );
     }

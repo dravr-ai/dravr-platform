@@ -671,4 +671,4 @@ pub fn create_training_plan_publish_tools() -> Vec<Box<dyn RuntimeTool>> {
 // changes too, under overwrite — and discarding throws the coach's draft
 // away; neither can be undone from here. Irreversible, so it spends the Guardian's
 // per-turn destructive budget, as push_training_plan does.
-crate::declare_security!(PublishTrainingPlanTool => IRREVERSIBLE);
+crate::declare_security!(PublishTrainingPlanTool => IRREVERSIBLE ; coach_only);

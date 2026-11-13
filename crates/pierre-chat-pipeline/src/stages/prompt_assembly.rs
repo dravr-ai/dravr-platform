@@ -6,6 +6,7 @@
 
 use super::units::append_units_context;
 use pierre_providers::ai_scope;
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
@@ -31,15 +32,17 @@ use super::super::surface_profile::{ProseFormat, SurfaceProfile};
 use super::super::turn::TurnInput;
 use super::group_subject::TurnStanding;
 use super::memory::{append_plan_block, inject_training_plan, PlanShown};
-#[cfg(feature = "tools-groups")]
-use super::prompt_builder::resolve_group_context;
 use super::prompt_builder::{
     build_llm_messages_with_blocks, build_provider_context, render_tool_index, TOOL_BOUNDARY,
 };
+#[cfg(feature = "tools-groups")]
+use super::prompt_builder::{card_scope, resolve_group_context};
 use super::subject_athlete::{self, SubjectTurn};
 use super::subject_context::{inject_subject_context, SubjectContextInputs};
 use super::turn_clock::{format_current_date, with_freshness};
 use super::viz_blocks;
+#[cfg(feature = "tools-groups")]
+use pierre_groups::service::MemberCards;
 
 mod placeholders;
 mod stable_head;
@@ -405,21 +408,30 @@ pub fn resolve_agent_base_prompt(
     agent_ctx.system_prompt.clone()
 }
 
-/// Output of [`assemble_prompt_and_messages`]: the hardened prompt guard,
-/// the flattened LLM message list, the parallel
-/// `source_ids` vector (`None` for the system prompt, `Some(history-row id)`
-/// per surviving message) that Tier 1 compaction uses to anchor block ids,
-/// the group roster snapshots (empty outside a group conversation) that
-/// peer grounding and the peer-claim verifier match names against, and the
-/// introduction the reply was asked to open with, recorded once it has.
-pub(crate) type AssembledPrompt = (
-    prompt_leak::PromptGuard,
-    Vec<ChatMessage>,
-    Vec<Option<String>>,
-    Vec<MemberFitnessSnapshot>,
-    Option<super::introduction::PendingIntroduction>,
-    String,
-);
+/// Output of [`assemble_prompt_and_messages`].
+pub(crate) struct AssembledPrompt {
+    /// The hardened system prompt.
+    pub prompt_guard: prompt_leak::PromptGuard,
+    /// The flattened LLM message list.
+    pub llm_messages: Vec<ChatMessage>,
+    /// Parallel to `llm_messages`: `None` for the system prompt, the
+    /// history row's id for each surviving message. Tier 1 compaction anchors
+    /// block ids on it.
+    pub source_ids: Vec<Option<String>>,
+    /// The group roster snapshots (empty outside a group conversation) that
+    /// peer grounding and the peer-claim verifier match names against.
+    pub group_roster: Vec<MemberFitnessSnapshot>,
+    /// The members whose roster cards the prompt carried: the room's cards
+    /// shown to the sender, or on a coach's athlete thread the athlete's
+    /// roster line. The Garmin attribution the reply owes includes their data
+    /// (carnet#1464).
+    pub cards_carried: BTreeSet<Uuid>,
+    /// The introduction the reply was asked to open with, recorded once it
+    /// has.
+    pub introduction: Option<super::introduction::PendingIntroduction>,
+    /// The turn's clock line.
+    pub turn_clock: String,
+}
 
 /// The turn [`assemble_prompt_and_messages`] builds the prompt for.
 pub(crate) struct PromptTurn<'a> {
@@ -652,14 +664,24 @@ pub(crate) async fn assemble_prompt_and_messages(
     // explicitly group-scoped. Personal 1:1 chats never inherit group context
     // from the user's membership.
     #[cfg(feature = "tools-groups")]
-    let (base_prompt, group_roster) = {
-        let (resolved_group_id, mut snapshots) =
-            resolve_group_context(ctx, conv.group_id.as_deref(), input.tool_tenant_id).await?;
+    let (base_prompt, group_roster, mut cards_carried) = {
         // The group context always shows the requester their own card, which
-        // for the coach would present the coach's training as the group's.
-        if !sender_is_subject {
-            snapshots.retain(|s| s.user_id != user_uuid);
-        }
+        // for the coach would present the coach's training as the group's: on
+        // the coach's seat it is never read.
+        let (resolved_group_id, snapshots) = resolve_group_context(
+            ctx,
+            conv.group_id.as_deref(),
+            input.tool_tenant_id,
+            (!sender_is_subject).then_some(user_uuid),
+        )
+        .await?;
+        // A coach's message about one athlete carries that athlete's card
+        // alone (carnet#1464). The roster stays whole for peer grounding and
+        // the reply checks, which match names against it.
+        let shown = coach_seat
+            .is_some()
+            .then(|| card_scope(&input.content, &snapshots, user_uuid))
+            .flatten();
         let injected = ctx
             .group_service
             .inject_group_context(
@@ -668,14 +690,26 @@ pub(crate) async fn assemble_prompt_and_messages(
                 user_uuid,
                 input.tool_tenant_id,
                 resolved_group_id.as_deref(),
-                &snapshots,
+                MemberCards {
+                    snapshots: &snapshots,
+                    shown: shown.as_ref(),
+                },
             )
-            .await
-            .unwrap_or(base_prompt);
-        (injected, snapshots)
+            .await;
+        match injected {
+            Ok(injected) => (injected.prompt, snapshots, injected.cards_carried),
+            Err(_) => (base_prompt, snapshots, BTreeSet::new()),
+        }
     };
     #[cfg(not(feature = "tools-groups"))]
-    let group_roster: Vec<MemberFitnessSnapshot> = Vec::new();
+    let (group_roster, mut cards_carried): (Vec<MemberFitnessSnapshot>, BTreeSet<Uuid>) =
+        (Vec::new(), BTreeSet::new());
+    // A coach's thread about one athlete carries her roster line, the same
+    // snapshot a room card is built from (`subject_athlete::block`): her data
+    // reaches the model whether or not a tool reads her.
+    if let Some(SubjectTurn::Granted(granted)) = subject_turn.as_ref() {
+        cards_carried.insert(granted.athlete());
+    }
 
     // Stage 7c.1: Tell the agent it is talking to the group's coach, and how
     // many athletes have joined.
@@ -1063,17 +1097,18 @@ pub(crate) async fn assemble_prompt_and_messages(
         }
     }
 
-    Ok((
+    Ok(AssembledPrompt {
         prompt_guard,
         llm_messages,
         source_ids,
         group_roster,
+        cards_carried,
         introduction,
-        with_freshness(
+        turn_clock: with_freshness(
             format_current_date(user_timezone.as_deref(), &profile.locale),
             freshness_hint,
         ),
-    ))
+    })
 }
 
 /// Resolve the agent runtime context this turn answers as.

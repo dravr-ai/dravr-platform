@@ -909,6 +909,15 @@ async fn mcp_lists_athlete_on_the_training_reads_and_chat_never_offers_it() {
         .set_plan(f.coach.tenant, "enterprise")
         .await
         .unwrap();
+    // tools/list offers athlete= to a coach by the roster tool's rule: coach
+    // access and an active group (carnet#1426, carnet#1511).
+    f.res
+        .common
+        .repos
+        .users
+        .set_manages_roster(f.coach.id, true)
+        .await
+        .unwrap();
     let app = ProviderToolRouter::build_http_app(&f.res);
     let grant = format!(
         "Bearer {}",

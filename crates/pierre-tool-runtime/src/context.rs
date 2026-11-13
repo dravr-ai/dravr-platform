@@ -377,6 +377,16 @@ impl ToolExecutionContext {
         self
     }
 
+    /// Say whether only the caller reads this call's result, for a context
+    /// built outside a chat turn, where [`TURN_DIRECT_MESSAGE`] is not scoped.
+    /// A conversation with no group counts as private only when this is
+    /// `true` (carnet#1422).
+    #[must_use]
+    pub const fn with_turn_direct_message(mut self, direct_message: bool) -> Self {
+        self.turn_direct_message = Some(direct_message);
+        self
+    }
+
     /// The originating conversation as `(id, owning tenant)`, when this call
     /// carries both — i.e. it was surfaced from a chat turn.
     ///

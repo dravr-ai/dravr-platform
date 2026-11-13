@@ -139,14 +139,25 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             "verify_claim",
             "Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → the athlete's own physiology → the athlete's own activity record → evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply an MCP client or agent writes from this server's data is checked only through this tool. Call it on every figure about the athlete (category athlete_data) before stating it, and on any physiological, nutrition, training, or supplement claim you are not certain about.",
             schema,
-            annotations("Verify factual claim", Effect::AdditiveWrite, Reach::Internal),
+            // Read-only to the caller: the one row it writes is its own
+            // verdict, in Dravr's claim-review log (the admin "flagged
+            // claims" surface, and the conversation's verdict list when the
+            // caller names a `conversation_id`). It never changes the
+            // athlete's training, profile or settings.
+            annotations("Verify factual claim", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
     fn capabilities(&self) -> ToolCapabilities {
+        // It reads the athlete's activity record and physiology to judge the
+        // claim, so a read grant is what it needs. The server instructions
+        // and every data result's `_reply_verification` tell an external
+        // client to call it, and the directory listing holds only a read
+        // grant: declared as a write, it would be hidden from exactly those
+        // clients (carnet#1510).
         ToolCapabilities::REQUIRES_AUTH
             | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -176,6 +187,22 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             let conversation_id = optional_string_field(&args, "conversation_id");
             let agent_id = optional_string_field(&args, "agent_id");
             let user_id = context.user_id.to_string();
+            // A verdict filed under a conversation shows in that
+            // conversation's verdict list, so the caller may name only a
+            // conversation of their own.
+            if let Some(conversation) = conversation_id.as_deref() {
+                let owned = context
+                    .resources
+                    .repos()
+                    .chat
+                    .get_conversation(conversation, &user_id, tenant_id)
+                    .await?;
+                if owned.is_none() {
+                    return Err(AppError::invalid_input(
+                        "conversation_id is not one of your conversations",
+                    ));
+                }
+            }
 
             let extracted = ExtractedClaim {
                 text: claim_text.clone(),

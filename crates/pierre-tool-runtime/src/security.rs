@@ -93,6 +93,15 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     fn requires_food_database(&self) -> bool {
         false
     }
+
+    /// Whether the tool serves a group's human coach and no one else
+    /// ([`crate::coach_listing`]). An external listing offers it only to a
+    /// user who coaches a group; the call keeps its own gate either way. A
+    /// tool opts in through [`declare_security!`](crate::declare_security)'s
+    /// `coach_only` arm.
+    fn coach_only(&self) -> bool {
+        false
+    }
 }
 
 /// Implement [`RuntimeTool`] for a tool type in one line, co-located with its
@@ -109,7 +118,8 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
 /// [`TransportPolicy::FirstPartyOnly`] ([`RuntimeTool::transport_policy`]):
 /// listed and run on Dravr's own surfaces only. `; food_database` declares
 /// that the tool needs the deployment's USDA key
-/// ([`RuntimeTool::requires_food_database`]).
+/// ([`RuntimeTool::requires_food_database`]). `; coach_only` declares that
+/// only a group's human coach can use it ([`RuntimeTool::coach_only`]).
 ///
 /// `#[macro_export]` so the three pierre-server endurance tools (and test
 /// fakes) can classify themselves too — `$crate` resolves to
@@ -153,6 +163,17 @@ macro_rules! declare_security {
 
             fn transport_policy(&self) -> $crate::security::TransportPolicy {
                 $crate::security::TransportPolicy::FirstPartyOnly
+            }
+        }
+    };
+    ($t:ty => $($flag:ident)|+ ; coach_only $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $( $crate::security::SecurityLabels::$flag )|+
+            }
+
+            fn coach_only(&self) -> bool {
+                true
             }
         }
     };

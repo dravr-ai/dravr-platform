@@ -26,8 +26,10 @@
 //!    acting on an athlete's plan there would publish it. `athlete=` is
 //!    allowed only when the call carries no conversation (MCP-direct) or the
 //!    conversation resolves under the requester's own tenant with no group
-//!    bound; a conversation id that does not resolve there IS a shared room
-//!    (it lives under the bot tenant).
+//!    bound, on a turn marked a direct message; a conversation id that does
+//!    not resolve there IS a shared room (it lives under the bot tenant), and
+//!    a messaging group chat whose binding failed keeps no group either
+//!    (carnet#1422). The room classifier (`call_room::CallRoom::of`) decides.
 //! 2. **The agent attachment.** The athlete must be an active member of a
 //!    group the requester is `coach_user_id` of. Owner and admin roles do not
 //!    qualify — on a channel-bound group the owner is whoever spoke first.
@@ -93,6 +95,7 @@ use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
 
+use super::call_room::CallRoom;
 use super::training_plan_authorship::resolve_turn_agent;
 use crate::context::ToolExecutionContext;
 use crate::guardian::{
@@ -317,14 +320,12 @@ pub async fn resolve_plan_scope(
         }));
     };
 
-    // Gate 1: a room would publish the athlete's plan. A conversation id the
-    // requester's own tenant cannot resolve is a shared room's row under the
-    // bot tenant, so it is refused exactly like a group-bound conversation.
-    if request.context.conversation_id.is_some()
-        && request
-            .conversation
-            .is_none_or(|conv| conv.group_id.is_some())
-    {
+    // Gate 1: a room would publish the athlete's plan. Anything the room
+    // classifier does not call private is refused: a group-bound
+    // conversation, one the requester's own tenant cannot resolve (a shared
+    // room's row under the bot tenant), and a chat with no group on a turn
+    // not marked a direct message (carnet#1422).
+    if !CallRoom::of(request.context, request.conversation).is_private() {
         return Ok(Err(refusal(
             "act on an athlete's plan from your direct chat with me — a room would publish it \
              to every member. The athlete can post their own plan in the room with `/plan share`.",
