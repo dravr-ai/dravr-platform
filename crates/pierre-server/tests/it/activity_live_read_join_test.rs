@@ -28,7 +28,9 @@ use std::time::Duration as StdDuration;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::{BackfillJobKind, BackfillJobState, JobLeaseState};
+use pierre_database::repositories::{
+    ActivityBackfillJobRow, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
+};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, OwnedLiveRead,
@@ -514,5 +516,113 @@ async fn a_re_ask_while_the_read_runs_is_still_owed_its_follow_up() {
         sent.iter().map(|f| f.asked.as_deref()).collect::<Vec<_>>(),
         vec![Some("msg-2")],
         "bug: one follow-up, answering the newest ask: {sent:?}"
+    );
+}
+
+/// Record, as another instance would, a live read of the pair owed in a
+/// tenant of its own and held by a running attempt: the pair's one row,
+/// which no ask of `tenant_id` can rebind or take over.
+async fn other_tenants_read(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid) {
+    let now = Utc::now().timestamp_millis();
+    let row = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: TenantId::from_uuid(Uuid::new_v4()),
+        user_id,
+        provider: PROVIDER.to_owned(),
+        kind: BackfillJobKind::LiveRead,
+        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        before_ts: None,
+        fetch_limit: Some(50),
+        conversation_id: Some("conv-other".to_owned()),
+        created_at_ms: now,
+        leased_until_ms: now + 600_000,
+        attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
+        progress: JobProgress::default(),
+        turn_id: Some("turn-other".to_owned()),
+        asked_message_id: Some("msg-other".to_owned()),
+        walk_backend: None,
+    };
+    assert!(runtime
+        .repos()
+        .activity_backfill_jobs
+        .record_backfill_job(&row)
+        .await
+        .unwrap());
+}
+
+/// The pair's one live-read row is another tenant's, running elsewhere: it
+/// answers its own ask, never this one, and this ask can neither rebind it
+/// nor record a read of its own. Nothing will follow this ask up, so its
+/// cached window must not be answered as a read still running.
+#[tokio::test]
+async fn an_ask_no_owed_read_answers_is_not_promised_a_follow_up() {
+    let (runtime, notifier, user_id, tenant_id) = notified_runtime().await;
+    other_tenants_read(&runtime, user_id).await;
+    let unread = Arc::new(Notify::new());
+    let answer = read_live_window_within_budget(
+        &runtime,
+        gated(&unread, vec![activity("other", 0)]),
+        asked(user_id, tenant_id, "conv-2", "msg-2"),
+        BUDGET,
+    )
+    .await;
+    assert_eq!(
+        answer_of(answer),
+        Answer::Unread(names(&["cached"])),
+        "bug: an ask no read owes is answered as a read still running"
+    );
+    sleep(StdDuration::from_millis(300)).await;
+    assert!(
+        notifier.sent.lock().unwrap().is_empty(),
+        "nothing is posted to an ask no read owes"
+    );
+}
+
+/// A read of the pair runs here for another tenant's ask, and this tenant's
+/// ask joins it: its row is not this tenant's to rebind, so at its deadline
+/// the joined read owes this ask nothing. The ask must not be answered as a
+/// read still running, and no follow-up reaches it.
+#[tokio::test]
+async fn an_ask_joined_past_its_deadline_to_a_read_that_owes_it_nothing_is_not_promised_one() {
+    let (runtime, notifier, user_id, tenant_id) = notified_runtime().await;
+    let other_tenant = TenantId::from_uuid(Uuid::new_v4());
+    let gate = Arc::new(Notify::new());
+    let other_runtime = Arc::clone(&runtime);
+    let other_gate = Arc::clone(&gate);
+    let other = tokio::spawn(async move {
+        read_live_window_within_budget(
+            &other_runtime,
+            gated(&other_gate, vec![activity("fresh", 0)]),
+            asked(user_id, other_tenant, "conv-1", "msg-1"),
+            TURN_BUDGET,
+        )
+        .await
+    });
+    sleep(StdDuration::from_millis(100)).await;
+
+    let unread = Arc::new(Notify::new());
+    let answer = read_live_window_within_budget(
+        &runtime,
+        gated(&unread, vec![activity("other", 0)]),
+        asked(user_id, tenant_id, "conv-2", "msg-2"),
+        BUDGET,
+    )
+    .await;
+    assert_eq!(
+        answer_of(answer),
+        Answer::Unread(names(&["cached"])),
+        "bug: an ask the joined read owes nothing is answered as a read still running"
+    );
+    gate.notify_one();
+    assert_eq!(
+        answer_of(other.await.unwrap()),
+        Answer::Answered(names(&["fresh"])),
+        "the other tenant's turn waited for its own read"
+    );
+    sleep(StdDuration::from_millis(300)).await;
+    assert!(
+        notifier.sent.lock().unwrap().is_empty(),
+        "bug: a follow-up reached an ask no read owed one"
     );
 }

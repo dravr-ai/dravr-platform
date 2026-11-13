@@ -129,10 +129,16 @@ pub async fn start_live_read(
         Enqueued::InFlightHere(job, handoff, run) => (job, handoff, Some(run)),
         Enqueued::Owed(job, handoff) => (job, handoff, None),
     };
+    // A read owed elsewhere answers this ask only when its row is this
+    // tenant's: recording the ask rebound that row to it. Another tenant's
+    // row of the pair blocks the ask without ever answering it.
+    let bound_elsewhere =
+        here.is_none() && owed_lease(&job).await.is_ok_and(|lease| lease.is_some());
     LiveReadStart::Joined(Box::new(JoinedRead {
         job,
         authenticated: handoff.and_then(|handoff| handoff.authenticated),
         here,
+        bound_elsewhere,
     }))
 }
 
@@ -149,6 +155,9 @@ pub struct JoinedRead {
     authenticated: Option<Authenticated>,
     /// The run joined, when it runs in this process.
     here: Option<watch::Receiver<InFlight>>,
+    /// Whether the read owed elsewhere that this ask joined is a row of its
+    /// own tenant, which recording the ask rebound to it.
+    bound_elsewhere: bool,
 }
 
 impl fmt::Debug for JoinedRead {
@@ -157,6 +166,7 @@ impl fmt::Debug for JoinedRead {
             .field("job", &self.job)
             .field("authenticated", &self.authenticated)
             .field("here", &self.here.as_ref().map(|run| run.borrow().clone()))
+            .field("bound_elsewhere", &self.bound_elsewhere)
             .finish()
     }
 }
@@ -195,18 +205,28 @@ impl JoinedRead {
                 return true;
             }
         }
-        self.lease().await == Some(JobLeaseState::Leased)
+        matches!(owed_lease(&self.job).await, Ok(Some(JobLeaseState::Leased)))
     }
 
     /// The turn stops waiting: the read joined owes this ask its follow-up
     /// once it lands. A read running here is rebound to it now; one owed
-    /// elsewhere was rebound as this ask was recorded. `false` when no
-    /// follow-up would come: the run here landed or ended, or the row it
-    /// would answer from is gone or no attempt holds it — the ask then reads
-    /// for itself rather than be told a read is coming.
+    /// elsewhere was rebound as this ask was recorded.
+    ///
+    /// `false` when no follow-up would come: the run here landed or ended,
+    /// or its row is not this ask's to rebind; the read owed elsewhere is
+    /// another tenant's, which never answers this ask, or stands idle, no
+    /// attempt holding it; or the ledger cannot say, which reads as no read
+    /// running, as [`Self::running`] reads it. The ask then reads for itself,
+    /// or is answered as no read owes it, rather than be told a read is
+    /// coming. A row of its own that is gone was finished by the read that
+    /// landed it, whose follow-up answers the ask the row was bound to.
     pub async fn owe_follow_up(&self) -> bool {
         let Some(run) = &self.here else {
-            return self.lease().await != Some(JobLeaseState::Idle);
+            return self.bound_elsewhere
+                && matches!(
+                    owed_lease(&self.job).await,
+                    Ok(Some(JobLeaseState::Leased) | None)
+                );
         };
         if matches!(*run.borrow(), InFlight::Landed { .. }) || run.has_changed().is_err() {
             return false;
@@ -215,40 +235,35 @@ impl JoinedRead {
         self.job.pierre_conversation_id.is_none() || rebind_live_read(&self.job).await
     }
 
-    /// Whether an attempt holds the lease of the read the ledger owes for
-    /// the pair; `None` when none is owed, or the ledger cannot say.
-    async fn lease(&self) -> Option<JobLeaseState> {
-        let job = &self.job;
-        match job
-            .resources
-            .repos()
-            .activity_backfill_jobs
-            .backfill_job_lease_state(
-                job.user_id,
-                job.tenant_id,
-                &job.provider_name,
-                BackfillJobKind::LiveRead,
-                now_ms(),
-            )
-            .await
-        {
-            Ok(lease) => lease,
-            Err(e) => {
-                warn!(
-                    user_id = %job.user_id,
-                    provider = %job.provider_name,
-                    error = %e,
-                    "Live read: the ledger could not say whether a read of the pair is running"
-                );
-                None
-            }
-        }
-    }
-
     /// Ask for the read again, now that the one joined has ended.
     pub async fn restart(self) -> LiveReadStart {
         start_live_read(self.job, self.authenticated).await
     }
+}
+
+/// Whether an attempt holds the lease of the live read the ledger owes for
+/// `job`'s pair in its tenant; `Ok(None)` when none is owed there. A ledger
+/// that cannot say is logged.
+async fn owed_lease(job: &ActivityBackfillJob) -> AppResult<Option<JobLeaseState>> {
+    job.resources
+        .repos()
+        .activity_backfill_jobs
+        .backfill_job_lease_state(
+            job.user_id,
+            job.tenant_id,
+            &job.provider_name,
+            BackfillJobKind::LiveRead,
+            now_ms(),
+        )
+        .await
+        .inspect_err(|e| {
+            warn!(
+                user_id = %job.user_id,
+                provider = %job.provider_name,
+                error = %e,
+                "Live read: the ledger could not say whether a read of the pair is running; reading it as not"
+            );
+        })
 }
 
 /// A joined read that landed over the ask's window.

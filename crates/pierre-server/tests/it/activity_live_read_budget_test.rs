@@ -745,6 +745,9 @@ pub(crate) enum Answer {
     Answered(Vec<String>),
     /// The cached window answered, labelled stale; a follow-up is owed.
     Cached(Vec<String>),
+    /// The cached window answered as a read that did not run; nothing is
+    /// owed.
+    Unread(Vec<String>),
     /// A read already running landed over the window and answered, current.
     Landed(Vec<String>),
 }
@@ -754,6 +757,7 @@ pub(crate) fn answer_of(outcome: BudgetedRead) -> Answer {
     match outcome {
         BudgetedRead::Answered { read, .. } => Answer::Answered(owned(&read.unwrap().activities)),
         BudgetedRead::Cached(rows) => Answer::Cached(owned(&rows)),
+        BudgetedRead::Unread(rows) => Answer::Unread(owned(&rows)),
         BudgetedRead::Landed {
             activities,
             served_by_grant,

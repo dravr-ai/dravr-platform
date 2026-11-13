@@ -68,6 +68,11 @@ pub enum BudgetedRead {
     /// already running, and the provider's own cached window answered. The
     /// read runs on as a job, and its write-through lands for the next turn.
     Cached(Vec<Activity>),
+    /// No read answers this ask in its turn or owes it a follow-up — the
+    /// pair's read is another tenant's, or the ledger cannot say whether one
+    /// runs — and none could be started for it: the provider's cached window
+    /// answers, as a read that did not run, never as one still running.
+    Unread(Vec<Activity>),
     /// A live read of the provider that was already running here landed over
     /// this window: the rows it wrote through answer, as current as the
     /// turn's own read would be, and nothing is owed.
@@ -89,6 +94,7 @@ impl fmt::Debug for BudgetedRead {
                 .field("provider", &provider.as_ref().map(|p| p.name()))
                 .finish(),
             Self::Cached(activities) => f.debug_tuple("Cached").field(activities).finish(),
+            Self::Unread(activities) => f.debug_tuple("Unread").field(activities).finish(),
             Self::Landed {
                 activities,
                 served_by_grant,
@@ -237,9 +243,8 @@ enum AfterJoin {
 /// - The joined read is not running — it landed over a narrower window, it
 ///   ended, or its row stands owed with no attempt holding it: this ask
 ///   starts its own read, which takes over an idle row.
-/// - Otherwise the turn waits for the read, as it would for its own; past
-///   the deadline the cached window answers, empty when nothing is cached,
-///   and the joined read owes this ask its follow-up.
+/// - Otherwise the turn waits for the read, as it would for its own, until
+///   the deadline ([`past_deadline`]).
 async fn wait_on_joined(
     runtime: &Arc<dyn ToolRuntime>,
     mut joined: Box<JoinedRead>,
@@ -249,8 +254,7 @@ async fn wait_on_joined(
     let Window {
         provider_slug,
         user_id,
-        tenant_id,
-        params,
+        ..
     } = *window;
     info!(
         user_id = %user_id,
@@ -261,25 +265,97 @@ async fn wait_on_joined(
         if let Some(answer) = answer_beside(runtime, &joined, window).await {
             return AfterJoin::Answered(answer);
         }
-        if !joined.running().await {
-            match (*joined).restart().await {
-                LiveReadStart::Started(answer) => return AfterJoin::Started(answer),
-                LiveReadStart::Joined(again) => joined = again,
-            }
-        }
         if Instant::now() >= deadline {
             info!(
                 user_id = %user_id,
                 provider = %provider_slug,
                 "the joined live activity read did not land within the turn's budget"
             );
-            joined.owe_follow_up().await;
-            let cached =
-                serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await;
-            return AfterJoin::Answered(BudgetedRead::Cached(cached.unwrap_or_default()));
+            return past_deadline(runtime, joined, window).await;
+        }
+        // A read joined again is looked at from the top: one that landed
+        // over this window answers it.
+        if !joined.running().await {
+            match (*joined).restart().await {
+                LiveReadStart::Started(answer) => return AfterJoin::Started(answer),
+                LiveReadStart::Joined(again) => joined = again,
+            }
         }
         sleep_until(deadline.min(Instant::now() + JOINED_READ_POLL)).await;
     }
+}
+
+/// The turn's budget is spent, and the read joined has not answered it.
+///
+/// - The read joined owes this ask its follow-up: the cached window
+///   answers, empty when nothing is cached, as a read still running.
+/// - It owes this ask nothing (it landed, ended, or its row is not this
+///   ask's): the ask asks again, once. Its own read starts, and answers as
+///   it would have alone; or a read that landed over this window meanwhile
+///   answers as current; or the read joined again owes it the follow-up.
+///   Failing all three, the cached window answers as a read that did not
+///   run ([`BudgetedRead::Unread`]): no follow-up is coming.
+async fn past_deadline(
+    runtime: &Arc<dyn ToolRuntime>,
+    joined: Box<JoinedRead>,
+    window: &Window<'_>,
+) -> AfterJoin {
+    let Window {
+        provider_slug,
+        user_id,
+        tenant_id,
+        params,
+    } = *window;
+    let owed = joined.owe_follow_up().await;
+    let joined = if owed {
+        joined
+    } else {
+        match (*joined).restart().await {
+            LiveReadStart::Started(answer) => return AfterJoin::Started(answer),
+            LiveReadStart::Joined(again) => {
+                if let Some(landed) = landed_answer(runtime, &again, window).await {
+                    return AfterJoin::Answered(landed);
+                }
+                again
+            }
+        }
+    };
+    let cached = serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params)
+        .await
+        .unwrap_or_default();
+    if owed || joined.owe_follow_up().await {
+        AfterJoin::Answered(BudgetedRead::Cached(cached))
+    } else {
+        info!(
+            user_id = %user_id,
+            provider = %provider_slug,
+            "no live activity read answers or owes this ask; answering the cached window as unread"
+        );
+        AfterJoin::Answered(BudgetedRead::Unread(cached))
+    }
+}
+
+/// The rows the joined read landed over this window, as current; `None`
+/// while it has not.
+async fn landed_answer(
+    runtime: &Arc<dyn ToolRuntime>,
+    joined: &JoinedRead,
+    window: &Window<'_>,
+) -> Option<BudgetedRead> {
+    let landed = joined.landed_over_its_window()?;
+    let filed_under = landed.filed_under(window.provider_slug);
+    let rows = read_cached_page(
+        runtime,
+        filed_under,
+        window.user_id,
+        window.tenant_id,
+        window.params,
+    )
+    .await;
+    Some(BudgetedRead::Landed {
+        activities: rows.unwrap_or_default(),
+        served_by_grant: landed.served_by_grant,
+    })
 }
 
 /// What the joined read answers this ask with now: the rows it landed over
@@ -295,13 +371,8 @@ async fn answer_beside(
         tenant_id,
         params,
     } = *window;
-    if let Some(landed) = joined.landed_over_its_window() {
-        let filed_under = landed.filed_under(provider_slug);
-        let rows = read_cached_page(runtime, filed_under, user_id, tenant_id, params).await;
-        return Some(BudgetedRead::Landed {
-            activities: rows.unwrap_or_default(),
-            served_by_grant: landed.served_by_grant,
-        });
+    if let Some(landed) = landed_answer(runtime, joined, window).await {
+        return Some(landed);
     }
     let cached = serve_stale_activities(runtime, provider_slug, user_id, tenant_id, params).await?;
     joined

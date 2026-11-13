@@ -752,6 +752,11 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                     stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Timeout));
                                     break 'live (rows, None);
                                 }
+                                // Nothing reads it for this turn, and nothing follows it up.
+                                BudgetedRead::Unread(rows) => {
+                                    stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Error));
+                                    break 'live (rows, None);
+                                }
                                 // A read already running landed over this window.
                                 BudgetedRead::Landed { activities, served_by_grant } => {
                                     if served_by_grant.is_some() {
