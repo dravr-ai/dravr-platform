@@ -230,6 +230,7 @@ async fn settle(
             info!(user_id = %job.user_id, provider = %job.provider_name, rows = persisted.rows, "History walk: the step's row went with no purge of its key; its page stays");
             Landed::Kept
         }),
+        // LIMITATION(registre#1556): an expiry's take-back can still remove a ride another writer stored after this step's write.
         Ok(AfterWrite::Purged(purge)) => {
             let reach = Reach::from(purge);
             if reach == Reach::Added && !inserted_every_one(activities, held, landed) {
