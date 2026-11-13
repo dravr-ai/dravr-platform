@@ -87,6 +87,10 @@ pub fn evidence_chip_label(
 /// `None` when the badge cites one (the citation is what it opens on), for a
 /// trialled badge, which always cites its trial, and when the string is
 /// missing.
+///
+/// A day keeps the badge its save stored, so a transposed badge cites the
+/// other sport's study (carnet#1551) only if its catalogue entry did when the
+/// day was saved; one that cites none opens on the transposed note.
 #[must_use]
 pub fn evidence_note(
     strings: &MessagingStringsRegistry,
