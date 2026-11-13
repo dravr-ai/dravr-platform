@@ -563,7 +563,7 @@ async fn a_restart_mid_api_phase_resumes_the_grant_not_the_session() {
 /// A session with no grant beside it ends the walk after its empty step:
 /// no API is asked anything, and the athlete is told once. When a grant
 /// connects later, the walked session is reopened for the API phase below
-/// its oldest row, and the end of that phase is told too.
+/// its oldest row, and that phase's end is told with what it brought in.
 #[tokio::test]
 async fn a_session_alone_ends_after_its_steps_and_a_later_grant_walks_below_it() {
     let now = Utc::now().timestamp();
@@ -646,11 +646,70 @@ async fn a_session_alone_ends_after_its_steps_and_a_later_grant_walks_below_it()
         "bug: the API phase's end is told once more: {told:?}"
     );
     assert_eq!(
-        told[1].2, 3,
-        "bug: the post counts the whole history the walk holds"
+        told[1].2, 1,
+        "bug: the API phase's post counts what it brought in"
     );
     assert!(
         !walk(WalkTrigger::Connected).await,
         "bug: a walk whose API phase ran is not reopened again"
+    );
+}
+
+/// A grant connected beside a walked session whose API holds nothing older:
+/// the reopened API phase lands nothing, so the athlete, already told how
+/// far back their history reaches, is told nothing again.
+#[tokio::test]
+async fn a_reopened_walk_that_finds_nothing_older_tells_nothing() {
+    let now = Utc::now().timestamp();
+    let session_oldest = now - 2 * YEAR;
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 400, false).await;
+    fx.strava.serve(vec![now - 3 * DAY]);
+    fx.strava.created(now - 4 * YEAR);
+    let walk = |trigger| {
+        let runtime = fx.runtime();
+        async move {
+            start_history_walk(
+                &runtime,
+                fx.user_id,
+                fx.tenant,
+                oauth_providers::STRAVA,
+                trigger,
+            )
+            .await
+        }
+    };
+
+    assert!(
+        walk(WalkTrigger::Connected).await,
+        "bug: the session is walked"
+    );
+    fx.walk_to_the_end().await;
+    assert_eq!(fx.told().await.len(), 1, "the session's walk is told once");
+
+    hold_strava_grant(&fx.resources, fx.user_id, fx.tenant).await;
+    assert!(
+        walk(WalkTrigger::Connected).await,
+        "bug: a grant connected beside a walked session owes the API phase below it"
+    );
+    fx.walk_to_the_end().await;
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Walked),
+        "bug: the reopened walk reaches its end"
+    );
+    assert!(
+        !fx.strava.listings().is_empty(),
+        "the API phase paged below the session"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        0,
+        "nothing older landed"
+    );
+    let told = fx.told().await;
+    assert_eq!(
+        told.len(),
+        1,
+        "bug: a reopened walk that brought nothing in tells the athlete again: {told:?}"
     );
 }

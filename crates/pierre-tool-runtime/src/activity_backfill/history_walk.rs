@@ -29,7 +29,8 @@
 //! both phases, so every reader of the walk sees one walk until its very
 //! end, its progress covering both. A session walked alone while no grant
 //! stood beside it is reopened for the API phase when one connects
-//! ([`start_history_walk`]).
+//! ([`start_history_walk`]); its end was told, so the API phase tells only
+//! what it brings in, and nothing when that is nothing.
 //!
 //! **One step per run.** A run reads one step below the row's cursor
 //! (`before_ts`), writes it through the activity store, and records the step

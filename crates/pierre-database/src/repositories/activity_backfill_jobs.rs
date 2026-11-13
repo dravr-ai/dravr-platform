@@ -352,10 +352,11 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// A history walk of `provider` that its session ended alone, with no
     /// grant beside it then, owes the API phase now that one is: the walked
     /// row of `(user_id, provider)` in `tenant_id` is owed again as
-    /// [`Self::hand_off_history_walk`] leaves it, its progress kept so the
-    /// walk's one message counts the whole history. `false` when no such row
-    /// stands: none walked, one still owed, or one whose API phase already
-    /// ran.
+    /// [`Self::hand_off_history_walk`] leaves it. Its count of rows starts
+    /// over: the session's end was told already, so the API phase's message
+    /// counts what it brings in, and none is sent when that is nothing.
+    /// `false` when no such row stands: none walked, one still owed, or one
+    /// whose API phase already ran.
     async fn reopen_history_walk(
         &self,
         user_id: Uuid,
@@ -533,12 +534,13 @@ pub(crate) const HAND_OFF_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_job
 
 /// Owes a walk its session ended alone the API phase
 /// ([`HAND_OFF_HISTORY_WALK_SQL`]'s row), only while it stands walked and
-/// no API phase ran on it. Its `created_at_ms` is kept, so the resume sweep
-/// takes it on its next pass.
+/// no API phase ran on it. Its rows start over at zero, its end having been
+/// told; its `created_at_ms` is kept, so the resume sweep takes it on its
+/// next pass.
 pub(crate) const REOPEN_HISTORY_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
      SET walk_backend = $5, before_ts = $6, months_done = $7, fetch_limit = $8, \
-         after_ts = NULL, secs_per_unit = NULL, outcome = NULL, attempts = 0, \
-         leased_until_ms = 0, lease_token = NULL \
+         rows_landed = 0, after_ts = NULL, secs_per_unit = NULL, outcome = NULL, \
+         attempts = 0, leased_until_ms = 0, lease_token = NULL \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
        AND outcome = $9 AND walk_backend IS NULL";
 
