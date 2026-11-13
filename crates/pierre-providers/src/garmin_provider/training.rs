@@ -21,10 +21,12 @@
 //!   title, its notes, a step's label or a step's note;
 //! - each step carries only its class (warm-up, interval, …), its extent, its
 //!   target, and as its description the zone the step grammar parsed (`Z3`);
-//! - the workout's description lists those same steps, one line each
-//!   (`Tempo 4 min · Z3`), under their repeat counts: Garmin Connect may show
-//!   a partner's workout without its steps (carnet#1532), so the notes are
-//!   where the athlete reads the structure before the device runs it;
+//! - the workout's description lists those same steps on one line, a
+//!   repeated set in brackets under its count
+//!   (`Warm-up 15 min · Z2 | 6× (Tempo 4 min · Z3, Recovery 3 min · Z1)`).
+//!   Garmin keeps a partner's steps and the device runs them, but Garmin
+//!   Connect draws none of them (read back on a live push, carnet#1532), so
+//!   the notes are where the athlete reads the structure;
 //! - a target names the athlete's own zones or FTP as Garmin holds them (a
 //!   power or heart-rate zone number, a percent of FTP). A run's training
 //!   zone names the heart-rate zone it sits nearest on Dravr's run line
@@ -66,8 +68,11 @@ const FASTEST_HEART_RATE_RUN_ZONE: u8 = 5;
 /// Longest workout description Garmin keeps whole; it truncates the rest.
 const MAX_DESCRIPTION_CHARS: usize = 1024;
 
-/// What ends a description cut to fit, on a line of its own.
-const DESCRIPTION_CUT: &str = "\n…";
+/// What ends a description cut to fit, after the last whole block.
+const DESCRIPTION_CUT: &str = " | …";
+
+/// What splits one block of the workout's description from the next.
+const BLOCK_SEPARATOR: &str = " | ";
 
 /// A Dravr calendar entry on Garmin: the workout and the schedule that puts
 /// it on its day.
@@ -368,47 +373,51 @@ fn step_line(step: &WorkoutStep) -> Option<String> {
     Some(line)
 }
 
-/// The workout's description: one line per step, a repeated set as its count
-/// (`6×`) over its steps indented. Built from the closed vocabulary alone,
-/// like the name. `None` for a session with no step to list. A description
-/// longer than Garmin keeps ends at the last whole line that fits, followed
-/// by `…`.
-fn workout_description(steps: &[WorkoutStep]) -> Option<String> {
-    let mut lines = Vec::new();
-    for block in blocks(steps) {
-        match block {
-            Block::Step(step) => lines.extend(step_line(step)),
-            Block::Repeat(repeat, members) => {
-                let inner: Vec<String> = members
-                    .into_iter()
-                    .filter_map(step_line)
-                    .map(|line| format!("  {line}"))
-                    .collect();
-                if !inner.is_empty() {
-                    lines.push(format!("{repeat}×"));
-                    lines.extend(inner);
-                }
-            }
+/// One block as the workout's description lists it: a step's line, or a
+/// repeated set as its count over its steps in brackets
+/// (`6× (Tempo 4 min · Z3, Recovery 3 min · Z1)`). `None` when no step in
+/// it has an extent.
+fn block_text(block: Block<'_>) -> Option<String> {
+    match block {
+        Block::Step(step) => step_line(step),
+        Block::Repeat(repeat, members) => {
+            let inner: Vec<String> = members.into_iter().filter_map(step_line).collect();
+            (!inner.is_empty()).then(|| format!("{repeat}× ({})", inner.join(", ")))
         }
     }
-    if lines.is_empty() {
-        return None;
-    }
-    let whole = lines.join("\n");
+}
+
+/// The workout's description: its blocks on one line, split by
+/// [`BLOCK_SEPARATOR`]. Garmin Connect's web view folds line breaks into
+/// spaces, so the structure is carried by the separators and brackets
+/// alone. Built from the closed vocabulary only, like the name. `None` for a
+/// session with no step to list. A description longer than Garmin keeps ends
+/// at the last whole block that fits, followed by [`DESCRIPTION_CUT`]; a
+/// first block that alone does not fit is cut where Garmin's limit falls.
+fn workout_description(steps: &[WorkoutStep]) -> Option<String> {
+    let parts: Vec<String> = blocks(steps).into_iter().filter_map(block_text).collect();
+    let first = parts.first()?;
+    let whole = parts.join(BLOCK_SEPARATOR);
     if whole.chars().count() <= MAX_DESCRIPTION_CHARS {
         return Some(whole);
     }
     let room = MAX_DESCRIPTION_CHARS - DESCRIPTION_CUT.chars().count();
+    let separator = BLOCK_SEPARATOR.chars().count();
     let mut kept = String::new();
-    for line in &lines {
-        let separator = usize::from(!kept.is_empty());
-        if kept.chars().count() + separator + line.chars().count() > room {
+    for part in &parts {
+        let gap = if kept.is_empty() { 0 } else { separator };
+        if kept.chars().count() + gap + part.chars().count() > room {
             break;
         }
-        if separator == 1 {
-            kept.push('\n');
+        if gap > 0 {
+            kept.push_str(BLOCK_SEPARATOR);
         }
-        kept.push_str(line);
+        kept.push_str(part);
+    }
+    if kept.is_empty() {
+        let mut cut: String = first.chars().take(MAX_DESCRIPTION_CHARS - 1).collect();
+        cut.push('…');
+        return Some(cut);
     }
     kept.push_str(DESCRIPTION_CUT);
     Some(kept)
@@ -775,8 +784,14 @@ mod tests {
         let body = body(&loaded_session());
         assert_eq!(
             body["description"],
-            "Warm-up 20 min · Z2\n4×\n  Threshold 8 min · Z4\n  Recovery 4 min · Z1\nCool-down 22 min · Z1",
+            "Warm-up 20 min · Z2 | 4× (Threshold 8 min · Z4, Recovery 4 min · Z1) | Cool-down 22 min · Z1",
             "class, extent and parsed zone only, never a label or note"
+        );
+        assert!(
+            body["description"]
+                .as_str()
+                .is_some_and(|notes| !notes.contains('\n')),
+            "bug: Garmin Connect folds a line break into a space, so none is sent"
         );
         let steps = steps(&body);
         assert_eq!(steps[0]["description"], "Z2");
@@ -804,7 +819,8 @@ mod tests {
         assert_eq!(body["workoutName"], "Run 1 h 07 · 6×4 min");
         assert_eq!(
             body["description"],
-            "Warm-up 15 min · Z2\n6×\n  Tempo 4 min · Z3\n  Recovery 3 min · Z1\nCool-down 10 min · Z1"
+            "Warm-up 15 min · Z2 | 6× (Tempo 4 min · Z3, Recovery 3 min · Z1) | Cool-down 10 min · Z1",
+            "bug: the notes differ from the ones Phil approved for this run on 2026-11-13"
         );
         let steps = steps(&body);
         let targets: Vec<(Value, Value)> = [
@@ -868,29 +884,60 @@ mod tests {
         );
     }
 
+    fn description_of(session: &PlannedSession) -> String {
+        body(session)["description"]
+            .as_str()
+            .map(str::to_owned)
+            .unwrap_or_default()
+    }
+
     #[test]
-    fn a_description_longer_than_garmin_keeps_ends_at_a_whole_line() {
-        let line = "Threshold 1 min · 95-100% threshold HR";
+    fn a_description_longer_than_garmin_keeps_ends_at_a_whole_block() {
+        let block = "Threshold 1 min · 95-100% threshold HR";
         let mut session = loaded_session();
         session.steps = (0..MAX_STEPS)
             .map(|_| step("s", 1, "95-100% threshold HR", 1, None))
             .collect();
-        let description = body(&session)["description"]
-            .as_str()
-            .map(str::to_owned)
-            .unwrap_or_default();
+        let description = description_of(&session);
         let length = description.chars().count();
         assert!(length <= MAX_DESCRIPTION_CHARS, "{length} chars");
         assert!(
-            length + 1 + line.chars().count() > MAX_DESCRIPTION_CHARS,
-            "bug: the cut left room for another whole line ({length} chars)"
+            length + BLOCK_SEPARATOR.chars().count() + block.chars().count()
+                > MAX_DESCRIPTION_CHARS,
+            "bug: the cut left room for another whole block ({length} chars)"
         );
-        assert!(description.ends_with("\n…"), "{description}");
-        let kept: Vec<&str> = description.lines().collect();
-        assert!(kept.len() > 1, "bug: no whole line kept: {description}");
+        let kept = description
+            .strip_suffix(DESCRIPTION_CUT)
+            .unwrap_or_else(|| {
+                panic!("bug: a cut description ends without the cut: {description}")
+            });
+        let blocks: Vec<&str> = kept.split(BLOCK_SEPARATOR).collect();
+        assert!(blocks.len() > 1, "bug: no whole block kept: {description}");
         assert!(
-            kept[..kept.len() - 1].iter().all(|whole| *whole == line),
-            "no line is cut through: {description}"
+            blocks.iter().all(|whole| *whole == block),
+            "bug: a block is cut through: {description}"
+        );
+    }
+
+    #[test]
+    fn a_single_set_longer_than_garmin_keeps_is_cut_at_the_limit() {
+        let mut session = loaded_session();
+        session.steps = (0..MAX_STEPS - 1)
+            .map(|_| step("s", 1, "95-100% threshold HR", 2, None))
+            .collect();
+        let description = description_of(&session);
+        assert_eq!(
+            description.chars().count(),
+            MAX_DESCRIPTION_CHARS,
+            "bug: the set is not cut where Garmin's limit falls: {description}"
+        );
+        assert!(
+            description.starts_with("2× (Threshold 1 min · 95-100% threshold HR, "),
+            "bug: the cut set does not open as it would whole: {description}"
+        );
+        assert!(
+            description.ends_with('…'),
+            "bug: a cut set ends without the ellipsis: {description}"
         );
     }
 
