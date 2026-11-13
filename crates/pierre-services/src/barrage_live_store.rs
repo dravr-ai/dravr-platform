@@ -114,6 +114,7 @@ impl BarrageLiveStore {
         let counts = report.counts;
         Ok(LiveIngest {
             stored: counts.inserted + counts.updated + counts.unchanged + counts.rewritten,
+            inserted: counts.inserted,
             newer_session: report.newer_session,
         })
     }

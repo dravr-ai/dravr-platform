@@ -18,6 +18,7 @@ use chrono::{DateTime, TimeZone, Utc};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityCacheRepository;
 use pierre_providers::core::ActivityQueryParams;
+use pierre_services::live_activities::LiveIngest;
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -53,9 +54,11 @@ pub struct WriteThrough<'a> {
 /// writing 2023 cannot make today's head read as current, supersede a
 /// failure Home is reporting, or stand the stale-head refresh down.
 ///
-/// Returns the count of net distinct rows persisted (deduped by `activity_id`),
-/// or `None` when the upsert itself failed. The historical backfill surfaces
-/// this honest figure in its completion notice; recent-fetch callers ignore it.
+/// Returns what the store did ([`LiveIngest`]): the net distinct rows held
+/// after the write (deduped by `activity_id`) and those it inserted, or
+/// `None` when the upsert itself failed. The historical backfill surfaces
+/// the held count in its completion notice, and a history walk's step the
+/// inserted one before it takes rows back; recent-fetch callers ignore it.
 ///
 /// A write that lands a new training session delivers the athlete's
 /// `per_session` persona digest (see [`lands_a_session`]).
@@ -66,7 +69,7 @@ pub(crate) async fn write_through_activity_cache(
     provider: &str,
     activities: &[Activity],
     write: WriteThrough<'_>,
-) -> Option<u64> {
+) -> Option<LiveIngest> {
     let data = auth_service.runtime().data();
     let cache = data.repos().activity_cache.clone();
     #[cfg(feature = "client-notifications")]
@@ -96,7 +99,7 @@ pub(crate) async fn write_through_activity_cache(
         .ingest(user_id, tenant_id, provider, activities, stamp.synced_at)
         .await
     {
-        Ok(ingest) => ingest.stored,
+        Ok(ingest) => ingest,
         Err(e) => {
             info!(user_id = %user_id, provider = %provider, error = %e, "Activity cache: write-through failed");
             return None;

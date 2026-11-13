@@ -3013,6 +3013,54 @@ async fn an_expiry_landing_while_a_step_writes_takes_back_only_what_it_added() {
 }
 
 /// The session's first step reads its two rides, the recent one an earlier
+/// read already stored. Once the step read what the store held, and while
+/// its write waits, another writer stores the older ride under the session's
+/// key with its samples and gear; then the retention expiry resets the
+/// walk's row. The step's write inserted nothing the store did not hold by
+/// then, so it takes nothing back: the other writer's ride stays whole.
+#[tokio::test]
+async fn an_expiry_never_takes_back_a_ride_another_writer_stored_during_the_step() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let (earlier, concurrent) = (format!("9{recent}"), format!("9{session_oldest}"));
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &earlier, recent)
+        .await;
+    let write = store.hold_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &concurrent, session_oldest)
+        .await;
+    fx.resources
+        .common
+        .repos
+        .provider_data
+        .expire_provider_activities(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            &["9100000000"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(fx.state().await, None, "the expiry reset the walk's row");
+    write.gate.notify_one();
+    write.landed.notified().await;
+    sleep(STEP_SETTLE).await;
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &concurrent, session_oldest)
+            .await,
+        KEPT_WHOLE,
+        "bug: the step took back a ride another writer stored under its key while it wrote"
+    );
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &earlier, recent).await,
+        KEPT_WHOLE,
+        "bug: the step took back a ride an earlier read stored"
+    );
+}
+
+/// The session's first step reads its two rides, the recent one an earlier
 /// read already stored with its samples and gear, and the walk's row is
 /// removed while the step writes by no purge at all (the reaper of a row
 /// whose lease lapsed deletes it the same way). Nothing attests a purge of

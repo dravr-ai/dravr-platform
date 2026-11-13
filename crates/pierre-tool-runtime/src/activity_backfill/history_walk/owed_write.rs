@@ -25,7 +25,12 @@
 //!   step's write put back.
 //! - **A retention expiry** deleted some of the key's activities and reset
 //!   its sync state: only the activities the step added go back. Those the
-//!   store held before the write stay, with their samples and gear.
+//!   store held before the write stay, with their samples and gear. So does
+//!   one another writer stored under the key after the step read what the
+//!   store held: the step takes back what it added only when the store
+//!   counts its write as inserting every one of them. When it counts fewer,
+//!   another writer stored some of them in between, the step cannot tell
+//!   which, and it takes none of them back.
 //!
 //! The evidence:
 //!
@@ -81,7 +86,7 @@ use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, P
 use tokio::time;
 use tracing::{info, warn};
 
-use super::super::{persist_backfill_activities, ActivityBackfillJob};
+use super::super::{persist_backfill_activities, ActivityBackfillJob, Persisted};
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::protocol::UniversalExecutor;
 
@@ -109,7 +114,9 @@ pub(super) enum Landed {
     /// with no purge of its key attested: there is no row to record them on.
     Kept,
     /// The step's row is no longer its own: it records nothing on it, and
-    /// whatever of its page a purge of its key reached is not in the store.
+    /// whatever of its page a purge of its key reached is not in the store,
+    /// save what it added after a retention expiry when another writer
+    /// stored some of that beside it.
     Stopped,
     /// The write, or a check around it, failed: nothing is recorded. A check
     /// after the write that stays unreadable through its retries takes
@@ -154,7 +161,7 @@ pub(super) async fn land_owed(
     let Some(lease) = lease else {
         return persist_backfill_activities(job, executor, activities, write)
             .await
-            .map_or(Landed::Failed, Landed::Rows);
+            .map_or(Landed::Failed, |persisted| Landed::Rows(persisted.rows));
     };
     let since = Utc::now() - Duration::seconds(PURGE_CLOCK_SKEW_SECS);
     let Ok(attested_before) = purges_since(job, since).await else {
@@ -210,17 +217,24 @@ async fn settle(
     job: &ActivityBackfillJob,
     activities: &[Activity],
     held: &HashSet<String>,
-    landed: Option<usize>,
+    landed: Option<Persisted>,
     after: Result<AfterWrite, ()>,
 ) -> Landed {
     match after {
-        Ok(AfterWrite::Owed) => landed.map_or(Landed::Failed, Landed::Rows),
-        Ok(AfterWrite::Gone) => landed.map_or(Landed::Failed, |rows| {
-            info!(user_id = %job.user_id, provider = %job.provider_name, rows, "History walk: the step's row went with no purge of its key; its page stays");
+        Ok(AfterWrite::Owed) => {
+            landed.map_or(Landed::Failed, |persisted| Landed::Rows(persisted.rows))
+        }
+        Ok(AfterWrite::Gone) => landed.map_or(Landed::Failed, |persisted| {
+            info!(user_id = %job.user_id, provider = %job.provider_name, rows = persisted.rows, "History walk: the step's row went with no purge of its key; its page stays");
             Landed::Kept
         }),
         Ok(AfterWrite::Purged(purge)) => {
-            take_back(job, activities, held, Reach::from(purge)).await;
+            let reach = Reach::from(purge);
+            if reach == Reach::Added && !inserted_every_one(activities, held, landed) {
+                info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: another writer stored some of what the step added; nothing it added is taken back");
+                return Landed::Stopped;
+            }
+            take_back(job, activities, held, reach).await;
             Landed::Stopped
         }
         // LIMITATION(registre#1555): `settle`'s unreadable arm takes nothing back, so a purge just before the outage leaves the page.
@@ -355,6 +369,24 @@ impl From<KeyPurge> for Reach {
             KeyPurge::Expired => Self::Added,
         }
     }
+}
+
+/// Whether the step's write, which persisted `landed`, inserted every one of
+/// `activities` not `held` before it: the store counts as many inserted as
+/// there are such ids, so none of them was stored by another writer between
+/// the step's read of what the store held and its write. `false` when the
+/// write's count is unknown.
+fn inserted_every_one(
+    activities: &[Activity],
+    held: &HashSet<String>,
+    landed: Option<Persisted>,
+) -> bool {
+    let added: HashSet<&str> = activities
+        .iter()
+        .map(Activity::id)
+        .filter(|id| !held.contains(*id))
+        .collect();
+    landed.is_some_and(|persisted| u64::try_from(added.len()).ok() == Some(persisted.inserted))
 }
 
 /// Take back from the store, under the step's key, what `reach` names of

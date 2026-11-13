@@ -977,8 +977,9 @@ async fn run_activity_backfill(job: &ActivityBackfillJob) -> BackfillRunOutcome 
         read: &job.query_params,
         announces_sessions: true,
     };
-    let Some(activity_count) =
-        persist_backfill_activities(job, &executor, &activities, write).await
+    let Some(activity_count) = persist_backfill_activities(job, &executor, &activities, write)
+        .await
+        .map(|persisted| persisted.rows)
     else {
         return BackfillRunOutcome::Failed;
     };
@@ -1051,9 +1052,18 @@ async fn warm_default_window(job: &ActivityBackfillJob) -> AppResult<TrainingHis
     compute_history_after_capture(&job.resources, job.tenant_id, job.user_id, from, to).await
 }
 
+/// What a job's write through the store persisted.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct Persisted {
+    /// The net distinct rows held after the write (deduped by `activity_id`).
+    rows: usize,
+    /// The rows the write inserted: the store held no record of them before.
+    inserted: u64,
+}
+
 /// Write the scraped historical activities through to the durable cache as
-/// `write` says, and return the net distinct rows persisted (deduped by
-/// `activity_id`), or `None` when the write-through fails. A failed/partial write must not let the caller
+/// `write` says, and return what it persisted ([`Persisted`]), or `None`
+/// when the write-through fails. A failed/partial write must not let the caller
 /// record coverage — recording it would leave the gate believing the window is
 /// complete while the rows are missing (the "2022 stuck at 46" class), so the
 /// caller bails on `None` and the next ask re-backfills the window.
@@ -1062,8 +1072,8 @@ async fn persist_backfill_activities(
     executor: &UniversalExecutor,
     activities: &[Activity],
     write: WriteThrough<'_>,
-) -> Option<usize> {
-    let Some(persisted) = write_through_activity_cache(
+) -> Option<Persisted> {
+    let Some(ingest) = write_through_activity_cache(
         &executor.auth_service,
         job.user_id,
         job.tenant_id,
@@ -1084,7 +1094,10 @@ async fn persist_backfill_activities(
     // The persisted count is the NET DISTINCT rows actually stored (deduped by
     // `activity_id`), below `fetched_count` when the feed repeats an id in the
     // batch — the honest figure the user sees.
-    Some(usize::try_from(persisted).unwrap_or(activities.len()))
+    Some(Persisted {
+        rows: usize::try_from(ingest.stored).unwrap_or(activities.len()),
+        inserted: ingest.inserted,
+    })
 }
 
 /// Push a "your history is ready" notice back to the originating channel for a

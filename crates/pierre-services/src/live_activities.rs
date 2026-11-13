@@ -27,6 +27,8 @@ pub struct LiveIngest {
     /// Rows held after the write: inserted, updated or unchanged. A row the
     /// athlete deleted is not one of them.
     pub stored: u64,
+    /// Rows the write inserted: the store held no record of them before it.
+    pub inserted: u64,
     /// Whether a session newer than every activity held landed.
     pub newer_session: bool,
 }
