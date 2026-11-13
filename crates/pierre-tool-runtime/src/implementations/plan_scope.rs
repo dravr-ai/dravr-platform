@@ -24,12 +24,13 @@
 //!
 //! 1. **A direct chat.** A room turn's reply is posted to the whole room, so
 //!    acting on an athlete's plan there would publish it. `athlete=` is
-//!    allowed only when the call carries no conversation (MCP-direct) or the
-//!    conversation resolves under the requester's own tenant with no group
-//!    bound, on a turn marked a direct message; a conversation id that does
-//!    not resolve there IS a shared room (it lives under the bot tenant), and
-//!    a messaging group chat whose binding failed keeps no group either
-//!    (carnet#1422). The room classifier (`call_room::CallRoom::of`) decides.
+//!    allowed only when the call carries no conversation (MCP-direct, which
+//!    reads but never writes — see below) or the conversation resolves under
+//!    the requester's own tenant with no group bound, on a turn marked a
+//!    direct message; a conversation id that does not resolve there IS a
+//!    shared room (it lives under the bot tenant), and a messaging group chat
+//!    whose binding failed keeps no group either (carnet#1422). The room
+//!    classifier (`call_room::CallRoom::of`) decides.
 //! 2. **The agent attachment.** The athlete must be an active member of a
 //!    group the requester is `coach_user_id` of. Owner and admin roles do not
 //!    qualify — on a channel-bound group the owner is whoever spoke first.
@@ -78,6 +79,20 @@
 //! and records a wellness read too ([`PlanScope::record_wellness_read`]). A
 //! refused call records nothing.
 //!
+//! ## Writes stay on Dravr's own surfaces
+//!
+//! A coach writes a coached athlete's plan — a draft save, a publish, a
+//! discard — from Dravr's app or channels only. The athlete's consent was
+//! given inside Dravr; an MCP, A2A or API-key client acting for the coach is
+//! outside it, so a tool that declares a write ([`ToolRegistry::may_change_data`])
+//! naming an athlete, or run in a thread bound to one, is refused over an
+//! external transport before anything about the athlete is read
+//! (`external_write_refusal`, the calendar's refusal too, carnet#1533).
+//! Reads through `athlete=` are unchanged, gate 1 included: a direct MCP call
+//! carries no conversation and reads as a direct chat.
+//!
+//! [`ToolRegistry::may_change_data`]: crate::registry::ToolRegistry::may_change_data
+//!
 //! ## A coach reading a published plan
 //!
 //! Outside the plan tools a coach reads an athlete's live plan read-only —
@@ -92,7 +107,7 @@
 use std::future::Future;
 use std::sync::Arc;
 
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
 use pierre_database::repositories::CoachReadClass;
 use pierre_database::RepositoryRegistry;
@@ -109,6 +124,7 @@ use uuid::Uuid;
 use super::call_room::CallRoom;
 use super::training_plan_authorship::resolve_turn_agent;
 use crate::context::ToolExecutionContext;
+use crate::first_party_tools::EXTERNAL_TRANSPORT_REASON;
 use crate::guardian::{
     tenant_disabled_message, tenant_tool_enabled, TENANT_DISABLED_ERROR_CODE,
     TENANT_DISABLED_REASON,
@@ -343,6 +359,43 @@ fn refusal(message: &str) -> ToolResult {
     ToolResult::error(json!({ "error": message }))
 }
 
+/// The refusal of a coach's write to a coached athlete's `object` (their
+/// "plan", their "calendar") made over an external transport, carrying the
+/// `details.reason` a client branches on.
+///
+/// The one sentence for that refusal: the plan and calendar tools relay it
+/// (`external_write_refusal`), and the plan card's REST publish and discard
+/// return it, since they write the draft without going through a tool.
+#[must_use]
+pub fn external_write_error(object: &str) -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        format!(
+            "A coach writes an athlete's {object} from Dravr's own app or channels, not over \
+             this interface."
+        ),
+    );
+    error.details = Some(Box::new(json!({ "reason": EXTERNAL_TRANSPORT_REASON })));
+    error
+}
+
+/// The tool's refusal of a coach's write to a coached athlete's `object`
+/// served over an external transport ([`external_write_error`]), or `None` on
+/// Dravr's own surfaces.
+///
+/// The athlete consented to their coach inside Dravr. An MCP, A2A or API-key
+/// client acting for the coach is outside that agreement, so it writes
+/// nothing of the athlete's; what it reads through `athlete=` is not this
+/// gate's (carnet#1533).
+pub(super) fn external_write_refusal(object: &str) -> Option<ToolResult> {
+    ai_scope::serving_external().then(|| {
+        ToolResult::error(json!({
+            "reason": EXTERNAL_TRANSPORT_REASON,
+            "error": external_write_error(object).message,
+        }))
+    })
+}
+
 /// Resolve whose plan the call acts on.
 ///
 /// The outer `Err` is a repository failure; the inner `Err` is a refusal the
@@ -364,6 +417,27 @@ pub async fn resolve_plan_scope(
         user_id: request.context.user_id,
     };
     let query = request.athlete.map(str::trim).filter(|q| !q.is_empty());
+
+    // Another athlete's plan is written only from Dravr's own surfaces:
+    // refused before anything about the athlete is read. A thread bound to
+    // one athlete counts exactly as `athlete=` does. Whether the tool writes
+    // is what it declares, so a plan tool added later is held here too.
+    let for_athlete = query.is_some()
+        || request
+            .conversation
+            .and_then(ConversationRecord::subject)
+            .is_some();
+    if for_athlete
+        && request
+            .context
+            .resources
+            .tool_registry()
+            .may_change_data(request.tool_name)
+    {
+        if let Some(refused) = external_write_refusal("plan") {
+            return Ok(Err(refused));
+        }
+    }
 
     // A thread bound to one athlete works on that athlete's plan whether or
     // not the call names them, and never on the coach's own.

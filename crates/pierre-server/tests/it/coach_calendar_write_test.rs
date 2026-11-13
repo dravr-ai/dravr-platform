@@ -2201,10 +2201,10 @@ async fn the_publish_button_puts_the_plan_on_the_athletes_calendar() {
 }
 
 /// A publish whose push a gate refuses still lands, and the coach reads why:
-/// an athlete who never allowed calendar writes, and a publish over an
-/// external transport, which writes no one's calendar.
+/// an athlete who never allowed calendar writes. A publish over an external
+/// transport writes neither the plan nor the calendar.
 #[tokio::test]
-async fn a_publish_whose_push_is_refused_still_lands_and_says_why() {
+async fn a_consent_refused_push_still_publishes_and_an_external_publish_is_refused() {
     let w = World::new().await;
     let (nora, _) = w
         .athlete("Nora Noconsent", "i211", Some(json!("WRITE")), false)
@@ -2247,7 +2247,16 @@ async fn a_publish_whose_push_is_refused_still_lands_and_says_why() {
         .await;
     w.plan(alex, TransportPolicy::AnyTransport).await;
     coach_drafts(&w, "Alex").await;
-    let (published, refused) = serve_over(
+    let season = w
+        .repos()
+        .training_plans
+        .get_active_plan(&alex.tenant.to_string(), &alex.id.to_string())
+        .await
+        .unwrap()
+        .expect("Alex's season");
+    // Over an external transport the publish itself is refused, not only its
+    // push: a coach writes an athlete's plan from Dravr alone (carnet#1533).
+    let (refusal, refused) = serve_over(
         Transport::McpHttp,
         w.call(
             &PublishTrainingPlanTool,
@@ -2257,11 +2266,18 @@ async fn a_publish_whose_push_is_refused_still_lands_and_says_why() {
         ),
     )
     .await;
-    assert!(!refused, "{published}");
-    assert_eq!(published["status"], "published", "{published}");
+    assert!(refused, "{refusal}");
+    assert_eq!(reason(&refusal), "external_transport", "{refusal}");
+    let unchanged = w
+        .repos()
+        .training_plans
+        .get_active_plan(&alex.tenant.to_string(), &alex.id.to_string())
+        .await
+        .unwrap()
+        .expect("Alex's season stands");
     assert_eq!(
-        published["calendar_push"]["reason"], "external_transport",
-        "{published}"
+        unchanged.id, season.id,
+        "bug: an external publish replaced the athlete's season"
     );
 
     assert!(

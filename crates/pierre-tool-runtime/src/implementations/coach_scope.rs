@@ -60,7 +60,7 @@ use super::calendar::{
     calendar_provider, calendar_target, holds_only_through_a_link, CalendarConnections, PassedOver,
 };
 use super::call_room::CallRoom;
-use super::plan_scope::{resolve_plan_scope, PlanScopeRequest, PlanWriter};
+use super::plan_scope::{external_write_refusal, resolve_plan_scope, PlanScopeRequest, PlanWriter};
 use super::training_plan_authorship::load_conversation;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
@@ -236,14 +236,10 @@ pub(super) async fn resolve_calendar_scope(
             .is_some();
     // Another person's calendar is written only from Dravr's own surfaces:
     // refused before anything about the athlete is read.
-    if for_athlete && ai_scope::serving_external() {
-        return Ok(Err(refusal(
-            "external_transport",
-            "A coach writes an athlete's calendar from Dravr's own app or channels, not over \
-             this interface.",
-        )));
-    }
     if for_athlete {
+        if let Some(refused) = external_write_refusal("calendar") {
+            return Ok(Err(refused));
+        }
         if let Some(refused) = room_refusal_in(
             context,
             conversation.as_ref(),

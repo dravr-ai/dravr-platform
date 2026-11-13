@@ -215,6 +215,7 @@ mod coach_groups_tools_gate_test;
 mod coach_home_seed_test;
 mod coach_plan_notice_test;
 mod coach_plan_thread_seed_test;
+mod coach_plan_write_transport_test;
 mod coach_planned_read_test;
 mod coach_read_athlete_consent_test;
 mod coach_reply_review_test;

@@ -424,7 +424,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             "Publish or discard a group's human coach's draft of a coached athlete's training \
              plan (their save_training_plan for an athlete writes that unseen draft). publish \
              makes it the live plan in one step; weeks not drafted keep the athlete's version. \
-             Call it only when the coach asks. If the athlete's own agent changed a drafted \
+             Call it only when the coach asks, in Dravr's app. If the athlete's own agent changed a drafted \
              week or re-laid the season since, publish is refused with status `conflict` and \
              nothing changes: tell the coach which weeks, and publish again with \
              overwrite_athlete_changes only if they choose. publish also puts the plan on the \

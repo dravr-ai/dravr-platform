@@ -40,9 +40,9 @@ use crate::registry::ToolRegistry;
 /// caller.
 pub const FIRST_PARTY_SURFACE_ERROR_CODE: &str = "first_party_surface";
 
-/// `reason` of that refusal: the same reason the coach's calendar write gives
-/// over an external transport.
-const EXTERNAL_TRANSPORT_REASON: &str = "external_transport";
+/// `reason` of that refusal: the same reason a coach's write to a coached
+/// athlete's plan or calendar gives over an external transport.
+pub(crate) const EXTERNAL_TRANSPORT_REASON: &str = "external_transport";
 
 /// Whether `tool_name` is withheld from a call served over `transport`.
 ///

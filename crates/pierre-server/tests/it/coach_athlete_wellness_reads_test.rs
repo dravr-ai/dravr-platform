@@ -318,7 +318,37 @@ fn carries(payload: &Value, wellness: Wellness) -> bool {
         wellness.weight_kg.to_string(),
     ]
     .iter()
-    .any(|number| mentions(payload, number))
+    .any(|number| mentions_number(payload, number))
+}
+
+/// Whether `number` appears in `payload` as a number of its own, not as part
+/// of a longer one or of a timestamp. A plain substring search read the
+/// coach's HRV `31.7` inside a range end of `03:24:31.708`, so the "never
+/// reads the coach" check failed whenever the clock landed there.
+fn mentions_number(payload: &Value, number: &str) -> bool {
+    let text = payload.to_string();
+    let bytes = text.as_bytes();
+    text.match_indices(number).any(|(start, _)| {
+        let end = start + number.len();
+        // A digit or a dot before it continues a longer number; a colon after
+        // a digit is a clock's (`03:24:31.708`), while JSON's `"hrv":31.7`
+        // puts the colon after a quote.
+        let continues_before = match start.checked_sub(1).map(|i| bytes[i]) {
+            Some(byte) if byte.is_ascii_digit() || byte == b'.' => true,
+            Some(b':') => start
+                .checked_sub(2)
+                .is_some_and(|i| bytes[i].is_ascii_digit()),
+            _ => false,
+        };
+        // A sentence's full stop ends the number; only a digit, or a dot
+        // followed by one, continues it.
+        let continues_after = match bytes.get(end) {
+            Some(byte) if byte.is_ascii_digit() => true,
+            Some(b'.') => bytes.get(end + 1).is_some_and(u8::is_ascii_digit),
+            _ => false,
+        };
+        !continues_before && !continues_after
+    })
 }
 
 // ── The wellness reads, under the grant ──────────────────────────────────
@@ -1116,5 +1146,26 @@ async fn the_athletes_configuration_shows_their_wellness_overrides_only_under_th
         at(&with, "/configuration/session_overrides/resting_hr"),
         47,
         "under the grant the athlete's whole configuration reads: {with}"
+    );
+}
+
+#[test]
+fn a_coach_number_is_found_as_a_number_never_inside_a_timestamp() {
+    let range = json!({ "end": "2026-11-13T03:24:31.708009814+00:00" });
+    assert!(
+        !mentions_number(&range, "31.7"),
+        "bug: a timestamp's seconds are not the coach's HRV"
+    );
+    let longer = json!({ "value": 31.75 });
+    assert!(!mentions_number(&longer, "31.7"), "bug: 31.75 is not 31.7");
+    let prose = json!({ "text": "Your HRV was 31.7." });
+    assert!(
+        mentions_number(&prose, "31.7"),
+        "bug: a sentence's full stop ends the number"
+    );
+    let field = json!({ "hrv": 31.7 });
+    assert!(
+        mentions_number(&field, "31.7"),
+        "bug: a JSON number is found"
     );
 }

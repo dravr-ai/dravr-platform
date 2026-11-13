@@ -15811,7 +15811,7 @@
             "type": "boolean"
           },
           "athlete": {
-            "description": "Roster display name of a consenting athlete whose plan this is. Only a human coach of their group may set it, from a direct chat — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
+            "description": "Roster display name of a consenting athlete whose plan this is. Only a human coach of their group may set it, from a direct chat in Dravr — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
             "type": "string"
           },
           "include_history": {
@@ -26698,7 +26698,7 @@
     },
     {
       "name": "publish_training_plan",
-      "description": "Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. publish also puts the plan on the athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan has no draft: their saves are already live.",
+      "description": "Publish or discard a group's human coach's draft of a coached athlete's training plan (their save_training_plan for an athlete writes that unseen draft). publish makes it the live plan in one step; weeks not drafted keep the athlete's version. Call it only when the coach asks, in Dravr's app. If the athlete's own agent changed a drafted week or re-laid the season since, publish is refused with status `conflict` and nothing changes: tell the coach which weeks, and publish again with overwrite_athlete_changes only if they choose. publish also puts the plan on the athlete's chosen calendar: relay the reply's calendar_push. The caller's own plan has no draft: their saves are already live.",
       "inputSchema": {
         "properties": {
           "action": {
@@ -29641,7 +29641,7 @@
             "type": "string"
           },
           "athlete": {
-            "description": "Roster display name of a consenting athlete whose plan this is. Only a human coach of their group may set it, from a direct chat — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
+            "description": "Roster display name of a consenting athlete whose plan this is. Only a human coach of their group may set it, from a direct chat in Dravr — never in a room. Defaults to the athlete of the coach's one-athlete thread.",
             "type": "string"
           },
           "conversation_id": {
