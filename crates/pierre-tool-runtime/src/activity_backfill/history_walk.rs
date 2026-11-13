@@ -114,7 +114,10 @@ const API_WALK_STEP_MONTHS: i64 = 12;
 /// Activities one API page asks for: Strava's largest page.
 pub const API_WALK_PAGE: usize = 200;
 
-/// Consecutive empty API windows that end a walk with no floor of its own.
+/// Consecutive empty API windows that end a walk: after two empty years, or
+/// at its floor (the account's creation, or [`WHOLE_ACCOUNT_AFTER`]),
+/// whichever comes first — a floor the walk knows does not keep it paging a
+/// gap of empty years above it.
 const EMPTY_WINDOWS_ENDING_A_WALK: u32 = 2;
 
 /// The mean Gregorian month in seconds (365.2425 days / 12): how a step's
