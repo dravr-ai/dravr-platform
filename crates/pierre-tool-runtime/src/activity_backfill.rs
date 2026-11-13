@@ -458,13 +458,24 @@ enum Recorded {
     Inserted(JobLease),
     /// A row for the pair was already owed: the same job, already on file.
     AlreadyOwed,
-    /// The ledger could not be written; the run goes ahead unrecorded, as
-    /// every backfill did before the ledger existed.
+    /// The ledger could not be written, or the row holds no lease for this
+    /// run to hold it by; the run goes ahead unrecorded, as every backfill
+    /// did before the ledger existed.
     Unrecorded,
 }
 
-/// Write the job's `row` before its spawn.
+/// Write the job's `row` before its spawn. A row with no lease token is not
+/// written: this run could never renew or settle it, and the resume sweep
+/// would run it a second time beside this one.
 async fn record_backfill_job(job: &ActivityBackfillJob, row: &ActivityBackfillJobRow) -> Recorded {
+    let Some(token) = row.lease_token.clone() else {
+        warn!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            "Activity backfill: the job row holds no lease token; running unrecorded"
+        );
+        return Recorded::Unrecorded;
+    };
     match job
         .resources
         .repos()
@@ -473,7 +484,7 @@ async fn record_backfill_job(job: &ActivityBackfillJob, row: &ActivityBackfillJo
         .await
     {
         Ok(true) => Recorded::Inserted(JobLease {
-            token: row.lease_token.clone().unwrap_or_default(),
+            token,
             id: row.id.clone(),
         }),
         Ok(false) => Recorded::AlreadyOwed,
