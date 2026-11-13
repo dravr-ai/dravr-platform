@@ -5,9 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 import React, { useState } from 'react';
-import { View, Text, ScrollView, ActivityIndicator } from 'react-native';
+import { View, Text, ScrollView } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Row } from '../../components/ui';
+import { Feather } from '@expo/vector-icons';
+import { useQueryClient } from '@tanstack/react-query';
+import type { OnboardingStatusResponse } from '@pierre/api-client';
+import { Button, Row } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -15,7 +18,7 @@ import { useProfileTypeChosen } from '../../hooks/useProfileTypeChosen';
 import { ATHLETE_STEPS_WAIVED_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
 import { useThemeColors } from '../../constants/theme';
-import { ATHLETE_STEP_IDS, type OnboardingProgressItem } from '@pierre/shared-constants';
+import { ATHLETE_STEP_IDS, QUERY_KEYS, type OnboardingProgressItem } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 /** The three answers the step offers. */
@@ -32,6 +35,9 @@ type ProfileChoice = 'athlete' | 'coach' | 'coach_and_athlete';
  * locally, and as `not_applicable` step rows on the server — before the
  * profile-type step is marked done, so the routing gate never lands them on
  * an athlete question. Mirrors the web OnboardingProfileType.
+ *
+ * A tap selects; the answer registers on Continue, so a mis-tap is corrected
+ * by tapping another row rather than by a journey started in error.
  */
 export function OnboardingProfileTypeScreen() {
   const { t } = useTranslation();
@@ -44,6 +50,8 @@ export function OnboardingProfileTypeScreen() {
     false,
   );
   const progress = useOnboardingProgress('profile_type');
+  const queryClient = useQueryClient();
+  const [selected, setSelected] = useState<ProfileChoice | null>(null);
   const [choosing, setChoosing] = useState<ProfileChoice | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
 
@@ -51,8 +59,9 @@ export function OnboardingProfileTypeScreen() {
     if (choosing) return;
     setChoosing(choice);
     setSaveFailed(false);
+    const coachesOthers = choice !== 'athlete';
     try {
-      await userApi.setCoachingRole(choice !== 'athlete');
+      await userApi.setCoachingRole(coachesOthers);
     } catch {
       // The role decides which journey and toolset follow: keep the user
       // here to retry rather than route them on without it recorded.
@@ -60,6 +69,12 @@ export function OnboardingProfileTypeScreen() {
       setSaveFailed(true);
       return;
     }
+    // The role picks the journey, and the progress hairline's segments with
+    // it: the cached status carries it before the next screen draws.
+    queryClient.setQueryData<OnboardingStatusResponse>(
+      QUERY_KEYS.user.onboardingStatus(),
+      (cached) => cached && { ...cached, coaches_others: coachesOthers },
+    );
     if (choice === 'coach') {
       for (const stepId of ATHLETE_STEP_IDS) {
         userApi.setOnboardingStep(stepId, 'not_applicable').catch(() => {});
@@ -67,7 +82,16 @@ export function OnboardingProfileTypeScreen() {
       await markAthleteStepsWaived();
     }
     userApi.setOnboardingStep('profile_type', 'complete').catch(() => {});
+    // The status carries `coaches_others`, which puts the coach steps in the
+    // journey: it is read again before the gate decides the next step.
+    await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() }).catch(() => {});
     await markChosen();
+  };
+
+  const check = (choice: ProfileChoice) =>
+    selected === choice ? <Feather name="check" size={18} color={colors.tokens.primary} /> : undefined;
+  const choose = (choice: ProfileChoice) => {
+    if (!choosing) setSelected(choice);
   };
 
   const heading = user?.display_name
@@ -85,27 +109,48 @@ export function OnboardingProfileTypeScreen() {
         <Row
           title={t('app.imAnAthlete')}
           subtitle={t('onboarding.athleteCardDescription')}
-          trailing={choosing === 'athlete' ? <ActivityIndicator size="small" color={colors.tokens.primary} /> : undefined}
-          onPress={() => void finish('athlete')}
+          trailing={check('athlete')}
+          showChevron={false}
+          onPress={() => choose('athlete')}
           accessibilityLabel={t('app.imAnAthlete')}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: selected === 'athlete' }}
           testID="profile-type-athlete"
         />
         <Row
           title={t('humanCoach.iCoachOthers')}
           subtitle={t('humanCoach.cardDescription')}
-          trailing={choosing === 'coach' ? <ActivityIndicator size="small" color={colors.tokens.primary} /> : undefined}
-          onPress={() => void finish('coach')}
+          trailing={check('coach')}
+          showChevron={false}
+          onPress={() => choose('coach')}
           accessibilityLabel={t('humanCoach.iCoachOthers')}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: selected === 'coach' }}
           testID="profile-type-coach"
         />
         <Row
           title={t('humanCoach.iCoachAndTrain')}
           subtitle={t('humanCoach.coachAndTrainCardDescription')}
-          trailing={choosing === 'coach_and_athlete' ? <ActivityIndicator size="small" color={colors.tokens.primary} /> : undefined}
-          onPress={() => void finish('coach_and_athlete')}
+          trailing={check('coach_and_athlete')}
+          showChevron={false}
+          onPress={() => choose('coach_and_athlete')}
           accessibilityLabel={t('humanCoach.iCoachAndTrain')}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: selected === 'coach_and_athlete' }}
           last
           testID="profile-type-coach-and-athlete"
+        />
+      </View>
+      <View className="mt-8 px-4">
+        <Button
+          title={choosing ? t('onboarding.settingUp') : t('onboarding.continueButton')}
+          onPress={() => {
+            if (selected) void finish(selected);
+          }}
+          disabled={selected === null || choosing !== null}
+          loading={choosing !== null}
+          fullWidth
+          testID="profile-type-continue"
         />
       </View>
       {saveFailed ? (

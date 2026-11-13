@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: E2E for the coach's onboarding group step — name it, pick its agent, leave with its invite link and QR code
-// ABOUTME: The first spec on the coach branch: a coach with and without coach access, and putting the step off
+// ABOUTME: E2E for the coach's group and invite steps — name and agent on one screen, then the link to share
+// ABOUTME: A coach with and without coach access (the seat card tells the truth), the QR behind a link, and putting the step off
 
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
@@ -11,8 +11,9 @@ const json = (route: Route, status: number, body: unknown) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
 
 /**
- * A connected coach whose agent step is done, so the flow opens on the group
- * step. `managesRoster` decides whether the created group names them its coach.
+ * A connected coach whose agent and seat steps are done, so the flow opens on
+ * the group step. `managesRoster` decides whether the created group names
+ * them its coach.
  */
 async function setupCoach(page: Page, managesRoster: boolean) {
   const calls = {
@@ -26,6 +27,7 @@ async function setupCoach(page: Page, managesRoster: boolean) {
   await page.addInitScript(() => {
     window.localStorage.setItem('dravr.profile_type_chosen.user-123', '1');
     window.localStorage.setItem('dravr.coach_proposal_done.user-123', '1');
+    window.localStorage.setItem('dravr.coach_seat_done.user-123', '1');
     window.localStorage.setItem('dravr.theme', 'dark');
   });
   await setupDashboardMocks(page, { role: 'user', email: 'coach@test.com', displayName: 'Coach' });
@@ -124,11 +126,13 @@ async function setupCoach(page: Page, managesRoster: boolean) {
   return calls;
 }
 
-/** Name the group, pick its agent, create it. */
+/** Name the group, change its agent from the default, create it — one screen. */
 async function createGroup(page: Page) {
   await page.getByTestId('onboarding-group-name').fill('Les Rouleurs');
-  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByTestId('onboarding-group-agent')).toContainText('Endurance Agent');
+  await page.getByRole('button', { name: 'Choose another agent for the group' }).click();
   await page.getByTestId('onboarding-group-agent-a-2').click();
+  await expect(page.getByTestId('onboarding-group-agent')).toContainText('Triathlon Agent');
   await page.getByRole('button', { name: 'Create the group' }).click();
 }
 
@@ -140,8 +144,12 @@ test('a coach with coach access leaves onboarding with a group, its link and its
   await createGroup(page);
 
   await expect(page.getByTestId('onboarding-group-link')).toContainText('/groups/join/ABCD2345');
+  // One job: the link. The QR waits behind a link.
+  await expect(page.getByTestId('onboarding-group-qr')).toHaveCount(0);
+  await page.getByRole('button', { name: 'Show QR code' }).click();
   await expect(page.getByTestId('onboarding-group-qr')).toBeVisible();
-  await expect(page.getByTestId('onboarding-group-access-pending')).toHaveCount(0);
+  await expect(page.getByTestId('onboarding-group-seat')).toHaveAttribute('data-state', 'coach');
+  await expect(page.getByTestId('onboarding-group-seat')).toContainText("You're this group's coach");
   expect(calls.createGroup).toEqual([
     { name: 'Les Rouleurs', agent_id: 'a-2', coach_is_me: true },
   ]);
@@ -164,14 +172,17 @@ test('a coach without coach access gets the group and asks for access in one tap
 
   await createGroup(page);
 
-  await expect(page.getByTestId('onboarding-group-access-pending')).toContainText(
-    'Coach access pending',
-  );
+  // Nothing claims "pending" before a request exists.
+  const seat = page.getByTestId('onboarding-group-seat');
+  await expect(seat).toHaveAttribute('data-state', 'none');
+  await expect(seat).toContainText("You're not this group's coach yet");
+  await expect(seat).not.toContainText(/pending/i);
   await expect(page.getByRole('link', { name: 'Ask at support@dravr.ai' })).toHaveCount(0);
 
   // One tap asks for coach access, naming the group the coach just made.
   await page.getByRole('button', { name: 'Request coach access' }).click();
-  await expect(page.getByTestId('coach-access-pending')).toContainText('Request sent');
+  await expect(seat).toHaveAttribute('data-state', 'requested');
+  await expect(seat).toContainText('The Dravr team usually answers within 24 h.');
   expect(calls.accessRequests).toEqual([{ group_id: 'g-1' }]);
 });
 

@@ -1,4 +1,4 @@
-// ABOUTME: Onboarding progress indicator — labeled step dots (done / current / upcoming) for the onboarding journey
+// ABOUTME: Onboarding progress indicator — labeled step dots (done / skipped / current / upcoming) for the onboarding journey
 // ABOUTME: Laid over the top of the onboarding step and pointer-events-none, so it never disturbs the centered step cards below
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -17,35 +17,35 @@ import { useTranslation } from '@pierre/i18n';
  * stack: an App-level strip mounted above the flow (the offline strip) pushes
  * it down instead of being covered by it, and the step's reserved top room
  * moves down with it. It takes the notch inset as an out-of-flow layer
- * (`pad-safe-top`, index.css), so the step under it keeps its own inset too. The step sequence is stable across steps
- * (the full canonical pipeline), so the indicator never reflows mid-flow.
+ * (`pad-safe-top`, index.css), so the step under it keeps its own inset too.
+ *
+ * The segments are the journey's, decided by the role (`onboardingProgress`),
+ * so the count never moves mid-flow: a step put off keeps its place as a
+ * dashed ring. The landmark's name says where the user is — "Step 2 of 4:
+ * Your data" — and a caption under the dots says it visibly.
  */
 export default function OnboardingProgress({ steps }: { steps: OnboardingProgressItem[] }) {
   const { t } = useTranslation();
   const currentIndex = steps.findIndex((s) => s.status === 'current');
   const current = currentIndex >= 0 ? steps[currentIndex] : undefined;
+  const position = { current: currentIndex + 1, total: steps.length };
+  const whereAmI = current
+    ? t('onboarding.stepOfLabel', { ...position, label: t(current.labelKey) })
+    : undefined;
 
   return (
     <nav
-      aria-label={t('onboarding.progressAria')}
+      aria-label={whereAmI ?? t('onboarding.progressAria')}
+      data-testid="onboarding-progress"
       className="pointer-events-none absolute inset-x-0 top-0 z-20 flex flex-col items-center gap-1.5 px-4 pt-6 pad-safe-top"
     >
-      {current ? (
-        <span className="sr-only">
-          {t('onboarding.stepOfLabel', {
-            current: currentIndex + 1,
-            total: steps.length,
-            label: t(current.labelKey),
-          })}
-        </span>
-      ) : null}
       <ol className="flex items-start" aria-hidden="true">
         {steps.map((step, index) => (
-          <li key={step.id} className="flex items-start">
+          <li key={step.id} data-status={step.status} className="flex items-start">
             {index > 0 ? (
               <span
                 className={`mt-[4px] h-0.5 w-5 rounded-full lg:w-12 ${
-                  steps[index - 1].status === 'done' ? 'bg-primary' : 'bg-outline-variant'
+                  isBehind(steps[index - 1].status) ? 'bg-primary' : 'bg-outline-variant'
                 }`}
               />
             ) : null}
@@ -60,14 +60,32 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
           </li>
         ))}
       </ol>
-      {/* Eight labels do not fit under 1024px, so the dots stay and only this step is named. */}
       {current ? (
-        <span aria-hidden="true" data-testid="onboarding-current-step" className={`text-center text-xs leading-tight lg:hidden ${labelClass('current')}`}>
-          {t(current.labelKey)}
-        </span>
+        <>
+          {/* Under 1024px the labels do not fit, so the caption names this step too. */}
+          <span
+            aria-hidden="true"
+            data-testid="onboarding-current-step"
+            className="text-center text-xs leading-tight tabular-nums font-medium text-on-surface lg:hidden"
+          >
+            {whereAmI}
+          </span>
+          <span
+            aria-hidden="true"
+            data-testid="onboarding-step-counter"
+            className="mt-0.5 hidden text-xs leading-tight tabular-nums text-on-surface-variant lg:block"
+          >
+            {t('onboarding.stepOf', position)}
+          </span>
+        </>
       ) : null}
     </nav>
   );
+}
+
+/** Whether the user has moved past a step, finished or not. */
+function isBehind(status: OnboardingStepStatus): boolean {
+  return status === 'done' || status === 'skipped';
 }
 
 /** The dot marker for a single step, styled per its status. */
@@ -78,11 +96,14 @@ function StepDot({ status }: { status: OnboardingStepStatus }) {
   if (status === 'done') {
     return <span className="h-2.5 w-2.5 rounded-full bg-primary" />;
   }
-  return <span className="h-2.5 w-2.5 rounded-full border border-outline-variant bg-surface" />;
+  // Skipped keeps its place on the bar, as a broken ring; upcoming is a whole one.
+  const ring = status === 'skipped' ? 'border-dashed' : 'border-solid';
+  return (
+    <span className={`h-2.5 w-2.5 rounded-full border-[1.5px] ${ring} border-outline bg-surface`} />
+  );
 }
 
+/** Label ink: the current step in body ink, every other in full-strength secondary ink. */
 function labelClass(status: OnboardingStepStatus): string {
-  if (status === 'current') return 'font-medium text-on-surface';
-  if (status === 'done') return 'text-on-surface-variant';
-  return 'text-on-surface-variant/60';
+  return status === 'current' ? 'font-medium text-on-surface' : 'text-on-surface-variant';
 }

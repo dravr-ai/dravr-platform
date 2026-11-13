@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for the web first-run connect gate: it stays on the list after a first connection, with Continue
-// ABOUTME: A coach who does not train sees only the coaching platforms
+// ABOUTME: An athlete sees every served provider; the coaching platforms alone are the coach-seat step's
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -20,7 +20,7 @@ vi.mock('../../services/api', () => ({
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ logout: vi.fn() }) }));
 
-function renderGate(props: { coachOnly?: boolean; onContinue?: () => void } = {}) {
+function renderGate(props: { onContinue?: () => void } = {}) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
     <QueryClientProvider client={queryClient}>
@@ -83,7 +83,7 @@ function card(provider: string, display_name: string) {
   };
 }
 
-describe('OnboardingConnectProvider — a coach who does not train', () => {
+describe('OnboardingConnectProvider — the athlete list', () => {
   const served = {
     providers: [
       card('sciotte', 'Strava'),
@@ -93,22 +93,6 @@ describe('OnboardingConnectProvider — a coach who does not train', () => {
       card('intervals_icu', 'Intervals.icu'),
     ],
   };
-
-  it('is offered only TrainingPeaks and Intervals.icu, with the coach copy and no athlete preview', async () => {
-    getProvidersStatus.mockResolvedValue(served);
-
-    renderGate({ coachOnly: true });
-
-    expect(await screen.findByText('TrainingPeaks')).toBeInTheDocument();
-    expect(screen.getByText('Intervals.icu')).toBeInTheDocument();
-    for (const hidden of ['Strava', 'Garmin', 'WHOOP']) {
-      expect(screen.queryByText(hidden)).not.toBeInTheDocument();
-    }
-    expect(screen.getByText(i18n.t('onboarding.connectCoachPlatformIntro'))).toBeInTheDocument();
-    expect(screen.getByText(i18n.t('onboarding.connectCoachPlatformLaterHint'))).toBeInTheDocument();
-    expect(screen.queryByText(i18n.t('onboarding.connectProviderIntro'))).not.toBeInTheDocument();
-    expect(screen.queryByText(i18n.t('shell.previewSeeExample'))).not.toBeInTheDocument();
-  });
 
   it('an athlete still sees every served provider and the athlete copy', async () => {
     getProvidersStatus.mockResolvedValue(served);

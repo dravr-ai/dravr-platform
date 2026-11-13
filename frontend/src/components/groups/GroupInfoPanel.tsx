@@ -5,7 +5,6 @@
 // ABOUTME: The Groups tab's management surface, re-homed where App Messaging keeps it: inside the chat
 
 import { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
 import { Activity, BarChart3, CalendarCheck, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
 import {
   useCoachConsents,
@@ -24,9 +23,8 @@ import {
   useRemoveCoach,
 } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
+import { useCoachSeat } from '../../hooks/useCoachSeat';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
-import { userApi } from '../../services/api';
-import { QUERY_KEYS } from '../../constants/queryKeys';
 import {
   Button,
   Card,
@@ -41,6 +39,7 @@ import {
 import MemberList from './MemberList';
 import AthletePlanModal from './AthletePlanModal';
 import GroupLeads from './GroupLeads';
+import CoachAccessRequest from '../CoachAccessRequest';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
@@ -166,9 +165,13 @@ export default function GroupInfoPanel({
   const { weeklyDigest } = useGroupPermissions();
   const { updateGroup, isPending: isUpdating } = useUpdateGroup(groupId);
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
+  // The owner offered this group's coach seat (carnet#1520): the seat block
+  // leads the drawer, and nothing below tells them someone else will coach.
+  const seat = useCoachSeat(groupId);
   // Whether the group's human coach sees the member's training: granted at
   // join, so the member's own switch sits beside peer sharing (carnet#1168).
-  const showsCoachSharing = !!currentMember && !isGroupCoach;
+  // The owner about to be the coach is never asked to share with a coach.
+  const showsCoachSharing = !!currentMember && !isGroupCoach && !seat.offered;
   const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
@@ -205,18 +208,6 @@ export default function GroupInfoPanel({
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
-  // The owner of a coachless group who coaches others but holds no coach
-  // access may ask for it here, as on the onboarding group step (carnet#738).
-  // Whether they coach others is the onboarding role answer, read from the
-  // same status query the onboarding flow keeps.
-  const mayAskForCoachAccess =
-    isOwner && !!group && !group.coach_user_id && auth.user?.manages_roster !== true;
-  const { data: onboardingStatus } = useQuery({
-    queryKey: QUERY_KEYS.user.onboardingStatus(),
-    queryFn: () => userApi.getOnboardingStatus(),
-    enabled: mayAskForCoachAccess,
-  });
-  const canRequestCoachAccess = mayAskForCoachAccess && onboardingStatus?.coaches_others === true;
   // A member sees only their own links: one live per coaching platform the
   // group's coach links them on, each with its own controls.
   const memberLinks = delegationViewer === 'member' ? delegatedConnections : [];
@@ -394,6 +385,11 @@ export default function GroupInfoPanel({
         </div>
       </section>
 
+      {/* The coach seat leads the drawer for the owner it is offered to: what
+          is blocked, the drawer's one filled request, the coaching platforms;
+          once asked, the dated timeline (carnet#1520). */}
+      {seat.offered && <CoachAccessRequest groupId={groupId} variant="block" />}
+
       {/* The caller's own peer-sharing consent. The group can allow peer
           sharing, but each athlete still decides whether their own training
           data is part of it. Beside it, in the same card, their coach
@@ -441,11 +437,7 @@ export default function GroupInfoPanel({
       )}
 
       <Section icon={<Users className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabMembers')}>
-        <GroupLeads
-          group={group}
-          viewerIsCoach={isGroupCoach}
-          canRequestCoachAccess={canRequestCoachAccess}
-        />
+        <GroupLeads group={group} viewerIsCoach={isGroupCoach} seatState={seat.state} />
         <MemberList
           groupId={groupId}
           members={members}
@@ -511,11 +503,19 @@ export default function GroupInfoPanel({
       {/* Only an owner or admin may list a group's invites; the route refuses anyone else. */}
       {isAdmin && (
         <Section icon={<Link2 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabInvites')}>
-          <InviteManager groupId={groupId} currentUserRole={currentUserRole} />
+          <InviteManager
+            groupId={groupId}
+            currentUserRole={currentUserRole}
+            offerCoachKind={!seat.offered}
+            quietCreate={seat.offered}
+          />
         </Section>
       )}
 
-      {isAdmin && (
+      {/* Who coaches the group, for its admins. The owner offered the seat
+          reads it in the seat block instead: "create a Coach invite" would
+          make someone else the coach. */}
+      {isAdmin && !seat.offered && (
         <Section icon={<UserCog className="w-3.5 h-3.5" aria-hidden="true" />} title={t('humanCoach.coach')}>
           <p className="text-sm text-on-surface">
             {t('humanCoach.roomHint')}
@@ -599,7 +599,8 @@ export default function GroupInfoPanel({
             )}
             <div className="flex justify-end">
               <Button
-                variant="primary"
+                // The seat's request is the drawer's one filled button while it is offered.
+                variant={seat.offered ? 'secondary' : 'primary'}
                 onClick={() => void handleSaveSettings()}
                 loading={isUpdating}
                 data-testid="group-info-save-settings"

@@ -13,10 +13,10 @@ import { useTranslation } from '@pierre/i18n';
 import { Row } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { useAuth } from '../../contexts/AuthContext';
-import { userApi } from '../../services/api';
 import { useCheckIn } from '../../hooks/useCheckIn';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useRecordOnboardingStep } from '../../hooks/useRecordOnboardingStep';
 
 /** Web-matching storage key prefix for this step. */
 const STORAGE_PREFIX = 'dravr.check_in_done.';
@@ -34,12 +34,13 @@ export function OnboardingCheckInScreen() {
   const { user } = useAuth();
   const { mark } = useOnboardingFlag(STORAGE_PREFIX, user?.id);
   const progress = useOnboardingProgress('check_in');
+  const recordStep = useRecordOnboardingStep();
   const checkIn = useCheckIn();
   const [choosing, setChoosing] = useState<CheckInCadence | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
 
   const finish = async (status: 'complete' | 'skipped') => {
-    userApi.setOnboardingStep('check_in', status).catch(() => {});
+    recordStep('check_in', status);
     await mark();
   };
 

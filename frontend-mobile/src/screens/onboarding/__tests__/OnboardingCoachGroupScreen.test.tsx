@@ -1,25 +1,28 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingCoachGroupScreen — a coach names a group, picks its agent, leaves with its invite
-// ABOUTME: Pins name → agent → create → thread → 30-day invite, the app.dravr.ai link, the coach-access request, retry and skip
+// ABOUTME: Unit tests for the mobile OnboardingCoachGroupScreen — the athlete, the name and agent on one screen, then the invite
+// ABOUTME: Pins create → thread → 30-day invite, the app.dravr.ai link, Share first with the QR behind a link, the seat card, retry and skip
 
 import React from 'react';
 import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Share } from 'react-native';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { OnboardingCoachGroupScreen } from '../OnboardingCoachGroupScreen';
 import { chatApi, coachesApi, groupsApi, userApi } from '../../../services/api';
 import { useOnboardingFlag } from '../../../hooks/useOnboardingFlag';
+import { useCoachGroupCreated } from '../../../hooks/useCoachGroupCreated';
 
 const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
   useRouter: () => ({ replace: mockReplace }),
 }));
 jest.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ user: { id: 'u1', display_name: 'Jean' } }),
+  useAuth: () => ({ user: { id: 'u1', display_name: 'Jean', manages_roster: false } }),
 }));
 jest.mock('../../../hooks/useOnboardingFlag');
+jest.mock('../../../hooks/useCoachGroupCreated');
 jest.mock('../../../hooks/useOnboardingProgress', () => ({
   useOnboardingProgress: () => [
     { id: 'coach_group', labelKey: 'onboarding.stepGroup', status: 'current' },
@@ -38,6 +41,7 @@ jest.mock('../../../services/api', () => ({
 }));
 
 const mockMark = jest.fn();
+const mockMarkCreated = jest.fn();
 const createGroup = groupsApi.createGroup as jest.Mock;
 const createInvite = groupsApi.createInvite as jest.Mock;
 const createConversation = chatApi.createConversation as jest.Mock;
@@ -73,25 +77,27 @@ const agent = (id: string, title: string, isHidden = false, tags: string[] = [])
 
 const group = (coachUserId: string | null) => ({
   id: 'g-1',
-  name: 'Les Rouleurs',
+  name: 'Léa · Marathon',
   agent_id: 'a-2',
   coach_user_id: coachUserId,
 });
 
-function nameTheGroup() {
-  fireEvent.changeText(screen.getByTestId('onboarding-group-name'), 'Les Rouleurs');
-  fireEvent.press(screen.getByTestId('onboarding-group-next'));
+/** The athlete and their goal; the group's name follows them. */
+function describeTheAthlete() {
+  fireEvent.changeText(screen.getByTestId('onboarding-group-athlete'), 'Léa');
+  fireEvent.changeText(screen.getByTestId('onboarding-group-goal'), 'Marathon');
 }
 
-async function nameAndCreate() {
-  nameTheGroup();
-  fireEvent.press(await screen.findByTestId('onboarding-group-agent-a-2'));
+async function createTheGroup() {
+  describeTheAthlete();
+  await screen.findByTestId('onboarding-group-agent');
   fireEvent.press(screen.getByTestId('onboarding-group-create'));
 }
 
 describe('OnboardingCoachGroupScreen', () => {
   beforeEach(() => {
     mockMark.mockReset().mockResolvedValue(undefined);
+    mockMarkCreated.mockReset();
     mockReplace.mockReset();
     createGroup.mockReset().mockResolvedValue(group('u1'));
     createConversation.mockReset().mockResolvedValue({ id: 'c-1' });
@@ -101,8 +107,8 @@ describe('OnboardingCoachGroupScreen', () => {
     requestCoachAccess.mockReset();
     listAgents.mockReset().mockResolvedValue({
       agents: [
-        agent('a-1', 'Endurance Agent'),
-        agent('a-2', 'Triathlon Agent'),
+        agent('a-1', 'Road Running Agent', false, ['running']),
+        agent('a-2', 'Endurance Agent', false, ['endurance']),
         agent('a-3', 'Hidden', true),
         agent('a-4', 'Roster Agent', false, ['coach-tool']),
       ],
@@ -110,11 +116,32 @@ describe('OnboardingCoachGroupScreen', () => {
       metadata: {},
     });
     (useOnboardingFlag as jest.Mock).mockReturnValue({ done: false, mark: mockMark });
+    (useCoachGroupCreated as jest.Mock).mockReturnValue({ created: false, mark: mockMarkCreated });
   });
 
-  it('creates the group with the chosen agent, opens its thread and shows a 30-day invite link', async () => {
+  it('fills the group name in from the athlete and goal, and defaults the agent', async () => {
     render(<OnboardingCoachGroupScreen />);
-    await nameAndCreate();
+    describeTheAthlete();
+    expect(screen.getByTestId('onboarding-group-name').props.value).toBe('Léa · Marathon');
+    expect(await screen.findByTestId('onboarding-group-agent')).toHaveTextContent(/Endurance Agent/);
+    expect(screen.queryByTestId('onboarding-group-agents')).toBeNull();
+  });
+
+  it('offers the athlete-facing catalogue behind Change', async () => {
+    render(<OnboardingCoachGroupScreen />);
+    fireEvent.press(await screen.findByTestId('onboarding-group-agent-change'));
+
+    expect(screen.getByTestId('onboarding-group-agent-a-1')).toBeTruthy();
+    expect(screen.queryByTestId('onboarding-group-agent-a-3')).toBeNull();
+    // A coach-facing agent never answers a group's athletes.
+    expect(screen.queryByTestId('onboarding-group-agent-a-4')).toBeNull();
+    fireEvent.press(screen.getByTestId('onboarding-group-agent-a-1'));
+    expect(screen.getByTestId('onboarding-group-agent')).toHaveTextContent(/Road Running Agent/);
+  });
+
+  it('creates the group with its agent and goal, opens its thread and shows a 30-day invite link', async () => {
+    render(<OnboardingCoachGroupScreen />);
+    await createTheGroup();
 
     await waitFor(() =>
       expect(screen.getByTestId('onboarding-group-link')).toHaveTextContent(
@@ -122,14 +149,15 @@ describe('OnboardingCoachGroupScreen', () => {
       ),
     );
     expect(createGroup).toHaveBeenCalledWith({
-      name: 'Les Rouleurs',
+      name: 'Léa · Marathon',
       agent_id: 'a-2',
       coach_is_me: true,
+      description: 'Marathon',
     });
     expect(createConversation).toHaveBeenCalledWith({ group_id: 'g-1', agent_id: 'a-2' });
     expect(createInvite).toHaveBeenCalledWith('g-1', { expires_in_days: 30 });
-    expect(screen.getByTestId('onboarding-group-qr')).toBeTruthy();
-    expect(screen.queryByTestId('onboarding-group-access-pending')).toBeNull();
+    // The bar moves on to the invite.
+    expect(mockMarkCreated).toHaveBeenCalled();
   });
 
   it('marks the cached chat list stale once the group thread exists, so the group is on it', async () => {
@@ -140,7 +168,7 @@ describe('OnboardingCoachGroupScreen', () => {
         <OnboardingCoachGroupScreen />
       </QueryClientProvider>,
     );
-    await nameAndCreate();
+    await createTheGroup();
 
     await waitFor(() => expect(createConversation).toHaveBeenCalled());
     await waitFor(() =>
@@ -148,14 +176,9 @@ describe('OnboardingCoachGroupScreen', () => {
     );
   });
 
-  it('offers the visible athlete-facing catalogue and creates nothing until an agent is picked', async () => {
+  it('creates nothing without a name', async () => {
     render(<OnboardingCoachGroupScreen />);
-    nameTheGroup();
-
-    expect(await screen.findByTestId('onboarding-group-agent-a-1')).toBeTruthy();
-    expect(screen.queryByTestId('onboarding-group-agent-a-3')).toBeNull();
-    // A coach-facing agent never answers a group's athletes.
-    expect(screen.queryByTestId('onboarding-group-agent-a-4')).toBeNull();
+    await screen.findByTestId('onboarding-group-agent');
     fireEvent.press(screen.getByTestId('onboarding-group-create'));
     expect(createGroup).not.toHaveBeenCalled();
   });
@@ -163,129 +186,102 @@ describe('OnboardingCoachGroupScreen', () => {
   it('says so when the agents cannot be loaded, and creates nothing', async () => {
     listAgents.mockRejectedValue(new Error('network'));
     render(<OnboardingCoachGroupScreen />);
-    nameTheGroup();
+    describeTheAthlete();
 
     await waitFor(() => expect(screen.getByText('Failed to load agents')).toBeTruthy());
     fireEvent.press(screen.getByTestId('onboarding-group-create'));
     expect(createGroup).not.toHaveBeenCalled();
   });
 
-  it('goes back to the name keeping what was typed', async () => {
+  it('the invite: Share first, the QR behind a link, named for the athlete', async () => {
+    const share = jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' });
     render(<OnboardingCoachGroupScreen />);
-    nameTheGroup();
-    fireEvent.press(await screen.findByTestId('onboarding-group-back'));
-    expect(screen.getByTestId('onboarding-group-name').props.value).toBe('Les Rouleurs');
+    await createTheGroup();
+
+    await waitFor(() => expect(screen.getByText('Invite Léa')).toBeTruthy());
+    expect(screen.queryByTestId('onboarding-group-qr')).toBeNull();
+    fireEvent.press(screen.getByTestId('onboarding-group-share'));
+    expect(share).toHaveBeenCalledWith({
+      message: 'Join Léa · Marathon on Dravr: https://app.dravr.ai/groups/join/ABCD2345',
+    });
+    fireEvent.press(screen.getByTestId('onboarding-group-qr-toggle'));
+    expect(screen.getByTestId('onboarding-group-qr')).toBeTruthy();
+    share.mockRestore();
   });
 
-  it('says coach access is pending when the group comes back without a coach', async () => {
-    createGroup.mockResolvedValue(group(null));
+  it('says the coach coaches the group when the server made them its coach', async () => {
     render(<OnboardingCoachGroupScreen />);
-    await nameAndCreate();
-
-    await waitFor(() => expect(screen.getByTestId('onboarding-group-access-pending')).toBeTruthy());
+    await createTheGroup();
+    await waitFor(() => expect(screen.getByTestId('onboarding-group-seat-coach')).toBeTruthy());
+    expect(screen.queryByTestId('coach-access-request')).toBeNull();
   });
 
-  describe('asking for coach access while it is pending (carnet#738)', () => {
+  describe('the seat card for a coachless group (never "pending" before a request)', () => {
     async function createCoachless() {
       createGroup.mockResolvedValue(group(null));
       render(<OnboardingCoachGroupScreen />);
-      await nameAndCreate();
-      await waitFor(() =>
-        expect(screen.getByTestId('coach-access-request').props.accessibilityState?.disabled).not.toBe(
-          true,
-        ),
-      );
+      await createTheGroup();
     }
 
-    it('no longer offers a mailto link', async () => {
-      createGroup.mockResolvedValue(group(null));
-      render(<OnboardingCoachGroupScreen />);
-      await nameAndCreate();
-      await waitFor(() => expect(screen.getByTestId('onboarding-group-access-pending')).toBeTruthy());
+    it('says not yet the coach, nothing asked yet, with the quiet request — and no mailto', async () => {
+      await createCoachless();
+      await waitFor(() => expect(screen.getByTestId('onboarding-group-seat-none')).toBeTruthy());
+      expect(screen.getByText("You haven't asked for your seat yet.")).toBeTruthy();
+      expect(screen.queryByText(/pending/i)).toBeNull();
       expect(screen.queryByText(/support@dravr\.ai/)).toBeNull();
     });
 
-    it('asks in one tap, naming the group, then says the request was sent', async () => {
+    it('asks in one tap, naming the group, then shows the dated request', async () => {
       requestCoachAccess.mockResolvedValue({ request: accessRequest('pending') });
       await createCoachless();
       await waitFor(() => expect(screen.getByTestId('coach-access-request')).toBeEnabled());
       fireEvent.press(screen.getByTestId('coach-access-request'));
 
-      await waitFor(() => expect(screen.getByTestId('coach-access-pending')).toBeTruthy());
+      await waitFor(() => expect(screen.getByTestId('onboarding-group-seat-requested')).toBeTruthy());
       expect(requestCoachAccess).toHaveBeenCalledWith('g-1');
+      expect(screen.getByText(/Request sent .*2026.* The Dravr team usually answers within 24 h\./)).toBeTruthy();
       expect(screen.queryByTestId('coach-access-request')).toBeNull();
     });
 
     it('shows a request already waiting instead of the button', async () => {
       getCoachAccessRequest.mockResolvedValue({ request: accessRequest('pending') });
-      createGroup.mockResolvedValue(group(null));
-      render(<OnboardingCoachGroupScreen />);
-      await nameAndCreate();
-
-      await waitFor(() => expect(screen.getByTestId('coach-access-pending')).toBeTruthy());
+      await createCoachless();
+      await waitFor(() => expect(screen.getByTestId('onboarding-group-seat-requested')).toBeTruthy());
       expect(screen.queryByTestId('coach-access-request')).toBeNull();
     });
 
     it('offers the button again after a declined request', async () => {
       getCoachAccessRequest.mockResolvedValue({ request: accessRequest('declined') });
-      createGroup.mockResolvedValue(group(null));
-      render(<OnboardingCoachGroupScreen />);
-      await nameAndCreate();
-
+      await createCoachless();
       await waitFor(() => expect(screen.getByTestId('coach-access-declined')).toBeTruthy());
       expect(screen.getByTestId('coach-access-request')).toBeTruthy();
     });
-
-    it('says so when the request fails, and retries', async () => {
-      requestCoachAccess
-        .mockRejectedValueOnce(new Error('network'))
-        .mockResolvedValueOnce({ request: accessRequest('pending') });
-      await createCoachless();
-      await waitFor(() => expect(screen.getByTestId('coach-access-request')).toBeEnabled());
-      fireEvent.press(screen.getByTestId('coach-access-request'));
-      await waitFor(() => expect(screen.getByTestId('coach-access-failed')).toBeTruthy());
-
-      fireEvent.press(screen.getByTestId('coach-access-request'));
-      await waitFor(() => expect(screen.getByTestId('coach-access-pending')).toBeTruthy());
-      expect(requestCoachAccess).toHaveBeenCalledTimes(2);
-    });
   });
 
-  it('retries after a failure without making a second group', async () => {
-    createConversation.mockRejectedValueOnce(new Error('network'));
+  it('retries after a failure without making a second group or thread', async () => {
+    createInvite.mockRejectedValueOnce(new Error('network'));
     render(<OnboardingCoachGroupScreen />);
-    await nameAndCreate();
+    await createTheGroup();
 
     await waitFor(() => expect(screen.getByText("We couldn't create the group. Try again.")).toBeTruthy());
-    // The group exists now: its name and agent can no longer change.
-    expect(screen.queryByTestId('onboarding-group-back')).toBeNull();
+    // The group exists now: it can no longer be put off.
+    expect(screen.queryByTestId('onboarding-group-later')).toBeNull();
     fireEvent.press(screen.getByTestId('onboarding-group-create'));
 
     await waitFor(() => expect(screen.getByTestId('onboarding-group-link')).toBeTruthy());
     expect(createGroup).toHaveBeenCalledTimes(1);
-  });
-
-  it('retries a failed invite without making a second thread', async () => {
-    createInvite.mockRejectedValueOnce(new Error('network'));
-    render(<OnboardingCoachGroupScreen />);
-    await nameAndCreate();
-
-    await waitFor(() => expect(screen.getByText("We couldn't create the group. Try again.")).toBeTruthy());
-    fireEvent.press(screen.getByTestId('onboarding-group-create'));
-
-    await waitFor(() => expect(screen.getByTestId('onboarding-group-link')).toBeTruthy());
     expect(createConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('completes the step from the share screen, then opens the group thread', async () => {
+  it('completes the step from the invite, then opens the group thread', async () => {
     // The thread replaces the step only once the step is recorded.
     mockMark.mockImplementation(async () => {
       expect(mockReplace).not.toHaveBeenCalled();
     });
     render(<OnboardingCoachGroupScreen />);
-    await nameAndCreate();
+    await createTheGroup();
     const done = await screen.findByTestId('onboarding-group-done');
-    expect(screen.getByText('Go to my group')).toBeTruthy();
+    expect(screen.getByText("Go to Léa's group")).toBeTruthy();
 
     fireEvent.press(done);
     await waitFor(() =>

@@ -8,21 +8,28 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Users } from 'lucide-react';
 import { avatarSlot, deriveKind, initialsFor, scopeOfKind } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
+import { COACH_SEAT_SUBTITLE_KEY } from '@pierre/shared-constants';
 import { chatApi } from '../services/api';
 import { ChatComposeMenu, NewGroupDialog } from './chat';
 import ChatShell from './chat/ChatShell';
 import ChatThread from './chat/ChatThread';
 import ThreadHeader from './chat/ThreadHeader';
 import ThreadConnectBanner from './chat/ThreadConnectBanner';
+import CoachAccessRequest from './CoachAccessRequest';
 import ThreadInfoDrawer from './chat/ThreadInfoDrawer';
 import { useThreadInfo } from './chat/useThreadInfo';
 import { useChatThread, type OpenThread } from './chat/useChatThread';
 import type { PendingComposerAction } from './chat/types';
 import ConversationList from './dashboard/ConversationList';
-import { useIsDesktop } from '../hooks/useBreakpoint';
+import { useIsDesktop, useIsMobile } from '../hooks/useBreakpoint';
 import { useConversationList } from '../hooks/useConversationList';
+import { useCoachSeat } from '../hooks/useCoachSeat';
+import { useGroup } from '../hooks/useGroups';
 import { Button } from './ui';
 import { NotificationBell } from './notifications/NotificationBell';
+import { GroupChatAppOffer } from './chatApp/GroupChatAppOffer';
+import { useGroupChatAppOffer } from './chatApp/useGroupChatAppOffer';
+import { ChatAppSheet } from './chatApp/ChatAppSheet';
 
 interface ChatTabProps {
   selectedConversation: string | null;
@@ -67,11 +74,21 @@ export default function ChatTab({
   });
   const { runComposerAction, activeConversation } = thread;
   const info = useThreadInfo(selectedConversation);
+  // The owner of a coachless room offered its coach seat (carnet#1520): the
+  // room's top strip and the header carry the request where they are blocked.
+  const seat = useCoachSeat(activeConversation?.group_id);
   // The empty Groups tab's own way to start a room.
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   // Below the desktop breakpoint the list hides behind the open thread, so
   // the header carries the way back to it.
   const isDesktop = useIsDesktop();
+  const isMobile = useIsMobile();
+
+  // A coach's own group offers its chat app once, in the agent's voice at the
+  // end of the thread (carnet#1525); the sheet it opens sits over the page.
+  const { group: activeGroup } = useGroup(activeConversation?.group_id ?? '');
+  const chatAppOffer = useGroupChatAppOffer(activeConversation?.group_id ? (activeGroup ?? null) : null);
+  const [chatAppSheet, setChatAppSheet] = useState<{ channel: string } | null>(null);
 
   // A link that names a thread's info opens its drawer once that thread is on
   // screen. Declared after the drawer's own close on a change of thread
@@ -164,6 +181,15 @@ export default function ChatTab({
       <ThreadHeader
         title={thread.title}
         subtitle={thread.subtitle}
+        status={
+          seat.state
+            ? {
+                label: t(COACH_SEAT_SUBTITLE_KEY[seat.state]),
+                tone: seat.state === 'pending' ? 'pending' : 'action',
+                state: seat.state,
+              }
+            : null
+        }
         initials={initialsFor(thread.title)}
         avatarSlot={activeConversation ? avatarSlot(activeConversation) : 0}
         avatarShape={activeConversation?.group_id ? 'square' : 'circle'}
@@ -174,7 +200,33 @@ export default function ChatTab({
       <ChatThread
         thread={thread}
         conversationTitle={thread.title}
-        banner={<ThreadConnectBanner thread={thread} onNavigate={onNavigate} />}
+        // The seat strip takes the provider nudge's place for the coach it is
+        // offered to: the request is what blocks them in this room.
+        banner={
+          seat.offered && activeConversation ? (
+            <div className="px-4 pt-3 md:px-6">
+              <CoachAccessRequest
+                groupId={activeConversation.group_id ?? ''}
+                variant="strip"
+                onOpenInfo={() => info.show(false)}
+              />
+            </div>
+          ) : (
+            <ThreadConnectBanner thread={thread} onNavigate={onNavigate} />
+          )
+        }
+        offer={
+          chatAppOffer ? (
+            <GroupChatAppOffer
+              offer={chatAppOffer}
+              agentLabel={thread.activeCoachTitle ?? t('shell.brandName')}
+              // Under the agent's own last words the card continues its run:
+              // no second name and avatar, as the thread draws any run.
+              continuesRun={thread.threadMessages[thread.threadMessages.length - 1]?.role === 'assistant'}
+              onConfigure={(channel) => setChatAppSheet({ channel })}
+            />
+          ) : null
+        }
         followOnOpen
         focusComposerOnOpen={isDesktop}
       />
@@ -191,6 +243,13 @@ export default function ChatTab({
         onSelectConversation={onSelectConversation}
         onNavigate={onNavigate}
       />
+      {chatAppSheet && (
+        <ChatAppSheet
+          side={isMobile ? 'bottom' : 'right'}
+          initialChannel={chatAppSheet.channel}
+          onClose={() => setChatAppSheet(null)}
+        />
+      )}
     </div>
   );
 }

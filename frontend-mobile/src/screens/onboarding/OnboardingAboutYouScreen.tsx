@@ -14,6 +14,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { userApi } from '../../services/api';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useRecordOnboardingStep } from '../../hooks/useRecordOnboardingStep';
 import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 import { ONBOARDING_SPORTS as SPORTS, SPORT_LABEL_KEY } from '@pierre/shared-constants';
@@ -35,6 +36,7 @@ export function OnboardingAboutYouScreen() {
   const { user } = useAuth();
   const { mark } = useOnboardingFlag(STORAGE_PREFIX, user?.id);
   const progress = useOnboardingProgress('about_you');
+  const recordStep = useRecordOnboardingStep();
   const [sport, setSport] = useState('');
   const [goal, setGoal] = useState('');
   const [northStar, setNorthStar] = useState('');
@@ -54,7 +56,7 @@ export function OnboardingAboutYouScreen() {
         // Non-fatal: the answers are a head start, not a gate.
       }
     }
-    userApi.setOnboardingStep('about_you', status).catch(() => {});
+    recordStep('about_you', status);
     await mark();
   };
 

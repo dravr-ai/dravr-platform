@@ -246,59 +246,104 @@ describe('GroupInfoSheet', () => {
       expect(within(none).getByText('No human coach attached. Share a coach invite to bring one in.')).toBeTruthy();
     });
 
-    it('offers the owner who coaches others a one-tap coach-access request naming this group', async () => {
-      (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
-      (userApi.requestCoachAccess as jest.Mock).mockResolvedValue({
-        request: {
-          id: 'req-1',
-          user_id: 'user-owner',
-          group_id: 'group-1',
-          group_tenant_id: 'tenant-1',
-          status: 'pending',
-          created_at: '2026-10-07T12:00:00Z',
-          decided_at: null,
-          decided_by: null,
-        },
+    describe('the coach seat (carnet#738, carnet#1520)', () => {
+      const pending = {
+        id: 'req-1',
+        user_id: 'user-owner',
+        group_id: 'group-1',
+        group_tenant_id: 'tenant-1',
+        status: 'pending' as const,
+        created_at: '2026-10-07T12:00:00Z',
+        decided_at: null,
+        decided_by: null,
+      };
+
+      it('leads the sheet with the seat block, whose filled request names this group', async () => {
+        (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+        (userApi.requestCoachAccess as jest.Mock).mockResolvedValue({ request: pending });
+        const { findByTestId, getByTestId, queryByTestId } = renderSheet();
+
+        const block = await findByTestId('coach-seat-block');
+        expect(within(block).getByText("You're not this group's coach yet")).toBeTruthy();
+        // TrainingPeaks and Intervals.icu as identical rows: glyph, name, Connect.
+        const routes = within(block).getByTestId('coach-seat-routes');
+        expect(within(routes).getByTestId('coach-seat-route-sciotte_trainingpeaks')).toHaveTextContent(/TrainingPeaks\s*Connect$/);
+        expect(within(routes).getByTestId('coach-seat-route-intervals_icu')).toHaveTextContent(/Intervals\.icu\s*Connect$/);
+        const ask = within(block).getByTestId('coach-access-request');
+        fireEvent.press(ask);
+
+        await waitFor(() => expect(userApi.requestCoachAccess).toHaveBeenCalledWith('group-1'));
+        // The block turns into the dated timeline, with no button and no email promise.
+        expect(await within(getByTestId('coach-seat-block')).findByTestId('coach-access-pending')).toBeTruthy();
+        expect(getByTestId('coach-seat-step-sent')).toHaveTextContent(/Request sent/);
+        expect(getByTestId('coach-seat-step-review')).toHaveTextContent(/usually within 24 hours/i);
+        expect(getByTestId('coach-seat-block')).not.toHaveTextContent(/email/i);
+        expect(queryByTestId('coach-access-request')).toBeNull();
+        expect(await findByTestId('group-info-coach-seat')).toHaveTextContent(/You · coach access pending/);
       });
-      const { findByTestId, queryByTestId } = renderSheet();
 
-      const entry = await findByTestId('group-info-coach-access');
-      const ask = await within(entry).findByTestId('coach-access-request');
-      // The button waits for the latest-request read before it takes a tap.
-      await waitFor(() => expect(ask).toBeEnabled());
-      fireEvent.press(ask);
+      it('opens Connections from a coaching-platform row', async () => {
+        (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+        const { findByTestId, handlers } = renderSheet();
 
-      await waitFor(() => expect(userApi.requestCoachAccess).toHaveBeenCalledWith('group-1'));
-      expect(await findByTestId('coach-access-pending')).toBeTruthy();
-      expect(queryByTestId('coach-access-request')).toBeNull();
-    });
+        fireEvent.press(await findByTestId('coach-seat-route-intervals_icu'));
 
-    it('offers no coach-access request to an owner who does not coach others', async () => {
-      const { findByTestId, queryByTestId } = renderSheet();
+        expect(handlers.onClose).toHaveBeenCalled();
+        expect(mockPush).toHaveBeenCalled();
+      });
 
-      await findByTestId('group-info-no-coach');
-      await waitFor(() => expect(userApi.getOnboardingStatus).toHaveBeenCalled());
-      expect(queryByTestId('group-info-coach-access')).toBeNull();
-    });
+      it('never tells the owner about to coach that the group has none, nor offers a coach invite or coach sharing', async () => {
+        (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+        (groupsApi.createInvite as jest.Mock).mockResolvedValue({ id: 'invite-1', code: 'ABC123', kind: 'member' });
+        jest.spyOn(Share, 'share').mockResolvedValue({ action: 'sharedAction' } as never);
+        const { findByTestId, queryByTestId, getByTestId } = renderSheet();
 
-    it('offers no coach-access request to an owner who already holds coach access', async () => {
-      mockManagesRoster = true;
-      (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
-      const { findByTestId, queryByTestId } = renderSheet();
+        expect(await findByTestId('group-info-coach-seat')).toHaveTextContent(/You · not the coach yet/);
+        expect(queryByTestId('group-info-no-coach')).toBeNull();
+        await act(async () => {
+          fireEvent.press(await findByTestId('group-info-settings-toggle'));
+        });
+        expect(queryByTestId('coach-sharing-row')).toBeNull();
+        // The save is quiet: the seat's request is the sheet's one filled button.
+        expect(getByTestId('group-info-sheet')).not.toHaveTextContent(/No human coach/);
+        // A new invite is a member invite: no Member / Coach question.
+        await act(async () => {
+          fireEvent.press(await findByTestId('group-info-invites-toggle'));
+        });
+        await act(async () => {
+          fireEvent.press(getByTestId('group-info-create-invite'));
+        });
+        expect(Alert.alert).not.toHaveBeenCalled();
+        await waitFor(() => expect(groupsApi.createInvite).toHaveBeenCalledWith('group-1', { expires_in_days: 7 }));
+      });
 
-      await findByTestId('group-info-no-coach');
-      expect(queryByTestId('group-info-coach-access')).toBeNull();
-      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
-    });
+      it('offers no seat to an owner who does not coach others', async () => {
+        const { findByTestId, queryByTestId } = renderSheet();
 
-    it('offers no coach-access request to a plain member', async () => {
-      mockCallerId = 'user-phil';
-      (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
-      const { findByTestId, queryByTestId } = renderSheet();
+        await findByTestId('group-info-no-coach');
+        await waitFor(() => expect(userApi.getOnboardingStatus).toHaveBeenCalled());
+        expect(queryByTestId('coach-seat-block')).toBeNull();
+      });
 
-      await findByTestId('group-info-no-coach');
-      expect(queryByTestId('group-info-coach-access')).toBeNull();
-      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+      it('offers no seat to an owner who already holds coach access', async () => {
+        mockManagesRoster = true;
+        (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+        const { findByTestId, queryByTestId } = renderSheet();
+
+        await findByTestId('group-info-no-coach');
+        expect(queryByTestId('coach-seat-block')).toBeNull();
+        expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+      });
+
+      it('offers no seat to a plain member', async () => {
+        mockCallerId = 'user-phil';
+        (userApi.getOnboardingStatus as jest.Mock).mockResolvedValue(onboardingStatus(true));
+        const { findByTestId, queryByTestId } = renderSheet();
+
+        await findByTestId('group-info-no-coach');
+        expect(queryByTestId('coach-seat-block')).toBeNull();
+        expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+      });
     });
 
     it('gives an admin the remove control on the coach row, and detaches the coach through it', async () => {

@@ -5,17 +5,19 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { userApi } from '../services/api';
-import type { AvailableChannel } from '@pierre/api-client';
+import type { OnboardingStatusResponse } from '@pierre/api-client';
 import { useAuth } from './useAuth';
 import { useOnboardingStatus } from './useOnboardingStatus';
-import { useAvailableChannels } from './useAvailableChannels';
 import {
   ATHLETE_STEP_IDS,
   athleteStepsWaived as serverAthleteStepsWaived,
   isConnectProviderRecorded,
   isServerStepComplete,
-  pastProviderGate,
+  skippedStepIds,
+  withStepRecorded,
   type OnboardingContext,
 } from '../onboarding/steps';
 
@@ -60,20 +62,14 @@ export interface OnboardingState {
   completeCoachProposal: () => void;
   /** The coach's group step finished (`complete`) or put off (`skipped`) — persist + advance. */
   completeCoachGroup: (status: 'complete' | 'skipped') => void;
+  /** The coach moved past the coach-seat step (Continue or « Passer pour l'instant »). */
+  completeCoachSeat: () => void;
+  /** The coach's group was just made: the invite is the next screen. */
+  markCoachGroupCreated: () => void;
   /** Continue past the connect step once a first provider is connected this session. */
   completeConnectProvider: () => void;
   /** Session-only "continue without connecting" — escapes the flow to the dashboard. */
   skipProvider: () => void;
-  /** Messaging channels the tenant has configured (for the picker step). */
-  availableChannels: AvailableChannel[];
-  /** The chosen messaging channel id, or `null` if none picked yet. */
-  chosenChannel: string | null;
-  /** Pick a messaging channel — persist + advance to configure. */
-  chooseChannel: (channel: string) => void;
-  /** The messaging channel linked (or the configure step accepted) — persist + finish. */
-  completeMessagingConfigure: () => void;
-  /** Skip messaging setup entirely (either messaging step) — escapes to the dashboard. */
-  skipMessaging: () => void;
 }
 
 /**
@@ -108,12 +104,6 @@ export function useOnboardingState(): OnboardingState {
   // Session-only: the user connected a first provider and pressed Continue. The
   // connect step stays up until then so a second service is one tap away.
   const [connectProviderDone, setConnectProviderDone] = useState(false);
-  // Session "skip messaging" escape (from either messaging step) → dashboard.
-  const [skippedMessaging, setSkippedMessaging] = useState(false);
-  // The messaging channel picked this session, before it's server-persisted.
-  const [chosenChannelLocal, setChosenChannelLocal] = useState<string | null>(null);
-  // The messaging-configure step finished this session (link landed or skipped).
-  const [messagingConfigureDoneLocal, setMessagingConfigureDoneLocal] = useState(false);
 
   // Coach-proposal completion, persisted per-user in localStorage as a fast,
   // offline-capable flag alongside the durable server-side step record.
@@ -166,6 +156,21 @@ export function useOnboardingState(): OnboardingState {
     setCoachGroupDoneLocal(coachGroupKey ? localStorage.getItem(coachGroupKey) === '1' : true);
   }, [coachGroupKey]);
 
+  // The coach-seat step, a device flag like the others: the seat itself is
+  // server state (`manages_roster`, the coach-access request) the step reads.
+  const coachSeatKey = user?.user_id ? `dravr.coach_seat_done.${user.user_id}` : null;
+  // Read on the first render too, like the agent step's flag: a cached status
+  // must not flash the step for one frame at a coach who is past it.
+  const [coachSeatDoneLocal, setCoachSeatDoneLocal] = useState(() =>
+    coachSeatKey ? localStorage.getItem(coachSeatKey) === '1' : false,
+  );
+  useEffect(() => {
+    setCoachSeatDoneLocal(coachSeatKey ? localStorage.getItem(coachSeatKey) === '1' : true);
+  }, [coachSeatKey]);
+  // The group made this session: its invite, which only this session holds
+  // the link for, is the next screen.
+  const [coachGroupCreated, setCoachGroupCreated] = useState(false);
+
   // A coach who does not train: the athlete steps leave the journey. Unlike the
   // done-flags above this one defaults to false with no user — it removes
   // steps, so failing open would skip the PAR-Q for an athlete.
@@ -198,36 +203,6 @@ export function useOnboardingState(): OnboardingState {
   // connected, so disconnecting later never reopens the wizard (carnet#1341).
   const connectProviderRecorded = isConnectProviderRecorded(serverSteps);
 
-  // The messaging steps live in the just-connected phase, so only fetch the
-  // connectable-channel list once the user is past the provider gate — which a
-  // coach who does not train is without connecting.
-  const postConnect =
-    onboardingActive &&
-    pastProviderGate({
-      needsProviderConnection: onboardingStatus?.needs_provider_connection,
-      connectProviderRecorded,
-      athleteStepsWaived,
-    });
-  const { channels: availableChannels } = useAvailableChannels({ enabled: postConnect });
-
-  // Messaging derivations. The chosen channel is the one picked this session,
-  // else the server-persisted `chosen_channel`, else the sole configured channel
-  // (so a single-channel tenant auto-selects and skips the picker).
-  const messagingAvailableCount = availableChannels.length;
-  const chosenChannel =
-    chosenChannelLocal ??
-    onboardingStatus?.chosen_channel ??
-    (messagingAvailableCount === 1 ? (availableChannels[0]?.channel ?? null) : null);
-  const messagingChannelChosen = chosenChannel !== null;
-  const messagingChannelDone =
-    messagingChannelChosen ||
-    skippedMessaging ||
-    isServerStepComplete(serverSteps, 'messaging_channel');
-  const messagingConfigureDone =
-    messagingConfigureDoneLocal ||
-    skippedMessaging ||
-    isServerStepComplete(serverSteps, 'messaging_configure');
-
   // Detect the first-in-session provider connection (needs true→false), which
   // keeps the connect step on screen until Continue. The coach-proposal step is
   // gated on server state instead (see the shared registry).
@@ -241,18 +216,29 @@ export function useOnboardingState(): OnboardingState {
     prevNeedsProvider.current = now;
   }, [onboardingStatus?.needs_provider_connection]);
 
+  // The step row as the server will hold it, in the cached status at once: the
+  // progress bar reads a skip from those rows, and the next status read would
+  // otherwise come seconds after the user has moved on.
+  const queryClient = useQueryClient();
+  const recordStepInCache = useCallback(
+    (stepId: string, status: 'complete' | 'skipped' | 'not_applicable') => {
+      queryClient.setQueryData<OnboardingStatusResponse>(
+        QUERY_KEYS.user.onboardingStatus(),
+        (cached) => cached && { ...cached, steps: withStepRecorded(cached.steps, stepId, status) },
+      );
+    },
+    [queryClient],
+  );
+
   // Durability best-effort: the localStorage flag already advanced the flow, so a
   // failed server write is non-fatal (mirrors the coaching-persona write). The
   // server record is read on the user's next session / other device.
   const persistStep = useCallback(
-    (
-      stepId: string,
-      status: 'complete' | 'skipped' | 'not_applicable',
-      options?: { chosenChannel?: string; agentId?: string },
-    ) => {
-      void userApi.setOnboardingStep(stepId, status, options).catch(() => {});
+    (stepId: string, status: 'complete' | 'skipped' | 'not_applicable') => {
+      recordStepInCache(stepId, status);
+      void userApi.setOnboardingStep(stepId, status).catch(() => {});
     },
-    [],
+    [recordStepInCache],
   );
 
   const completeProfileType = useCallback(
@@ -282,12 +268,14 @@ export function useOnboardingState(): OnboardingState {
   // Not best-effort like the other steps: this write is what puts agents on
   // the athlete's team, so its failure reaches the step.
   const persistCoachProposal = useCallback(
-    ({ status, leadAgentId, teamAgentIds }: TeamStepChoice) =>
-      userApi.setOnboardingStep('coach_proposal', status, {
+    async ({ status, leadAgentId, teamAgentIds }: TeamStepChoice) => {
+      await userApi.setOnboardingStep('coach_proposal', status, {
         agentId: leadAgentId,
         teamAgentIds,
-      }),
-    [],
+      });
+      recordStepInCache('coach_proposal', status);
+    },
+    [recordStepInCache],
   );
 
   const completeCoachProposal = useCallback(() => {
@@ -304,6 +292,13 @@ export function useOnboardingState(): OnboardingState {
     },
     [coachGroupKey, persistStep],
   );
+
+  const completeCoachSeat = useCallback(() => {
+    if (coachSeatKey) localStorage.setItem(coachSeatKey, '1');
+    setCoachSeatDoneLocal(true);
+  }, [coachSeatKey]);
+
+  const markCoachGroupCreated = useCallback(() => setCoachGroupCreated(true), []);
 
   const completeAboutYou = useCallback(
     (status: 'complete' | 'skipped' = 'complete') => {
@@ -335,30 +330,12 @@ export function useOnboardingState(): OnboardingState {
   const skipProvider = useCallback(() => setSkippedProvider(true), []);
   const completeConnectProvider = useCallback(() => setConnectProviderDone(true), []);
 
-  const chooseChannel = useCallback(
-    (channel: string) => {
-      setChosenChannelLocal(channel);
-      persistStep('messaging_channel', 'complete', { chosenChannel: channel });
-    },
-    [persistStep],
-  );
-
-  const completeMessagingConfigure = useCallback(() => {
-    setMessagingConfigureDoneLocal(true);
-    persistStep('messaging_configure', 'complete');
-  }, [persistStep]);
-
-  const skipMessaging = useCallback(() => {
-    setSkippedMessaging(true);
-    persistStep('messaging_channel', 'skipped');
-    persistStep('messaging_configure', 'skipped');
-  }, [persistStep]);
-
   const ctx: OnboardingContext = {
     onboardingActive,
     needsProviderConnection: onboardingStatus?.needs_provider_connection,
     connectProviderRecorded,
     skippedProvider,
+    skippedSteps: skippedStepIds(serverSteps),
     justOnboarded,
     connectProviderDone,
     profileTypeChosen,
@@ -369,10 +346,8 @@ export function useOnboardingState(): OnboardingState {
     athleteStepsWaived,
     coachesOthers,
     coachGroupDone,
-    messagingAvailableCount,
-    messagingChannelChosen,
-    messagingChannelDone,
-    messagingConfigureDone,
+    coachSeatDone: coachSeatDoneLocal,
+    coachGroupCreated,
     analyticsConsentAnswered: user?.analytics_consent_answered !== false,
   };
 
@@ -386,12 +361,9 @@ export function useOnboardingState(): OnboardingState {
     persistCoachProposal,
     completeCoachProposal,
     completeCoachGroup,
+    completeCoachSeat,
+    markCoachGroupCreated,
     completeConnectProvider,
     skipProvider,
-    availableChannels,
-    chosenChannel,
-    chooseChannel,
-    completeMessagingConfigure,
-    skipMessaging,
   };
 }

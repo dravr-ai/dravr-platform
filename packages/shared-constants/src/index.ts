@@ -5,6 +5,9 @@
 export * from './onboarding';
 export * from './brands';
 
+// The chat-app offer outside the wizard (Getting started row, group card)
+export { CHAT_APP_OFFER_STEP_ID, chatAppOfferAnswered, offeredChatApp } from './chat-app';
+
 // Agent tuning bounds (mirrors the server-side range checks)
 export {
   MIN_MAX_TOOL_ITERATIONS,
@@ -436,3 +439,18 @@ export {
   COACH_SEASON_STATE_KEY,
   COACH_UNVERIFIED_KEYS,
 } from './coach-home';
+
+// The coach seat: who may ask for coach access from a group, where the request stands, what the
+// onboarding seat step says (server state only), and its words
+export {
+  COACH_SEAT_CHECK_POLL_MS,
+  COACH_SEAT_CHECK_WINDOW_MS,
+  COACH_SEAT_KEYS,
+  COACH_SEAT_SUBTITLE_KEY,
+  canRequestCoachAccess,
+  coachSeatMoment,
+  coachSeatState,
+  coachSeatStepState,
+  connectedCoachPlatforms,
+} from './coach-seat';
+export type { CoachSeatInputs, CoachSeatProvider, CoachSeatState, CoachSeatStepState } from './coach-seat';

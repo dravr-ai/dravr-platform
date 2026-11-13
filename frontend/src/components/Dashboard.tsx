@@ -151,6 +151,7 @@ const PickTeamSheet = lazy(() =>
     default: module.PickTeamSheet,
   })),
 );
+const ChatAppSheet = lazy(() => import("./chatApp/ChatAppSheet"));
 const ActivityView = lazy(() => import("./activity/ActivityView"));
 const AdminConfiguration = lazy(() => import("./AdminConfiguration"));
 const UserToolOverrides = lazy(() => import("./UserToolOverrides"));
@@ -1168,6 +1169,8 @@ export default function Dashboard({
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Home's Pick your team, over the page rather than inside Today's sheet.
   const [teamPickerOpen, setTeamPickerOpen] = useState(false);
+  // Getting started's chat-app sheet, over the page the same way.
+  const [chatAppOpen, setChatAppOpen] = useState(false);
   // While the athlete types, a phone's tab bar steps aside so the composer
   // sits on the keyboard (Phil, 2026-10-05).
   const composing = useComposerFocused();
@@ -1193,6 +1196,10 @@ export default function Dashboard({
             onPickTeam={() => {
               actions.dismiss();
               setTeamPickerOpen(true);
+            }}
+            onOpenChatApp={() => {
+              actions.dismiss();
+              setChatAppOpen(true);
             }}
             compact={compact}
           />
@@ -2034,6 +2041,14 @@ export default function Dashboard({
               <PickTeamSheet
                 side={isMobile ? "bottom" : "right"}
                 onClose={() => setTeamPickerOpen(false)}
+              />
+            </Suspense>
+          )}
+          {chatAppOpen && (
+            <Suspense fallback={null}>
+              <ChatAppSheet
+                side={isMobile ? "bottom" : "right"}
+                onClose={() => setChatAppOpen(false)}
               />
             </Suspense>
           )}

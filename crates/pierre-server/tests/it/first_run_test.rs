@@ -29,6 +29,9 @@ use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_notify, named, only};
 use pierre_core::models::{Pillar, TenantId};
 use pierre_core::transport::TransportPolicy;
+use pierre_database::backends::{
+    CreateChannelLinkParams, MessagingRepository, UpsertChannelConfigParams,
+};
 use pierre_database::repositories::{HomePreferencesUpdate, UpsertUserFactParams};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -405,5 +408,72 @@ async fn getting_started_ticks_a_done_flow_and_says_when_it_is_hidden() {
     assert!(
         named(&events, "suggestion.shown").is_empty(),
         "a hidden list shows nothing"
+    );
+}
+
+/// The chat-app row (carnet#1525): listed only once the workspace offers a
+/// chat app the sheet could link, and only while the list is still open; open
+/// until the athlete links one, then done. The count follows it, so the list
+/// never holds a step nobody can take.
+#[tokio::test]
+async fn getting_started_lists_the_chat_app_only_when_one_is_offered_and_ticks_it_once_linked() {
+    let fx = setup().await;
+    let body = fx.getting_started().await;
+    assert!(
+        body["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|row| row["id"] != "chat_app"),
+        "no app offered, no row: {body}"
+    );
+    assert_eq!(body["total"], 5);
+
+    let messaging: &dyn MessagingRepository = &*fx.repos().messaging;
+    messaging
+        .upsert_channel_config(&UpsertChannelConfigParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: fx.tenant,
+            channel_type: "telegram",
+            api_key: None,
+            api_secret: None,
+            webhook_secret: Some("first-run-webhook-secret"),
+            verify_token: None,
+            account_id: None,
+            phone_number: None,
+            bot_token: Some("12345:FIRST_RUN_BOT"),
+            is_active: true,
+        })
+        .await
+        .unwrap();
+    let body = fx.getting_started().await;
+    let chat_app = row(&body, "chat_app");
+    assert_eq!(chat_app["order"], 6);
+    assert_eq!(chat_app["eligible"], true);
+    assert_eq!(chat_app["done"], false);
+    assert!(
+        chat_app["postback"].is_null(),
+        "the row opens a sheet, not a thread"
+    );
+    assert_eq!(body["total"], 6);
+    let done_before_link = body["done_count"].as_u64().unwrap();
+
+    messaging
+        .create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id: fx.tenant,
+            user_id: &fx.user_id.to_string(),
+            channel_type: "telegram",
+            channel_user_id: "424242",
+            display_name: Some("First Run Athlete"),
+        })
+        .await
+        .unwrap();
+    let body = fx.getting_started().await;
+    assert_eq!(row(&body, "chat_app")["done"], true);
+    assert_eq!(
+        body["done_count"].as_u64().unwrap(),
+        done_before_link + 1,
+        "the link ticks the chat-app row and nothing else: {body}"
     );
 }

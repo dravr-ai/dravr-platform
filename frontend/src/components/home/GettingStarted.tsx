@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Today's Getting started — five first steps, done, current or open, read from the server so web and phone agree
-// ABOUTME: A row sends its flow's starter into the thread; Hide is a server preference, and the section folds then goes once done (carnet#1098)
+// ABOUTME: A row sends its flow's starter into the thread or opens its sheet; Hide is a server preference, and the section folds then goes once done (carnet#1098)
 
 import { useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
@@ -12,8 +12,9 @@ import { Trans, useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { CheckInCadence, GettingStartedRow } from '@pierre/shared-types';
 import { formatDuration } from '@pierre/domain-utils';
-import { athleteApi, coachesApi, providersApi, userApi } from '../../services/api';
+import { athleteApi, coachesApi, messagingLinkApi, providersApi, userApi } from '../../services/api';
 import { recentActivitiesQuery } from '../../hooks/useHome';
+import { useAvailableChannels } from '../../hooks/useAvailableChannels';
 import { useGettingStarted } from './gettingStartedState';
 import { usePersonalConversation } from '../../hooks/useConversationList';
 import { Section } from '../ui/Section';
@@ -26,6 +27,7 @@ const ROW_KEY: Record<string, string> = {
   last_workout: 'lastWorkout',
   about_me_more: 'profile',
   check_in: 'checkIn',
+  chat_app: 'chatApp',
 };
 
 const CHECK_IN_HINT: Record<CheckInCadence, string> = {
@@ -37,8 +39,9 @@ const CHECK_IN_HINT: Record<CheckInCadence, string> = {
 
 /**
  * The supporting reads a row's hint names: the provider, the lead, the latest
- * activity, the profile, the cadence. Only read while the rows are on screen,
- * so an athlete whose Getting started is gone costs no extra request.
+ * activity, the profile, the cadence, the chat apps. Only read while the rows
+ * are on screen, so an athlete whose Getting started is gone costs no extra
+ * request.
  */
 function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
   const { t, language } = useTranslation();
@@ -65,6 +68,13 @@ function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
     queryFn: () => athleteApi.getCheckIn(),
     enabled,
   });
+  // The chat-app sheet and Settings read the same two entries.
+  const { channels } = useAvailableChannels({ enabled });
+  const links = useQuery({
+    queryKey: ['messaging-links'],
+    queryFn: () => messagingLinkApi.listLinks(),
+    enabled,
+  });
 
   const provider = providers.data?.providers.find((p) => p.connected)?.display_name ?? null;
   const lead = agents.data?.agents.find((agent) => agent.id === personal.agentId)?.title ?? null;
@@ -75,6 +85,19 @@ function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
     const at = new Date(2000, 0, 1, localHour, 0);
     return new Intl.DateTimeFormat(language, { hour: 'numeric', minute: '2-digit' }).format(at);
   }, [language, localHour]);
+  // « Telegram ou WhatsApp »: the apps on offer, in the reader's own "or".
+  const apps = useMemo(
+    () =>
+      channels.length === 0
+        ? null
+        : new Intl.ListFormat(language, { type: 'disjunction' }).format(channels.map((c) => c.display_name)),
+    [channels, language],
+  );
+  const linkedChannel = Array.isArray(links.data) ? links.data[0]?.channel : undefined;
+  const linkedApp =
+    linkedChannel === undefined
+      ? null
+      : (channels.find((c) => c.channel === linkedChannel)?.display_name ?? null);
 
   return (row) => {
     switch (row.id) {
@@ -104,6 +127,9 @@ function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
         if (row.done || checkIn.data === undefined) return null;
         if (checkIn.data.cadence === null || checkIn.data.cadence === 'off') return t(CHECK_IN_HINT.off);
         return time === null ? null : t(CHECK_IN_HINT[checkIn.data.cadence], { time });
+      case 'chat_app':
+        if (row.done) return linkedApp === null ? null : t('home.gettingStarted.rows.chatApp.doneHint', { app: linkedApp });
+        return apps;
       default:
         return null;
     }
@@ -114,6 +140,8 @@ interface GettingStartedProps {
   actions: TodayActions;
   /** Dashboard route navigator, `tab[/subview]`. */
   onNavigate: (route: string) => void;
+  /** Open the chat-app sheet over the page — the « Écris-moi aussi ailleurs » row. */
+  onOpenChatApp: () => void;
 }
 
 /**
@@ -127,10 +155,13 @@ interface GettingStartedProps {
  * A tap on row 1 goes to Settings › Connections; one on a flow sends its
  * starter postback (`gs:<pos>:<id>`) into the Home thread, the same send the
  * empty thread's starters make, so the server records it as a tap from this
- * surface (carnet#1100). Once the last flow is done the section folds to one
- * line naming the way back, and is gone seven days later.
+ * surface (carnet#1100). The chat-app row, listed by the server only when the
+ * workspace offers an app and the list is still open, opens the chat-app sheet
+ * instead (carnet#1525) and is done once an app is linked. Once the last row
+ * is done the section folds to one line naming the way back, and is gone
+ * seven days later.
  */
-export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
+export function GettingStarted({ actions, onNavigate, onOpenChatApp }: GettingStartedProps) {
   const { t } = useTranslation();
   const { query, home, state } = useGettingStarted();
   const hintFor = useRowHints(state === 'open');
@@ -151,6 +182,10 @@ export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
   const open = (row: GettingStartedRow) => {
     if (row.id === 'connect') {
       onNavigate('settings/connections');
+      return;
+    }
+    if (row.id === 'chat_app') {
+      onOpenChatApp();
       return;
     }
     if (row.postback) actions.send(row.postback, titleOf(row));
@@ -219,7 +254,8 @@ export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
             row.current && !row.done && 'bg-surface-container-low',
           );
           // A done row, or one whose prerequisite is missing, is not a link.
-          const actionable = !row.done && (row.id === 'connect' || (row.eligible && row.postback !== null));
+          const opensItsOwnPlace = row.id === 'connect' || row.id === 'chat_app';
+          const actionable = !row.done && (opensItsOwnPlace || (row.eligible && row.postback !== null));
           return (
             <li
               key={row.id}

@@ -44,6 +44,14 @@ pub const CHECK_IN: &str = "check_in";
 /// entry — connecting happens in Settings, not in a thread.
 pub const CONNECT_ROW: &str = "connect";
 
+/// Getting started's last row: a chat app is linked (carnet#1525).
+///
+/// Linking Telegram, `WhatsApp` or another app lets the athlete write to their
+/// agent from it. Not a catalogue entry either — linking happens in a sheet,
+/// not in a thread — and listed only when the workspace offers an app
+/// ([`ChatApp`]) and a row before it is still to do ([`getting_started`]).
+pub const CHAT_APP_ROW: &str = "chat_app";
+
 /// The distinct local days a check-in must be answered on before the habit
 /// counts as formed (activation, part 2).
 pub const CHECK_IN_DAYS_TO_DONE: usize = 3;
@@ -323,6 +331,19 @@ async fn checked_in_on(
     }
 }
 
+/// Where the athlete stands on linking a chat app, for Getting started's last
+/// row.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChatApp {
+    /// The workspace offers no chat app: the row is not listed, so the count
+    /// never holds a step nobody can take.
+    NotOffered,
+    /// An app is offered and none is linked yet.
+    Unlinked,
+    /// An app is linked.
+    Linked,
+}
+
 /// One row of Home's Getting started list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GettingStartedRow {
@@ -344,7 +365,8 @@ pub struct GettingStartedRow {
 /// Home's Getting started list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct GettingStarted {
-    /// Connect, then the first-run flows in flow order.
+    /// Connect, then the first-run flows in flow order, then the chat app
+    /// when one is offered and the list is still open.
     pub rows: Vec<GettingStartedRow>,
     /// Rows done.
     pub done_count: usize,
@@ -354,13 +376,18 @@ pub struct GettingStarted {
     pub folded_at: Option<DateTime<Utc>>,
 }
 
-/// The Getting started list for an athlete in `state` with `first_run`, from
-/// `catalogue`'s first-run flows.
+/// The Getting started list for an athlete in `state` with `first_run`.
+///
+/// Connect, then `catalogue`'s first-run flows, closed by the chat-app row
+/// when `chat_app` says the workspace offers one and a row before it is
+/// still to do. The chat app rides along with an open list: it never holds a
+/// finished list open, and never brings back one already folded or hidden.
 #[must_use]
 pub fn getting_started(
     catalogue: &UseCaseCatalogue,
     state: &AthleteState,
     first_run: &FirstRun,
+    chat_app: ChatApp,
 ) -> GettingStarted {
     let mut rows = vec![GettingStartedRow {
         id: CONNECT_ROW.to_owned(),
@@ -381,6 +408,17 @@ pub fn getting_started(
             done,
             current: false,
             postback: (eligible && !done).then(|| getting_started_postback(position, &flow.id)),
+        });
+    }
+    let list_open = rows.iter().any(|row| !row.done);
+    if list_open && chat_app != ChatApp::NotOffered {
+        rows.push(GettingStartedRow {
+            id: CHAT_APP_ROW.to_owned(),
+            order: rows.len() + 1,
+            eligible: true,
+            done: chat_app == ChatApp::Linked,
+            current: false,
+            postback: None,
         });
     }
     if let Some(current) = rows.iter_mut().find(|row| row.eligible && !row.done) {
@@ -503,7 +541,12 @@ mod tests {
 
     #[test]
     fn getting_started_lists_connect_then_the_flows_in_flow_order() {
-        let list = getting_started(&catalogue(), &state(), &FirstRun::default());
+        let list = getting_started(
+            &catalogue(),
+            &state(),
+            &FirstRun::default(),
+            ChatApp::NotOffered,
+        );
         assert_eq!(
             ids(&list),
             [
@@ -530,7 +573,12 @@ mod tests {
         state.has_provider = false;
         state.activities = ActivityHistory::Absent;
         state.check_in_on = false;
-        let list = getting_started(&catalogue(), &state, &FirstRun::default());
+        let list = getting_started(
+            &catalogue(),
+            &state,
+            &FirstRun::default(),
+            ChatApp::NotOffered,
+        );
         assert!(list.rows[0].current);
         let last_workout = &list.rows[2];
         assert!(!last_workout.eligible);
@@ -551,7 +599,7 @@ mod tests {
             day(CHECK_IN, 2, 9),
             day(CHECK_IN, 3, 9),
         ]);
-        let list = getting_started(&catalogue(), &state(), &done);
+        let list = getting_started(&catalogue(), &state(), &done, ChatApp::NotOffered);
         assert_eq!(list.rows[1].postback, None);
         assert!(list.rows[4].current, "two check-in days are not three");
         assert_eq!(list.done_count, 4);
@@ -559,10 +607,74 @@ mod tests {
 
         let mut days = done.days;
         days.push(day(CHECK_IN, 5, 9));
-        let list = getting_started(&catalogue(), &state(), &FirstRun::from_days(days));
+        let list = getting_started(
+            &catalogue(),
+            &state(),
+            &FirstRun::from_days(days),
+            ChatApp::NotOffered,
+        );
         assert_eq!(list.done_count, 5);
         assert!(list.rows.iter().all(|row| !row.current));
         assert_eq!(list.folded_at, Some(day(CHECK_IN, 5, 9).recorded_at));
+    }
+
+    #[test]
+    fn the_chat_app_row_closes_the_list_only_when_an_app_is_offered() {
+        let without = getting_started(
+            &catalogue(),
+            &state(),
+            &FirstRun::default(),
+            ChatApp::NotOffered,
+        );
+        assert!(!ids(&without).contains(&CHAT_APP_ROW), "no app, no row");
+
+        let list = getting_started(
+            &catalogue(),
+            &state(),
+            &FirstRun::default(),
+            ChatApp::Unlinked,
+        );
+        assert_eq!(ids(&list).last(), Some(&CHAT_APP_ROW));
+        let row = list.rows.last().expect("a chat-app row");
+        assert_eq!(row.order, 6);
+        assert!(row.eligible && !row.done);
+        assert_eq!(row.postback, None, "the row opens a sheet, not a thread");
+        assert!(!row.current, "meet the team is still the current row");
+        assert_eq!((list.done_count, list.total), (1, 6));
+
+        let linked = getting_started(
+            &catalogue(),
+            &state(),
+            &FirstRun::default(),
+            ChatApp::Linked,
+        );
+        assert!(linked.rows.last().is_some_and(|row| row.done));
+        assert_eq!((linked.done_count, linked.total), (2, 6));
+    }
+
+    #[test]
+    fn the_chat_app_row_never_reopens_a_finished_list() {
+        let every_flow = FirstRun::from_days(vec![
+            day(MEET_TEAM, 1, 8),
+            day(LAST_WORKOUT, 1, 9),
+            day(FINISH_PROFILE, 2, 10),
+            day(CHECK_IN, 2, 9),
+            day(CHECK_IN, 3, 9),
+            day(CHECK_IN, 5, 9),
+        ]);
+        for chat_app in [ChatApp::Unlinked, ChatApp::Linked] {
+            let finished = getting_started(&catalogue(), &state(), &every_flow, chat_app);
+            assert!(
+                !ids(&finished).contains(&CHAT_APP_ROW),
+                "a finished list gets no chat-app row ({chat_app:?})"
+            );
+            assert_eq!((finished.done_count, finished.total), (5, 5));
+            assert_eq!(
+                finished.folded_at,
+                Some(day(CHECK_IN, 5, 9).recorded_at),
+                "the list folds when its last first-run row was done, whatever the chat app"
+            );
+        }
     }
 
     #[test]

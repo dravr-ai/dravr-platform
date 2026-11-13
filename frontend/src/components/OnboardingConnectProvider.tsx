@@ -15,7 +15,6 @@ import ConnectPreview from './ConnectPreview';
 // in the same document tree.
 import OnboardingShell from './OnboardingShell';
 import { useTranslation } from '@pierre/i18n';
-import { COACH_PLATFORM_PROVIDERS } from '../onboarding/steps';
 
 /**
  * Hard gate shown right after first login when the user has zero connected
@@ -31,21 +30,18 @@ import { COACH_PLATFORM_PROVIDERS } from '../onboarding/steps';
  * session escape (same convention as `PendingApproval`) so the user is never
  * trapped.
  *
- * A coach who does not train (`coachOnly`) is offered only the coaching
- * platforms, with no preview of athlete coaching: nothing reads their own
- * training, and skipping moves them on to their group.
+ * A coach who does not train never reaches it: the coaching platforms are
+ * offered on the coach-seat step (`OnboardingCoachSeat`).
  */
 export default function OnboardingConnectProvider({
   userDisplayName,
   onContinueWithoutProvider,
   onContinue,
-  coachOnly = false,
 }: {
   userDisplayName?: string | null;
   onContinueWithoutProvider?: () => void;
   /** Leave the step; defined once at least one provider is connected. */
   onContinue?: () => void;
-  coachOnly?: boolean;
 }) {
   const { t } = useTranslation();
   const { logout } = useAuth();
@@ -59,13 +55,11 @@ export default function OnboardingConnectProvider({
       >
         <div className="flex flex-col">
           <p className="mt-3 text-sm text-on-surface-variant text-center mx-auto max-w-md">
-            {coachOnly ? t('onboarding.connectCoachPlatformIntro') : t('onboarding.connectProviderIntro')}
+            {t('onboarding.connectProviderIntro')}
           </p>
 
             <div className="mt-8">
-              <ProviderConnectionCards
-                onlyProviders={coachOnly ? COACH_PLATFORM_PROVIDERS : undefined}
-              />
+              <ProviderConnectionCards />
             </div>
 
             {onContinue && (
@@ -79,7 +73,7 @@ export default function OnboardingConnectProvider({
               </div>
             )}
 
-            {!coachOnly && <ConnectPreview />}
+            <ConnectPreview />
 
             <p className="mt-6 text-xs text-on-surface-variant text-center">
               {t('onboarding.credentialsEncryptedHint')}
@@ -95,7 +89,7 @@ export default function OnboardingConnectProvider({
                   {t('onboarding.continueWithoutProvider')}
                 </button>
                 <p className="mt-1 text-xs text-on-surface-variant">
-                  {coachOnly ? t('onboarding.connectCoachPlatformLaterHint') : t('onboarding.connectAnytimeHint')}
+                  {t('onboarding.connectAnytimeHint')}
                 </p>
               </div>
             )}

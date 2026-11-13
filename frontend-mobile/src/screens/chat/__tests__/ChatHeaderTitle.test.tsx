@@ -188,3 +188,27 @@ describe('ChatHeaderTitle title', () => {
     expect(threadTitle(conversation({ title: '  ', personal: true }), t, null)).toBe('app.untitledChat');
   });
 });
+
+describe('ChatHeaderTitle coach seat state (carnet#1520)', () => {
+  const room = conversation({ title: 'Léa', group_id: 'group-1', group_name: 'Léa' });
+
+  it('carries the seat state after the room line, inside the title that opens Group info', () => {
+    render(
+      <ChatHeaderTitle
+        currentConversation={room}
+        providerStatus={null}
+        onTitlePress={jest.fn()}
+        status={{ label: 'coach access to request', tone: 'action', state: 'to_request' }}
+      />,
+    );
+
+    expect(screen.getByTestId('chat-header-group')).toHaveTextContent(/· coach access to request$/);
+    expect(screen.getByTestId('chat-header-status')).toHaveTextContent('· coach access to request');
+  });
+
+  it('says no state when the seat is not offered', () => {
+    render(<ChatHeaderTitle currentConversation={room} providerStatus={null} onTitlePress={jest.fn()} />);
+
+    expect(screen.queryByTestId('chat-header-status')).toBeNull();
+  });
+});

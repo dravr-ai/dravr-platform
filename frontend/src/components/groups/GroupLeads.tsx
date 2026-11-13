@@ -6,10 +6,9 @@
 
 import { clsx } from 'clsx';
 import type { CoachingGroup } from '@pierre/shared-types';
-import { MENTION_PREFIX } from '@pierre/shared-constants';
+import { COACH_SEAT_KEYS, MENTION_PREFIX, type CoachSeatState } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import RoleBadge from './RoleBadge';
-import CoachAccessRequest from '../CoachAccessRequest';
 
 interface GroupLeadsProps {
   group: Pick<
@@ -19,11 +18,13 @@ interface GroupLeadsProps {
   /** The viewer is the group's human coach. */
   viewerIsCoach: boolean;
   /**
-   * The viewer owns this coachless group, coaches others and holds no coach
-   * access: the no-coach row offers the one-tap coach-access request
-   * (carnet#738), whose grant makes them this group's coach.
+   * Where the viewer's coach seat stands, when they are offered it
+   * (`canRequestCoachAccess`): the coach slot then names them, not yet the
+   * coach or waiting on the team, instead of telling the person who will be
+   * the coach that the group has none. The request itself is Group info's
+   * first block.
    */
-  canRequestCoachAccess?: boolean;
+  seatState?: CoachSeatState | null;
 }
 
 const ROW = 'flex items-center justify-between gap-3 border-b ghost-border py-3 px-4';
@@ -37,7 +38,7 @@ const ROW = 'flex items-center justify-between gap-3 border-b ghost-border py-3 
 export default function GroupLeads({
   group,
   viewerIsCoach,
-  canRequestCoachAccess = false,
+  seatState = null,
 }: GroupLeadsProps) {
   const { t } = useTranslation();
 
@@ -64,10 +65,20 @@ export default function GroupLeads({
           </span>
           <RoleBadge kind="coach" />
         </li>
+      ) : seatState ? (
+        <li className={ROW} data-testid="group-info-coach-seat" data-state={seatState}>
+          <span
+            className={clsx(
+              'min-w-0 truncate',
+              seatState === 'pending' ? 'font-medium text-on-warning-container' : 'text-on-surface-variant',
+            )}
+          >
+            {seatState === 'pending' ? t(COACH_SEAT_KEYS.rosterPending) : t(COACH_SEAT_KEYS.rosterNotYet)}
+          </span>
+        </li>
       ) : (
         <li className="border-b ghost-border py-3 px-4 text-outline" data-testid="group-info-no-coach">
           {t('humanCoach.noneMember')}
-          {canRequestCoachAccess && <CoachAccessRequest groupId={group.id} />}
         </li>
       )}
     </ul>

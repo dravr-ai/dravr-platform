@@ -10,7 +10,7 @@
  * `check_in`).
  */
 export interface GettingStartedRow {
-  /** `connect`, or the flow's catalogue id. */
+  /** `connect`, the flow's catalogue id, or `chat_app` (link a chat app, opens its sheet). */
   id: string;
   /** The row's place in the list, from 1. */
   order: number;
@@ -22,18 +22,22 @@ export interface GettingStartedRow {
   current: boolean;
   /**
    * What a tap sends into the Home thread (`gs:<slot>:<id>`); `null` for a
-   * done or waiting row, and for `connect`, which opens Settings › Connections.
+   * done or waiting row, for `connect`, which opens Settings › Connections,
+   * and for `chat_app`, which opens the chat-app sheet.
    */
   postback: string | null;
 }
 
 /** Body of `GET /api/me/getting-started`. */
 export interface GettingStartedResponse {
-  /** Connect, then the first-run flows in flow order. */
+  /**
+   * Connect, then the first-run flows in flow order, then `chat_app` when the
+   * workspace offers an app and the list is still open.
+   */
   rows: GettingStartedRow[];
   /** Rows done. */
   done_count: number;
-  /** Rows in all — five once the catalogue carries the four flows. */
+  /** Rows in all — five once the catalogue carries the four flows, six with the chat app. */
   total: number;
   /**
    * When the last row became done (RFC 3339); `null` until every row is. The

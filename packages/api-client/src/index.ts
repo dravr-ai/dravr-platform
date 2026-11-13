@@ -116,6 +116,7 @@ export type {
   MemoryFactListResponse,
   ApproveMemoryFactResponse,
   ForgetMemoryFactResponse,
+  OnboardingStatusResponse,
 } from './domains/user';
 
 export { createMessagingApi } from './domains/messaging';

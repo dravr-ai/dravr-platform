@@ -73,7 +73,12 @@ BASELINE_MOBILE_CARD_SITES=9
 # badge, the web's `.badge-warning` drawn on the phone.
 # 31: the plan card's per-day "Outside the evidence" badge (carnet#1495) — a
 # badge, the web's `.badge-warning` drawn on the phone like the draft badge.
-BASELINE_MOBILE_ROUNDED_FULL=31
+# 30 again: the onboarding hairline's track and fill became one class on its
+# segments (carnet#1526).
+# 35: the coach seat's room strip and request timeline — the strip's icon disc,
+# the timeline's three step markers and the current step's centre dot; a badge
+# and dots on the same `full` step.
+BASELINE_MOBILE_ROUNDED_FULL=35
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=32
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,

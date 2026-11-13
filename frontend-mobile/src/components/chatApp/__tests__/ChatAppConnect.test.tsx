@@ -1,27 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingMessagingConfigureScreen — deep-link configure + poll-to-complete
-// ABOUTME: Verifies a phone taps straight through (no QR), a tablet gets the QR handoff, and the poll auto-advances
+// ABOUTME: Unit tests for the mobile ChatAppConnect — the chat-app sheet's deep-link link view + poll-to-complete
+// ABOUTME: Verifies a phone taps straight through (no QR), a tablet gets the QR handoff, the poll reports, and Use another app
 
 import React from 'react';
 import { Alert, Linking } from 'react-native';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { OnboardingMessagingConfigureScreen } from '../OnboardingMessagingConfigureScreen';
-import { useMessagingOnboarding } from '../../../hooks/useMessagingOnboarding';
+import { ChatAppConnect } from '../ChatAppConnect';
 import { messagingApi } from '../../../services/api';
 
-jest.mock('../../../contexts/AuthContext', () => ({ useAuth: () => ({ user: { id: 'u1' } }) }));
-jest.mock('../../../hooks/useMessagingOnboarding', () => ({
-  useMessagingOnboarding: jest.fn(),
-}));
-jest.mock('../../../hooks/useOnboardingProgress', () => ({
-  useOnboardingProgress: () => [
-    { id: 'messaging_configure', labelKey: 'onboarding.stepLink', status: 'current' },
-  ],
-}));
 jest.mock('../../../services/api', () => ({
   messagingApi: { initLink: jest.fn(), listLinks: jest.fn() },
 }));
@@ -40,41 +30,30 @@ jest.mock('react-native-webview', () => {
   return { WebView: (props: { testID?: string }) => ReactMock.createElement(View, { testID: props.testID }) };
 });
 
-const completeConfigure = jest.fn();
-const skipMessaging = jest.fn();
+const onLinked = jest.fn();
+const onUseAnother = jest.fn();
 const initLink = messagingApi.initLink as jest.Mock;
 const listLinks = messagingApi.listLinks as jest.Mock;
 
-const state = {
-  availableChannels: [
-    { channel: 'telegram', display_name: 'Telegram', method: 'deep_link', recommended: true },
-  ],
-  availableCount: 1,
-  chosenChannel: 'telegram',
-  channelChosen: true,
-  channelDone: true,
-  configureDone: false,
-  loading: false,
-  chooseChannel: jest.fn(),
-  completeConfigure,
-  skipMessaging,
-};
-
-function renderScreen() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+function renderScreen({ withOthers = false }: { withOthers?: boolean } = {}) {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   render(
     <QueryClientProvider client={client}>
-      <OnboardingMessagingConfigureScreen />
+      <ChatAppConnect
+        channel="telegram"
+        displayName="Telegram"
+        onLinked={onLinked}
+        onUseAnother={withOthers ? onUseAnother : undefined}
+      />
     </QueryClientProvider>,
   );
 }
 
-describe('OnboardingMessagingConfigureScreen', () => {
+describe('ChatAppConnect', () => {
   beforeEach(() => {
     mockDeviceType = 1; // PHONE — the common case; a test opts into TABLET
-    completeConfigure.mockClear();
-    skipMessaging.mockClear();
-    (useMessagingOnboarding as jest.Mock).mockReturnValue(state);
+    onLinked.mockClear();
+    onUseAnother.mockClear();
     initLink.mockReset().mockResolvedValue({
       channel: 'telegram',
       method: 'deep_link',
@@ -86,14 +65,25 @@ describe('OnboardingMessagingConfigureScreen', () => {
     listLinks.mockReset().mockResolvedValue([]);
   });
 
-  it('leads a phone straight to the open button, with no QR to scan, under the progress hairline', async () => {
+  it('leads a phone straight to the open button, with no QR to scan', async () => {
     renderScreen();
     // The button is the whole flow on a phone: the deep link carries the pairing
     // code, so one tap opens Telegram with it already in hand.
     expect(await screen.findByText('Open Telegram')).toBeTruthy();
     // A QR here would ask the athlete to scan the screen they are holding.
     expect(screen.queryByTestId('messaging-qr')).toBeNull();
-    expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
+  });
+
+  it('offers Use another app only when the workspace has another app', async () => {
+    renderScreen({ withOthers: true });
+    fireEvent.press(await screen.findByTestId('chat-app-use-another'));
+    expect(onUseAnother).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves Use another app out when this is the only app', async () => {
+    renderScreen();
+    await screen.findByText('Open Telegram');
+    expect(screen.queryByTestId('chat-app-use-another')).toBeNull();
   });
 
   describe('the open button (carnet#803)', () => {
@@ -131,11 +121,11 @@ describe('OnboardingMessagingConfigureScreen', () => {
     expect(screen.getByText('Open Telegram')).toBeTruthy();
   });
 
-  it('auto-advances via completeConfigure once the channel link appears', async () => {
+  it('reports via onLinked once the channel link appears', async () => {
     listLinks.mockResolvedValue([
       { channel: 'telegram', channel_user_id: 'u1', display_name: null, linked_at: 'now' },
     ]);
     renderScreen();
-    await waitFor(() => expect(completeConfigure).toHaveBeenCalled());
+    await waitFor(() => expect(onLinked).toHaveBeenCalled());
   });
 });

@@ -23,6 +23,17 @@ import { describeApiError } from '@pierre/ui-logic';
 interface InviteManagerProps {
   groupId: string;
   currentUserRole: GroupRole;
+  /**
+   * Offer the coach invite kind. Off for the owner offered the coach seat
+   * (`canRequestCoachAccess`): an invite that makes someone else this group's
+   * coach contradicts the request they are making.
+   */
+  offerCoachKind?: boolean;
+  /**
+   * "New invite" as a quiet button, where another action is the view's one
+   * filled button (the coach seat's request in Group info).
+   */
+  quietCreate?: boolean;
 }
 
 function expiry_options(t: (key: string) => string): SelectOption[] {
@@ -76,7 +87,12 @@ function isExhausted(invite: GroupInvite): boolean {
   return invite.use_count >= invite.max_uses;
 }
 
-export default function InviteManager({ groupId, currentUserRole }: InviteManagerProps) {
+export default function InviteManager({
+  groupId,
+  currentUserRole,
+  offerCoachKind = true,
+  quietCreate = false,
+}: InviteManagerProps) {
   const { t, i18n } = useTranslation();
   const { invites, isLoading } = useGroupInvites(groupId);
   const { createInvite, isPending: isCreating } = useCreateInvite(groupId);
@@ -92,8 +108,10 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
   const [expiryDays, setExpiryDays] = useState('7');
   const [maxUses, setMaxUses] = useState('10');
   const [inviteKind, setInviteKind] = useState<GroupInviteKind>('member');
+  // The kind the invite is made as: a member invite whenever the coach kind is not offered.
+  const kind: GroupInviteKind = offerCoachKind ? inviteKind : 'member';
   const [approvesSignup, setApprovesSignup] = useState(false);
-  const signupCode = canApproveSignups && inviteKind === 'member' && approvesSignup;
+  const signupCode = canApproveSignups && kind === 'member' && approvesSignup;
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [confirmDeactivate, setConfirmDeactivate] = useState<GroupInvite | null>(null);
 
@@ -125,14 +143,14 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
     if (uses > 0) {
       request.max_uses = uses;
     }
-    if (inviteKind === 'coach') {
+    if (kind === 'coach') {
       request.kind = 'coach';
     }
 
     try {
       await createInvite(request);
       const detail =
-        inviteKind === 'coach'
+        kind === 'coach'
           ? t('humanCoach.inviteShare')
           : t('groups.inviteReadyToShare');
       showSuccess(t('app.inviteCreated'), detail);
@@ -195,7 +213,11 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
           <p className="text-sm text-on-surface-variant">
             {t('groups.inviteShareHint')}
           </p>
-          <Button variant="primary" size="sm" onClick={() => setShowCreateForm(!showCreateForm)}>
+          <Button
+            variant={quietCreate ? 'secondary' : 'primary'}
+            size="sm"
+            onClick={() => setShowCreateForm(!showCreateForm)}
+          >
             <span className="flex items-center gap-2">
               <Plus className="w-4 h-4" />
               {t('groups.inviteNew')}
@@ -208,20 +230,22 @@ export default function InviteManager({ groupId, currentUserRole }: InviteManage
       {showCreateForm && canManage && (
         <Card variant="dark" className="!p-5">
           <h4 className="text-sm font-semibold text-on-surface mb-4">{t('groups.inviteCreateTitle')}</h4>
-          <div className="mb-4">
-            <Select
-              label={t('groups.inviteType')}
-              options={kind_options(t)}
-              value={inviteKind}
-              onChange={(e) => setInviteKind(e.target.value as GroupInviteKind)}
-            />
-            {inviteKind === 'coach' && (
-              <p className="text-xs text-outline mt-1.5">
-                {t('humanCoach.inviteHint')}
-              </p>
-            )}
-          </div>
-          {canApproveSignups && inviteKind === 'member' && (
+          {offerCoachKind && (
+            <div className="mb-4">
+              <Select
+                label={t('groups.inviteType')}
+                options={kind_options(t)}
+                value={inviteKind}
+                onChange={(e) => setInviteKind(e.target.value as GroupInviteKind)}
+              />
+              {inviteKind === 'coach' && (
+                <p className="text-xs text-outline mt-1.5">
+                  {t('humanCoach.inviteHint')}
+                </p>
+              )}
+            </div>
+          )}
+          {canApproveSignups && kind === 'member' && (
             <div className="mb-4">
               <Checkbox
                 label={t('groups.approvesSignupLabel')}
