@@ -3701,6 +3701,30 @@
       "power_athlete": "Rigor linha a linha, com citações dos referenciais."
     }
   },
+  "physiology": {
+    "title": "Limiares por desporto",
+    "blurb": "Os valores em que os teus treinos se baseiam, tal como o Dravr os tem guardados. Um valor de confiança baixa aparece como intervalo ou estimativa. Para mudar um, diz ao teu agente no chat.",
+    "empty": "Ainda não há limiares. Diz ao teu agente a tua FTP, o teu ritmo de limiar ou a tua FC máxima no chat, ou pede-lhe que os traga de um serviço ligado.",
+    "loadFailed": "Não foi possível carregar os teus limiares.",
+    "asOf": "À data de {{date}}",
+    "noDate": "Data não registada",
+    "range": "Intervalo {{range}}",
+    "confidence": {
+      "low": "Confiança baixa",
+      "medium": "Confiança média",
+      "high": "Confiança alta"
+    },
+    "anchor": {
+      "ftp": "FTP",
+      "critical_power": "Potência crítica",
+      "map": "PAM",
+      "critical_speed": "Velocidade crítica",
+      "vvo2max": "vVO2máx",
+      "threshold_speed": "Ritmo de limiar",
+      "max_heart_rate": "FC máxima",
+      "threshold_heart_rate": "FC de limiar"
+    }
+  },
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
@@ -4180,6 +4204,8 @@
     "privacyHint": "Consentimento de estatísticas e os teus dados",
     "profile": "Perfil",
     "profileHint": "Nome, nome apresentado, persona de coaching",
+    "physiology": "Fisiologia",
+    "physiologyHint": "Os teus limiares por desporto, com fonte e data",
     "tokens": "Tokens MCP",
     "tokensHint": "Tokens para o Claude Desktop, o Cursor e outros clientes MCP"
   },

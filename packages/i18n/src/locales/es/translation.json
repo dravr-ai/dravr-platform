@@ -3701,6 +3701,30 @@
       "power_athlete": "Rigor línea por línea, con citas de los marcos de referencia."
     }
   },
+  "physiology": {
+    "title": "Umbrales por deporte",
+    "blurb": "Los valores sobre los que se fijan tus sesiones, tal como Dravr los tiene guardados. Un valor de confianza baja se muestra como un rango o una estimación. Para cambiar uno, díselo a tu agente en el chat.",
+    "empty": "Todavía no hay umbrales. Dile a tu agente tu FTP, tu ritmo de umbral o tu FC máxima en el chat, o pídele que los traiga de un servicio conectado.",
+    "loadFailed": "No se pudieron cargar tus umbrales.",
+    "asOf": "A fecha de {{date}}",
+    "noDate": "Fecha no registrada",
+    "range": "Rango {{range}}",
+    "confidence": {
+      "low": "Confianza baja",
+      "medium": "Confianza media",
+      "high": "Confianza alta"
+    },
+    "anchor": {
+      "ftp": "FTP",
+      "critical_power": "Potencia crítica",
+      "map": "PAM",
+      "critical_speed": "Velocidad crítica",
+      "vvo2max": "vVO2máx",
+      "threshold_speed": "Ritmo de umbral",
+      "max_heart_rate": "FC máxima",
+      "threshold_heart_rate": "FC de umbral"
+    }
+  },
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
@@ -4180,6 +4204,8 @@
     "privacyHint": "Consentimiento de analíticas y tus datos",
     "profile": "Perfil",
     "profileHint": "Nombre, nombre visible, persona de coaching",
+    "physiology": "Fisiología",
+    "physiologyHint": "Tus umbrales por deporte, con su fuente y su fecha",
     "tokens": "Tokens MCP",
     "tokensHint": "Tokens para Claude Desktop, Cursor y otros clientes MCP"
   },

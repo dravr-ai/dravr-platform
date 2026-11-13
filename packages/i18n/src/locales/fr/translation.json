@@ -3701,6 +3701,30 @@
       "power_athlete": "Rigueur ligne par ligne, avec citations des cadres."
     }
   },
+  "physiology": {
+    "title": "Seuils par sport",
+    "blurb": "Les valeurs sur lesquelles tes séances sont calées, telles que Dravr les a enregistrées. Une valeur à faible confiance s'affiche en fourchette ou en estimation. Pour en changer une, dis-le à ton agent dans le chat.",
+    "empty": "Aucun seuil enregistré pour l'instant. Donne à ton agent ta FTP, ton allure seuil ou ta FC max dans le chat, ou demande-lui de les récupérer depuis un service connecté.",
+    "loadFailed": "Impossible de charger tes seuils.",
+    "asOf": "Au {{date}}",
+    "noDate": "Date non enregistrée",
+    "range": "Fourchette {{range}}",
+    "confidence": {
+      "low": "Confiance faible",
+      "medium": "Confiance moyenne",
+      "high": "Confiance élevée"
+    },
+    "anchor": {
+      "ftp": "FTP",
+      "critical_power": "Puissance critique",
+      "map": "PMA",
+      "critical_speed": "Vitesse critique",
+      "vvo2max": "VMA",
+      "threshold_speed": "Allure seuil",
+      "max_heart_rate": "FC max",
+      "threshold_heart_rate": "FC au seuil"
+    }
+  },
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
@@ -4180,6 +4204,8 @@
     "privacyHint": "Consentement aux statistiques et tes données",
     "profile": "Profil",
     "profileHint": "Nom, nom affiché, persona de coaching",
+    "physiology": "Physiologie",
+    "physiologyHint": "Tes seuils par sport, avec leur source et leur date",
     "tokens": "Jetons MCP",
     "tokensHint": "Jetons pour Claude Desktop, Cursor et les autres clients MCP"
   },

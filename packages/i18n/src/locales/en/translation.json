@@ -3701,6 +3701,30 @@
       "power_athlete": "Line-by-line rigor, with framework citations."
     }
   },
+  "physiology": {
+    "title": "Thresholds per sport",
+    "blurb": "The values your workouts are set on, as Dravr holds them. A low-confidence value shows as a range or an estimate. To change one, tell your agent in the chat.",
+    "empty": "No thresholds yet. Tell your agent your FTP, threshold pace or max heart rate in the chat, or ask it to bring them in from a connected service.",
+    "loadFailed": "Your thresholds couldn't be loaded.",
+    "asOf": "As of {{date}}",
+    "noDate": "Date not recorded",
+    "range": "Range {{range}}",
+    "confidence": {
+      "low": "Low confidence",
+      "medium": "Medium confidence",
+      "high": "High confidence"
+    },
+    "anchor": {
+      "ftp": "FTP",
+      "critical_power": "Critical power",
+      "map": "MAP",
+      "critical_speed": "Critical speed",
+      "vvo2max": "vVO2max",
+      "threshold_speed": "Threshold pace",
+      "max_heart_rate": "Max heart rate",
+      "threshold_heart_rate": "Threshold heart rate"
+    }
+  },
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
@@ -4180,6 +4204,8 @@
     "privacyHint": "Analytics consent and your data",
     "profile": "Profile",
     "profileHint": "Name, display name, coaching persona",
+    "physiology": "Physiology",
+    "physiologyHint": "Your thresholds per sport, with source and date",
     "tokens": "MCP tokens",
     "tokensHint": "Tokens for Claude Desktop, Cursor and other MCP clients"
   },

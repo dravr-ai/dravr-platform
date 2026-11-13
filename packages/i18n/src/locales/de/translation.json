@@ -3701,6 +3701,30 @@
       "power_athlete": "Zeile für Zeile präzise, mit Verweisen auf die Referenzmodelle."
     }
   },
+  "physiology": {
+    "title": "Schwellen pro Sportart",
+    "blurb": "Die Werte, auf die deine Einheiten abgestimmt sind, so wie Dravr sie gespeichert hat. Ein Wert mit geringer Verlässlichkeit erscheint als Spanne oder Schätzung. Um einen zu ändern, sag es deinem Agenten im Chat.",
+    "empty": "Noch keine Schwellen. Nenne deinem Agenten im Chat deine FTP, dein Schwellentempo oder deine maximale Herzfrequenz, oder bitte ihn, sie aus einem verbundenen Dienst zu übernehmen.",
+    "loadFailed": "Deine Schwellen konnten nicht geladen werden.",
+    "asOf": "Stand: {{date}}",
+    "noDate": "Kein Datum erfasst",
+    "range": "Spanne {{range}}",
+    "confidence": {
+      "low": "Geringe Verlässlichkeit",
+      "medium": "Mittlere Verlässlichkeit",
+      "high": "Hohe Verlässlichkeit"
+    },
+    "anchor": {
+      "ftp": "FTP",
+      "critical_power": "Kritische Leistung",
+      "map": "MAP",
+      "critical_speed": "Kritische Geschwindigkeit",
+      "vvo2max": "vVO2max",
+      "threshold_speed": "Schwellentempo",
+      "max_heart_rate": "Maximale Herzfrequenz",
+      "threshold_heart_rate": "Schwellenherzfrequenz"
+    }
+  },
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
@@ -4180,6 +4204,8 @@
     "privacyHint": "Einwilligung zu Statistiken und deine Daten",
     "profile": "Profil",
     "profileHint": "Name, Anzeigename, Coaching-Persona",
+    "physiology": "Physiologie",
+    "physiologyHint": "Deine Schwellen pro Sportart, mit Quelle und Datum",
     "tokens": "MCP-Tokens",
     "tokensHint": "Tokens für Claude Desktop, Cursor und andere MCP-Clients"
   },
