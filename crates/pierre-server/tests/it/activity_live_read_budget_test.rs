@@ -863,7 +863,10 @@ async fn a_follow_ups_re_ask_reads_what_just_landed_as_current() {
     let mut context = (*resources).clone();
     context.mcp.backfill_notifier = Some(notifier.clone());
     let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
-    assert!(notifier.runtime.set(Arc::clone(&runtime)).is_ok());
+    assert!(
+        notifier.runtime.set(Arc::clone(&runtime)).is_ok(),
+        "the notifier is handed the runtime once"
+    );
     runtime
         .repos()
         .activity_cache

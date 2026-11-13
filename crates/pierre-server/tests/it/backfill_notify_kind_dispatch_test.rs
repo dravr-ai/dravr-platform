@@ -270,7 +270,10 @@ async fn a_live_read_that_gave_up_and_was_asked_past_posts_nothing() {
         sent_bodies(&thread).is_empty(),
         "bug: a read that gave up told the athlete its data landed"
     );
-    assert!(thread.post.asked.lock().unwrap().is_empty());
+    assert!(
+        thread.post.asked.lock().unwrap().is_empty(),
+        "bug: a live read that gave up and was asked past re-asked the athlete"
+    );
 }
 
 #[tokio::test]

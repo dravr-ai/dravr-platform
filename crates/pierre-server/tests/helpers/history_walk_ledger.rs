@@ -91,7 +91,8 @@ pub(crate) async fn end_history_walk(
             .backfill_job_state(user_id, tenant_id, backend, BackfillJobKind::HistoryWalk)
             .await
             .unwrap(),
-        Some(BackfillJobState::Walked)
+        Some(BackfillJobState::Walked),
+        "the walk ended at the floor reads as walked"
     );
 }
 

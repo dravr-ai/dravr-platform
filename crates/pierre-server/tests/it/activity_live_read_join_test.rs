@@ -196,11 +196,21 @@ async fn an_uncached_ask_after_a_failed_read_does_not_wait_on_it() {
     )
     .await
     .expect("bug: the ask waited out its budget on a read nothing runs");
-    assert_eq!(answer_of(next), Answer::Answered(names(&["fresh"])));
-    assert!(started.elapsed() < StdDuration::from_secs(2));
+    assert_eq!(
+        answer_of(next),
+        Answer::Answered(names(&["fresh"])),
+        "bug: an ask after a failed read did not read its own window"
+    );
+    assert!(
+        started.elapsed() < StdDuration::from_secs(2),
+        "bug: an ask after a failed read waited out its budget on a read nothing runs"
+    );
     wait_until_finished(&runtime, user_id, tenant_id).await;
     sleep(StdDuration::from_millis(300)).await;
-    assert!(notifier.sent.lock().unwrap().is_empty());
+    assert!(
+        notifier.sent.lock().unwrap().is_empty(),
+        "bug: a turn that answered with its own read was owed a follow-up"
+    );
 }
 
 /// A notifier whose follow-up holds the landed read's run until the test
@@ -276,7 +286,10 @@ async fn a_wider_ask_after_a_read_landed_reads_its_own_window() {
         BUDGET,
     )
     .await;
-    assert!(matches!(answer_of(first), Answer::Cached(_)));
+    assert!(
+        matches!(answer_of(first), Answer::Cached(_)),
+        "the first turn answers from the cache once its budget ran out"
+    );
     gate.notify_one();
     timeout(StdDuration::from_secs(10), notifier.entered.notified())
         .await
@@ -301,7 +314,10 @@ async fn a_wider_ask_after_a_read_landed_reads_its_own_window() {
         Answer::Answered(names(&["cached", "fresh", "older"])),
         "bug: an ask the landed read does not cover must read its own window"
     );
-    assert!(started.elapsed() < StdDuration::from_secs(2));
+    assert!(
+        started.elapsed() < StdDuration::from_secs(2),
+        "bug: an ask the landed read does not cover waited out its budget"
+    );
 
     notifier.release.notify_one();
     sleep(StdDuration::from_millis(300)).await;
@@ -361,7 +377,10 @@ async fn a_wider_ask_joined_before_a_narrower_landing_reads_its_own_window() {
         Answer::Answered(names(&["cached", "fresh", "older"])),
         "bug: a joined ask the landed read does not cover must read its own window"
     );
-    assert!(started.elapsed() < StdDuration::from_secs(2));
+    assert!(
+        started.elapsed() < StdDuration::from_secs(2),
+        "bug: a joined ask the landed read does not cover waited out its budget"
+    );
     assert_eq!(
         answer_of(first.await.unwrap()),
         Answer::Answered(names(&["fresh"])),
@@ -447,7 +466,10 @@ async fn a_follow_ups_wider_re_ask_reads_for_itself_inside_the_run() {
     let mut context = (*resources).clone();
     context.mcp.backfill_notifier = Some(notifier.clone());
     let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
-    assert!(notifier.runtime.set(Arc::clone(&runtime)).is_ok());
+    assert!(
+        notifier.runtime.set(Arc::clone(&runtime)).is_ok(),
+        "the notifier is handed the runtime once"
+    );
     runtime
         .repos()
         .activity_cache
@@ -463,7 +485,10 @@ async fn a_follow_ups_wider_re_ask_reads_for_itself_inside_the_run() {
         BUDGET,
     )
     .await;
-    assert!(matches!(answer_of(first), Answer::Cached(_)));
+    assert!(
+        matches!(answer_of(first), Answer::Cached(_)),
+        "the first turn answers from the cache once its budget ran out"
+    );
     gate.notify_one();
     let re_asked = timeout(StdDuration::from_secs(10), async {
         while notifier.re_asks.lock().unwrap().is_empty() {
@@ -498,7 +523,10 @@ async fn a_re_ask_while_the_read_runs_is_still_owed_its_follow_up() {
         BUDGET,
     )
     .await;
-    assert!(matches!(answer_of(first), Answer::Cached(_)));
+    assert!(
+        matches!(answer_of(first), Answer::Cached(_)),
+        "the first turn answers from the cache once its budget ran out"
+    );
     assert_eq!(
         lease_state(&runtime, user_id, tenant_id).await,
         Some(JobLeaseState::Leased),
@@ -512,7 +540,11 @@ async fn a_re_ask_while_the_read_runs_is_still_owed_its_follow_up() {
         TURN_BUDGET,
     )
     .await;
-    assert_eq!(answer_of(second), Answer::Cached(names(&["cached"])));
+    assert_eq!(
+        answer_of(second),
+        Answer::Cached(names(&["cached"])),
+        "bug: a re-ask while the read runs did not answer from the cache"
+    );
     gate.notify_one();
     let sent = settled_follow_ups(&notifier).await;
     assert_eq!(
@@ -546,12 +578,15 @@ async fn other_tenants_read(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid) {
         asked_message_id: Some("msg-other".to_owned()),
         walk_backend: None,
     };
-    assert!(runtime
-        .repos()
-        .activity_backfill_jobs
-        .record_backfill_job(&row)
-        .await
-        .unwrap());
+    assert!(
+        runtime
+            .repos()
+            .activity_backfill_jobs
+            .record_backfill_job(&row)
+            .await
+            .unwrap(),
+        "the other tenant's read is recorded"
+    );
 }
 
 /// The pair's one live-read row is another tenant's, running elsewhere: it
@@ -689,7 +724,10 @@ async fn a_follow_ups_re_ask_never_takes_the_successors_follow_up() {
         BUDGET,
     )
     .await;
-    assert!(matches!(answer_of(first), Answer::Cached(_)));
+    assert!(
+        matches!(answer_of(first), Answer::Cached(_)),
+        "the first turn answers from the cache once its budget ran out"
+    );
     gate.notify_one();
     timeout(StdDuration::from_secs(10), notifier.entered.notified())
         .await
@@ -910,7 +948,10 @@ async fn unavailable_runtime() -> (Arc<dyn ToolRuntime>, Arc<UnavailableReAsk>, 
     let mut context = (*resources).clone();
     context.mcp.backfill_notifier = Some(notifier.clone());
     let runtime: Arc<dyn ToolRuntime> = Arc::new(context);
-    assert!(notifier.runtime.set(Arc::clone(&runtime)).is_ok());
+    assert!(
+        notifier.runtime.set(Arc::clone(&runtime)).is_ok(),
+        "the notifier is handed the runtime once"
+    );
     runtime
         .repos()
         .activity_cache
@@ -952,7 +993,11 @@ async fn a_read_that_spends_its_attempts_still_follows_up_its_ask_once() {
          saying the provider stayed unavailable"
     );
     let re_asks = notifier.re_asks.lock().unwrap().clone();
-    assert_eq!(re_asks.len(), 1);
+    assert_eq!(
+        re_asks.len(),
+        1,
+        "bug: a read that spent its attempts did not follow up its ask exactly once"
+    );
     let (answer, took) = re_asks[0].clone();
     assert_eq!(
         answer,
@@ -1038,7 +1083,11 @@ async fn a_newer_ask_joined_to_a_last_attempt_that_fails_is_followed_up_once() {
         BUDGET,
     )
     .await;
-    assert_eq!(answer_of(newer), Answer::Cached(names(&["cached"])));
+    assert_eq!(
+        answer_of(newer),
+        Answer::Cached(names(&["cached"])),
+        "bug: a newer ask joined to the last attempt did not answer from the cache"
+    );
 
     gate.notify_one();
     let heard = waiting.await.unwrap();
@@ -1129,15 +1178,21 @@ async fn a_reaped_read_still_follows_up_its_ask_once() {
         walk_backend: None,
     };
     let ledger = &runtime.repos().activity_backfill_jobs;
-    assert!(ledger
-        .record_backfill_job(&dead(Some("conv-1"), PROVIDER))
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .record_backfill_job(&dead(Some("conv-1"), PROVIDER))
+            .await
+            .unwrap(),
+        "the reaped read a conversation asked is recorded"
+    );
     // A read no conversation asked owes nobody anything.
-    assert!(ledger
-        .record_backfill_job(&dead(None, "unasked_provider"))
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .record_backfill_job(&dead(None, "unasked_provider"))
+            .await
+            .unwrap(),
+        "the reaped read no conversation asked is recorded"
+    );
 
     resume_backfill_jobs(Arc::clone(&runtime)).await.unwrap();
     sleep(StdDuration::from_millis(500)).await;
@@ -1153,7 +1208,11 @@ async fn a_reaped_read_still_follows_up_its_ask_once() {
         "bug: a reaped read never follows up the ask it was bound to, as a read that gave up"
     );
     let re_asks = notifier.re_asks.lock().unwrap().clone();
-    assert_eq!(re_asks.len(), 1);
+    assert_eq!(
+        re_asks.len(),
+        1,
+        "bug: a reaped read did not follow up its ask exactly once"
+    );
     assert_eq!(
         re_asks[0].0,
         Answer::Unread(names(&["cached"])),

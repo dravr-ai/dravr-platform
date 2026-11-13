@@ -132,7 +132,8 @@ async fn a_strava_history_is_measured_on_the_grants_streams() {
     let registry = resources.fitness.provider_registry.as_ref();
     assert_eq!(
         seed_stream_source(registry, oauth_providers::STRAVA),
-        Some(oauth_providers::STRAVA)
+        Some(oauth_providers::STRAVA),
+        "bug: a Strava history is not measured on the grant's own streams"
     );
     assert_eq!(
         seed_stream_source(registry, oauth_providers::SCIOTTE),
@@ -140,7 +141,10 @@ async fn a_strava_history_is_measured_on_the_grants_streams() {
         "the session's half of the pair names the grant too"
     );
     let sources = seed_stream_sources(registry);
-    assert!(sources.contains(&oauth_providers::STRAVA));
+    assert!(
+        sources.contains(&oauth_providers::STRAVA),
+        "bug: the grant is not among the stream sources"
+    );
     assert!(
         !sources.contains(&oauth_providers::SCIOTTE),
         "a session is never a stream source"
@@ -160,12 +164,20 @@ async fn a_pushed_grant_is_never_a_stream_source() {
         registry.get_descriptor(oauth_providers::GARMIN).is_some(),
         "the Garmin descriptor is registered, so its absence below is the rule's"
     );
-    assert_eq!(seed_stream_source(registry, oauth_providers::GARMIN), None);
+    assert_eq!(
+        seed_stream_source(registry, oauth_providers::GARMIN),
+        None,
+        "bug: a pushed Garmin grant is taken for a stream source"
+    );
     assert_eq!(
         seed_stream_source(registry, oauth_providers::SCIOTTE_GARMIN),
-        None
+        None,
+        "bug: a Garmin session is taken for a stream source"
     );
-    assert!(!seed_stream_sources(registry).contains(&oauth_providers::GARMIN));
+    assert!(
+        !seed_stream_sources(registry).contains(&oauth_providers::GARMIN),
+        "bug: a pushed Garmin grant is listed among the stream sources"
+    );
 }
 
 /// After a walk through the session ended, the seed reads the history the
@@ -204,7 +216,8 @@ async fn after_the_walk_the_seed_reads_the_store_and_streams_through_the_grant()
         SeedPassReport {
             completed: 1,
             ..SeedPassReport::default()
-        }
+        },
+        "bug: the seed pass did not complete the athlete whose walk ended"
     );
     assert_eq!(
         mock.total_list_hits(),
@@ -220,7 +233,10 @@ async fn after_the_walk_the_seed_reads_the_store_and_streams_through_the_grant()
         );
     }
     assert_eq!(mock.total_streams_hits(), 4, "the twin is one workout");
-    assert!(walk_complete(&resources, &athlete).await);
+    assert!(
+        walk_complete(&resources, &athlete).await,
+        "bug: the ended walk does not read as complete"
+    );
     let best = resources
         .common
         .repos
@@ -367,14 +383,18 @@ async fn the_seed_waits_until_the_walk_has_ended() {
     );
     assert_eq!(
         advance(&resources, &athlete).await,
-        SeedProgress::AwaitingHistory
+        SeedProgress::AwaitingHistory,
+        "bug: the seed did not wait for a walk that runs"
     );
     assert_eq!(mock.total_requests(), 0, "a waiting seed makes no request");
     assert!(
         !seed_started(&resources, &athlete).await,
         "no cursor is saved"
     );
-    assert!(!walk_complete(&resources, &athlete).await);
+    assert!(
+        !walk_complete(&resources, &athlete).await,
+        "bug: a running walk reads as complete"
+    );
 
     // The walk reached the end of the history.
     end_history_walk(
@@ -386,10 +406,16 @@ async fn the_seed_waits_until_the_walk_has_ended() {
     )
     .await;
     let report = run_personal_best_seed_pass(&resources).await.unwrap();
-    assert_eq!(report.completed, 1);
+    assert_eq!(
+        report.completed, 1,
+        "bug: the seed did not complete once the walk ended"
+    );
     for measured in runs {
         assert_eq!(mock.streams_hits(measured.id), 1, "run {}", measured.id);
     }
     assert_eq!(mock.total_list_hits(), 0, "never a listing");
-    assert!(walk_complete(&resources, &athlete).await);
+    assert!(
+        walk_complete(&resources, &athlete).await,
+        "bug: the ended walk does not read as complete"
+    );
 }

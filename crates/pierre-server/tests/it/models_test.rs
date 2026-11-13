@@ -817,7 +817,11 @@ fn test_stats_coverage_of_a_recent_page_round_trips() {
             }
         })
     );
-    assert_eq!(serde_json::from_value::<Coverage>(json).unwrap(), coverage);
+    assert_eq!(
+        serde_json::from_value::<Coverage>(json).unwrap(),
+        coverage,
+        "bug: a recent-page coverage does not round-trip through its wire shape"
+    );
     assert_eq!(
         serde_json::to_value(WindowScope::LastDays { days: 90 }).unwrap(),
         serde_json::json!({ "kind": "last_days", "days": 90 })

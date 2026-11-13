@@ -587,8 +587,15 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
         token: row.lease_token.clone().unwrap(),
     };
 
-    assert!(ledger.record_backfill_job(&running).await.unwrap());
-    assert_eq!(lease_state().await, Some(JobLeaseState::Leased));
+    assert!(
+        ledger.record_backfill_job(&running).await.unwrap(),
+        "the running read is recorded"
+    );
+    assert_eq!(
+        lease_state().await,
+        Some(JobLeaseState::Leased),
+        "bug: a read an attempt runs does not hold its lease"
+    );
     assert_eq!(
         ledger
             .take_over_idle_live_read(&ask(Some("conv-2"), tenant))
@@ -597,10 +604,13 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
         None,
         "bug: a read an attempt holds is taken over"
     );
-    assert!(ledger
-        .release_backfill_job_lease(&release(&running), retry_at)
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .release_backfill_job_lease(&release(&running), retry_at)
+            .await
+            .unwrap(),
+        "the attempt's lease is released"
+    );
     assert_eq!(
         lease_state().await,
         Some(JobLeaseState::Idle),
@@ -623,7 +633,11 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
         .expect("bug: an idle read is taken over");
     assert_eq!(taken.id, running.id, "the owed row is the one taken");
     assert_eq!(attempts, 2, "bug: taking a read over counts an attempt");
-    assert_eq!(lease_state().await, Some(JobLeaseState::Leased));
+    assert_eq!(
+        lease_state().await,
+        Some(JobLeaseState::Leased),
+        "bug: a read taken over is not leased to the ask that took it"
+    );
     let bound = ledger.finish_live_read(&taken).await.unwrap().unwrap();
     assert_eq!(
         bound.asked_message_id.as_deref(),
@@ -631,21 +645,30 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
         "bug: an ask with no conversation takes the chat's follow-up away"
     );
 
-    assert!(ledger.record_backfill_job(&running).await.unwrap());
-    assert!(ledger
-        .release_backfill_job_lease(&release(&running), retry_at)
-        .await
-        .unwrap());
+    assert!(
+        ledger.record_backfill_job(&running).await.unwrap(),
+        "the running read is recorded again"
+    );
+    assert!(
+        ledger
+            .release_backfill_job_lease(&release(&running), retry_at)
+            .await
+            .unwrap(),
+        "the attempt's lease is released"
+    );
     let chat = ask(Some("conv-2"), tenant);
     let (taken, _) = ledger
         .take_over_idle_live_read(&chat)
         .await
         .unwrap()
         .expect("bug: an idle read is taken over");
-    assert!(ledger
-        .release_backfill_job_lease(&taken, retry_at)
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .release_backfill_job_lease(&taken, retry_at)
+            .await
+            .unwrap(),
+        "the taken-over read's lease is released"
+    );
     assert_eq!(
         lease_state().await,
         Some(JobLeaseState::Idle),

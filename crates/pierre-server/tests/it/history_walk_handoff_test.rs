@@ -829,7 +829,11 @@ async fn a_session_that_lapses_mid_api_phase_leaves_one_walk_of_the_grant() {
     );
 
     fx.walk_to_the_end().await;
-    assert_eq!(fx.state().await, Some(BackfillJobState::Walked));
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Walked),
+        "bug: the grant's walk did not reach the end of the history"
+    );
     assert!(
         !walk(WalkTrigger::DepthMissing).await,
         "bug: a grant the session's walk paged to its end is walked again from the head"
@@ -1034,7 +1038,8 @@ async fn hold_the_second_api_year(fx: &Fixture, session_oldest: i64) -> Arc<Noti
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     let deadline = Instant::now() + WALK_DEADLINE;
     while !(fx.rows(oauth_providers::STRAVA).await == 1 && fx.idle().await) {
@@ -1201,7 +1206,11 @@ async fn a_reconnect_during_a_purged_step_is_walked_once_the_step_stops() {
         3,
         "bug: the reconnected grant's purged history is not read back"
     );
-    assert_eq!(fx.state().await, Some(BackfillJobState::Walked));
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Walked),
+        "bug: the reconnected grant's walk did not reach the end of the history"
+    );
 }
 
 /// The same reconnect during the purged step, but the step's request then
@@ -1288,7 +1297,8 @@ async fn the_api_phase_starts_below_the_sessions_own_oldest_row_not_a_stray_gran
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     fx.walk_to_the_end().await;
 
@@ -1436,7 +1446,8 @@ async fn a_purge_under_a_dead_runner_is_walked_again_once_its_lease_lapses() {
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     fx.reach_the_api_phase().await;
     fx.claim_as_a_runner_that_dies().await;
@@ -1466,7 +1477,11 @@ async fn a_purge_under_a_dead_runner_is_walked_again_once_its_lease_lapses() {
         3,
         "bug: the purged history is never read back"
     );
-    assert_eq!(fx.state().await, Some(BackfillJobState::Walked));
+    assert_eq!(
+        fx.state().await,
+        Some(BackfillJobState::Walked),
+        "bug: the walk read again after the purge did not reach the end of the history"
+    );
 }
 
 /// The same dead runner, but the session lapsed before the grant came back:
@@ -1496,7 +1511,8 @@ async fn a_reconnect_after_the_session_lapsed_never_pages_the_grant_beside_a_pur
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     fx.reach_the_api_phase().await;
     fx.claim_as_a_runner_that_dies().await;
@@ -1541,7 +1557,11 @@ async fn a_reconnect_after_the_session_lapsed_never_pages_the_grant_beside_a_pur
         Some(session_oldest),
         "bug: the purged walk is not re-walked below the session's oldest row: {again:?}"
     );
-    assert_eq!(fx.rows(oauth_providers::STRAVA).await, 3);
+    assert_eq!(
+        fx.rows(oauth_providers::STRAVA).await,
+        3,
+        "bug: the grant's rows the walk read again are not all in the store"
+    );
     assert_eq!(
         fx.grant_row().await,
         None,
@@ -1585,7 +1605,8 @@ async fn a_failed_walk_steps_retry_is_due_a_whole_lease_later() {
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     let (before, after) = fail_the_next_api_step(&fx).await;
     assert_eq!(
@@ -1636,7 +1657,8 @@ async fn a_walk_reopened_after_a_failed_step_is_claimable_at_once() {
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     fail_the_next_api_step(&fx).await;
     fx.revoke_grant().await;
@@ -1659,7 +1681,8 @@ async fn a_walk_reopened_after_a_failed_step_is_claimable_at_once() {
     );
     assert_eq!(
         swept[0].walk_backend.as_deref(),
-        Some(oauth_providers::STRAVA)
+        Some(oauth_providers::STRAVA),
+        "bug: the reopened walk is not walked through the grant"
     );
 }
 
@@ -1818,7 +1841,8 @@ async fn a_termination_settles_a_purged_walk_the_sweep_would_have_reopened() {
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     fx.reach_the_api_phase().await;
     fx.claim_as_a_runner_that_dies().await;
@@ -2205,7 +2229,11 @@ impl Fixture {
             )
             .await
             .unwrap();
-        assert_eq!(self.kept(key, id, start).await, KEPT_WHOLE);
+        assert_eq!(
+            self.kept(key, id, start).await,
+            KEPT_WHOLE,
+            "the earlier read stored the ride with its samples and gear"
+        );
     }
 
     /// What is left of the ride `id` starting at `start` under `key`.
@@ -2427,7 +2455,8 @@ async fn start_with_the_first_step_held(fx: &Fixture, write: &Hold) {
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     timeout(WALK_DEADLINE, write.reached.notified())
         .await
@@ -2975,7 +3004,8 @@ async fn an_expiry_landing_while_a_step_writes_takes_back_only_what_it_added() {
             oauth_providers::STRAVA,
             WalkTrigger::Connected
         )
-        .await
+        .await,
+        "the walk of the session starts"
     );
     timeout(WALK_DEADLINE, write.reached.notified())
         .await

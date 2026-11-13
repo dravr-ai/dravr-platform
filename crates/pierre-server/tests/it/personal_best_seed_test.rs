@@ -682,7 +682,11 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
     let first = run_personal_best_seed_pass(&resources).await.unwrap();
     assert!(first.budget_spent);
     assert_eq!(mock.list_hits(&athlete.token), 0, "the store is read");
-    assert_eq!(mock.total_streams_hits(), 3);
+    assert_eq!(
+        mock.total_streams_hits(),
+        3,
+        "bug: the first pass did not stream each stored run once before its budget ran out"
+    );
 
     let second = run_personal_best_seed_pass(&resources).await.unwrap();
     assert!(second.budget_spent, "the window's share is still spent");

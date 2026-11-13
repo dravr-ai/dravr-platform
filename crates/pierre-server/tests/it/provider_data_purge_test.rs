@@ -1574,28 +1574,34 @@ async fn walk_reading_grant(repos: &RepositoryRegistry, user: Uuid, tenant: Tena
         asked_message_id: None,
         walk_backend: None,
     };
-    assert!(repos
-        .activity_backfill_jobs
-        .record_backfill_job(&row)
-        .await
-        .unwrap());
-    assert!(repos
-        .activity_backfill_jobs
-        .hand_off_history_walk(
-            &JobLease {
-                id: row.id.clone(),
-                token,
-            },
-            &WalkHandOff {
-                backend: grant.to_owned(),
-                before_ts: Some(1_700_000_000),
-                months_done: 24,
-                rows_landed: 2,
-                fetch_limit: 200,
-            },
-        )
-        .await
-        .unwrap());
+    assert!(
+        repos
+            .activity_backfill_jobs
+            .record_backfill_job(&row)
+            .await
+            .unwrap(),
+        "the walk's row is recorded"
+    );
+    assert!(
+        repos
+            .activity_backfill_jobs
+            .hand_off_history_walk(
+                &JobLease {
+                    id: row.id.clone(),
+                    token,
+                },
+                &WalkHandOff {
+                    backend: grant.to_owned(),
+                    before_ts: Some(1_700_000_000),
+                    months_done: 24,
+                    rows_landed: 2,
+                    fetch_limit: 200,
+                },
+            )
+            .await
+            .unwrap(),
+        "the walk is handed off to the grant"
+    );
 }
 
 /// What the ledger holds for `user`'s walk filed under the session's key.
@@ -1636,7 +1642,11 @@ async fn a_grants_purge_releases_only_its_users_walk_through_it() {
         )
         .await
         .unwrap();
-    assert_eq!(elsewhere.total(), 0);
+    assert_eq!(
+        elsewhere.total(),
+        0,
+        "bug: a grant's purge released another athlete's walk"
+    );
     let api_phase = HistoryWalkRowState {
         state: BackfillJobState::Owed,
         walk_backend: Some("strava".to_owned()),
@@ -1763,7 +1773,8 @@ async fn a_whole_provider_purge_settles_a_walk_a_grants_purge_left_owed() {
         .unwrap();
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(purged("strava"))
+        Some(purged("strava")),
+        "bug: the whole-provider purge left the session's walk unsettled"
     );
 
     repos
@@ -1961,7 +1972,8 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
         .unwrap();
     assert_eq!(
         session_walk(repos, athlete, tenant).await,
-        Some(purged("strava"))
+        Some(purged("strava")),
+        "bug: the purge mid-step did not leave the walk owed a reopen"
     );
     assert!(
         ledger
@@ -2029,7 +2041,10 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
         "bug: the purged walk no longer reads as owed a reopen, so nothing reopens it"
     );
 
-    assert!(ledger.renew_backfill_job_lease(&lease, 0).await.unwrap());
+    assert!(
+        ledger.renew_backfill_job_lease(&lease, 0).await.unwrap(),
+        "the step still holds its lease"
+    );
     assert_eq!(
         ledger
             .purged_history_walks(Utc::now().timestamp_millis(), 10)
@@ -2140,7 +2155,7 @@ async fn a_purged_walk_with_no_grant_settles_as_walked_once_no_step_holds_it() {
         })
         .await
         .unwrap();
-    assert_eq!(running.len(), 1);
+    assert_eq!(running.len(), 1, "the running walk is the one owed");
     repos
         .provider_data
         .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)

@@ -303,7 +303,8 @@ async fn an_empty_cache_computes_nothing_rather_than_a_zero_curve() {
 
     assert_eq!(
         computed.coverage.completeness,
-        Completeness::Incomplete(IncompleteReason::NoStoredActivities)
+        Completeness::Incomplete(IncompleteReason::NoStoredActivities),
+        "bug: an empty cache did not report no stored activities"
     );
     assert_eq!(computed.rows_upserted, 0, "nothing may be invented");
     assert!(
@@ -449,7 +450,8 @@ async fn an_empty_cache_clears_the_whole_window() {
 
     assert_eq!(
         computed.coverage.completeness,
-        Completeness::Incomplete(IncompleteReason::NoStoredActivities)
+        Completeness::Incomplete(IncompleteReason::NoStoredActivities),
+        "bug: an empty cache did not report no stored activities"
     );
     assert_eq!(
         computed.rows_cleared,
