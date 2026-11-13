@@ -1476,7 +1476,15 @@ async fn a_detail_the_grant_answers_is_kept_under_the_grant_and_purged_with_it()
 
         let repos = &pair.resources.common.repos;
         assert!(
-            store_detail(repos, pair.tenant, pair.user_id, "sciotte", &detail).await,
+            store_detail(
+                repos,
+                pair.resources.common.live_activities.as_ref(),
+                pair.tenant,
+                pair.user_id,
+                "sciotte",
+                &detail
+            )
+            .await,
             "the grant's answer is kept beside the grant's copy (listed: {grant_listed})"
         );
         assert_eq!(

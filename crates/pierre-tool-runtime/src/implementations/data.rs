@@ -1031,6 +1031,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 for (listed_by, fresh) in &promoted.fresh {
                     store_detail(
                         context.resources.repos(),
+                        context.resources.live_activities().as_ref(),
                         tenant_id,
                         context.user_id,
                         listed_key(&provider_name, listed_by),

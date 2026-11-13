@@ -27,6 +27,7 @@ use pierre_database::repositories::ActivityDetail;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{history_keys, mirror_backend_for};
+use pierre_services::live_activities::LiveActivityStore;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -103,6 +104,7 @@ pub fn listed_key<'a>(serving: &'a str, listed_by: &str) -> &'a str {
 /// either way.
 pub async fn store_detail(
     repos: &RepositoryRegistry,
+    store: &dyn LiveActivityStore,
     tenant_id: TenantId,
     user_id: Uuid,
     provider: &str,
@@ -111,7 +113,8 @@ pub async fn store_detail(
     let answered = answered_key(provider, detailed);
     match keep_detail(repos, tenant_id, user_id, answered, detailed).await {
         Ok(false) if answered != provider => {
-            let copied = copy_under_grant(repos, tenant_id, user_id, answered, detailed).await;
+            let copied =
+                copy_under_grant(repos, store, tenant_id, user_id, answered, detailed).await;
             match copied {
                 Ok(0) => false,
                 Ok(_) => keep_detail(repos, tenant_id, user_id, answered, detailed)
@@ -138,11 +141,12 @@ pub async fn store_detail(
 ///
 /// A by-id read is no read of the grant's list head, so the copy carries the
 /// head's own last sync and never makes the grant look freshly synced
-/// (`ActivityCacheRepository::upsert_activities_synced_at`). A grant never
+/// (the activity store's ingest at that stamp). A grant never
 /// synced gets no copy (`0`): a row of it would read as a fetch that never
 /// happened, so its answer is read again while the session stays down.
 async fn copy_under_grant(
     repos: &RepositoryRegistry,
+    store: &dyn LiveActivityStore,
     tenant_id: TenantId,
     user_id: Uuid,
     grant: &str,
@@ -155,16 +159,16 @@ async fn copy_under_grant(
     else {
         return Ok(0);
     };
-    repos
-        .activity_cache
-        .upsert_activities_synced_at(
+    Ok(store
+        .ingest(
             user_id,
-            &tenant_id,
+            tenant_id,
             grant,
             slice::from_ref(detailed),
             head_synced,
         )
-        .await
+        .await?
+        .stored)
 }
 
 /// One store of `detailed`'s detail beside the row under `provider`:
