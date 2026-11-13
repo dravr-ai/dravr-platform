@@ -360,6 +360,30 @@ pub(crate) fn resume_recorded_backfill(
     true
 }
 
+/// Follow up the ask a live read the resume sweep reaped was bound to: the
+/// read spent its attempts and its last runner died, so no run of it will
+/// ever answer that ask. It is told as a read that gave up
+/// ([`live_read::answer_reaped`]), under the pair's in-flight key, so the
+/// follow-up's re-ask answers from what is stored and reads nothing. Returns
+/// `false` when a run of the pair already holds the key here: that run
+/// answers the newest ask itself.
+pub(crate) fn answer_reaped_live_read(job: ActivityBackfillJob) -> bool {
+    let key = in_flight_key(job.user_id, &job.provider_name, job.kind);
+    let Some(claim) = claim_in_flight(&key) else {
+        info!(
+            user_id = %job.user_id,
+            provider = %job.provider_name,
+            "Live read: a reaped read's pair has a run in flight here; that run answers the newest ask"
+        );
+        return false;
+    };
+    tokio::spawn(async move {
+        live_read::answer_reaped(&job, &claim).await;
+        release_in_flight(&claim);
+    });
+    true
+}
+
 /// The task every job runs in: holds the in-flight key for the life of the
 /// run and, when the job is on file, its row. What runs is the job's kind:
 /// a live read ([`live_read`]), a history walk ([`history_walk`]), or a

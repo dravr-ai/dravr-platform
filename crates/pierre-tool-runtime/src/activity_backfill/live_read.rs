@@ -597,6 +597,19 @@ async fn answer_given_up(job: &ActivityBackfillJob, claim: &InFlightClaim, ask: 
     follow_up(job, ask, 0, Landing::GaveUp).await;
 }
 
+/// Follow up the ask a reaped read was bound to (`job` rebuilt from its
+/// row): its attempts are spent and its last runner died, so it gave up as
+/// [`give_up`] does, with no row left to finish. `claim` holds the pair's
+/// in-flight key.
+pub(super) async fn answer_reaped(job: &ActivityBackfillJob, claim: &InFlightClaim) {
+    warn!(
+        user_id = %job.user_id,
+        provider = %job.provider_name,
+        "Live read: reaped past its attempts after its last runner died; telling the ask it was bound to"
+    );
+    answer_given_up(job, claim, &own_ask(job)).await;
+}
+
 /// Read the job's window once, through `authenticated` or a provider this
 /// attempt authenticates, capped at [`revalidation_timeout`]. Run unfiltered,
 /// as a cache write is: the turn filters what it answers.

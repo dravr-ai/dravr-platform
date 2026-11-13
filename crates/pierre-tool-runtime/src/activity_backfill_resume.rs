@@ -35,8 +35,8 @@ use tracing::{info, warn};
 
 use crate::activity_backfill::history_walk::resolve_purged_walk;
 use crate::activity_backfill::{
-    provider_tenant_id_str, resume_recorded_backfill, ActivityBackfillJob, BACKFILL_JOB_LEASE,
-    MAX_BACKFILL_ATTEMPTS,
+    answer_reaped_live_read, provider_tenant_id_str, resume_recorded_backfill, ActivityBackfillJob,
+    BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::runtime::{ToolRuntime, WalkTrigger};
 
@@ -69,7 +69,7 @@ const SWEEP_BATCH: i64 = 5;
 pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<usize> {
     let ledger = Arc::clone(&resources.repos().activity_backfill_jobs);
     let now_ms = Utc::now().timestamp_millis();
-    reap_exhausted_jobs(ledger.as_ref(), now_ms).await;
+    reap_exhausted_jobs(&resources, now_ms).await;
     resolve_purged_walks(&resources, now_ms).await;
 
     let claim = BackfillJobClaim {
@@ -145,18 +145,34 @@ async fn resolve_purged_walks(resources: &Arc<dyn ToolRuntime>, now_ms: i64) {
     }
 }
 
-/// Drop the rows past the attempt cap whose last runner died too.
-async fn reap_exhausted_jobs(ledger: &dyn ActivityBackfillJobRepository, now_ms: i64) {
-    match ledger
+/// Drop the rows past the attempt cap whose last runner died too. A live
+/// read among them still owes the ask it was bound to its follow-up, as a
+/// read that gave up: no run of it will ever answer it now.
+async fn reap_exhausted_jobs(resources: &Arc<dyn ToolRuntime>, now_ms: i64) {
+    let reaped = match resources
+        .repos()
+        .activity_backfill_jobs
         .reap_exhausted_backfill_jobs(now_ms, MAX_BACKFILL_ATTEMPTS)
         .await
     {
-        Ok(reaped) if reaped.is_empty() => {}
-        Ok(reaped) => warn!(
-            reaped = reaped.len(),
-            "Activity backfill resume: dropped jobs past the attempt cap whose last runner died; each athlete's next ask starts over"
-        ),
-        Err(e) => warn!(error = %e, "Activity backfill resume: exhausted jobs could not be reaped"),
+        Ok(reaped) => reaped,
+        Err(e) => {
+            warn!(error = %e, "Activity backfill resume: exhausted jobs could not be reaped");
+            return;
+        }
+    };
+    if reaped.is_empty() {
+        return;
+    }
+    warn!(
+        reaped = reaped.len(),
+        "Activity backfill resume: dropped jobs past the attempt cap whose last runner died; each athlete's next ask starts over"
+    );
+    for row in reaped {
+        if row.kind == BackfillJobKind::LiveRead && row.conversation_id.is_some() {
+            let job = job_from_row(resources, row).await;
+            answer_reaped_live_read(job);
+        }
     }
 }
 

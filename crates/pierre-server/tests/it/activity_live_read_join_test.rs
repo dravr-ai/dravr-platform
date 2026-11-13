@@ -1098,3 +1098,75 @@ async fn a_failed_reads_retry_is_due_a_whole_lease_later() {
         "bug: the failed read is not due once a whole lease has passed"
     );
 }
+
+/// A live read past the attempt cap whose last runner died — its instance
+/// was reclaimed mid-read — is reaped by the resume sweep, which no run of
+/// it will ever settle. The ask the row was bound to still gets the one
+/// follow-up a read that gave up owes: its re-ask answers from what is
+/// stored, reads no provider, and starts no other read.
+#[tokio::test]
+async fn a_reaped_read_still_follows_up_its_ask_once() {
+    use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
+
+    let (runtime, notifier, user_id, tenant_id) = unavailable_runtime().await;
+    let dead = |conversation: Option<&str>, provider: &str| ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id,
+        user_id,
+        provider: provider.to_owned(),
+        kind: BackfillJobKind::LiveRead,
+        after_ts: Some((Utc::now() - Duration::days(30)).timestamp()),
+        before_ts: None,
+        fetch_limit: Some(50),
+        conversation_id: conversation.map(ToOwned::to_owned),
+        created_at_ms: 0,
+        leased_until_ms: 0,
+        attempts: MAX_BACKFILL_ATTEMPTS,
+        lease_token: Some(Uuid::new_v4().to_string()),
+        progress: JobProgress::default(),
+        turn_id: conversation.map(|_| "turn-9".to_owned()),
+        asked_message_id: conversation.map(|_| "msg-9".to_owned()),
+        walk_backend: None,
+    };
+    let ledger = &runtime.repos().activity_backfill_jobs;
+    assert!(ledger
+        .record_backfill_job(&dead(Some("conv-1"), PROVIDER))
+        .await
+        .unwrap());
+    // A read no conversation asked owes nobody anything.
+    assert!(ledger
+        .record_backfill_job(&dead(None, "unasked_provider"))
+        .await
+        .unwrap());
+
+    resume_backfill_jobs(Arc::clone(&runtime)).await.unwrap();
+    sleep(StdDuration::from_millis(500)).await;
+
+    assert_eq!(
+        live_read_state(&runtime, user_id, tenant_id).await,
+        None,
+        "the sweep reaps a read past its attempts whose last runner died"
+    );
+    assert_eq!(
+        notifier.sent.lock().unwrap().as_slice(),
+        [("conv-1".to_owned(), Some("msg-9".to_owned()), true)],
+        "bug: a reaped read never follows up the ask it was bound to, as a read that gave up"
+    );
+    let re_asks = notifier.re_asks.lock().unwrap().clone();
+    assert_eq!(re_asks.len(), 1);
+    assert_eq!(
+        re_asks[0].0,
+        Answer::Unread(names(&["cached"])),
+        "bug: the re-ask of a reaped read must answer what is stored, as a read that did not run"
+    );
+    assert_eq!(
+        notifier.reads.load(Ordering::SeqCst),
+        0,
+        "bug: the re-ask of a reaped read read the provider again"
+    );
+    assert_eq!(
+        live_read_state(&runtime, user_id, tenant_id).await,
+        None,
+        "bug: the re-ask of a reaped read started another read"
+    );
+}
