@@ -40,7 +40,8 @@
 //!   removes it, and so does the reaper of a row whose lease lapsed. Only the
 //!   attestation a purge of the step's key writes, for the athlete or for
 //!   the whole provider, committed between the step's first check and its
-//!   second (the attestations read at both, compared), takes rows back, and
+//!   second, the read of it that succeeds (the attestations read at both,
+//!   compared), takes rows back, and
 //!   names how much. A purge of wellness alone (a wellness consent
 //!   withdrawn, a wellness expiry) deleted no activity and takes nothing
 //!   back. With none, the page stays and warms the training-history rollup,
@@ -58,9 +59,11 @@
 //! when the row is gone, and could delete a row another writer stored under
 //! the same key since the step read what the store held. When its row
 //! remains, its retry is due a lease later and checks the row again before
-//! writing. So a purge of the step's key that committed just before such an
-//! outage, whose delete ran before the write landed, leaves the page the
-//! write landed in the store (the limitation marked in `settle`).
+//! writing. When its row is gone, nothing retries: the page stays, and the
+//! training-history rollup is not warmed over it as a kept page's is. So a
+//! purge of the step's key that committed just before such an outage, whose
+//! delete ran before the write landed, leaves the page the write landed in
+//! the store (the limitation marked in `settle`).
 //!
 //! Only the activities are taken back: a step that read the list head also
 //! stamped the grant's fetch freshness through the write-through, and that
@@ -110,7 +113,8 @@ pub(super) enum Landed {
     Stopped,
     /// The write, or a check around it, failed: nothing is recorded. A check
     /// after the write that stays unreadable through its retries takes
-    /// nothing back.
+    /// nothing back; with the step's row gone, nothing retries and the page
+    /// stays, the training-history rollup not warmed over it.
     Failed,
 }
 
