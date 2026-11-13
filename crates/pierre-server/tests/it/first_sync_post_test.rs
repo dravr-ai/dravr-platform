@@ -29,6 +29,7 @@ use pierre_core::models::messaging::{ChannelType, MessageContent};
 use pierre_core::models::{AddMessageParams, TenantId, SUPPORTED_LOCALES};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
+use pierre_database::repositories::ChatRepository;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::first_sync_post::FirstSyncPoster;
 use pierre_mcp_server::services::platform_post::{
@@ -36,6 +37,7 @@ use pierre_mcp_server::services::platform_post::{
 };
 use pierre_mcp_server::services::turn_lifecycle::InFlightTurns;
 use pierre_routes_auth::FirstSyncHook;
+use pierre_services::personal_thread::find_personal_thread;
 use pierre_test_support::delegation::{create_coachless_group, create_group_agent};
 use uuid::Uuid;
 
@@ -275,6 +277,109 @@ async fn a_landing_that_posted_nothing_leaves_the_first_post_owed() {
         fx.post.asked().len(),
         2,
         "nothing was posted, so the next landing posts again"
+    );
+}
+
+/// What the athlete writes while the post's model call runs.
+const ATHLETE_WORDS: &str = "Morning coach, my legs feel heavy today.";
+
+/// A post the athlete's own first message overtakes: while its model call
+/// runs, the athlete writes into the thread it was handed — their personal
+/// thread, already designated — and then the post is withheld.
+struct OvertakenPost {
+    chat: Arc<dyn ChatRepository>,
+    threads: Mutex<Vec<String>>,
+}
+
+#[async_trait]
+impl PlatformPost for OvertakenPost {
+    async fn post(&self, request: PlatformPostRequest<'_>) -> Option<PostedReply> {
+        let user = request.user_id.to_string();
+        self.chat
+            .add_message(&AddMessageParams {
+                tenant_id: request.tenant_id,
+                conversation_id: request.conversation_id,
+                user_id: &user,
+                role: "user",
+                content: ATHLETE_WORDS,
+                token_count: None,
+                finish_reason: None,
+                prompt_tokens: None,
+                model: None,
+                content_blocks: None,
+                transport_policy: TransportPolicy::AnyTransport,
+                channel_type: None,
+                about_user_id: None,
+                turn_attempted_write: None,
+            })
+            .await
+            .unwrap();
+        self.threads
+            .lock()
+            .unwrap()
+            .push(request.conversation_id.to_owned());
+        None
+    }
+}
+
+/// A post that posted nothing into the thread forged for it removes the
+/// thread only while it is empty: when the athlete wrote into it while the
+/// post ran, it is theirs, and it stays their personal thread with their
+/// message in it (carnet#1557).
+#[tokio::test]
+async fn a_withheld_post_keeps_the_forged_thread_the_athlete_wrote_into() {
+    let fx = fixture(RecordingPost::posting(false)).await;
+    let overtaken = Arc::new(OvertakenPost {
+        chat: Arc::clone(&fx.resources.common.repos.chat),
+        threads: Mutex::new(Vec::new()),
+    });
+    let poster = FirstSyncPoster::new(
+        Arc::downgrade(&fx.resources),
+        Arc::<OvertakenPost>::clone(&overtaken),
+        Arc::new(FakeResolver::new(Arc::<CapturingChannel>::clone(
+            &fx.channel,
+        ))),
+    );
+    assert!(
+        conversations(&fx).await.is_empty(),
+        "fixture bug: the athlete starts with no thread, so the post forges one"
+    );
+
+    poster.data_landed(fx.user_id, fx.tenant_id, "whoop").await;
+
+    let threads = overtaken.threads.lock().unwrap().clone();
+    assert_eq!(threads.len(), 1, "the post ran once: {threads:?}");
+    assert_eq!(
+        conversations(&fx).await,
+        threads,
+        "the forged thread the athlete wrote into is kept"
+    );
+    let user = fx.user_id.to_string();
+    let messages = fx
+        .resources
+        .common
+        .repos
+        .chat
+        .get_messages(&threads[0], &user, fx.tenant_id)
+        .await
+        .unwrap();
+    let rows: Vec<(&str, &str)> = messages
+        .iter()
+        .map(|m| (m.role.as_str(), m.content.as_str()))
+        .collect();
+    assert_eq!(
+        rows,
+        [("user", ATHLETE_WORDS)],
+        "the athlete's message is kept with it"
+    );
+    let personal = find_personal_thread(&fx.resources.common.repos, &user, fx.tenant_id)
+        .await
+        .unwrap()
+        .map(|thread| thread.id);
+    assert_eq!(
+        personal.as_deref(),
+        Some(threads[0].as_str()),
+        "it is still the athlete's personal thread"
     );
 }
 

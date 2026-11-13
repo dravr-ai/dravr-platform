@@ -18,9 +18,12 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{ChatRepository, NewConversation, Reactivation, SlotClaim};
-use pierre_test_support::db::create_test_db;
+use pierre_test_support::db::{create_concurrent_test_db, create_test_db};
+#[cfg(feature = "postgresql")]
+use sqlx::Postgres;
+use sqlx::{Sqlite, Transaction};
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 use tokio::time::sleep;
@@ -77,7 +80,11 @@ impl ChatFixture {
 /// Open an isolated database through the factory and seed the three users
 /// and the tenant they share.
 async fn open_fixture() -> ChatFixture {
-    let db = create_test_db().await.unwrap();
+    open_fixture_on(create_test_db().await.unwrap()).await
+}
+
+/// [`open_fixture`] over `db`.
+async fn open_fixture_on(db: Database) -> ChatFixture {
     let athlete = seed_user(&db, "athlete").await;
     let member = seed_user(&db, "member").await;
     let other_owner = seed_user(&db, "other-owner").await;
@@ -833,6 +840,213 @@ async fn test_delete_conversation() {
         .unwrap();
 
     assert!(fetched.is_none());
+}
+
+/// The conditional delete reaches what the plain one does — the owner's
+/// conversation in its tenant — and removes it only while it holds no
+/// message: a written one stays, with what was written.
+#[tokio::test]
+async fn test_delete_conversation_if_empty_keeps_a_written_conversation() {
+    let fx = open_fixture().await;
+    let manager = fx.chat();
+    let tenant_id = test_tenant_id();
+    let empty = manager
+        .create_conversation(
+            fx.athlete(),
+            tenant_id,
+            "Empty",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    let written = manager
+        .create_conversation(
+            fx.athlete(),
+            tenant_id,
+            "Written",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+    add_row(
+        manager.as_ref(),
+        &written.id,
+        fx.athlete(),
+        tenant_id,
+        "user",
+        "Hello coach",
+    )
+    .await;
+    manager
+        .add_participant(&empty.id, tenant_id, fx.member(), fx.athlete())
+        .await
+        .unwrap();
+
+    assert!(
+        !manager
+            .delete_conversation_if_empty(&empty.id, fx.member(), tenant_id)
+            .await
+            .unwrap(),
+        "only the owner deletes a conversation, not a participant"
+    );
+    assert!(
+        !manager
+            .delete_conversation_if_empty(&empty.id, fx.athlete(), test_tenant_id_2())
+            .await
+            .unwrap(),
+        "only in its own tenant"
+    );
+    assert!(
+        !manager
+            .delete_conversation_if_empty(&written.id, fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        "a conversation holding a message is kept"
+    );
+    let kept = manager
+        .get_messages(&written.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        kept.iter().map(|m| m.content.as_str()).collect::<Vec<_>>(),
+        ["Hello coach"],
+        "with the message in it"
+    );
+    assert!(
+        manager
+            .delete_conversation_if_empty(&empty.id, fx.athlete(), tenant_id)
+            .await
+            .unwrap(),
+        "an empty conversation is deleted"
+    );
+    assert!(
+        manager
+            .get_conversation(&empty.id, fx.athlete(), tenant_id)
+            .await
+            .unwrap()
+            .is_none(),
+        "and is gone"
+    );
+}
+
+/// A message insert held open in its own transaction: the row is written
+/// and, on `PostgreSQL`, its foreign-key check holds a key-share lock on the
+/// conversation row, but nothing is committed. Raw SQL because no repository
+/// method leaves a write uncommitted, and the race needs one that is.
+enum HeldInsert {
+    Sqlite(Transaction<'static, Sqlite>),
+    #[cfg(feature = "postgresql")]
+    Postgres(Transaction<'static, Postgres>),
+}
+
+const HELD_INSERT_SQL: &str =
+    "INSERT INTO chat_messages (id, conversation_id, role, content, created_at) \
+     VALUES ($1, $2, 'user', $3, $4)";
+
+impl HeldInsert {
+    /// Write a `user` row holding `content` into `conversation_id`, uncommitted.
+    async fn open(db: &Database, conversation_id: &str, content: &str) -> Self {
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now();
+        match db.backend() {
+            DatabaseBackend::SQLite(inner) => {
+                let mut tx = inner.pool().begin().await.unwrap();
+                sqlx::query(HELD_INSERT_SQL)
+                    .bind(&id)
+                    .bind(conversation_id)
+                    .bind(content)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                Self::Sqlite(tx)
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(inner) => {
+                let mut tx = inner.pool().begin().await.unwrap();
+                sqlx::query(HELD_INSERT_SQL)
+                    .bind(&id)
+                    .bind(conversation_id)
+                    .bind(content)
+                    .bind(now)
+                    .execute(&mut *tx)
+                    .await
+                    .unwrap();
+                Self::Postgres(tx)
+            }
+        }
+    }
+
+    async fn commit(self) {
+        match self {
+            Self::Sqlite(tx) => tx.commit().await.unwrap(),
+            #[cfg(feature = "postgresql")]
+            Self::Postgres(tx) => tx.commit().await.unwrap(),
+        }
+    }
+}
+
+/// A message insert in flight when the conditional delete starts is waited
+/// out, and the delete then reads it: the conversation and the message stay.
+/// On `PostgreSQL` a lone `DELETE … WHERE NOT EXISTS` would read
+/// `chat_messages` before the insert committed, wait only for the row lock,
+/// and cascade the committed message away. On a pool of several connections,
+/// so the two transactions overlap in the engine rather than queue.
+#[tokio::test]
+async fn test_delete_conversation_if_empty_waits_out_a_message_insert_in_flight() {
+    let fx = open_fixture_on(create_concurrent_test_db().await.unwrap()).await;
+    let manager = fx.chat();
+    let tenant_id = test_tenant_id();
+    let conv = manager
+        .create_conversation(
+            fx.athlete(),
+            tenant_id,
+            "Racing",
+            "gemini-1.5-flash",
+            None,
+            None,
+        )
+        .await
+        .unwrap();
+
+    let insert = HeldInsert::open(&fx.db, &conv.id, "Written while the delete waited").await;
+    let delete = tokio::spawn({
+        let manager = Arc::clone(&manager);
+        let conversation_id = conv.id.clone();
+        let athlete = fx.athlete().to_owned();
+        async move {
+            manager
+                .delete_conversation_if_empty(&conversation_id, &athlete, tenant_id)
+                .await
+        }
+    });
+    sleep(StdDuration::from_millis(300)).await;
+    assert!(
+        !delete.is_finished(),
+        "test bug: the delete did not wait for the open insert, so nothing raced"
+    );
+    insert.commit().await;
+
+    assert!(
+        !delete.await.unwrap().unwrap(),
+        "a message committed while the delete waited keeps the conversation"
+    );
+    let messages = manager
+        .get_messages(&conv.id, fx.athlete(), tenant_id)
+        .await
+        .unwrap();
+    assert_eq!(
+        messages
+            .iter()
+            .map(|m| m.content.as_str())
+            .collect::<Vec<_>>(),
+        ["Written while the delete waited"],
+        "and the message in it"
+    );
 }
 
 // ============================================================================

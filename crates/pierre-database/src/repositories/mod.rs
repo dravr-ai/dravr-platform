@@ -59,6 +59,8 @@ pub mod chat;
 /// A conversation archived by `/reset` and reactivated: its statements and the bodies behind them.
 pub(crate) mod chat_archive;
 pub(crate) mod chat_backend;
+/// A conversation its owner deletes, outright or only while empty: its statements and the bodies behind them.
+pub(crate) mod chat_delete;
 /// A participant's thumbs on one reply: its statements and the bodies behind them.
 pub(crate) mod chat_feedback;
 /// A thread's rows about a group member: the prompt read that keeps only the readable ones.
