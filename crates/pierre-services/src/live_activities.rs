@@ -29,6 +29,8 @@ pub struct LiveIngest {
     pub stored: u64,
     /// Rows the write inserted: the store held no record of them before it.
     pub inserted: u64,
+    /// Rows the write refused: the athlete deleted them ([`LiveActivityStore::erase`]).
+    pub refused: u64,
     /// Whether a session newer than every activity held landed.
     pub newer_session: bool,
 }
@@ -163,6 +165,25 @@ pub trait LiveActivityStore: Send + Sync {
     ///
     /// Returns an error when the rows cannot be read.
     async fn held_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>>;
+
+    /// The ids among `activities` the store keeps a record of under the
+    /// athlete's `provider`, read in one pass over the window their start
+    /// dates span. Unlike [`Self::held_among`], a row the cache served
+    /// before the store held the provider's reads is not one of them: a
+    /// write of `activities` inserts exactly those it does not name, the
+    /// athlete's deleted ones aside.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error when `provider` is not a live source, or the store
+    /// fails.
+    async fn recorded_among(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,

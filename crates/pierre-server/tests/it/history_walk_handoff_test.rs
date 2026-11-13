@@ -2030,6 +2030,18 @@ impl LiveActivityStore for HeldWrite {
             .await
     }
 
+    async fn recorded_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>> {
+        self.inner
+            .recorded_among(user_id, tenant_id, provider, activities)
+            .await
+    }
+
     async fn delete_source(
         &self,
         user_id: Uuid,
@@ -3087,6 +3099,120 @@ async fn an_expiry_never_takes_back_a_ride_another_writer_stored_during_the_step
         fx.kept(oauth_providers::SCIOTTE, &earlier, recent).await,
         KEPT_WHOLE,
         "bug: the step took back a ride an earlier read stored"
+    );
+}
+
+/// The same concurrent writer, beside a ride the cache served before the
+/// store kept the session's reads: the step's write inserts that ride into
+/// the store, which once made up for the concurrent ride it did not insert.
+/// The step counts against what the store recorded, not what it served, so
+/// it still takes nothing back and the other writer's ride stays whole.
+#[tokio::test]
+async fn a_cache_only_ride_never_hides_a_concurrent_writers_ride_from_an_expiry() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let (cached, concurrent) = (format!("9{recent}"), format!("9{session_oldest}"));
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    let ride = ActivityBuilder::new(
+        cached.clone(),
+        "Morning ride".to_owned(),
+        SportType::Ride,
+        Utc.timestamp_opt(recent, 0).unwrap(),
+        3_600,
+        oauth_providers::SCIOTTE.to_owned(),
+    )
+    .build();
+    fx.resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(fx.user_id, &fx.tenant, oauth_providers::SCIOTTE, &[ride])
+        .await
+        .unwrap();
+    let write = store.hold_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.hold_earlier_read(oauth_providers::SCIOTTE, &concurrent, session_oldest)
+        .await;
+    fx.resources
+        .common
+        .repos
+        .provider_data
+        .expire_provider_activities(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            &["9100000000"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(fx.state().await, None, "the expiry reset the walk's row");
+    write.gate.notify_one();
+    write.landed.notified().await;
+    sleep(STEP_SETTLE).await;
+    assert_eq!(
+        fx.kept(oauth_providers::SCIOTTE, &concurrent, session_oldest)
+            .await,
+        KEPT_WHOLE,
+        "bug: a cache-only ride the step inserted hid the concurrent writer's ride it then took back"
+    );
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        2,
+        "bug: the step took back a ride the cache served before its write"
+    );
+}
+
+/// The session's first step reads its two rides; the athlete deleted the
+/// recent one, so the store refuses it. The retention expiry resets the
+/// walk's row while the step writes: the refused ride counts as the step's
+/// own, so the step still takes back the ride it added, and nothing of its
+/// page is left.
+#[tokio::test]
+async fn an_expiry_takes_back_what_the_step_added_beside_a_ride_the_athlete_deleted() {
+    let now = Utc::now().timestamp();
+    let (recent, session_oldest) = (now - 3 * DAY, now - 2 * YEAR);
+    let mut fx = fixture(vec![recent, session_oldest], 400, true).await;
+    let store = fx.hold_writes();
+    assert!(
+        fx.resources
+            .common
+            .live_activities
+            .erase(
+                fx.user_id,
+                fx.tenant,
+                oauth_providers::SCIOTTE,
+                &format!("9{recent}")
+            )
+            .await
+            .is_ok(),
+        "the athlete deletes the recent ride"
+    );
+    let write = store.hold_next_write(oauth_providers::SCIOTTE);
+    start_with_the_first_step_held(&fx, &write).await;
+    fx.resources
+        .common
+        .repos
+        .provider_data
+        .expire_provider_activities(
+            fx.user_id,
+            &fx.tenant,
+            oauth_providers::SCIOTTE,
+            &["9100000000"],
+        )
+        .await
+        .unwrap();
+    assert_eq!(fx.state().await, None, "the expiry reset the walk's row");
+    write.gate.notify_one();
+    write.landed.notified().await;
+    let deadline = Instant::now() + STEP_SETTLE;
+    while fx.rows(oauth_providers::SCIOTTE).await != 0 && Instant::now() < deadline {
+        sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        fx.rows(oauth_providers::SCIOTTE).await,
+        0,
+        "bug: a ride the athlete deleted kept the step from taking back the ride it added"
     );
 }
 

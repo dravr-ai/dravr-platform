@@ -26,11 +26,12 @@
 //! - **A retention expiry** deleted some of the key's activities and reset
 //!   its sync state: only the activities the step added go back. Those the
 //!   store held before the write stay, with their samples and gear. So does
-//!   one another writer stored under the key after the step read what the
-//!   store held: the step takes back what it added only when the store
-//!   counts its write as inserting every one of them. When it counts fewer,
-//!   another writer stored some of them in between, the step cannot tell
-//!   which, and it takes none of them back.
+//!   one another writer stored under the key between the step's read of the
+//!   store's records and its write: the step takes back what it added only
+//!   when the store counts its write as inserting (or refusing, as the
+//!   athlete's deleted) every row it held no record of. When it counts
+//!   fewer, another writer stored some of them in between, the step cannot
+//!   tell which, and it takes none of them back.
 //!
 //! The evidence:
 //!
@@ -81,6 +82,7 @@ use std::collections::HashSet;
 use std::time::Duration as StdDuration;
 
 use chrono::{DateTime, Duration, Utc};
+use pierre_core::errors::AppError;
 use pierre_core::models::Activity;
 use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, PurgeReason};
 use tokio::time;
@@ -211,12 +213,12 @@ async fn check_after_write(
 }
 
 /// What the step's write of `activities`, which persisted `landed`, comes
-/// to once its row is known `after` it; `held` are the ids the store held
-/// before the write.
+/// to once its row is known `after` it; `held` is what the store held of
+/// them before the write.
 async fn settle(
     job: &ActivityBackfillJob,
     activities: &[Activity],
-    held: &HashSet<String>,
+    held: &Held,
     landed: Option<Persisted>,
     after: Result<AfterWrite, ()>,
 ) -> Landed {
@@ -231,7 +233,7 @@ async fn settle(
         Ok(AfterWrite::Purged(purge)) => {
             let reach = Reach::from(purge);
             if reach == Reach::Added && !inserted_every_one(activities, held, landed) {
-                info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: another writer stored some of what the step added; nothing it added is taken back");
+                info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's write could not be shown to have inserted all it added; nothing it added is taken back");
                 return Landed::Stopped;
             }
             take_back(job, activities, held, reach).await;
@@ -261,19 +263,34 @@ async fn leased_row(
         })
 }
 
-/// The ids among `activities` the store already holds under the step's key,
-/// before its write; `Err` (logged) when the store could not be read.
-async fn held_before(
-    job: &ActivityBackfillJob,
-    activities: &[Activity],
-) -> Result<HashSet<String>, ()> {
-    job.resources
-        .live_activities()
-        .held_among(job.user_id, job.tenant_id, &job.provider_name, activities)
-        .await
-        .map_err(|e| {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the store could not be read before the step's write");
-        })
+/// What the store held of a step's page under its key, before its write.
+struct Held {
+    /// The ids the store keeps a record of, read first.
+    recorded: HashSet<String>,
+    /// The ids it serves, read after: a row the cache served before the
+    /// store held the provider's reads is among them, though not recorded.
+    served: HashSet<String>,
+}
+
+/// What the store held of `activities` under the step's key, before its
+/// write; `Err` (logged) when the store could not be read. The records are
+/// read first: a row another writer stores between the two reads is served
+/// but was not recorded, so the step's write does not count it inserted
+/// and the step takes nothing back ([`inserted_every_one`]).
+async fn held_before(job: &ActivityBackfillJob, activities: &[Activity]) -> Result<Held, ()> {
+    let store = job.resources.live_activities();
+    let read = async {
+        let recorded = store
+            .recorded_among(job.user_id, job.tenant_id, &job.provider_name, activities)
+            .await?;
+        let served = store
+            .held_among(job.user_id, job.tenant_id, &job.provider_name, activities)
+            .await?;
+        Ok::<_, AppError>(Held { recorded, served })
+    };
+    read.await.map_err(|e| {
+        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the store could not be read before the step's write");
+    })
 }
 
 /// The purges of the step's key attested from `since` on, as read before
@@ -372,37 +389,31 @@ impl From<KeyPurge> for Reach {
 }
 
 /// Whether the step's write, which persisted `landed`, inserted every one of
-/// `activities` not `held` before it: the store counts as many inserted as
-/// there are such ids, so none of them was stored by another writer between
-/// the step's read of what the store held and its write. `false` when the
-/// write's count is unknown.
-fn inserted_every_one(
-    activities: &[Activity],
-    held: &HashSet<String>,
-    landed: Option<Persisted>,
-) -> bool {
-    let added: HashSet<&str> = activities
+/// `activities` the store held no record of before it, the athlete's deleted
+/// ones aside: the store counts as many inserted and refused as there are
+/// such ids, so none of them was stored by another writer between the
+/// step's read of the records and its write. `false` when the write's
+/// counts are unknown.
+fn inserted_every_one(activities: &[Activity], held: &Held, landed: Option<Persisted>) -> bool {
+    let unrecorded: HashSet<&str> = activities
         .iter()
         .map(Activity::id)
-        .filter(|id| !held.contains(*id))
+        .filter(|id| !held.recorded.contains(*id))
         .collect();
-    landed.is_some_and(|persisted| u64::try_from(added.len()).ok() == Some(persisted.inserted))
+    landed.is_some_and(|persisted| {
+        u64::try_from(unrecorded.len()).ok() == persisted.inserted.checked_add(persisted.refused)
+    })
 }
 
 /// Take back from the store, under the step's key, what `reach` names of
-/// `activities`: all of them, or those not `held` before the write.
-async fn take_back(
-    job: &ActivityBackfillJob,
-    activities: &[Activity],
-    held: &HashSet<String>,
-    reach: Reach,
-) {
+/// `activities`: all of them, or those the store neither served nor
+/// recorded before the write.
+async fn take_back(job: &ActivityBackfillJob, activities: &[Activity], held: &Held, reach: Reach) {
     let store = job.resources.live_activities();
     let mut taken = 0_usize;
-    let reached = activities
-        .iter()
-        .map(Activity::id)
-        .filter(|id| reach == Reach::Page || !held.contains(*id));
+    let reached = activities.iter().map(Activity::id).filter(|id| {
+        reach == Reach::Page || !(held.served.contains(*id) || held.recorded.contains(*id))
+    });
     for id in reached {
         match store
             .discard(job.user_id, job.tenant_id, &job.provider_name, id)

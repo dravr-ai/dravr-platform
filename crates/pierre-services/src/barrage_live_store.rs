@@ -115,6 +115,7 @@ impl BarrageLiveStore {
         Ok(LiveIngest {
             stored: counts.inserted + counts.updated + counts.unchanged + counts.rewritten,
             inserted: counts.inserted,
+            refused: counts.erased,
             newer_session: report.newer_session,
         })
     }
@@ -506,6 +507,50 @@ impl LiveActivityStore for BarrageLiveStore {
             .filter(|id| wanted.contains(id))
             .map(str::to_owned)
             .collect())
+    }
+
+    async fn recorded_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>> {
+        let source = SourceKey::Live(live_source(provider)?);
+        let starts = activities.iter().map(Activity::start_date);
+        let (Some(first), Some(last)) = (starts.clone().min(), starts.max()) else {
+            return Ok(HashSet::new());
+        };
+        let wanted: HashSet<&str> = activities.iter().map(Activity::id).collect();
+        let scope = Scope::new(tenant_id.as_uuid(), user_id);
+        let mut recorded = HashSet::new();
+        let mut offset = Some(0_u64);
+        while let Some(at) = offset {
+            let query = RecordQuery {
+                source: Some(source),
+                since: Some(first),
+                until: None,
+                page: PageReq {
+                    limit: MAX_PAGE_LIMIT,
+                    offset: at,
+                },
+            };
+            let page = self
+                .records
+                .list(&scope, &query)
+                .await
+                .map_err(|e| store_error(source, &e))?;
+            recorded.extend(
+                page.items
+                    .iter()
+                    .filter(|record| record.activity.start_date() <= last)
+                    .map(|record| record.activity_id.as_str())
+                    .filter(|id| wanted.contains(id))
+                    .map(str::to_owned),
+            );
+            offset = page.next_offset;
+        }
+        Ok(recorded)
     }
 
     async fn delete_source(

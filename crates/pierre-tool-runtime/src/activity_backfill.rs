@@ -1059,6 +1059,8 @@ struct Persisted {
     rows: usize,
     /// The rows the write inserted: the store held no record of them before.
     inserted: u64,
+    /// The rows the write refused: the athlete deleted them.
+    refused: u64,
 }
 
 /// Write the scraped historical activities through to the durable cache as
@@ -1097,6 +1099,7 @@ async fn persist_backfill_activities(
     Some(Persisted {
         rows: usize::try_from(ingest.stored).unwrap_or(activities.len()),
         inserted: ingest.inserted,
+        refused: ingest.refused,
     })
 }
 
