@@ -1673,6 +1673,14 @@ async fn a_grants_purge_releases_only_its_users_walk_through_it() {
     );
 }
 
+/// What a walk reading `grant` reads as before any purge: its API phase owed.
+fn reading(grant: &str) -> HistoryWalkRowState {
+    HistoryWalkRowState {
+        state: BackfillJobState::Owed,
+        walk_backend: Some(grant.to_owned()),
+    }
+}
+
 /// What a walk whose API phase a purge took reads as: a session walked
 /// alone, which a reconnect reopens.
 fn released() -> HistoryWalkRowState {
@@ -1680,6 +1688,153 @@ fn released() -> HistoryWalkRowState {
         state: BackfillJobState::Walked,
         walk_backend: None,
     }
+}
+
+/// The operator's whole-provider purge takes every athlete's rows of the
+/// provider, in every tenant: every walk whose API phase read it is
+/// released, and a walk reading another provider stays as it was.
+#[tokio::test]
+async fn the_whole_provider_purge_releases_every_walk_through_it_and_no_other() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let (tenant, other_tenant) = (
+        TenantId::from_uuid(Uuid::new_v4()),
+        TenantId::from_uuid(Uuid::new_v4()),
+    );
+    let (athlete, elsewhere, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    walk_reading_grant(repos, elsewhere, other_tenant, "strava").await;
+    walk_reading_grant(repos, other_grant, tenant, "wahoo").await;
+
+    repos
+        .provider_data
+        .purge_provider_data("strava")
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(released()),
+        "bug: the whole-provider purge left a walk claiming its API phase"
+    );
+    assert_eq!(
+        session_walk(repos, elsewhere, other_tenant).await,
+        Some(released()),
+        "bug: the whole-provider purge left another tenant's walk claiming its API phase"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant).await,
+        Some(reading("wahoo")),
+        "bug: the whole-provider purge released a walk reading another provider"
+    );
+}
+
+/// A purge of one athlete's activities alone (a consent withdrawn, an
+/// account's activities dropped) takes what the walk's API phase brought
+/// in, so it releases that athlete's walk in that tenant, and nobody else's.
+#[tokio::test]
+async fn an_activity_purge_releases_only_its_users_walk_through_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let (athlete, teammate, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    walk_reading_grant(repos, teammate, tenant, "strava").await;
+    walk_reading_grant(repos, other_grant, tenant, "wahoo").await;
+
+    repos
+        .provider_data
+        .purge_user_provider_activities(
+            athlete,
+            &TenantId::from_uuid(Uuid::new_v4()),
+            "strava",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(reading("strava")),
+        "bug: an activity purge in another tenant released the athlete's walk"
+    );
+
+    repos
+        .provider_data
+        .purge_user_provider_activities(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(released()),
+        "bug: an activity purge left the walk claiming the purged API phase"
+    );
+    assert_eq!(
+        session_walk(repos, teammate, tenant).await,
+        Some(reading("strava")),
+        "bug: an activity purge released a teammate's walk"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant).await,
+        Some(reading("wahoo")),
+        "bug: an activity purge released a walk reading another provider"
+    );
+}
+
+/// Garmin's disconnect purges only what its API delivered
+/// (`purge_user_provider_source_data`), activities included: it releases
+/// the athlete's walk through Garmin in that tenant, and nobody else's.
+#[tokio::test]
+async fn a_source_purge_releases_only_its_users_walk_through_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let (athlete, teammate, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "garmin").await;
+    walk_reading_grant(repos, teammate, tenant, "garmin").await;
+    walk_reading_grant(repos, other_grant, tenant, "strava").await;
+
+    repos
+        .provider_data
+        .purge_user_provider_source_data(
+            athlete,
+            &TenantId::from_uuid(Uuid::new_v4()),
+            "garmin",
+            "garmin_api",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(reading("garmin")),
+        "bug: a source purge in another tenant released the athlete's walk"
+    );
+
+    repos
+        .provider_data
+        .purge_user_provider_source_data(
+            athlete,
+            &tenant,
+            "garmin",
+            "garmin_api",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(released()),
+        "bug: a source purge left the walk claiming the purged API phase"
+    );
+    assert_eq!(
+        session_walk(repos, teammate, tenant).await,
+        Some(reading("garmin")),
+        "bug: a source purge released a teammate's walk"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant).await,
+        Some(reading("strava")),
+        "bug: a source purge released a walk reading another provider"
+    );
 }
 
 /// The walk below the session a reconnect owes, as `reopen_for_grant` asks.
