@@ -19,8 +19,10 @@ use crate::common;
 
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration as StdDuration;
+#[cfg(feature = "client-messaging")]
+use std::time::Instant;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -760,7 +762,7 @@ async fn uncached_notified_runtime(
 /// still holds the pair, through a provider that must not be read again.
 #[cfg(feature = "client-messaging")]
 struct ReaskingNotifier {
-    runtime: std::sync::OnceLock<Arc<dyn ToolRuntime>>,
+    runtime: OnceLock<Arc<dyn ToolRuntime>>,
     user_id: Uuid,
     tenant_id: TenantId,
     unread: Arc<Notify>,
@@ -820,7 +822,7 @@ async fn a_follow_ups_re_ask_reads_what_just_landed_as_current() {
         .unwrap();
     let tenant_id = TenantId::from_uuid(Uuid::new_v4());
     let notifier = Arc::new(ReaskingNotifier {
-        runtime: std::sync::OnceLock::new(),
+        runtime: OnceLock::new(),
         user_id,
         tenant_id,
         unread: Arc::new(Notify::new()),
@@ -978,7 +980,7 @@ async fn a_joined_ask_past_its_budget_is_owed_the_follow_up() {
     sleep(StdDuration::from_millis(100)).await;
 
     let joined_budget = StdDuration::from_millis(600);
-    let started = std::time::Instant::now();
+    let started = Instant::now();
     let unread = Arc::new(Notify::new());
     let second = read_live_window_within_budget(
         &runtime,
