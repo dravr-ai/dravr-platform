@@ -45,19 +45,33 @@ pub const fn units_context(system: UnitSystem) -> &'static str {
     }
 }
 
+/// The unit system a reply's reader reads.
+///
+/// Metric when `group_scoped` (several people read the reply), otherwise the
+/// sender `user_id`'s choice. The prompt's units section and the platform's
+/// own sentences (the envelope notice's pace) both follow it.
+pub(crate) async fn reader_units(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    group_scoped: bool,
+) -> UnitSystem {
+    if group_scoped {
+        UnitSystem::Metric
+    } else {
+        resolve_user_units(repos.unit_preferences.as_ref(), user_id).await
+    }
+}
+
 /// Append the reader's units section to `base_prompt`: metric when
-/// `group_scoped` (several people read the reply), otherwise the sender's.
+/// `group_scoped` (several people read the reply), otherwise the sender's
+/// (`reader_units`).
 pub async fn append_units_context(
     repos: &RepositoryRegistry,
     user_id: Uuid,
     group_scoped: bool,
     base_prompt: String,
 ) -> String {
-    let system = if group_scoped {
-        UnitSystem::Metric
-    } else {
-        resolve_user_units(repos.unit_preferences.as_ref(), user_id).await
-    };
+    let system = reader_units(repos, user_id, group_scoped).await;
     format!("{base_prompt}{}", units_context(system))
 }
 

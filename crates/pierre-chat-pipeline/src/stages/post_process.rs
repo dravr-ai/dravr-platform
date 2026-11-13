@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::{AgentRuntimeContext, CoachingPersona};
+use pierre_core::models::{AgentRuntimeContext, CoachingPersona, UnitSystem};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
 use tracing::warn;
@@ -113,6 +113,9 @@ pub(crate) struct PostProcessInputs<'a> {
     /// family's evidence envelope are the platform-written notice the reply
     /// carries; a plan day stored clean shows nothing.
     pub envelope_days: &'a [NoticeDay],
+    /// The units the reply's reader reads, which the notice writes a pace in
+    /// (`stages::units::reader_units`).
+    pub notice_units: UnitSystem,
     /// Whether this turn stands on evidence gathered for it — a tool ran, or
     /// the prefetch injected an activity block.
     ///
@@ -376,6 +379,7 @@ pub(crate) async fn post_process_assistant_reply(
         profile,
         tools_called,
         envelope_days,
+        notice_units,
         turn_was_grounded,
         roster_data_read,
         active_model,
@@ -403,6 +407,7 @@ pub(crate) async fn post_process_assistant_reply(
             &ctx.messaging_strings_registry,
             locale,
             NoticeReader::of(conv),
+            notice_units,
             envelope_days,
         )
     };
@@ -575,6 +580,7 @@ pub(crate) async fn post_process_assistant_reply(
         &ctx.messaging_strings_registry,
         locale,
         NoticeReader::of(conv),
+        notice_units,
         envelope_days,
     ) {
         Some(block) => append_block(content_blocks, block),
