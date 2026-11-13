@@ -2620,6 +2620,10 @@
         "profile": {
           "hint": "<num>{{covered}}</num> of <num>{{total}}</num> topics",
           "title": "Finish your profile"
+        },
+        "chatApp": {
+          "title": "Message me elsewhere too",
+          "doneHint": "{{app}} set up"
         }
       },
       "title": "Getting started"
@@ -2757,12 +2761,12 @@
     "attached": "Human coach attached",
     "attachedBadge": "Coach attached",
     "calendarWriteStep": "On {{platform}}, {{coach}} must also be your human coach there: open intervals.icu/athletes, click {{coach}} and pick the Coach role, not Follower.",
-    "cardDescription": "Build plans for the athletes you coach, with the coach-facing plan builders. No questions about your own training.",
+    "cardDescription": "Dravr reads your athletes' training, drafts plans you publish, and answers with you in their group.",
     "coach": "Coach",
-    "coachAndTrainCardDescription": "The coach-facing plan builders, plus an agent that follows your own training too.",
+    "coachAndTrainCardDescription": "Everything Dravr does for a coach, plus an agent that follows your own training too.",
     "detachQ": "Detach the human coach from this group? Their athlete links in this group end, and they lose access to the group's roster.",
     "detached": "The human coach has been detached from this group.",
-    "groupStepIntro": "Each athlete gets their own group: you as their coach, your athlete, and your agent answering in the thread alongside you. Start with your first athlete.",
+    "groupStepIntro": "One group per athlete: you, your athlete, and the agent that answers with you in the thread.",
     "group_detached": "{0} no longer has an attached human coach.",
     "group_role": "coach",
     "iCoachAndTrain": "I coach and I train",
@@ -2874,7 +2878,51 @@
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. Applies to this group only.",
     "shareTrainingPendingHint": "No coach yet. The coach who joins this group will see your training, your plan and your messages in its chat.",
     "sharingOnNotice": "Your coach sees your training in this group again.",
-    "sharingOffNotice": "Your coach no longer sees your training, your plan or your messages in this group."
+    "sharingOffNotice": "Your coach no longer sees your training, your plan or your messages in this group.",
+    "seat": {
+      "title": "You're not this group's coach yet",
+      "stripBody": "To see your athletes' training and build their plans, you need coach access. The Dravr team turns it on.",
+      "blockBody": "Until the Dravr team turns on your coach access, you can write in the room, but you can't build your athletes' plans, work privately with the agent or open your coach Home.",
+      "linkAccount": "Link a coach account",
+      "routesLabel": "Or link your coach account",
+      "pendingTitle": "Coach access requested on {{date}}",
+      "pendingBody": "The Dravr team is reviewing your request, usually within 24 hours.",
+      "pendingBlockTitle": "Coach access requested",
+      "timelineLabel": "Where your request stands",
+      "stepSent": "Request sent",
+      "stepSentWhen": "On {{date}} at {{time}}.",
+      "stepReview": "The Dravr team reviews it",
+      "stepReviewWhen": "Usually within 24 hours. A person turns on every coach access, never automatically.",
+      "stepSeat": "You're this group's coach",
+      "stepSeatWhat": "You'll see the training your athletes share with you, build their plans with the agent, and your coach Home will open.",
+      "stepDone": "done",
+      "stepNow": "in progress",
+      "declinedTitle": "Your coach access request was declined",
+      "declinedBody": "Declined on {{date}}. You can ask again.",
+      "askAgain": "Ask again",
+      "rosterNotYet": "You · not the coach yet",
+      "rosterPending": "You · coach access pending",
+      "subtitleToRequest": "coach access to request",
+      "subtitlePending": "coach access pending",
+      "subtitleDeclined": "coach access declined"
+    },
+    "stepSeat": "Coach seat",
+    "seatHeading": "Get your coach seat",
+    "seatIntro": "Link your coach account, or ask the team for it.",
+    "seatNeither": "I use neither →",
+    "seatSkip": "Skip for now",
+    "seatCoach": "You're the coach of your groups",
+    "seatRequestSent": "Request sent · usually within 24 h",
+    "seatRequestSentOn": "Sent {{date}}",
+    "seatChecking": "Checking your account…",
+    "seatNothing": "{{provider}} is connected, but it gave you no coach seat.",
+    "seatAskTeam": "Ask the Dravr team",
+    "inviteSeatCoach": "You're this group's coach",
+    "inviteSeatCoachBody": "You'll see their training as soon as they join.",
+    "inviteSeatPending": "You're not this group's coach yet",
+    "inviteSeatRequested": "Request sent {{date}}. The Dravr team usually answers within 24 h.",
+    "inviteSeatNotRequested": "You haven't asked for your seat yet.",
+    "inviteSeatMeanwhile": "Meanwhile, your athlete can already join the group and talk to the agent."
   },
   "messaging": {
     "account": {
@@ -3551,13 +3599,13 @@
     "skipForNow": "Skip for now",
     "startButton": "Start",
     "starting": "Starting…",
-    "stepAboutTraining": "About your training",
+    "stepAboutTraining": "Training",
     "stepAboutYou": "About you",
     "stepAgent": "Your team",
     "stepChatApp": "Chat app",
-    "stepConnect": "Connect",
+    "stepConnect": "Your data",
     "stepGroup": "Your group",
-    "stepHealthCheck": "Health check",
+    "stepHealthCheck": "Health",
     "stepLink": "Link",
     "stepOfLabel": "Step {{current}} of {{total}}: {{label}}",
     "team": {
@@ -3600,7 +3648,26 @@
     "analyticsConsentBody": "With your consent, PostHog records which features you use, tied to your account email, so we can see what helps and fix what doesn't. It stays off unless you say yes, and you can change your answer anytime in Settings.",
     "analyticsConsentAccept": "Yes, share usage analytics",
     "analyticsConsentDecline": "No thanks",
-    "analyticsConsentSaveFailed": "Your answer wasn't saved. Try again."
+    "analyticsConsentSaveFailed": "Your answer wasn't saved. Try again.",
+    "stepProfile": "Profile",
+    "stepInvite": "Invite",
+    "stepOf": "Step {{current}} of {{total}}",
+    "groupAthleteLabel": "Your athlete",
+    "groupAthletePlaceholder": "Their first name, e.g. Léa",
+    "groupGoalLabel": "Their goal (optional)",
+    "groupGoalPlaceholder": "e.g. Montréal Marathon",
+    "groupNameHint": "Filled in from your athlete. You can change it.",
+    "groupNameFromAthleteGoal": "{{athlete}} · {{goal}}",
+    "groupAgentLabel": "Group agent",
+    "groupAgentChange": "Change",
+    "groupAgentChangeAria": "Choose another agent for the group",
+    "groupInviteHeadingNamed": "Invite {{name}}",
+    "groupInviteIntroNamed": "Send this link to {{name}}: one tap joins “{{group}}”. It works for {{days}} days.",
+    "groupShareLink": "Share link",
+    "groupShowQr": "Show QR code",
+    "groupHideQr": "Hide QR code",
+    "groupDoneNamed": "Go to {{name}}'s group",
+    "groupInviteLinkIntro": "Send this link to your athlete: one tap joins “{{group}}”. It works for {{days}} days."
   },
   "password": {
     "change": "Change Password",
@@ -4517,5 +4584,17 @@
     "titleNoSpeech": "No Speech Detected",
     "titleTimeout": "Voice Input Timeout",
     "unknown": "Voice input failed."
+  },
+  "chatApp": {
+    "pickTitle": "Pick your app",
+    "useAnother": "Use another app",
+    "linkedToast": "{{app}} is set up",
+    "offer": {
+      "title": "Write to me from {{app}} too?",
+      "body": "You’ll be able to write to me from {{app}}, and your notifications will follow you there.",
+      "configure": "Set up {{app}}",
+      "notNow": "Not now",
+      "notNowFailed": "Your choice wasn’t saved. Try again."
+    }
   }
 }
