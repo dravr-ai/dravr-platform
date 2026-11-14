@@ -56,6 +56,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{CheckInCadence, TenantId, TopicSlug};
+use pierre_core::text_fold::fold_for_match;
 use pierre_database::repositories::{
     HarnessMemoryRepository, OnboardingStepRecord, TenantRepository, UserOnboardingRepository,
 };
@@ -275,22 +276,12 @@ const COACH_TOKENS: [&str; 6] = [
 /// the two-word French answer is listed as it is typed.
 const BOTH_TOKENS: [&str; 6] = ["both", "les deux", "deux", "ambos", "ambas", "beides"];
 
-/// Lowercase, trim, and fold the accents the token tables do not carry.
-///
-/// Only the accented characters that actually appear in the answers we accept —
-/// a general Unicode normaliser would be a dependency for six code points.
+/// The answer as the token tables spell it: folded for matching
+/// ([`fold_for_match`]: accents, case and spacing set aside), then stripped of
+/// the sentence punctuation a typed answer ends with.
 fn normalise(text: &str) -> String {
-    text.trim()
-        .to_lowercase()
+    fold_for_match(text)
         .chars()
-        .map(|c| match c {
-            'á' | 'à' | 'â' | 'ä' | 'ã' => 'a',
-            'é' | 'è' | 'ê' | 'ë' => 'e',
-            'í' | 'ì' | 'î' | 'ï' => 'i',
-            'ó' | 'ò' | 'ô' | 'ö' | 'õ' => 'o',
-            'ú' | 'ù' | 'û' | 'ü' => 'u',
-            other => other,
-        })
         .filter(|c| !matches!(c, '.' | '!' | ',' | ';' | ':'))
         .collect()
 }
@@ -735,6 +726,32 @@ mod tests {
         assert_eq!(parse_check_in("Täglich"), Some(CheckInCadence::Daily));
         assert_eq!(parse_check_in("hebdomadaire"), Some(CheckInCadence::Weekly));
         assert_eq!(parse_check_in("Jamais!"), Some(CheckInCadence::Off));
+    }
+
+    /// A phone keyboard can send an accent as its own combining mark, and a
+    /// thumb can double a space: neither changes the answer.
+    #[test]
+    fn an_answer_typed_with_a_combining_accent_or_a_doubled_space_still_parses() {
+        assert_eq!(
+            parse_yes_no("s\u{69}\u{301}"),
+            Some(true),
+            "bug: a decomposed `sí` is still `si`"
+        );
+        assert_eq!(
+            parse_yes_no("na\u{303}o"),
+            Some(false),
+            "bug: a decomposed `não` is still `nao`"
+        );
+        assert_eq!(
+            parse_persona("les  deux"),
+            Some(PersonaAnswer::CoachAndAthlete),
+            "bug: a doubled space keeps `les deux` apart from its token"
+        );
+        assert_eq!(
+            parse_check_in("Ta\u{308}glich"),
+            Some(CheckInCadence::Daily),
+            "bug: a decomposed `Täglich` is still `taglich`"
+        );
     }
 
     #[test]

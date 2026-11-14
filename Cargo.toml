@@ -71,6 +71,11 @@ dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0
 # takes an explicit expose_secret(), so no format of a config struct leaks one.
 secrecy = { version = "0.10.3", features = ["serde"] }
 
+# Canonical decomposition (NFD) for pierre_core::text_fold, the one fold a typed
+# name is matched through. Already in the graph through stringprep; named here
+# so the version every consumer sees is the one the workspace pins.
+unicode-normalization = "0.1.26"
+
 # ============================================================================
 # Build Profiles
 # ============================================================================
