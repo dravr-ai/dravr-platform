@@ -446,9 +446,12 @@ async fn fetch_mark_advances_freshness_without_rows() {
 /// A row's segments read only when its stored detail carries the
 /// `segment_efforts` key: an empty list is a read of a ride over no segment,
 /// a detail without the key read none, and a list copy that carries efforts
-/// of its own is not a detail read at all.
+/// of its own is not a detail read at all — not even once a detail without
+/// the key is stored over it, since only `detail_json` says the segments
+/// were read.
 #[tokio::test]
 async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
+    use pierre_core::models::SegmentEffort;
     use pierre_database::repositories::{ActivityDetail, CachedRowsQuery};
 
     common::init_server_config();
@@ -466,11 +469,40 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
     )
     .segment_efforts_opt(Some(vec![]))
     .build();
+    let listed_start = Utc::now() - Duration::days(5);
+    let listed_then_detailed = ActivityBuilder::new(
+        "listed-then-detailed",
+        "Listed, then detailed",
+        SportType::Ride,
+        listed_start,
+        3_600,
+        "strava",
+    )
+    .segment_efforts_opt(Some(vec![SegmentEffort {
+        id: "listed-effort".to_owned(),
+        segment_id: Some("611413".to_owned()),
+        name: "Remembrance".to_owned(),
+        elapsed_time: 412,
+        moving_time: Some(412),
+        start_date: listed_start + Duration::minutes(10),
+        distance: 1_820.5,
+        average_heart_rate: None,
+        max_heart_rate: None,
+        average_cadence: None,
+        average_watts: None,
+        kom_rank: None,
+        pr_rank: None,
+        climb_category: None,
+        average_grade: None,
+        elevation_gain: None,
+    }]))
+    .build();
     let rows = vec![
         activity("stamped", "strava", 1),
         activity("splits-only", "strava", 2),
         activity("unread", "strava", 3),
         with_list_efforts,
+        listed_then_detailed,
     ];
     repo.upsert_activities(user_id, &tenant_id, "strava", &rows)
         .await
@@ -483,11 +515,17 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
         description: Some("a description, no efforts".to_owned()),
         ..ActivityDetail::default()
     };
-    for (id, detail) in [("stamped", &stamped), ("splits-only", &splits_only)] {
-        assert!(repo
-            .store_activity_detail(user_id, &tenant_id, "strava", id, detail, None)
-            .await
-            .unwrap());
+    for (id, detail) in [
+        ("stamped", &stamped),
+        ("splits-only", &splits_only),
+        ("listed-then-detailed", &splits_only),
+    ] {
+        assert!(
+            repo.store_activity_detail(user_id, &tenant_id, "strava", id, detail, None)
+                .await
+                .unwrap(),
+            "bug: the detail of the stored row {id} is not written"
+        );
     }
 
     let read = repo
@@ -519,6 +557,21 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
     assert!(
         !segment_read("listed-efforts"),
         "bug: a list copy's own efforts read as a detail read of its segments"
+    );
+    let listed = read
+        .iter()
+        .find(|row| row.activity.id() == "listed-then-detailed")
+        .expect("listed-then-detailed is read");
+    assert_eq!(
+        listed.activity.segment_efforts().map(Vec::len),
+        Some(1),
+        "bug: the list copy's own effort is lost under a detail without the key, \
+         so this case no longer proves what it claims"
+    );
+    assert!(
+        !listed.segment_read,
+        "bug: a list copy's efforts merged under a stored detail without the key \
+         read as a detail read of its segments; only detail_json may say so"
     );
 }
 

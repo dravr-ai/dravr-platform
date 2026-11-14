@@ -836,7 +836,8 @@ async fn a_detail_walk_is_its_own_row_and_keeps_its_sport() {
 
 /// A claim handed back to wait for a spent budget's window gives its attempt
 /// back and is not claimed again before the instant it names; one handed back
-/// with no instant is due at once, as before.
+/// with no instant keeps the retry instant it already had, never reset to due
+/// at once.
 #[tokio::test]
 async fn a_paused_claim_waits_for_its_instant_and_keeps_its_attempts() {
     let db = create_test_db().await.unwrap();
@@ -894,6 +895,15 @@ async fn a_paused_claim_waits_for_its_instant_and_keeps_its_attempts() {
             .unwrap(),
         "the claim is handed back with no instant"
     );
+    assert!(
+        ledger
+            .claim_stale_backfill_jobs(claim_at(until - 1))
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a claim handed back with no instant lost the retry it had and is \
+         due before it"
+    );
     assert_eq!(
         ledger
             .claim_stale_backfill_jobs(claim_at(until))
@@ -901,7 +911,7 @@ async fn a_paused_claim_waits_for_its_instant_and_keeps_its_attempts() {
             .unwrap()
             .len(),
         1,
-        "bug: a claim handed back with no instant keeps the retry it had"
+        "bug: a claim handed back with no instant is due at the retry it had"
     );
 }
 
@@ -1480,5 +1490,80 @@ async fn a_detail_walk_with_no_floor_ends_only_under_its_lease() {
             .unwrap()
             .is_some(),
         "bug: a walk with no floor ends under its lease"
+    );
+}
+
+/// An owed detail walk with no floor reads down to the athlete's first
+/// activity, the widest window there is: an ask with a floor widens nothing
+/// below it, so the floor stays NULL, the total is still recounted, and the
+/// walk still ends only on a step that names no floor.
+#[tokio::test]
+async fn a_detail_walk_with_no_floor_keeps_none_when_widened() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut walk = ActivityBackfillJobRow {
+        after_ts: None,
+        walk_sport: Some("Ride".to_owned()),
+        ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
+    };
+    walk.progress.units_done = 4;
+    walk.progress.units_total = Some(10);
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: a detail walk with no floor is recorded"
+    );
+
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &WalkWiden {
+                    after_ts: 1_600_000_000,
+                    walk_sport: Some("Ride".to_owned()),
+                    units_left: 9,
+                },
+            )
+            .await
+            .unwrap(),
+        "bug: an owed walk with no floor is still matched by the widen, so the \
+         asker records no second walk"
+    );
+    let widened = owed_detail_walk(&db).await;
+    assert_eq!(
+        widened.after_ts, None,
+        "bug: a widen raised a walk with no floor to the ask's floor, narrowing \
+         the window it reads"
+    );
+    assert_eq!(
+        widened.progress.units_total,
+        Some(13),
+        "bug: the total is what is done plus what the new ask leaves unread"
+    );
+    assert_eq!(
+        widened.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the same sport stays"
+    );
+
+    let (_, lease) = claimed_detail_walk(&db).await;
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &last_step(Some(1_600_000_000)))
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a step that walked to the ask's floor ends a widened walk that has none"
+    );
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &last_step(None))
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a widened walk with no floor ends on a step that names none"
     );
 }
