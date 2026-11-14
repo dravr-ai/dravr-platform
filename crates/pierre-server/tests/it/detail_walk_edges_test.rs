@@ -21,24 +21,29 @@
 #![allow(missing_docs)]
 
 use crate::detail_walk_test::{
-    mock_strava, ride_listed_at, since, store_rides, walk_ended, walk_row, DAY, SESSION,
+    mock_strava, ride_listed_at, rows_under, since, store_rides, walk_ended, walk_row, DAY, SESSION,
 };
 use crate::history_walk_api_test::{open_window, server, strava_athlete, with_window};
+use crate::messaging_fixtures::{strings, CapturingChannel, FakeResolver};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{TimeZone, Utc};
+use pierre_contremaitre::messaging_strings::KEY_DETAIL_WALK_COMPLETE;
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::coverage::{IncompleteReason, Pending};
-use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
+use pierre_core::models::{Activity, ActivityBuilder, ConnectionStatus, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::BackfillJobState;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
+use pierre_services::oauth_flow::OAuthService;
+use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, DetailWalkAsk, DetailWalkAsked,
 };
-use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::runtime::{BackfillNotifier, ToolRuntime};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -567,5 +572,241 @@ async fn a_walk_widened_to_every_sport_reads_the_runs_above_its_cursor() {
         ),
         (BackfillJobState::Walked, 13, 13),
         "the widened walk reads the twelve rides and the run"
+    );
+}
+
+/// Ask until the run an earlier ask spawned has let the pair go: the ask
+/// that finds it still running records nothing.
+async fn ask_once_the_run_is_done(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant: TenantId,
+    ask: DetailWalkAsk<'_>,
+) -> DetailWalkAsked {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let asked = ask_detail_walk(runtime, user_id, tenant, oauth_providers::STRAVA, ask).await;
+        if asked != DetailWalkAsked::NotRecorded {
+            return asked;
+        }
+        assert!(Instant::now() < deadline, "the earlier run never ended");
+        sleep(Duration::from_millis(20)).await;
+    }
+}
+
+/// The grant is revoked while the walk reads a ride only the session
+/// listed: the grant's copy the walk would write before storing the read
+/// lands nothing under the purged grant, and the session's row keeps no
+/// effort it never read.
+#[tokio::test]
+async fn a_purge_while_a_ride_is_read_leaves_no_grant_copy() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let ride = now - 5 * DAY;
+    store_rides(&resources, user_id, tenant, SESSION, &[ride]).await;
+    open_window(&resources).await;
+
+    let gate = mock.hold_next_read();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let window = since(now - 10 * DAY);
+    assert_eq!(
+        ask_detail_walk(&runtime, user_id, tenant, oauth_providers::STRAVA, window).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the session's ride is owed"
+    );
+    mock.read_held().await;
+    OAuthService::new(resources.data(), Arc::clone(&resources.common.config))
+        .disconnect_provider(
+            user_id,
+            oauth_providers::STRAVA,
+            Some(tenant.as_uuid()),
+            DisconnectReason::ProviderRevoked,
+        )
+        .await
+        .unwrap();
+    gate.notify_one();
+    // The run that read the ride has let the pair go: it settled.
+    ask_once_the_run_is_done(&runtime, user_id, tenant, window).await;
+
+    assert!(
+        rows_under(&resources, user_id, tenant, oauth_providers::STRAVA)
+            .await
+            .is_empty(),
+        "bug: the walk wrote the grant's copy of a ride after the grant's purge"
+    );
+    let session = rows_under(&resources, user_id, tenant, SESSION).await;
+    assert_eq!(session.len(), 1, "the session's ride is kept");
+    assert!(
+        !session[0].segment_read,
+        "bug: the grant's read landed on the session's row"
+    );
+}
+
+/// Drop the athlete's stored Strava grant token, as a credential gone dead
+/// leaves the grant: nothing left to read with.
+async fn drop_grant_token(resources: &Arc<ServerContext>, user_id: Uuid) {
+    let sql = "DELETE FROM user_oauth_tokens WHERE user_id = $1 AND provider = 'strava'";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// A walk whose grant's credential is dead ends incomplete at its first
+/// step, without a retry, and the connection is flagged for a reconnect.
+#[tokio::test]
+async fn a_walk_whose_credential_is_dead_ends_incomplete() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
+    open_window(&resources).await;
+    drop_grant_token(&resources, user_id).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            since(now - 10 * DAY),
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the ride is owed"
+    );
+    // The ask's own run, and no sweep: a failure would leave the walk owed
+    // for a retry.
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let ended = loop {
+        let row = walk_row(&resources, user_id, tenant).await.unwrap();
+        if row.state != BackfillJobState::Owed {
+            break row;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "bug: a walk with a dead credential stays owed: {row:?}"
+        );
+        sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Incomplete,
+        "bug: a walk with a dead credential did not end incomplete"
+    );
+    assert!(mock.detail_reads().is_empty(), "no ride was read");
+    let flagged = resources
+        .common
+        .repos
+        .provider_connections
+        .get_for_user(user_id, Some(tenant))
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|connection| connection.provider == oauth_providers::STRAVA)
+        .map(|connection| connection.status);
+    assert_eq!(
+        flagged,
+        Some(ConnectionStatus::NeedsReauth),
+        "bug: the dead grant was not flagged for a reconnect"
+    );
+}
+
+/// Each walk that stores efforts tells its end in the athlete's personal
+/// thread through the real notifier: a later walk, asked later, posts again
+/// rather than being taken for the first one's post.
+#[tokio::test]
+async fn a_second_walk_posts_its_own_end() {
+    let (api_base, _mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let catalogue = strings();
+    if catalogue
+        .get_exact(KEY_DETAIL_WALK_COMPLETE, "en")
+        .is_none()
+    {
+        // The line is authored in dravr-contremaitre; until the pinned
+        // catalogue carries it, a stand-in names the count.
+        catalogue.update(
+            KEY_DETAIL_WALK_COMPLETE,
+            "en",
+            "{0}".to_owned(),
+            "stand-in".to_owned(),
+        );
+    }
+    let repos = Arc::clone(&resources.common.repos);
+    let notifier: Arc<dyn BackfillNotifier> = Arc::new(ServerBackfillNotifier::with_resolver(
+        Arc::clone(&repos),
+        catalogue,
+        Arc::new(FakeResolver::new(Arc::new(CapturingChannel::default()))),
+        Arc::from("detail-walk-edges-link-secret"),
+        "https://detail-walk-edges.example".to_owned(),
+    ));
+    let mut context = (*resources).clone();
+    context.mcp.backfill_notifier = Some(notifier);
+    let resources = Arc::new(context);
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    repos.users.update_locale(user_id, "en").await.unwrap();
+    let thread = repos
+        .chat
+        .create_conversation(
+            &user_id.to_string(),
+            tenant,
+            "test",
+            "test-model",
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .id;
+    let now = Utc::now().timestamp();
+    store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
+    open_window(&resources).await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let window = since(now - 10 * DAY);
+    assert_eq!(
+        ask_detail_walk(&runtime, user_id, tenant, oauth_providers::STRAVA, window).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the first ride is owed"
+    );
+    walk_ended(&resources, user_id, tenant).await;
+
+    // A second ride, then a second walk for it.
+    store_rides(&resources, user_id, tenant, SESSION, &[now - 3 * DAY]).await;
+    assert_eq!(
+        ask_once_the_run_is_done(&runtime, user_id, tenant, since(now - 10 * DAY)).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the second ride is owed"
+    );
+    walk_ended(&resources, user_id, tenant).await;
+
+    let posts = repos
+        .chat
+        .get_messages(&thread, &user_id.to_string(), tenant)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|message| message.role == "assistant")
+        .count();
+    assert_eq!(
+        posts, 2,
+        "bug: the second walk's end was taken for the first one's post"
     );
 }
