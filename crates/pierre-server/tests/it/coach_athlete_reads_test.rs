@@ -838,7 +838,7 @@ fn day(date: NaiveDate) -> String {
 /// The training reads, which take `athlete` over MCP and A2A: the first
 /// eight, and the rest of the class (carnet#1387 Phase 2). `export_routes`
 /// builds its schema from the same function as `extract_activity_streams`.
-pub(crate) const TRAINING_READS: [&str; 26] = [
+pub(crate) const TRAINING_READS: [&str; 27] = [
     "get_training_history",
     "analyze_training_load",
     "calculate_fitness_score",
@@ -852,6 +852,7 @@ pub(crate) const TRAINING_READS: [&str; 26] = [
     "compare_activities",
     "analyze_weather_impact",
     "export_latest_snapshot",
+    "get_segment_history",
     "analyze_performance_trends",
     "detect_patterns",
     "predict_performance",

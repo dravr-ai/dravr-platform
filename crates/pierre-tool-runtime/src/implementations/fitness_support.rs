@@ -298,10 +298,12 @@ impl ActivityRetrievalContext {
         let advice = (mode_used == "summary").then(|| {
             format!(
                 "Summary mode: activities from the last {DETAIL_WINDOW_DAYS} days carry full \
-                 detail (description, device, splits, laps, segment efforts); older rows \
-                 carry scalar fields only (HR avg/max, elevation, cadence, power, \
-                 calories, suffer score, moving time). Pass mode=detailed to read \
-                 the detail of older rows (up to {EXPLICIT_DETAIL_CAP} per call)."
+                 detail (description, device, splits, laps; segment efforts where the \
+                 connection that read them returns any); older rows carry scalar fields \
+                 only (HR avg/max, elevation, cadence, power, calories, suffer score, \
+                 moving time). Pass mode=detailed to read the detail of older rows (up to \
+                 {EXPLICIT_DETAIL_CAP} per call). For one segment's efforts across \
+                 activities, call get_segment_history."
             )
         });
 

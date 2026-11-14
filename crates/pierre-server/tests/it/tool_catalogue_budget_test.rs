@@ -62,7 +62,13 @@ use crate::common;
 /// definition), source, day and confidence the workout families resolve on.
 /// Every field was cut to a few words before measuring, which saved 231
 /// bytes. Measured 94,967 (~1,160 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 95_000;
+///
+/// 2026-11-14: 95,000 → 95,950 for `get_segment_history` (carnet#1483), one
+/// segment's efforts across the athlete's activities: five string arguments
+/// cut to a few words each, and a description that says how to read its
+/// coverage, whose first draft was cut by 202 bytes. Measured 95,914 (~947
+/// bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 95_950;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

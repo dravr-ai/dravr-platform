@@ -189,6 +189,10 @@ use pierre_tool_runtime::implementations::recipes::{
 use pierre_tool_runtime::implementations::routes::{
     DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
 };
+use pierre_tool_runtime::implementations::segments::{
+    AnsweredBy, GetSegmentHistoryTool, MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult,
+    SegmentSummary,
+};
 use pierre_tool_runtime::implementations::sleep::output::{
     RecoveryScoreResult, RestDayResult, SleepQualityResult, SleepScheduleResult, SleepTrendsResult,
 };
@@ -1319,6 +1323,100 @@ fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
         &windows,
         "get_heart_rate_series",
     );
+}
+
+/// Every coverage a segments answer carries: complete from the live
+/// listing, still being read with the walk's progress, and short of what
+/// could not be read, its reason an object.
+#[test]
+fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
+    use std::collections::BTreeMap;
+
+    use pierre_core::models::coverage::{
+        Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, WindowScope,
+    };
+
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let effort = |provider: &str| SegmentHistoryEffort {
+        provider: provider.to_owned(),
+        source: provider.to_owned(),
+        activity_id: "16101".to_owned(),
+        activity_name: Some("Morning ride".to_owned()),
+        start_date: "2026-11-07T13:10:00+00:00".to_owned(),
+        elapsed_time: 412,
+        moving_time: Some(410),
+        distance: 1_820.5,
+        average_heart_rate: Some(161),
+        average_watts: None,
+        pr_rank: Some(1),
+        kom_rank: None,
+        segment_id: Some("611413".to_owned()),
+        segment_name: "La Bête".to_owned(),
+    };
+    let coverage = |completeness, total, pending| Coverage {
+        completeness,
+        window: CoverageWindow {
+            scope: WindowScope::SegmentsRead,
+            asked_from: Some(day(2016, 11, 14)),
+            asked_to: Some(day(2026, 11, 14)),
+            total,
+            returned: 12,
+            ..CoverageWindow::default()
+        },
+        trustworthy_from: None,
+        pending,
+    };
+    let declared =
+        <GetSegmentHistoryTool as McpTool<dyn ToolRuntime>>::definition(&GetSegmentHistoryTool)
+            .output_schema;
+    for (answered_by, coverage) in [
+        (
+            AnsweredBy::LiveSegmentHistory,
+            coverage(Completeness::Complete, None, None),
+        ),
+        (
+            AnsweredBy::StoredDetails,
+            coverage(
+                Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
+                Some(40),
+                Some(Pending::detail_walk_running(12, Some(40), Some(1_728.0))),
+            ),
+        ),
+        (
+            AnsweredBy::StoredDetails,
+            coverage(
+                Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
+                Some(15),
+                None,
+            ),
+        ),
+    ] {
+        let sample = SegmentHistoryResult {
+            efforts: vec![effort("strava")],
+            segments: vec![MatchedSegment {
+                provider: "strava".to_owned(),
+                id: Some("611413".to_owned()),
+                name: "La Bête".to_owned(),
+            }],
+            summary: vec![SegmentSummary {
+                provider: "strava".to_owned(),
+                segment_id: Some("611413".to_owned()),
+                segment_name: "La Bête".to_owned(),
+                count: 1,
+                by_year: BTreeMap::from([("2026".to_owned(), 1)]),
+                best_elapsed_time: 412,
+                best_start_date: "2026-11-07T13:10:00+00:00".to_owned(),
+            }],
+            answered_by,
+            coverage,
+        };
+        assert_declares_and_accepts(
+            declared.clone(),
+            &output_schema_for::<SegmentHistoryResult>(),
+            &sample,
+            "get_segment_history",
+        );
+    }
 }
 
 /// The TOON arm is a different shape entirely, and it is the arm nobody would

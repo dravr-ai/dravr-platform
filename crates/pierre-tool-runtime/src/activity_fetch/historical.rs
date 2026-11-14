@@ -266,7 +266,11 @@ async fn history_walk_owed(
 /// ([`history_store_keys`]) reached `after_ts`, each record
 /// judged at its own key's current capture ([`historical_depth_covered`]).
 /// A record that cannot be read counts as absent.
-async fn history_depth_covered(
+///
+/// `get_segment_history` asks it too: a segments window deeper than the
+/// stored history is short of its activities before it is short of their
+/// efforts.
+pub(crate) async fn history_depth_covered(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,

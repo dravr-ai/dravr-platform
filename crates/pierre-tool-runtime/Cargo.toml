@@ -75,6 +75,9 @@ dravr-riviere = { workspace = true }
 async-trait = "0.1"
 bitflags = { version = "2.13", features = ["serde"] }
 chrono = { version = "0.4", features = ["serde"] }
+# The athlete's zone get_segment_history reads its window and years on
+# (pierre_core::civil_time::resolve_zone); the version pierre-core pins.
+chrono-tz = "0.10"
 futures-util = "0.3"
 lru = "0.18.5"
 secrecy = { workspace = true }

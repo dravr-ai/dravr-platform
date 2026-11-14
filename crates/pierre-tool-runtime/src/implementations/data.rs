@@ -16,6 +16,7 @@
 //! - `GetHealthSnapshotsTool` - Query stored health snapshots (body composition, vitals)
 //! - `ListDataSourcesTool` - List connected data sources (devices and providers)
 //! - `GetHeartRateSeriesTool` - Query stored intraday heart rate and HRV series
+//! - `GetSegmentHistoryTool` - Every effort the athlete made on one segment
 //!
 //! Stored-data tools (sleep sessions, recovery metrics, health snapshots, data
 //! sources) execute their query bodies inline. Provider-API tools (activities,
@@ -72,6 +73,7 @@ use crate::implementations::fitness_support::{
 };
 use crate::implementations::handler_bridge;
 use crate::implementations::planned_workouts::GetPlannedWorkoutsTool;
+use crate::implementations::segments::GetSegmentHistoryTool;
 use crate::implementations::stored_data::{
     GetHealthSnapshotsTool, GetRecoveryMetricsTool, GetSleepSessionsTool, ListDataSourcesTool,
 };
@@ -1133,6 +1135,7 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(GetHealthSnapshotsTool),
         Box::new(ListDataSourcesTool),
         Box::new(GetHeartRateSeriesTool),
+        Box::new(GetSegmentHistoryTool),
     ]
 }
 

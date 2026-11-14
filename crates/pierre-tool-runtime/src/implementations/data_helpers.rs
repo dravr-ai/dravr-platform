@@ -20,7 +20,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use serde_json::{json, Value};
 
 use pierre_core::models::coverage::{
-    Completeness, Coverage, CoverageWindow, IncompleteReason, WindowScope, WindowTotals,
+    Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, WindowScope, WindowTotals,
 };
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
@@ -219,6 +219,39 @@ pub fn activity_coverage(
         trustworthy_from: None,
         pending: None,
     })
+}
+
+/// Build the `coverage` a `get_segment_history` answer carries
+/// ([`WindowScope::SegmentsRead`]).
+///
+/// The window asked, `[asked_from, asked_to]`, with `window.total` the
+/// activities in it and `window.returned` those whose segment efforts were
+/// read; `None` for a total no read counted (Strava's live listing names
+/// only the activities it holds efforts of). Always present, unlike
+/// [`activity_coverage`]: a segment's efforts are never more than the
+/// activities read, so a model must always see how many those were.
+#[must_use]
+pub fn segments_read_coverage(
+    activities: Option<usize>,
+    read: usize,
+    asked: (NaiveDate, NaiveDate),
+    completeness: Completeness,
+    pending: Option<Pending>,
+) -> Coverage {
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    Coverage {
+        completeness,
+        window: CoverageWindow {
+            scope: WindowScope::SegmentsRead,
+            asked_from: Some(asked.0),
+            asked_to: Some(asked.1),
+            total: activities.map(count),
+            returned: count(read),
+            ..CoverageWindow::default()
+        },
+        trustworthy_from: None,
+        pending,
+    }
 }
 
 /// Build the `reconnect_required` sidecar for a window that was served WITHOUT

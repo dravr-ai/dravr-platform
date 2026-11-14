@@ -135,8 +135,19 @@ fn retrieval_context_advice_present_iff_summary_mode() {
         "bug: the advice names how to read older detail"
     );
     assert!(
-        advice.contains("splits, laps, segment efforts"),
+        advice.contains("splits, laps"),
         "bug: the advice names what the older rows omit"
+    );
+    // carnet#1483: a session's detail read carries no segment efforts, so the
+    // window's detail does not promise them; one segment's history is its own
+    // tool.
+    assert!(
+        !advice.contains("laps, segment efforts)"),
+        "bug: the advice promises segment efforts with every recent detail: {advice}"
+    );
+    assert!(
+        advice.contains("get_segment_history"),
+        "bug: the advice names the tool that answers per segment: {advice}"
     );
 
     // Detailed mode: no trade-off to surface, no advice.

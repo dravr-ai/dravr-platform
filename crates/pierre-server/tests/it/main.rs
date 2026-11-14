@@ -756,6 +756,7 @@ mod security_headers_edge_test;
 mod security_utils_comprehensive_test;
 mod seed_locale_postgresql_test;
 mod seed_locale_test;
+mod segment_history_test;
 mod server_config_injection_test;
 mod server_shutdown_test;
 mod session_refresh_tokens_postgresql_test;
