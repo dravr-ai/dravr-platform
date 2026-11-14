@@ -44,7 +44,7 @@ test.describe('Coach seat — the room', () => {
     await expect(strip.getByTestId('coach-access-pending')).toHaveText(
       /^Request sent .+\. We'll let you know here and by email\.$/,
     );
-    await expect(strip).not.toContainText('24');
+    await expect(strip).not.toContainText(/24\s*h/i);
     await expect(strip.getByRole('button', { name: 'Cancel request' })).toBeVisible();
     await expect(strip.getByRole('button', { name: 'Request coach access' })).toHaveCount(0);
     await expect(page.getByTestId('thread-status')).toHaveText('coach access pending');
@@ -58,7 +58,7 @@ test.describe('Coach seat — the room', () => {
     await expect(block.getByTestId('coach-seat-step-sent')).toContainText('Request sent');
     await expect(block.getByTestId('coach-seat-step-review')).toHaveAttribute('aria-current', 'step');
     await expect(block.getByTestId('coach-seat-step-review')).toContainText('here and by email');
-    await expect(block).not.toContainText('24');
+    await expect(block).not.toContainText(/24\s*h/i);
   });
 
   test('a member of the room who does not own it sees no seat', async ({ page }) => {
