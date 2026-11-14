@@ -24,6 +24,7 @@ use crate::detail_walk_test::{
     mock_strava, ride_listed_at, rows_under, since, store_rides, walk_ended, walk_row, DAY, SESSION,
 };
 use crate::history_walk_api_test::{open_window, server, strava_athlete, with_window};
+use crate::history_walk_handoff_test::holding_writes;
 use crate::messaging_fixtures::{strings, CapturingChannel, FakeResolver};
 
 use std::sync::Arc;
@@ -44,7 +45,7 @@ use pierre_tool_runtime::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, DetailWalkAsk, DetailWalkAsked,
 };
 use pierre_tool_runtime::runtime::{BackfillNotifier, ToolRuntime};
-use tokio::time::sleep;
+use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// The trigger, and on `PostgreSQL` the function behind it, that refuses
@@ -644,6 +645,71 @@ async fn a_purge_while_a_ride_is_read_leaves_no_grant_copy() {
     );
 }
 
+/// The grant is revoked after the walk's step found its row still owed and
+/// before the grant's copy of a ride only the session listed landed: the
+/// copy lands after the purge, and the step, reading the purge once it
+/// wrote, takes the copy back. Nothing of the purged grant is left.
+#[tokio::test]
+async fn a_purge_landing_while_the_grant_copy_is_written_takes_it_back() {
+    let (api_base, _mock) = mock_strava().await;
+    let (resources, store) = holding_writes(&server(&api_base, 400).await);
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
+    open_window(&resources).await;
+
+    let write = store.hold_next_write(oauth_providers::STRAVA);
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            since(now - 10 * DAY),
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the session's ride is owed"
+    );
+    timeout(Duration::from_secs(10), write.reached.notified())
+        .await
+        .expect("the grant's copy never reached the store");
+    OAuthService::new(resources.data(), Arc::clone(&resources.common.config))
+        .disconnect_provider(
+            user_id,
+            oauth_providers::STRAVA,
+            Some(tenant.as_uuid()),
+            DisconnectReason::ProviderRevoked,
+        )
+        .await
+        .unwrap();
+    write.gate.notify_one();
+    timeout(Duration::from_secs(10), write.landed.notified())
+        .await
+        .expect("the held copy never landed");
+    // The step's own check follows its write; give it a few seconds.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !rows_under(&resources, user_id, tenant, oauth_providers::STRAVA)
+        .await
+        .is_empty()
+        && Instant::now() < deadline
+    {
+        sleep(Duration::from_millis(50)).await;
+    }
+    assert!(
+        rows_under(&resources, user_id, tenant, oauth_providers::STRAVA)
+            .await
+            .is_empty(),
+        "bug: the grant's copy that landed after the grant's purge was left in the store"
+    );
+    assert_eq!(
+        rows_under(&resources, user_id, tenant, SESSION).await.len(),
+        1,
+        "the session's ride stays with the session"
+    );
+}
+
 /// Drop the athlete's stored Strava grant token, as a credential gone dead
 /// leaves the grant: nothing left to read with.
 async fn drop_grant_token(resources: &Arc<ServerContext>, user_id: Uuid) {
@@ -656,10 +722,11 @@ async fn drop_grant_token(resources: &Arc<ServerContext>, user_id: Uuid) {
                 .await
                 .unwrap();
         }
+        // The token table's user id is a UUID on Postgres.
         #[cfg(feature = "postgresql")]
         DatabaseBackend::PostgreSQL(db) => {
             sqlx::query(sql)
-                .bind(user_id.to_string())
+                .bind(user_id)
                 .execute(db.pool())
                 .await
                 .unwrap();

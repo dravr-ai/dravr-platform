@@ -1863,7 +1863,7 @@ async fn a_termination_settles_a_purged_walk_the_sweep_would_have_reopened() {
 /// once armed, the next write of `provider` waits for the test before it
 /// lands, so a purge can commit between a step's check of its row and its
 /// write.
-struct HeldWrite {
+pub(crate) struct HeldWrite {
     inner: Arc<dyn LiveActivityStore>,
     armed: Mutex<Option<Hold>>,
 }
@@ -1872,17 +1872,17 @@ struct HeldWrite {
 /// it land, the signals that it reached the store and that it landed, and,
 /// when set, the gate that lets the write return to its step once landed.
 #[derive(Clone)]
-struct Hold {
+pub(crate) struct Hold {
     provider: String,
-    gate: Arc<Notify>,
-    reached: Arc<Notify>,
-    landed: Arc<Notify>,
+    pub(crate) gate: Arc<Notify>,
+    pub(crate) reached: Arc<Notify>,
+    pub(crate) landed: Arc<Notify>,
     resume: Option<Arc<Notify>>,
 }
 
 impl HeldWrite {
     /// Hold the next write of `provider`.
-    fn hold_next_write(&self, provider: &str) -> Hold {
+    pub(crate) fn hold_next_write(&self, provider: &str) -> Hold {
         let hold = Hold {
             provider: provider.to_owned(),
             gate: Arc::new(Notify::new()),
@@ -2067,18 +2067,27 @@ impl LiveActivityStore for HeldWrite {
     }
 }
 
+/// `resources` writing every activity through a store whose writes the
+/// test can hold ([`HeldWrite`]), and that store.
+pub(crate) fn holding_writes(
+    resources: &Arc<ServerContext>,
+) -> (Arc<ServerContext>, Arc<HeldWrite>) {
+    let mut context = (**resources).clone();
+    let held = Arc::new(HeldWrite {
+        inner: Arc::clone(&context.common.live_activities),
+        armed: Mutex::new(None),
+    });
+    let store: Arc<dyn LiveActivityStore> = held.clone();
+    context.common.live_activities = store;
+    (Arc::new(context), held)
+}
+
 impl Fixture {
     /// Write every activity through a store whose writes the test can hold
     /// ([`HeldWrite`]), before any walk runs.
     fn hold_writes(&mut self) -> Arc<HeldWrite> {
-        let mut context = (*self.resources).clone();
-        let held = Arc::new(HeldWrite {
-            inner: Arc::clone(&context.common.live_activities),
-            armed: Mutex::new(None),
-        });
-        let store: Arc<dyn LiveActivityStore> = held.clone();
-        context.common.live_activities = store;
-        self.resources = Arc::new(context);
+        let (resources, held) = holding_writes(&self.resources);
+        self.resources = resources;
         held
     }
 }

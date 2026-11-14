@@ -1289,7 +1289,10 @@ async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
     let user = Uuid::new_v4();
     let mut walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
     walk.walk_sport = Some("Ride".to_owned());
-    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "the ride walk is recorded"
+    );
     let (_, lease) = claimed_detail_walk(&db).await;
     let step = JobProgressStep {
         before_ts: 1_705_000_000,
@@ -1298,7 +1301,10 @@ async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
         secs_per_unit: None,
         floor: None,
     };
-    assert!(ledger.record_job_progress(&lease, step).await.unwrap());
+    assert!(
+        ledger.record_job_progress(&lease, step).await.unwrap(),
+        "the first step moves the cursor below the window's top"
+    );
     let (_, lease) = claimed_detail_walk(&db).await;
 
     let same_sport = WalkWiden {
@@ -1306,10 +1312,13 @@ async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
         walk_sport: Some("Ride".to_owned()),
         units_left: 2,
     };
-    assert!(ledger
-        .widen_detail_walk(user, tenant, PROVIDER, &same_sport)
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .widen_detail_walk(user, tenant, PROVIDER, &same_sport)
+            .await
+            .unwrap(),
+        "an ask of the same sport widens the owed walk"
+    );
     let row = ledger
         .detail_walk_row(user, tenant, PROVIDER)
         .await
@@ -1325,10 +1334,13 @@ async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
         walk_sport: None,
         ..same_sport
     };
-    assert!(ledger
-        .widen_detail_walk(user, tenant, PROVIDER, &every_sport)
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .widen_detail_walk(user, tenant, PROVIDER, &every_sport)
+            .await
+            .unwrap(),
+        "an ask of every sport widens the owed walk"
+    );
     let row = ledger
         .detail_walk_row(user, tenant, PROVIDER)
         .await
