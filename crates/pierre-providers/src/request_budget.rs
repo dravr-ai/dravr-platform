@@ -247,6 +247,19 @@ impl Budget {
     }
 }
 
+/// One window a request is taken from: the `budget` counted under `key`,
+/// of which the request may find at most `share_percent` spent.
+///
+/// Each window carries its own share, so the windows a request fits are not
+/// all scaled alike: the provider's windows at the share of the running task,
+/// a window already sized for one kind of work at the whole of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Window {
+    key: String,
+    budget: Budget,
+    share_percent: u32,
+}
+
 /// An app's windows at a provider that sizes them by the athletes who
 /// granted the app: a daily pool of `per_grant` requests for each of them,
 /// between `min_daily` and `max_daily`, and a rolling `short_window` of the
@@ -532,8 +545,8 @@ impl ProviderRateLimiter {
         } else {
             100
         };
-        let windows = self.windows_for(provider, holder).await;
-        let status = self.take(&windows, share).await?;
+        let windows = self.windows_for(provider, holder, share).await;
+        let status = self.take(&windows).await?;
         if let RateLimitStatus::Exceeded { retry_after } = &status {
             // No app: the windows spent are a personal API key's own.
             let app = holder.app();
@@ -625,9 +638,15 @@ impl ProviderRateLimiter {
     }
 
     /// Every window a request to `provider` counted for `holder` is taken
-    /// from, each with the counter key it is counted under: an app's, or a
-    /// personal key's.
-    async fn windows_for(&self, provider: &str, holder: &Holder) -> Vec<(String, Budget)> {
+    /// from, each with the counter key it is counted under, an app's or a
+    /// personal key's, and the `share_percent` of it the running task may
+    /// spend.
+    async fn windows_for(
+        &self,
+        provider: &str,
+        holder: &Holder,
+        share_percent: u32,
+    ) -> Vec<Window> {
         let (key, budgets) = match holder {
             Holder::App { app, daily_limit } => (
                 budget_counter_key(provider, app),
@@ -640,34 +659,34 @@ impl ProviderRateLimiter {
         };
         budgets
             .into_iter()
-            .map(|budget| (key.clone(), budget))
+            .map(|budget| Window {
+                key: key.clone(),
+                budget,
+                share_percent,
+            })
             .collect()
     }
 
     /// Take one request from every one of `windows` that holds fewer than
-    /// `share_percent` of its budget; when one does not, give back the
-    /// windows already taken and say how long until that one resets.
-    async fn take(
-        &self,
-        windows: &[(String, Budget)],
-        share_percent: u32,
-    ) -> AppResult<RateLimitStatus> {
+    /// its share of its budget; when one does not, give back the windows
+    /// already taken and say how long until that one resets.
+    async fn take(&self, windows: &[Window]) -> AppResult<RateLimitStatus> {
         let now = Utc::now();
         let mut taken: Vec<(&str, String)> = Vec::with_capacity(windows.len());
-        for (key, budget) in windows {
-            let period = budget_period(now, budget.window);
+        for window in windows {
+            let period = budget_period(now, window.budget.window);
             let landed = self
                 .counters
                 .increment_counter_below(
                     PLATFORM_SCOPE,
                     PLATFORM_SCOPE,
-                    key,
+                    &window.key,
                     &period,
-                    budget.allowance(share_percent),
+                    window.budget.allowance(window.share_percent),
                 )
                 .await?;
             if landed {
-                taken.push((key, period));
+                taken.push((&window.key, period));
                 continue;
             }
             for (key, period) in &taken {
@@ -675,7 +694,7 @@ impl ProviderRateLimiter {
                     .increment_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, key, period, -1)
                     .await?;
             }
-            let (_, end_ms) = bucket_bounds(now, budget.window);
+            let (_, end_ms) = bucket_bounds(now, window.budget.window);
             let retry_ms = u64::try_from(end_ms - now.timestamp_millis()).unwrap_or(0);
             return Ok(RateLimitStatus::Exceeded {
                 retry_after: Duration::from_millis(retry_ms),
