@@ -655,6 +655,7 @@ impl AuthService {
     /// where no refresh over the network belongs. `None` when no token is
     /// stored, the store cannot be read (logged), or nothing counts its
     /// calls.
+    #[cfg(feature = "tools-data")]
     pub(crate) async fn stored_request_budget(
         &self,
         provider_name: &str,
