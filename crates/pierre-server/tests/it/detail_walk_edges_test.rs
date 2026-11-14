@@ -22,7 +22,7 @@
 
 use crate::detail_walk_test::{
     mock_strava, ride_listed_at, rows_under, since, store_rides, walk_ended, walk_row, MockStrava,
-    DAY, SESSION,
+    DAY, SESSION, WALK_DEADLINE,
 };
 use crate::history_walk_api_test::{open_window, server, strava_athlete, with_window};
 use crate::history_walk_handoff_test::holding_writes;
@@ -995,6 +995,7 @@ async fn a_second_walk_posts_its_own_end() {
         "the first ride is owed"
     );
     walk_ended(&resources, user_id, tenant).await;
+    posts_reach(&resources, user_id, tenant, &thread, 1).await;
 
     // A second ride, then a second walk for it.
     store_rides(&resources, user_id, tenant, SESSION, &[now - 3 * DAY]).await;
@@ -1004,17 +1005,47 @@ async fn a_second_walk_posts_its_own_end() {
         "the second ride is owed"
     );
     walk_ended(&resources, user_id, tenant).await;
+    posts_reach(&resources, user_id, tenant, &thread, 2).await;
+}
 
-    let posts = repos
+/// The assistant posts in `thread`.
+async fn posts_in(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    thread: &str,
+) -> usize {
+    resources
+        .common
+        .repos
         .chat
-        .get_messages(&thread, &user_id.to_string(), tenant)
+        .get_messages(thread, &user_id.to_string(), tenant)
         .await
         .unwrap()
         .into_iter()
         .filter(|message| message.role == "assistant")
-        .count();
+        .count()
+}
+
+/// Wait until `thread` holds `expected` posts, then hold that it holds no
+/// more. A walk posts its end after it ends its row, so the row reading
+/// ended does not yet say the post landed: on a slow database the post
+/// trails it. A post that never comes fails at the deadline.
+async fn posts_reach(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    thread: &str,
+    expected: usize,
+) {
+    let deadline = Instant::now() + WALK_DEADLINE;
+    let mut posts = posts_in(resources, user_id, tenant, thread).await;
+    while posts < expected && Instant::now() < deadline {
+        sleep(Duration::from_millis(50)).await;
+        posts = posts_in(resources, user_id, tenant, thread).await;
+    }
     assert_eq!(
-        posts, 2,
-        "bug: the second walk's end was taken for the first one's post"
+        posts, expected,
+        "bug: the walk ended with {posts} posts in the thread, not {expected}: a later walk's end was taken for an earlier one's post, or a walk posted twice"
     );
 }

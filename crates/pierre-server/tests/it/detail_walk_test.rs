@@ -68,7 +68,7 @@ use uuid::Uuid;
 pub(crate) const DAY: i64 = 86_400;
 
 /// How long a walk gets to end before the test gives up.
-const WALK_DEADLINE: Duration = Duration::from_secs(30);
+pub(crate) const WALK_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The key the athlete's session files its rides under.
 pub(crate) const SESSION: &str = "sciotte";
