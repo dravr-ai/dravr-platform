@@ -222,7 +222,7 @@ export function DayRow({ day }: { day: PlanDay }) {
         )}
         {day.outside_evidence ? (
           <View className="mt-1 self-start rounded-full bg-warning/15 px-3 py-1">
-            <Text className="text-xs font-medium text-on-warning-container">{t('plan.card.envelope.badge')}</Text>
+            <Text className="text-xs font-medium text-on-warning-container">{day.outside_evidence}</Text>
           </View>
         ) : null}
         {day.evidence ? <EvidenceChip evidence={day.evidence} /> : null}

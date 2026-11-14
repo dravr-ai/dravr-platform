@@ -99,10 +99,12 @@ export interface PlanDay {
   template_slug?: string;
   template_source?: PlanTemplateSource;
   /**
-   * The envelope check found the session outside its family's evidence. The
-   * reply that saved it carried the notice saying why.
+   * The warning the card marks the day with when the envelope check found the
+   * session outside its family's evidence, resolved by the server in the
+   * reader's language. The reply that saved it carried the notice saying why.
+   * Absent otherwise.
    */
-  outside_evidence?: boolean;
+  outside_evidence?: string;
   /**
    * Where the session's evidence sits when it is weaker than a trial in this
    * sport without a qualifier: one chip, resolved by the server in the

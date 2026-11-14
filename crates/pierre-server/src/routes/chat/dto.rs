@@ -7,6 +7,7 @@
 use chrono::NaiveDate;
 use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
     is_turn_marker_block, ConversationParticipant, ConversationRecord, InputSource,
@@ -15,6 +16,7 @@ use pierre_core::models::{
 };
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
+use pierre_services::plan_card_history::word_stored_outside_evidence;
 use pierre_tool_runtime::implementations::training_plans_output::CalendarPushOutcome;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -47,11 +49,20 @@ pub(super) struct StoredBlocks {
 /// the message: one malformed chart must never cost the athlete the reply
 /// carrying it. Absent parts are `None`, so the fields are omitted from the
 /// response entirely.
+///
+/// A stored plan card's outside-the-evidence mark is worded in `locale` from
+/// `registry` first, as a live card words it: snapshots saved from 079ffba87
+/// until carnet#1552 store it as a bool ([`word_stored_outside_evidence`]).
 #[must_use]
-pub(super) fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks {
-    let Some(entries) = stored.and_then(parse_stored_specs) else {
+pub(super) fn resolve_stored_blocks(
+    stored: Option<&str>,
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+) -> StoredBlocks {
+    let Some(mut entries) = stored.and_then(parse_stored_specs) else {
         return StoredBlocks::default();
     };
+    word_stored_outside_evidence(&mut entries, registry, locale);
     let block_type = |entry: &Value| entry.get("type").and_then(Value::as_str).map(str::to_owned);
     // Turn markers — who wrote a question, which question a stopped notice
     // closed — are bookkeeping about the row and reach no client here; a room

@@ -194,13 +194,32 @@ describe('WorkoutPlanCard', () => {
   // on no other.
   it('marks only the day the envelope check found outside the evidence', () => {
     const marked = plan();
-    marked.weeks[0].days[0] = { ...marked.weeks[0].days[0], outside_evidence: true };
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      outside_evidence: 'Outside the evidence',
+    };
     const { getByTestId, getAllByText } = render(<WorkoutPlanCard plan={marked} />);
 
     expect(
       within(getByTestId('workout-plan-day-2026-09-15')).getByText('Outside the evidence'),
     ).toBeTruthy();
     expect(getAllByText('Outside the evidence')).toHaveLength(1);
+  });
+
+  // carnet#1552: the warning comes resolved from the server, in the reader's
+  // language, and the card prints it as given.
+  it('prints the warning in the words the server resolved', () => {
+    const marked = plan();
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      outside_evidence: 'Hors des données probantes',
+    };
+    const { getByTestId, queryByText } = render(<WorkoutPlanCard plan={marked} />);
+
+    expect(
+      within(getByTestId('workout-plan-day-2026-09-15')).getByText('Hors des données probantes'),
+    ).toBeTruthy();
+    expect(queryByText('Outside the evidence')).toBeNull();
   });
 
   it('marks no day when the envelope check found nothing', () => {

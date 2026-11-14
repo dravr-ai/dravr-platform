@@ -125,6 +125,17 @@ pub fn counts_as_line(
     (!line.trim().is_empty()).then_some(line)
 }
 
+/// The warning on a day saved outside its family's evidence, in `locale`'s
+/// words; `None` when the string is missing, as for a chip.
+///
+/// The plan card carries it and `/plan` notes it, so both print the one
+/// label (carnet#1552).
+#[must_use]
+pub fn outside_evidence_label(strings: &MessagingStringsRegistry, locale: &str) -> Option<String> {
+    let label = strings.get(KEY_EVIDENCE_OUTSIDE, locale);
+    (!label.is_empty()).then_some(label)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -213,6 +224,31 @@ mod tests {
             counts_as_line(&strings, "en", WorkoutPurpose::Threshold).as_deref(),
             Some("Counts as threshold work"),
             "bug: the relabel line names the purpose in the reader's words"
+        );
+    }
+
+    #[test]
+    fn the_outside_warning_reads_in_the_readers_language_or_not_at_all() {
+        let strings = MessagingStringsRegistry::new();
+        assert_eq!(
+            outside_evidence_label(&strings, "en").as_deref(),
+            Some("Outside the evidence"),
+            "bug: the warning reads the catalogue's English"
+        );
+        assert_eq!(
+            outside_evidence_label(&strings, "fr").as_deref(),
+            Some("Hors des données probantes"),
+            "bug: the warning follows the reader's locale"
+        );
+
+        let blank = MessagingStringsRegistry::new();
+        for locale in ["en", "fr"] {
+            blank.update(KEY_EVIDENCE_OUTSIDE, locale, String::new(), String::new());
+        }
+        assert_eq!(
+            outside_evidence_label(&blank, "fr"),
+            None,
+            "bug: a missing warning string prints nothing, never an empty label"
         );
     }
 

@@ -192,11 +192,14 @@ pub struct DayCard {
     /// Which tier the template came from.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template_source: Option<TemplateSource>,
-    /// Whether the envelope check found the session outside its family's
-    /// evidence, as stored with the day: the card marks it, and the reply that
-    /// saved it carried the notice saying why (carnet#1495). Absent when not.
-    #[serde(skip_serializing_if = "std::ops::Not::not")]
-    pub outside_evidence: bool,
+    /// The warning the card marks a day with when the envelope check found the
+    /// session outside its family's evidence, as stored with the day, in the
+    /// reader's words (`messaging.evidence.outside`); the reply that saved it
+    /// carried the notice saying why (carnet#1495). The clients print it as
+    /// given (carnet#1552). Absent when the check found nothing, and when the
+    /// string is missing, as for the chip.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub outside_evidence: Option<String>,
     /// Where the day's evidence sits when it is weaker than a trial in this
     /// sport without a qualifier: one chip, the weakest evidence winning
     /// (carnet#1495). Absent otherwise, and on a day no family measured.
@@ -228,7 +231,7 @@ impl PlanCard {
     /// Project a stored plan and its weeks for `today`.
     ///
     /// `registry` and `locale` name the plan's flavour, and each family day's
-    /// evidence chip and relabel line, in the athlete's own words. `fueling`
+    /// warning, evidence chip and relabel line, in the athlete's own words. `fueling`
     /// decides whether a day's stored rates are shown or withheld.
     #[must_use]
     pub fn build(
@@ -435,8 +438,9 @@ fn week_card(
     }
 }
 
-/// One stored day as the card shows it, its evidence chip and relabel line in
-/// `locale`'s words from the badge and purpose the save stored.
+/// One stored day as the card shows it, its outside-the-evidence warning,
+/// evidence chip and relabel line in `locale`'s words from the findings, badge
+/// and purpose the save stored.
 fn day_card(
     day: &PlannedDay,
     fueling: &FuelingDisclosure,
@@ -459,6 +463,9 @@ fn day_card(
     let counts_as = envelope
         .and_then(|envelope| envelope.relabelled_purpose)
         .and_then(|purpose| evidence_strings::counts_as_line(registry, locale, purpose));
+    let outside_evidence = envelope
+        .filter(|envelope| !envelope.findings.is_empty())
+        .and_then(|_| evidence_strings::outside_evidence_label(registry, locale));
     DayCard {
         date: day.date.clone(),
         sport: day.sport.clone(),
@@ -471,7 +478,7 @@ fn day_card(
         fueling_withheld,
         template_slug: day.template_slug.clone(),
         template_source: day.template_source,
-        outside_evidence: envelope.is_some_and(|envelope| !envelope.findings.is_empty()),
+        outside_evidence,
         evidence,
         counts_as,
     }
@@ -666,6 +673,7 @@ async fn load_active_plan(
 mod tests {
     use super::*;
     use chrono::Utc;
+    use pierre_contremaitre::evidence_strings::KEY_EVIDENCE_OUTSIDE;
     use pierre_memory::training_plans::{RacePriority, WeekStatus};
 
     fn week(week_start: &str) -> PlanWeek {
@@ -794,9 +802,9 @@ mod tests {
         );
     }
 
-    /// A day the envelope check found something on is marked on its card; a
-    /// day it found nothing on, or never measured, carries no mark at all
-    /// (carnet#1495).
+    /// A day the envelope check found something on is marked on its card with
+    /// the warning in the reader's words; a day it found nothing on, or never
+    /// measured, carries no mark at all (carnet#1495, carnet#1552).
     #[test]
     fn only_a_day_with_an_envelope_finding_is_marked_outside_the_evidence() {
         let day = |envelope: serde_json::Value| -> PlannedDay {
@@ -818,14 +826,43 @@ mod tests {
             &strings,
             "en",
         );
-        assert!(
-            outside.outside_evidence,
-            "bug: a stored finding marks the day"
+        assert_eq!(
+            outside.outside_evidence.as_deref(),
+            Some("Outside the evidence"),
+            "bug: a stored finding marks the day with the catalogue's warning"
         );
         assert_eq!(
             serde_json::to_value(&outside).unwrap()["outside_evidence"],
-            true,
-            "bug: the mark reaches the wire"
+            "Outside the evidence",
+            "bug: the warning reaches the wire as the label the clients print"
+        );
+        assert_eq!(
+            day_card(
+                &day(serde_json::json!({ "findings": [finding] })),
+                &fueling,
+                &strings,
+                "fr",
+            )
+            .outside_evidence
+            .as_deref(),
+            Some("Hors des données probantes"),
+            "bug: the warning follows the reader's locale, as the chip does"
+        );
+
+        let blank = MessagingStringsRegistry::new();
+        blank.update(KEY_EVIDENCE_OUTSIDE, "en", String::new(), String::new());
+        let unworded = day_card(
+            &day(serde_json::json!({ "findings": [finding] })),
+            &fueling,
+            &blank,
+            "en",
+        );
+        assert!(
+            serde_json::to_value(&unworded)
+                .unwrap()
+                .get("outside_evidence")
+                .is_none(),
+            "bug: a missing warning string never reaches the wire as an empty label"
         );
 
         for clean in [
@@ -833,8 +870,8 @@ mod tests {
             serde_json::Value::Null,
         ] {
             let card = day_card(&day(clean), &fueling, &strings, "en");
-            assert!(
-                !card.outside_evidence,
+            assert_eq!(
+                card.outside_evidence, None,
                 "bug: a day with no finding is not marked"
             );
             assert!(

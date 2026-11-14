@@ -121,10 +121,11 @@ pub(super) async fn get_messages(
     // the caller (carnet#1249).
     let quotes = quote_reading(&resources.common.repos, &conversation, auth.user_id).await;
 
+    let registry = &resources.mcp.messaging_strings_registry;
     let messages_list: Vec<MessageResponse> = messages
         .into_iter()
         .map(|m| {
-            let blocks = resolve_stored_blocks(m.content_blocks.as_deref(), &locale);
+            let blocks = resolve_stored_blocks(m.content_blocks.as_deref(), registry, &locale);
             let quote = quotes.quote_of(&m);
             MessageResponse {
                 id: m.id,

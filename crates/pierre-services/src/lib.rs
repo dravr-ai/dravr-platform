@@ -145,6 +145,10 @@ pub mod agent_package_repair;
 pub mod fortnight;
 pub mod plan_card;
 
+/// Stored plan cards read back from history: a day's outside-the-evidence
+/// mark worded as a live card words it (carnet#1552)
+pub mod plan_card_history;
+
 /// Agent-selection recording — the one emit site for `agent.selected`
 pub mod agent_selection;
 

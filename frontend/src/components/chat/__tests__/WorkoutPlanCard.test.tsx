@@ -183,10 +183,27 @@ describe('WorkoutPlanCard', () => {
   // on no other.
   it('marks only the day the envelope check found outside the evidence', () => {
     const marked = plan();
-    marked.weeks[0].days[0] = { ...marked.weeks[0].days[0], outside_evidence: true };
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      outside_evidence: 'Outside the evidence',
+    };
     render(<WorkoutPlanCard plan={marked} />);
 
     expect(screen.getAllByText('Outside the evidence')).toHaveLength(1);
+  });
+
+  // carnet#1552: the warning comes resolved from the server, in the reader's
+  // language, and the card prints it as given.
+  it('prints the warning in the words the server resolved', () => {
+    const marked = plan();
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      outside_evidence: 'Hors des données probantes',
+    };
+    render(<WorkoutPlanCard plan={marked} />);
+
+    expect(screen.getAllByText('Hors des données probantes')).toHaveLength(1);
+    expect(screen.queryByText('Outside the evidence')).not.toBeInTheDocument();
   });
 
   it('marks no day when the envelope check found nothing', () => {

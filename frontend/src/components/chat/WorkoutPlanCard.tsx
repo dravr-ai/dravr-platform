@@ -165,7 +165,7 @@ export function DayRow({ day }: { day: PlanDay }) {
             )}
             {day.outside_evidence && (
               <span className="ml-2 badge-warning">
-                {t('plan.card.envelope.badge')}
+                {day.outside_evidence}
               </span>
             )}
             {day.evidence && <EvidenceChip evidence={day.evidence} />}

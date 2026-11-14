@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use chrono::{NaiveDate, Utc};
 use dravr_canot::commands::CommandResponse;
 use dravr_canot::rich_text::escape_markdown;
-use pierre_contremaitre::evidence_strings::{self, KEY_EVIDENCE_OUTSIDE, KEY_PLAN_SESSION_NOTES};
+use pierre_contremaitre::evidence_strings::{self, KEY_PLAN_SESSION_NOTES};
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_PLAN_ATHLETE_AMBIGUOUS, KEY_PLAN_ATHLETE_EMPTY,
     KEY_PLAN_ATHLETE_HEADER, KEY_PLAN_ATHLETE_NOT_SHARING, KEY_PLAN_ATHLETE_NO_MATCH,
@@ -229,9 +229,11 @@ fn render_day(
 /// day with nothing to note.
 fn session_notes(reg: &MessagingStringsRegistry, locale: &str, day: &PlannedDay) -> Option<String> {
     let envelope = day.envelope.as_ref()?;
-    let warning = (!envelope.findings.is_empty())
-        .then(|| reg.get(KEY_EVIDENCE_OUTSIDE, locale))
-        .filter(|warning| !warning.is_empty());
+    let warning = if envelope.findings.is_empty() {
+        None
+    } else {
+        evidence_strings::outside_evidence_label(reg, locale)
+    };
     let chip = envelope
         .badge
         .as_ref()

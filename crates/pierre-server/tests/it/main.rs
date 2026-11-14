@@ -628,6 +628,7 @@ mod pillar_context_prompt_test;
 mod pillars_walk_start_test;
 mod plan_calendar_push_test;
 mod plan_card_block_test;
+mod plan_card_history_test;
 mod plan_command_test;
 mod plan_fueling_medical_gate_test;
 mod plan_fueling_test;
