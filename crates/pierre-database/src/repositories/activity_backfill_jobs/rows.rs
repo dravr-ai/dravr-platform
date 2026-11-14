@@ -23,11 +23,13 @@ where
     Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
+    // The unit columns keep the names the history walk gave them, a month
+    // each; a detail walk's unit is an activity ([`JobProgress`]).
     Ok(JobProgress {
-        months_total: row
+        units_total: row
             .try_get("months_total")
             .map_err(|e| column_error("months_total", &e))?,
-        months_done: row
+        units_done: row
             .try_get("months_done")
             .map_err(|e| column_error("months_done", &e))?,
         rows_landed: row

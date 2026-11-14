@@ -387,7 +387,7 @@ async fn hand_off_below(
     Ok(Some(WalkHandOff {
         backend: grant.backend,
         before_ts,
-        months_done: before_ts.map_or(0, |before| months_between(Utc::now().timestamp(), before)),
+        units_done: before_ts.map_or(0, |before| months_between(Utc::now().timestamp(), before)),
         rows_landed,
         fetch_limit: i64::try_from(API_WALK_PAGE).unwrap_or(i64::MAX),
     }))
@@ -854,7 +854,7 @@ impl Cursor {
 const fn no_step(before_ts: i64) -> JobProgressStep {
     JobProgressStep {
         before_ts,
-        months_walked: 0,
+        units_done: 0,
         rows_landed: 0,
         secs_per_unit: None,
         floor: None,
@@ -901,7 +901,7 @@ async fn session_step(
     };
     if activities.is_empty() {
         let mut step = no_step(bottom);
-        step.months_walked = months_between(cursor.top, bottom);
+        step.units_done = months_between(cursor.top, bottom);
         return Step::Ended(step);
     }
     let span = StepSpan {
@@ -975,7 +975,7 @@ async fn api_step(
         cursor.first = false;
         if bottom <= cursor.floor || empty_windows >= EMPTY_WINDOWS_ENDING_A_WALK {
             let mut step = no_step(bottom);
-            step.months_walked = months_between(walk_top, bottom);
+            step.units_done = months_between(walk_top, bottom);
             step.floor = learned;
             return Step::Ended(step);
         }
@@ -1013,7 +1013,7 @@ async fn account_floor(
                 .map(|created| created.timestamp().max(WHOLE_ACCOUNT_AFTER));
             Ok(Some(JobFloor {
                 after_ts: created.unwrap_or(WHOLE_ACCOUNT_AFTER),
-                months_total: created
+                units_total: created
                     .map(|after_ts| months_between(Utc::now().timestamp(), after_ts)),
             }))
         }
@@ -1099,7 +1099,7 @@ async fn land(
     let months = months_between(span.top, next);
     let step = JobProgressStep {
         before_ts: next,
-        months_walked: months,
+        units_done: months,
         rows_landed: i64::try_from(landed).unwrap_or(i64::MAX),
         secs_per_unit: secs_per_month(span.started, months),
         floor: None,

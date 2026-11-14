@@ -74,7 +74,7 @@ pub(crate) async fn end_history_walk(
 ) {
     let step = JobProgressStep {
         before_ts: WALK_FLOOR,
-        months_walked: 12,
+        units_done: 12,
         rows_landed: 0,
         secs_per_unit: None,
         floor: None,

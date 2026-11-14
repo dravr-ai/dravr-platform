@@ -479,13 +479,13 @@ async fn a_strava_grant_is_walked_a_year_a_window_down_to_the_account_creation()
     );
     let walked = progress(&resources, user_id, tenant).await;
     assert_eq!(
-        walked.months_total,
+        walked.units_total,
         Some((now - created) / 2_629_746),
         "bug: the account's creation gives the walk its length"
     );
     assert_eq!(walked.rows_landed, 3, "bug: the progress counts the rows");
     assert!(
-        walked.months_done >= 32,
+        walked.units_done >= 32,
         "bug: the walk covered the account's months: {walked:?}"
     );
 }
@@ -623,7 +623,7 @@ async fn an_api_walk_with_no_floor_ends_after_two_empty_years() {
     );
     let walked = progress(&resources, user_id, tenant).await;
     assert_eq!(
-        walked.months_total, None,
+        walked.units_total, None,
         "bug: a profile with no creation date leaves the walk's length unknown"
     );
     let listings = mock.listings.lock().unwrap().clone();

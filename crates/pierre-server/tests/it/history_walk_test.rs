@@ -518,7 +518,7 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
     );
     let progress = walk_progress(&resources, user_id, tenant).await;
     assert_eq!(
-        progress.months_done,
+        progress.units_done,
         4 * 36,
         "bug: each step adds its 36 months to the walk's progress"
     );
@@ -531,7 +531,7 @@ async fn a_walk_beside_a_grant_reads_the_whole_history_from_the_session_and_keep
         "bug: a step measures the seconds a month took"
     );
     assert_eq!(
-        progress.months_total, None,
+        progress.units_total, None,
         "bug: a session names no floor of its own, so the walk's length is unknown"
     );
     let coverage = resources

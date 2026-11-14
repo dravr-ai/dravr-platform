@@ -37,16 +37,22 @@ mod kind;
 pub(crate) use kind::known_backfill_job_kinds;
 pub use kind::BackfillJobKind;
 
-/// How far a job has got: what a history walk reports while it runs.
+/// How far a job has got: what a walk reports while it runs.
+///
+/// A unit is what the job's kind walks: a month of history for a
+/// [`BackfillJobKind::HistoryWalk`], an activity whose detail is read for a
+/// detail walk. The columns keep their first names,
+/// `months_total` and `months_done`, which an applied migration fixed.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct JobProgress {
-    /// Months the job has to cover; `None` while its floor is not known.
-    pub months_total: Option<i64>,
-    /// Months covered so far.
-    pub months_done: i64,
+    /// Units the job has to cover; `None` while that is not known (a
+    /// history walk's floor not learned yet).
+    pub units_total: Option<i64>,
+    /// Units covered so far.
+    pub units_done: i64,
     /// Activities written so far.
     pub rows_landed: i64,
-    /// Measured seconds per covered month; `None` until a step measured one.
+    /// Measured seconds per covered unit; `None` until a step measured one.
     pub secs_per_unit: Option<f64>,
 }
 
@@ -57,15 +63,15 @@ pub struct JobProgress {
 pub struct JobProgressStep {
     /// The next step reads below this (unix seconds): the row's new `before_ts`.
     pub before_ts: i64,
-    /// Months this step covered, added to [`JobProgress::months_done`].
-    pub months_walked: i64,
+    /// Units this step covered, added to [`JobProgress::units_done`].
+    pub units_done: i64,
     /// Activities this step wrote, added to [`JobProgress::rows_landed`].
     pub rows_landed: i64,
-    /// Seconds per month this step measured; `None` keeps the stored one.
+    /// Seconds per unit this step measured; `None` keeps the stored one.
     pub secs_per_unit: Option<f64>,
     /// The floor the job learned on this step — the oldest instant it reads
-    /// to (unix seconds, the row's new `after_ts`) and the months from its
-    /// start down to it ([`JobProgress::months_total`]); `None` keeps both.
+    /// to (unix seconds, the row's new `after_ts`) and the units from its
+    /// start down to it ([`JobProgress::units_total`]); `None` keeps both.
     pub floor: Option<JobFloor>,
 }
 
@@ -75,10 +81,11 @@ pub struct JobProgressStep {
 pub struct JobFloor {
     /// The oldest instant the job reads to (unix seconds).
     pub after_ts: i64,
-    /// Months from the job's start down to `after_ts`; `None` keeps the
-    /// stored one, when the floor is only the hard one and the walk ends on
-    /// its empty years before it.
-    pub months_total: Option<i64>,
+    /// Months from the job's start down to `after_ts`, the walk's
+    /// [`JobProgress::units_total`]; `None` keeps the stored one, when the
+    /// floor is only the hard one and the walk ends on its empty years
+    /// before it.
+    pub units_total: Option<i64>,
 }
 
 /// Where a history walk goes on once its session phase found nothing more:
@@ -98,9 +105,9 @@ pub struct WalkHandOff {
     /// from the head of the list, when the session stored nothing.
     pub before_ts: Option<i64>,
     /// Months the walk covered, from now down to `before_ts`: the row's
-    /// `months_done` is set to it, since the API phase pages again the years
-    /// the session's last step found empty.
-    pub months_done: i64,
+    /// [`JobProgress::units_done`] is set to it, since the API phase pages
+    /// again the years the session's last step found empty.
+    pub units_done: i64,
     /// Activities the session's last step wrote, added to the row's
     /// `rows_landed`.
     pub rows_landed: i64,
@@ -642,8 +649,8 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(row.attempts)
                     .bind(&row.lease_token)
                     .bind(row.kind.as_str())
-                    .bind(row.progress.months_total)
-                    .bind(row.progress.months_done)
+                    .bind(row.progress.units_total)
+                    .bind(row.progress.units_done)
                     .bind(row.progress.rows_landed)
                     .bind(row.progress.secs_per_unit)
                     .bind(&row.turn_id)
@@ -939,11 +946,11 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(&lease.id)
                     .bind(&lease.token)
                     .bind(step.before_ts)
-                    .bind(step.months_walked)
+                    .bind(step.units_done)
                     .bind(step.rows_landed)
                     .bind(step.secs_per_unit)
                     .bind(step.floor.map(|floor| floor.after_ts))
-                    .bind(step.floor.and_then(|floor| floor.months_total))
+                    .bind(step.floor.and_then(|floor| floor.units_total))
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -961,11 +968,11 @@ macro_rules! impl_activity_backfill_job_repository {
                     .bind(&lease.id)
                     .bind(&lease.token)
                     .bind(step.before_ts)
-                    .bind(step.months_walked)
+                    .bind(step.units_done)
                     .bind(step.rows_landed)
                     .bind(step.secs_per_unit)
                     .bind(step.floor.map(|floor| floor.after_ts))
-                    .bind(step.floor.and_then(|floor| floor.months_total))
+                    .bind(step.floor.and_then(|floor| floor.units_total))
                     .bind(walked_outcome())
                     .fetch_optional(self.pool())
                     .await
@@ -985,7 +992,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 .bind(&lease.token)
                 .bind(&hand_off.backend)
                 .bind(hand_off.before_ts)
-                .bind(hand_off.months_done)
+                .bind(hand_off.units_done)
                 .bind(hand_off.rows_landed)
                 .bind(hand_off.fetch_limit)
                 .execute(self.pool())
@@ -1012,7 +1019,7 @@ macro_rules! impl_activity_backfill_job_repository {
                 .bind(BackfillJobKind::HistoryWalk.as_str())
                 .bind(&hand_off.backend)
                 .bind(hand_off.before_ts)
-                .bind(hand_off.months_done)
+                .bind(hand_off.units_done)
                 .bind(hand_off.fetch_limit)
                 .bind(from.outcome())
                 .bind(now_ms)

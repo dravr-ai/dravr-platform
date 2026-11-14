@@ -456,14 +456,14 @@ async fn a_session_walk_goes_on_through_the_grant_below_its_oldest_row() {
         "bug: the progress counts both phases' rows"
     );
     let total = progress
-        .months_total
+        .units_total
         .expect("the grant's profile names the floor");
     assert!(
         (70..=72).contains(&total),
         "bug: the walk's length runs from now to the account's creation: {progress:?}"
     );
     assert!(
-        progress.months_done <= total && progress.months_done >= total - 4,
+        progress.units_done <= total && progress.units_done >= total - 4,
         "bug: the months done cover both phases without counting the session's empty step twice: {progress:?}"
     );
 

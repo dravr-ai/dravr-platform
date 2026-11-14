@@ -518,8 +518,8 @@ async fn request_walks<'a>(
 /// walk the window waits longest on is the one it reports.
 fn months_left(progress: &JobProgress) -> i64 {
     progress
-        .months_total
-        .map_or(i64::MAX, |total| total.saturating_sub(progress.months_done))
+        .units_total
+        .map_or(i64::MAX, |total| total.saturating_sub(progress.units_done))
 }
 
 /// A running walk's [`Pending`] from its recorded progress. Its
@@ -528,8 +528,8 @@ fn months_left(progress: &JobProgress) -> i64 {
 fn walk_running(progress: &JobProgress) -> Pending {
     let months = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
     Pending::running(
-        months(progress.months_done),
-        progress.months_total.map(months),
+        months(progress.units_done),
+        progress.units_total.map(months),
         progress.secs_per_unit,
     )
 }

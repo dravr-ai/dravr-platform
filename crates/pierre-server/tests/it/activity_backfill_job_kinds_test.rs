@@ -218,7 +218,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
     let user = Uuid::new_v4();
     let mut walk = owed_row(tenant, user, BackfillJobKind::HistoryWalk);
     walk.leased_until_ms = now_ms() + 10 * 60_000;
-    walk.progress.months_total = Some(120);
+    walk.progress.units_total = Some(120);
     assert!(
         ledger.record_backfill_job(&walk).await.unwrap(),
         "bug: the walk is recorded"
@@ -241,7 +241,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
     };
     let first_step = JobProgressStep {
         before_ts: 1_600_000_000,
-        months_walked: 36,
+        units_done: 36,
         rows_landed: 10,
         secs_per_unit: Some(4.5),
         floor: None,
@@ -260,8 +260,8 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
             .await
             .unwrap(),
         Some(JobProgress {
-            months_total: Some(120),
-            months_done: 0,
+            units_total: Some(120),
+            units_done: 0,
             rows_landed: 0,
             secs_per_unit: None,
         }),
@@ -281,8 +281,8 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
             .await
             .unwrap(),
         Some(JobProgress {
-            months_total: Some(120),
-            months_done: 36,
+            units_total: Some(120),
+            units_done: 36,
             rows_landed: 10,
             secs_per_unit: Some(4.5),
         }),
@@ -322,7 +322,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
                 &next_holder,
                 JobProgressStep {
                     before_ts: 1_500_000_000,
-                    months_walked: 36,
+                    units_done: 36,
                     rows_landed: 5,
                     secs_per_unit: None,
                     floor: None,
@@ -338,8 +338,8 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
             .await
             .unwrap(),
         Some(JobProgress {
-            months_total: Some(120),
-            months_done: 72,
+            units_total: Some(120),
+            units_done: 72,
             rows_landed: 15,
             secs_per_unit: Some(4.5),
         }),
@@ -497,7 +497,7 @@ async fn a_walk_asked_after_one_ended_starts_from_the_top() {
     };
     let last_step = JobProgressStep {
         before_ts: 1_400_000_000,
-        months_walked: 48,
+        units_done: 48,
         rows_landed: 30,
         secs_per_unit: Some(2.0),
         floor: None,
