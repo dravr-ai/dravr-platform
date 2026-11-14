@@ -28,14 +28,15 @@ use crate::history_walk_api_test::{open_window, server, strava_athlete, with_win
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use chrono::{TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::coverage::{IncompleteReason, Pending};
+use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::BackfillJobState;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::activity_backfill::detail_walk::{
-    ask_detail_walk, detail_walk_pending, DetailWalkAsked,
+    ask_detail_walk, detail_walk_pending, DetailWalkAsk, DetailWalkAsked,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::time::sleep;
@@ -423,5 +424,148 @@ async fn an_owed_walk_whose_app_lost_its_room_ends_incomplete() {
         mock.detail_reads().len(),
         10,
         "no ride was read once the app had no room"
+    );
+}
+
+/// A run started at `start` as the session lists it, its Strava id its start.
+fn run_listed(start: i64) -> Activity {
+    ActivityBuilder::new(
+        start.to_string(),
+        "Morning run",
+        SportType::Run,
+        Utc.timestamp_opt(start, 0).unwrap(),
+        1_800,
+        SESSION,
+    )
+    .source(oauth_providers::STRAVA)
+    .build()
+}
+
+/// Store `starts` as runs the session listed.
+async fn store_runs(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    starts: &[i64],
+) {
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let runs: Vec<Activity> = starts.iter().map(|start| run_listed(*start)).collect();
+    runtime
+        .live_activities()
+        .ingest(user_id, tenant, SESSION, &runs, Utc::now())
+        .await
+        .unwrap();
+}
+
+/// A walk of one sport reads that sport's activities only: the runs of its
+/// window are neither counted nor read.
+#[tokio::test]
+async fn a_walk_of_rides_reads_no_run() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let rides = [now - 3 * DAY, now - 6 * DAY];
+    let runs = [now - 2 * DAY, now - 5 * DAY];
+    store_rides(&resources, user_id, tenant, SESSION, &rides).await;
+    store_runs(&resources, user_id, tenant, &runs).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        DetailWalkAsk {
+            sport: Some("Ride"),
+            ..since(now - 10 * DAY)
+        },
+    )
+    .await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 2 },
+        "bug: a ride walk counts the runs of its window"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    let mut reads = mock.detail_reads();
+    reads.sort_unstable();
+    assert_eq!(
+        reads,
+        vec![rides[1], rides[0]],
+        "bug: a ride walk read a run"
+    );
+    assert_eq!(
+        (ended.state, ended.progress.units_done),
+        (BackfillJobState::Walked, 2),
+        "the ride walk ends having read its two rides"
+    );
+}
+
+/// A ride walk asked again for every sport reads the runs above where its
+/// cursor got to: its cursor goes back to its window's top. The step running
+/// when the ask lands gives its row up rather than writing its cursor over
+/// that, so the runs above it are still read.
+#[tokio::test]
+async fn a_walk_widened_to_every_sport_reads_the_runs_above_its_cursor() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    // Twelve rides, and a run newer than all of them.
+    let rides: Vec<i64> = (2..=13).map(|day| now - day * DAY).collect();
+    let run = now - DAY;
+    store_rides(&resources, user_id, tenant, SESSION, &rides).await;
+    store_runs(&resources, user_id, tenant, &[run]).await;
+    open_window(&resources).await;
+
+    let gate = mock.hold_next_read();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let window = since(now - 20 * DAY);
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            DetailWalkAsk {
+                sport: Some("Ride"),
+                ..window
+            },
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 12 },
+        "the twelve rides are owed"
+    );
+    mock.read_held().await;
+    assert_eq!(
+        ask_detail_walk(&runtime, user_id, tenant, oauth_providers::STRAVA, window).await,
+        DetailWalkAsked::Widened,
+        "bug: an ask for every sport while a ride walk is owed records a second walk"
+    );
+    let row = walk_row(&resources, user_id, tenant).await.unwrap();
+    assert_eq!(row.walk_sport, None, "the widened walk reads every sport");
+    assert_eq!(
+        row.progress.units_total,
+        Some(13),
+        "bug: the widened total leaves out the run above the cursor"
+    );
+    gate.notify_one();
+
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert!(
+        mock.detail_reads().contains(&run),
+        "bug: the run above the ride walk's cursor was never read: {:?}",
+        mock.detail_reads()
+    );
+    assert_eq!(
+        (
+            ended.state,
+            ended.progress.units_done,
+            ended.progress.rows_landed
+        ),
+        (BackfillJobState::Walked, 13, 13),
+        "the widened walk reads the twelve rides and the run"
     );
 }

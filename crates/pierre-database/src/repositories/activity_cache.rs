@@ -127,6 +127,10 @@ pub struct CachedActivityRow {
     /// included. A recheck instant does not end it, as it ends
     /// [`Self::detail_read`]: a read that found no segment found none.
     pub segment_read: bool,
+    /// When the row was first written to the store (its `created_at`, which
+    /// no later write of the same activity moves); `None` for a row built
+    /// in memory, never read from the store.
+    pub stored_at: Option<DateTime<Utc>>,
 }
 
 /// How many cached activities one user holds under one key in a tenant.

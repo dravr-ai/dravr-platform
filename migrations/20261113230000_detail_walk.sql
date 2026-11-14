@@ -1,5 +1,5 @@
 -- ABOUTME: The sport a detail walk reads, its window's top and when it ended, beside the columns it reuses (SQLite)
--- ABOUTME: Additive only: three nullable columns on activity_backfill_jobs; nothing is renamed or dropped (carnet#1483)
+-- ABOUTME: Additive only: seven nullable columns on activity_backfill_jobs; nothing is renamed or dropped (carnet#1483)
 
 -- SPDX-License-Identifier: MIT OR Apache-2.0
 -- Copyright (c) 2026 dravr.ai
@@ -23,6 +23,19 @@
 --                  or after any other end: an ask within a week over a window
 --                  a walk ended on records no fresh walk, which would only
 --                  re-read the activities the backend could not read
+--   tried_floor_ts, tried_top_ts
+--                  the range of the window (unix seconds, the floor NULL for
+--                  no lower bound, the top excluded) an earlier walk that
+--                  ended walked within a week tried: this walk reads none of
+--                  its activities again that were stored by then
+--   tried_asked_ms when that earlier walk was asked (unix ms): an activity
+--                  first stored after it was never in its reach
+--   tried_ended_ms when the oldest walk whose tries the range carries ended
+--                  (unix ms): a week after it, the range stands no more
 ALTER TABLE activity_backfill_jobs ADD COLUMN walk_sport TEXT; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
 ALTER TABLE activity_backfill_jobs ADD COLUMN window_top_ts INTEGER; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
 ALTER TABLE activity_backfill_jobs ADD COLUMN ended_at_ms INTEGER; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE activity_backfill_jobs ADD COLUMN tried_floor_ts INTEGER; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE activity_backfill_jobs ADD COLUMN tried_top_ts INTEGER; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE activity_backfill_jobs ADD COLUMN tried_asked_ms INTEGER; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run
+ALTER TABLE activity_backfill_jobs ADD COLUMN tried_ended_ms INTEGER; -- idempotency-ok: SQLite ADD COLUMN has no IF NOT EXISTS; _sqlx_migrations prevents re-run

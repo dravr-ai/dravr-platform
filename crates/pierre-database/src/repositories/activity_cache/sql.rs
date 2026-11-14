@@ -71,7 +71,7 @@ pub(crate) const GET_CACHED_ACTIVITIES_SQL: &str = r"
 /// `detail_settled` is whether a stored detail read still answers the row: one
 /// is stored and its recheck instant, if it has one, is after `$6` (now).
 pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
-    SELECT ca.provider, ca.data_json, ca.detail_json,
+    SELECT ca.provider, ca.data_json, ca.detail_json, ca.created_at AS stored_at,
            (ca.detail_json IS NOT NULL
             AND (ca.detail_recheck_at IS NULL OR ca.detail_recheck_at > $6)) AS detail_settled,
            rt.source AS route_source,

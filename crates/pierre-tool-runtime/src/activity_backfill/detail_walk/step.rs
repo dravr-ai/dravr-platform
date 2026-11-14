@@ -20,7 +20,7 @@ use pierre_providers::CoreFitnessProvider;
 use tracing::{info, instrument, warn};
 
 use super::candidates::{take_seconds, Athlete, Unread};
-use super::{walk_daily_calls, walk_keys};
+use super::{walk_daily_calls, walk_keys, walk_row};
 use crate::activity_backfill::history_walk::retry_at_ms;
 use crate::activity_backfill::owed_write::{land_owed, Landed};
 use crate::activity_backfill::{
@@ -139,7 +139,22 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
         tenant_id: job.tenant_id,
     };
     let keys = walk_keys(&job.provider_name);
-    let Ok(taken) = take_seconds(&athlete, &keys, floor, cursor, job.walk_sport.as_deref()).await
+    // The range an earlier walk tried, which this one reads nothing of
+    // again, is on the walk's own row.
+    let Ok(row) = walk_row(&athlete, &job.provider_name).await else {
+        return Step::Failed {
+            step: progress.step(),
+        };
+    };
+    let tried = row.and_then(|row| row.tried);
+    let Ok(taken) = take_seconds(
+        &athlete,
+        &keys,
+        (floor, cursor),
+        job.walk_sport.as_deref(),
+        tried.as_ref(),
+    )
+    .await
     else {
         return Step::Failed {
             step: progress.step(),

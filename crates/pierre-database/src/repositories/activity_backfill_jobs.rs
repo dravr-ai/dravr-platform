@@ -35,9 +35,9 @@ pub(crate) use walk_statements::{
 mod detail_walk;
 pub(crate) use detail_walk::{
     detail_walk_ended_from_row, detail_walk_row_from_row, DETAIL_WALK_ROW_SQL, END_DETAIL_WALK_SQL,
-    WIDEN_DETAIL_WALK_SQL,
+    SET_DETAIL_WALK_TRIED_SQL, WIDEN_DETAIL_WALK_SQL,
 };
-pub use detail_walk::{DetailWalkEnd, DetailWalkEnded, DetailWalkRow, WalkWiden};
+pub use detail_walk::{DetailWalkEnd, DetailWalkEnded, DetailWalkRow, WalkTried, WalkWiden};
 /// The statements of a row's life past its record
 mod job_statements;
 pub(crate) use job_statements::{
@@ -417,6 +417,18 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         tenant_id: TenantId,
         provider: &str,
     ) -> AppResult<Option<DetailWalkRow>>;
+
+    /// Record on the ended [`BackfillJobKind::DetailWalk`] filed under
+    /// `(user_id, provider)` in `tenant_id` the range a walk recorded over it
+    /// next reads nothing of again, or none. `false` when no ended row
+    /// stands: an owed one keeps the range it was recorded with.
+    async fn set_detail_walk_tried(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        tried: Option<&WalkTried>,
+    ) -> AppResult<bool>;
 
     /// A history walk's last step landed: add `step` to the row's progress
     /// and keep the row, released, as [`BackfillJobState::Walked`] — never
@@ -943,6 +955,32 @@ macro_rules! impl_activity_backfill_job_repository {
                 row.as_ref()
                     .map($crate::repositories::activity_backfill_jobs::detail_walk_ended_from_row)
                     .transpose()
+            }
+
+            async fn set_detail_walk_tried(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                tried: Option<&$crate::repositories::activity_backfill_jobs::WalkTried>,
+            ) -> AppResult<bool> {
+                let set = sqlx::query(
+                    $crate::repositories::activity_backfill_jobs::SET_DETAIL_WALK_TRIED_SQL,
+                )
+                .bind(user_id.to_string())
+                .bind(tenant_id)
+                .bind(provider)
+                .bind(BackfillJobKind::DetailWalk.as_str())
+                .bind(tried.and_then(|tried| tried.floor_ts))
+                .bind(tried.map(|tried| tried.top_ts))
+                .bind(tried.map(|tried| tried.asked_ms))
+                .bind(tried.map(|tried| tried.ended_ms))
+                .execute(self.pool())
+                .await
+                .map_err(|e| {
+                    AppError::database(format!("Failed to record a detail walk's tried range: {e}"))
+                })?;
+                Ok(set.rows_affected() == 1)
             }
 
             async fn detail_walk_row(

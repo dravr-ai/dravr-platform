@@ -234,6 +234,7 @@ mod tests {
             route: None,
             detail_read: false,
             segment_read: false,
+            stored_at: None,
         }
     }
 
@@ -336,6 +337,7 @@ mod tests {
             route: None,
             detail_read: false,
             segment_read: false,
+            stored_at: None,
         };
         assert!(
             workout_distance(&row.activity).abs() < f64::EPSILON,

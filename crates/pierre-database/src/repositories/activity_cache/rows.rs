@@ -188,6 +188,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let provider: String = row
         .try_get("provider")
@@ -202,6 +203,7 @@ where
         route: joined_route_outcome(row)?,
         detail_read,
         segment_read,
+        stored_at: Some(timestamp_column(row, "stored_at")?),
     })
 }
 

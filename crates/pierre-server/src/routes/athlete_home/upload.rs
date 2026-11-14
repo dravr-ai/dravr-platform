@@ -130,6 +130,7 @@ async fn upload_activity(
                 route: None,
                 detail_read: false,
                 segment_read: false,
+                stored_at: None,
             };
             HomeActivity::from_session(&row, &row.activity)
         })

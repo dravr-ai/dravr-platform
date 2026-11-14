@@ -235,21 +235,40 @@ pub(crate) async fn walk_row(
         .unwrap()
 }
 
+/// How far back a walk's ask is moved while the sweep runs it: past the
+/// sweep's two-minute grace, so the sweep takes the row.
+const AGED_MS: i64 = 10 * 60 * 1_000;
+
 /// Run the walk the sweep's way, one step a pass, in a fresh window each
 /// pass, until its row ends.
+///
+/// The sweep takes only a row asked longer ago than its grace, so the row's
+/// ask is moved back [`AGED_MS`] while it runs: each walk keeps an ask time
+/// of its own, which keys its completion post. Once the row ends it gets its
+/// own ask time back, which a later ask reads off it: what was stored before
+/// it was asked is what it tried.
 pub(crate) async fn walk_ended(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
 ) -> DetailWalkRow {
     let deadline = Instant::now() + WALK_DEADLINE;
+    let asked_ms = walk_row(resources, user_id, tenant)
+        .await
+        .map(|row| row.created_at_ms);
     loop {
         let row = walk_row(resources, user_id, tenant).await;
         if let Some(row) = row
             .as_ref()
             .filter(|row| row.state != BackfillJobState::Owed)
         {
-            return row.clone();
+            let Some(asked_ms) = asked_ms else {
+                return row.clone();
+            };
+            alter_walk_row(resources, user_id, &format!("created_at_ms = {asked_ms}")).await;
+            return walk_row(resources, user_id, tenant)
+                .await
+                .expect("the ended walk's row");
         }
         assert!(
             Instant::now() < deadline,
@@ -257,7 +276,13 @@ pub(crate) async fn walk_ended(
         );
         open_window(resources).await;
         paused_retries_due(resources, user_id).await;
-        age_job_rows(resources, user_id).await;
+        match asked_ms {
+            Some(asked_ms) => {
+                let aged = asked_ms - AGED_MS;
+                alter_walk_row(resources, user_id, &format!("created_at_ms = {aged}")).await;
+            }
+            None => age_job_rows(resources, user_id).await,
+        }
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         resume_backfill_jobs(runtime).await.unwrap();
         sleep(Duration::from_millis(50)).await;
@@ -983,10 +1008,12 @@ async fn a_walk_that_ended_over_a_week_ago_is_walked_afresh() {
     assert_eq!(walked.state().await, Some(BackfillJobState::Owed));
 }
 
-/// A window reaching below the walked one's floor holds rides no walk tried:
-/// it is walked afresh.
+/// A window reaching below the walked one's floor, where no ride is stored,
+/// holds nothing the walk did not try: the walk stands for it. A ride stored
+/// below that floor is one no walk tried: a fresh walk reads it alone, never
+/// the ride the ended walk could not read.
 #[tokio::test]
-async fn a_window_below_the_walked_floor_is_walked_afresh() {
+async fn a_ride_below_the_walked_floor_is_walked_alone() {
     let walked = walked_once(None).await;
     let lower = DetailWalkAsk {
         after_ts: walked.now - 20 * DAY,
@@ -994,8 +1021,29 @@ async fn a_window_below_the_walked_floor_is_walked_afresh() {
     };
     assert_eq!(
         walked.ask(lower).await,
+        DetailWalkAsked::RecentlyWalked { unreadable: 1 },
+        "bug: a window whose only unread ride the walk tried reads as owing a walk"
+    );
+
+    let below = walked.now - 15 * DAY;
+    store_rides(
+        &walked.resources,
+        walked.user_id,
+        walked.tenant,
+        SESSION,
+        &[below],
+    )
+    .await;
+    assert_eq!(
+        walked.ask(lower).await,
         DetailWalkAsked::Started { units_total: 1 },
-        "bug: a window below the walked floor reads as walked"
+        "bug: the fresh walk counts the ride the ended walk could not read"
+    );
+    walk_ended(&walked.resources, walked.user_id, walked.tenant).await;
+    assert_eq!(
+        walked.mock.detail_reads()[3..],
+        [below],
+        "bug: the fresh walk read again what the ended walk tried"
     );
 }
 
@@ -1056,8 +1104,14 @@ async fn a_ride_unread_above_the_walked_top_is_walked_afresh() {
 
     assert_eq!(
         walked.ask(walked.ask).await,
-        DetailWalkAsked::Started { units_total: 2 },
-        "bug: a ride above the walked top reads as walked"
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: the fresh walk counts the ride the ended walk could not read"
+    );
+    walk_ended(&walked.resources, walked.user_id, walked.tenant).await;
+    assert_eq!(
+        walked.mock.detail_reads()[3..],
+        [walked.now - DAY / 2],
+        "bug: the fresh walk read again what the ended walk tried"
     );
 }
 
@@ -1085,8 +1139,40 @@ async fn a_ride_started_after_the_walk_ended_is_walked_afresh() {
 
     assert_eq!(
         walked.ask(walked.ask).await,
-        DetailWalkAsked::Started { units_total: 2 },
-        "bug: a ride started after the walk ended reads as walked"
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: a ride started after the walk ended reads as walked, or the fresh walk counts the ride the ended one could not read"
+    );
+}
+
+/// A ride that started inside the walked window, before the walk ended, but
+/// reached the store only after the walk was asked, is one the walk never
+/// saw: a fresh walk reads it, and never reports it unreadable.
+#[tokio::test]
+async fn a_ride_stored_after_the_walk_was_asked_is_walked_not_unreadable() {
+    let walked = walked_once(None).await;
+    // The store keeps a row's first write to the second on SQLite: one past
+    // the ask's.
+    sleep(Duration::from_millis(1_100)).await;
+    let late = walked.now - 4 * DAY;
+    store_rides(
+        &walked.resources,
+        walked.user_id,
+        walked.tenant,
+        SESSION,
+        &[late],
+    )
+    .await;
+
+    assert_eq!(
+        walked.ask(walked.ask).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: a ride synced after the walk was asked reads as one it could not read"
+    );
+    walk_ended(&walked.resources, walked.user_id, walked.tenant).await;
+    assert_eq!(
+        walked.mock.detail_reads()[3..],
+        [late],
+        "bug: the late ride was not read, or the unreadable one was read again"
     );
 }
 

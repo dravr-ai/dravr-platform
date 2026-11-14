@@ -10,7 +10,9 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::repositories::{CachedActivityRow, CachedRowCursor, CachedRowsQuery};
+use pierre_database::repositories::{
+    CachedActivityRow, CachedRowCursor, CachedRowsQuery, WalkTried,
+};
 use pierre_providers::deduplication::native_activity_key;
 use tracing::warn;
 use uuid::Uuid;
@@ -45,6 +47,13 @@ pub(super) struct Athlete<'run> {
 #[derive(Debug)]
 pub(super) struct Unread {
     pub(super) copies: Vec<CachedActivityRow>,
+}
+
+impl Unread {
+    /// When its first copy among those of its second reached the store.
+    fn first_stored_ms(&self) -> Option<i64> {
+        self.copies.iter().map(stored_ms).fold(None, earliest)
+    }
 }
 
 /// The activities started within one second of the window whose efforts no
@@ -153,8 +162,7 @@ impl Athlete<'_> {
     }
 
     /// The activities started in `[floor, top)` under `keys`, of `sport`, no
-    /// copy of which holds its efforts, as the newest start (unix seconds)
-    /// among each one's copies: the copies of one activity are one
+    /// copy of which holds its efforts: the copies of one activity are one
     /// ([`identity`]) wherever in the window each starts.
     pub(super) async fn unread_between(
         &self,
@@ -162,8 +170,8 @@ impl Athlete<'_> {
         floor: i64,
         top: i64,
         sport: Option<&str>,
-    ) -> Result<Vec<i64>, ()> {
-        let mut read: HashMap<NativeKey, (bool, i64)> = HashMap::new();
+    ) -> Result<Vec<UnreadActivity>, ()> {
+        let mut read: HashMap<NativeKey, (bool, UnreadActivity)> = HashMap::new();
         let mut top = top;
         loop {
             let page = self.page(keys, floor, top, sport).await.map_err(|e| {
@@ -171,9 +179,16 @@ impl Athlete<'_> {
             })?;
             for (at, rows) in &page.seconds {
                 for row in rows {
-                    let (was_read, newest) = read.entry(identity(row)).or_insert((false, *at));
+                    let (was_read, activity) = read.entry(identity(row)).or_insert((
+                        false,
+                        UnreadActivity {
+                            newest: *at,
+                            first_stored_ms: None,
+                        },
+                    ));
                     *was_read |= row.segment_read;
-                    *newest = (*newest).max(*at);
+                    activity.newest = activity.newest.max(*at);
+                    activity.first_stored_ms = earliest(activity.first_stored_ms, stored_ms(row));
                 }
             }
             match page.seconds.last() {
@@ -183,9 +198,48 @@ impl Athlete<'_> {
         }
         Ok(read
             .into_values()
-            .filter_map(|(read, newest)| (!read).then_some(newest))
+            .filter_map(|(read, activity)| (!read).then_some(activity))
             .collect())
     }
+}
+
+/// One activity of a window no copy of which holds its efforts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct UnreadActivity {
+    /// The newest start among its copies (unix seconds): where a walk, going
+    /// down, meets it first.
+    pub(super) newest: i64,
+    /// When its first copy reached the store (unix ms); `None` when no copy
+    /// says.
+    pub(super) first_stored_ms: Option<i64>,
+}
+
+/// When `row` was first written to the store (unix ms).
+fn stored_ms(row: &CachedActivityRow) -> Option<i64> {
+    row.stored_at.map(|at| at.timestamp_millis())
+}
+
+/// The earlier of two instants, either of which may be unknown.
+fn earliest(a: Option<i64>, b: Option<i64>) -> Option<i64> {
+    match (a, b) {
+        (Some(a), Some(b)) => Some(a.min(b)),
+        (a, b) => a.or(b),
+    }
+}
+
+/// Whether an earlier walk that ended walked tried an activity a walk meets
+/// first at `start` (unix seconds) whose first copy reached the store at
+/// `first_stored_ms`: it started within the range that walk tried
+/// (`tried`), and was in the store when that walk was asked. One the store
+/// got after that, or one whose arrival nothing records, the earlier walk
+/// never had in reach.
+///
+/// The one test a fresh walk's count ([`super::ask_detail_walk`]) and its
+/// steps ([`take_seconds`]) both apply, so a walk counts what it reads.
+pub(super) fn tried_by(tried: &WalkTried, start: i64, first_stored_ms: Option<i64>) -> bool {
+    tried.floor_ts.is_none_or(|floor| floor <= start)
+        && start < tried.top_ts
+        && first_stored_ms.is_some_and(|stored| stored <= tried.asked_ms)
 }
 
 /// `rows`, newest first, by the second they started in, each second keeping
@@ -262,13 +316,14 @@ impl Taken {
 /// they hold [`DETAIL_WALK_STEP_ACTIVITIES`] activities to read, the floor
 /// is reached, or [`WALK_PAGES_PER_STEP`] reads found too few. A second whose
 /// activities would carry the step past its count is left to the next step,
-/// unless the step holds none yet.
+/// unless the step holds none yet. An activity an earlier walk `tried`
+/// ([`tried_by`]) is not one to read.
 pub(super) async fn take_seconds(
     athlete: &Athlete<'_>,
     keys: &[&str],
-    floor: i64,
-    cursor: i64,
+    (floor, cursor): (i64, i64),
     sport: Option<&str>,
+    tried: Option<&WalkTried>,
 ) -> Result<Taken, ()> {
     let mut taken = Taken {
         seconds: Vec::new(),
@@ -283,7 +338,12 @@ pub(super) async fn take_seconds(
         for (at, rows) in page.seconds {
             let second = Second {
                 at,
-                unread: unread_of(rows),
+                unread: unread_of(rows)
+                    .into_iter()
+                    .filter(|unread| {
+                        !tried.is_some_and(|tried| tried_by(tried, at, unread.first_stored_ms()))
+                    })
+                    .collect(),
             };
             if unread >= DETAIL_WALK_STEP_ACTIVITIES && !second.unread.is_empty() {
                 return drop_read_twins(athlete, keys, taken).await;
@@ -396,6 +456,7 @@ mod tests {
             route: None,
             detail_read: segment_read,
             segment_read,
+            stored_at: None,
         }
     }
 

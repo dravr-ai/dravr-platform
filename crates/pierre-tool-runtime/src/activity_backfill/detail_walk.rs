@@ -61,7 +61,7 @@ use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::{IncompleteReason, Pending};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    BackfillJobKind, BackfillJobState, DetailWalkRow, JobProgress, WalkWiden,
+    BackfillJobKind, BackfillJobState, DetailWalkRow, JobProgress, WalkTried, WalkWiden,
 };
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::field_support::ActivityFields;
@@ -73,7 +73,7 @@ use uuid::Uuid;
 use super::{enqueue, now_ms, provider_tenant_id_str, ActivityBackfillJob, Enqueued};
 use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
-use candidates::Athlete;
+use candidates::{tried_by, Athlete, UnreadActivity};
 pub(super) use step::run_detail_walk;
 
 /// Activities whose efforts one step reads, at most: the whole seconds it
@@ -136,7 +136,8 @@ pub struct DetailWalkAsk<'ask> {
 pub enum DetailWalkAsked {
     /// A walk was recorded and started, counting this many activities to read.
     Started {
-        /// Activities of the window whose efforts no copy holds.
+        /// Activities of the window whose efforts no copy holds, but for
+        /// those a walk that ended lately tried.
         units_total: i64,
     },
     /// A walk was already owed: its floor was lowered to the ask's, and its
@@ -144,10 +145,9 @@ pub enum DetailWalkAsked {
     Widened,
     /// Every activity of the window has its efforts read: nothing to walk.
     NothingUnread,
-    /// A walk over the window ended walked within
-    /// [`DETAIL_WALK_STANDS_MS`]: it tried every activity in it, so none is
-    /// read again. These are the window's activities whose efforts it could
-    /// not read.
+    /// Every unread activity of the window is one a walk that ended walked
+    /// within [`DETAIL_WALK_STANDS_MS`] tried, so none is read again. These
+    /// are the window's activities whose efforts it could not read.
     RecentlyWalked {
         /// Activities of the window whose efforts no copy holds.
         unreadable: i64,
@@ -190,12 +190,15 @@ impl DetailWalkAsked {
 /// ([`WalkWiden`]); its cursor stays where its steps moved it, and a newer
 /// top is the next walk's once this one ends. With none owed, a walk is
 /// recorded over the window, counted at the activities in it whose efforts
-/// no copy holds, unless there are none, or unless a walk that ended walked
-/// within [`DETAIL_WALK_STANDS_MS`] covers the window
-/// ([`DetailWalkAsked::RecentlyWalked`]): after an older one, one over
-/// another sport, one whose floor sits above the ask's, one an unread
-/// activity of the ask started above the top of or after the end of, or one
-/// that ended any other way, the window is walked afresh.
+/// no copy holds, unless there are none.
+///
+/// A walk that ended walked within [`DETAIL_WALK_STANDS_MS`] tried part of
+/// the window ([`carried_from`]): its window's range, up to when it ended,
+/// over its sport or every sport. What it tried is never read again: a walk
+/// recorded after it reads only the activities it never had in reach
+/// (started outside that range, or stored after it was asked), and when
+/// there are none, none is recorded
+/// ([`DetailWalkAsked::RecentlyWalked`]).
 pub async fn ask_detail_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -228,32 +231,107 @@ pub async fn ask_detail_walk(
     else {
         return DetailWalkAsked::NotRecorded;
     };
-    let units_total = i64::try_from(unread.len()).unwrap_or(i64::MAX);
-    if units_total == 0 {
+    if unread.is_empty() {
         return DetailWalkAsked::NothingUnread;
     }
-    if row
+    let tried = row
         .as_ref()
-        .is_some_and(|row| stands_for(row, ask, &unread, now_ms()))
-    {
-        info!(user_id = %user_id, backend, unreadable = units_total, "Detail walk: a walk over the window ended lately; nothing is read again");
-        return DetailWalkAsked::RecentlyWalked {
-            unreadable: units_total,
-        };
+        .and_then(|row| carried_from(row, ask.sport, now_ms()));
+    let units_total = untried(&unread, tried.as_ref());
+    if units_total == 0 {
+        let unreadable = count(unread.len());
+        info!(user_id = %user_id, backend, unreadable, "Detail walk: a walk that ended lately tried every unread activity of the window; nothing is read again");
+        return DetailWalkAsked::RecentlyWalked { unreadable };
     }
-    record_walk(&athlete, backend, ask, units_total).await
+    let fresh = Fresh {
+        ask,
+        units_total,
+        replaces: row.is_some(),
+        tried,
+    };
+    record_walk(&athlete, backend, fresh).await
 }
 
-/// Record and start a walk of `ask`'s window through `backend`, counted at
-/// `units_total` activities to read; when another ask recorded one between
-/// this one's read and its record, widen that one instead.
-async fn record_walk(
-    athlete: &Athlete<'_>,
-    backend: &str,
-    ask: DetailWalkAsk<'_>,
+/// `n`, as a count of activities.
+fn count(n: usize) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
+/// How many of `unread` a walk reads: those no earlier walk `tried`.
+fn untried(unread: &[UnreadActivity], tried: Option<&WalkTried>) -> i64 {
+    count(
+        unread
+            .iter()
+            .filter(|activity| {
+                !tried
+                    .is_some_and(|tried| tried_by(tried, activity.newest, activity.first_stored_ms))
+            })
+            .count(),
+    )
+}
+
+/// The range of a window the walk `row` records tried, for a walk of
+/// `sport` asked at `now_ms`: its window, from its floor up to its top or
+/// to when it ended, whichever is lower, as stored when it was asked.
+///
+/// `None` unless it ended walked over `sport` or every sport, and within
+/// [`DETAIL_WALK_STANDS_MS`] of `now_ms`, counted from the oldest end among
+/// the walks whose tries it carries: a range carried on from walk to walk
+/// stands a week from the first, no longer, so an activity the backend
+/// could not read is tried again weekly however often the athlete asks.
+fn carried_from(row: &DetailWalkRow, sport: Option<&str>, now_ms: i64) -> Option<WalkTried> {
+    if row.state != BackfillJobState::Walked
+        || !(row.walk_sport.is_none() || row.walk_sport.as_deref() == sport)
+    {
+        return None;
+    }
+    let (ended_ms, top) = (row.ended_at_ms?, row.window_top_ts?);
+    let first_ended_ms = row
+        .tried
+        .map_or(ended_ms, |carried| carried.ended_ms.min(ended_ms));
+    (now_ms.saturating_sub(first_ended_ms) < DETAIL_WALK_STANDS_MS).then(|| WalkTried {
+        floor_ts: row.after_ts,
+        top_ts: top.min(ended_ms.div_euclid(1_000)),
+        asked_ms: row.created_at_ms,
+        ended_ms: first_ended_ms,
+    })
+}
+
+/// A walk to record over an ask's window.
+struct Fresh<'ask> {
+    ask: DetailWalkAsk<'ask>,
+    /// Activities it reads: the window's unread ones no earlier walk tried.
     units_total: i64,
-) -> DetailWalkAsked {
+    /// Whether an ended walk's row stands, which the record replaces.
+    replaces: bool,
+    /// The range an earlier walk tried, which it reads nothing of again.
+    tried: Option<WalkTried>,
+}
+
+/// Record and start the `fresh` walk through `backend`; when another ask
+/// recorded one between this one's read and its record, widen that one
+/// instead.
+///
+/// The range it reads nothing of again is written on the ended row first:
+/// the record that replaces that row keeps it, and with none it is cleared,
+/// so a range the ended walk carried is never carried on unchecked.
+async fn record_walk(athlete: &Athlete<'_>, backend: &str, fresh: Fresh<'_>) -> DetailWalkAsked {
     let (user_id, tenant_id) = (athlete.user_id, athlete.tenant_id);
+    let Fresh {
+        ask, units_total, ..
+    } = fresh;
+    if fresh.replaces {
+        if let Err(e) = athlete
+            .runtime
+            .repos()
+            .activity_backfill_jobs
+            .set_detail_walk_tried(user_id, tenant_id, backend, fresh.tried.as_ref())
+            .await
+        {
+            warn!(user_id = %user_id, backend, error = %e, "Detail walk: the range the ended walk tried could not be written");
+            return DetailWalkAsked::NotRecorded;
+        }
+    }
     let job = ActivityBackfillJob {
         resources: Arc::clone(athlete.runtime),
         user_id,
@@ -294,25 +372,6 @@ async fn record_walk(
     }
 }
 
-/// Whether the walk `row` records, which ended walked within
-/// [`DETAIL_WALK_STANDS_MS`] of `now_ms`, covers `ask`: its window reaches
-/// from at or below the ask's floor, over the ask's sport or every sport,
-/// and every activity of the ask left `unread` (the newest start of each)
-/// started below its top and before it ended. A default window ends at the
-/// athlete's next midnight, a day later each day: the walk stands for it
-/// while nothing unread is newer than what the walk could have tried.
-fn stands_for(row: &DetailWalkRow, ask: DetailWalkAsk<'_>, unread: &[i64], now_ms: i64) -> bool {
-    let (Some(ended_ms), Some(top)) = (row.ended_at_ms, row.window_top_ts) else {
-        return false;
-    };
-    let tried_below = top.min(ended_ms.div_euclid(1_000));
-    row.state == BackfillJobState::Walked
-        && now_ms.saturating_sub(ended_ms) < DETAIL_WALK_STANDS_MS
-        && row.after_ts.is_none_or(|floor| floor <= ask.after_ts)
-        && unread.iter().all(|newest| *newest < tried_below)
-        && (row.walk_sport.is_none() || row.walk_sport.as_deref() == ask.sport)
-}
-
 /// The detail walk owed for `backend`, if one is; `Err` (logged) when the
 /// ledger could not be read.
 async fn owed_walk(athlete: &Athlete<'_>, backend: &str) -> Result<Option<DetailWalkRow>, ()> {
@@ -351,17 +410,24 @@ async fn widen(
     let floor = row
         .after_ts
         .map_or(ask.after_ts, |after| after.min(ask.after_ts));
-    let cursor = row.before_ts.unwrap_or(ask.before_ts);
-    let sport = if row.walk_sport.as_deref() == ask.sport {
-        ask.sport
+    // A walk of one sport asked for another, or for every sport, reads every
+    // sport from its window's top again, and drops the range an earlier walk
+    // of that one sport tried (the widen statement does the same).
+    let sport_widens = row.walk_sport.is_some() && row.walk_sport.as_deref() != ask.sport;
+    let (cursor, sport, tried) = if sport_widens {
+        (row.window_top_ts.unwrap_or(ask.before_ts), None, None)
     } else {
-        None
+        (
+            row.before_ts.unwrap_or(ask.before_ts),
+            row.walk_sport.as_deref(),
+            row.tried,
+        )
     };
     let keys = walk_keys(backend);
     let Ok(unread) = athlete.unread_between(&keys, floor, cursor, sport).await else {
         return DetailWalkAsked::NotRecorded;
     };
-    let units_left = i64::try_from(unread.len()).unwrap_or(i64::MAX);
+    let units_left = untried(&unread, tried.as_ref());
     let widen = WalkWiden {
         after_ts: ask.after_ts,
         walk_sport: ask.sport.map(str::to_owned),

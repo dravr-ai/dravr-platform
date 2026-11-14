@@ -39,9 +39,27 @@ pub struct WalkWiden {
 /// step's progress write keeps `after_ts`, and the walk's end lands only on
 /// the floor its step walked to ([`END_DETAIL_WALK_SQL`]), so a floor
 /// lowered under a running step is walked by the steps after it.
+///
+/// A walk of one sport widened to every sport left the other sports'
+/// activities above its cursor unread: its cursor goes back to its window's
+/// top, and the range an earlier walk tried, which was that sport's alone,
+/// is dropped. The step that holds it meanwhile would write its own cursor
+/// over that, so its lease is taken back with it: the step's writes, which
+/// all name its lease, then land nothing, and the sweep runs the walk on
+/// from the top.
 pub(crate) const WIDEN_DETAIL_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
      SET after_ts = CASE WHEN after_ts IS NOT NULL AND $5 < after_ts THEN $5 ELSE after_ts END, \
          months_total = months_done + $6, \
+         before_ts = CASE WHEN walk_sport IS NOT NULL AND ($7 IS NULL OR walk_sport <> $7) \
+                          THEN window_top_ts ELSE before_ts END, \
+         lease_token = CASE WHEN walk_sport IS NOT NULL AND ($7 IS NULL OR walk_sport <> $7) \
+                            THEN NULL ELSE lease_token END, \
+         leased_until_ms = CASE WHEN walk_sport IS NOT NULL AND ($7 IS NULL OR walk_sport <> $7) \
+                                THEN 0 ELSE leased_until_ms END, \
+         tried_floor_ts = CASE WHEN walk_sport IS NOT NULL AND ($7 IS NULL OR walk_sport <> $7) \
+                               THEN NULL ELSE tried_floor_ts END, \
+         tried_top_ts = CASE WHEN walk_sport IS NOT NULL AND ($7 IS NULL OR walk_sport <> $7) \
+                             THEN NULL ELSE tried_top_ts END, \
          walk_sport = CASE WHEN walk_sport = $7 THEN walk_sport ELSE NULL END \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
        AND outcome IS NULL";
@@ -95,6 +113,32 @@ pub struct DetailWalkEnded {
     pub created_at_ms: i64,
 }
 
+/// The range of a window an earlier detail walk that ended walked tried,
+/// which a walk recorded after it reads nothing of again
+/// ([`super::ActivityBackfillJobRepository::set_detail_walk_tried`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WalkTried {
+    /// The range's floor (unix seconds); `None` for no lower bound.
+    pub floor_ts: Option<i64>,
+    /// The range's top (unix seconds), excluded.
+    pub top_ts: i64,
+    /// When the earlier walk was asked (unix ms): an activity first stored
+    /// after it was never in its reach.
+    pub asked_ms: i64,
+    /// When the oldest walk whose tries the range carries ended (unix ms):
+    /// the range stands for a week from it, no longer.
+    pub ended_ms: i64,
+}
+
+/// Records on the ended detail walk of the pair (`$4` its kind) the range a
+/// walk recorded over it next reads nothing of again (`$5`–`$8`, all NULL
+/// for none), in the row's own tenant. The record that replaces the ended
+/// row leaves these columns as they are, so the new walk carries them.
+pub(crate) const SET_DETAIL_WALK_TRIED_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET tried_floor_ts = $5, tried_top_ts = $6, tried_asked_ms = $7, tried_ended_ms = $8 \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4 \
+       AND outcome IS NOT NULL";
+
 /// The detail walk filed under a pair, owed or ended, as it stands
 /// ([`super::ActivityBackfillJobRepository::detail_walk_row`]).
 #[derive(Debug, Clone, PartialEq)]
@@ -117,6 +161,9 @@ pub struct DetailWalkRow {
     pub walk_sport: Option<String>,
     /// When the ask that recorded it was made (unix ms).
     pub created_at_ms: i64,
+    /// The range an earlier walk tried, which this one reads nothing of
+    /// again; `None` when there is none.
+    pub tried: Option<WalkTried>,
     /// How far it got.
     pub progress: JobProgress,
 }
@@ -125,7 +172,7 @@ pub struct DetailWalkRow {
 /// state.
 pub(crate) const DETAIL_WALK_ROW_SQL: &str = "SELECT outcome, after_ts, before_ts, walk_sport, \
             window_top_ts, ended_at_ms, created_at_ms, months_total, months_done, rows_landed, \
-            secs_per_unit \
+            secs_per_unit, tried_floor_ts, tried_top_ts, tried_asked_ms, tried_ended_ms \
      FROM activity_backfill_jobs \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
 
@@ -174,6 +221,35 @@ where
         created_at_ms: row
             .try_get("created_at_ms")
             .map_err(column("created_at_ms"))?,
+        tried: walk_tried_from_row(row)?,
         progress: job_progress_from_row(row)?,
+    })
+}
+
+/// The [`WalkTried`] a [`DETAIL_WALK_ROW_SQL`] row carries: one when its
+/// top, its ask and its end are all set.
+fn walk_tried_from_row<R>(row: &R) -> AppResult<Option<WalkTried>>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let column = |name: &'static str| -> AppResult<Option<i64>> {
+        row.try_get(name).map_err(|e| column_error(name, &e))
+    };
+    let (floor_ts, top_ts, asked_ms, ended_ms) = (
+        column("tried_floor_ts")?,
+        column("tried_top_ts")?,
+        column("tried_asked_ms")?,
+        column("tried_ended_ms")?,
+    );
+    Ok(match (top_ts, asked_ms, ended_ms) {
+        (Some(top_ts), Some(asked_ms), Some(ended_ms)) => Some(WalkTried {
+            floor_ts,
+            top_ts,
+            asked_ms,
+            ended_ms,
+        }),
+        _ => None,
     })
 }

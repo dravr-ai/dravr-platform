@@ -19,7 +19,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, DetailWalkEnd,
-    DetailWalkRow, JobLease, JobLeaseState, JobProgress, JobProgressStep, WalkWiden,
+    DetailWalkRow, JobLease, JobLeaseState, JobProgress, JobProgressStep, WalkTried, WalkWiden,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -1198,6 +1198,7 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
             ended_at_ms: Some(WALK_ENDED_AT_MS),
             walk_sport: None,
             created_at_ms: walk.created_at_ms,
+            tried: None,
             progress: ended,
         }),
         "bug: the ended row reads back with its window's floor and top, its cursor at the floor, \
@@ -1220,6 +1221,30 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
         "bug: an ended walk is ended twice"
     );
 
+    // The range the ended walk tried, written on its row before a fresh
+    // walk replaces it, is carried by the fresh walk; never by another
+    // tenant's ask.
+    let tried = WalkTried {
+        floor_ts: row.after_ts,
+        top_ts: 1_710_000_000,
+        asked_ms: walk.created_at_ms,
+        ended_ms: WALK_ENDED_AT_MS,
+    };
+    assert!(
+        !ledger
+            .set_detail_walk_tried(user, TenantId::generate(), PROVIDER, Some(&tried))
+            .await
+            .unwrap(),
+        "bug: another tenant's ask wrote this tenant's walk"
+    );
+    assert!(
+        ledger
+            .set_detail_walk_tried(user, tenant, PROVIDER, Some(&tried))
+            .await
+            .unwrap(),
+        "the ended walk takes the range it tried"
+    );
+
     // A fresh walk recorded over the ended one is owed again, over its own
     // window, and has not ended.
     let mut fresh = owed_row(tenant, user, BackfillJobKind::DetailWalk);
@@ -1238,6 +1263,95 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
         ),
         (BackfillJobState::Owed, Some(1_720_000_000), None),
         "bug: a fresh walk over an ended one kept the old one's top or end"
+    );
+    assert_eq!(
+        fresh_row.tried,
+        Some(tried),
+        "bug: the fresh walk lost the range the ended one tried"
+    );
+    assert!(
+        !ledger
+            .set_detail_walk_tried(user, tenant, PROVIDER, None)
+            .await
+            .unwrap(),
+        "bug: an owed walk's tried range was rewritten"
+    );
+}
+
+/// A walk of one sport widened to every sport goes back to its window's
+/// top, drops the range a walk of that sport tried, and takes its lease back
+/// from the step holding it, whose progress then writes nothing over that.
+#[tokio::test]
+async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    walk.walk_sport = Some("Ride".to_owned());
+    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    let (_, lease) = claimed_detail_walk(&db).await;
+    let step = JobProgressStep {
+        before_ts: 1_705_000_000,
+        units_done: 10,
+        rows_landed: 10,
+        secs_per_unit: None,
+        floor: None,
+    };
+    assert!(ledger.record_job_progress(&lease, step).await.unwrap());
+    let (_, lease) = claimed_detail_walk(&db).await;
+
+    let same_sport = WalkWiden {
+        after_ts: 1_690_000_000,
+        walk_sport: Some("Ride".to_owned()),
+        units_left: 2,
+    };
+    assert!(ledger
+        .widen_detail_walk(user, tenant, PROVIDER, &same_sport)
+        .await
+        .unwrap());
+    let row = ledger
+        .detail_walk_row(user, tenant, PROVIDER)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (row.before_ts, row.walk_sport.as_deref()),
+        (Some(1_705_000_000), Some("Ride")),
+        "bug: a widen of the same sport moved the cursor"
+    );
+
+    let every_sport = WalkWiden {
+        walk_sport: None,
+        ..same_sport
+    };
+    assert!(ledger
+        .widen_detail_walk(user, tenant, PROVIDER, &every_sport)
+        .await
+        .unwrap());
+    let row = ledger
+        .detail_walk_row(user, tenant, PROVIDER)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (row.before_ts, row.walk_sport, row.tried),
+        (walk.before_ts, None, None),
+        "bug: a walk widened to every sport did not go back to its window's top"
+    );
+    assert!(
+        !ledger.record_job_progress(&lease, step).await.unwrap(),
+        "bug: the step running when the sport widened wrote its cursor over the restart"
+    );
+    assert_eq!(
+        ledger
+            .detail_walk_row(user, tenant, PROVIDER)
+            .await
+            .unwrap()
+            .unwrap()
+            .before_ts,
+        walk.before_ts,
+        "the restart stands"
     );
 }
 
