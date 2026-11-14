@@ -173,7 +173,8 @@ async fn live_activity_store(
     let records = live_record_store(database, &url)
         .await
         .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?;
-    Ok(live_store(Some(records), repos))
+    // Seeded sessions keep no original, so the seeder's store needs no blobs.
+    Ok(live_store(Some(records), None, repos))
 }
 
 async fn dispatch_with_database(action: SeedCommand, database_url: &str) -> AppResult<()> {

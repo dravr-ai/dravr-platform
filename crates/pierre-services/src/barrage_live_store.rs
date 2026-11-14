@@ -81,16 +81,19 @@ impl fmt::Debug for BarrageLiveStore {
 }
 
 impl BarrageLiveStore {
-    /// A store over `records`, projecting through `sink`; `repos` is the
-    /// activity cache an erasure reads a copy barrage never held from.
+    /// A store over `records` and the originals they keep in `blobs`
+    /// (`None` on a deployment with no blob store, which keeps none),
+    /// projecting through `sink`; `repos` is the activity cache an erasure
+    /// reads a copy barrage never held from.
     #[must_use]
     pub fn new(
         records: Arc<dyn ActivityRecordStore>,
+        blobs: Option<Arc<dyn BlobStore>>,
         sink: Arc<dyn ProjectionSink>,
         repos: Arc<RepositoryRegistry>,
     ) -> Self {
         Self {
-            ingest: ActivityIngest::new(Arc::clone(&records), Arc::clone(&sink)),
+            ingest: ActivityIngest::new(Arc::clone(&records), blobs, Arc::clone(&sink)),
             records,
             sink,
             repos,
@@ -361,8 +364,8 @@ impl LiveActivityStore for BarrageLiveStore {
             .await
             .map_err(|e| store_error(source, &e))?;
         if held.is_some() {
-            self.records
-                .delete_one(&scope, source, &id)
+            self.ingest
+                .delete(&scope, source, slice::from_ref(&id))
                 .await
                 .map_err(|e| store_error(source, &e))?;
         }
@@ -633,8 +636,8 @@ impl BarrageLiveStore {
             .map_err(|e| store_error(source, &e))?
             .is_some();
         if held {
-            self.records
-                .delete_one(&scope, source, id)
+            self.ingest
+                .delete(&scope, source, slice::from_ref(id))
                 .await
                 .map_err(|e| store_error(source, &e))?;
         }
@@ -648,8 +651,7 @@ impl BarrageLiveStore {
             .retract(&scope, source, None, RetractReason::SourceDeleted)
             .await
             .map_err(|e| store_error(source, &e))?;
-        // A live source keeps no originals: nothing else to delete.
-        self.records
+        self.ingest
             .delete_source(&scope, source)
             .await
             .map_err(|e| store_error(source, &e))?;
@@ -658,15 +660,17 @@ impl BarrageLiveStore {
 }
 
 /// The live store a server runs on: over `records` when the binary selected
-/// them, in memory otherwise, projecting into `repos`' activity cache.
+/// them, in memory otherwise, with the originals they keep in `blobs`,
+/// projecting into `repos`' activity cache.
 #[must_use]
 pub fn live_store(
     records: Option<Arc<dyn ActivityRecordStore>>,
+    blobs: Option<Arc<dyn BlobStore>>,
     repos: &Arc<RepositoryRegistry>,
 ) -> Arc<dyn LiveActivityStore> {
     let records = records.unwrap_or_else(|| Arc::new(MemoryActivityRecordStore::new()));
     let sink = Arc::new(LiveCacheSink::new(Arc::clone(repos)));
-    Arc::new(BarrageLiveStore::new(records, sink, Arc::clone(repos)))
+    Arc::new(BarrageLiveStore::new(records, blobs, sink, Arc::clone(repos)))
 }
 
 /// The SQLite database a local run keeps barrage's records and jobs in: a
