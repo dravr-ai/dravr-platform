@@ -2730,7 +2730,6 @@
       "signInUnavailable": "We couldn't sign you in to {0} right now. This is usually temporary — please try again in a few minutes.",
       "signInChallenged": "{0} asked for an extra security check we can't complete automatically right now. Please try again in a little while.",
       "signInPaused": "{0} sign-in is paused while we move to {0}'s official connection.",
-      "signInOauthRequired": "{0} now connects through its official sign-in. Go back and choose {0}.",
       "signInExpired": "This sign-in is no longer active. Please start the sign-in again.",
       "tryAgain": "Try Again"
     },
@@ -2749,9 +2748,6 @@
       "tagEmailPassword": "Email / password",
       "tagEmailOrUsernamePassword": "Email or username / password",
       "tagImportHistory": "Import my history",
-      "tagHistoryImporting": "Copying history…",
-      "tagHistoryIncomplete": "Try again",
-      "tagMoveToOfficial": "Move to {0}'s official connection",
       "stravaFallback": "Strava sign-in didn't complete — you can connect with your Strava email and password instead.",
       "signInIncomplete": "That sign-in didn't complete. Please go back and try again.",
       "historySignInNote": "Sign in once to copy your history; {0} keeps your new workouts coming.",
@@ -2923,7 +2919,7 @@
       "sourceWeeklyDigest": "Their weekly digest of the group"
     },
     "shareTraining": "Share my training with my coach",
-    "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. Applies to this group only.",
+    "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. AI tools your coach connects to Dravr, such as Claude, can read your training and your plan too. Turning this off stops both. Applies to this group only.",
     "shareTrainingPendingHint": "No coach yet. The coach who joins this group will see your training, your plan and your messages in its chat.",
     "sharingOnNotice": "Your coach sees your training in this group again.",
     "sharingOffNotice": "Your coach no longer sees your training, your plan or your messages in this group.",
@@ -3326,8 +3322,6 @@
       "reauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. Reconnect {0} from your settings so I can see everything.",
       "reauth_fallback_served": "One note: {0} is still syncing for now, but your {0} sign-in has expired. Sign in to {0} again here to keep it that way:\n\n{1}",
       "reauth_fallback_served_no_link": "One note: {0} is still syncing for now, but your {0} sign-in has expired. Sign in to {0} again from your settings to keep it that way.",
-      "reauth_oauth_required": "Your {0} connection has expired — I can't fetch your data right now. {0} now connects through its official sign-in: connect it here (link valid for 1 hour):\n\n{1}\n\nOnce connected, ask me again.",
-      "reauth_oauth_required_no_link": "Your {0} connection has expired — I can't fetch your data right now. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
       "reauth_oauth_served": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in: connect it here (link valid for 1 hour):\n\n{1}\n\nOnce connected, ask me again.",
       "reauth_oauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
       "reauth_grant_writes": "One note: your {0} activities are still syncing, but sending workouts and calendar entries to {0} needs your {0} connection again. Connect it here (link valid for 1 hour):\n\n{1}",
@@ -3582,10 +3576,6 @@
       "10k": "10 km",
       "half_marathon": "half marathon",
       "marathon": "marathon"
-    },
-    "provider_oauth_required": {
-      "title": "Move {0} to its official connection",
-      "body": "Your {0} sign-in expired. Connect {0} through its official connection to keep your data coming."
     },
     "provider_grant_writes": {
       "title": "Reconnect to send workouts",
@@ -3989,14 +3979,10 @@
       "imported": "Your {{provider}} history is in",
       "incomplete": "Your {{provider}} history didn't finish copying",
       "needed": "Your past {{provider}} activities aren't here yet",
-      "retry": "Try again",
       "explainer": "Sign in with your {{provider}} account to bring in your past activities and a year of wellness. Your sign-in then keeps them up to date.",
       "add": "Add history",
       "modalIntro": "Sign in to bring in your {{provider}} history. Your sign-in keeps new workouts coming too.",
       "modalCopying": "Bringing in your history — this can take a few minutes."
-    },
-    "migration": {
-      "oauthRequired": "Move to {{provider}}'s official connection"
     },
     "isConnectedAria": "{{provider}} is connected",
     "lastSync": "Last sync",
@@ -4138,7 +4124,8 @@
           "file_too_large": "Its file is too large",
           "invalid_row": "Its row in the export is incomplete",
           "zero_elapsed": "A manual entry with no time",
-          "deleted_by_athlete": "You deleted this activity, so it stays deleted"
+          "deleted_by_athlete": "You deleted this activity, so it stays deleted",
+          "future_dated": "It starts in the future, so it was not imported"
         },
         "refusal": {
           "link_invalid": "That doesn't look like an export link. Copy the whole link from Strava's email.",
@@ -4580,7 +4567,7 @@
     "activeCountN": "{{count}} active tokens for AI client connections",
     "connectedApps": "Connected Apps",
     "connectedAppsEmpty": "No connected apps yet",
-    "connectedAppsHint": "Apps you approved to access your Dravr data through the OAuth consent screen (for example Claude Desktop). Revoke any one to cut off its access — it will have to ask for your approval again.",
+    "connectedAppsHint": "Apps you approved to access your Dravr data through the OAuth consent screen (for example Claude Desktop). If you are a human coach, an approved app can also read the training of athletes who share it with you. Revoke any one to cut off its access — it will have to ask for your approval again.",
     "connectedMcpApps": "Connected MCP apps",
     "create": "Create Token",
     "createAction": "Create Token",

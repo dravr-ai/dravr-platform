@@ -2730,7 +2730,6 @@
       "signInUnavailable": "Die Anmeldung bei {0} ist gerade nicht möglich. Das ist meist vorübergehend – versuche es in ein paar Minuten erneut.",
       "signInChallenged": "{0} hat eine zusätzliche Sicherheitsprüfung verlangt, die wir gerade nicht automatisch abschließen können. Versuche es bitte etwas später erneut.",
       "signInPaused": "Die Anmeldung bei {0} ist pausiert, während wir auf die offizielle {0}-Verbindung umstellen.",
-      "signInOauthRequired": "{0} verbindet sich jetzt über die offizielle Anmeldung. Geh zurück und wähle {0}.",
       "signInExpired": "Diese Anmeldung ist nicht mehr aktiv. Starte die Anmeldung bitte erneut.",
       "tryAgain": "Erneut versuchen"
     },
@@ -2749,9 +2748,6 @@
       "tagEmailPassword": "E-Mail / Passwort",
       "tagEmailOrUsernamePassword": "E-Mail oder Benutzername / Passwort",
       "tagImportHistory": "Meinen Verlauf importieren",
-      "tagHistoryImporting": "Verlauf wird kopiert…",
-      "tagHistoryIncomplete": "Erneut versuchen",
-      "tagMoveToOfficial": "Wechsle zur offiziellen {0}-Verbindung",
       "stravaFallback": "Die Anmeldung bei Strava wurde nicht abgeschlossen – du kannst dich stattdessen mit deiner Strava-E-Mail und deinem Passwort verbinden.",
       "signInIncomplete": "Diese Anmeldung wurde nicht abgeschlossen. Geh zurück und versuche es erneut.",
       "historySignInNote": "Melde dich einmal an, um deinen Verlauf zu kopieren; {0} liefert deine neuen Trainings weiter.",
@@ -2923,7 +2919,7 @@
       "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe"
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
-    "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. Gilt nur für diese Gruppe.",
+    "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. KI-Tools, die dein Coach mit Dravr verbindet, etwa Claude, können dein Training und deinen Plan ebenfalls lesen. Schaltest du dies aus, endet beides. Gilt nur für diese Gruppe.",
     "shareTrainingPendingHint": "Noch kein Coach. Der Coach, der dieser Gruppe beitritt, sieht dein Training, deinen Plan und deine Nachrichten in ihrem Chat.",
     "sharingOnNotice": "Dein Coach sieht dein Training in dieser Gruppe wieder.",
     "sharingOffNotice": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten in dieser Gruppe nicht mehr.",
@@ -3326,8 +3322,6 @@
       "reauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. Verbinde {0} in den Einstellungen neu, damit ich alles sehe.",
       "reauth_fallback_served": "Kurzer Hinweis: {0} synchronisiert vorerst weiter, aber deine Anmeldung bei {0} ist abgelaufen. Melde dich hier erneut bei {0} an, damit das so bleibt:\n\n{1}",
       "reauth_fallback_served_no_link": "Kurzer Hinweis: {0} synchronisiert vorerst weiter, aber deine Anmeldung bei {0} ist abgelaufen. Melde dich in den Einstellungen erneut bei {0} an, damit das so bleibt.",
-      "reauth_oauth_required": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. {0} verbindet sich jetzt über die offizielle Anmeldung: Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}\n\nSobald es verbunden ist, frag mich noch einmal.",
-      "reauth_oauth_required_no_link": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
       "reauth_oauth_served": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung: Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}\n\nSobald es verbunden ist, frag mich noch einmal.",
       "reauth_oauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
       "reauth_grant_writes": "Kurzer Hinweis: Deine {0}-Aktivitäten werden weiter synchronisiert, aber um Workouts und Kalendereinträge an {0} zu senden, brauchst du wieder deine Verbindung zu {0}. Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}",
@@ -3582,10 +3576,6 @@
       "10k": "10 km",
       "half_marathon": "Halbmarathon",
       "marathon": "Marathon"
-    },
-    "provider_oauth_required": {
-      "title": "Wechsle bei {0} zur offiziellen Verbindung",
-      "body": "Deine {0}-Anmeldung ist abgelaufen. Verbinde {0} über die offizielle Verbindung, damit deine Daten weiter ankommen."
     },
     "provider_grant_writes": {
       "title": "Neu verbinden, um Workouts zu senden",
@@ -3989,14 +3979,10 @@
       "imported": "Dein {{provider}}-Verlauf ist da",
       "incomplete": "Dein {{provider}}-Verlauf wurde nicht vollständig kopiert",
       "needed": "Deine früheren {{provider}}-Aktivitäten sind noch nicht da",
-      "retry": "Erneut versuchen",
       "explainer": "Melde dich mit deinem {{provider}}-Konto an, um deine früheren Aktivitäten und ein Jahr Wellness-Daten zu übernehmen. Deine Anmeldung hält sie danach aktuell.",
       "add": "Verlauf hinzufügen",
       "modalIntro": "Melde dich an, um deinen {{provider}}-Verlauf zu übernehmen. Über deine Anmeldung kommen auch deine neuen Trainings weiter an.",
       "modalCopying": "Dein Verlauf wird übernommen – das kann ein paar Minuten dauern."
-    },
-    "migration": {
-      "oauthRequired": "Wechsle zur offiziellen {{provider}}-Verbindung"
     },
     "isConnectedAria": "{{provider}} ist verbunden",
     "lastSync": "Letzte Synchronisierung",
@@ -4138,7 +4124,8 @@
           "file_too_large": "Ihre Datei ist zu groß",
           "invalid_row": "Ihre Zeile im Export ist unvollständig",
           "zero_elapsed": "Ein manueller Eintrag ohne Dauer",
-          "deleted_by_athlete": "Du hast diese Aktivität gelöscht, sie bleibt gelöscht"
+          "deleted_by_athlete": "Du hast diese Aktivität gelöscht, sie bleibt gelöscht",
+          "future_dated": "Sie beginnt in der Zukunft und wurde nicht importiert"
         },
         "refusal": {
           "link_invalid": "Das sieht nicht nach einem Export-Link aus. Kopiere den ganzen Link aus der E-Mail von Strava.",
@@ -4580,7 +4567,7 @@
     "activeCountN": "{{count}} aktive Token für KI-Client-Verbindungen",
     "connectedApps": "Verbundene Apps",
     "connectedAppsEmpty": "Noch keine verbundenen Apps",
-    "connectedAppsHint": "Apps, denen du auf dem OAuth-Zustimmungsbildschirm Zugriff auf deine Dravr-Daten erlaubt hast (zum Beispiel Claude Desktop). Widerrufe eine, um ihr den Zugriff zu entziehen — sie muss dann erneut um deine Erlaubnis bitten.",
+    "connectedAppsHint": "Apps, denen du auf dem OAuth-Zustimmungsbildschirm Zugriff auf deine Dravr-Daten erlaubt hast (zum Beispiel Claude Desktop). Bist du ein menschlicher Coach, kann eine erlaubte App auch das Training der Athleten lesen, die es mit dir teilen. Widerrufe eine, um ihr den Zugriff zu entziehen — sie muss dann erneut um deine Erlaubnis bitten.",
     "connectedMcpApps": "Verbundene MCP-Apps",
     "create": "Token erstellen",
     "createAction": "Token erstellen",

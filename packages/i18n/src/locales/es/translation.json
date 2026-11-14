@@ -2730,7 +2730,6 @@
       "signInUnavailable": "Ahora mismo no hemos podido iniciar sesión en {0}. Suele ser algo temporal: inténtalo de nuevo en unos minutos.",
       "signInChallenged": "{0} ha pedido una comprobación de seguridad adicional que ahora mismo no podemos completar automáticamente. Inténtalo de nuevo dentro de un rato.",
       "signInPaused": "El inicio de sesión en {0} está en pausa mientras pasamos a la conexión oficial de {0}.",
-      "signInOauthRequired": "{0} ahora se conecta mediante su inicio de sesión oficial. Vuelve atrás y elige {0}.",
       "signInExpired": "Este inicio de sesión ya no está activo. Empieza de nuevo.",
       "tryAgain": "Reintentar"
     },
@@ -2749,9 +2748,6 @@
       "tagEmailPassword": "Correo / contraseña",
       "tagEmailOrUsernamePassword": "Correo o usuario / contraseña",
       "tagImportHistory": "Importar mi historial",
-      "tagHistoryImporting": "Copiando historial…",
-      "tagHistoryIncomplete": "Reintentar",
-      "tagMoveToOfficial": "Pasa a la conexión oficial de {0}",
       "stravaFallback": "El inicio de sesión en Strava no se completó: puedes conectarte con tu correo y tu contraseña de Strava.",
       "signInIncomplete": "Ese inicio de sesión no se completó. Vuelve atrás e inténtalo de nuevo.",
       "historySignInNote": "Inicia sesión una vez para copiar tu historial; {0} sigue enviando tus nuevos entrenamientos.",
@@ -2923,7 +2919,7 @@
       "sourceWeeklyDigest": "Su resumen semanal del grupo"
     },
     "shareTraining": "Compartir mi entrenamiento con mi coach",
-    "shareTrainingHint": "Tu coach ve tu entrenamiento, tu plan y tus mensajes en el chat de este grupo. Solo afecta a este grupo.",
+    "shareTrainingHint": "Tu coach ve tu entrenamiento, tu plan y tus mensajes en el chat de este grupo. Las herramientas de IA que tu coach conecta a Dravr, como Claude, también pueden leer tu entrenamiento y tu plan. Al desactivarlo se detienen ambas cosas. Solo afecta a este grupo.",
     "shareTrainingPendingHint": "Aún no hay coach. El coach que se una a este grupo verá tu entrenamiento, tu plan y tus mensajes en su chat.",
     "sharingOnNotice": "Tu coach vuelve a ver tu entrenamiento en este grupo.",
     "sharingOffNotice": "Tu coach ya no ve tu entrenamiento, tu plan ni tus mensajes en este grupo.",
@@ -3326,8 +3322,6 @@
       "reauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. Vuelve a conectar {0} desde los ajustes para que lo vea todo.",
       "reauth_fallback_served": "Un apunte: {0} sigue sincronizándose por ahora, pero tu inicio de sesión en {0} ha expirado. Vuelve a iniciar sesión en {0} aquí para que siga así:\n\n{1}",
       "reauth_fallback_served_no_link": "Un apunte: {0} sigue sincronizándose por ahora, pero tu inicio de sesión en {0} ha expirado. Vuelve a iniciar sesión en {0} desde los ajustes para que siga así.",
-      "reauth_oauth_required": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. {0} ahora se conecta mediante su inicio de sesión oficial: conéctalo aquí (enlace válido durante 1 hora):\n\n{1}\n\nCuando esté conectado, vuelve a preguntarme.",
-      "reauth_oauth_required_no_link": "Tu conexión con {0} ha expirado — no puedo recuperar tus datos en este momento. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
       "reauth_oauth_served": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial: conéctalo aquí (enlace válido durante 1 hora):\n\n{1}\n\nCuando esté conectado, vuelve a preguntarme.",
       "reauth_oauth_served_no_link": "Un apunte: tu conexión con {0} ha expirado, así que lo que acabo de mostrarte viene de tus otras cuentas conectadas. {0} ahora se conecta mediante su inicio de sesión oficial. Abre Conexiones en Dravr, elige Conectar {0} y vuelve a preguntarme.",
       "reauth_grant_writes": "Un apunte: tus actividades de {0} se siguen sincronizando, pero para enviar entrenamientos y entradas de calendario a {0} necesitas volver a conectar {0}. Conéctalo aquí (enlace válido durante 1 hora):\n\n{1}",
@@ -3582,10 +3576,6 @@
       "10k": "10 km",
       "half_marathon": "media maratón",
       "marathon": "maratón"
-    },
-    "provider_oauth_required": {
-      "title": "Pasa {0} a su conexión oficial",
-      "body": "Tu sesión de {0} caducó. Conecta {0} mediante su conexión oficial para seguir recibiendo tus datos."
     },
     "provider_grant_writes": {
       "title": "Vuelve a conectar para enviar entrenamientos",
@@ -3989,14 +3979,10 @@
       "imported": "Tu historial de {{provider}} ya está aquí",
       "incomplete": "La copia de tu historial de {{provider}} no terminó",
       "needed": "Tus actividades anteriores de {{provider}} aún no están aquí",
-      "retry": "Reintentar",
       "explainer": "Inicia sesión con tu cuenta de {{provider}} para traer tus actividades anteriores y un año de bienestar. Después, tu inicio de sesión las mantiene al día.",
       "add": "Añadir historial",
       "modalIntro": "Inicia sesión para traer tu historial de {{provider}}. Tu inicio de sesión también sigue trayendo tus nuevos entrenamientos.",
       "modalCopying": "Trayendo tu historial: puede tardar unos minutos."
-    },
-    "migration": {
-      "oauthRequired": "Pasa a la conexión oficial de {{provider}}"
     },
     "isConnectedAria": "{{provider}} está conectado",
     "lastSync": "Última sincronización",
@@ -4138,7 +4124,8 @@
           "file_too_large": "Su archivo es demasiado grande",
           "invalid_row": "Su fila en la exportación está incompleta",
           "zero_elapsed": "Una entrada manual sin tiempo",
-          "deleted_by_athlete": "Eliminaste esta actividad, así que sigue eliminada"
+          "deleted_by_athlete": "Eliminaste esta actividad, así que sigue eliminada",
+          "future_dated": "Empieza en el futuro, así que no se importó"
         },
         "refusal": {
           "link_invalid": "Eso no parece un enlace de exportación. Copia el enlace completo del correo de Strava.",
@@ -4580,7 +4567,7 @@
     "activeCountN": "{{count}} tokens activos para conexiones de clientes de IA",
     "connectedApps": "Aplicaciones conectadas",
     "connectedAppsEmpty": "Aún no hay aplicaciones conectadas",
-    "connectedAppsHint": "Las apps que autorizaste a acceder a tus datos de Dravr en la pantalla de consentimiento OAuth (por ejemplo, Claude Desktop). Revoca cualquiera para cortarle el acceso: tendrá que volver a pedirte permiso.",
+    "connectedAppsHint": "Las apps que autorizaste a acceder a tus datos de Dravr en la pantalla de consentimiento OAuth (por ejemplo, Claude Desktop). Si eres coach humano, una app autorizada también puede leer el entrenamiento de los atletas que lo comparten contigo. Revoca cualquiera para cortarle el acceso: tendrá que volver a pedirte permiso.",
     "connectedMcpApps": "Aplicaciones MCP conectadas",
     "create": "Crear token",
     "createAction": "Crear token",
