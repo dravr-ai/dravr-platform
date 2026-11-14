@@ -198,10 +198,9 @@ async fn one_segments_efforts_are_listed_page_by_page_until_a_short_page() {
     let page_one: Vec<String> = (0..200)
         .map(|i| listed_effort(i, Some(1_000 + i)))
         .collect();
-    let mut page_two: Vec<String> = (200..202)
+    let page_two: Vec<String> = (200..202)
         .map(|i| listed_effort(i, Some(1_000 + i)))
         .collect();
-    page_two.push(listed_effort(202, None));
     let (base_url, served) = stub(vec![
         ("200 OK", format!("[{}]", page_one.join(","))),
         ("200 OK", format!("[{}]", page_two.join(","))),
@@ -227,7 +226,7 @@ async fn one_segments_efforts_are_listed_page_by_page_until_a_short_page() {
     assert_eq!(
         hits.len(),
         202,
-        "bug: every effort naming its activity is a hit, and the one naming none is skipped"
+        "bug: every effort the listing holds is a hit"
     );
     assert_eq!(
         hits[0].activity_id, "1000",
@@ -242,6 +241,51 @@ async fn one_segments_efforts_are_listed_page_by_page_until_a_short_page() {
         hits[0].activity_type,
         Some(SportType::Ride),
         "bug: a hit carries its segment's sport"
+    );
+}
+
+/// Strava's documented `DetailedSegmentEffort` names its activity flat
+/// (`activity_id`) as well as nested: a row naming it either way is a hit.
+#[tokio::test]
+async fn an_effort_naming_its_activity_flat_is_a_hit() {
+    let flat = listed_effort(1, None).replacen('{', r#"{"activity_id":2001,"#, 1);
+    let (base_url, served) = stub(vec![("200 OK", format!("[{flat}]"))]).await;
+
+    let hits = provider(base_url)
+        .await
+        .segment_effort_history("611413", window())
+        .await
+        .unwrap();
+    served.await.unwrap();
+
+    assert_eq!(
+        hits.len(),
+        1,
+        "bug: an effort naming its activity flat is dropped"
+    );
+    assert_eq!(
+        hits[0].activity_id, "2001",
+        "bug: a flat activity id does not address the hit"
+    );
+}
+
+/// A row the mapping cannot read refuses the listing: answered short, the
+/// listing would read as an athlete who never rode what Strava listed.
+#[tokio::test]
+async fn a_listing_holding_a_row_it_cannot_read_is_refused_not_answered_short() {
+    let rows = [listed_effort(1, Some(2_001)), listed_effort(2, None)];
+    let (base_url, served) = stub(vec![("200 OK", format!("[{}]", rows.join(",")))]).await;
+
+    let refused = provider(base_url)
+        .await
+        .segment_effort_history("611413", window())
+        .await;
+    served.await.unwrap();
+
+    let error = refused.expect_err("bug: a listing missing a row it listed answers short");
+    assert!(
+        error.to_string().contains("1 could not be read"),
+        "bug: the refusal does not say how many rows were unreadable: {error}"
     );
 }
 

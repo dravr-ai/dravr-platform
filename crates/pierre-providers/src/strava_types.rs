@@ -186,6 +186,11 @@ pub struct StravaSegmentEffort {
     /// a detailed activity's own efforts name the activity itself
     #[serde(default)]
     pub activity: Option<StravaMetaActivity>,
+    /// The activity's id where Strava names it flat (`activity_id`), as its
+    /// documented `DetailedSegmentEffort` also does; read when `activity`
+    /// names none
+    #[serde(default)]
+    pub activity_id: Option<u64>,
     /// Total elapsed time for the segment (seconds)
     pub elapsed_time: Option<u32>,
     /// Time spent moving during the segment (seconds)

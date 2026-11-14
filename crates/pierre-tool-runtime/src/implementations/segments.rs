@@ -13,6 +13,9 @@
 //! and the athlete holds a live backend that lists a segment's efforts
 //! (`ProviderCapabilities::SEGMENT_EFFORT_HISTORY`: the Strava grant), the
 //! listing answers, complete, in the foreground budget. It stores nothing.
+//! A listing that finds no effort does not answer: empty, it is no word that
+//! the athlete never rode the segment, so the stored details answer with how
+//! much of the window they have read.
 //! Any failure falls through to the stored details: a transport the
 //! provider's terms keep its data off (the governed provider refuses before
 //! any request), a dead grant, a spent budget, Strava refusing the listing to
@@ -241,7 +244,10 @@ async fn listing_backend(runtime: &Arc<dyn ToolRuntime>, athlete: Athlete) -> Op
 
 /// The live listing's answer, or `None` when it cannot answer and the stored
 /// details must: no segment id, a sport asked, no backend that lists, a
-/// refusal remembered, or any failure of the listing.
+/// refusal remembered, any failure of the listing, or a listing that found no
+/// effort. An empty listing is not taken as the athlete never having ridden
+/// the segment: the stored details say how much of the window they have read
+/// instead of certifying none.
 async fn live_listing(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
@@ -277,7 +283,7 @@ async fn live_listing(
         to: ask.to,
     };
     match provider.segment_effort_history(segment_id, window).await {
-        Ok(hits) => Some(listed(&backend, &hits, ask, zone)),
+        Ok(hits) => listed(athlete.user_id, &backend, &hits, ask, zone),
         Err(e) => {
             if provider_refused(&e) {
                 remember_refusal(memo_key, Instant::now());
@@ -289,25 +295,31 @@ async fn live_listing(
 }
 
 /// The live listing's hits as the answer: complete, every effort named by
-/// the backend that listed it.
+/// the backend that listed it. `None` for a listing that found no effort,
+/// which the stored details answer instead ([`live_listing`]).
 fn listed(
+    user_id: Uuid,
     backend: &str,
     hits: &[SegmentEffortHit],
     ask: &SegmentAsk,
     zone: Tz,
-) -> SegmentHistoryResult {
+) -> Option<SegmentHistoryResult> {
+    if hits.is_empty() {
+        info!(%user_id, backend, "Segment history: the live listing found no effort; the stored details answer with what they have read");
+        return None;
+    }
     let activities: HashSet<&str> = hits.iter().map(|hit| hit.activity_id.as_str()).collect();
     let read = activities.len();
     let efforts = hits
         .iter()
         .map(|hit| effort_row(backend, backend, &hit.activity_id, None, &hit.effort))
         .collect();
-    answer(
+    Some(answer(
         efforts,
         AnsweredBy::LiveSegmentHistory,
         segments_read_coverage(None, read, (ask.from, ask.to), Completeness::Complete, None),
         zone,
-    )
+    ))
 }
 
 // ============================================================================

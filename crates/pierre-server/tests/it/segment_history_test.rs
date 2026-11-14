@@ -1449,6 +1449,48 @@ fn listed_efforts() -> Value {
         .collect::<Vec<_>>())
 }
 
+/// An empty live listing certifies nothing: taken as an answer, it would read
+/// "complete, none" for an athlete Strava's own app shows riding the segment.
+/// The stored details answer instead, saying how much of the window they read.
+#[tokio::test]
+async fn an_empty_live_listing_never_certifies_the_athlete_never_rode_it() {
+    let (resources, mock, user_id, tenant) = walked_athlete(Listing::Efforts(json!([]))).await;
+    let unread = start(3);
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, unread)],
+    )
+    .await;
+
+    let answer = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_id": LA_BETE_ID }),
+    )
+    .await;
+    assert_eq!(mock.listings(), 1, "bug: the live listing was not asked");
+    assert_eq!(
+        answer["answered_by"], "stored_details",
+        "bug: an empty live listing answered: {answer}"
+    );
+    let coverage = &answer["coverage"];
+    assert_eq!(
+        coverage["complete"], false,
+        "bug: an empty listing over an unread ride reads as complete: {answer}"
+    );
+    assert_eq!(
+        coverage["window"]["total"], 1,
+        "bug: the stored ride is not counted in the window: {coverage}"
+    );
+    assert_eq!(
+        coverage["window"]["returned"], 0,
+        "bug: the unread ride reads as segment-read: {coverage}"
+    );
+}
+
 /// Over MCP the governed provider refuses the listing before any request,
 /// and the stored Strava rows are withheld, so no stored effort reaches the
 /// caller and nothing is walked. The same athlete's own app then reads the

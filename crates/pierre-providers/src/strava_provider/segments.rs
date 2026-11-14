@@ -17,6 +17,7 @@
 //! row reads as unread, an activity a walk tried and could not read.
 
 use chrono::{DateTime, Utc};
+use tracing::{info, warn};
 
 use super::{f32_to_u32, StravaProvider};
 use crate::constants::oauth_providers;
@@ -55,8 +56,10 @@ impl StravaProvider {
     /// `InvalidInput` for a segment id that is not a number or a window that
     /// ends before it starts, before any request; Strava refusing the athlete
     /// the listing ([`listing_refusal`]); the request's own error otherwise;
-    /// and an external-service error for a segment with more efforts in the
-    /// window than [`MAX_PAGES`] pages hold.
+    /// an external-service error for a segment with more efforts in the
+    /// window than [`MAX_PAGES`] pages hold; and one for a page holding a row
+    /// this mapping cannot read, so the listing is never answered short of
+    /// what Strava listed.
     pub(super) async fn list_segment_efforts(
         &self,
         segment_id: &str,
@@ -79,7 +82,32 @@ impl StravaProvider {
                     listing_refusal,
                 )
                 .await?;
-            hits.extend(rows.iter().filter_map(convert_hit));
+            let mapped: Vec<SegmentEffortHit> = rows.iter().filter_map(convert_hit).collect();
+            info!(
+                segment,
+                page,
+                listed = rows.len(),
+                read = mapped.len(),
+                "Strava segment effort listing page"
+            );
+            if mapped.len() < rows.len() {
+                warn!(
+                    segment,
+                    page,
+                    listed = rows.len(),
+                    read = mapped.len(),
+                    "Strava listed segment efforts this mapping cannot read; the listing is refused rather than answered short"
+                );
+                return Err(AppError::external_service(
+                    oauth_providers::STRAVA,
+                    format!(
+                        "Strava listed {} efforts on segment {segment} and {} could not be read",
+                        rows.len(),
+                        rows.len() - mapped.len()
+                    ),
+                ));
+            }
+            hits.extend(mapped);
             if rows.len() < EFFORTS_PER_PAGE {
                 return Ok(hits);
             }
@@ -118,7 +146,12 @@ fn segment_efforts_endpoint(segment: u64, window: SegmentEffortWindow, page: u32
 /// One row of `GET /segment_efforts` as a hit, or `None` when the effort does
 /// not map or names no activity: a hit is always addressable by its activity.
 fn convert_hit(raw: &StravaSegmentEffort) -> Option<SegmentEffortHit> {
-    let activity_id = raw.activity.as_ref()?.id?.to_string();
+    let activity_id = raw
+        .activity
+        .as_ref()
+        .and_then(|activity| activity.id)
+        .or(raw.activity_id)?
+        .to_string();
     let activity_type = raw
         .segment
         .as_ref()
