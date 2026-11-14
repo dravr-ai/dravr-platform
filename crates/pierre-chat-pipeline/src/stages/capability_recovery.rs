@@ -132,10 +132,14 @@ pub(super) const REASK_INSTRUCTION: &str =
 /// matching tool call the draft never made. The carrier is the athlete's, so
 /// the turn says outright that the athlete did not write it: read as the
 /// athlete speaking, a data dump after the agent's question is an athlete who
-/// never answered (registre#678).
+/// never answered (registre#678). The draft it replaces is withdrawn, streamed
+/// or not, so the frame also keeps the replacement from referring to it
+/// (carnet#1481).
 pub const REPAIR_EVIDENCE_FRAME: &str = "[Platform verification — tool output fetched by the \
      platform on your behalf, not a message from the athlete. The athlete has not written \
-     again: their last message is still the one you are answering.]";
+     again: their last message is still the one you are answering. Any draft of yours above \
+     is withdrawn: the athlete receives only the reply you write now, so write it as your \
+     first answer and never refer to a previous one.]";
 
 /// Bundled borrows for [`apply_capability_recovery`], mirroring
 /// [`super::auth_recovery::AuthRecoveryDeps`].
@@ -1098,6 +1102,23 @@ mod tests {
         assert_eq!(without[1].content, "Comment était ma semaine ?");
         assert_eq!(without[2].role, MessageRole::User);
         assert!(without[2].content.starts_with(REPAIR_EVIDENCE_FRAME));
+    }
+
+    /// The draft a repair turn replaces is withdrawn, so the frame every
+    /// repair turn carries says so: a replacement that "corrects its previous
+    /// answer" points at a reply the athlete no longer has (seen live on
+    /// 2026-11-14 over a partial 2022 window, carnet#1481). The frame is the
+    /// model-facing contract every re-ask shares, so its wording is the spec.
+    #[test]
+    fn the_repair_frame_withdraws_the_draft_it_replaces() {
+        assert!(
+            REPAIR_EVIDENCE_FRAME.contains("Any draft of yours above is withdrawn"),
+            "bug: the repair frame lets the replacement treat the draft as delivered"
+        );
+        assert!(
+            REPAIR_EVIDENCE_FRAME.contains("never refer to a previous one"),
+            "bug: the repair frame lets the replacement refer to the withdrawn draft"
+        );
     }
 
     /// An athlete with no provider connected has nothing to reconnect: the
