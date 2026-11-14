@@ -1233,7 +1233,9 @@
         "offline": "Du bist offline. Prüfe deine Verbindung."
       }
     },
-    "verdictsNone": "Keine Urteile"
+    "verdictsNone": "Keine Urteile",
+    "deleteChatRow": "Diesen Chat löschen…",
+    "deleteChatTitle": "Diesen Chat löschen?"
   },
   "coachHome": {
     "switch": {
@@ -2383,7 +2385,8 @@
       "trendDeclining": "Das Gruppenvolumen liegt unter der Vorwoche – melde dich bei den weniger aktiven Mitgliedern.",
       "trendImproving": "Das Gruppenvolumen liegt über der Vorwoche – achte darauf, dass die Erholung mithält.",
       "trendStable": "Das Gruppenvolumen ist gegenüber der Vorwoche stabil.",
-      "summaryDistance": "{{active}}/{{total}} Mitglieder diese Woche aktiv, im Schnitt {{distance}} pro Mitglied."
+      "summaryDistance": "{{active}}/{{total}} Mitglieder diese Woche aktiv, im Schnitt {{distance}} pro Mitglied.",
+      "reviewDeepFatigue": "Mitglieder in tiefer Ermüdung, mit einer Form unter -30 % ihrer chronischen Belastung: {{n}}. Wirf einen Blick auf ihre Erholung."
     },
     "respondEvery": "Auf jede Nachricht",
     "respondMentioned": "Nur wenn er erwähnt wird",
@@ -2422,7 +2425,45 @@
     "signupCodeBadge": "Anmeldecode",
     "sortBy": "Sortieren nach",
     "sortAscending": "Aufsteigend",
-    "sortDescending": "Absteigend"
+    "sortDescending": "Absteigend",
+    "info": {
+      "whoTitle": "Wer dabei ist",
+      "sharingTitle": "Was du teilst",
+      "agentTitle": "Der Agent",
+      "agentReplies": "Antwortet im Raum",
+      "agentEvery": "{{agent}} liest im Raum mit und antwortet auf jede Nachricht.",
+      "agentMentions": "{{agent}} verfolgt den Raum und antwortet dir, wenn du ihn mit {{handle}} erwähnst.",
+      "agentMentionsNoHandle": "{{agent}} verfolgt den Raum und antwortet, wenn jemand ihn erwähnt.",
+      "settingsRow": "Gruppeneinstellungen",
+      "settingsHint": "Name, Beschreibung, Einladungen",
+      "settingsHintNoInvites": "Name, Beschreibung, Antworten des Agenten",
+      "roomRow": "Verlauf des Raums",
+      "leaveRow": "Diese Gruppe verlassen…",
+      "leaveTitle": "Diese Gruppe verlassen?",
+      "leaveConfirm": "Gruppe verlassen",
+      "deleteRow": "Diese Gruppe löschen…",
+      "deleteTitle": "Diese Gruppe löschen?",
+      "deleteConfirm": "Gruppe löschen",
+      "moreActions": "Weitere Aktionen für {{name}}",
+      "inviteMoreActions": "Weitere Aktionen für die Einladung {{code}}",
+      "removeFromGroup": "Aus der Gruppe entfernen…",
+      "removeTitle": "{{name}} entfernen?",
+      "nameLabel": "Gruppenname",
+      "autosaveHint": "Änderungen werden sofort gespeichert.",
+      "inviteAthlete": "Lade die Person ein, die du trainierst",
+      "newInvite": "Neuer Einladungslink",
+      "inviteTypeLabel": "Einladungsart",
+      "expiresAfterLabel": "Läuft ab nach",
+      "maxUsesLabel": "Anzahl der Nutzungen",
+      "expiryDayOne": "{{count}} Tag",
+      "expiryDayN": "{{count}} Tage",
+      "useLimitOne": "{{count}} Nutzung",
+      "useLimitN": "{{count}} Nutzungen",
+      "deactivateInvite": "Link deaktivieren…",
+      "deactivateInviteBody": "Dieser Einladungslink funktioniert ab sofort nicht mehr. Wer ihn noch nicht benutzt hat, braucht einen neuen.",
+      "noAthlete": "Noch keine Athleten in dieser Gruppe.",
+      "deactivateInviteTitle": "Diesen Link deaktivieren?"
+    }
   },
   "home": {
     "plan": {
@@ -2594,6 +2635,8 @@
       "folded": "Alles eingerichtet. Unter Einstellungen › Erste Schritte holst du es zurück.",
       "hide": "Ausblenden",
       "hideAria": "Erste Schritte ausblenden",
+      "meterContinue": "Weiter",
+      "meterNext": "Nächster Schritt: {{step}}",
       "rows": {
         "checkIn": {
           "hintDaily": "Jeden Morgen um {{time}}",
@@ -2635,6 +2678,8 @@
       "empty": "Noch kein Team.",
       "findMore": "Mehr finden",
       "leads": "Leitet deinen Chat",
+      "manage": "Verwalten",
+      "manageAria": "Dein Team verwalten",
       "openAgentAria": "Mit {{agent}} sprechen",
       "pick": "Stell dein Team zusammen",
       "title": "Dein Team"
@@ -2955,7 +3000,36 @@
     },
     "seatRequestDone": "Anfrage gesendet",
     "seatRequestSentNotice": "Am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
-    "inviteSeatRequestedNotice": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid."
+    "inviteSeatRequestedNotice": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
+    "pendingHome": {
+      "scope": "Deine Startseite als Coach öffnet sich, sobald dein Coach-Zugang freigeschaltet ist",
+      "scopePending": "Coach-Zugang ausstehend · deine Startseite als Coach öffnet sich, sobald er freigeschaltet ist",
+      "title": "Bereite dein Coaching vor",
+      "inviteTitle": "Lade deinen Athleten ein",
+      "inviteDone": "{{name}} ist deiner Gruppe am {{date}} beigetreten.",
+      "inviteDoneNoName": "Dein Athlet ist deiner Gruppe am {{date}} beigetreten.",
+      "platformTitle": "Verbinde TrainingPeaks oder Intervals.icu",
+      "platformBody": "Damit die Pläne, die du veröffentlichst, im Kalender deines Athleten landen.",
+      "platformDone": "{{provider}} ist verbunden.",
+      "groupsTitleOne": "Deine Gruppe",
+      "groupsTitleN": "Deine Gruppen",
+      "groupsNote": "Der Agent antwortet schon im Raum, auch vor deinem Coach-Zugang.",
+      "loadFailed": "Deine Liste konnte nicht geladen werden. Versuch es noch einmal."
+    },
+    "athleteCard": {
+      "titleOne": "Wen du trainierst",
+      "titleMany": "Wen du trainierst",
+      "viewPlan": "Plan ansehen",
+      "seeOnCoachHome": "Auf der Startseite als Coach ansehen"
+    },
+    "whoSees": {
+      "sharing": "{{coach}} sieht hier dein Training, deinen Plan und deine Nachrichten.",
+      "notSharing": "{{coach}} sieht hier weder dein Training noch deinen Plan noch deine Nachrichten, solange du nicht teilst.",
+      "planThread": "{{coach}} bereitet deinen Plan mit {{agent}} in einem privaten Verlauf vor. Du siehst, was {{coach}} veröffentlicht."
+    },
+    "removeCoachRow": "Coach entfernen…",
+    "removeCoachTitle": "Coach entfernen?",
+    "removeCoachConfirm": "Coach entfernen"
   },
   "messaging": {
     "account": {
@@ -2993,6 +3067,14 @@
     "agent_welcome": {
       "can_see": "Ich sehe, was deine verbundenen Dienste teilen, etwa deine Einheiten, deinen Schlaf und deine Erholung, und was du mir erzählst. Mehr sehe ich nicht, und ich ersetze keinen Arzt.",
       "discover_line": "Weitere Agenten findest du unter Entdecken: Füg jederzeit einen zu deinem Team hinzu.",
+      "figures_distance_time": "{0} in {1}",
+      "figures_last": "Deine letzte: {0}.",
+      "figures_per_week": "Das sind etwa {0} pro Woche.",
+      "figures_read": "Ich habe deine letzten {0} Tage gelesen: {1} Einheiten ({2}).",
+      "figures_read_one": "Ich habe deine letzten {0} Tage gelesen: 1 Einheit.",
+      "figures_read_unmixed": "Ich habe deine letzten {0} Tage gelesen: {1} Einheiten.",
+      "goal_only": "Dein Ziel: „{0}“.",
+      "goal_why": "Dein Ziel: „{0}“. Dein Warum: „{1}“. Darauf komme ich zurück, wenn das Training hart wird.",
       "greeting": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.\n\n{1}",
       "greeting_no_role": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.",
       "list_and": "{0} und {1}",
@@ -3000,7 +3082,8 @@
       "starters_title": "Zum Einstieg kannst du mich fragen:",
       "team_many": "{0} sind auch in deinem Team.",
       "team_one": "{0} ist auch in deinem Team.",
-      "team_solo": "Im Moment bin ich allein in deinem Team."
+      "team_solo": "Im Moment bin ich allein in deinem Team.",
+      "why_only": "Dein Warum: „{0}“. Darauf komme ich zurück, wenn das Training hart wird."
     },
     "commitment": {
       "activity_any": "Einheiten",

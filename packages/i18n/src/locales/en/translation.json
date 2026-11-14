@@ -1233,7 +1233,9 @@
         "offline": "You're offline. Check your connection."
       }
     },
-    "verdictsNone": "No verdicts"
+    "verdictsNone": "No verdicts",
+    "deleteChatRow": "Delete this chat…",
+    "deleteChatTitle": "Delete this chat?"
   },
   "coachHome": {
     "switch": {
@@ -2267,11 +2269,11 @@
   },
   "groups": {
     "activeInvitesCount": "Active Invites ({{n}})",
-    "activeMembers": "Active Members",
+    "activeMembers": "Active members",
     "admin": "Admin",
     "allGroups": "All Groups",
     "avgCtl": "Avg CTL",
-    "avgWeeklyVolume": "Avg Weekly Volume",
+    "avgWeeklyVolume": "Avg weekly volume",
     "backToGroups": "Back to Groups",
     "chatFailed": "Failed to open group chat",
     "colActions": "Actions",
@@ -2287,7 +2289,7 @@
     "deleteGroup": "Delete Group",
     "deleteHint": "Permanently archive this group. All members will be removed.",
     "demoteNamed": "Demote {{name}} to member",
-    "demoteToMember": "Demote to Member",
+    "demoteToMember": "Demote to member",
     "description": "Description",
     "descriptionPlaceholder": "What is this group about?",
     "digestChat": "In the group chat",
@@ -2366,11 +2368,11 @@
     "notFound": "Group not found.",
     "ofTotal": "of {{n}} total",
     "owner": "Owner",
-    "peerSharing": "Peer Sharing",
+    "peerSharing": "Peer sharing",
     "peerSharingDescription": "Allows members who consent to see each other's aggregated training data.",
     "peerSharingEnable": "Enable peer data sharing",
     "promoteNamed": "Promote {{name}} to admin",
-    "promoteToAdmin": "Promote to Admin",
+    "promoteToAdmin": "Promote to admin",
     "recommendations": "Recommendations",
     "removeFailed": "Failed to remove member",
     "removeMember": "Remove Member",
@@ -2383,7 +2385,8 @@
       "trendDeclining": "Group volume is down on last week — check in with the less active members.",
       "trendImproving": "Group volume is up on last week — make sure recovery keeps pace.",
       "trendStable": "Group volume is steady compared with last week.",
-      "summaryDistance": "{{active}}/{{total}} members active this week, averaging {{distance}} each."
+      "summaryDistance": "{{active}}/{{total}} members active this week, averaging {{distance}} each.",
+      "reviewDeepFatigue": "Members in deep fatigue, with form below -30% of their chronic load: {{n}}. Worth a look at their recovery."
     },
     "respondEvery": "To every message",
     "respondMentioned": "Only when mentioned",
@@ -2422,7 +2425,45 @@
     "signupCodeBadge": "Signup code",
     "sortBy": "Sort by",
     "sortAscending": "Ascending",
-    "sortDescending": "Descending"
+    "sortDescending": "Descending",
+    "info": {
+      "whoTitle": "Who's here",
+      "sharingTitle": "Your sharing",
+      "agentTitle": "The agent",
+      "agentReplies": "Replies in the room",
+      "agentEvery": "{{agent}} reads the room and replies to every message.",
+      "agentMentions": "{{agent}} follows the room and replies when you mention it with {{handle}}.",
+      "agentMentionsNoHandle": "{{agent}} follows the room and replies when someone mentions it.",
+      "settingsRow": "Group settings",
+      "settingsHint": "Name, description, invites",
+      "settingsHintNoInvites": "Name, description, agent replies",
+      "roomRow": "Room history",
+      "leaveRow": "Leave this group…",
+      "leaveTitle": "Leave this group?",
+      "leaveConfirm": "Leave group",
+      "deleteRow": "Delete this group…",
+      "deleteTitle": "Delete this group?",
+      "deleteConfirm": "Delete group",
+      "moreActions": "More actions for {{name}}",
+      "inviteMoreActions": "More actions for invite {{code}}",
+      "removeFromGroup": "Remove from group…",
+      "removeTitle": "Remove {{name}}?",
+      "nameLabel": "Group name",
+      "autosaveHint": "Changes save as you make them.",
+      "inviteAthlete": "Invite your athlete",
+      "newInvite": "New invite link",
+      "inviteTypeLabel": "Invite type",
+      "expiresAfterLabel": "Expires after",
+      "maxUsesLabel": "Number of uses",
+      "expiryDayOne": "{{count}} day",
+      "expiryDayN": "{{count}} days",
+      "useLimitOne": "{{count}} use",
+      "useLimitN": "{{count}} uses",
+      "deactivateInvite": "Deactivate link…",
+      "deactivateInviteBody": "This invite link stops working right away. Anyone who hasn't used it yet will need a new one.",
+      "noAthlete": "No athlete in this group yet.",
+      "deactivateInviteTitle": "Deactivate this link?"
+    }
   },
   "home": {
     "plan": {
@@ -2594,6 +2635,8 @@
       "folded": "You're set up. Settings › Getting started brings it back.",
       "hide": "Hide",
       "hideAria": "Hide Getting started",
+      "meterContinue": "Continue",
+      "meterNext": "Next step: {{step}}",
       "rows": {
         "checkIn": {
           "hintDaily": "Every morning at {{time}}",
@@ -2635,6 +2678,8 @@
       "empty": "No team yet.",
       "findMore": "Find more",
       "leads": "Leads your thread",
+      "manage": "Manage",
+      "manageAria": "Manage your team",
       "openAgentAria": "Talk to {{agent}}",
       "pick": "Pick your team",
       "title": "Your team"
@@ -2955,7 +3000,36 @@
     },
     "seatRequestDone": "Request sent",
     "seatRequestSentNotice": "{{date}}. We'll let you know here and by email.",
-    "inviteSeatRequestedNotice": "Request sent {{date}}. We'll let you know here and by email."
+    "inviteSeatRequestedNotice": "Request sent {{date}}. We'll let you know here and by email.",
+    "pendingHome": {
+      "scope": "Your coach Home opens as soon as your coach access is on",
+      "scopePending": "Coach access pending · your coach Home opens as soon as it's on",
+      "title": "Get ready to coach",
+      "inviteTitle": "Invite your athlete",
+      "inviteDone": "{{name}} joined your group on {{date}}.",
+      "inviteDoneNoName": "Your athlete joined your group on {{date}}.",
+      "platformTitle": "Link TrainingPeaks or Intervals.icu",
+      "platformBody": "So the plans you publish land in your athlete's calendar.",
+      "platformDone": "{{provider}} is linked.",
+      "groupsTitleOne": "Your group",
+      "groupsTitleN": "Your groups",
+      "groupsNote": "The agent already answers in the room, even before your coach access is on.",
+      "loadFailed": "We couldn't load your checklist. Please try again."
+    },
+    "athleteCard": {
+      "titleOne": "Your athlete",
+      "titleMany": "Your athletes",
+      "viewPlan": "View plan",
+      "seeOnCoachHome": "See on coach Home"
+    },
+    "whoSees": {
+      "sharing": "{{coach}} sees your training, your plan and your messages here.",
+      "notSharing": "{{coach}} doesn't see your training, your plan or your messages here while your sharing is off.",
+      "planThread": "{{coach}} prepares your plan with {{agent}} in a private thread. You see what {{coach}} publishes."
+    },
+    "removeCoachRow": "Remove coach…",
+    "removeCoachTitle": "Remove the coach?",
+    "removeCoachConfirm": "Remove coach"
   },
   "messaging": {
     "account": {
@@ -2993,6 +3067,14 @@
     "agent_welcome": {
       "can_see": "I see what your connected services share, like your workouts, sleep and recovery, plus what you tell me. I can't see anything else, and I don't replace a doctor.",
       "discover_line": "More agents live in Discover: add one to your team whenever you like.",
+      "figures_distance_time": "{0} in {1}",
+      "figures_last": "Your last one: {0}.",
+      "figures_per_week": "That's about {0} a week.",
+      "figures_read": "I read your last {0} days: {1} sessions ({2}).",
+      "figures_read_one": "I read your last {0} days: 1 session.",
+      "figures_read_unmixed": "I read your last {0} days: {1} sessions.",
+      "goal_only": "Your goal: “{0}”.",
+      "goal_why": "Your goal: “{0}”. Your why: “{1}”. That's what I'll come back to when training gets hard.",
       "greeting": "Hi! Dravr's {0} here.\n\n{1}",
       "greeting_no_role": "Hi! Dravr's {0} here.",
       "list_and": "{0} and {1}",
@@ -3000,7 +3082,8 @@
       "starters_title": "To get started, you can ask me:",
       "team_many": "{0} are on your team too.",
       "team_one": "{0} is on your team too.",
-      "team_solo": "For now it's just me on your team."
+      "team_solo": "For now it's just me on your team.",
+      "why_only": "Your why: “{0}”. That's what I'll come back to when training gets hard."
     },
     "commitment": {
       "activity_any": "sessions",

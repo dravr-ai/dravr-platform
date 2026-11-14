@@ -1233,7 +1233,9 @@
         "offline": "Estás sin conexión. Comprueba tu conexión."
       }
     },
-    "verdictsNone": "Ningún veredicto"
+    "verdictsNone": "Ningún veredicto",
+    "deleteChatRow": "Eliminar este chat…",
+    "deleteChatTitle": "¿Eliminar este chat?"
   },
   "coachHome": {
     "switch": {
@@ -2383,7 +2385,8 @@
       "trendDeclining": "El volumen del grupo baja respecto a la semana pasada: habla con los miembros menos activos.",
       "trendImproving": "El volumen del grupo sube respecto a la semana pasada: asegúrate de que la recuperación acompañe.",
       "trendStable": "El volumen del grupo se mantiene estable respecto a la semana pasada.",
-      "summaryDistance": "{{active}}/{{total}} miembros activos esta semana, con una media de {{distance}} cada uno."
+      "summaryDistance": "{{active}}/{{total}} miembros activos esta semana, con una media de {{distance}} cada uno.",
+      "reviewDeepFatigue": "Miembros en fatiga profunda, con la forma por debajo del -30 % de su carga crónica: {{n}}. Échale un vistazo a su recuperación."
     },
     "respondEvery": "A cada mensaje",
     "respondMentioned": "Solo cuando se le menciona",
@@ -2422,7 +2425,45 @@
     "signupCodeBadge": "Código de registro",
     "sortBy": "Ordenar por",
     "sortAscending": "Ascendente",
-    "sortDescending": "Descendente"
+    "sortDescending": "Descendente",
+    "info": {
+      "whoTitle": "Quién está aquí",
+      "sharingTitle": "Lo que compartes",
+      "agentTitle": "El agente",
+      "agentReplies": "Responde en la sala",
+      "agentEvery": "{{agent}} lee la sala y responde a cada mensaje.",
+      "agentMentions": "{{agent}} sigue la sala y te responde cuando lo mencionas con {{handle}}.",
+      "agentMentionsNoHandle": "{{agent}} sigue la sala y responde cuando alguien lo menciona.",
+      "settingsRow": "Ajustes del grupo",
+      "settingsHint": "Nombre, descripción, invitaciones",
+      "settingsHintNoInvites": "Nombre, descripción, respuestas del agente",
+      "roomRow": "Historial de la sala",
+      "leaveRow": "Salir de este grupo…",
+      "leaveTitle": "¿Salir de este grupo?",
+      "leaveConfirm": "Salir del grupo",
+      "deleteRow": "Eliminar este grupo…",
+      "deleteTitle": "¿Eliminar este grupo?",
+      "deleteConfirm": "Eliminar el grupo",
+      "moreActions": "Más acciones para {{name}}",
+      "inviteMoreActions": "Más acciones para la invitación {{code}}",
+      "removeFromGroup": "Quitar del grupo…",
+      "removeTitle": "¿Quitar a {{name}}?",
+      "nameLabel": "Nombre del grupo",
+      "autosaveHint": "Los cambios se guardan a medida que los haces.",
+      "inviteAthlete": "Invita a tu atleta",
+      "newInvite": "Nuevo enlace de invitación",
+      "inviteTypeLabel": "Tipo de invitación",
+      "expiresAfterLabel": "Caduca después de",
+      "maxUsesLabel": "Número de usos",
+      "expiryDayOne": "{{count}} día",
+      "expiryDayN": "{{count}} días",
+      "useLimitOne": "{{count}} uso",
+      "useLimitN": "{{count}} usos",
+      "deactivateInvite": "Desactivar el enlace…",
+      "deactivateInviteBody": "Este enlace de invitación deja de funcionar de inmediato. Quien aún no lo haya usado necesitará uno nuevo.",
+      "noAthlete": "Aún no hay ningún atleta en este grupo.",
+      "deactivateInviteTitle": "¿Desactivar este enlace?"
+    }
   },
   "home": {
     "plan": {
@@ -2594,6 +2635,8 @@
       "folded": "Ya está todo listo. Ajustes › Primeros pasos lo vuelve a mostrar.",
       "hide": "Ocultar",
       "hideAria": "Ocultar Primeros pasos",
+      "meterContinue": "Continuar",
+      "meterNext": "Siguiente paso: {{step}}",
       "rows": {
         "checkIn": {
           "hintDaily": "Cada mañana a las {{time}}",
@@ -2635,6 +2678,8 @@
       "empty": "Todavía no tienes equipo.",
       "findMore": "Buscar más",
       "leads": "Lleva tu conversación",
+      "manage": "Gestionar",
+      "manageAria": "Gestionar tu equipo",
       "openAgentAria": "Hablar con {{agent}}",
       "pick": "Elige tu equipo",
       "title": "Tu equipo"
@@ -2955,7 +3000,36 @@
     },
     "seatRequestDone": "Solicitud enviada",
     "seatRequestSentNotice": "El {{date}}. Te avisaremos aquí y por correo.",
-    "inviteSeatRequestedNotice": "Solicitud enviada el {{date}}. Te avisaremos aquí y por correo."
+    "inviteSeatRequestedNotice": "Solicitud enviada el {{date}}. Te avisaremos aquí y por correo.",
+    "pendingHome": {
+      "scope": "Tu Inicio de coach se abre en cuanto se active tu acceso de coach",
+      "scopePending": "Acceso de coach pendiente · tu Inicio de coach se abre en cuanto se active",
+      "title": "Prepara tu coaching",
+      "inviteTitle": "Invita a tu atleta",
+      "inviteDone": "{{name}} se unió a tu grupo el {{date}}.",
+      "inviteDoneNoName": "Tu atleta se unió a tu grupo el {{date}}.",
+      "platformTitle": "Vincula TrainingPeaks o Intervals.icu",
+      "platformBody": "Para que los planes que publicas lleguen al calendario de tu atleta.",
+      "platformDone": "{{provider}} está vinculado.",
+      "groupsTitleOne": "Tu grupo",
+      "groupsTitleN": "Tus grupos",
+      "groupsNote": "El agente ya responde en la sala, incluso antes de tu acceso de coach.",
+      "loadFailed": "No pudimos cargar tu lista. Inténtalo de nuevo."
+    },
+    "athleteCard": {
+      "titleOne": "Tu atleta",
+      "titleMany": "Tus atletas",
+      "viewPlan": "Ver el plan",
+      "seeOnCoachHome": "Ver en el Inicio de coach"
+    },
+    "whoSees": {
+      "sharing": "{{coach}} ve tu entrenamiento, tu plan y tus mensajes aquí.",
+      "notSharing": "{{coach}} no ve tu entrenamiento, tu plan ni tus mensajes aquí mientras no compartas.",
+      "planThread": "{{coach}} prepara tu plan con {{agent}} en un hilo privado. Tú ves lo que {{coach}} publica."
+    },
+    "removeCoachRow": "Quitar al coach…",
+    "removeCoachTitle": "¿Quitar al coach?",
+    "removeCoachConfirm": "Quitar al coach"
   },
   "messaging": {
     "account": {
@@ -2993,6 +3067,14 @@
     "agent_welcome": {
       "can_see": "Veo lo que comparten tus servicios conectados, como tus entrenamientos, tu sueño y tu recuperación, y lo que me cuentas. No veo nada más, y no sustituyo a un médico.",
       "discover_line": "Hay más agentes en Descubrir: añade uno a tu equipo cuando quieras.",
+      "figures_distance_time": "{0} en {1}",
+      "figures_last": "La última: {0}.",
+      "figures_per_week": "Eso son unas {0} por semana.",
+      "figures_read": "He leído tus últimos {0} días: {1} sesiones ({2}).",
+      "figures_read_one": "He leído tus últimos {0} días: 1 sesión.",
+      "figures_read_unmixed": "He leído tus últimos {0} días: {1} sesiones.",
+      "goal_only": "Tu objetivo: «{0}».",
+      "goal_why": "Tu objetivo: «{0}». Tu porqué: «{1}». A eso volveré cuando el entrenamiento se ponga duro.",
       "greeting": "¡Hola! Aquí {0} de Dravr, a tu disposición.\n\n{1}",
       "greeting_no_role": "¡Hola! Aquí {0} de Dravr, a tu disposición.",
       "list_and": "{0} y {1}",
@@ -3000,7 +3082,8 @@
       "starters_title": "Para empezar, puedes preguntarme:",
       "team_many": "{0} también están en tu equipo.",
       "team_one": "{0} también está en tu equipo.",
-      "team_solo": "Por ahora, en tu equipo estoy solo yo."
+      "team_solo": "Por ahora, en tu equipo estoy solo yo.",
+      "why_only": "Tu porqué: «{0}». A eso volveré cuando el entrenamiento se ponga duro."
     },
     "commitment": {
       "activity_any": "sesiones",
