@@ -74,6 +74,8 @@ pub mod history_walk;
 mod in_flight;
 /// A chat turn's live list read as a durable job
 pub(crate) mod live_read;
+/// A walk step's write to the store, against a purge of what it reads
+mod owed_write;
 /// What a job does when it finds its provider session dead
 mod reauth;
 

@@ -114,7 +114,7 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::{
-    capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms,
+    capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, owed_write,
     provider_tenant_id_str, spawn_activity_backfill, warm_training_history, ActivityBackfillJob,
     BackfillFetch, MAX_BACKFILL_ATTEMPTS,
 };
@@ -124,8 +124,6 @@ use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::{HistoryWalkCompletion, ToolRuntime, WalkTrigger};
 
-/// A step's write to the store, against a purge of what it reads
-mod owed_write;
 /// What a walk copies on top of the activities: the wellness before a push grant
 mod wellness;
 
