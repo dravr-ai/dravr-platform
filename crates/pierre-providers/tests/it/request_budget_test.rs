@@ -888,6 +888,40 @@ async fn a_registered_daily_limit_sizes_the_detail_walk_windows() {
     );
 }
 
+/// The day a walk's ETA is paced by is the athlete's walk window as the
+/// limiter sizes it for the signing app: 50 at Strava's 1,000, held to the
+/// app's walk window below 400 (a tenant app at 80 a day: 10), none at all
+/// below 8 (a background share of 1, half of it rounded down: 0), and no
+/// walk window at a provider that has none.
+#[tokio::test]
+async fn a_budget_names_the_athletes_detail_walk_day_as_the_limiter_sizes_it() {
+    let repos = database().await;
+    let limiter = Arc::new(limiter_over(&repos));
+    let budget =
+        |daily_limit| RequestBudget::new(Arc::clone(&limiter), APP.to_owned(), daily_limit);
+
+    assert_eq!(
+        budget(None).detail_walk_daily_calls("strava").await,
+        Some(DETAIL_WALK_DAILY_CALLS),
+        "Strava's 1,000 a day leaves the athlete their whole 50"
+    );
+    assert_eq!(
+        budget(Some(80)).detail_walk_daily_calls("strava").await,
+        Some(10),
+        "bug: the athlete's window is not held to the app's walk window"
+    );
+    assert_eq!(
+        budget(Some(7)).detail_walk_daily_calls("strava").await,
+        Some(0),
+        "bug: an app registered at 7 a day reads as having room for a walk"
+    );
+    assert_eq!(
+        budget(None).detail_walk_daily_calls("garmin").await,
+        None,
+        "bug: a provider with no walk windows names one"
+    );
+}
+
 /// A walk call refused by a later window gives back the slots the earlier
 /// ones took: refused by the app's 15-minute background share, the
 /// athlete's and the app's walk windows are back to nothing; refused by the

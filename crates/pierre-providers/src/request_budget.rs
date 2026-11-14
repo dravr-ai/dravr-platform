@@ -327,6 +327,15 @@ struct Window {
     share_percent: u32,
 }
 
+/// The two day windows of one athlete's detail walk under a holder: counted
+/// under the holder's day window's key, the athlete's held to the app's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DetailWalkSizes {
+    day_key: String,
+    athlete_calls: u32,
+    app_calls: u32,
+}
+
 /// An app's windows at a provider that sizes them by the athletes who
 /// granted the app: a daily pool of `per_grant` requests for each of them,
 /// between `min_daily` and `max_daily`, and a rolling `short_window` of the
@@ -769,22 +778,9 @@ impl ProviderRateLimiter {
         user_id: Uuid,
         windows: Vec<Window>,
     ) -> Vec<Window> {
-        let Some(athlete_calls) = self.detail_walks.get(provider).map(|calls| *calls) else {
+        let Some(sizes) = self.detail_walk_sizes(provider, &windows) else {
             return windows;
         };
-        let Some(day) = windows
-            .iter()
-            .find(|window| window.budget.window == ONE_DAY)
-        else {
-            return windows;
-        };
-        let background_day = Budget {
-            max_calls: u32::try_from(day.budget.allowance(BACKGROUND_SHARE_PERCENT))
-                .unwrap_or(u32::MAX),
-            window: ONE_DAY,
-        };
-        let app_calls = u32::try_from(background_day.allowance(DETAIL_WALK_PERCENT_OF_BACKGROUND))
-            .unwrap_or(u32::MAX);
         let whole_day = |key: String, max_calls: u32| Window {
             key,
             budget: Budget {
@@ -795,13 +791,43 @@ impl ProviderRateLimiter {
         };
         let mut walk = vec![
             whole_day(
-                detail_walk_athlete_counter_key(&day.key, user_id),
-                athlete_calls.min(app_calls),
+                detail_walk_athlete_counter_key(&sizes.day_key, user_id),
+                sizes.athlete_calls,
             ),
-            whole_day(detail_walk_counter_key(&day.key), app_calls),
+            whole_day(detail_walk_counter_key(&sizes.day_key), sizes.app_calls),
         ];
         walk.extend(windows);
         walk
+    }
+
+    /// The two day windows of a detail walk at `provider` for a holder whose
+    /// windows are `windows` ([`Self::with_detail_walk_windows`]); `None`
+    /// when `provider` has no walk windows or the holder no daily window.
+    fn detail_walk_sizes(&self, provider: &str, windows: &[Window]) -> Option<DetailWalkSizes> {
+        let athlete_calls = self.detail_walks.get(provider).map(|calls| *calls)?;
+        let day = windows
+            .iter()
+            .find(|window| window.budget.window == ONE_DAY)?;
+        let background_day = Budget {
+            max_calls: u32::try_from(day.budget.allowance(BACKGROUND_SHARE_PERCENT))
+                .unwrap_or(u32::MAX),
+            window: ONE_DAY,
+        };
+        let app_calls = u32::try_from(background_day.allowance(DETAIL_WALK_PERCENT_OF_BACKGROUND))
+            .unwrap_or(u32::MAX);
+        Some(DetailWalkSizes {
+            day_key: day.key.clone(),
+            athlete_calls: athlete_calls.min(app_calls),
+            app_calls,
+        })
+    }
+
+    /// The calls a day one athlete's detail walk at `provider` may make for
+    /// `holder`, as [`Self::with_detail_walk_windows`] sizes its window.
+    async fn detail_walk_daily_calls(&self, provider: &str, holder: &Holder) -> Option<u32> {
+        let windows = self.windows_for(provider, holder, 100).await;
+        self.detail_walk_sizes(provider, &windows)
+            .map(|sizes| sizes.athlete_calls)
     }
 
     /// Take one request from every one of `windows` that holds fewer than
@@ -920,6 +946,21 @@ impl RequestBudget {
                 Ok(())
             }
         }
+    }
+
+    /// The calls a day one athlete's detail walk at `provider` may make
+    /// under this budget's holder, as the limiter sizes the walk's window:
+    /// [`DETAIL_WALK_DAILY_CALLS`], held to the app's walk window, which is
+    /// half the background share of the holder's actual day (`0` for a day
+    /// under 8). A walk's ETA is paced by it, and a walk with no room at all
+    /// is never recorded.
+    ///
+    /// `None` when `provider` has no walk windows, or the holder no daily
+    /// window: its walk is held to its background share alone.
+    pub async fn detail_walk_daily_calls(&self, provider: &str) -> Option<u32> {
+        self.limiter
+            .detail_walk_daily_calls(provider, &self.holder)
+            .await
     }
 }
 
