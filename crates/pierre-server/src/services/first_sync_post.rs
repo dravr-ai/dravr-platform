@@ -1,4 +1,4 @@
-// ABOUTME: The coach's first post once an athlete's data lands — the production FirstSyncHook
+// ABOUTME: The coach's first post once an athlete's data lands, and the history walk a connection starts — the production FirstSyncHook
 // ABOUTME: Claims the post once per athlete, picks where it lands, runs it as a platform post, reports it
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -56,9 +56,22 @@
 //! done, on every provider alike: the capture rail pages each connection
 //! back to the status's warm-up floor, deduplicated per provider and bounded
 //! by the rail's own limits.
+//!
+//! ## The whole history
+//!
+//! The status's depth is not the athlete's history. A connection landing
+//! ([`FirstSyncHook::connected`]) and its first data landing
+//! ([`FirstSyncHook::data_landed`]) each start the provider's history walk
+//! (`start_history_walk`), which copies every year the connection reaches
+//! into the store, the session first (carnet#1482). Either ask is idempotent
+//! with a walk already owed, running or done, so the two together start one
+//! walk. An on-demand provider's first read asks none: its callback reported
+//! the connection already.
 
 use std::fmt;
 use std::future::Future;
+#[cfg(not(feature = "tools-data"))]
+use std::future::{ready, Ready};
 use std::sync::{Arc, Weak};
 
 use async_trait::async_trait;
@@ -70,8 +83,10 @@ use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::global_registry;
 use pierre_routes_auth::{FirstSyncHook, CONNECT_RECENT_DAYS};
 use pierre_services::provider_refresh::token_tenant;
+#[cfg(feature = "tools-data")]
+use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_fetch::read_exact_backend;
-use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::runtime::{ToolRuntime, WalkTrigger};
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
@@ -244,6 +259,9 @@ impl FirstSyncPoster {
         }
         // Asked whether or not the recent read landed anything: an athlete
         // with no activity in the last month may still have a season behind it.
+        // The history walk is not asked here: the callback that connected the
+        // provider reported the connection, which walks it, and this first
+        // read only ever reads the grant (carnet#1494).
         request_history_depth(resources, user_id, tenant_id).await;
     }
 }
@@ -258,6 +276,14 @@ impl FirstSyncHook for FirstSyncPoster {
             // After the post, not beside it: on a scrape provider the capture
             // and the post's turn would read the one browser session at once.
             if let Some(resources) = poster.ctx.upgrade() {
+                walk_history(
+                    Arc::clone(&resources),
+                    user_id,
+                    tenant_id,
+                    &provider,
+                    WalkTrigger::FirstSync,
+                )
+                .await;
                 request_history_depth(resources, user_id, tenant_id).await;
             }
         })
@@ -270,6 +296,49 @@ impl FirstSyncHook for FirstSyncPoster {
         self.run_tracked(async move { poster.first_read(user_id, &provider).await })
             .await;
     }
+
+    async fn connected(&self, user_id: Uuid, tenant_id: TenantId, backend: &str) {
+        if let Some(resources) = self.ctx.upgrade() {
+            walk_history(
+                resources,
+                user_id,
+                tenant_id,
+                backend,
+                WalkTrigger::Connected,
+            )
+            .await;
+        }
+    }
+}
+
+/// Start the history walk of `provider` for the athlete
+/// ([`start_history_walk`]), logging whether one started: none does when a
+/// walk is already owed, running or done, or the athlete holds no source to
+/// walk.
+#[cfg(feature = "tools-data")]
+async fn walk_history(
+    resources: Arc<ServerContext>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    trigger: WalkTrigger,
+) {
+    let runtime: Arc<dyn ToolRuntime> = resources;
+    let started = start_history_walk(&runtime, user_id, tenant_id, provider, trigger).await;
+    info!(user_id = %user_id, provider, ?trigger, started, "Connect: history walk asked");
+}
+
+/// No walk rail in this build (`tools-data` off), so no walk is started:
+/// answers as a ready future so the callers await it as they await the rail.
+#[cfg(not(feature = "tools-data"))]
+fn walk_history(
+    _resources: Arc<ServerContext>,
+    _user_id: Uuid,
+    _tenant_id: TenantId,
+    _provider: &str,
+    _trigger: WalkTrigger,
+) -> Ready<()> {
+    ready(())
 }
 
 /// Claim the first post to the athlete. `false` when an earlier trigger holds

@@ -15,15 +15,15 @@
 use std::env;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 use serde_json::{json, Value};
 
-use pierre_core::models::coverage::{Completeness, IncompleteReason};
+use pierre_core::models::coverage::{
+    Completeness, Coverage, CoverageWindow, IncompleteReason, WindowScope, WindowTotals,
+};
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
-#[cfg(feature = "tools-data")]
-use pierre_providers::backend_resolver;
 use pierre_providers::backend_resolver::user_facing_name;
 #[cfg(feature = "tools-data")]
 use pierre_providers::core::ActivityQueryParams;
@@ -169,78 +169,56 @@ pub struct AskedWindow {
 /// Build the LLM-facing `coverage` sidecar for a served activity window.
 ///
 /// Present whenever the window's total is known or the window is incomplete.
-/// It says what was asked (`asked_from`/`asked_to`), what was served
-/// (`window_oldest`/`window_newest`, `window_total`, `returned`), and whether
-/// that is the whole truth for the ask (`complete`, with `incomplete_reason`
-/// when it is not). A count stated from an incomplete window is not a fact: the
-/// note says so in the words a model acts on (carnet#1481: 43 trail runs since
-/// 2020, counted from a 151-row cached window, were stated as fact).
+/// It says what was asked (`window.asked_from`/`asked_to`), what was served
+/// (`window.oldest`/`newest`, `window.total`, `returned`, and the window's
+/// `totals` when they were summed), and whether that is the whole truth for
+/// the ask (`complete`, with `incomplete_reason` when it is not). A count
+/// stated from an incomplete window is not a fact: the note says so in the
+/// words a model acts on (carnet#1481: 43 trail runs since 2020, counted from
+/// a 151-row cached window, were stated as fact). A window that filled the
+/// durable read cap holds at least its total, never exactly it.
 ///
 /// Lives in the tool RESULT, not the tool's `input_schema`/description, so it
-/// adds no SDK or contremaitre drift; the model renders it in the user's
-/// language, so it needs no localized `messaging_strings` key.
+/// adds no contremaitre drift; the model renders it in the user's language,
+/// so it needs no localized `messaging_strings` key.
 #[must_use]
-pub fn activity_coverage_note(
+pub fn activity_coverage(
     window_total: Option<usize>,
     returned: usize,
-    window_span: Option<&(String, String)>,
+    window_span: Option<(NaiveDate, NaiveDate)>,
     asked: AskedWindow,
     completeness: Completeness,
-) -> Option<Value> {
+    totals: Option<WindowTotals>,
+) -> Option<Coverage> {
     if window_total.is_none() && completeness.is_complete() {
         return None;
     }
     let total = window_total.unwrap_or(returned);
-    let truncated = total > returned;
-    if !truncated && completeness.is_complete() && asked.after.is_none() {
+    if total <= returned && completeness.is_complete() && asked.after.is_none() {
         return None;
     }
-    // When the served window filled the durable read cap the true count is
-    // unknown — `window_total` is only a lower bound, so state it as "at least
-    // {total}" instead of an exact figure.
-    let total_phrase = if total >= HISTORICAL_WINDOW_READ_LIMIT
-        || completeness.reason() == Some(IncompleteReason::ReadCapped)
-    {
-        format!("at least {total}")
-    } else {
-        total.to_string()
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    let day = |epoch: Option<i64>| {
+        epoch
+            .and_then(|e| DateTime::<Utc>::from_timestamp(e, 0))
+            .map(|at| at.date_naive())
     };
-    let span_phrase = window_span.map_or_else(String::new, |(oldest, newest)| {
-        format!(" spanning {oldest} to {newest}")
-    });
-    let mut note = if truncated {
-        format!(
-            "This window holds {total_phrase} activities{span_phrase}; only {returned} are shown below. Frame your reply around the full count ({total_phrase}) and span — do not imply the user's history is limited to the activities shown."
-        )
-    } else {
-        format!("This window holds {total_phrase} activities{span_phrase}.")
-    };
-    if let Some(reason) = completeness.reason() {
-        note.push_str(" This window is INCOMPLETE: ");
-        note.push_str(reason.explanation());
-        note.push_str(". Do not state a count, a total or \"nothing before\" for the period asked as fact: say which dates are covered and that the rest is not loaded.");
-    }
-    let mut coverage = json!({
-        "window_total": total,
-        "returned": returned,
-        "complete": completeness.is_complete(),
-        "note": note,
-    });
-    if let Some(object) = coverage.as_object_mut() {
-        if let Some((oldest, newest)) = window_span {
-            object.insert("window_oldest".to_owned(), json!(oldest));
-            object.insert("window_newest".to_owned(), json!(newest));
-        }
-        if let Some(reason) = completeness.reason() {
-            object.insert("incomplete_reason".to_owned(), json!(reason));
-        }
-        for (key, epoch) in [("asked_from", asked.after), ("asked_to", asked.before)] {
-            if let Some(day) = epoch.and_then(|e| DateTime::<Utc>::from_timestamp(e, 0)) {
-                object.insert(key.to_owned(), json!(day.format("%Y-%m-%d").to_string()));
-            }
-        }
-    }
-    Some(coverage)
+    Some(Coverage {
+        completeness,
+        window: CoverageWindow {
+            scope: WindowScope::Asked,
+            asked_from: day(asked.after),
+            asked_to: day(asked.before),
+            oldest: window_span.map(|(oldest, _)| oldest),
+            newest: window_span.map(|(_, newest)| newest),
+            total: Some(count(total)),
+            total_is_lower_bound: total >= HISTORICAL_WINDOW_READ_LIMIT,
+            returned: count(returned),
+            totals,
+        },
+        trustworthy_from: None,
+        pending: None,
+    })
 }
 
 /// Build the `reconnect_required` sidecar for a window that was served WITHOUT
@@ -573,32 +551,6 @@ pub fn backfill_placeholder_message(
              {delivery}"
         )
     }
-}
-
-/// The live grant a deep historical window of `primary` is read through
-/// instead of the mirror backfill, or `None` when it stays on `primary`.
-///
-/// A deep window
-/// ([`is_historical_backfill_window`](crate::activity_backfill::is_historical_backfill_window))
-/// stays on the API while a grant is alive (carnet#1494): when `primary` is
-/// the athlete's session and their read plan names a live grant behind it
-/// whose API reads history on request (Strava), the window is read inline
-/// through that grant, exactly as named. A push-fed grant (Garmin) holds only
-/// what it pushed, so the session's backfill pages its history as before.
-#[cfg(feature = "tools-data")]
-pub(super) async fn deep_window_grant(
-    context: &ToolExecutionContext,
-    primary: &str,
-    is_historical: bool,
-) -> Option<String> {
-    if !is_historical || !backend_resolver::is_mirror_backend(primary) {
-        return None;
-    }
-    let tenant = TenantId::from_uuid(context.tenant_id?);
-    backend_resolver::read_plan(context.resources.repos(), context.user_id, tenant, primary)
-        .await
-        .fallback
-        .filter(|grant| !context.resources.provider_registry().is_push_only(grant))
 }
 
 #[cfg(test)]

@@ -41,6 +41,7 @@ use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus, Rea
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::ProviderRegistry;
+use pierre_services::training_history_read::history_store_keys;
 use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
 use pierre_tool_runtime::implementations::connection::{
@@ -580,6 +581,7 @@ async fn get_athlete_serves_canonical_cache_key_for_garmin_alias() {
     .await;
 
     let athlete = Athlete {
+        created_at: None,
         id: "424242".to_owned(),
         username: "cached_runner".to_owned(),
         firstname: None,
@@ -1749,6 +1751,7 @@ async fn get_athlete_serves_canonical_cache_key_for_trainingpeaks_alias() {
     )
     .await;
     let athlete = Athlete {
+        created_at: None,
         id: "6642427".to_owned(),
         username: "cached_triathlete".to_owned(),
         firstname: None,
@@ -2520,32 +2523,33 @@ async fn only_a_grant_beside_a_session_stands_aside() {
 }
 
 /// The history a read of each backend serves (carnet#1494): a session's
-/// window keeps the rows its grant stored, a Garmin grant's keeps what its
-/// session imported (carnet#1386), and every other backend has one key.
+/// window keeps the rows its grant stored, a grant's keeps what its session
+/// walked (carnet#1482) or imported (carnet#1386), and every other backend
+/// has one key.
 #[test]
-fn history_keys_serve_both_halves_of_a_pair_from_the_session() {
+fn history_store_keys_serve_both_halves_of_a_pair_from_the_session() {
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::SCIOTTE),
+        history_store_keys(oauth_providers::SCIOTTE),
         vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA],
         "bug: Strava's session window lost its grant's rows"
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::SCIOTTE_GARMIN),
+        history_store_keys(oauth_providers::SCIOTTE_GARMIN),
         vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN],
         "bug: Garmin's session window lost its grant's pushes"
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::GARMIN),
+        history_store_keys(oauth_providers::GARMIN),
         vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN],
         "bug: Garmin's grant window lost the history its session imported"
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::STRAVA),
-        vec![oauth_providers::STRAVA],
-        "bug: Strava's API window serves a key other than its own"
+        history_store_keys(oauth_providers::STRAVA),
+        vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE],
+        "bug: Strava's grant window lost the history its session walked"
     );
     assert_eq!(
-        backend_resolver::history_keys(oauth_providers::SCIOTTE_COROS),
+        history_store_keys(oauth_providers::SCIOTTE_COROS),
         vec![oauth_providers::SCIOTTE_COROS],
         "bug: COROS's session window serves a key other than its own"
     );

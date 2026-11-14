@@ -44,7 +44,7 @@ use crate::core::{
 };
 use crate::errors::{AppError, AppResult};
 use crate::fit_decode::decode_bounded;
-use crate::models::StatsCoverage;
+use crate::models::coverage::WindowScope;
 use crate::models::{Activity, Athlete, Stats, TenantId, TimeSeriesData};
 use crate::originals::OriginalsStore;
 use crate::pagination::{CursorPage, PaginationParams};
@@ -332,7 +332,7 @@ impl FitnessProvider for UserProvidedProvider {
 
     async fn get_stats(&self) -> AppResult<Stats> {
         let activities = self.cached().all().await?;
-        Ok(Stats::summed_over(&activities, StatsCoverage::Lifetime))
+        Ok(Stats::summed_over(&activities, WindowScope::Lifetime))
     }
 }
 

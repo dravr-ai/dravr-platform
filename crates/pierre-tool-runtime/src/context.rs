@@ -98,6 +98,16 @@ tokio::task_local! {
     /// [`TURN_LOCALE`]. Absent for MCP-direct / A2A / SSE calls.
     pub static TURN_DIRECT_MESSAGE: Option<bool>;
 
+    /// The chat turn the in-flight tool call answers, and the athlete's
+    /// message that asked it ([`TurnAsk`]).
+    ///
+    /// `pierre_chat_pipeline::run_turn` scopes it once the turn's prompt is
+    /// stored; the executor reads it and re-scopes it around each tool body,
+    /// as it does [`TURN_LOCALE`]. A read that outlives its turn records it,
+    /// so its follow-up can tell whether the athlete has asked something
+    /// newer since. Absent for MCP-direct / A2A / SSE calls.
+    pub static TURN_ASK: Option<TurnAsk>;
+
     /// Guardian turn token for the in-flight tool call.
     ///
     /// Scoped by the executor
@@ -141,6 +151,16 @@ tokio::task_local! {
     /// Inherited by a nested dispatch on the same task, so what a prefetched tool
     /// reads through another counts as prefetched too.
     pub static DISPATCH_ORIGIN: DispatchOrigin;
+}
+
+/// The chat turn a tool call answers ([`TURN_ASK`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnAsk {
+    /// The turn's correlation id (`ConversationTurnId`).
+    pub turn_id: String,
+    /// The persisted id of the athlete's message the turn answers; `None`
+    /// on a turn whose prompt the platform composed, which stores no message.
+    pub user_message_id: Option<String>,
 }
 
 /// Who decided a tool call should run.
@@ -278,6 +298,8 @@ pub struct ToolExecutionContext {
     /// Whether the originating chat turn was a direct message; see
     /// [`TURN_DIRECT_MESSAGE`]. `None` outside a chat turn.
     pub(crate) turn_direct_message: Option<bool>,
+    /// The chat turn the call answers, when it came from one; see [`TURN_ASK`].
+    pub turn_ask: Option<TurnAsk>,
     /// Whether the user has admin privileges (cached to avoid repeated DB queries)
     is_admin: Option<bool>,
 }
@@ -309,6 +331,7 @@ impl ToolExecutionContext {
             turn_agent_id: None,
             turn_locale: None,
             turn_direct_message: None,
+            turn_ask: None,
             is_admin: None,
         }
     }
@@ -352,6 +375,7 @@ impl ToolExecutionContext {
             turn_agent_id: TURN_AGENT_ID.try_with(Clone::clone).ok().flatten(),
             turn_locale: TURN_LOCALE.try_with(Clone::clone).ok().flatten(),
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
+            turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
             is_admin: Some(ctx.is_admin),
         }
     }
@@ -531,6 +555,7 @@ impl ToolExecutionContext {
             turn_agent_id: self.turn_agent_id.clone(),
             turn_locale: self.turn_locale.clone(),
             turn_direct_message: self.turn_direct_message,
+            turn_ask: self.turn_ask.clone(),
             is_admin: None, // Reset admin cache for new user
         }
     }
@@ -548,6 +573,7 @@ impl fmt::Debug for ToolExecutionContext {
             .field("turn_agent_id", &self.turn_agent_id)
             .field("turn_locale", &self.turn_locale)
             .field("turn_direct_message", &self.turn_direct_message)
+            .field("turn_ask", &self.turn_ask)
             .field("is_admin", &self.is_admin)
             .field("resources", &"<dyn ToolRuntime>")
             .finish()

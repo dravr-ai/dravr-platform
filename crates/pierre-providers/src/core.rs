@@ -50,7 +50,8 @@
 //!
 //! ```rust,no_run
 //! use pierre_providers::core::{FitnessProvider, ProviderConfig, OAuth2Credentials};
-//! use pierre_core::models::{Activity, Athlete, Stats, StatsCoverage};
+//! use pierre_core::models::coverage::WindowScope;
+//! use pierre_core::models::{Activity, Athlete, Stats};
 //! use pierre_core::errors::AppResult;
 //! use async_trait::async_trait;
 //!
@@ -86,6 +87,7 @@
 //!             profile_picture: None,
 //!             provider: "custom".to_owned(),
 //!             sex: None,
+//!             created_at: None,
 //!         })
 //!     }
 //!
@@ -107,7 +109,7 @@
 //! #       Err(pierre_core::errors::AppError::not_found("Activity not found"))
 //! #   }
 //! #   async fn get_stats(&self) -> AppResult<Stats> {
-//! #       Ok(Stats { total_activities: 0, total_distance: 0.0, total_duration: 0, total_elevation_gain: 0.0, coverage: StatsCoverage::Lifetime, year_to_date: None })
+//! #       Ok(Stats::summed_over(&[], WindowScope::Lifetime))
 //! #   }
 //! }
 //! ```

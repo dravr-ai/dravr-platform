@@ -26,8 +26,9 @@ use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityDetail;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
-use pierre_providers::backend_resolver::{history_keys, mirror_backend_for};
+use pierre_providers::backend_resolver::mirror_backend_for;
 use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::training_history_read::history_store_keys;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -77,15 +78,15 @@ pub fn answered_key<'a>(listed_under: &'a str, detailed: &'a Activity) -> &'a st
 /// `Activity::provider`) lives under, in a window `serving` read.
 ///
 /// A window a session reads serves its grant's rows too
-/// (`backend_resolver::history_keys`): a ride only the Strava grant listed
-/// is a `strava` row in a `sciotte` window, and its detail belongs beside
-/// that row, as the activity view keeps it, whichever half of the pair read
-/// the detail ([`answered_key`] keeps a grant's answer under the grant). Any
+/// (`training_history_read::history_store_keys`): a ride only the Strava
+/// grant listed is a `strava` row in a `sciotte` window, and its detail
+/// belongs beside that row, as the activity view keeps it, whichever half of
+/// the pair read the detail ([`answered_key`] keeps a grant's answer under the grant). Any
 /// other summary is `serving`'s own row: a capture names the scraper
 /// (`sciotte`), never the session key it is cached under.
 #[must_use]
 pub fn listed_key<'a>(serving: &'a str, listed_by: &str) -> &'a str {
-    history_keys(serving)
+    history_store_keys(serving)
         .into_iter()
         .find(|key| *key == listed_by)
         .unwrap_or(serving)

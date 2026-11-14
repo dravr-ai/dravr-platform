@@ -62,7 +62,12 @@ use crate::common;
 /// definition), source, day and confidence the workout families resolve on.
 /// Every field was cut to a few words before measuring, which saved 231
 /// bytes. Measured 94,967 (~1,160 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 95_000;
+///
+/// 2026-11-13: 95,000 → 95,450 for the history walk (carnet#1482):
+/// `get_stats` and `get_training_history` read one stored window behind one
+/// `Coverage`, and their arguments now say what an incomplete window means.
+/// Measured 95,022 (~55 bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 95_450;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

@@ -18,8 +18,8 @@ use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::coverage::Coverage;
 use crate::models::refresh_due;
-use crate::models::StatsCoverage;
 use crate::models::{
     activity::{utc_offset_seconds_if_civil, Lap, Split},
     resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, Stats,
@@ -696,6 +696,7 @@ impl FitnessProvider for StravaProvider {
         let strava_athlete: StravaAthleteResponse = self.api_request("athlete").await?;
 
         Ok(Athlete {
+            created_at: strava_athlete.created_at,
             id: strava_athlete.id.to_string(),
             username: strava_athlete.username.unwrap_or_default(),
             firstname: strava_athlete.firstname,
@@ -889,7 +890,7 @@ impl FitnessProvider for StravaProvider {
             total_distance: all_time.total_distance,
             total_duration: all_time.total_duration,
             total_elevation_gain: all_time.total_elevation_gain,
-            coverage: StatsCoverage::Lifetime,
+            coverage: Coverage::lifetime(all_time.total_activities),
             year_to_date: Some(year_to_date),
         })
     }

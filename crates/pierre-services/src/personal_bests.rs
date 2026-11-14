@@ -16,11 +16,16 @@
 //! What the athlete hears depends on how much of their history is known:
 //!
 //! - **The whole history is measured first.** [`PersonalBests::advance_seed`]
-//!   walks the athlete's activities at the provider once, newest first, one
-//!   listing per page and one samples request per past run, and stores the
-//!   bests they set without telling anything. The walk runs
-//!   [`in_background`], so each of its provider requests is admitted against
-//!   only the background share of the signing app's budget; it stops when that
+//!   walks the athlete's activities once, newest first, and stores the bests
+//!   they set without telling anything. It lists nothing at the provider: it
+//!   waits until a history walk (carnet#1482) copied the whole history into
+//!   the activity store, then pages the store by `before` under every key the
+//!   provider's history is held under ([`history_store_keys`]), so a Strava history
+//!   walked through the usr/pwd session is read under `sciotte` as well as
+//!   `strava`, each workout once. Streams are not in the store, so each past
+//!   run still costs one samples request at the provider. The walk runs
+//!   [`in_background`], so each of those requests is admitted against only
+//!   the background share of the signing app's budget; it stops when that
 //!   share is spent, and resumes on a later pass from the cursor it saved,
 //!   skipping every run `best_effort_scans` already holds.
 //! - **Nothing is told against a partial history.** Until the walk reached
@@ -45,33 +50,57 @@
 //! when [`ATHLETE_LEASE`] runs out.
 //!
 //! A samples request that fails is held until the provider answers the next
-//! request — the next run's samples, or the next page of the walk. When it
-//! answers, the failure was the run's own and the run is recorded unmeasured,
-//! so it is never asked for again; when it refuses that one too, the provider
-//! is refusing (a spent quota, an open circuit, a lost grant) and the batch
-//! stops with neither run recorded, so both are asked for again later.
+//! request — the next run's samples or, when the failed run is the oldest the
+//! store holds, one read of the athlete's profile, the only request left to
+//! ask. When it answers, the failure was the run's own and the run is
+//! recorded unmeasured, so it is never asked for again; when it refuses that
+//! one too, the provider is refusing (a spent quota, an open circuit, a lost
+//! grant) and the batch stops with the run unrecorded, so it is asked for
+//! again later.
+//!
+//! A run is one workout whichever key holds it: the scan is keyed by the
+//! service that recorded it ([`activity_origin`]), so the session's copy of a
+//! Strava run and the grant's are scanned once, and the walk and the sync
+//! scan read the same record.
+//!
+//! **Where the samples come from.** [`seed_stream_source`] picks, for each
+//! provider, the OAuth grant of its history order ([`history_sources_for`])
+//! whose field dictionary ([`field_support`](pierre_providers::field_support))
+//! declares the channels a best effort is read from: time and cumulative
+//! distance ([`BEST_EFFORT_CHANNELS`]), and that holds the walked history. A
+//! session is never read for samples, whatever its dictionary declares: each
+//! run's samples would be one scrape, and the seed never starts one, so a
+//! Strava history read through the session is measured through the grant, by
+//! the activity id both share. A push holds no samples from before the
+//! athlete connected it, so Garmin is not seeded.
 //!
 //! Only runs are measured, as cageux's own record detection does: `Run`,
 //! `VirtualRun` and `TrailRunning`.
 
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
-use pierre_providers::registry::global_registry;
+use pierre_providers::backend_resolver::activity_origin;
+use pierre_providers::field_support::StreamChannels;
+use pierre_providers::registry::{global_registry, ProviderRegistry};
+use pierre_providers::ProviderDescriptor;
 use std::cmp::Reverse;
+use std::collections::HashSet;
 use std::fmt;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use dravr_cageux::best_efforts::{best_efforts, STANDARD_RUNNING_DISTANCES_METERS};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{Activity, SportType, TenantId, TimeSeriesData};
 use pierre_database::repositories::{
+    ActivityBackfillJobRepository, ActivityCacheRepository, BackfillJobKind, BackfillJobState,
     PersonalBest, PersonalBestRepository, PersonalBestSeed, WorkerRunRepository,
 };
+use pierre_database::RepositoryRegistry;
 use pierre_notifications::triggers::trigger_personal_record;
 use pierre_notifications::{NotificationService, TenantId as CommTenantId};
-use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
+use pierre_providers::core::FitnessProvider;
 use pierre_providers::request_budget::in_background;
 use tokio::time::sleep;
 use tracing::{info, warn};
@@ -80,6 +109,7 @@ use uuid::Uuid;
 use crate::notification_text::{
     PR_DISTANCE_10K, PR_DISTANCE_5K, PR_DISTANCE_HALF_MARATHON, PR_DISTANCE_MARATHON,
 };
+use crate::training_history_read::{history_sources_for, history_store_keys, HistorySourceRole};
 
 /// The catalogue code of each standard distance, index-aligned with
 /// [`STANDARD_RUNNING_DISTANCES_METERS`]; the array length ties the two.
@@ -90,11 +120,72 @@ const DISTANCE_CODES: [&str; STANDARD_RUNNING_DISTANCES_METERS.len()] = [
     PR_DISTANCE_MARATHON,
 ];
 
-/// The activities one page of the history walk asks for: Strava's page cap.
+/// The activities one page of the walk reads from the store, under each key.
 ///
-/// The walk ends on an empty page rather than a short one, so a provider that
-/// caps its pages lower is walked just as completely.
+/// The walk ends on an empty page rather than a short one.
 pub const SEED_PAGE_SIZE: usize = 200;
+
+/// The sample channels a best effort is read from: cageux's sweep reads the
+/// cumulative distance against the time, and nothing else
+/// ([`best_efforts`]).
+pub const BEST_EFFORT_CHANNELS: StreamChannels =
+    StreamChannels::TIME.union(StreamChannels::DISTANCE);
+
+/// The backend whose samples the seed of `provider`'s history is measured on.
+///
+/// The first grant of [`history_sources_for`] `provider`
+/// ([`HistorySourceRole::Grant`]) that holds the walked history and whose
+/// descriptor declares every one of [`BEST_EFFORT_CHANNELS`] in its field
+/// dictionary.
+///
+/// A usr/pwd session ([`HistorySourceRole::Session`]) is skipped even when
+/// its dictionary declares the channels, as a Strava scrape's now does: its
+/// samples are one scrape per run, and the seed never starts a scrape
+/// (carnet#1494), so Strava's history is measured through the grant. So is
+/// a push ([`HistorySourceRole::Pushed`]): it holds the samples of what
+/// arrived after the athlete connected it, none of the history a walk
+/// copied, and would record every older run scanned without a best (Garmin).
+/// A grant that declares fewer channels is skipped too. `None` when no grant
+/// of the provider serves them (Garmin, COROS, TrainingPeaks, and
+/// Intervals.icu, which sends no distance channel): its history is never
+/// seeded, rather than recorded scanned without a best.
+#[must_use]
+pub fn seed_stream_source(registry: &ProviderRegistry, provider: &str) -> Option<&'static str> {
+    history_sources_for(provider)
+        .into_iter()
+        .filter(|(_, role)| *role == HistorySourceRole::Grant)
+        .filter_map(|(backend, _)| registry.get_descriptor(backend))
+        .find(|descriptor| {
+            descriptor
+                .activity_fields()
+                .streams
+                .contains(BEST_EFFORT_CHANNELS)
+        })
+        .map(ProviderDescriptor::name)
+}
+
+/// Every backend [`seed_stream_source`] names for a provider `registry`
+/// serves, each once, in the registry's order.
+#[must_use]
+pub fn seed_stream_sources(registry: &ProviderRegistry) -> Vec<&'static str> {
+    let mut sources = Vec::new();
+    for provider in registry.supported_providers() {
+        if let Some(source) = seed_stream_source(registry, provider) {
+            if !sources.contains(&source) {
+                sources.push(source);
+            }
+        }
+    }
+    sources
+}
+
+/// The key a scan of `activity`, and every best it sets, is recorded under:
+/// the service that recorded it, so the session's copy of a run and the
+/// grant's are one scan, and a purge of that service's data removes the
+/// bests and the scans that would re-measure them together.
+fn scan_key(activity: &Activity) -> &str {
+    activity_origin(activity.provider(), activity.source())
+}
 
 /// How long a batch holds an athlete before another instance may take them
 /// over.
@@ -155,7 +246,8 @@ pub struct DistanceResult {
 pub enum SeedPause {
     /// The shared request budget said stop; the rest waits for its next window.
     Budget,
-    /// The provider refused a listing, or two samples requests in a row.
+    /// The provider refused two samples requests in a row, or the profile
+    /// read that was to resolve a held run.
     Refused,
 }
 
@@ -169,6 +261,9 @@ pub enum SeedProgress {
     /// Another batch — a walk on another instance, or a sync's scan — holds
     /// the athlete; the walk was not advanced.
     Held,
+    /// No history walk has copied the athlete's history into the store yet;
+    /// the seed waits for it, with no request made and the cursor untouched.
+    AwaitingHistory,
 }
 
 /// Whether best efforts are measured on `sport`.
@@ -214,6 +309,10 @@ pub struct PersonalBests {
     service: Option<Arc<NotificationService>>,
     /// The worker ledger, where the lease on each athlete's measuring lives.
     leases: Arc<dyn WorkerRunRepository>,
+    /// The activity store the seed pages the athlete's history from.
+    store: Arc<dyn ActivityCacheRepository>,
+    /// The job ledger that says whether a history walk filled the store.
+    walks: Arc<dyn ActivityBackfillJobRepository>,
 }
 
 impl fmt::Debug for PersonalBests {
@@ -225,18 +324,18 @@ impl fmt::Debug for PersonalBests {
 }
 
 impl PersonalBests {
-    /// Personal bests over `repo`, announced through `service`, with each
-    /// athlete's measuring leased in `leases`.
+    /// Personal bests over `repos`, announced through `service`: the bests
+    /// in its personal-best tables, each athlete's measuring leased in its
+    /// worker ledger, and the seed read from its activity store once its job
+    /// ledger says a history walk ended.
     #[must_use]
-    pub fn new(
-        repo: Arc<dyn PersonalBestRepository>,
-        service: Option<Arc<NotificationService>>,
-        leases: Arc<dyn WorkerRunRepository>,
-    ) -> Self {
+    pub fn new(repos: &RepositoryRegistry, service: Option<Arc<NotificationService>>) -> Self {
         Self {
-            repo,
+            repo: Arc::clone(&repos.personal_bests),
             service,
-            leases,
+            leases: Arc::clone(&repos.worker_runs),
+            store: Arc::clone(&repos.activity_cache),
+            walks: Arc::clone(&repos.activity_backfill_jobs),
         }
     }
 
@@ -316,7 +415,7 @@ impl PersonalBests {
         {
             if !self
                 .repo
-                .is_activity_scanned(user_id, tenant_id, activity.provider(), activity.id())
+                .is_activity_scanned(user_id, tenant_id, scan_key(activity), activity.id())
                 .await?
             {
                 runs.push(activity);
@@ -379,16 +478,21 @@ impl PersonalBests {
         Ok(batch.measured)
     }
 
-    /// Walk the athlete's history at `provider` from where the last call
+    /// Walk the athlete's history of `provider` from where the last call
     /// stopped, newest activity first, measuring every run no sync or earlier
-    /// walk measured, and storing the bests they set without telling anything.
+    /// walk measured on `provider`'s samples, and storing the bests they set
+    /// without telling anything.
     ///
-    /// One listing per page and one samples request per run, each admitted
-    /// [`in_background`] against the background share of the signing app's
-    /// budget. The walk stops when that share is spent or the provider
-    /// refuses, saving the cursor it reached so the next call lists from
-    /// there; it completes when a listing past the oldest activity comes back
-    /// empty, and from then on records are told.
+    /// `provider` is the backend [`seed_stream_source`] names. Nothing is
+    /// listed at it: until a history walk under one of its history keys
+    /// ([`history_store_keys`]) ended, the seed waits
+    /// ([`SeedProgress::AwaitingHistory`]); after, each page is read from the
+    /// store under every one of those keys. One samples request per run, each
+    /// admitted [`in_background`] against the background share of the signing
+    /// app's budget. The walk stops when that share is spent or the provider
+    /// refuses, saving the cursor it reached so the next call reads from
+    /// there; it completes when the store holds nothing older, and from then
+    /// on records are told.
     ///
     /// # Errors
     /// Returns a database error when the walk's progress, the scans or the
@@ -426,6 +530,11 @@ impl PersonalBests {
         if seed.completed_at.is_some() {
             return Ok(SeedProgress::Complete);
         }
+        let keys = history_store_keys(provider_name);
+        if !self.history_walked(user_id, tenant_id, &keys).await? {
+            info!(%user_id, provider = provider_name, "best-effort seed waits for the history walk");
+            return Ok(SeedProgress::AwaitingHistory);
+        }
 
         let mut batch = Batch::new(self, provider, user_id, tenant_id, false);
         // `walk` bounds the next listing and follows every activity handled;
@@ -433,7 +542,7 @@ impl PersonalBests {
         // while a failed run is held unresolved.
         let mut walk = seed.cursor_before;
         let progress = loop {
-            match next_page(&mut batch, &mut seed, walk).await? {
+            match self.next_page(&mut batch, &keys, &mut seed, walk).await? {
                 PageOutcome::Stop(pause) => break SeedProgress::Paused(pause),
                 PageOutcome::End => {
                     seed.completed_at = Some(Utc::now());
@@ -466,6 +575,103 @@ impl PersonalBests {
         Ok(progress)
     }
 
+    /// Whether a history walk under one of `keys` reached the end of the
+    /// athlete's history: the store then holds all of it.
+    async fn history_walked(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        keys: &[&str],
+    ) -> AppResult<bool> {
+        for key in keys {
+            let state = self
+                .walks
+                .backfill_job_state(user_id, tenant_id, key, BackfillJobKind::HistoryWalk)
+                .await?;
+            if state == Some(BackfillJobState::Walked) {
+                return Ok(true);
+            }
+        }
+        Ok(false)
+    }
+
+    /// The page of the athlete's history just before `walk` (the newest page
+    /// when `None`), read from the store under every one of `keys`; when the
+    /// store holds nothing older, the walk has reached the first activity.
+    ///
+    /// A run held from the page before is resolved here when the store is
+    /// spent: no samples request is left to tell whose its failure was, so
+    /// one read of the athlete's profile asks the provider instead. When it
+    /// answers, the saved cursor moves to `walk`, since every activity from
+    /// there on is handled.
+    async fn next_page(
+        &self,
+        batch: &mut Batch<'_>,
+        keys: &[&str],
+        seed: &mut PersonalBestSeed,
+        walk: Option<i64>,
+    ) -> AppResult<PageOutcome> {
+        let page = self
+            .store_page(batch.user_id, batch.tenant_id, keys, walk)
+            .await?;
+        if !page.is_empty() {
+            return Ok(PageOutcome::Page(page));
+        }
+        if batch.suspect.is_some() {
+            if let Some(pause) = batch.probe().await? {
+                return Ok(PageOutcome::Stop(pause));
+            }
+            seed.cursor_before = walk;
+        }
+        Ok(PageOutcome::End)
+    }
+
+    /// Up to [`SEED_PAGE_SIZE`] stored activities that started before `walk`
+    /// (now when `None`), newest first, under any of `keys`.
+    ///
+    /// A workout stored under two keys (the session's copy and the grant's,
+    /// under the one id the service gave it) is one activity, the first key's
+    /// copy kept. Twins are matched by that id rather than merged into a
+    /// session the way a read is: two recordings the athlete split a run into
+    /// each carry their own samples, so each is measured.
+    async fn store_page(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        keys: &[&str],
+        walk: Option<i64>,
+    ) -> AppResult<Vec<Activity>> {
+        let end = walk
+            .and_then(|ts| DateTime::from_timestamp(ts, 0))
+            .unwrap_or_else(Utc::now);
+        let limit = i64::try_from(SEED_PAGE_SIZE).unwrap_or(i64::MAX);
+        let mut seen = HashSet::new();
+        let mut page = Vec::new();
+        for key in keys {
+            let rows = self
+                .store
+                .get_cached_activities(
+                    user_id,
+                    &tenant_id,
+                    Some(key),
+                    DateTime::UNIX_EPOCH,
+                    end,
+                    limit,
+                )
+                .await?;
+            for activity in rows {
+                if seen.insert((scan_key(&activity).to_owned(), activity.id().to_owned())) {
+                    page.push(activity);
+                }
+            }
+        }
+        // The store's bound is inclusive; the walk has handled `walk` itself.
+        page.retain(|activity| walk.is_none_or(|bound| activity.start_date().timestamp() < bound));
+        page.sort_by_key(|activity| Reverse(activity.start_date()));
+        page.truncate(SEED_PAGE_SIZE);
+        Ok(page)
+    }
+
     /// Handle one page of the walk, newest first: measure each run not yet
     /// scanned, and move the walk and — while no failed run is held — the
     /// saved cursor past each activity handled. Returns why the walk stopped
@@ -484,7 +690,7 @@ impl PersonalBests {
                     .is_activity_scanned(
                         batch.user_id,
                         batch.tenant_id,
-                        activity.provider(),
+                        scan_key(activity),
                         activity.id(),
                     )
                     .await?
@@ -539,7 +745,7 @@ impl PersonalBests {
                     &PersonalBest {
                         distance: result.distance.to_owned(),
                         elapsed_seconds: result.elapsed_seconds,
-                        provider: run.provider().to_owned(),
+                        provider: scan_key(run).to_owned(),
                         activity_id: run.id().to_owned(),
                         achieved_at: run.start_date(),
                     },
@@ -556,7 +762,7 @@ impl PersonalBests {
             }
         }
         self.repo
-            .record_activity_scan(user_id, tenant_id, run.provider(), run.id(), Utc::now())
+            .record_activity_scan(user_id, tenant_id, scan_key(run), run.id(), Utc::now())
             .await?;
         Ok(results)
     }
@@ -597,48 +803,10 @@ enum PageOutcome {
     Page(Vec<Activity>),
     /// Nothing older: the walk has reached the athlete's first activity.
     End,
-    /// No page: the budget is spent or the provider refused.
+    /// Nothing older, and the provider did not answer the request that was
+    /// to resolve the run held from the last page: the budget is spent or
+    /// the provider refused.
     Stop(SeedPause),
-}
-
-/// Ask for the page of the athlete's history just before `walk` (the newest
-/// page when `None`); a spent budget stops the walk.
-///
-/// The provider answering resolves a run held from the page before as the
-/// run's own failure; the saved cursor then moves to `walk`, since every
-/// activity from there on is handled.
-async fn next_page(
-    batch: &mut Batch<'_>,
-    seed: &mut PersonalBestSeed,
-    walk: Option<i64>,
-) -> AppResult<PageOutcome> {
-    let params = ActivityQueryParams {
-        limit: Some(SEED_PAGE_SIZE),
-        offset: None,
-        before: walk,
-        after: None,
-    };
-    let mut page = match batch.provider.get_activities_with_params(&params).await {
-        Ok(page) => page,
-        Err(e) if budget_spent(&e) => return Ok(PageOutcome::Stop(SeedPause::Budget)),
-        Err(e) => {
-            warn!(user_id = %batch.user_id, provider = batch.provider.name(), error = %e, "history walk listing failed; the walk resumes on a later pass");
-            return Ok(PageOutcome::Stop(SeedPause::Refused));
-        }
-    };
-    if batch.provider_answered().await? {
-        seed.cursor_before = walk;
-    }
-    // Newest first, and nothing the walk already went past: a provider
-    // honouring `before` returns exactly that, and one that does not cannot
-    // hold the walk on a page it has handled.
-    page.retain(|activity| walk.is_none_or(|bound| activity.start_date().timestamp() < bound));
-    page.sort_by_key(|activity| Reverse(activity.start_date()));
-    Ok(if page.is_empty() {
-        PageOutcome::End
-    } else {
-        PageOutcome::Page(page)
-    })
 }
 
 /// Whether `error` says a request budget is spent: the signing app's, which
@@ -708,6 +876,24 @@ impl<'a> Batch<'a> {
             .record_run(self.user_id, self.tenant_id, &suspect, None, false)
             .await?;
         Ok(true)
+    }
+
+    /// Ask the provider for the athlete's profile, the one request left when
+    /// a run is held and the store holds nothing older: an answer resolves
+    /// the held run as its own failure. Returns why the walk stops when the
+    /// provider does not answer.
+    async fn probe(&mut self) -> AppResult<Option<SeedPause>> {
+        match self.provider.get_athlete().await {
+            Ok(_) => {
+                self.provider_answered().await?;
+                Ok(None)
+            }
+            Err(e) if budget_spent(&e) => Ok(Some(SeedPause::Budget)),
+            Err(e) => {
+                warn!(user_id = %self.user_id, provider = self.provider.name(), error = %e, "profile read failed while a run is held; the walk resumes on a later pass");
+                Ok(Some(SeedPause::Refused))
+            }
+        }
     }
 
     /// Ask for `run`'s samples and record what they hold, or hold the run

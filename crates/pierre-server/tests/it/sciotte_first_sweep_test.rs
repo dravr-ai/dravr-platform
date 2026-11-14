@@ -44,6 +44,7 @@ use chrono::{Duration, Utc};
 use pierre_config::environment::ServerConfig;
 use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_database::repositories::{ActivityBackfillJobRow, BackfillJobKind, JobProgress};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_mcp_server::services::first_sync_post::FirstSyncPoster;
@@ -420,13 +421,48 @@ async fn a_strava_webhook_reads_the_grant_and_never_starts_a_scrape() {
     );
 }
 
+/// Records the pair's history walk as owed under the session and leased for
+/// an hour, so no ask starts another and the resume sweep leaves it alone.
+async fn pair_walk_owed(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
+    let now = Utc::now().timestamp_millis();
+    let recorded = resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .record_backfill_job(&ActivityBackfillJobRow {
+            id: Uuid::new_v4().to_string(),
+            tenant_id: tenant,
+            user_id,
+            provider: "sciotte".to_owned(),
+            kind: BackfillJobKind::HistoryWalk,
+            after_ts: None,
+            before_ts: None,
+            fetch_limit: None,
+            conversation_id: None,
+            created_at_ms: now,
+            leased_until_ms: now + 60 * 60_000,
+            attempts: 0,
+            lease_token: Some(Uuid::new_v4().to_string()),
+            progress: JobProgress::default(),
+            turn_id: None,
+            asked_message_id: None,
+            walk_backend: None,
+        })
+        .await
+        .unwrap();
+    assert!(recorded, "bug: the pair's walk could not be recorded");
+}
+
 /// The connect-time first read names the backend just connected exactly:
 /// a Strava grant's first read goes to Strava's API, never to the session
-/// standing beside it.
+/// standing beside it. The history walk the read's depth ask may start does
+/// read the session first (carnet#1482, JF 2026-11-12), so the pair's walk is
+/// already owed here and every scrape counted is the first read's own.
 #[tokio::test]
 async fn a_first_read_of_the_grant_never_starts_a_scrape() {
     let w = world().await;
-    let (user_id, _tenant) = athlete_with_both(&w.resources).await;
+    let (user_id, tenant) = athlete_with_both(&w.resources).await;
+    pair_walk_owed(&w.resources, user_id, tenant).await;
     let channel = Arc::new(CapturingChannel::for_channel(ChannelType::WhatsApp));
     let poster = FirstSyncPoster::new(
         Arc::downgrade(&w.resources),

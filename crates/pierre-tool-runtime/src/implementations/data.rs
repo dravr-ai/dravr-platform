@@ -46,9 +46,9 @@ use crate::activity_fetch::budgeted_read::{
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use crate::activity_fetch::uploads::{resolve_with_own_copies, user_provided_rows};
 use crate::activity_fetch::{
-    activity_date_span, activity_window_totals, maybe_merge_other_connections, read_cached_window,
-    read_live_window, serve_historical_window, serve_stale_activities, sort_activities,
-    touch_connection_used, StaleReason,
+    activity_date_span, activity_window_totals, maybe_merge_other_connections, read_live_window,
+    serve_covered_history, serve_stale_activities, sort_activities, touch_connection_used,
+    StaleReason,
 };
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -61,10 +61,9 @@ use crate::implementations::activity_detail_promotion::{
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
-    attach_stand_in_caveat, backfill_placeholder_message, deep_window_grant,
-    historical_backfill_fetch_limit, historical_window_read_limit, pagination_has_more,
-    response_cache_eligible, serve_in_place, window_fetch_limit, AskedWindow, PrimaryStandIn,
-    HISTORICAL_COVERAGE_BOUND_SECS,
+    attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
+    historical_window_read_limit, pagination_has_more, response_cache_eligible, serve_in_place,
+    window_fetch_limit, AskedWindow, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
     build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
@@ -88,10 +87,9 @@ use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::fitness::{EXPENSIVE_DETAIL_PROMOTION_BUDGET, EXPLICIT_DETAIL_CAP};
 use pierre_core::constants::oauth_providers;
-use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::connection_needs_reauth;
-use pierre_database::repositories::historical_depth_covered;
+use pierre_database::repositories::BackfillJobKind;
 use pierre_fitness_compute::weather_cache_adapter::WeatherCacheRepoAdapter;
 use pierre_formatters::OutputFormat;
 use pierre_providers::ai_scope;
@@ -466,22 +464,19 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 }
             }
 
-            // Cache miss path. A deep historical `after` must NOT scrape inline —
-            // paging a provider's reverse-chronological feed back across years stalls
-            // the turn and trips the sciotte navigation timeout. Serve such windows
-            // from the durable activity cache; on a cold cache, kick off a bounded
-            // background backfill and tell the caller to ask again shortly. The gate
-            // fires ONLY for scrape-backed mirror providers (sciotte) — OAuth API
-            // providers (Strava, WHOOP, …) fetch deep windows inline (fast API).
-            // `provider_name` is already canonicalized to the backend above, so
-            // route on it directly: a deep window on a scrape-backed mirror
-            // (sciotte / sciotte_garmin) goes to background backfill; a fast OAuth
-            // API provider fetches inline. A deep window on a session whose live
-            // grant reads history on request goes to that grant instead, read
-            // exactly as named (`deep_window_grant`, carnet#1494).
-            let deep_grant = deep_window_grant(&context, &provider_name, is_historical).await;
-            let read_exactly = deep_grant.is_some();
-            let provider_name = deep_grant.unwrap_or(provider_name);
+            // Cache miss path. A deep historical window the store holds to its
+            // depth is served from it on every backend (`covered_history`
+            // below). One it does not must NOT scrape inline — paging a
+            // provider's reverse-chronological feed back across years stalls the
+            // turn and trips the sciotte navigation timeout — so an uncovered
+            // deep window on a scrape-backed mirror (sciotte / sciotte_garmin)
+            // goes to a bounded background backfill and the caller is told to ask
+            // again shortly, while a fast OAuth API provider (Strava, WHOOP, …)
+            // fetches it inline. `provider_name` is already canonicalized to the
+            // backend above, so route on it directly. A deep window is history,
+            // so it keeps the history walk's order even while a live grant stands
+            // behind the session: the session first, the grant only where the
+            // session cannot serve (`history_source_order`, carnet#1482).
             let route_to_backfill =
                 is_historical && backend_resolver::is_mirror_backend(&provider_name);
             // Set when the elected provider could not answer and a sibling
@@ -497,6 +492,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // the fold below does not merge the same window twice.
             let mut stand_in_merge: Option<FragmentReport> = None;
             let mut served_by: Vec<String> = Vec::new();
+            // The store answered a deep window the history walk is still filling.
+            let mut walk_running = false;
             // An explicit `provider` argument pins the ask to ONE source — the
             // same rule `maybe_merge_other_connections` follows. A pinned
             // provider that cannot authenticate stays the whole answer:
@@ -506,220 +503,208 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 .get("provider")
                 .and_then(Value::as_str)
                 .is_some_and(|s| !s.is_empty());
-            // What the athlete brought in is read locally: no sync, no write-through.
-            let (activities, provider) = if oauth_providers::is_user_provided(&provider_name) {
-                let pinned_key = provider_pinned.then_some(provider_name.as_str());
-                (user_provided_rows(&context, pinned_key, &query_params).await, None)
-            } else if route_to_backfill {
-                // Is the requested historical window actually cached, or only recent
-                // rows that fall inside it? Read the durable window ONCE and derive
-                // both the coverage decision and the served list from that single
-                // result — issuing a second read with a different limit (coverage
-                // probe vs serve) let the two diverge between awaits (concurrent
-                // backfill/prune, or an open-`before` coverage bound that differs
-                // from the serve window), so the same 2022 query could serve a full
-                // 200 on one call and a partial 46 on the next. When the caller
-                // leaves `before` open we bound the read to a year above `after` so
-                // recent rows can't mask missing historical depth. The read limit is
-                // the durable retention cap, NOT the user's display limit, so the
-                // served set is the complete window; the display limit caps only the
-                // returned length afterwards.
-                let coverage_params = ActivityQueryParams {
-                    after,
-                    before: before.or_else(|| {
-                        after.map(|a| a.saturating_add(HISTORICAL_COVERAGE_BOUND_SECS))
-                    }),
-                    limit: Some(historical_window_read_limit()),
-                    offset,
-                };
-                let window = read_cached_window(
-                    &context.resources,
-                    &provider_name,
-                    context.user_id,
-                    tenant_id,
-                    &coverage_params,
-                )
-                .await;
-                // Depth coverage: cached rows alone aren't enough — a prior
-                // limit-capped backfill leaves only the recent slice of a deep
-                // window (the "2022 starts in July" bug). The window is covered
-                // only when a backfill reached at least as deep as `after`, OR
-                // exhausted the provider feed (no older data exists). Absent a
-                // coverage record the window is treated as not-yet-backfilled.
-                let after_ts = after.unwrap_or(0);
-                let coverage = context
-                    .resources
-                    .repos()
-                    .activity_cache
-                    .get_backfill_coverage(context.user_id, &tenant_id, &provider_name)
-                    .await
-                    .unwrap_or(None);
-                let depth_covered = historical_depth_covered(
-                    coverage,
-                    after_ts,
-                    current_capture_version(&provider_name),
-                );
-                let covered = window.is_some() && depth_covered;
-
-                info!(
-                    user_id = %context.user_id,
-                    provider = %provider_name,
-                    ?after,
-                    ?before,
-                    covered,
-                    depth_covered,
-                    window_len = window.as_ref().map_or(0, Vec::len),
-                    "get_activities historical gate decision"
-                );
-
-                if let Some(served) = window.filter(|_| depth_covered) {
-                    // The requested depth is cached AND a backfill confirmed it
-                    // reaches `after` (or the feed end). Serve the COMPLETE window;
-                    // the user's display limit is applied AFTER the sport filter
-                    // (below), never here, so a sport-filtered ask like "my 2022
-                    // runs" can't have its older runs displaced out of the limit
-                    // window by other-sport activities that were never going to be
-                    // returned (the "2022 runs stuck at 46" bug). The year clip
-                    // serves the coverage decision; it must not clip the SERVED
-                    // list — `serve_historical_window` appends the open-`before`
-                    // head slice above the clip and tops up a stale head.
-                    let served = serve_historical_window(
+            // A deep window is read against the store first, whichever backend
+            // the ask resolved to: it is served from there once a walk or a
+            // backfill under any of the provider's history keys reached its
+            // `after` (`serve_covered_history`, carnet#1482). Is the requested
+            // window actually cached, or only recent rows that fall inside it?
+            // The durable window is read ONCE and both the coverage decision and
+            // the served list derive from that single result — a second read with
+            // a different limit (coverage probe vs serve) let the two diverge
+            // between awaits (concurrent backfill/prune, or an open-`before`
+            // coverage bound that differs from the serve window), so the same
+            // 2022 query could serve a full 200 on one call and a partial 46 on
+            // the next. When the caller leaves `before` open the read is bounded
+            // to a year above `after` so recent rows can't mask missing
+            // historical depth. Cached rows alone aren't enough: a prior
+            // limit-capped backfill leaves only the recent slice of a deep window
+            // (the "2022 starts in July" bug), so the window is covered only when
+            // a recorded walk or backfill reached at least as deep as `after`, or
+            // exhausted the provider feed. The read limit is the durable
+            // retention cap, NOT the user's display limit, so the served set is
+            // the complete window; the display limit caps only the returned
+            // length afterwards, AFTER the sport filter (below), so a
+            // sport-filtered ask like "my 2022 runs" can't have its older runs
+            // displaced out of the limit window by other-sport activities (the
+            // "2022 runs stuck at 46" bug).
+            let coverage_params = ActivityQueryParams {
+                after,
+                before: before
+                    .or_else(|| after.map(|a| a.saturating_add(HISTORICAL_COVERAGE_BOUND_SECS))),
+                limit: Some(historical_window_read_limit()),
+                offset,
+            };
+            let covered_history =
+                if is_historical && !oauth_providers::is_user_provided(&provider_name) {
+                    serve_covered_history(
                         &context.resources,
                         &provider_name,
                         context.user_id,
                         tenant_id,
+                        &coverage_params,
                         before,
-                        coverage_params.before,
-                        served,
+                    )
+                    .await
+                } else {
+                    None
+                };
+            // What the athlete brought in is read locally: no sync, no write-through.
+            let (activities, provider) = if oauth_providers::is_user_provided(&provider_name) {
+                let pinned_key = provider_pinned.then_some(provider_name.as_str());
+                (user_provided_rows(&context, pinned_key, &query_params).await, None)
+            } else if let Some(served) = covered_history {
+                walk_running = served.walk_running;
+                stood_in = served
+                    .behind
+                    .map(|why| PrimaryStandIn::Stale(provider_name.clone(), why));
+                // An API backend details the rows it served from the store as its
+                // live read of the window does (the recent days, or what
+                // `mode=detailed` asks); a grant that cannot authenticate leaves
+                // them summaries. A mirror's covered window is never detailed by
+                // a scrape.
+                let provider = if backend_resolver::is_mirror_backend(&provider_name) {
+                    None
+                } else {
+                    UniversalExecutor::new(context.resources.clone())
+                        .auth_service
+                        .create_authenticated_provider(
+                            &provider_name,
+                            context.user_id,
+                            tenant_id_str.as_deref(),
+                        )
+                        .await
+                        .ok()
+                };
+                (served.activities, provider)
+            } else if route_to_backfill {
+                // Synchronous reconnect (priority): if this provider's
+                // connection is flagged needs_reauth/revoked, a background
+                // backfill would just fail on the dead session and the user
+                // would loop forever on "fetching, ask again shortly". A DB
+                // read error here falls through to the normal backfill path.
+                let connections = context
+                    .resources
+                    .repos()
+                    .provider_connections
+                    .get_for_user(context.user_id, Some(tenant_id))
+                    .await
+                    .unwrap_or_default();
+                if connection_needs_reauth(&connections, &provider_name) {
+                    // Serve what the athlete still has: a sibling connection
+                    // holding a live token answers the window, and the dead
+                    // provider becomes a caveat on that answer instead of
+                    // replacing it. Only when nothing else can serve does the
+                    // turn become the reconnect message — `tool_result_to_response`
+                    // turns this `Err` into the `auth_required_provider` metadata
+                    // the tool loop scans for, and `auth_recovery` hands back the
+                    // short reconnect link this turn. The link is re-sent on EVERY
+                    // such ask until a real reconnect clears the flag via `mark_active`.
+                    let fallback = serve_in_place(
+                        &context,
+                        &provider_name,
+                        provider_pinned,
+                        is_historical,
+                        &query_params,
                     )
                     .await;
-                    stood_in = served.behind.map(|why| PrimaryStandIn::Stale(provider_name.clone(), why));
-                    (served.activities, None)
-                } else {
-                    // Synchronous reconnect (priority): if this provider's
-                    // connection is flagged needs_reauth/revoked, a background
-                    // backfill would just fail on the dead session and the user
-                    // would loop forever on "fetching, ask again shortly". A DB
-                    // read error here falls through to the normal backfill path.
-                    let connections = context
-                        .resources
-                        .repos()
-                        .provider_connections
-                        .get_for_user(context.user_id, Some(tenant_id))
-                        .await
-                        .unwrap_or_default();
-                    if connection_needs_reauth(&connections, &provider_name) {
-                        // Serve what the athlete still has: a sibling connection
-                        // holding a live token answers the window, and the dead
-                        // provider becomes a caveat on that answer instead of
-                        // replacing it. Only when nothing else can serve does the
-                        // turn become the reconnect message — `tool_result_to_response`
-                        // turns this `Err` into the `auth_required_provider` metadata
-                        // the tool loop scans for, and `auth_recovery` hands back the
-                        // short reconnect link this turn. The link is re-sent on EVERY
-                        // such ask until a real reconnect clears the flag via `mark_active`.
-                        let fallback = serve_in_place(
-                            &context,
-                            &provider_name,
-                            provider_pinned,
-                            is_historical,
-                            &query_params,
-                        )
-                        .await;
-                        let Some(fallback) = fallback else {
-                            return Err(AppError::provider_auth_required(provider_name.clone()));
-                        };
-                        let dead = PrimaryStandIn::Dead(provider_name.clone());
-                        stood_in =
-                            Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, dead));
-                        served_by = fallback.served_by;
-                        stand_in_merge = Some(fallback.merge_report);
-                        (fallback.activities, None)
-                    } else if ctx.supports_tasks() {
-                        // A client that declared the tasks extension: the
-                        // dispatcher has already moved this execution off the
-                        // request path behind a durable task handle, so the
-                        // backfill runs to completion right here and the handle
-                        // resolves to the real window. The "ask me again"
-                        // placeholder below serves only envelopes with no way
-                        // to express deferred work.
-                        let mut backfill_params = query_params.clone();
-                        backfill_params.limit = Some(historical_backfill_fetch_limit());
-                        let job = ActivityBackfillJob {
-                            resources: context.resources.clone(),
-                            user_id: context.user_id,
-                            tenant_id,
-                            tenant_id_str: tenant_id_str.clone(),
-                            provider_name: provider_name.clone(),
-                            query_params: backfill_params,
-                            pierre_conversation_id: context.conversation_id.clone(),
-                        };
-                        match backfill_inline_and_serve(job, &coverage_params, before).await {
-                            InlineHistoricalServe::AuthRequired => {
-                                return Err(AppError::provider_auth_required(
-                                    provider_name.clone(),
-                                ));
-                            }
-                            InlineHistoricalServe::Failed => {
-                                return Ok(ToolResult::error(json!({
-                                    "error": format!(
-                                        "Fetching older {display_provider} history failed; \
-                                         try again shortly."
-                                    ),
-                                })));
-                            }
-                            InlineHistoricalServe::Served(served) => (served, None),
+                    let Some(fallback) = fallback else {
+                        return Err(AppError::provider_auth_required(provider_name.clone()));
+                    };
+                    let dead = PrimaryStandIn::Dead(provider_name.clone());
+                    stood_in = Some(PrimaryStandIn::of_fallback(&fallback, &provider_name, dead));
+                    served_by = fallback.served_by;
+                    stand_in_merge = Some(fallback.merge_report);
+                    (fallback.activities, None)
+                } else if ctx.supports_tasks() {
+                    // A client that declared the tasks extension: the
+                    // dispatcher has already moved this execution off the
+                    // request path behind a durable task handle, so the
+                    // backfill runs to completion right here and the handle
+                    // resolves to the real window. The "ask me again"
+                    // placeholder below serves only envelopes with no way
+                    // to express deferred work.
+                    let mut backfill_params = query_params.clone();
+                    backfill_params.limit = Some(historical_backfill_fetch_limit());
+                    let job = ActivityBackfillJob {
+                        resources: context.resources.clone(),
+                        user_id: context.user_id,
+                        tenant_id,
+                        tenant_id_str: tenant_id_str.clone(),
+                        provider_name: provider_name.clone(),
+                        query_params: backfill_params,
+                        pierre_conversation_id: context.conversation_id.clone(),
+                        kind: BackfillJobKind::Backfill,
+                        turn_id: None,
+                        asked_message_id: None,
+                    };
+                    match backfill_inline_and_serve(job, &coverage_params, before).await {
+                        InlineHistoricalServe::AuthRequired => {
+                            return Err(AppError::provider_auth_required(
+                                provider_name.clone(),
+                            ));
                         }
-                    } else {
-                        // Cold cache OR a shallow (limit-capped / never-backfilled)
-                        // window: page the WHOLE window in the background. The fetch
-                        // limit is decoupled from the user's display limit so the
-                        // sciotte date-bounded scrape pages until `oldest <= after`
-                        // (or the feed end) instead of stopping at the recent tail
-                        // once `in_window_count >= limit`. A partial cache self-heals:
-                        // the completion push then re-answers with the full window.
-                        let mut backfill_params = query_params.clone();
-                        backfill_params.limit = Some(historical_backfill_fetch_limit());
-                        let started = spawn_activity_backfill(ActivityBackfillJob {
-                            resources: context.resources.clone(),
-                            user_id: context.user_id,
-                            tenant_id,
-                            tenant_id_str: tenant_id_str.clone(),
-                            provider_name: provider_name.clone(),
-                            query_params: backfill_params,
-                            pierre_conversation_id: context.conversation_id.clone(),
-                        })
-                        .await;
-                        // `started == false` means a backfill for this window is
-                        // ALREADY in flight — the athlete has asked before. Saying
-                        // "I'm pulling it now, ask again shortly" a second time
-                        // reads as no progress, and it is what the live corpus
-                        // caught: group_chart_ask turn 1 got that line back while
-                        // the run's own log shows the backfill had already written
-                        // the history. Telling the model which case it is lets it
-                        // say something true either way.
-                        // Whether anything will carry the finished window back
-                        // on its own. A chat turn (conversation id present) with
-                        // a notifier wired gets it delivered into the same
-                        // conversation — on a messaging channel through that
-                        // channel's adapter, in the web and mobile apps as a
-                        // persisted turn. A direct MCP or A2A caller has neither,
-                        // so for that one caller re-asking really is the only
-                        // path and the copy must keep saying so.
-                        let followed_up = context.conversation_id.is_some()
-                            && context.resources.backfill_notifier().is_some();
-                        let message =
-                            backfill_placeholder_message(&display_provider, started, followed_up);
-                        return ok_typed(
-                            "get_activities",
-                            GetActivitiesResult::Backfilling(BackfillPlaceholder {
-                                status: "backfilling".to_owned(),
-                                provider: display_provider.clone(),
-                                backfill_started: started,
-                                message,
-                            }),
-                        );
+                        InlineHistoricalServe::Failed => {
+                            return Ok(ToolResult::error(json!({
+                                "error": format!(
+                                    "Fetching older {display_provider} history failed; \
+                                     try again shortly."
+                                ),
+                            })));
+                        }
+                        InlineHistoricalServe::Served(served) => (served, None),
                     }
+                } else {
+                    // Cold cache OR a shallow (limit-capped / never-backfilled)
+                    // window: page the WHOLE window in the background. The fetch
+                    // limit is decoupled from the user's display limit so the
+                    // sciotte date-bounded scrape pages until `oldest <= after`
+                    // (or the feed end) instead of stopping at the recent tail
+                    // once `in_window_count >= limit`. A partial cache self-heals:
+                    // the completion push then re-answers with the full window.
+                    let mut backfill_params = query_params.clone();
+                    backfill_params.limit = Some(historical_backfill_fetch_limit());
+                    let started = spawn_activity_backfill(ActivityBackfillJob {
+                        resources: context.resources.clone(),
+                        user_id: context.user_id,
+                        tenant_id,
+                        tenant_id_str: tenant_id_str.clone(),
+                        provider_name: provider_name.clone(),
+                        query_params: backfill_params,
+                        pierre_conversation_id: context.conversation_id.clone(),
+                        kind: BackfillJobKind::Backfill,
+                        turn_id: None,
+                        asked_message_id: None,
+                    })
+                    .await;
+                    // `started == false` means a backfill for this window is
+                    // ALREADY in flight — the athlete has asked before. Saying
+                    // "I'm pulling it now, ask again shortly" a second time
+                    // reads as no progress, and it is what the live corpus
+                    // caught: group_chart_ask turn 1 got that line back while
+                    // the run's own log shows the backfill had already written
+                    // the history. Telling the model which case it is lets it
+                    // say something true either way.
+                    // Whether anything will carry the finished window back
+                    // on its own. A chat turn (conversation id present) with
+                    // a notifier wired gets it delivered into the same
+                    // conversation — on a messaging channel through that
+                    // channel's adapter, in the web and mobile apps as a
+                    // persisted turn. A direct MCP or A2A caller has neither,
+                    // so for that one caller re-asking really is the only
+                    // path and the copy must keep saying so.
+                    let followed_up = context.conversation_id.is_some()
+                        && context.resources.backfill_notifier().is_some();
+                    let message =
+                        backfill_placeholder_message(&display_provider, started, followed_up);
+                    return ok_typed(
+                        "get_activities",
+                        GetActivitiesResult::Backfilling(BackfillPlaceholder {
+                            status: "backfilling".to_owned(),
+                            provider: display_provider.clone(),
+                            backfill_started: started,
+                            message,
+                        }),
+                    );
                 }
             } else {
                 // Recent window, or a deep window on a fast OAuth API provider —
@@ -731,25 +716,14 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 // cached window with a caveat, never as "no activities".
                 let executor = UniversalExecutor::new(context.resources.clone());
                 let attempt_started_at = Utc::now();
-                let authenticated = if read_exactly {
-                    executor
-                        .auth_service
-                        .create_exact_provider(
-                            &provider_name,
-                            context.user_id,
-                            tenant_id_str.as_deref(),
-                        )
-                        .await
-                } else {
-                    executor
-                        .auth_service
-                        .create_authenticated_provider(
-                            &provider_name,
-                            context.user_id,
-                            tenant_id_str.as_deref(),
-                        )
-                        .await
-                };
+                let authenticated = executor
+                    .auth_service
+                    .create_authenticated_provider(
+                        &provider_name,
+                        context.user_id,
+                        tenant_id_str.as_deref(),
+                    )
+                    .await;
 
                 match authenticated {
                     Ok(provider) => 'live: {
@@ -765,6 +739,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 params: query_params.clone(),
                                 attempt_started_at,
                                 conversation_id: context.conversation_id.clone(),
+                                ask: context.turn_ask.clone(),
                             };
                             let budget = RefreshConfig::default().wait_for_refresh_timeout();
                             match read_live_window_within_budget(
@@ -776,6 +751,18 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                                 BudgetedRead::Cached(rows) => {
                                     stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Timeout));
                                     break 'live (rows, None);
+                                }
+                                // Nothing reads it for this turn, and nothing follows it up.
+                                BudgetedRead::Unread(rows) => {
+                                    stood_in = Some(PrimaryStandIn::Stale(provider_name.clone(), StaleReason::Error));
+                                    break 'live (rows, None);
+                                }
+                                // A read already running landed over this window.
+                                BudgetedRead::Landed { activities, served_by_grant } => {
+                                    if served_by_grant.is_some() {
+                                        stood_in = Some(PrimaryStandIn::ServedByGrant(provider_name.clone()));
+                                    }
+                                    break 'live (activities, None);
                                 }
                             }
                         } else {
@@ -1091,13 +1078,17 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 window_span,
                 window_totals: Some(window_totals),
                 asked: AskedWindow { after, before },
-                completeness: stood_in.as_ref().and_then(PrimaryStandIn::completeness).unwrap_or(
-                    if provider_filled_page {
-                        Completeness::Incomplete(IncompleteReason::ReadCapped)
-                    } else {
-                        Completeness::Complete
-                    },
-                ),
+                completeness: if walk_running {
+                    Completeness::Incomplete(IncompleteReason::HistoryWalkRunning)
+                } else {
+                    stood_in.as_ref().and_then(PrimaryStandIn::completeness).unwrap_or(
+                        if provider_filled_page {
+                            Completeness::Incomplete(IncompleteReason::ReadCapped)
+                        } else {
+                            Completeness::Complete
+                        },
+                    )
+                },
                 merge_report: Some(&merge_report),
             });
 

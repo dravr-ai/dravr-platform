@@ -912,6 +912,23 @@ if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
     echo ""
 fi
 
+# Tier 1 runs check-history-walk-single-source.sh inside
+# architectural-validation.sh; an edit to the gate itself also runs its
+# self-test, which plants a spawn in the budgeted read, a history_import and a
+# history_keys symbol, a stray coverage type and a second source or read
+# order, and expects each to fail (carnet#1482).
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^scripts/ci/check-history-walk-single-source(\.test)?\.sh$'; then
+    echo "Tier 1o-history-walk: history walk single-source gate self-test"
+    echo "----------------------------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-history-walk-single-source.test.sh"; then
+        echo ""
+        echo "FAIL: the history walk single-source gate no longer catches what its self-test plants!"
+        exit 1
+    fi
+    echo ""
+fi
+
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted
 # tests) now run in CI's ci-backend.yml as parallel jobs from the start of

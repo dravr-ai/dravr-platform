@@ -15,7 +15,11 @@
 //! The tools live in `pierre-server` rather than `pierre-tool-runtime`, which
 //! is why they are pinned here and not in that crate's schema test.
 
+use chrono::NaiveDate;
 use dravr_tronc::mcp::tool::McpTool;
+use pierre_core::models::coverage::{
+    Completeness, Coverage, CoverageWindow, IncompleteReason, Pending,
+};
 use pierre_fitness_compute::intervals::IntervalsExport;
 use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
 use pierre_fitness_compute::routes::RouteSummary;
@@ -31,6 +35,10 @@ use pierre_mcp_server::tools::implementations::endurance_intervals::{
 };
 use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::runtime::ToolRuntime;
+
+fn day(year: i32, month: u32, d: u32) -> NaiveDate {
+    NaiveDate::from_ymd_opt(year, month, d).expect("a valid day")
+}
 
 #[test]
 fn each_endurance_schema_is_attached_to_the_tool_it_names() {
@@ -111,8 +119,11 @@ fn compute_training_history_reports_the_window_it_actually_used() {
         to: "2026-08-31".to_owned(),
         rows_upserted: 0,
         requested_from: "2026-08-01".to_owned(),
-        complete: true,
-        coverage_note: None,
+        coverage: Coverage::complete(CoverageWindow {
+            asked_from: Some(day(2026, 8, 1)),
+            asked_to: Some(day(2026, 8, 31)),
+            ..CoverageWindow::default()
+        }),
         capture_requested: false,
     })
     .expect("serializes");
@@ -130,8 +141,18 @@ fn compute_training_history_reports_the_window_it_actually_used() {
         to: "2026-08-31".to_owned(),
         rows_upserted: 40,
         requested_from: "2026-06-02".to_owned(),
-        complete: false,
-        coverage_note: Some("Cite CTL/ATL/TSB only for 2026-07-23 onward.".to_owned()),
+        coverage: Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::ShallowHistory),
+            window: CoverageWindow {
+                asked_from: Some(day(2026, 6, 2)),
+                asked_to: Some(day(2026, 8, 31)),
+                oldest: Some(day(2026, 5, 1)),
+                returned: 40,
+                ..CoverageWindow::default()
+            },
+            trustworthy_from: Some(day(2026, 7, 23)),
+            pending: Some(Pending::running(12, Some(48), Some(5.0))),
+        },
         capture_requested: true,
     })
     .expect("serializes");
@@ -139,13 +160,19 @@ fn compute_training_history_reports_the_window_it_actually_used() {
         validator.is_valid(&partial_window),
         "a partially-covered window must validate:\n{partial_window:#}"
     );
+    assert!(
+        partial_window["coverage"]["note"]
+            .as_str()
+            .is_some_and(|note| note.contains("Cite CTL/ATL/TSB only for 2026-07-23 onward")),
+        "a partial window names the days it stands behind:\n{partial_window:#}"
+    );
 
     for required in [
         "from",
         "to",
         "rows_upserted",
         "requested_from",
-        "complete",
+        "coverage",
         "capture_requested",
     ] {
         let mut partial = empty_window.clone();

@@ -28,7 +28,9 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
-use pierre_database::repositories::{ActivityBackfillJobRow, BackfillJobClaim, JobLease};
+use pierre_database::repositories::{
+    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, JobLease, JobProgress,
+};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
     provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob, BACKFILL_JOB_LEASE,
@@ -185,6 +187,9 @@ fn job(fx: &Fixture, provider: &str, conversation_id: Option<&str>) -> ActivityB
             after: Some(AFTER_TS),
         },
         pierre_conversation_id: conversation_id.map(ToOwned::to_owned),
+        kind: BackfillJobKind::Backfill,
+        turn_id: None,
+        asked_message_id: None,
     }
 }
 
@@ -213,6 +218,11 @@ fn seeded_row(
         leased_until_ms: if lease.is_zero() { 0 } else { now + lease_ms },
         attempts,
         lease_token: Some(Uuid::new_v4().to_string()),
+        kind: BackfillJobKind::Backfill,
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
+        walk_backend: None,
     }
 }
 

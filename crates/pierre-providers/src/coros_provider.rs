@@ -53,8 +53,8 @@ use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
-use crate::models::StatsCoverage;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
@@ -486,6 +486,7 @@ impl FitnessProvider for CorosProvider {
         let profile: CorosUserProfile = self.api_request("user/profile").await?;
 
         Ok(Athlete {
+            created_at: None,
             id: profile.user_id,
             username: profile
                 .nickname
@@ -659,7 +660,7 @@ impl FitnessProvider for CorosProvider {
             .await?;
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 }

@@ -572,24 +572,18 @@ macro_rules! impl_chat_repository {
                 limit: i64,
                 readable: TransportPolicy,
             ) -> AppResult<Vec<MessageRecord>> {
-                let rows = sqlx::query(GET_RECENT_MESSAGES_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .bind(limit)
-                    .bind(readable.is_first_party_only())
-                    .fetch_all(self.pool())
+                self.recent_messages(conversation_id, user_id, tenant_id, limit, readable)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get recent messages: {e}"))
-                    })?;
-                // Newest first from the statement; chronological for the caller.
-                let mut messages = rows
-                    .iter()
-                    .map(message_from_row)
-                    .collect::<AppResult<Vec<_>>>()?;
-                messages.reverse();
-                Ok(messages)
+            }
+
+            async fn latest_user_message_id(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<String>> {
+                self.latest_user_message(conversation_id, user_id, tenant_id)
+                    .await
             }
 
             async fn get_recent_prompt_messages(

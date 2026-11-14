@@ -21,6 +21,7 @@
 //! per-tool key built from a runtime string — which was the actual problem
 //! with the envelope this branch removed elsewhere.
 
+use pierre_core::models::coverage::Coverage;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -100,12 +101,13 @@ pub struct ActivitiesPayload {
     /// unknown on its rows, never zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub field_support: Option<FieldSupportHeader>,
-    /// Present when the served slice was truncated: how many are really in
-    /// the window and over what dates, so the reply says "552 in this window,
-    /// showing the most recent 200" rather than letting the model anchor on
-    /// the oldest activity it can see.
+    /// Present when the served slice was truncated, or the window was asked
+    /// by date or is incomplete: how many are really in the window and over
+    /// what dates, so the reply says "552 in this window, showing the most
+    /// recent 200" rather than letting the model anchor on the oldest
+    /// activity it can see, and whether the window is the whole truth.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coverage: Option<Value>,
+    pub coverage: Option<Coverage>,
     /// Present when a connection is auth-dead and its siblings answered in
     /// its place. It rides in the payload rather than the metadata on
     /// purpose: the metadata key aborts the turn into a reconnect reply,

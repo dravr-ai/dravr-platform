@@ -24,11 +24,7 @@ use tracing::{error, field, field::Empty, info, warn, Span};
 use crate::card_backend;
 use crate::card_history::card_history;
 use crate::card_seats::{require_garmin_seat, CardSeats};
-#[cfg(feature = "health-sync")]
-use crate::first_sync::health_sync_backfills;
-use crate::first_sync::spawn_on_demand_first_read;
-#[cfg(feature = "health-sync")]
-use crate::health_backfill::spawn_health_backfill;
+use crate::oauth_connect::spawn_connect_follow_ups;
 use crate::AuthRoutesContext;
 use pierre_core::errors::AppError;
 use pierre_core::models::{ConnectionType, DelegationStatus, ProviderAccountRole, TenantId};
@@ -162,25 +158,8 @@ pub(crate) async fn handle_oauth_callback(
         .await
     {
         Ok(response) => {
-            // A backend whose provider pushes its data (Garmin's Developer
-            // Program API) has nothing to pull: its data arrives as Garmin
-            // pushes it, and a backfill would read the athlete's usr/pwd
-            // session instead (carnet#1155).
-            let pushed = backend_resolver::pushed_backend_for(&response.provider)
-                == Some(response.provider.as_str());
-            #[cfg(feature = "health-sync")]
-            if !pushed {
-                spawn_health_backfill(&resources, &response.user_id, &response.provider, None);
-            }
-            #[cfg(feature = "health-sync")]
-            let read_on_demand = !health_sync_backfills(&resources, &response.provider);
-            // Without the health sync no provider is backfilled after a
-            // connect, so every one is read on demand.
-            #[cfg(not(feature = "health-sync"))]
-            let read_on_demand = true;
-            if read_on_demand && !pushed {
-                spawn_on_demand_first_read(&resources, &response.user_id, &response.provider);
-            }
+            // The backfill or the first read, then the connection's report.
+            spawn_connect_follow_ups(&resources, &response.user_id, &response.provider);
 
             // Completion reaches the client through the durable path:
             // `complete_callback` has already written the notification row, and

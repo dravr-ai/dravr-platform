@@ -12,15 +12,14 @@
 //! owns that single path so neither re-implements it.
 
 use std::cmp::{Ordering, Reverse};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, NaiveDate, TimeZone, Utc};
 use pierre_core::civil_time::resolve_zone;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::refresh::DataFreshness;
-use pierre_core::models::{Activity, RefreshConfig, TenantId};
+use pierre_core::models::{Activity, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FragmentReport};
 use pierre_providers::CoreFitnessProvider;
@@ -35,12 +34,19 @@ use crate::reauth_retry;
 use crate::runtime::ToolRuntime;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
-use serde_json::{json, Value};
+use pierre_services::training_history_read::history_store_keys;
+use serde_json::Value;
 
-/// A live list read that answers its turn inside the refresh budget
+/// A live list read that answers its turn inside the refresh budget; it runs
+/// as an `activity_backfill` job, so it is gated with that module.
+#[cfg(feature = "tools-data")]
 pub mod budgeted_read;
 /// The athlete's other connections serving a turn its elected one cannot
 mod fallback;
+/// A covered historical window's serve and its stale-head top-up, which
+/// reads through [`budgeted_read`]; gated with it.
+#[cfg(feature = "tools-data")]
+mod historical;
 /// A push-only provider's reads: its cached pushes, never a live read
 pub mod pushed;
 /// The session a cache write lands, and the `per_session` persona digest it sends
@@ -53,15 +59,17 @@ pub mod uploads;
 /// The activity cache's write-through, and what a write says about freshness
 pub mod write_through;
 
-use budgeted_read::refresh_head_within_budget;
 pub(crate) use fallback::flag_refusal;
 pub(crate) use fallback::grant_window;
 pub use fallback::{serve_without_primary, FallbackServe};
+#[cfg(feature = "tools-data")]
+pub use historical::{
+    refresh_stale_head, serve_covered_history, serve_historical_window, HistoricalServe,
+};
 pub(crate) use pushed::connection_grant_beside_session;
 use pushed::{pushed_head, pushed_window, reads_pushed_store, serving_slug};
 use sync_verdict::{
-    judge_live_read, read_provider_head, record_head_outcome, sync_backoff_until, HeadRead,
-    HeadVerdict, LiveRead,
+    judge_live_read, read_provider_head, record_head_outcome, HeadRead, HeadVerdict, LiveRead,
 };
 use write_through::{write_through_activity_cache, write_through_served_window, WriteThrough};
 
@@ -69,6 +77,7 @@ use write_through::{write_through_activity_cache, write_through_served_window, W
 /// backfill path. Defined beside the training-history read, which reads the
 /// same windows; `pub` so the cap boundary is exercisable by the coverage-note
 /// tests (re-exported through `implementations::data`, its original home).
+pub use pierre_core::models::coverage::WindowTotals;
 pub use pierre_services::training_history_read::HISTORICAL_WINDOW_READ_LIMIT;
 
 /// Cache fallback window when the request carries no `after` lower bound.
@@ -245,98 +254,6 @@ pub fn historical_head_slice(
 /// missing is recent. Deep history is immutable once backfilled.
 const STALE_HEAD_REFRESH_DAYS: i64 = 30;
 
-/// Top up a cache-served window with a live read when the head has gone stale.
-///
-/// The covered-historical path serves the durable cache with no freshness test:
-/// `read_cached_window` consults neither `synced_at` nor `activity_fetch_freshness`,
-/// and `historical_depth_covered` asks only whether the window is DEEP enough,
-/// never whether it is CURRENT. An agent whose window declares sixteen weeks takes
-/// that path on every single turn, so its grounding block was as old as whatever
-/// last happened to write through — while the block itself instructs the model to
-/// "base your analysis on these specific activities" and not to answer from memory.
-///
-/// The freshness mark was already written and already read, but only by the
-/// `get_data_freshness` REPORTING tool. Nothing acted on it. Now the same
-/// [`DataFreshness`] bands the agent is TOLD about also decide whether to look
-/// again, so the report and the behaviour cannot disagree.
-///
-/// Bounded windows are exempt: a closed `before` names a period that is over, so
-/// there is no live head it could be missing, and refreshing one would re-scrape
-/// history that cannot have changed.
-///
-/// A head whose last refreshes failed is read again only once
-/// [`sync_backoff_until`](sync_verdict::sync_backoff_until) allows it: a provider that keeps failing is not
-/// scraped on every turn and every Home load.
-///
-/// Best-effort. A failed refresh leaves the cached window exactly as it was —
-/// slightly old data beats no data, which is the same posture
-/// [`fetch_provider_activities`] already takes on a provider blip. The read
-/// gets the refresh budget ([`refresh_head_within_budget`]). Returns why the
-/// head served is behind — stale and not refreshed this turn — so the caller
-/// can say the newest sessions may be missing, and why, instead of serving the
-/// window as current; `None` when it is current.
-pub async fn refresh_stale_head(
-    runtime: &Arc<dyn ToolRuntime>,
-    provider_slug: &str,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    before: Option<i64>,
-    served: &mut Vec<Activity>,
-) -> Option<StaleReason> {
-    if before_bounds_a_closed_window(before, Utc::now().timestamp()) {
-        return None;
-    }
-    // A push-only provider has no live head to top up from: the window
-    // served is everything it pushed, and its freshness is the last push.
-    if reads_pushed_store(runtime, provider_slug, user_id, Some(tenant_id)).await {
-        return None;
-    }
-
-    let last_sync = runtime
-        .repos()
-        .activity_cache
-        .latest_activity_sync(user_id, &tenant_id, provider_slug)
-        .await
-        .unwrap_or(None);
-
-    let freshness = DataFreshness::from_last_sync(last_sync);
-    if matches!(freshness, DataFreshness::Fresh | DataFreshness::Recent) {
-        return None;
-    }
-    let failure = runtime
-        .repos()
-        .activity_cache
-        .latest_activity_fetch_failure(user_id, &tenant_id, provider_slug)
-        .await
-        .unwrap_or(None);
-    if let Some(retry_at) = sync_backoff_until(failure, last_sync, Utc::now()) {
-        info!(
-            user_id = %user_id,
-            provider = %provider_slug,
-            %retry_at,
-            "activity head is stale, but its last refreshes failed; backing off before reading it again"
-        );
-        return Some(StaleReason::Backoff);
-    }
-
-    info!(
-        user_id = %user_id,
-        provider = %provider_slug,
-        ?last_sync,
-        freshness = freshness.label(),
-        "activity head is stale; re-reading the recent window before grounding"
-    );
-    let budget = RefreshConfig::default().wait_for_refresh_timeout();
-    let Some(live) =
-        refresh_head_within_budget(runtime, provider_slug, user_id, tenant_id, budget).await
-    else {
-        return Some(StaleReason::Timeout);
-    };
-
-    merge_live_head(served, live);
-    None
-}
-
 /// Why a provider's window was served from its cache instead of a live read.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StaleReason {
@@ -377,12 +294,7 @@ pub async fn refresh_head(
     user_id: Uuid,
     tenant_id: TenantId,
 ) -> Option<Vec<Activity>> {
-    let params = ActivityQueryParams {
-        after: Some(Utc::now().timestamp() - STALE_HEAD_REFRESH_DAYS * 86_400),
-        before: None,
-        limit: Some(STALE_HEAD_REFRESH_LIMIT),
-        offset: None,
-    };
+    let params = stale_head_params();
     fetch_provider_activities(
         runtime,
         provider_slug,
@@ -391,6 +303,17 @@ pub async fn refresh_head(
         &params,
     )
     .await
+}
+
+/// The window a stale head's re-read covers: the last
+/// [`STALE_HEAD_REFRESH_DAYS`], up to [`STALE_HEAD_REFRESH_LIMIT`] rows.
+pub(crate) fn stale_head_params() -> ActivityQueryParams {
+    ActivityQueryParams {
+        after: Some(Utc::now().timestamp() - STALE_HEAD_REFRESH_DAYS * 86_400),
+        before: None,
+        limit: Some(STALE_HEAD_REFRESH_LIMIT),
+        offset: None,
+    }
 }
 
 /// Fold a live provider read into a cache-served window: the live row wins.
@@ -457,69 +380,6 @@ pub fn before_bounds_a_closed_window(before: Option<i64>, now_ts: i64) -> bool {
     before.is_some_and(|b| b < now_ts - HEAD_OPEN_TOLERANCE_SECS)
 }
 
-/// Assemble the served list for a covered historical window.
-///
-/// Appends the disjoint open-`before` head slice above the coverage clip (see
-/// [`historical_head_slice`] — disjoint windows can't reintroduce the
-/// probe/serve divergence the single bounded read prevents; boundary rows can
-/// land in both inclusive reads, so the id filter keeps the union exact), then
-/// tops up a stale head from the provider via [`refresh_stale_head`]. Shared
-/// by the coverage-gated serve and the inline-backfill (task handle) serve so
-/// the two cannot drift. `pub` (not `pub(crate)`) because its only caller
-/// lives behind the `tools-data` feature and a featureless build must not
-/// read it as dead code.
-pub async fn serve_historical_window(
-    runtime: &Arc<dyn ToolRuntime>,
-    provider_slug: &str,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    before: Option<i64>,
-    coverage_before: Option<i64>,
-    mut served: Vec<Activity>,
-) -> HistoricalServe {
-    if let Some(head_after) = historical_head_slice(before, coverage_before, Utc::now().timestamp())
-    {
-        let head_params = ActivityQueryParams {
-            after: Some(head_after),
-            before: None,
-            limit: Some(HISTORICAL_WINDOW_READ_LIMIT),
-            offset: None,
-        };
-        if let Some(head) =
-            read_cached_window(runtime, provider_slug, user_id, tenant_id, &head_params).await
-        {
-            let seen: HashSet<String> = served.iter().map(|a| a.id().to_owned()).collect();
-            served.extend(head.into_iter().filter(|a| !seen.contains(a.id())));
-        }
-    }
-    // The covered gate proves the window is deep enough; it says nothing about
-    // whether it is current. Top up the head when the provider may be holding
-    // something we have never seen.
-    let behind = refresh_stale_head(
-        runtime,
-        provider_slug,
-        user_id,
-        tenant_id,
-        before,
-        &mut served,
-    )
-    .await;
-    HistoricalServe {
-        activities: served,
-        behind,
-    }
-}
-
-/// A covered historical window as [`serve_historical_window`] serves it.
-#[derive(Debug)]
-pub struct HistoricalServe {
-    /// The window, head slice and top-up included.
-    pub activities: Vec<Activity>,
-    /// Why the head is stale and was not refreshed this turn, so the newest
-    /// sessions may be missing; `None` when it is current.
-    pub behind: Option<StaleReason>,
-}
-
 /// Fetch activities for a single provider connection, authenticating (and
 /// refreshing tokens) as needed.
 ///
@@ -556,25 +416,10 @@ pub async fn fetch_provider_activities(
     let attempt_started_at = Utc::now();
     let tenant = TenantId::parse_str(tenant_id).ok();
     let provider_slug = &serving_slug(runtime, provider_slug, user_id, tenant).await;
-    if let Some(tenant) = tenant {
-        if reauth_retry::flagged_session(runtime, user_id, tenant, provider_slug)
-            .await
-            .is_some()
-        {
-            // The grant behind a flagged session serves; only without one does the cache.
-            if let Some((_, rows)) = Box::pin(grant_window(
-                runtime,
-                provider_slug,
-                user_id,
-                tenant,
-                params,
-            ))
-            .await
-            {
-                return Some(rows);
-            }
-            return serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await;
-        }
+    if let Some(served) =
+        serve_flagged_session(runtime, provider_slug, user_id, tenant, params).await
+    {
+        return served;
     }
     match Box::pin(fetch_provider_head(
         runtime,
@@ -587,33 +432,93 @@ pub async fn fetch_provider_activities(
     {
         Ok(activities) => Some(activities),
         Err(e) => {
-            // The connection that refused is the backend the error names, so a
-            // dead username-and-password session is flagged, not the grant.
-            let refused = reauth_notice::refused_backend(&e, provider_slug);
-            warn!(
-                user_id = %user_id,
-                provider = %provider_slug,
-                refused = refused.as_deref(),
-                error = %e,
-                "fetch_provider_activities: live fetch failed; serving cache"
-            );
-            // Live fetch failed — serve the user's cached activities for this
-            // window rather than returning nothing.
-            let tenant = tenant?;
-            if let Some(refused) = refused {
-                reauth_notice::flag_refused(
-                    runtime,
-                    user_id,
-                    tenant,
-                    &refused,
-                    FLAG_REASON,
-                    attempt_started_at,
-                )
-                .await;
-            }
-            serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await
+            let failed = FailedRead {
+                provider_slug,
+                user_id,
+                tenant,
+                params,
+                attempt_started_at,
+            };
+            serve_after_failed_read(runtime, failed, &e).await
         }
     }
+}
+
+/// The window a read of a flagged scrape session is answered with, without
+/// calling the scraper ([`reauth_retry::flagged_session`]): the live grant
+/// behind it (`fallback::grant_window`, carnet#1494), else the cache; `None`
+/// when the read may go ahead.
+pub(crate) async fn serve_flagged_session(
+    runtime: &Arc<dyn ToolRuntime>,
+    provider_slug: &str,
+    user_id: Uuid,
+    tenant: Option<TenantId>,
+    params: &ActivityQueryParams,
+) -> Option<Option<Vec<Activity>>> {
+    let tenant = tenant?;
+    reauth_retry::flagged_session(runtime, user_id, tenant, provider_slug).await?;
+    // The grant behind a flagged session serves; only without one does the cache.
+    if let Some((_, rows)) = Box::pin(grant_window(
+        runtime,
+        provider_slug,
+        user_id,
+        tenant,
+        params,
+    ))
+    .await
+    {
+        return Some(Some(rows));
+    }
+    Some(serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await)
+}
+
+/// A live read that failed, for [`serve_after_failed_read`].
+pub(crate) struct FailedRead<'read> {
+    pub(crate) provider_slug: &'read str,
+    pub(crate) user_id: Uuid,
+    pub(crate) tenant: Option<TenantId>,
+    pub(crate) params: &'read ActivityQueryParams,
+    pub(crate) attempt_started_at: DateTime<Utc>,
+}
+
+/// Answer a live read that failed with `e` from the cache: the connection
+/// that refused is flagged, then the athlete's cached window for the read is
+/// served rather than nothing.
+pub(crate) async fn serve_after_failed_read(
+    runtime: &Arc<dyn ToolRuntime>,
+    failed: FailedRead<'_>,
+    e: &AppError,
+) -> Option<Vec<Activity>> {
+    let FailedRead {
+        provider_slug,
+        user_id,
+        tenant,
+        params,
+        attempt_started_at,
+    } = failed;
+    // The connection that refused is the backend the error names, so a
+    // dead username-and-password session is flagged, not the grant.
+    let refused = reauth_notice::refused_backend(e, provider_slug);
+    warn!(
+        user_id = %user_id,
+        provider = %provider_slug,
+        refused = refused.as_deref(),
+        error = %e,
+        "fetch_provider_activities: live fetch failed; serving cache"
+    );
+    let tenant = tenant?;
+    if let Some(refused) = refused {
+        reauth_notice::flag_refused(
+            runtime,
+            user_id,
+            tenant,
+            &refused,
+            FLAG_REASON,
+            attempt_started_at,
+        )
+        .await;
+    }
+    serve_stale_activities(runtime, provider_slug, user_id, tenant, params).await
 }
 
 /// Authenticate the provider, fetch `params` live, and write the result through
@@ -848,7 +753,10 @@ async fn fetch_and_persist_head(
             tenant,
             key,
             &head.activities,
-            WriteThrough { read: params },
+            WriteThrough {
+                read: params,
+                announces_sessions: true,
+            },
         )
         .await;
     }
@@ -920,10 +828,11 @@ pub(crate) async fn read_cached_window(
 /// Every stored row a read of `provider_slug`'s window serves, newest first,
 /// at most `limit`.
 ///
-/// Its own key, and for a push-fed grant the history its usr/pwd session
-/// imported too ([`backend_resolver::history_keys`]), every recording of one
-/// workout merged into one session. A dead Garmin grant keeps serving what
-/// the session stored, as a live one does (carnet#1386).
+/// Its own key, and the other half of its pair's too
+/// ([`history_store_keys`]): what a usr/pwd session walked
+/// beside a grant, and what the grant stored beside a session, every
+/// recording of one workout merged into one session. A dead Garmin grant
+/// keeps serving what the session stored, as a live one does (carnet#1386).
 pub(super) async fn cached_history(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
@@ -933,7 +842,7 @@ pub(super) async fn cached_history(
     limit: i64,
 ) -> AppResult<Vec<Activity>> {
     let cache = &runtime.repos().activity_cache;
-    let keys = backend_resolver::history_keys(provider_slug);
+    let keys = history_store_keys(provider_slug);
     if let [key] = keys.as_slice() {
         return cache
             .get_cached_activities(user_id, &tenant, Some(key), start, end, limit)
@@ -1045,7 +954,7 @@ pub async fn fetch_recent_activities_all_providers(
     for connection in &connections {
         // A grant beside a session is the session's fallback: the session's
         // own connection reads the window, the grant's stored rows included
-        // (`backend_resolver::history_keys`).
+        // (`history_store_keys`).
         if connection_grant_beside_session(runtime, user_id, connection).await {
             continue;
         }
@@ -1102,7 +1011,7 @@ pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
 /// août") instead of the window's real start.
 ///
 /// Rendered in the athlete's timezone, because this span reaches them as prose:
-/// `activity_coverage_note` interpolates it into "spanning …". A bare date has no
+/// the coverage note interpolates it into "spanning …". A bare date has no
 /// offset to disambiguate it, so rendering the UTC day moves an evening session
 /// to the next one — the same defect that had a 22:59 hike reported as "ce
 /// matin" (2026-08-28). An absent or unparseable zone falls back to UTC.
@@ -1110,47 +1019,14 @@ pub fn sort_activities(activities: &mut [Activity], sort_by: &str) {
 pub fn activity_date_span(
     activities: &[Activity],
     user_timezone: Option<&str>,
-) -> Option<(String, String)> {
+) -> Option<(NaiveDate, NaiveDate)> {
     let zone = resolve_zone(user_timezone);
     let oldest = activities.iter().map(Activity::start_date).min()?;
     let newest = activities.iter().map(Activity::start_date).max()?;
     Some((
-        oldest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
-        newest.with_timezone(&zone).format("%Y-%m-%d").to_string(),
+        oldest.with_timezone(&zone).date_naive(),
+        newest.with_timezone(&zone).date_naive(),
     ))
-}
-
-/// Totals across a served window, taken before the display limit truncates it.
-///
-/// A year-against-year question is answered from these, not from the shown
-/// slice: with a display limit of 20, a 63-ride 2011 read as its last three
-/// December rides (carnet#874).
-#[derive(Debug, Clone, PartialEq)]
-pub struct WindowTotals {
-    /// Activities in the window.
-    pub count: usize,
-    /// Summed distance in kilometres, over the activities that report one.
-    pub distance_km: f64,
-    /// Summed duration in seconds, exact: the agent quotes it and derives
-    /// pace from it, so it is never rounded (carnet#1015).
-    pub duration_seconds: u64,
-    /// Summed elevation gain in metres, over the activities that report one.
-    pub elevation_gain_m: f64,
-}
-
-impl WindowTotals {
-    /// The totals as the `window_totals` object of the `coverage` sidecar:
-    /// distance and elevation to one decimal, duration exact in seconds.
-    #[must_use]
-    pub fn to_json(&self) -> Value {
-        let round = |v: f64| (v * 10.0).round() / 10.0;
-        json!({
-            "count": self.count,
-            "distance_km": round(self.distance_km),
-            "duration_seconds": self.duration_seconds,
-            "elevation_gain_m": round(self.elevation_gain_m),
-        })
-    }
 }
 
 /// Sum a window's count, distance, duration and elevation gain.
@@ -1163,7 +1039,7 @@ pub fn activity_window_totals(activities: &[Activity]) -> WindowTotals {
     let seconds: u64 = activities.iter().map(Activity::duration_seconds).sum();
     let elevation_m: f64 = activities.iter().filter_map(Activity::elevation_gain).sum();
     WindowTotals {
-        count: activities.len(),
+        count: u64::try_from(activities.len()).unwrap_or(u64::MAX),
         distance_km: distance_m / 1000.0,
         duration_seconds: seconds,
         elevation_gain_m: elevation_m,

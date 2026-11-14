@@ -25,6 +25,7 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use pierre_core::constant_time::matches_configured_secret;
+use pierre_core::constants::oauth_providers;
 use pierre_core::models::{Activity, OAuthNotification, TenantId};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::oauth_flow::OAuthService;
@@ -43,7 +44,7 @@ use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETC
 #[cfg(feature = "provider-wahoo")]
 use crate::routes::wahoo_webhook::wahoo_event;
 use crate::services::grant_withdrawal::GrantWithdrawal;
-use crate::services::personal_best_seed::strava_provider;
+use crate::services::personal_best_seed::exact_provider;
 
 /// How far before the announced event a Strava webhook-triggered fetch reads.
 ///
@@ -709,7 +710,9 @@ async fn scan_new_runs(
         warn!(user_id = %user_id, "webhook owner carries an unparseable tenant id; runs not scanned");
         return;
     };
-    let Some(provider) = strava_provider(resources, user_id, tenant_id).await else {
+    let Some(provider) =
+        exact_provider(resources, oauth_providers::STRAVA, user_id, tenant_id).await
+    else {
         return;
     };
     if let Err(e) = resources

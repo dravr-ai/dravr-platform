@@ -36,19 +36,21 @@ use std::sync::Arc;
 
 use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::models::coverage::{Completeness, IncompleteReason, Pending};
 use pierre_core::models::{
     ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType, TenantId,
     ThresholdProvenance, ThresholdStatedOn, UserPhysiologicalProfile,
 };
+use pierre_database::repositories::BackfillJobKind;
 use pierre_fitness_compute::training_history_compute::{warmup_days, CTL_WINDOW_DAYS};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::training_history_compute::{
-    compute_and_persist_history, default_window, fetch_history_rows, HistoryCoverage,
-    TrainingHistoryComputed,
+    compute_and_persist_history, default_window, fetch_history_rows, TrainingHistoryComputed,
 };
 use uuid::Uuid;
 
 use crate::common::{create_test_server_resources, create_test_user};
+use crate::helpers::sciotte_mock::seed_scrape_session;
 
 /// The backend the seeded rows are written under. A scrape mirror, because that
 /// is the class whose live fetch is expensive enough to have caused the outage.
@@ -90,6 +92,8 @@ async fn fixture() -> Fixture {
         .register_connection(user_id, tenant, BACKEND, &ConnectionType::OAuth, None)
         .await
         .unwrap();
+    // A session for it, so a missing depth has a live source to walk.
+    seed_scrape_session(&resources, user_id, tenant, BACKEND, "history-session").await;
 
     // Real physiology so TSS is HR-derived and the resulting CTL is non-zero —
     // a series of zeros would pass a row-count assertion while proving nothing.
@@ -183,9 +187,13 @@ async fn computes_a_full_window_from_cache_without_a_provider() {
     let computed = ask_default_window(&fx).await;
 
     assert_eq!(
-        computed.coverage,
-        HistoryCoverage::Complete,
+        computed.coverage.completeness,
+        Completeness::Complete,
         "200 days of stored history warms a 90-day window"
+    );
+    assert_eq!(
+        computed.coverage.pending, None,
+        "a complete window owes no walk"
     );
     assert_eq!(computed.from, from, "no day of the ask was dropped");
     assert_eq!(
@@ -225,10 +233,14 @@ async fn a_shallow_cache_writes_no_row_it_cannot_warm() {
     let warmup = warmup_days(CTL_WINDOW_DAYS);
     let expected_first = to - Duration::days(120) + Duration::days(warmup);
     assert_eq!(
-        computed.coverage,
-        HistoryCoverage::Partial {
-            trustworthy_from: expected_first
-        },
+        (
+            computed.coverage.completeness,
+            computed.coverage.trustworthy_from
+        ),
+        (
+            Completeness::Incomplete(IncompleteReason::ShallowHistory),
+            Some(expected_first)
+        ),
         "the honest floor is the oldest stored day plus the CTL warm-up"
     );
     assert_eq!(computed.from, expected_first);
@@ -239,6 +251,11 @@ async fn a_shallow_cache_writes_no_row_it_cannot_warm() {
     assert!(
         computed.capture_requested,
         "the missing depth must be asked of the capture rail"
+    );
+    assert_eq!(
+        computed.coverage.pending,
+        Some(Pending::HistoryNotWalked),
+        "the walk just asked for is what the window waits on"
     );
 
     // The load-bearing assertion: the days it could not warm carry no row at
@@ -284,11 +301,25 @@ async fn an_empty_cache_computes_nothing_rather_than_a_zero_curve() {
     let (from, to) = default_window(&fx.runtime, fx.user_id).await.unwrap();
     let computed = ask_default_window(&fx).await;
 
-    assert_eq!(computed.coverage, HistoryCoverage::NoStoredActivities);
+    assert_eq!(
+        computed.coverage.completeness,
+        Completeness::Incomplete(IncompleteReason::NoStoredActivities),
+        "bug: an empty cache did not report no stored activities"
+    );
     assert_eq!(computed.rows_upserted, 0, "nothing may be invented");
     assert!(
         computed.capture_requested,
         "an empty cache must ask the capture rail for the athlete's history"
+    );
+    assert!(
+        fx.runtime
+            .repos()
+            .activity_backfill_jobs
+            .backfill_job_state(fx.user_id, fx.tenant, BACKEND, BackfillJobKind::HistoryWalk)
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the missing depth is asked as a history walk of the connection's session"
     );
 
     let rows = fetch_history_rows(&fx.runtime.data(), fx.tenant, fx.user_id, from, to)
@@ -359,10 +390,14 @@ async fn a_partial_recompute_clears_rows_the_old_path_fabricated() {
     let warmup = warmup_days(CTL_WINDOW_DAYS);
     let expected_first = to - Duration::days(120) + Duration::days(warmup);
     assert_eq!(
-        computed.coverage,
-        HistoryCoverage::Partial {
-            trustworthy_from: expected_first
-        }
+        (
+            computed.coverage.completeness,
+            computed.coverage.trustworthy_from
+        ),
+        (
+            Completeness::Incomplete(IncompleteReason::ShallowHistory),
+            Some(expected_first)
+        )
     );
     assert!(
         computed.rows_cleared > 0,
@@ -413,7 +448,11 @@ async fn an_empty_cache_clears_the_whole_window() {
     seed_fabricated_rows(&fx, from, to).await;
     let computed = ask_default_window(&fx).await;
 
-    assert_eq!(computed.coverage, HistoryCoverage::NoStoredActivities);
+    assert_eq!(
+        computed.coverage.completeness,
+        Completeness::Incomplete(IncompleteReason::NoStoredActivities),
+        "bug: an empty cache did not report no stored activities"
+    );
     assert_eq!(
         computed.rows_cleared,
         (to - from).num_days() as u64 + 1,

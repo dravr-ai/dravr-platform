@@ -42,25 +42,24 @@ use uuid::Uuid;
 
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::coverage::{Coverage, Pending};
 use pierre_core::models::{DailyTrainingState, TenantId};
+use pierre_database::repositories::{BackfillJobKind, JobProgress};
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::ai_scope;
-#[cfg(feature = "tools-data")]
-use pierre_providers::core::ActivityQueryParams;
 use pierre_runtime_context::DataContext;
+pub use pierre_services::training_history_read::TrainingHistoryRead;
 use pierre_services::training_history_read::{
     self as history_read, compute_states, first_vouched_day, load_stored_window,
-    resolve_compute_backends, user_timezone, validate_window, ComputeBackend, HistorySources,
+    resolve_compute_backends, series_coverage, user_timezone, validate_window, walk_across_pair,
+    walk_source, ComputeBackend, HistoryHandles, PairWalk,
 };
-pub use pierre_services::training_history_read::{HistoryCoverage, TrainingHistoryRead};
 
 #[cfg(feature = "tools-data")]
-use crate::activity_backfill::{
-    provider_tenant_id_str, spawn_activity_backfill, ActivityBackfillJob,
-};
-#[cfg(feature = "tools-data")]
-use crate::implementations::data_helpers::historical_backfill_fetch_limit;
+use crate::activity_backfill::history_walk::start_history_walk;
 use crate::runtime::ToolRuntime;
+#[cfg(feature = "tools-data")]
+use crate::runtime::WalkTrigger;
 
 /// Default backfill window when the caller does not specify one.
 pub const DEFAULT_BACKFILL_DAYS: i64 = 90;
@@ -83,11 +82,11 @@ enum DepthAsk {
 
 /// The runtime's handles a history read needs, borrowed from `resources` and
 /// the configuration snapshot `config` the caller holds for the read.
-fn history_sources<'a>(
+fn history_handles<'a>(
     resources: &'a Arc<dyn ToolRuntime>,
     config: &'a IntelligenceConfig<true>,
-) -> HistorySources<'a> {
-    HistorySources {
+) -> HistoryHandles<'a> {
+    HistoryHandles {
         repos: resources.repos(),
         terms: resources.provider_registry().as_ref(),
         algorithms: &config.algorithms,
@@ -99,18 +98,19 @@ fn history_sources<'a>(
 pub struct TrainingHistoryComputed {
     /// First day the caller asked for.
     pub requested_from: NaiveDate,
-    /// First day actually computed. Equals `requested_from` when coverage is
-    /// [`HistoryCoverage::Complete`].
+    /// First day actually computed. Equals `requested_from` when the
+    /// coverage is complete.
     pub from: NaiveDate,
     /// Last day of the window, inclusive.
     pub to: NaiveDate,
     /// Daily rows written.
     pub rows_upserted: usize,
-    /// How much of the ask the stored history supported.
-    pub coverage: HistoryCoverage,
-    /// Whether a background capture was asked for the missing depth. `false`
-    /// when coverage was complete, or when a capture for this
-    /// `(user, provider)` was already in flight.
+    /// How much of the ask the stored history supported, and the history
+    /// walk still owed for the missing depth ([`Coverage::pending`]).
+    pub coverage: Coverage,
+    /// Whether a history walk was started for the missing depth. `false`
+    /// when coverage was complete, or when every connection's walk is
+    /// already owed, running or ended ([`start_history_walk`]).
     pub capture_requested: bool,
     /// Rows removed because this run could not stand behind them.
     ///
@@ -124,7 +124,7 @@ impl TrainingHistoryComputed {
     /// Whether every day the caller asked for was stood behind.
     #[must_use]
     pub const fn is_complete(&self) -> bool {
-        matches!(self.coverage, HistoryCoverage::Complete)
+        self.coverage.is_complete()
     }
 }
 
@@ -213,7 +213,7 @@ async fn compute_and_persist_unfiltered(
     validate_window(from, to)?;
 
     let config = resources.cageux_config();
-    let sources = history_sources(resources, &config);
+    let sources = history_handles(resources, &config);
     let backends = resolve_compute_backends(resources.repos(), tenant_id, user_id).await?;
     if backends.is_empty() {
         return Err(AppError::no_provider_connected());
@@ -224,33 +224,21 @@ async fn compute_and_persist_unfiltered(
     let warmup = window.warmup;
 
     let Some(oldest_stored) = window.oldest_stored else {
-        return empty_cache_outcome(
-            resources,
-            tenant_id,
-            user_id,
-            backends,
-            (from, to),
-            warmup,
-            ask,
-        )
-        .await;
+        return empty_cache_outcome(resources, tenant_id, user_id, backends, (from, to), ask).await;
     };
 
     let trustworthy_from = first_vouched_day(from, oldest_stored, warmup);
+    let stored = Some((oldest_stored, trustworthy_from));
     let complete = trustworthy_from <= from;
     // With rows in hand every connection is asked for its missing depth, a
     // lapsed one included: its capture surfaces the reauth itself, and stale
     // history beats no answer.
-    let capture_requested = !complete
-        && ask == DepthAsk::Capture
-        && request_captures(
-            resources,
-            tenant_id,
-            user_id,
-            backends.iter(),
-            from - Duration::days(warmup),
-        )
-        .await;
+    let walks = if !complete && ask == DepthAsk::Capture {
+        request_walks(resources, tenant_id, user_id, backends.iter()).await
+    } else {
+        WalkAsk::default()
+    };
+    let capture_requested = walks.started;
 
     // Declining to write is not enough: the rollup is upsert-only, so any row an
     // earlier path left in the un-warmable span stays readable and reads as
@@ -282,7 +270,7 @@ async fn compute_and_persist_unfiltered(
             from: trustworthy_from,
             to,
             rows_upserted: 0,
-            coverage: HistoryCoverage::Partial { trustworthy_from },
+            coverage: walks.pending_on(series_coverage(from, to, stored, 0)),
             capture_requested,
             rows_cleared,
         });
@@ -318,11 +306,7 @@ async fn compute_and_persist_unfiltered(
         from: trustworthy_from,
         to,
         rows_upserted,
-        coverage: if complete {
-            HistoryCoverage::Complete
-        } else {
-            HistoryCoverage::Partial { trustworthy_from }
-        },
+        coverage: walks.pending_on(series_coverage(from, to, stored, rows_upserted)),
         capture_requested,
         rows_cleared,
     })
@@ -344,7 +328,7 @@ pub async fn read_history_from_cache(
 ) -> AppResult<TrainingHistoryRead> {
     let config = resources.cageux_config();
     history_read::read_history_from_cache(
-        history_sources(resources, &config),
+        history_handles(resources, &config),
         tenant_id,
         user_id,
         from,
@@ -372,7 +356,6 @@ async fn empty_cache_outcome(
     user_id: Uuid,
     backends: &[ComputeBackend],
     (from, to): (NaiveDate, NaiveDate),
-    warmup: i64,
     ask: DepthAsk,
 ) -> AppResult<TrainingHistoryComputed> {
     // Nothing stored AND every session has lapsed: each capture would fail on
@@ -391,15 +374,12 @@ async fn empty_cache_outcome(
             return Err(AppError::provider_auth_required(&lapsed.slug));
         }
     }
-    let capture_requested = ask == DepthAsk::Capture
-        && request_captures(
-            resources,
-            tenant_id,
-            user_id,
-            live.into_iter(),
-            from - Duration::days(warmup),
-        )
-        .await;
+    let walks = if ask == DepthAsk::Capture {
+        request_walks(resources, tenant_id, user_id, live.into_iter()).await
+    } else {
+        WalkAsk::default()
+    };
+    let capture_requested = walks.started;
     // Nothing stored means nothing vouched for anywhere in the ask, so the whole
     // window goes — including rows an earlier path wrote from a provider fetch
     // this one no longer makes.
@@ -419,7 +399,7 @@ async fn empty_cache_outcome(
         from,
         to,
         rows_upserted: 0,
-        coverage: HistoryCoverage::NoStoredActivities,
+        coverage: walks.pending_on(series_coverage(from, to, None, 0)),
         capture_requested,
         rows_cleared,
     })
@@ -449,38 +429,144 @@ async fn clear_unvouched_span(
         .await
 }
 
-/// Ask the capture rail to page each of `backends` back to `floor`; whether
-/// any new job was started.
+/// What asking the athlete's connections for their history walks came to.
+#[derive(Debug, Default)]
+struct WalkAsk {
+    /// The walk still owed for the missing depth, as the ledger reads it.
+    pending: Option<Pending>,
+    /// Whether any new walk was started.
+    started: bool,
+}
+
+impl WalkAsk {
+    /// `coverage` with the walk still owed for it.
+    fn pending_on(&self, coverage: Coverage) -> Coverage {
+        Coverage {
+            pending: self.pending,
+            ..coverage
+        }
+    }
+}
+
+/// Ask each of `backends` for a walk of its history, and read the walk still
+/// owed for the missing depth.
 ///
-/// One capture per connection: the history is every provider's, so the depth
-/// missing from it may sit behind any of them.
-async fn request_captures<'a>(
+/// One walk per connection: the history is every provider's, so the depth
+/// missing from it may sit behind any of them. Each walk is read for its
+/// source ([`walk_source`]), never the connection's own slug, under every
+/// key of the source's provider ([`walk_across_pair`]): a session's walk in
+/// its API phase keeps the session's key while the grant is its source. A
+/// source already walking is reported, with its progress, as
+/// [`Pending::HistoryWalkRunning`], as is one a purge left owed the reopen
+/// of its API phase; one whose walk reached the
+/// end of the history is not walked again: it holds all there is
+/// ([`start_history_walk`]). Any other, never walked or ended before its
+/// floor, is asked for a walk, and a started one is
+/// [`Pending::HistoryNotWalked`] until it records a step. A connection with
+/// no source to walk (uploads, a push) owes nothing.
+async fn request_walks<'a>(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
     backends: impl Iterator<Item = &'a ComputeBackend>,
-    floor: NaiveDate,
-) -> bool {
+) -> WalkAsk {
+    let repos = resources.repos();
+    let mut running: Vec<JobProgress> = Vec::new();
     let mut started = false;
-    // Uploads are not fetched from anywhere: no capture can deepen them.
+    // Uploads are not fetched from anywhere: no walk can deepen them.
     for backend in backends.filter(|backend| backend.capturable) {
-        started |= request_capture(resources, tenant_id, user_id, &backend.slug, floor).await;
+        let Some(source) = walk_source(repos, user_id, tenant_id, &backend.slug).await else {
+            continue;
+        };
+        match walk_across_pair(repos, user_id, tenant_id, &source.backend).await {
+            Ok(PairWalk::Owed { key } | PairWalk::Purged { key }) => {
+                match repos
+                    .activity_backfill_jobs
+                    .job_progress(user_id, tenant_id, &key, BackfillJobKind::HistoryWalk)
+                    .await
+                {
+                    Ok(progress) => running.push(progress.unwrap_or_default()),
+                    Err(e) => warn!(
+                        user_id = %user_id,
+                        backend = %source.backend,
+                        error = %e,
+                        "training history: the walk's progress could not be read"
+                    ),
+                }
+            }
+            Ok(PairWalk::Walked | PairWalk::WalkedThrough) => {}
+            Ok(PairWalk::Open) => {
+                started |= request_capture(resources, tenant_id, user_id, &backend.slug).await;
+            }
+            Err(e) => warn!(
+                user_id = %user_id,
+                backend = %source.backend,
+                error = %e,
+                "training history: the walk ledger could not be read"
+            ),
+        }
     }
-    started
+    let pending = running
+        .into_iter()
+        .max_by_key(months_left)
+        .map(|progress| walk_running(&progress))
+        .or_else(|| started.then_some(Pending::HistoryNotWalked));
+    WalkAsk { pending, started }
 }
 
-/// Ask the capture rail to page the provider back to `floor`.
+/// Months a walk has left, the longest when its floor is not known yet: the
+/// walk the window waits longest on is the one it reports.
+fn months_left(progress: &JobProgress) -> i64 {
+    progress
+        .months_total
+        .map_or(i64::MAX, |total| total.saturating_sub(progress.months_done))
+}
+
+/// A running walk's [`Pending`] from its recorded progress. Its
+/// `secs_per_unit` is the seconds one walked month took, so the ETA is the
+/// months left at that pace ([`Pending::running`]).
+fn walk_running(progress: &JobProgress) -> Pending {
+    let months = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
+    Pending::running(
+        months(progress.months_done),
+        progress.months_total.map(months),
+        progress.secs_per_unit,
+    )
+}
+
+/// The history walk still owed for the athlete's stored history, asking a
+/// walk of every connection that never had one
+/// ([`Pending::HistoryNotWalked`]).
 ///
-/// Rides the rail `get_activities` already uses, so a capture for this
-/// `(user, provider)` is deduplicated against one already in flight and its
-/// completion notice reaches the conversation that asked. Returns whether a new
-/// job was started.
+/// The read side of [`compute_and_persist_history`]'s ask: a read of the
+/// persisted rollup that finds the window short of history reads and asks
+/// the same walks the compute would.
 ///
-/// The rail lives behind `tools-data`, alongside the `get_activities` tool that
-/// is the other half of the capture story. Reading the cache, computing the
-/// series and reporting its coverage need none of that, so the module is not
-/// gated with it — only this call is. Without the rail compiled in there is no
-/// capture to start and [`TrainingHistoryComputed::capture_requested`] is
+/// # Errors
+///
+/// Returns [`AppError`] when the athlete's connections cannot be read.
+pub async fn history_walk_pending(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<Option<Pending>> {
+    let backends = resolve_compute_backends(resources.repos(), tenant_id, user_id).await?;
+    Ok(
+        request_walks(resources, tenant_id, user_id, backends.iter())
+            .await
+            .pending,
+    )
+}
+
+/// Ask for a walk of `backend`'s history ([`start_history_walk`]), from the
+/// first live source of the provider. Returns whether a new walk was
+/// started.
+///
+/// The walk lives behind `tools-data`, alongside the `get_activities` tool
+/// that is the other half of the capture story. Reading the cache, computing
+/// the series and reporting its coverage need none of that, so the module is
+/// not gated with it — only this call is. Without the rail compiled in there
+/// is no walk to start and [`TrainingHistoryComputed::capture_requested`] is
 /// `false`, which is what happened: nothing was asked for.
 #[cfg(feature = "tools-data")]
 async fn request_capture(
@@ -488,37 +574,19 @@ async fn request_capture(
     tenant_id: TenantId,
     user_id: Uuid,
     backend: &str,
-    floor: NaiveDate,
 ) -> bool {
-    let after = floor
-        .and_hms_opt(0, 0, 0)
-        .map(|dt| dt.and_utc().timestamp());
-    spawn_activity_backfill(ActivityBackfillJob {
-        resources: resources.clone(),
+    start_history_walk(
+        resources,
         user_id,
         tenant_id,
-        tenant_id_str: provider_tenant_id_str(tenant_id),
-        provider_name: backend.to_owned(),
-        // Paged to the floor, as the `get_activities` capture asks: with no
-        // limit a provider reads its default page (Strava 30, Wahoo 50), which
-        // never reaches the floor, and the coverage that run records claims a
-        // depth it never read (carnet#1478).
-        query_params: ActivityQueryParams {
-            after,
-            limit: Some(historical_backfill_fetch_limit()),
-            ..ActivityQueryParams::default()
-        },
-        // This compute is reached from the tools, the HTTP route and the
-        // recomputes an upload or a threshold change runs; none of them owns a
-        // conversation to push to.
-        // The rail's completion notice is driven by the fetch that has one.
-        pierre_conversation_id: None,
-    })
+        backend,
+        WalkTrigger::DepthMissing,
+    )
     .await
 }
 
-/// No capture rail in this build, so no capture is started. Answers as a
-/// ready future so the callers await it exactly as they await the rail.
+/// No walk rail in this build, so no walk is started. Answers as a ready
+/// future so the callers await it exactly as they await the rail.
 ///
 /// See the `tools-data` sibling above for why the module is not gated wholesale.
 #[cfg(not(feature = "tools-data"))]
@@ -527,7 +595,6 @@ fn request_capture(
     _tenant_id: TenantId,
     _user_id: Uuid,
     _backend: &str,
-    _floor: NaiveDate,
 ) -> Ready<bool> {
     ready(false)
 }
@@ -567,7 +634,7 @@ pub async fn history_rows_for_model(
 ) -> AppResult<Vec<DailyTrainingState>> {
     let config = resources.cageux_config();
     history_read::history_rows_for_model(
-        history_sources(resources, &config),
+        history_handles(resources, &config),
         tenant_id,
         user_id,
         from,
@@ -701,7 +768,7 @@ pub async fn rewarm_default_window(
             from,
             to,
             rows_upserted: 0,
-            coverage: HistoryCoverage::NoStoredActivities,
+            coverage: series_coverage(from, to, None, 0),
             capture_requested: false,
             rows_cleared,
         });

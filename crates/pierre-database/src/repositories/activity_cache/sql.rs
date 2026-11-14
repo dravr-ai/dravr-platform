@@ -125,6 +125,15 @@ pub(crate) const LATEST_ACTIVITY_START_SQL: &str = r"
     ORDER BY start_date DESC
     LIMIT 1";
 
+/// Oldest `start_date` a user's cached activities carry under one key: how
+/// far back that key's history reaches.
+pub(crate) const OLDEST_PROVIDER_START_SQL: &str = r"
+    SELECT start_date
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+    ORDER BY start_date ASC
+    LIMIT 1";
+
 /// The user-provided keys (`USER_PROVIDED_PROVIDERS`) under which a user holds
 /// at least one cached activity: the sources an athlete with no connection
 /// still has to answer from.

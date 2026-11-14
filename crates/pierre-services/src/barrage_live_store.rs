@@ -17,7 +17,7 @@
 //! tests. The server builds its store here at boot, and `pierre-cli` builds the
 //! same one for the seeders that warm the cache.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::fmt;
 #[cfg(not(feature = "postgresql"))]
@@ -114,6 +114,8 @@ impl BarrageLiveStore {
         let counts = report.counts;
         Ok(LiveIngest {
             stored: counts.inserted + counts.updated + counts.unchanged + counts.rewritten,
+            inserted: counts.inserted,
+            refused: counts.erased,
             newer_session: report.newer_session,
         })
     }
@@ -479,6 +481,76 @@ impl LiveActivityStore for BarrageLiveStore {
             offset = page.next_offset;
         }
         Ok(held)
+    }
+
+    async fn held_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>> {
+        let starts = activities.iter().map(Activity::start_date);
+        let (Some(first), Some(last)) = (starts.clone().min(), starts.max()) else {
+            return Ok(HashSet::new());
+        };
+        let wanted: HashSet<&str> = activities.iter().map(Activity::id).collect();
+        // The cache serves every record the store holds, and the rows it
+        // served before the store held the provider's reads.
+        Ok(self
+            .repos
+            .activity_cache
+            .get_cached_activities(user_id, &tenant_id, Some(provider), first, last, i64::MAX)
+            .await?
+            .iter()
+            .map(Activity::id)
+            .filter(|id| wanted.contains(id))
+            .map(str::to_owned)
+            .collect())
+    }
+
+    async fn recorded_among(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        activities: &[Activity],
+    ) -> AppResult<HashSet<String>> {
+        let source = SourceKey::Live(live_source(provider)?);
+        let starts = activities.iter().map(Activity::start_date);
+        let (Some(first), Some(last)) = (starts.clone().min(), starts.max()) else {
+            return Ok(HashSet::new());
+        };
+        let wanted: HashSet<&str> = activities.iter().map(Activity::id).collect();
+        let scope = Scope::new(tenant_id.as_uuid(), user_id);
+        let mut recorded = HashSet::new();
+        let mut offset = Some(0_u64);
+        while let Some(at) = offset {
+            let query = RecordQuery {
+                source: Some(source),
+                since: Some(first),
+                until: None,
+                page: PageReq {
+                    limit: MAX_PAGE_LIMIT,
+                    offset: at,
+                },
+            };
+            let page = self
+                .records
+                .list(&scope, &query)
+                .await
+                .map_err(|e| store_error(source, &e))?;
+            recorded.extend(
+                page.items
+                    .iter()
+                    .filter(|record| record.activity.start_date() <= last)
+                    .map(|record| record.activity_id.as_str())
+                    .filter(|id| wanted.contains(id))
+                    .map(str::to_owned),
+            );
+            offset = page.next_offset;
+        }
+        Ok(recorded)
     }
 
     async fn delete_source(

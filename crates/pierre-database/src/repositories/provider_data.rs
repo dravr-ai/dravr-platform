@@ -32,7 +32,9 @@
 //!   `activity_backfill_coverage` depth and
 //!   owed `activity_backfill_jobs`. Left behind, they would tell a reconnect
 //!   that an emptied cache is fresh and fully backfilled, and it would never
-//!   read the history again.
+//!   read the history again. A history walk filed under another key (the
+//!   session's) whose API phase read this provider no longer claims that
+//!   phase, for the same reason: its rows went with this purge.
 //!
 //! The points and rollups go first because they reference `data_sources`, and
 //! the health rows go before `data_sources` for the same reason.
@@ -91,10 +93,23 @@ mod statements;
 
 pub(crate) use statements::{
     EXPIRED_WELLNESS_SCOPES_SQL, INSERT_PURGE_RECORD_SQL, LIST_PURGE_RECORDS_SQL,
-    PROVIDER_PURGE_SQL, USER_ACTIVITY_ROWS_SQL, USER_ACTIVITY_SYNC_STATE_SQL,
-    USER_EXPIRED_ROUTE_TRACK_SQL, USER_EXPIRED_WELLNESS_SQL, USER_SOURCE_WELLNESS_ROWS_SQL,
-    USER_SYNC_CURSORS_SQL, USER_SYNC_STATE_SQL, USER_WELLNESS_ROWS_SQL,
+    PROVIDER_PURGE_SQL, PROVIDER_WALK_PHASE_RESET_SQL, PURGE_REASONS_SINCE_SQL,
+    USER_ACTIVITY_ROWS_SQL, USER_ACTIVITY_SYNC_STATE_SQL, USER_EXPIRED_ROUTE_TRACK_SQL,
+    USER_EXPIRED_WELLNESS_SQL, USER_SOURCE_WELLNESS_ROWS_SQL, USER_SYNC_CURSORS_SQL,
+    USER_SYNC_STATE_SQL, USER_WALK_PHASE_RESET_SQL, USER_WELLNESS_ROWS_SQL,
 };
+
+/// The statements one user's purge runs, in order.
+pub(crate) struct PurgeStatements<'purge> {
+    /// Run first, each also binding the source marker as `$4`.
+    pub marked: Option<(&'purge [(&'static str, &'static str)], &'purge str)>,
+    /// Run next, in order.
+    pub sets: &'purge [&'purge [(&'static str, &'static str)]],
+    /// Whether the purge takes the provider's activities, and with them
+    /// what a history walk's API phase brought in: the walk then no longer
+    /// claims that phase ([`USER_WALK_PHASE_RESET_SQL`]).
+    pub activities: bool,
+}
 
 /// What a purge deleted: rows removed per table. A table the purge found
 /// nothing in is absent, so an empty map means the provider held no rows in
@@ -150,9 +165,13 @@ pub enum PurgeReason {
     PermissionWithdrawn,
     /// The operator's whole-provider purge, on termination of access.
     Termination,
-    /// The retention policy's days passed since those copies were last read
-    /// from the provider (`activity_retention.*`).
+    /// The retention policy's days passed since those activity copies were
+    /// last read from the provider (`activity_retention.*`).
     CacheExpired,
+    /// The retention policy's days passed since those wellness copies were
+    /// last synced from the provider (`activity_retention.*`): no activity
+    /// was deleted.
+    WellnessExpired,
     /// The athlete deleted a history they imported from their own export.
     AthleteDeletedImport,
     /// The activities were another athlete's, filed under the user's account
@@ -175,6 +194,7 @@ impl PurgeReason {
             Self::PermissionWithdrawn => PERMISSION_WITHDRAWN,
             Self::Termination => "termination",
             Self::CacheExpired => "cache_expired",
+            Self::WellnessExpired => "wellness_expired",
             Self::AthleteDeletedImport => "athlete_deleted_import",
             Self::MisfiledActivities => "misfiled_activities",
         }
@@ -321,7 +341,7 @@ pub trait ProviderDataRepository: Send + Sync {
     /// Expire every wellness copy of `provider`'s data last synced before
     /// `cutoff`, scope by scope: in each `(user, tenant)` holding one, the
     /// expired rows and the health sync's cursors over that provider go in
-    /// one transaction with its `cache_expired` attestation row, so the next
+    /// one transaction with its `wellness_expired` attestation row, so the next
     /// sync reads what expired again instead of trusting a cursor over an
     /// emptied history. Activities are not touched: the activity store
     /// expires them.
@@ -365,6 +385,21 @@ pub trait ProviderDataRepository: Send + Sync {
         provider: &str,
         limit: i64,
     ) -> AppResult<Vec<ProviderDataPurgeRecord>>;
+
+    /// The reasons ([`PurgeReason::as_str`]) of every purge of `provider`'s
+    /// data that reached `user_id` in `tenant_id` — theirs, or the
+    /// operator's whole-provider purge — committed at or after `since`, read
+    /// from the attestation rows.
+    ///
+    /// # Errors
+    /// Returns a database error when the rows cannot be read.
+    async fn purge_reasons_since(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+        since: DateTime<Utc>,
+    ) -> AppResult<Vec<String>>;
 }
 
 /// Decode one `provider_data_purges` row.
@@ -426,19 +461,18 @@ pub(crate) use insert_purge_record;
 ///
 /// The statements are identical on both engines, so the shell passes only its
 /// type; sqlx resolves the driver from `self.pool()` per expansion. The body
-/// names its consts, types and helpers unqualified, so the invoking shell must
-/// `use` every one of them.
+/// names most of its consts, types and helpers unqualified, so the invoking
+/// shell must `use` every one of those; the rest it reaches through
+/// `$crate::repositories::…`.
 macro_rules! impl_provider_data_repository {
     ($ty:ty) => {
         impl $ty {
             /// Run each of `statements`, in order, over one user's `provider`
             /// rows under one tenant, in one transaction that also writes the
-            /// attestation row naming `reason`. `marked` statements run
-            /// first, each also binding the source marker as `$4`.
+            /// attestation row naming `reason`.
             async fn purge_user_rows(
                 &self,
-                marked: Option<(&[(&'static str, &'static str)], &str)>,
-                statements: &[&[(&'static str, &'static str)]],
+                statements: $crate::repositories::provider_data::PurgeStatements<'_>,
                 user_id: Uuid,
                 tenant_id: &TenantId,
                 provider: &str,
@@ -451,10 +485,10 @@ macro_rules! impl_provider_data_repository {
                 })?;
                 let mut purge = ProviderDataPurge::default();
                 let mut ordered: Vec<(&'static str, &'static str, Option<&str>)> = Vec::new();
-                if let Some((set, source)) = marked {
+                if let Some((set, source)) = statements.marked {
                     ordered.extend(set.iter().map(|&(table, sql)| (table, sql, Some(source))));
                 }
-                for set in statements {
+                for set in statements.sets {
                     ordered.extend(set.iter().map(|&(table, sql)| (table, sql, None)));
                 }
                 for (table, statement, source) in ordered {
@@ -475,6 +509,21 @@ macro_rules! impl_provider_data_repository {
                         })?
                         .rows_affected();
                     purge.record(table, removed);
+                }
+                if statements.activities {
+                    sqlx::query($crate::repositories::provider_data::USER_WALK_PHASE_RESET_SQL)
+                        .bind(&user)
+                        .bind(&tenant)
+                        .bind(provider)
+                        .bind($crate::repositories::BackfillJobKind::HistoryWalk.as_str())
+                        .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
+                        .execute(&mut *tx)
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!(
+                                "Failed to release the history walks that read {provider}: {e}"
+                            ))
+                        })?;
                 }
                 insert_purge_record!(
                     tx,
@@ -501,12 +550,15 @@ macro_rules! impl_provider_data_repository {
                 reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 self.purge_user_rows(
-                    None,
-                    &[
-                        &USER_WELLNESS_ROWS_SQL,
-                        &USER_ACTIVITY_ROWS_SQL,
-                        &USER_SYNC_STATE_SQL,
-                    ],
+                    $crate::repositories::provider_data::PurgeStatements {
+                        marked: None,
+                        sets: &[
+                            &USER_WELLNESS_ROWS_SQL,
+                            &USER_ACTIVITY_ROWS_SQL,
+                            &USER_SYNC_STATE_SQL,
+                        ],
+                        activities: true,
+                    },
                     user_id,
                     tenant_id,
                     provider,
@@ -523,8 +575,11 @@ macro_rules! impl_provider_data_repository {
                 reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 self.purge_user_rows(
-                    None,
-                    &[&USER_WELLNESS_ROWS_SQL, &[USER_SYNC_CURSORS_SQL]],
+                    $crate::repositories::provider_data::PurgeStatements {
+                        marked: None,
+                        sets: &[&USER_WELLNESS_ROWS_SQL, &[USER_SYNC_CURSORS_SQL]],
+                        activities: false,
+                    },
                     user_id,
                     tenant_id,
                     provider,
@@ -541,8 +596,11 @@ macro_rules! impl_provider_data_repository {
                 reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 self.purge_user_rows(
-                    None,
-                    &[&USER_ACTIVITY_ROWS_SQL, &USER_ACTIVITY_SYNC_STATE_SQL],
+                    $crate::repositories::provider_data::PurgeStatements {
+                        marked: None,
+                        sets: &[&USER_ACTIVITY_ROWS_SQL, &USER_ACTIVITY_SYNC_STATE_SQL],
+                        activities: true,
+                    },
                     user_id,
                     tenant_id,
                     provider,
@@ -560,8 +618,11 @@ macro_rules! impl_provider_data_repository {
                 reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 self.purge_user_rows(
-                    Some((&USER_SOURCE_WELLNESS_ROWS_SQL, source)),
-                    &[],
+                    $crate::repositories::provider_data::PurgeStatements {
+                        marked: Some((&USER_SOURCE_WELLNESS_ROWS_SQL, source)),
+                        sets: &[],
+                        activities: false,
+                    },
                     user_id,
                     tenant_id,
                     provider,
@@ -579,8 +640,11 @@ macro_rules! impl_provider_data_repository {
                 reason: PurgeReason,
             ) -> AppResult<ProviderDataPurge> {
                 self.purge_user_rows(
-                    Some((&USER_SOURCE_WELLNESS_ROWS_SQL, source)),
-                    &[&USER_ACTIVITY_ROWS_SQL, &USER_ACTIVITY_SYNC_STATE_SQL],
+                    $crate::repositories::provider_data::PurgeStatements {
+                        marked: Some((&USER_SOURCE_WELLNESS_ROWS_SQL, source)),
+                        sets: &[&USER_ACTIVITY_ROWS_SQL, &USER_ACTIVITY_SYNC_STATE_SQL],
+                        activities: true,
+                    },
                     user_id,
                     tenant_id,
                     provider,
@@ -607,6 +671,18 @@ macro_rules! impl_provider_data_repository {
                         .rows_affected();
                     purge.record(table, removed);
                 }
+                sqlx::query($crate::repositories::provider_data::PROVIDER_WALK_PHASE_RESET_SQL)
+                    .bind(provider)
+                    .bind($crate::repositories::BackfillJobKind::HistoryWalk.as_str())
+                    .bind($crate::repositories::activity_backfill_jobs::walked_outcome())
+                    .bind($crate::repositories::activity_backfill_jobs::phase_purged_outcome())
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to release the history walks that read {provider}: {e}"
+                        ))
+                    })?;
                 insert_purge_record!(
                     tx,
                     None::<String>,
@@ -683,7 +759,7 @@ macro_rules! impl_provider_data_repository {
                         Some(&tenant),
                         Some(&user),
                         provider,
-                        PurgeReason::CacheExpired,
+                        PurgeReason::WellnessExpired,
                         evicted.total()
                     )?;
                     tx.commit().await.map_err(|e| {
@@ -773,6 +849,25 @@ macro_rules! impl_provider_data_repository {
                     .iter()
                     .map(purge_record_from_row)
                     .collect()
+            }
+
+            async fn purge_reasons_since(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+                since: DateTime<Utc>,
+            ) -> AppResult<Vec<String>> {
+                sqlx::query_scalar($crate::repositories::provider_data::PURGE_REASONS_SINCE_SQL)
+                    .bind(provider)
+                    .bind(since)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the {provider} purges: {e}"))
+                    })
             }
         }
     };

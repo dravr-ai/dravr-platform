@@ -1,8 +1,12 @@
 // ABOUTME: Whether a provider's wellness reaches an athlete by push, so the pull sync stands down
-// ABOUTME: Judged from the athlete's read plan: a live push grant stays the wellness source beside a session
+// ABOUTME: Judged from the athlete's read plan; a history walk's scope reads the session for the days before the grant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+
+use std::future::Future;
+
+use chrono::{DateTime, NaiveDate, NaiveTime, Utc};
 
 use dravr_enforme::error::{EnformeError, EnformeResult};
 use pierre_core::models::TenantId;
@@ -13,6 +17,69 @@ use uuid::Uuid;
 
 use super::token_tenant_id;
 use crate::garmin_push;
+
+tokio::task_local! {
+    /// The athlete whose history walk runs on this task.
+    static HISTORY_WALK: HistoryWalkScope;
+}
+
+/// Whose history walk runs on a task, and from which day the push holds
+/// their wellness.
+#[derive(Debug, Clone, Copy)]
+struct HistoryWalkScope {
+    user: Uuid,
+    pushed_from: NaiveDate,
+}
+
+/// Run `work`, the wellness half of `user`'s history walk (carnet#1482).
+///
+/// A live push grant beside the athlete's session is their wellness source
+/// ([`wellness_fed_by_push`]), so no pull reads the session; within this
+/// scope it is read once, for the nights the provider pushed before the
+/// grant existed. Only those are written: a day from `pushed_from` on is the
+/// push's ([`history_walk_writes`]), and a sync writes a whole day, so
+/// writing it would blank the readings only the push carries and re-file the
+/// row under the session's source. The scope is task-local, so it is set
+/// inside the task that runs the sync.
+pub async fn history_walk_scope<F: Future>(
+    user: Uuid,
+    pushed_from: NaiveDate,
+    work: F,
+) -> F::Output {
+    HISTORY_WALK
+        .scope(HistoryWalkScope { user, pushed_from }, work)
+        .await
+}
+
+/// Whether the running task is `user`'s history walk.
+fn in_history_walk_of(user: Uuid) -> bool {
+    HISTORY_WALK
+        .try_with(|walking| walking.user == user)
+        .unwrap_or(false)
+}
+
+/// Whether a sync on this task writes `user_id`'s wellness for `day`: every
+/// day, except within the user's history walk, where a day the push holds
+/// is left to it ([`history_walk_scope`]).
+pub(super) fn history_walk_writes(user_id: &str, day: NaiveDate) -> bool {
+    HISTORY_WALK
+        .try_with(|walking| walking.user.to_string() != user_id || day < walking.pushed_from)
+        .unwrap_or(true)
+}
+
+/// Whether a sync on this task writes `user_id`'s night that `ended` then:
+/// every night, except within the user's history walk, where a night
+/// ending from the push's first day on is left to it. The cutoff is that
+/// day's first instant, the same day the push's first stored night counts
+/// toward ([`history_walk_scope`]).
+pub(super) fn history_walk_writes_night(user_id: &str, ended: DateTime<Utc>) -> bool {
+    HISTORY_WALK
+        .try_with(|walking| {
+            walking.user.to_string() != user_id
+                || ended < walking.pushed_from.and_time(NaiveTime::MIN).and_utc()
+        })
+        .unwrap_or(true)
+}
 
 /// Whether `provider`'s wellness reaches `user` in `tenant` by push, so no
 /// pull of it runs.
@@ -28,6 +95,8 @@ use crate::garmin_push;
 /// activity reads, so no day is written twice (carnet#1494). A dead grant is
 /// in no plan, so the session beside it is pulled. A user who withheld the
 /// health export is pulled as before: nothing else serves their wellness.
+/// Within the user's history walk ([`history_walk_scope`]) the session is
+/// read once, for what came before the grant.
 ///
 /// # Errors
 ///
@@ -41,6 +110,9 @@ pub(super) async fn wellness_fed_by_push(
     let Some(pushed) = pushed_backend_for(provider) else {
         return Ok(false);
     };
+    if in_history_walk_of(user) {
+        return Ok(false);
+    }
     if !read_plan(registry, user, tenant, pushed)
         .await
         .serves(pushed)

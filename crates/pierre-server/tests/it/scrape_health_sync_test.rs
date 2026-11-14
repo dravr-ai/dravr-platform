@@ -44,7 +44,9 @@ use pierre_core::models::{
 };
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
-use pierre_services::health_sync::{wellness_pull_stands_down, PierreSyncStorage};
+use pierre_services::health_sync::{
+    history_walk_scope, wellness_pull_stands_down, PierreSyncStorage,
+};
 use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
 use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
@@ -1044,5 +1046,117 @@ async fn a_dead_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
     assert!(
         fake.asked.lock().unwrap().is_empty(),
         "bug: standing down never reads the dead session"
+    );
+}
+
+// ── carnet#1482: the history walk reads the session for the days before the grant ──
+
+/// A live push grant is the wellness source beside the athlete's session
+/// (carnet#1494), so no pull reads the session; the one sync that does is
+/// the history walk's: within `history_walk_scope` the session's nights
+/// before the grant land under `garmin`, no day the push holds is written,
+/// and the session stays for the next walk (B1).
+#[tokio::test]
+async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_before_it() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_garmin_session(&repos, user_id, tenant).await;
+    connect_garmin_push(&repos, user_id, tenant).await;
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+
+    let today = Utc::now().date_naive();
+    let outside = orchestrator
+        .backfill_between(
+            &user_id.to_string(),
+            "garmin",
+            today - Duration::days(30),
+            today,
+        )
+        .await;
+    assert!(
+        fake.asked.lock().unwrap().is_empty(),
+        "bug: outside its walk the session beside the grant is never read: {outside:?}"
+    );
+
+    // A grant whose pushes began before the night the session holds: the
+    // push owns that day, and a whole-day write would blank what only it
+    // carries, so the walk writes nothing over it even when the read
+    // reaches past the grant's first day.
+    let pushed_long_ago = today - Duration::days(30);
+    let over_the_push = history_walk_scope(
+        user_id,
+        pushed_long_ago,
+        orchestrator.backfill_between(&user_id.to_string(), "garmin", pushed_long_ago, today),
+    )
+    .await
+    .unwrap();
+    let (start, end) = window();
+    assert!(
+        repos
+            .sleep
+            .get_sleep_sessions(user_id, &tenant, start, end)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the walk never writes a day the push holds: {over_the_push:?}"
+    );
+
+    // The grant was made today: yesterday's night came before it.
+    let walked = history_walk_scope(
+        user_id,
+        today,
+        orchestrator.backfill_between(
+            &user_id.to_string(),
+            "garmin",
+            today - Duration::days(30),
+            yesterday(),
+        ),
+    )
+    .await
+    .unwrap();
+    assert!(
+        walked.records_created > 0,
+        "bug: the walk copies the session's nights: {walked:?}"
+    );
+    assert!(
+        !fake.asked.lock().unwrap().is_empty(),
+        "bug: the walk reads the session"
+    );
+
+    let nights = repos
+        .sleep
+        .get_sleep_sessions(user_id, &tenant, start, end)
+        .await
+        .unwrap();
+    assert_eq!(
+        nights.len(),
+        1,
+        "bug: the walk copies the night before the grant"
+    );
+    assert_eq!(
+        nights[0].source_name, "garmin",
+        "bug: the copied night is filed under the provider's name"
+    );
+    let mornings = repos
+        .recovery
+        .get_recovery_metrics(user_id, &tenant, start, end)
+        .await
+        .unwrap();
+    assert_eq!(
+        mornings.len(),
+        1,
+        "bug: the walk copies the morning before the grant"
+    );
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(user_id, tenant, "sciotte_garmin")
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: the walk keeps the session for the next walk (B1)"
     );
 }

@@ -12,7 +12,7 @@
 //! and forwards it to the service on each fetch, which scrapes the fitness
 //! platform (Strava, Garmin Connect, etc.) and returns activities.
 
-use crate::models::StatsCoverage;
+use crate::models::coverage::WindowScope;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use dravr_sciotte::client::{ClientError, SciotteClient};
@@ -468,6 +468,7 @@ fn profile_name(raw: Option<String>, target: SciotteTarget) -> Option<String> {
 /// never offered one.
 fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
     Athlete {
+        created_at: None,
         id: target.scraper_provider_name().to_owned(),
         username: profile_name(profile.display_name, target)
             .unwrap_or_else(|| UNNAMED_ATHLETE.to_owned()),
@@ -511,6 +512,7 @@ fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Ath
         .find(|coached| coached.id == athlete.as_str())
         .ok_or_else(athlete_not_accessible)?;
     Ok(Athlete {
+        created_at: None,
         id: athlete.as_str().to_owned(),
         username: profile_name(entry.display_name, SciotteTarget::TrainingPeaks)
             .unwrap_or_else(|| UNNAMED_ATHLETE.to_owned()),
@@ -911,7 +913,7 @@ impl FitnessProvider for SciotteProvider {
 
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 

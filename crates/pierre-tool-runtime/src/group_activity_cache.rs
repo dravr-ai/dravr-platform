@@ -46,7 +46,7 @@ const ACTIVITY_CACHE_FRESH_SECS: i64 = 4 * 3600;
 /// the session (carnet#1494), so reading it too would scrape the session a
 /// second time and write the scraped rows under the grant's key. The
 /// session's own read serves the grant's stored rows
-/// (`backend_resolver::history_keys`).
+/// (`training_history_read::history_store_keys`).
 async fn get_connected_providers(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,

@@ -28,13 +28,11 @@ use crate::implementations::activity_detail_promotion::{
 };
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
-use crate::implementations::data_helpers::{
-    activity_coverage_note, pagination_has_more, AskedWindow,
-};
+use crate::implementations::data_helpers::{activity_coverage, pagination_has_more, AskedWindow};
 use crate::implementations::field_dictionary::served_header;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
@@ -864,10 +862,10 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// total + span instead of the oldest shown row. `None` on paths with no
     /// distinct window total (e.g. the cached snapshot) — no `coverage` emitted.
     pub window_total: Option<usize>,
-    /// Oldest/newest activity date (`"YYYY-MM-DD"`) across that full pre-truncation
+    /// Oldest/newest activity day, in the athlete's zone, across that full pre-truncation
     /// window, paired with `window_total`. `None` leaves the `coverage` note
     /// count-only.
-    pub window_span: Option<(String, String)>,
+    pub window_span: Option<(NaiveDate, NaiveDate)>,
     /// Count, distance, duration and climb summed over that full window. Ride
     /// on the `coverage` sidecar, so totals and comparisons read the whole
     /// window rather than the shown slice. `None` adds nothing.
@@ -1000,28 +998,19 @@ pub(crate) fn build_activities_success_response(
         OutputFormat::Json => (base(Some(data_value), None, "json"), "json"),
     };
 
-    // Surface honest window coverage when the served slice was truncated, so
-    // the LLM frames "N total in this window, showing the most recent M"
-    // instead of anchoring on the oldest shown activity. LLM-facing (tool
-    // result, not the input schema) → no SDK/contremaitre/locale drift.
-    payload.coverage = activity_coverage_note(
+    // Surface honest window coverage when the served slice was truncated, the
+    // window was asked by date, or it is incomplete, so the LLM frames "N total
+    // in this window, showing the most recent M" instead of anchoring on the
+    // oldest shown activity. LLM-facing (tool result, not the input schema) →
+    // no contremaitre/locale drift.
+    payload.coverage = activity_coverage(
         window_total,
         activities_len,
-        window_span.as_ref(),
+        window_span,
         asked,
         completeness,
+        window_totals,
     );
-    if let (Some(Value::Object(coverage)), Some(totals)) =
-        (payload.coverage.as_mut(), window_totals)
-    {
-        coverage.insert("window_totals".to_owned(), totals.to_json());
-        if let Some(Value::String(note)) = coverage.get_mut("note") {
-            note.push_str(
-                " For totals or a comparison between periods, use window_totals, which covers \
-                 the whole window.",
-            );
-        }
-    }
 
     let metadata = build_activities_metadata(
         activities.len(),

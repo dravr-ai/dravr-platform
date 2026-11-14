@@ -19,9 +19,8 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::errors::ErrorCode;
-use pierre_providers::models::{
-    PlannedSession, PlannedSessionKind, SportType, StatsCoverage, WorkoutStep,
-};
+use pierre_providers::models::coverage::{Coverage, CoverageWindow, WindowScope};
+use pierre_providers::models::{PlannedSession, PlannedSessionKind, SportType, WorkoutStep};
 use pierre_providers::pagination::PaginationParams;
 use pierre_providers::wahoo_plan::opaque_id;
 use pierre_providers::wahoo_provider::WahooProvider;
@@ -418,10 +417,15 @@ async fn stats_are_a_recent_sample_and_say_so() {
     assert_eq!(stats.total_duration, 4200);
     assert_eq!(
         stats.coverage,
-        StatsCoverage::RecentActivities {
-            count: 2,
-            oldest: Some("2026-10-02T09:00:00Z".parse().unwrap()),
-        }
+        Coverage::complete(CoverageWindow {
+            scope: WindowScope::RecentActivities,
+            oldest: NaiveDate::from_ymd_opt(2026, 10, 2),
+            newest: NaiveDate::from_ymd_opt(2026, 10, 3),
+            total: Some(2),
+            returned: 2,
+            ..CoverageWindow::default()
+        }),
+        "bug: Wahoo totals are a sample of its recent workouts, from the oldest to the newest"
     );
     assert_eq!(stub.await.unwrap().len(), 1);
 }

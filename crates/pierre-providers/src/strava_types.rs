@@ -12,6 +12,7 @@
 // that module are `pub(crate)` so the provider can still read them.
 
 use crate::models::PeriodTotals;
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 /// Strava API error response format
@@ -42,6 +43,10 @@ pub(crate) struct StravaAthleteResponse {
     /// absent when they gave none.
     #[serde(default)]
     pub(crate) sex: Option<String>,
+    /// When the account was created: the floor of the athlete's history,
+    /// since nothing is recorded on Strava before it.
+    #[serde(default)]
+    pub(crate) created_at: Option<DateTime<Utc>>,
 }
 
 /// Strava map data in API responses
@@ -358,7 +363,27 @@ mod athlete_sex_tests {
 
 #[cfg(test)]
 mod tests {
-    use super::StravaErrorResponse;
+    use chrono::{TimeZone, Utc};
+
+    use super::{StravaAthleteResponse, StravaErrorResponse};
+
+    #[test]
+    fn the_strava_athlete_reads_when_its_account_was_created() {
+        let athlete: StravaAthleteResponse = serde_json::from_str(
+            r#"{"id":1,"username":"runner","created_at":"2014-06-02T18:12:00Z"}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            athlete.created_at,
+            Some(Utc.with_ymd_and_hms(2014, 6, 2, 18, 12, 0).unwrap()),
+            "bug: the athlete's created_at decodes from Strava's /athlete"
+        );
+        let without: StravaAthleteResponse = serde_json::from_str(r#"{"id":1}"#).unwrap();
+        assert_eq!(
+            without.created_at, None,
+            "bug: an athlete with no created_at decodes as unknown"
+        );
+    }
 
     #[test]
     fn a_strava_error_reads_its_code_from_the_wire_code_field() {

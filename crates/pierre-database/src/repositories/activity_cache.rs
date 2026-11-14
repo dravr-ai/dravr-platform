@@ -324,6 +324,16 @@ pub trait ActivityCacheRepository: Send + Sync {
         tenant_id: &TenantId,
     ) -> AppResult<Option<DateTime<Utc>>>;
 
+    /// The oldest start among the user's cached activities under `provider`
+    /// in `tenant_id`, or `None` when the key holds none: how far back the
+    /// history stored under it reaches.
+    async fn oldest_activity_start(
+        &self,
+        user_id: Uuid,
+        tenant_id: &TenantId,
+        provider: &str,
+    ) -> AppResult<Option<DateTime<Utc>>>;
+
     /// The user-provided keys (`USER_PROVIDED_PROVIDERS`: uploads, imported
     /// archives) under which the user holds at least one cached activity in
     /// `tenant_id`, in no particular order.
@@ -670,6 +680,24 @@ macro_rules! impl_activity_cache_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to read latest activity start: {e}"))
+                    })?;
+                row.map(|r| timestamp_column(&r, "start_date")).transpose()
+            }
+
+            async fn oldest_activity_start(
+                &self,
+                user_id: Uuid,
+                tenant_id: &TenantId,
+                provider: &str,
+            ) -> AppResult<Option<DateTime<Utc>>> {
+                let row = sqlx::query(OLDEST_PROVIDER_START_SQL)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id.to_string())
+                    .bind(provider)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read oldest activity start: {e}"))
                     })?;
                 row.map(|r| timestamp_column(&r, "start_date")).transpose()
             }

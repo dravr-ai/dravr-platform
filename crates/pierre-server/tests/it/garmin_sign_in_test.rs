@@ -102,7 +102,7 @@ pub(crate) struct ScraperSwitch {
     pub(crate) fail_summary_on: Arc<Mutex<Option<NaiveDate>>>,
 }
 
-fn session_header(headers: &HeaderMap) -> String {
+pub(crate) fn session_header(headers: &HeaderMap) -> String {
     headers
         .get("x-session-id")
         .and_then(|value| value.to_str().ok())
@@ -110,7 +110,7 @@ fn session_header(headers: &HeaderMap) -> String {
         .to_owned()
 }
 
-fn session_json(session_id: &str) -> Value {
+pub(crate) fn session_json(session_id: &str) -> Value {
     json!({
         "session_id": session_id,
         "cookies": [],
@@ -119,7 +119,7 @@ fn session_json(session_id: &str) -> Value {
     })
 }
 
-fn workout(id: &str, sport: &str, start: &str) -> Value {
+pub(crate) fn workout(id: &str, sport: &str, start: &str) -> Value {
     json!({
         "id": id,
         "name": format!("Garmin {sport}"),
@@ -679,7 +679,7 @@ async fn a_grant_holders_sign_in_keeps_the_session_as_the_primary() {
 /// An athlete whose session the retired one-time import (carnet#1386)
 /// already retired holds a Garmin grant alone, and the rows that session
 /// stored under its key. The grant's window still serves them
-/// (`history_keys(garmin)`), merged with what the grant pushed, and the card
+/// (`history_store_keys(garmin)`), merged with what the grant pushed, and the card
 /// reads that history as imported.
 #[tokio::test]
 async fn the_history_a_retired_session_stored_is_still_served_through_the_grant() {

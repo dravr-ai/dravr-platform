@@ -273,6 +273,63 @@ pub(crate) const USER_SYNC_STATE_SQL: [(&str, &str); 5] = [
     ),
 ];
 
+/// A history walk of the user's whose API phase read the purged provider no
+/// longer claims that phase, binding `$1` user id, `$2` tenant id, `$3`
+/// provider, `$4` the history-walk kind and `$5` the purged-phase outcome.
+///
+/// The phase's rows are filed under the grant's key and go with its purge,
+/// while the walk's row stays under its session's key, naming the grant in
+/// `walk_backend`. Left as it was, the row would tell a reconnect that the
+/// grant was walked, or is being walked, below rows that are gone.
+///
+/// - A walk whose API phase ended (walked, or incomplete) keeps its outcome
+///   and reads as a session walked alone (`walk_backend` NULL), owed
+///   nothing: no step holds it, and a grant connected beside it reopens the
+///   phase.
+/// - A walk still owed in its API phase is kept as owed a reopen (`$5`),
+///   naming the grant still. A step of the phase may be running, its lease
+///   left as it stands: the row stays the walk of the pair, so no walk of
+///   the grant starts beside it on any instance. The step records nothing
+///   on the row (each of its row writes requires an owed row). It writes
+///   its page only while the row is owed under its lease, and takes its
+///   whole page back when it reads, after the write, that this purge landed
+///   during it, reading again a few times in process when that read fails.
+///   When the ledger stays unreadable through those reads, it takes nothing
+///   back and fails: the page its write landed after this purge's delete
+///   then stays, since the step's retry stops at its check before writing.
+///   Once no step holds the lease the phase is reopened below the session's
+///   own rows, or the row is kept as walked when no grant is live — by the
+///   step that stopped, a reconnect, or the resume sweep when the step died.
+///
+/// Not a removal: it is never counted as one.
+pub(crate) const USER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET outcome = CASE WHEN outcome IS NULL THEN $5 ELSE outcome END, \
+         walk_backend = CASE WHEN outcome IS NULL THEN walk_backend ELSE NULL END \
+     WHERE CAST(user_id AS TEXT) = $1 AND CAST(tenant_id AS TEXT) = $2 \
+       AND kind = $4 AND walk_backend = $3";
+
+/// The whole-provider purge's release of every walk whose API phase read the
+/// terminated provider, across every user and tenant, binding `$1` provider,
+/// `$2` the history-walk kind, `$3` the walked outcome and `$4` the
+/// purged-phase outcome. Same isolation exemption as [`PROVIDER_PURGE_SQL`].
+///
+/// Unlike [`USER_WALK_PHASE_RESET_SQL`], no walk is owed a reopen: the
+/// purge deletes data, never tokens, so the terminated provider's grants
+/// still stand, and a reopen would page them again. A walk still owed in its
+/// API phase, or one a purge of its grant had already left owed a reopen,
+/// is kept as walked; every walk reads as a session walked alone
+/// (`walk_backend` NULL), owed nothing. Neither the step that stops nor the
+/// resume sweep reopens it: both resolve only a row still owed a reopen. A
+/// step still running keeps its lease; it records nothing on the row, and
+/// lands nothing in the store once it sees the row settled. Like any session
+/// walked alone, it is reopened by the next ask for the walk (a connect, a
+/// first sync, a depth miss, the personal-best seed) while a grant of the
+/// provider stands live beside it.
+pub(crate) const PROVIDER_WALK_PHASE_RESET_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET walk_backend = NULL, \
+         outcome = CASE WHEN outcome IS NULL OR outcome = $4 THEN $3 ELSE outcome END \
+     WHERE kind = $2 AND walk_backend = $1";
+
 /// The sync state describing a user's provider activities alone: every
 /// [`USER_SYNC_STATE_SQL`] statement but the health sync's cursors, which an
 /// activity purge leaves to the wellness it walks.
@@ -381,6 +438,13 @@ pub(crate) const INSERT_PURGE_RECORD_SQL: &str = "INSERT INTO provider_data_purg
 pub(crate) const LIST_PURGE_RECORDS_SQL: &str = "SELECT id, tenant_id, user_id, provider, \
      reason, rows_removed, purged_at FROM provider_data_purges WHERE provider = $1 \
      ORDER BY purged_at DESC LIMIT $2";
+
+/// The reasons of the purges of `$1`'s data that reached the user `$3` in
+/// the tenant `$4`, theirs or the operator's whole-provider purge (both ids
+/// NULL), committed at or after `$2`.
+pub(crate) const PURGE_REASONS_SINCE_SQL: &str = "SELECT reason FROM provider_data_purges \
+     WHERE provider = $1 AND purged_at >= $2 \
+       AND ((user_id = $3 AND tenant_id = $4) OR (user_id IS NULL AND tenant_id IS NULL))";
 
 /// What a whole-provider purge deletes, in the same order as
 /// [`USER_WELLNESS_ROWS_SQL`], [`USER_ACTIVITY_ROWS_SQL`] then

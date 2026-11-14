@@ -13,11 +13,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use crate::common;
-use chrono::Utc;
+use chrono::{NaiveDate, Utc};
 use pierre_mcp_server::constants::oauth_providers;
 use pierre_providers::core::{CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig};
 use pierre_providers::coros_provider::CorosProvider;
-use pierre_providers::models::StatsCoverage;
+use pierre_providers::models::coverage::{Coverage, CoverageWindow, WindowScope};
 use pierre_providers::registry::{get_supported_providers, global_registry};
 use secrecy::SecretString;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -578,10 +578,14 @@ async fn coros_stats_are_summed_over_the_recent_workouts() {
     );
     assert_eq!(
         stats.coverage,
-        StatsCoverage::RecentActivities {
-            count: 2,
-            oldest: Some("2025-01-05T16:00:00Z".parse().unwrap()),
-        },
+        Coverage::complete(CoverageWindow {
+            scope: WindowScope::RecentActivities,
+            oldest: NaiveDate::from_ymd_opt(2025, 1, 5),
+            newest: NaiveDate::from_ymd_opt(2025, 1, 6),
+            total: Some(2),
+            returned: 2,
+            ..CoverageWindow::default()
+        }),
         "bug: the totals are a recent sample and must say so"
     );
     let line = served.await.unwrap();

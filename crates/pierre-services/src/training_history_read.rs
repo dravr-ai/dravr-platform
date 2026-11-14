@@ -46,6 +46,9 @@ use pierre_core::constants::oauth_providers::{
     garmin_contribution, garmin_recorded, GarminContribution,
 };
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::coverage::{
+    Completeness, Coverage, CoverageWindow, IncompleteReason, WindowScope,
+};
 use pierre_core::models::{Activity, DailyTrainingState, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::training_history_compute::{
@@ -58,6 +61,14 @@ use pierre_providers::{ai_scope, backend_resolver};
 use std::fmt;
 use uuid::Uuid;
 
+/// The one order the backends holding a provider's history come in
+mod source_order;
+
+pub use source_order::{
+    history_source_order, history_sources_for, history_store_keys, walk_across_pair, walk_hand_off,
+    walk_source, HistorySource, HistorySourceRole, PairWalk,
+};
+
 /// Read limit for a single deterministic read of a historical window from the
 /// durable activity cache.
 ///
@@ -66,8 +77,8 @@ use uuid::Uuid;
 /// Generous enough to cover a dense season (>=2 activities/day for a year)
 /// without truncating the window read; the durable table is already
 /// retention-bounded, so this only guards against an unbounded read. When a
-/// window fills this cap the served `window_total` is only a lower bound, so
-/// `activity_coverage_note` frames the count as "at least {total}".
+/// window fills this cap the served `window.total` is only a lower bound, so
+/// the coverage note frames the count as "at least {total}".
 pub const HISTORICAL_WINDOW_READ_LIMIT: usize = 2_000;
 
 /// Slack (days) added to each end of the cache read.
@@ -81,38 +92,66 @@ const CACHE_READ_EDGE_SLACK_DAYS: i64 = 2;
 /// What a history read needs: the stored data, the provider terms that govern
 /// what a model may see of it, and the algorithm configuration it is scored by.
 #[derive(Clone, Copy)]
-pub struct HistorySources<'a> {
+pub struct HistoryHandles<'read> {
     /// The repositories the activities, thresholds and rollup are read from.
-    pub repos: &'a RepositoryRegistry,
+    pub repos: &'read RepositoryRegistry,
     /// Each provider's terms (the provider registry).
-    pub terms: &'a dyn ProviderTerms,
+    pub terms: &'read dyn ProviderTerms,
     /// The training-load algorithm configuration the series is scored by.
-    pub algorithms: &'a AlgorithmConfig,
+    pub algorithms: &'read AlgorithmConfig,
 }
 
-impl fmt::Debug for HistorySources<'_> {
+impl fmt::Debug for HistoryHandles<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("HistorySources")
+        f.debug_struct("HistoryHandles")
             .field("repos", &self.repos)
             .field("algorithms", &self.algorithms)
             .finish_non_exhaustive()
     }
 }
 
-/// How much of the requested window the stored activities could stand behind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HistoryCoverage {
-    /// Stored history warms the whole requested window.
-    Complete,
-    /// Stored history begins too late to warm the whole ask; only
-    /// `[trustworthy_from, to]` was computed.
-    Partial {
-        /// First day whose CTL/ATL/TSB the stored history can stand behind.
-        trustworthy_from: NaiveDate,
-    },
-    /// No stored activities in the read window at all. Nothing was computed —
-    /// a zero-seeded series would read as a real chronic load.
-    NoStoredActivities,
+/// The [`Coverage`] of a daily series asked for `[from, to]` that returns
+/// `returned` rows.
+///
+/// `stored` is the oldest stored day behind the window and the first day it
+/// vouches for ([`first_vouched_day`]), or `None` when nothing is stored: no
+/// row was computed, since a zero-seeded series would read as a real chronic
+/// load ([`IncompleteReason::NoStoredActivities`]). A first vouched day after
+/// `from` leaves only `[trustworthy_from, to]` answered
+/// ([`IncompleteReason::ShallowHistory`]). Nothing is pending here: the walk
+/// owed for the missing depth is the tool runtime's to read and ask for.
+#[must_use]
+pub fn series_coverage(
+    from: NaiveDate,
+    to: NaiveDate,
+    stored: Option<(NaiveDate, NaiveDate)>,
+    returned: usize,
+) -> Coverage {
+    let window = CoverageWindow {
+        scope: WindowScope::Asked,
+        asked_from: Some(from),
+        asked_to: Some(to),
+        oldest: stored.map(|(oldest, _)| oldest),
+        returned: u64::try_from(returned).unwrap_or(u64::MAX),
+        ..CoverageWindow::default()
+    };
+    let (completeness, trustworthy_from) = match stored {
+        None => (
+            Completeness::Incomplete(IncompleteReason::NoStoredActivities),
+            None,
+        ),
+        Some((_, vouched)) if vouched <= from => (Completeness::Complete, None),
+        Some((_, vouched)) => (
+            Completeness::Incomplete(IncompleteReason::ShallowHistory),
+            Some(vouched),
+        ),
+    };
+    Coverage {
+        completeness,
+        window,
+        trustworthy_from,
+        pending: None,
+    }
 }
 
 /// Daily rows computed from the durable cache for a read that stores nothing.
@@ -122,7 +161,7 @@ pub struct TrainingHistoryRead {
     /// Empty when the stored history warms no day of the ask.
     pub states: Vec<DailyTrainingState>,
     /// How much of the ask the stored history supported.
-    pub coverage: HistoryCoverage,
+    pub coverage: Coverage,
     /// What Garmin-sourced data contributed to the rows, which decides the
     /// line Garmin's brand guidelines owe them (carnet#1154); `None` when no
     /// row was computed or no workout behind them carries such data.
@@ -153,8 +192,8 @@ pub async fn user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> AppResu
 /// time a thin history was looked at.
 ///
 /// An athlete with no connected provider and no upload has no stored
-/// activities, and is answered [`HistoryCoverage::NoStoredActivities`] rather
-/// than refused.
+/// activities, and is answered [`IncompleteReason::NoStoredActivities`]
+/// rather than refused.
 /// Every connected provider's rows are read and merged into one session per
 /// workout (see the module docs).
 ///
@@ -162,7 +201,7 @@ pub async fn user_timezone(repos: &RepositoryRegistry, user_id: Uuid) -> AppResu
 ///
 /// Returns [`AppError`] when the window is invalid or a repository read fails.
 pub async fn read_history_from_cache(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
@@ -171,7 +210,7 @@ pub async fn read_history_from_cache(
     validate_window(from, to)?;
     let nothing_stored = TrainingHistoryRead {
         states: Vec::new(),
-        coverage: HistoryCoverage::NoStoredActivities,
+        coverage: series_coverage(from, to, None, 0),
         garmin: None,
     };
     let backends = resolve_compute_backends(sources.repos, tenant_id, user_id).await?;
@@ -183,21 +222,18 @@ pub async fn read_history_from_cache(
         return Ok(nothing_stored);
     };
     let trustworthy_from = first_vouched_day(from, oldest_stored, window.warmup);
+    let stored = Some((oldest_stored, trustworthy_from));
     if trustworthy_from > to {
         return Ok(TrainingHistoryRead {
             states: Vec::new(),
-            coverage: HistoryCoverage::Partial { trustworthy_from },
+            coverage: series_coverage(from, to, stored, 0),
             garmin: None,
         });
     }
     let states = compute_states(sources, tenant_id, user_id, &window, trustworthy_from, to).await?;
     Ok(TrainingHistoryRead {
+        coverage: series_coverage(from, to, stored, states.len()),
         states,
-        coverage: if trustworthy_from <= from {
-            HistoryCoverage::Complete
-        } else {
-            HistoryCoverage::Partial { trustworthy_from }
-        },
         garmin: window.garmin,
     })
 }
@@ -239,7 +275,7 @@ pub async fn fetch_history_rows(
 ///
 /// Returns an error when the window is inverted or a read fails.
 pub async fn history_rows_for_model(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
@@ -315,7 +351,7 @@ pub struct StoredWindow {
 ///
 /// Returns [`AppError`] when a repository read fails.
 pub async fn load_stored_window(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     backends: Vec<ComputeBackend>,
@@ -329,12 +365,12 @@ pub async fn load_stored_window(
     let zone = resolve_zone(timezone.as_deref());
 
     let warmup = warmup_days(sources.algorithms.params.training_load_ctl_days);
-    // One copy of each workout per key the backends' reads serve: a Garmin
-    // grant's window carries its usr/pwd session's key too
-    // (`backend_resolver::history_keys`), so both copies still fit the cap.
+    // One copy of each workout per key the backends' reads serve: a grant's
+    // window carries its usr/pwd session's key too
+    // ([`history_store_keys`]), so both copies still fit the cap.
     let stored_keys: usize = backends
         .iter()
-        .map(|backend| backend_resolver::history_keys(&backend.slug).len())
+        .map(|backend| history_store_keys(&backend.slug).len())
         .sum();
     let read = read_cached_window(
         sources,
@@ -406,7 +442,7 @@ pub fn first_vouched_day(from: NaiveDate, oldest_stored: NaiveDate, warmup: i64)
 ///
 /// Returns [`AppError`] when the thresholds read or the compute fails.
 pub async fn compute_states(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     window: &StoredWindow,
@@ -536,7 +572,7 @@ struct CachedRead {
 /// Read every provider's stored recordings covering `[start, to]`, newest
 /// first, making room for one copy of each workout per connection.
 async fn read_cached_window(
-    sources: HistorySources<'_>,
+    sources: HistoryHandles<'_>,
     tenant_id: TenantId,
     user_id: Uuid,
     connections: usize,
@@ -787,8 +823,8 @@ pub(crate) mod tests {
         }
     }
 
-    fn sources<'a>(fx: &'a Athlete, algorithms: &'a AlgorithmConfig) -> HistorySources<'a> {
-        HistorySources {
+    fn sources<'a>(fx: &'a Athlete, algorithms: &'a AlgorithmConfig) -> HistoryHandles<'a> {
+        HistoryHandles {
             repos: fx.db.repositories(),
             terms: &NolioTerms,
             algorithms,

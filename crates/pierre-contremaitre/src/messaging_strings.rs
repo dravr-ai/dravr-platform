@@ -369,6 +369,20 @@ pub const KEY_REGISTRATION_APPROVED: &str = "messaging.account.registration_appr
 /// back empty (it shouldn't, post-backfill).
 pub const KEY_BACKFILL_READY: &str = "messaging.backfill.ready";
 
+/// Key: the note a live read posts once the athlete has moved on.
+///
+/// Sent when they asked something newer than the question the read waited
+/// on: its data landed, and the earlier question is not answered again. No
+/// placeholders.
+pub const KEY_LIVE_READ_OVERTAKEN: &str = "messaging.live_read.overtaken";
+
+/// Key: a history walk reached the end of the athlete's history.
+///
+/// The one message a walk no conversation asked for posts in the athlete's
+/// personal thread. `{0}` is the oldest year it reached, `{1}` the
+/// activities it brought in.
+pub const KEY_HISTORY_WALK_COMPLETE: &str = "messaging.history_walk.complete";
+
 /// Key: header line for the backfill completion notice that pushes the list.
 ///
 /// Sits above the actual activity list (not just a nudge). `{0}` = count of

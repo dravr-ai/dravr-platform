@@ -337,6 +337,17 @@ pub trait ChatRepository: Send + Sync {
         readable: TransportPolicy,
     ) -> AppResult<Vec<MessageRecord>>;
 
+    /// The id of the newest message the athlete asked in a conversation they
+    /// take part in: a `user` row that is not a slash command. `None` when the
+    /// thread holds none. A live read that outran its turn compares it with
+    /// the message that asked it, to tell whether the athlete has moved on.
+    async fn latest_user_message_id(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>>;
+
     /// [`Self::get_recent_messages`] for a turn's prompt: a row about a group
     /// member ([`MessageRecord::about_user_id`]) is returned only when that
     /// member is in `readable_about` (carnet#1174). Both rules are in the

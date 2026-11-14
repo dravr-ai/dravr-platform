@@ -14,9 +14,12 @@
 //! configuration, data sources and consents it asks (the athlete's) from
 //! whose turn and charge it is (the coach's).
 
+use std::sync::Arc;
+
 use dravr_tronc::mcp::tool::ToolContext;
 use pierre_core::models::TenantId;
 use pierre_core::transport::Transport;
+use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_providers::{ai_scope, backend_resolver};
 use serde_json::Value as JsonValue;
 use tracing::info;
@@ -25,12 +28,13 @@ use uuid::Uuid;
 use super::UniversalExecutor;
 use crate::context::AuthMethod;
 use crate::guardian;
-use crate::protocol::types::UniversalResponse;
+use crate::protocol::types::{UniversalRequest, UniversalResponse};
 use crate::protocols::ProtocolError;
 use crate::read_subject::{
     self, resolve_read_subject, DataClass, ReadSubject, ReadSubjectRequest, ATHLETE_ARGUMENT,
 };
 use crate::reconnect::{RECONNECT_BACKEND_KEY, RECONNECT_REQUIRED_KEY};
+use crate::runtime::ToolRuntime;
 
 /// Who a call is for and whose data it reads.
 ///
@@ -269,6 +273,37 @@ fn take_athlete_argument(args: &mut JsonValue) -> Option<String> {
         JsonValue::String(name) => Some(name),
         other => Some(other.to_string()),
     }
+}
+
+/// The tronc context a dispatch hands its tool: the caller's identity, admin
+/// flag and tenant as the request names them.
+pub(super) async fn build_tool_context(
+    resources: &Arc<dyn ToolRuntime>,
+    request: &UniversalRequest,
+) -> Result<(ToolContext, bool), ProtocolError> {
+    let user_uuid = parse_user_id_for_protocol(&request.user_id)?;
+
+    let is_admin = resources
+        .repos()
+        .users
+        .get_global(user_uuid)
+        .await
+        .ok()
+        .flatten()
+        .is_some_and(|user| user.is_admin);
+
+    let mut ctx = ToolContext::new()
+        .with_user(user_uuid.to_string())
+        .with_auth_method(AuthMethod::JwtBearer.as_str())
+        .as_admin(is_admin);
+
+    if let Some(raw) = request.tenant_id.as_deref() {
+        let uuid = Uuid::parse_str(raw)
+            .map_err(|e| ProtocolError::InvalidRequest(format!("Invalid tenant_id format: {e}")))?;
+        ctx = ctx.with_tenant(TenantId::from_uuid(uuid).to_string());
+    }
+
+    Ok((ctx, is_admin))
 }
 
 #[cfg(test)]

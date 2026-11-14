@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Instant;
 
+use pierre_core::models::coverage::IncompleteReason;
 use serde_json::Value;
 
 use crate::guardian::state::TURN_TTL;
@@ -39,6 +40,8 @@ const MARK_CAP: usize = 10_000;
 /// raise it — a nested field of some other tool's output cannot.
 #[must_use]
 pub fn incomplete_window_in_payload(tool_name: &str, payload: &Value) -> bool {
+    use serde::Deserialize;
+
     let Some(coverage) = payload
         .get("coverage")
         .filter(|_| tool_name == "get_activities")
@@ -48,8 +51,8 @@ pub fn incomplete_window_in_payload(tool_name: &str, payload: &Value) -> bool {
     coverage.get("complete").and_then(Value::as_bool) == Some(false)
         && coverage
             .get("incomplete_reason")
-            .and_then(Value::as_str)
-            .is_some_and(|reason| COUNTED_SHORT.contains(&reason))
+            .and_then(|reason| IncompleteReason::deserialize(reason).ok())
+            .is_some_and(counted_short)
 }
 
 /// Mark `turn` in `store` when `payload`, a `tool_name` result, is an
@@ -66,11 +69,21 @@ pub fn mark_if_incomplete(
     }
 }
 
-/// The incomplete reasons whose window is short of the period asked. A
-/// provider that could not be read (`provider_unavailable`) is not one: the
-/// reconnect offer answers it, and re-asking every reply until the athlete
-/// reconnects would answer it twice.
-const COUNTED_SHORT: [&str; 2] = ["live_read_running", "read_capped"];
+/// Whether `reason` leaves the window short of the period asked. A provider
+/// that could not be read (`provider_unavailable`) does not: the reconnect
+/// offer answers it, and re-asking every reply until the athlete reconnects
+/// would answer it twice. A daily series' reasons are not a window of
+/// activities' and never reach here.
+const fn counted_short(reason: IncompleteReason) -> bool {
+    match reason {
+        IncompleteReason::LiveReadRunning
+        | IncompleteReason::ReadCapped
+        | IncompleteReason::HistoryWalkRunning => true,
+        IncompleteReason::ProviderUnavailable
+        | IncompleteReason::ShallowHistory
+        | IncompleteReason::NoStoredActivities => false,
+    }
+}
 
 /// Process-wide store of the turns that read an incomplete window during a
 /// headless turn, shared via the runtime so the tool-host surface's executor
@@ -131,6 +144,13 @@ mod tests {
         assert!(
             incomplete_window_in_payload("get_activities", &incomplete),
             "bug: an incomplete get_activities window must be seen"
+        );
+        assert!(
+            incomplete_window_in_payload(
+                "get_activities",
+                &json!({ "coverage": { "complete": false, "incomplete_reason": "history_walk_running" } })
+            ),
+            "bug: a window the history walk has not reached is short of the ask"
         );
         assert!(
             !incomplete_window_in_payload(

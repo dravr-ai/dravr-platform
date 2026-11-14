@@ -419,7 +419,7 @@ mod tests {
             payload["coverage"] = json!({
                 "complete": complete,
                 "incomplete_reason": "read_capped",
-                "window_total": 43
+                "window": { "total": 43, "returned": 43 }
             });
         }
         FunctionResponse {
