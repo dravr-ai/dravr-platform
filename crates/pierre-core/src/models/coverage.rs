@@ -451,9 +451,9 @@ impl Coverage {
     /// A segments window's note ([`WindowScope::SegmentsRead`]): how many of
     /// the window's activities had their segment efforts read, and, when the
     /// window is incomplete, why and what may not be claimed from it. It
-    /// counts the activities read, never the efforts listed: those are every
-    /// effort of the read activities, and there is no slice of them to
-    /// frame.
+    /// counts the activities read, never the efforts listed. A read that
+    /// stopped at its cap counts only the newest activities it reached, and
+    /// says the window holds at least that many.
     fn segments_read_note(&self) -> Option<String> {
         let total = self.window.total?;
         let read = self.window.returned;
@@ -461,10 +461,19 @@ impl Coverage {
             (Some(from), Some(to)) => format!(" from {from} to {to}"),
             _ => String::new(),
         };
-        let mut note = format!(
-            "{read} of {total} activities in this window{span_phrase} have their segment efforts read."
-        );
-        let Some(reason) = self.completeness.reason() else {
+        let reason = self.completeness.reason();
+        let mut note = if self.window.total_is_lower_bound
+            || reason == Some(IncompleteReason::ReadCapped)
+        {
+            format!(
+                "{read} of the newest {total} activities in this window{span_phrase} have their segment efforts read; the window holds at least {total}."
+            )
+        } else {
+            format!(
+                "{read} of {total} activities in this window{span_phrase} have their segment efforts read."
+            )
+        };
+        let Some(reason) = reason else {
             return Some(note);
         };
         note.push_str(" This window is INCOMPLETE");
@@ -874,6 +883,26 @@ mod tests {
         assert!(
             !note.contains("shown below"),
             "bug: a segments note frames no shown slice: {note}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_capped_segments_window_counts_at_least_what_it_read() -> TestResult {
+        let note = Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::ReadCapped),
+            window: segments(20_000, 9_000)?,
+            trustworthy_from: None,
+            pending: None,
+        }
+        .note()
+        .ok_or("no note")?;
+        assert!(
+            note.starts_with(
+                "9000 of the newest 20000 activities in this window from 2016-01-01 to \
+                 2026-11-13 have their segment efforts read; the window holds at least 20000."
+            ),
+            "bug: a capped read's counts read as the window's: {note}"
         );
         Ok(())
     }

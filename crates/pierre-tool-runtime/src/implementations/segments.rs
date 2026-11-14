@@ -625,33 +625,59 @@ impl WindowShape {
 /// Whether the stored window answers the whole truth, and what is still owed
 /// for it.
 ///
-/// In order:
-/// 1. A window the read stopped short of is capped.
-/// 2. Rows a gate withheld ask nothing: the window is what this call sees,
-///    its unread activities named unread.
-/// 3. A window deeper than the stored history reaches, while the history
-///    walk is still copying it in, says so first
-///    ([`IncompleteReason::HistoryWalkRunning`]).
-/// 4. Otherwise, with unread activities: a backend that reads segment
-///    efforts is asked for a detail walk of the window, which is reading
-///    them ([`IncompleteReason::SegmentDetailWalking`]) or ended lately
-///    leaving some unread ([`IncompleteReason::SegmentDetailPartial`]); with
-///    none, [`IncompleteReason::SegmentDetailUnavailable`]. An athlete with
-///    no Strava connection and nothing stored reads complete and empty.
+/// Rows a gate withheld ask nothing ([`settled_before_walk`]). Otherwise the
+/// window's unread activities ask a detail walk ([`segments_owed`]), a
+/// capped window's too: the walk counts the whole window itself, and an
+/// athlete heavy enough to fill the cap is the one with the most to read.
+/// The history walk is read, and the reasons are weighed ([`settle`]).
 async fn coverage_of(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
     ask: &SegmentAsk,
     shape: WindowShape,
 ) -> (Completeness, Option<Pending>) {
-    if shape.capped {
-        return (Completeness::Incomplete(IncompleteReason::ReadCapped), None);
-    }
-    if shape.withheld {
-        return (shape.short_by_unread(), None);
+    if let Some(settled) = settled_before_walk(shape) {
+        return settled;
     }
     let segments = segments_owed(runtime, athlete, ask, shape).await;
-    if let Some(history) = history_owed(runtime, athlete, shape.floor_ts).await {
+    let history = history_owed(runtime, athlete, shape.floor_ts).await;
+    settle(shape, segments, history)
+}
+
+/// The coverage of a window that asks no walk: one a gate withheld rows of,
+/// which is what this call sees, capped when the read stopped short, else
+/// its unread activities named unread. `None` when the window may ask one.
+fn settled_before_walk(shape: WindowShape) -> Option<(Completeness, Option<Pending>)> {
+    if !shape.withheld {
+        return None;
+    }
+    if shape.capped {
+        return Some((Completeness::Incomplete(IncompleteReason::ReadCapped), None));
+    }
+    Some((shape.short_by_unread(), None))
+}
+
+/// Weigh the reasons a window that asked its walk is short, in order:
+/// 1. A window the read stopped short of is capped: its counts are only the
+///    newest rows', so it says so ([`IncompleteReason::ReadCapped`]), with
+///    the history walk still copying, or else the detail walk reading, as
+///    what is owed for it.
+/// 2. A window deeper than the stored history reaches, while the history
+///    walk is still copying it in, says so first
+///    ([`IncompleteReason::HistoryWalkRunning`]).
+/// 3. Otherwise the segment reason ([`segments_owed`]).
+fn settle(
+    shape: WindowShape,
+    segments: (Completeness, Option<Pending>),
+    history: Option<Pending>,
+) -> (Completeness, Option<Pending>) {
+    if shape.capped {
+        return (
+            Completeness::Incomplete(IncompleteReason::ReadCapped),
+            history.or(segments.1),
+        );
+    }
+    if let Some(history) = history {
         return (
             Completeness::Incomplete(IncompleteReason::HistoryWalkRunning),
             Some(history),
@@ -688,7 +714,13 @@ async fn history_owed(
 }
 
 /// The segment reason of a window with unread activities, asking the walk
-/// that reads them.
+/// that reads them: with a backend that reads segment efforts, a detail walk
+/// of the window is asked, which is reading them
+/// ([`IncompleteReason::SegmentDetailWalking`]) or ended lately leaving some
+/// unread ([`IncompleteReason::SegmentDetailPartial`]); with none,
+/// [`IncompleteReason::SegmentDetailUnavailable`]. An athlete with no Strava
+/// connection and nothing stored reads complete and empty. A capped window
+/// asks whatever its newest rows held: the walk counts the rest.
 async fn segments_owed(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
@@ -706,7 +738,7 @@ async fn segments_owed(
             None,
         );
     };
-    if shape.unread() == 0 {
+    if shape.unread() == 0 && !shape.capped {
         return (Completeness::Complete, None);
     }
     let asked = ask_detail_walk(
@@ -982,6 +1014,78 @@ mod tests {
             today(),
         );
         assert!(refused.is_err(), "bug: an inverted window was accepted");
+    }
+
+    fn shape(total: usize, read: usize, withheld: bool, capped: bool) -> WindowShape {
+        WindowShape {
+            total,
+            read,
+            withheld,
+            capped,
+            floor_ts: 0,
+            top_ts: 86_400,
+        }
+    }
+
+    #[test]
+    fn a_capped_window_still_asks_the_walk_unless_rows_were_withheld() {
+        assert_eq!(
+            settled_before_walk(shape(20_000, 20_000, false, true)),
+            None,
+            "bug: a capped window whose newest rows are all read asks no walk"
+        );
+        assert_eq!(
+            settled_before_walk(shape(20_000, 9_000, true, true)),
+            Some((Completeness::Incomplete(IncompleteReason::ReadCapped), None)),
+            "bug: a capped window of withheld rows asks a walk or reads uncapped"
+        );
+        assert_eq!(
+            settled_before_walk(shape(10, 4, true, false)),
+            Some((
+                Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 6 }),
+                None
+            )),
+            "bug: withheld rows ask a walk"
+        );
+    }
+
+    #[test]
+    fn a_capped_window_reads_capped_and_carries_what_is_owed_for_it() {
+        let walking = Pending::detail_walk_running(3, Some(40), None);
+        let copying = Pending::running(2, Some(12), None);
+        let segments = (
+            Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
+            Some(walking),
+        );
+        assert_eq!(
+            settle(shape(20_000, 9_000, false, true), segments, None),
+            (
+                Completeness::Incomplete(IncompleteReason::ReadCapped),
+                Some(walking)
+            ),
+            "bug: a capped window drops the walk it asked"
+        );
+        assert_eq!(
+            settle(shape(20_000, 9_000, false, true), segments, Some(copying)),
+            (
+                Completeness::Incomplete(IncompleteReason::ReadCapped),
+                Some(copying)
+            ),
+            "bug: a capped window drops the history walk"
+        );
+        assert_eq!(
+            settle(shape(40, 9, false, false), segments, Some(copying)),
+            (
+                Completeness::Incomplete(IncompleteReason::HistoryWalkRunning),
+                Some(copying)
+            ),
+            "bug: the history walk does not come first"
+        );
+        assert_eq!(
+            settle(shape(40, 9, false, false), segments, None),
+            segments,
+            "bug: the segment reason is lost"
+        );
     }
 
     #[test]
