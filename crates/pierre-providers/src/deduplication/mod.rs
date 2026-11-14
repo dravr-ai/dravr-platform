@@ -44,6 +44,6 @@ mod detection;
 
 pub use config::DedupConfig;
 pub use detection::{
-    carries_gps_trace, is_canonical_copy, merge_duplicates, FilledField, FragmentGroup,
-    FragmentReport,
+    carries_gps_trace, is_canonical_copy, merge_duplicates, native_activity_key, FilledField,
+    FragmentGroup, FragmentReport,
 };
