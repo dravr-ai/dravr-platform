@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use async_trait::async_trait;
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use std::fmt;
 use uuid::Uuid;
@@ -33,8 +33,11 @@ pub(crate) use walk_statements::{
 
 /// A detail walk asked again while one is owed
 mod detail_walk;
+pub(crate) use detail_walk::{
+    detail_walk_ended_from_row, detail_walk_row_from_row, DETAIL_WALK_ROW_SQL, END_DETAIL_WALK_SQL,
+    WIDEN_DETAIL_WALK_SQL,
+};
 pub use detail_walk::{DetailWalkEnd, DetailWalkEnded, DetailWalkRow, WalkWiden};
-pub(crate) use detail_walk::{DETAIL_WALK_ROW_SQL, END_DETAIL_WALK_SQL, WIDEN_DETAIL_WALK_SQL};
 /// The statements of a row's life past its record
 mod job_statements;
 pub(crate) use job_statements::{
@@ -42,6 +45,11 @@ pub(crate) use job_statements::{
     FINISH_LIVE_READ_SQL, JOB_PROGRESS_SQL, REAP_EXHAUSTED_BACKFILL_JOBS_SQL,
     RELEASE_BACKFILL_JOB_CLAIM_SQL, RELEASE_BACKFILL_JOB_LEASE_SQL, RENEW_BACKFILL_JOB_LEASE_SQL,
     TAKE_OVER_IDLE_LIVE_READ_SQL,
+};
+/// The `outcome` column: how an ended row ended
+mod outcome;
+pub(crate) use outcome::{
+    backfill_job_state_of, incomplete_outcome, phase_purged_outcome, walked_outcome,
 };
 /// What a job row is for.
 ///
@@ -262,17 +270,6 @@ pub enum JobLeaseState {
     /// resume sweep, or the next ask of a live read, takes it.
     Idle,
 }
-
-/// The `outcome` an ended row carries in [`BackfillJobState::Incomplete`].
-const OUTCOME_INCOMPLETE: &str = "incomplete";
-
-/// The `outcome` an ended row carries in [`BackfillJobState::Walked`].
-const OUTCOME_WALKED: &str = "walked";
-
-/// The `outcome` a row carries in [`BackfillJobState::PhasePurged`]. Not an
-/// end: only the walk's resolution moves it on, never a step's write, the
-/// claim or the reap.
-const OUTCOME_PHASE_PURGED: &str = "phase_purged";
 
 /// Which rows a resume sweep may take.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -593,34 +590,6 @@ macro_rules! claim_backfill_jobs_sql {
     };
 }
 pub(crate) use claim_backfill_jobs_sql;
-
-/// The state an `outcome` column reads as.
-pub(crate) fn backfill_job_state_of(outcome: Option<&str>) -> AppResult<BackfillJobState> {
-    match outcome {
-        None => Ok(BackfillJobState::Owed),
-        Some(OUTCOME_INCOMPLETE) => Ok(BackfillJobState::Incomplete),
-        Some(OUTCOME_WALKED) => Ok(BackfillJobState::Walked),
-        Some(OUTCOME_PHASE_PURGED) => Ok(BackfillJobState::PhasePurged),
-        Some(other) => Err(AppError::database(format!(
-            "activity_backfill_jobs outcome is not one this build knows: {other}"
-        ))),
-    }
-}
-
-/// The `outcome` [`BackfillJobState::Incomplete`] is stored as.
-pub(crate) const fn incomplete_outcome() -> &'static str {
-    OUTCOME_INCOMPLETE
-}
-
-/// The `outcome` [`BackfillJobState::Walked`] is stored as.
-pub(crate) const fn walked_outcome() -> &'static str {
-    OUTCOME_WALKED
-}
-
-/// The `outcome` [`BackfillJobState::PhasePurged`] is stored as.
-pub(crate) const fn phase_purged_outcome() -> &'static str {
-    OUTCOME_PHASE_PURGED
-}
 
 /// Emit the whole [`ActivityBackfillJobRepository`] implementation for one
 /// backend type. The body is written once here; each backend's shell invokes
@@ -1002,8 +971,6 @@ macro_rules! impl_activity_backfill_job_repository {
                 end: &$crate::repositories::activity_backfill_jobs::DetailWalkEnd,
             ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::DetailWalkEnded>>
             {
-                let failed =
-                    |e: sqlx::Error| AppError::database(format!("Failed to end a detail walk: {e}"));
                 let row =
                     sqlx::query($crate::repositories::activity_backfill_jobs::END_DETAIL_WALK_SQL)
                         .bind(&lease.id)
@@ -1016,14 +983,12 @@ macro_rules! impl_activity_backfill_job_repository {
                         .bind(walked_outcome())
                         .fetch_optional(self.pool())
                         .await
-                        .map_err(failed)?;
-                row.map(|row| {
-                    Ok($crate::repositories::activity_backfill_jobs::DetailWalkEnded {
-                        progress: job_progress_from_row(&row)?,
-                        created_at_ms: row.try_get("created_at_ms").map_err(failed)?,
-                    })
-                })
-                .transpose()
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to end a detail walk: {e}"))
+                        })?;
+                row.as_ref()
+                    .map($crate::repositories::activity_backfill_jobs::detail_walk_ended_from_row)
+                    .transpose()
             }
 
             async fn detail_walk_row(
@@ -1033,9 +998,6 @@ macro_rules! impl_activity_backfill_job_repository {
                 provider: &str,
             ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::DetailWalkRow>>
             {
-                let failed = |e: sqlx::Error| {
-                    AppError::database(format!("Failed to read a detail walk row: {e}"))
-                };
                 let row =
                     sqlx::query($crate::repositories::activity_backfill_jobs::DETAIL_WALK_ROW_SQL)
                         .bind(user_id.to_string())
@@ -1044,19 +1006,12 @@ macro_rules! impl_activity_backfill_job_repository {
                         .bind(BackfillJobKind::DetailWalk.as_str())
                         .fetch_optional(self.pool())
                         .await
-                        .map_err(failed)?;
-                row.map(|row| {
-                    let outcome: Option<String> = row.try_get("outcome").map_err(failed)?;
-                    Ok($crate::repositories::activity_backfill_jobs::DetailWalkRow {
-                        state: backfill_job_state_of(outcome.as_deref())?,
-                        after_ts: row.try_get("after_ts").map_err(failed)?,
-                        before_ts: row.try_get("before_ts").map_err(failed)?,
-                        walk_sport: row.try_get("walk_sport").map_err(failed)?,
-                        created_at_ms: row.try_get("created_at_ms").map_err(failed)?,
-                        progress: job_progress_from_row(&row)?,
-                    })
-                })
-                .transpose()
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to read a detail walk row: {e}"))
+                        })?;
+                row.as_ref()
+                    .map($crate::repositories::activity_backfill_jobs::detail_walk_row_from_row)
+                    .transpose()
             }
 
             async fn end_history_walk(

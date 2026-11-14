@@ -4,7 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use super::{BackfillJobState, JobProgress};
+use pierre_core::errors::{AppError, AppResult};
+
+use super::{backfill_job_state_of, job_progress_from_row, BackfillJobState, JobProgress};
 
 /// What a newer ask widens an owed detail walk to
 /// ([`super::ActivityBackfillJobRepository::widen_detail_walk`]).
@@ -115,3 +117,48 @@ pub(crate) const DETAIL_WALK_ROW_SQL: &str = "SELECT outcome, after_ts, before_t
             created_at_ms, months_total, months_done, rows_landed, secs_per_unit \
      FROM activity_backfill_jobs \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
+
+fn column_error(name: &str, e: &sqlx::Error) -> AppError {
+    AppError::database(format!("activity_backfill_jobs {name}: {e}"))
+}
+
+/// The [`DetailWalkEnded`] an end's `RETURNING` row reads as.
+pub(crate) fn detail_walk_ended_from_row<R>(row: &R) -> AppResult<DetailWalkEnded>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    Ok(DetailWalkEnded {
+        progress: job_progress_from_row(row)?,
+        created_at_ms: row
+            .try_get("created_at_ms")
+            .map_err(|e| column_error("created_at_ms", &e))?,
+    })
+}
+
+/// The [`DetailWalkRow`] a [`DETAIL_WALK_ROW_SQL`] row reads as.
+pub(crate) fn detail_walk_row_from_row<R>(row: &R) -> AppResult<DetailWalkRow>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    Option<i64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    i64: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    let column = |name: &'static str| move |e: sqlx::Error| column_error(name, &e);
+    let outcome: Option<String> = row.try_get("outcome").map_err(column("outcome"))?;
+    Ok(DetailWalkRow {
+        state: backfill_job_state_of(outcome.as_deref())?,
+        after_ts: row.try_get("after_ts").map_err(column("after_ts"))?,
+        before_ts: row.try_get("before_ts").map_err(column("before_ts"))?,
+        walk_sport: row.try_get("walk_sport").map_err(column("walk_sport"))?,
+        created_at_ms: row
+            .try_get("created_at_ms")
+            .map_err(column("created_at_ms"))?,
+        progress: job_progress_from_row(row)?,
+    })
+}
