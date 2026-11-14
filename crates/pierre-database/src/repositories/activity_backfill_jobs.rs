@@ -33,68 +33,9 @@ pub(crate) use walk_statements::{
 
 /// What a job row is for.
 ///
-/// Each kind is its own row beside the others for one `(user, provider)`: a
-/// history walk, a live read and a backfill never share a slot. Stored as
-/// [`Self::as_str`]; a value this build does not know is a decode error,
-/// never a silent default.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum BackfillJobKind {
-    /// A chat's or the capture rail's deep window.
-    Backfill,
-    /// The whole-history walk, back to the account's floor.
-    HistoryWalk,
-    /// A chat read that outran its turn budget. A newer ask while it is owed
-    /// rebinds the turn it answers instead of being refused.
-    LiveRead,
-}
-
-impl BackfillJobKind {
-    /// Every kind this build runs.
-    pub const ALL: [Self; 3] = [Self::Backfill, Self::HistoryWalk, Self::LiveRead];
-
-    /// The `kind` column value.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Backfill => "backfill",
-            Self::HistoryWalk => "history_walk",
-            Self::LiveRead => "live_read",
-        }
-    }
-
-    /// The kind a stored `kind` value names.
-    ///
-    /// # Errors
-    ///
-    /// A value this build does not know.
-    pub fn parse(stored: &str) -> AppResult<Self> {
-        match stored {
-            "backfill" => Ok(Self::Backfill),
-            "history_walk" => Ok(Self::HistoryWalk),
-            "live_read" => Ok(Self::LiveRead),
-            other => Err(AppError::database(format!(
-                "activity_backfill_jobs kind is not one this build knows: {other}"
-            ))),
-        }
-    }
-}
-
-/// The `kind` values this build runs, as an SQL list. The claim and the reap
-/// take only these, so a row a newer build wrote during a rolling deploy is
-/// left for that build instead of failing the whole batch it was claimed
-/// with. [`BackfillJobKind::ALL`] and the test beside it keep the two in step.
-macro_rules! known_backfill_job_kinds {
-    () => {
-        "('backfill', 'history_walk', 'live_read')"
-    };
-}
-pub(crate) use known_backfill_job_kinds;
-
-impl fmt::Display for BackfillJobKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
+mod kind;
+pub(crate) use kind::known_backfill_job_kinds;
+pub use kind::BackfillJobKind;
 
 /// How far a job has got: what a history walk reports while it runs.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -1207,38 +1148,3 @@ macro_rules! impl_activity_backfill_job_repository {
     };
 }
 pub(crate) use impl_activity_backfill_job_repository;
-
-#[cfg(test)]
-mod tests {
-    use super::BackfillJobKind;
-
-    /// The claim and the reap filter on the SQL list, so a kind added to the
-    /// enum without the list would be recorded and never run.
-    #[test]
-    fn the_sql_kind_list_names_every_kind_this_build_runs() {
-        let listed: Vec<&str> = known_backfill_job_kinds!()
-            .trim_matches(|c| c == '(' || c == ')')
-            .split(", ")
-            .map(|quoted| quoted.trim_matches('\''))
-            .collect();
-        let runs: Vec<&str> = BackfillJobKind::ALL
-            .iter()
-            .map(|kind| kind.as_str())
-            .collect();
-        assert_eq!(
-            listed, runs,
-            "bug: the SQL kind list drifted from the kinds this build runs"
-        );
-        for kind in BackfillJobKind::ALL {
-            let parsed = BackfillJobKind::parse(kind.as_str())
-                .expect("bug: a kind this build runs does not parse back");
-            assert_eq!(parsed, kind, "bug: {kind} does not round-trip");
-            match kind {
-                // A new variant fails this match until ALL and the list name it.
-                BackfillJobKind::Backfill
-                | BackfillJobKind::HistoryWalk
-                | BackfillJobKind::LiveRead => {}
-            }
-        }
-    }
-}
