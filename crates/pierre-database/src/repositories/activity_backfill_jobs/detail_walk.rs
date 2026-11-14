@@ -22,7 +22,7 @@ pub struct WalkWiden {
     /// count when it lands, and what it walks after is counted unread and
     /// done at once. The total is what the progress shows, never what ends
     /// the walk: its cursor passing the floor does
-    /// ([`END_DETAIL_WALK_SQL`]).
+    /// ([`super::ActivityBackfillJobRepository::end_detail_walk`]).
     pub units_left: i64,
 }
 
