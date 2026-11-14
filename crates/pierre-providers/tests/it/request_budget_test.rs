@@ -23,9 +23,9 @@ use pierre_database::RepositoryRegistry;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{
     api_key_counter_key, budget_counter_key, budget_period, detail_walk_athlete_counter_key,
-    detail_walk_counter_key, in_background, in_detail_walk, is_background, ProviderRateLimiter,
-    RateLimitStatus, RequestBudget, DETAIL_WALK_DAILY_CALLS, FIFTEEN_MINUTES, ONE_DAY,
-    PLATFORM_SCOPE,
+    detail_walk_counter_key, in_background, in_detail_walk, is_background, refused_before_send,
+    ProviderRateLimiter, RateLimitStatus, RequestBudget, DETAIL_WALK_DAILY_CALLS, FIFTEEN_MINUTES,
+    ONE_DAY, PLATFORM_SCOPE,
 };
 use pierre_test_support::db::create_test_db;
 use tokio::time::sleep;
@@ -981,4 +981,43 @@ async fn a_provider_without_detail_walk_windows_takes_only_its_background_share(
         .await,
         0
     );
+}
+
+/// A credential's budget refuses a walk call past the athlete's day with the
+/// limiter's own refusal, sent nothing, and waits until the athlete's day
+/// ends at midnight UTC, the end a paused walk resumes at.
+#[tokio::test]
+async fn a_detail_walk_refusal_waits_until_the_athletes_day_ends() {
+    let repos = database().await;
+    let limiter = Arc::new(limiter_over(&repos));
+    let athlete = walker();
+    let holder = budget_counter_key("strava", APP);
+    spend(
+        &repos,
+        &detail_walk_athlete_counter_key(&holder, athlete),
+        ONE_DAY,
+        i64::from(DETAIL_WALK_DAILY_CALLS),
+    )
+    .await;
+    let budget = RequestBudget::new(Arc::clone(&limiter), APP.to_owned(), None);
+
+    let refused = in_detail_walk(athlete, budget.admit("strava"))
+        .await
+        .unwrap_err();
+
+    assert_eq!(refused.code, ErrorCode::ExternalRateLimited);
+    assert!(refused_before_send(&refused), "nothing was sent");
+    let now = Utc::now().timestamp();
+    let to_midnight = i64::try_from(ONE_DAY.as_secs()).unwrap() - now.rem_euclid(86_400);
+    let wait = i64::try_from(
+        refused
+            .retry_after_secs()
+            .expect("the refusal names its wait"),
+    )
+    .unwrap();
+    assert!(
+        (to_midnight - wait).abs() <= 5,
+        "the wait {wait}s is the athlete's day, ending in {to_midnight}s"
+    );
+    assert_eq!(spent(&repos, &holder, FIFTEEN_MINUTES).await, 0);
 }
