@@ -147,7 +147,9 @@ impl StravaProvider {
             first_error.resource, first_error.field, first_error.error_code
         );
 
-        let resource_id = url.split('/').next_back().unwrap_or("unknown").to_owned();
+        // The last path segment, without the query a detail read carries.
+        let path = url.split('?').next().unwrap_or(url);
+        let resource_id = path.split('/').next_back().unwrap_or("unknown").to_owned();
 
         Some(ProviderError::NotFound {
             provider: oauth_providers::STRAVA.to_owned(),
@@ -361,6 +363,7 @@ impl StravaProvider {
     ) -> AppResult<Activity> {
         let splits = Self::convert_strava_splits(detailed.splits_metric.as_deref());
         let laps = Self::convert_strava_laps(detailed.laps.as_deref());
+        let efforts = Self::convert_strava_segment_efforts(detailed.segment_efforts.as_deref());
 
         // Kudos, comment, athlete, photo, and achievement counts are surfaced
         // only to the Strava UI — not to agent reasoning — so we drop them
@@ -368,6 +371,7 @@ impl StravaProvider {
         Ok(Self::strava_activity_builder(detailed.summary)?
             .splits_opt(splits)
             .laps_opt(laps)
+            .segment_efforts(efforts)
             .description_opt(detailed.description.filter(|d| !d.trim().is_empty()))
             // The recording device, which names the Garmin model a
             // Garmin-recorded activity is attributed to (carnet#521).
@@ -542,7 +546,7 @@ impl StravaProvider {
     /// # Errors
     /// Returns error if API request fails, authentication is invalid, or response parsing fails
     pub async fn get_activity_details(&self, id: &str) -> AppResult<Activity> {
-        let endpoint = format!("activities/{id}");
+        let endpoint = detail_endpoint(id);
         let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
         Self::convert_detailed_strava_activity(detailed_activity, None)
     }
@@ -556,7 +560,7 @@ impl StravaProvider {
     /// Best-effort on the streams half otherwise: a streams request that
     /// failed degrades to the plain detail activity, with no stream set.
     async fn get_activity_details_with_streams(&self, id: &str) -> AppResult<Activity> {
-        let endpoint = format!("activities/{id}");
+        let endpoint = detail_endpoint(id);
         let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
         let streams = match self.fetch_streams(id).await {
             Ok(streams) => streams,
@@ -1091,6 +1095,13 @@ impl ProviderFactory for StravaProviderFactory {
     }
 }
 
+/// The detail endpoint of activity `id`, asking for every segment effort:
+/// without `include_all_efforts` Strava sends only the ones it deems
+/// important, and a detail read stamps the efforts it got as all of them.
+fn detail_endpoint(id: &str) -> String {
+    format!("activities/{id}?include_all_efforts=true")
+}
+
 /// Seconds east of UTC from Strava's `utc_offset`, or `None` for a value that
 /// is not a whole second count inside every civil zone.
 fn strava_utc_offset(seconds: f64) -> Option<i32> {
@@ -1104,3 +1115,6 @@ fn strava_utc_offset(seconds: f64) -> Option<i32> {
 
 /// The field dictionary guard for this mapper.
 mod field_guard;
+
+/// Segment efforts: the detail read's, and one segment's listed.
+mod segments;

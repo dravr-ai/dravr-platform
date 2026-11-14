@@ -586,7 +586,8 @@ pub struct StravaDescriptor;
 #[cfg(feature = "provider-strava")]
 impl ProviderDescriptor for StravaDescriptor {
     /// The API's summary on every list row; the athlete's words, the gear and
-    /// the device, laps and splits on the detail read; nine stream channels.
+    /// the device, laps, splits and every segment effort on the detail read;
+    /// nine stream channels.
     fn activity_fields(&self) -> ActivityFieldSupport {
         ActivityFieldSupport {
             list: F::WORKOUT_TYPE
@@ -607,6 +608,7 @@ impl ProviderDescriptor for StravaDescriptor {
                 .union(F::DEVICE)
                 .union(F::LAPS)
                 .union(F::SPLITS)
+                .union(F::SEGMENT_EFFORTS)
                 .union(F::PERCEIVED_EXERTION),
             streams: S::all(),
         }
