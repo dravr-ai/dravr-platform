@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 92
+// Tool count: 93
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -772,6 +772,28 @@ export interface GetRecoveryMetricsParams {
 
   /** RFC3339 start; defaults to 30 days before `end`; a range longer than 366 days keeps its most recent 366. */
   start?: string;
+}
+
+
+/**
+ * Every effort the athlete made on one segment (a named climb or stretch of road) in a window, with each effort's activity, the count per year and the best time. coverage.window.total counts the window's activities, returned those whose segments were read; when incomplete, say how many were read, not a final count or best.
+ */
+export interface GetSegmentHistoryParams {
+
+  /** YYYY-MM-DD; default ten years before to. */
+  from?: string;
+
+  /** Segment id, from an activity's segment_efforts. This or segment_name. */
+  segment_id?: string;
+
+  /** Segment name or part of it; case and accents ignored. This or segment_id. */
+  segment_name?: string;
+
+  /** Only this sport (Ride, Run). */
+  sport_type?: string;
+
+  /** YYYY-MM-DD, included; default today. */
+  to?: string;
 }
 
 
@@ -2050,6 +2072,7 @@ export const TOOL_NAMES = [
   "get_recipe",
   "get_recipe_constraints",
   "get_recovery_metrics",
+  "get_segment_history",
   "get_sleep_sessions",
   "get_stats",
   "get_stretching_exercise",
@@ -2153,6 +2176,7 @@ export interface ToolParamsMap {
   "get_recipe": GetRecipeParams;
   "get_recipe_constraints": GetRecipeConstraintsParams;
   "get_recovery_metrics": GetRecoveryMetricsParams;
+  "get_segment_history": GetSegmentHistoryParams;
   "get_sleep_sessions": GetSleepSessionsParams;
   "get_stats": GetStatsParams;
   "get_stretching_exercise": GetStretchingExerciseParams;
