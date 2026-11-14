@@ -80,6 +80,8 @@ pub(crate) struct MockStrava {
     details: Mutex<Vec<i64>>,
     /// The ids it answers `404` for.
     pub(crate) missing: Mutex<HashSet<i64>>,
+    /// The ids it answers `503` for: Strava down, not the ride gone.
+    pub(crate) failing: Mutex<HashSet<i64>>,
     /// The gate the next detail read waits on once it is counted.
     hold: Mutex<Option<Arc<Notify>>>,
     /// Raised when a detail read reached the gate.
@@ -120,6 +122,9 @@ async fn activity_detail(
     }
     if mock.missing.lock().unwrap().contains(&id) {
         return Err(StatusCode::NOT_FOUND);
+    }
+    if mock.failing.lock().unwrap().contains(&id) {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
     }
     let start = Utc.timestamp_opt(id, 0).unwrap();
     Ok(Json(json!({
@@ -430,6 +435,87 @@ async fn an_unreadable_ride_is_walked_past_and_kept() {
     assert!(
         session_ids.contains(&starts[1].to_string()),
         "bug: a ride the API answered 404 for was deleted from the store: {session_ids:?}"
+    );
+}
+
+/// Strava failing (`503`) is not the ride gone: the walk stops at it, keeps
+/// what it read before it, counts it neither read nor walked past, and reads
+/// it again once Strava answers. Only then does the walk end walked.
+#[tokio::test]
+async fn a_ride_strava_fails_on_is_read_again_not_walked_past() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let starts = [now - 5 * DAY, now - 6 * DAY, now - 7 * DAY];
+    mock.failing.lock().unwrap().insert(starts[1]);
+    store_rides(&resources, user_id, tenant, SESSION, &starts).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        since(now - 10 * DAY),
+    )
+    .await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 3 },
+        "the three rides are owed"
+    );
+    let deadline = Instant::now() + WALK_DEADLINE;
+    let settled = loop {
+        let row = walk_row(&resources, user_id, tenant)
+            .await
+            .expect("the walk's row");
+        if row.state != BackfillJobState::Owed || row.progress.units_done > 0 {
+            break row;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the walk's first step did not settle within {WALK_DEADLINE:?} (row: {row:?})"
+        );
+        sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(
+        settled.state,
+        BackfillJobState::Owed,
+        "bug: a walk ended over a ride Strava failed on: {settled:?}"
+    );
+    assert_eq!(
+        (settled.progress.units_done, settled.progress.rows_landed),
+        (1, 1),
+        "bug: the ride Strava failed on is counted done: {settled:?}"
+    );
+    assert!(
+        !mock.detail_reads().contains(&starts[2]),
+        "bug: the walk read on past a ride Strava failed on: {:?}",
+        mock.detail_reads()
+    );
+
+    mock.failing.lock().unwrap().clear();
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "the walk ends walked once Strava answers: {ended:?}"
+    );
+    assert_eq!(
+        (ended.progress.units_done, ended.progress.rows_landed),
+        (3, 3),
+        "bug: the ride Strava failed on was not read again: {ended:?}"
+    );
+    assert_eq!(
+        mock.detail_reads()
+            .iter()
+            .filter(|id| **id == starts[1])
+            .count(),
+        2,
+        "bug: the ride Strava failed on was not read again once it answered: {:?}",
+        mock.detail_reads()
     );
 }
 

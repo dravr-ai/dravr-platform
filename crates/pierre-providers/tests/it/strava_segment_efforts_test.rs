@@ -145,6 +145,36 @@ async fn a_missing_activity_is_named_by_its_id_alone() {
     );
 }
 
+/// Strava's `404` on a detail read is its answer that the activity is gone,
+/// whether or not its body names the resource; a `503` is Strava failing.
+/// A detail walk walks past the first and reads the second again, so they
+/// must not share a code.
+#[tokio::test]
+async fn a_missing_activity_is_not_a_failed_request() {
+    let named = r#"{"message":"Resource Not Found","errors":[{"resource":"Activity","field":"id","code":"invalid"}]}"#;
+    for (status, body, code) in [
+        ("404 Not Found", named, ErrorCode::ResourceNotFound),
+        ("404 Not Found", "", ErrorCode::ResourceNotFound),
+        (
+            "503 Service Unavailable",
+            "",
+            ErrorCode::ExternalServiceError,
+        ),
+    ] {
+        let (base_url, served) = stub(vec![(status, body.to_owned())]).await;
+        let err = provider(base_url)
+            .await
+            .get_activity("123")
+            .await
+            .expect_err("a non-success status is no activity");
+        served.await.unwrap();
+        assert_eq!(
+            err.code, code,
+            "bug: Strava's {status} (body {body:?}) is read as the wrong failure: {err}"
+        );
+    }
+}
+
 /// One row of `GET /segment_efforts` on segment 611413, in activity
 /// `activity`; `None` for a row that names no activity.
 fn listed_effort(id: usize, activity: Option<usize>) -> String {

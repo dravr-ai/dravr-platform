@@ -147,26 +147,41 @@ impl StravaProvider {
             first_error.resource, first_error.field, first_error.error_code
         );
 
-        // The last path segment, without the query a detail read carries.
-        let path = url.split('?').next().unwrap_or(url);
-        let resource_id = path.split('/').next_back().unwrap_or("unknown").to_owned();
-
         Some(ProviderError::NotFound {
             provider: oauth_providers::STRAVA.to_owned(),
             resource_type: first_error.resource,
-            resource_id,
+            resource_id: Self::requested_resource_id(url),
         })
     }
 
-    /// Strava names the missing resource in a 404 body, which says more than
-    /// the status code does; everything else — including the 401 → re-auth
-    /// mapping — is the shared behaviour in [`utils::api_error`].
+    /// The last path segment of `url`, without the query a detail read
+    /// carries: the id of the resource it asked for.
+    fn requested_resource_id(url: &str) -> String {
+        let path = url.split('?').next().unwrap_or(url);
+        path.split('/').next_back().unwrap_or("unknown").to_owned()
+    }
+
+    /// A `404` is Strava's answer that the resource asked for is missing —
+    /// deleted, private, or never there — never a request that failed:
+    /// [`ErrorCode::ResourceNotFound`], which the circuit breaker counts as
+    /// an answer and a detail walk walks past, where a failed request is
+    /// read again. The body names the resource when Strava sends one.
+    /// Everything else — including the 401 → re-auth mapping — is the shared
+    /// behaviour in [`utils::api_error`].
     fn missing_resource(status: reqwest::StatusCode, text: &str, url: &str) -> Option<AppError> {
-        if status.as_u16() != 404 {
+        if status != reqwest::StatusCode::NOT_FOUND {
             return None;
         }
-        Self::parse_not_found_error(text, url)
-            .map(|err| AppError::external_service(oauth_providers::STRAVA, err.to_string()))
+        let missing =
+            Self::parse_not_found_error(text, url).unwrap_or_else(|| ProviderError::NotFound {
+                provider: oauth_providers::STRAVA.to_owned(),
+                resource_type: "resource".to_owned(),
+                resource_id: Self::requested_resource_id(url),
+            });
+        Some(AppError::new(
+            ErrorCode::ResourceNotFound,
+            missing.to_string(),
+        ))
     }
 
     /// Retrieve the current access token from credentials

@@ -8,7 +8,7 @@ use std::slice;
 use std::time::Instant;
 
 use chrono::{DateTime, Utc};
-use pierre_core::errors::{AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::Activity;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{DetailWalkEnd, JobLease, JobProgressStep};
@@ -238,17 +238,63 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
 enum Read {
     /// Its detail is stored beside its row.
     Stored,
-    /// The backend could not read it, or no row stands to store it beside:
-    /// it is walked past.
+    /// The backend answered that it cannot be read ([`answered_unreadable`]),
+    /// or no row stands to store it beside: it is walked past.
     Skipped,
     /// A spent budget refused the read.
     Paused(Option<i64>),
     /// The backend's credential is dead.
     AuthRequired,
-    /// The store failed.
+    /// The store failed, or the backend failed to answer for it: the step
+    /// stops, and the activity is read again.
     Failed,
     /// The step's row is no longer its own.
     Stopped,
+}
+
+/// What the backend failing to read the activity `id` comes to
+/// ([`failure_read`]), logged.
+fn read_failed(job: &ActivityBackfillJob, id: &str, e: &AppError) -> Read {
+    let read = failure_read(e);
+    // Walked past or paused is the walk working as it should; the rest
+    // leaves it short.
+    if matches!(read, Read::Skipped | Read::Paused(_)) {
+        info!(user_id = %job.user_id, provider = %job.provider_name, activity_id = %id, error = %e, ?read, "Detail walk: the backend did not read an activity");
+    } else {
+        warn!(user_id = %job.user_id, provider = %job.provider_name, activity_id = %id, error = %e, ?read, "Detail walk: the backend failed to read an activity");
+    }
+    read
+}
+
+/// What a failed detail read comes to: a spent budget pauses the walk, a
+/// dead credential ends it, an answer that the activity cannot be read
+/// walks past it ([`answered_unreadable`]), and any other failure — the
+/// backend down, unreachable, its breaker open or its answer undecodable —
+/// says nothing about the activity, so the step stops at it and the walk
+/// reads it again.
+fn failure_read(e: &AppError) -> Read {
+    if e.code == ErrorCode::ExternalRateLimited {
+        Read::Paused(retry_at_ms(e))
+    } else if e.provider_auth_required_provider().is_some() {
+        Read::AuthRequired
+    } else if answered_unreadable(e) {
+        Read::Skipped
+    } else {
+        Read::Failed
+    }
+}
+
+/// Whether `error` is the backend's answer that this one activity cannot
+/// be read: it is missing (deleted, made private), or the backend refuses
+/// its id as malformed. A walk walks past such an activity and never asks
+/// for it again. Any other failure says nothing about the activity — the
+/// backend down, a request that never reached it, an open circuit breaker
+/// — so the step stops at it ([`Read::Failed`]) and the walk reads it again.
+const fn answered_unreadable(error: &AppError) -> bool {
+    matches!(
+        error.code,
+        ErrorCode::ResourceNotFound | ErrorCode::InvalidInput | ErrorCode::InvalidFormat
+    )
 }
 
 /// What one step reads through.
@@ -281,22 +327,10 @@ impl Reader<'_> {
             ai_scope::unfiltered(self.provider.get_activity(&id)),
         )
         .await;
-        let detailed = match fetched {
-            Ok(detailed) => detailed,
-            Err(e) if e.code == ErrorCode::ExternalRateLimited => {
-                info!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Detail walk: a budget refused the read; the walk pauses");
-                return Read::Paused(retry_at_ms(&e));
-            }
-            Err(e) if e.provider_auth_required_provider().is_some() => {
-                warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Detail walk: the backend's credential is dead");
-                return Read::AuthRequired;
-            }
-            Err(e) => {
-                info!(user_id = %job.user_id, provider = %job.provider_name, activity_id = %id, error = %e, "Detail walk: the backend could not read an activity; walked past");
-                return Read::Skipped;
-            }
-        };
-        self.store(&listed.provider, &detailed).await
+        match fetched {
+            Ok(detailed) => self.store(&listed.provider, &detailed).await,
+            Err(e) => read_failed(job, &id, &e),
+        }
     }
 
     /// Store `detailed` beside the row it details, listed under `listed`;
