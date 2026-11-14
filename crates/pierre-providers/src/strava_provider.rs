@@ -10,7 +10,7 @@
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
     keep_timed, no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials,
-    ProviderConfig, TokenRefreshCallback,
+    ProviderConfig, SegmentEffortHit, SegmentEffortWindow, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use crate::activity_paging::pages_for;
@@ -877,6 +877,14 @@ impl FitnessProvider for StravaProvider {
 
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
         self.fetch_streams(id).await
+    }
+
+    async fn segment_effort_history(
+        &self,
+        segment_id: &str,
+        window: SegmentEffortWindow,
+    ) -> AppResult<Vec<SegmentEffortHit>> {
+        self.list_segment_efforts(segment_id, window).await
     }
 
     async fn get_stats(&self) -> AppResult<Stats> {

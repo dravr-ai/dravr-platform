@@ -233,6 +233,12 @@ bitflags::bitflags! {
         /// ([`ProviderCapabilities::is_push_only`]). A delivery mode, not a
         /// data scope: it names no capability on a provider card.
         const PUSH_ONLY = 0b0001_0000_0000_0000;
+        /// Provider lists the athlete's efforts on one segment over a window,
+        /// across every activity, through
+        /// `FitnessProvider::segment_effort_history`: one call where the
+        /// stored details would need every activity read. A read capability,
+        /// never a data scope: it names nothing on a provider card.
+        const SEGMENT_EFFORT_HISTORY = 0b0010_0000_0000_0000;
     }
 }
 
@@ -305,6 +311,12 @@ impl ProviderCapabilities {
     #[must_use]
     pub const fn supports_planned_workouts(&self) -> bool {
         self.contains(Self::PLANNED_WORKOUTS)
+    }
+
+    /// Check if the provider lists the athlete's efforts on one segment
+    #[must_use]
+    pub const fn supports_segment_effort_history(&self) -> bool {
+        self.contains(Self::SEGMENT_EFFORT_HISTORY)
     }
 
     /// Check if a coach account reads its athletes through the provider
@@ -623,7 +635,7 @@ impl ProviderDescriptor for StravaDescriptor {
     }
 
     fn capabilities(&self) -> ProviderCapabilities {
-        ProviderCapabilities::activity_only()
+        ProviderCapabilities::activity_only().union(ProviderCapabilities::SEGMENT_EFFORT_HISTORY)
     }
 
     fn oauth_endpoints(&self) -> Option<OAuthEndpoints> {

@@ -14,8 +14,22 @@
 use chrono::{DateTime, Utc};
 
 use super::{f32_to_u32, StravaProvider};
-use crate::models::SegmentEffort;
+use crate::constants::oauth_providers;
+use crate::core::{SegmentEffortHit, SegmentEffortWindow};
+use crate::errors::{AppError, AppResult};
+use crate::models::{resolve_sport_type, SegmentEffort, SportType};
 use crate::strava_types::StravaSegmentEffort;
+
+/// Efforts one `GET /segment_efforts` page holds at most: Strava's ceiling.
+const EFFORTS_PER_PAGE: usize = 200;
+
+/// Pages one listing reads before giving up: 4,000 efforts, more than a
+/// decade of a daily commute over one segment.
+///
+/// A segment with more efforts than that in the window is refused rather
+/// than listed short, so the caller answers from the stored details instead
+/// of from a list that silently stops.
+const MAX_PAGES: u32 = 20;
 
 impl StravaProvider {
     /// A detail read's efforts, every one that maps; an empty list, never
@@ -28,6 +42,74 @@ impl StravaProvider {
             .filter_map(convert_segment_effort)
             .collect()
     }
+
+    /// Every effort the athlete made on segment `segment_id` over `window`,
+    /// page by page until a short page (`GET /segment_efforts`).
+    ///
+    /// # Errors
+    /// `InvalidInput` for a segment id that is not a number or a window that
+    /// ends before it starts, before any request; the request's own error
+    /// otherwise; and an external-service error for a segment with more
+    /// efforts in the window than [`MAX_PAGES`] pages hold.
+    pub(super) async fn list_segment_efforts(
+        &self,
+        segment_id: &str,
+        window: SegmentEffortWindow,
+    ) -> AppResult<Vec<SegmentEffortHit>> {
+        let segment: u64 = segment_id
+            .trim()
+            .parse()
+            .map_err(|_| AppError::invalid_input("a Strava segment id is a number"))?;
+        if window.to < window.from {
+            return Err(AppError::invalid_input(
+                "a segment's efforts are listed over a window that ends after it starts",
+            ));
+        }
+        let mut hits = Vec::new();
+        for page in 1..=MAX_PAGES {
+            let rows: Vec<StravaSegmentEffort> = self
+                .api_request(&segment_efforts_endpoint(segment, window, page))
+                .await?;
+            hits.extend(rows.iter().filter_map(convert_hit));
+            if rows.len() < EFFORTS_PER_PAGE {
+                return Ok(hits);
+            }
+        }
+        Err(AppError::external_service(
+            oauth_providers::STRAVA,
+            format!(
+                "segment {segment} holds more than {} efforts in the window; the listing stopped",
+                EFFORTS_PER_PAGE * MAX_PAGES as usize
+            ),
+        ))
+    }
+}
+
+/// Page `page` of the athlete's efforts on `segment` over `window`. Strava
+/// reads `start_date_local` and `end_date_local` on the athlete's own clock.
+fn segment_efforts_endpoint(segment: u64, window: SegmentEffortWindow, page: u32) -> String {
+    format!(
+        "segment_efforts?segment_id={segment}&start_date_local={}T00:00:00Z&end_date_local={}T23:59:59Z&per_page={EFFORTS_PER_PAGE}&page={page}",
+        window.from.format("%Y-%m-%d"),
+        window.to.format("%Y-%m-%d"),
+    )
+}
+
+/// One row of `GET /segment_efforts` as a hit, or `None` when the effort does
+/// not map or names no activity: a hit is always addressable by its activity.
+fn convert_hit(raw: &StravaSegmentEffort) -> Option<SegmentEffortHit> {
+    let activity_id = raw.activity.as_ref()?.id?.to_string();
+    let activity_type = raw
+        .segment
+        .as_ref()
+        .and_then(|segment| segment.activity_type.as_deref())
+        .filter(|kind| !kind.is_empty())
+        .map(|kind| resolve_sport_type(kind).unwrap_or_else(|| SportType::Other(kind.to_owned())));
+    Some(SegmentEffortHit {
+        effort: convert_segment_effort(raw)?,
+        activity_id,
+        activity_type,
+    })
 }
 
 /// One Strava effort as cageux's [`SegmentEffort`], or `None` when it lacks a
@@ -211,6 +293,23 @@ mod tests {
             mapped(&json!({ "segment_efforts": [effort(9_005, None)] })),
             Some(Vec::new()),
             "bug: every effort skipped still stamps the read"
+        );
+    }
+
+    /// The Strava API lists one segment's efforts; Strava's session (sciotte)
+    /// reads the athlete's pages and does not.
+    #[test]
+    fn strava_declares_the_segment_effort_listing() {
+        use crate::spi::{ProviderCapabilities, ProviderDescriptor, StravaDescriptor};
+        assert!(
+            StravaDescriptor
+                .capabilities()
+                .supports_segment_effort_history(),
+            "bug: the Strava API lists a segment's efforts and must say so"
+        );
+        assert!(
+            !ProviderCapabilities::activity_only().supports_segment_effort_history(),
+            "bug: the flag is Strava's own, not every activity provider's"
         );
     }
 }

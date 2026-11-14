@@ -24,7 +24,7 @@ use super::{
 };
 use crate::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
-    TokenRefreshCallback,
+    SegmentEffortHit, SegmentEffortWindow, TokenRefreshCallback,
 };
 
 /// A provider whose reads return only what each provider's terms let the
@@ -177,6 +177,17 @@ impl FitnessProvider for AiGovernedProvider {
         self.inner.read_thresholds(primary_sport).await
     }
 
+    /// Gated as a read without item provenance: the provider's terms decide
+    /// before it is asked, so Strava's efforts never reach an external caller.
+    async fn segment_effort_history(
+        &self,
+        segment_id: &str,
+        window: SegmentEffortWindow,
+    ) -> AppResult<Vec<SegmentEffortHit>> {
+        self.untagged_read()?;
+        self.inner.segment_effort_history(segment_id, window).await
+    }
+
     async fn list_planned_workouts(
         &self,
         after: NaiveDate,
@@ -220,5 +231,199 @@ impl FitnessProvider for AiGovernedProvider {
 
     async fn delete_planned_sessions(&self, provider_event_ids: &[String]) -> AppResult<u64> {
         self.inner.delete_planned_sessions(provider_event_ids).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeSet;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    use async_trait::async_trait;
+    use chrono::{NaiveDate, TimeZone, Utc};
+    use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
+    use pierre_core::errors::{AppError, AppResult, ErrorCode};
+    use pierre_core::models::{Activity, Athlete, SegmentEffort, Stats};
+    use pierre_core::pagination::{CursorPage, PaginationParams};
+    use pierre_core::transport::{Transport, TransportPolicy};
+
+    use super::AiGovernedProvider;
+    use crate::ai_scope::{ai_read, serve_over, with_ai_consent};
+    use crate::core::{
+        ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, SegmentEffortHit,
+        SegmentEffortWindow,
+    };
+
+    /// Terms that keep Strava's data on Dravr's own surfaces, as its
+    /// descriptor declares.
+    struct StravaFirstParty;
+
+    impl ProviderTerms for StravaFirstParty {
+        fn ai_policy(&self, _provider: &str) -> Option<&'static SourcePolicy> {
+            None
+        }
+
+        fn transport_policy(&self, provider: &str) -> Option<TransportPolicy> {
+            (provider == "strava").then_some(TransportPolicy::FirstPartyOnly)
+        }
+    }
+
+    /// A Strava provider that lists one effort on any segment and counts the
+    /// listings it was asked for.
+    struct Listing {
+        config: ProviderConfig,
+        calls: Arc<AtomicUsize>,
+    }
+
+    fn hit() -> SegmentEffortHit {
+        SegmentEffortHit {
+            effort: SegmentEffort {
+                id: "9001".to_owned(),
+                segment_id: Some("611413".to_owned()),
+                name: "Camillien-Houde".to_owned(),
+                elapsed_time: 412,
+                moving_time: None,
+                start_date: Utc.with_ymd_and_hms(2026, 6, 1, 12, 0, 0).unwrap(),
+                distance: 1_820.5,
+                average_heart_rate: None,
+                max_heart_rate: None,
+                average_cadence: None,
+                average_watts: None,
+                kom_rank: None,
+                pr_rank: Some(1),
+                climb_category: None,
+                average_grade: None,
+                elevation_gain: None,
+            },
+            activity_id: "16101".to_owned(),
+            activity_type: None,
+        }
+    }
+
+    #[async_trait]
+    impl FitnessProvider for Listing {
+        fn name(&self) -> &'static str {
+            "strava"
+        }
+
+        fn config(&self) -> &ProviderConfig {
+            &self.config
+        }
+
+        async fn set_credentials(&self, _credentials: OAuth2Credentials) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn is_authenticated(&self) -> bool {
+            true
+        }
+
+        async fn refresh_token_if_needed(&self) -> AppResult<()> {
+            Ok(())
+        }
+
+        async fn get_athlete(&self) -> AppResult<Athlete> {
+            Err(AppError::internal("not used by these tests"))
+        }
+
+        async fn get_activities_with_params(
+            &self,
+            _params: &ActivityQueryParams,
+        ) -> AppResult<Vec<Activity>> {
+            Ok(Vec::new())
+        }
+
+        async fn get_activities_cursor(
+            &self,
+            _params: &PaginationParams,
+        ) -> AppResult<CursorPage<Activity>> {
+            Ok(CursorPage::new(Vec::new(), None, None, false))
+        }
+
+        async fn get_activity(&self, id: &str) -> AppResult<Activity> {
+            Err(AppError::not_found(id.to_owned()))
+        }
+
+        async fn get_stats(&self) -> AppResult<Stats> {
+            Err(AppError::internal("not used by these tests"))
+        }
+
+        async fn segment_effort_history(
+            &self,
+            _segment_id: &str,
+            _window: SegmentEffortWindow,
+        ) -> AppResult<Vec<SegmentEffortHit>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(vec![hit()])
+        }
+    }
+
+    fn governed() -> (Box<dyn FitnessProvider>, Arc<AtomicUsize>) {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let inner = Listing {
+            config: ProviderConfig {
+                name: "strava".to_owned(),
+                auth_url: String::new(),
+                token_url: String::new(),
+                api_base_url: String::new(),
+                revoke_url: None,
+                default_scopes: Vec::new(),
+            },
+            calls: Arc::clone(&calls),
+        };
+        (
+            AiGovernedProvider::wrap(Box::new(inner), Arc::new(StravaFirstParty)),
+            calls,
+        )
+    }
+
+    fn window() -> SegmentEffortWindow {
+        SegmentEffortWindow {
+            from: NaiveDate::from_ymd_opt(2026, 1, 1).unwrap(),
+            to: NaiveDate::from_ymd_opt(2026, 11, 13).unwrap(),
+        }
+    }
+
+    /// Strava's terms keep its data off every MCP and agent interface, so an
+    /// external caller is refused before the provider is asked at all.
+    #[tokio::test]
+    async fn an_external_caller_is_refused_a_segments_efforts_before_any_call() {
+        let (provider, calls) = governed();
+        let (listed, _) = serve_over(
+            Transport::McpHttp,
+            ai_read(provider.segment_effort_history("611413", window())),
+        )
+        .await;
+        assert_eq!(
+            listed
+                .expect_err("bug: Strava efforts reached an MCP caller")
+                .code,
+            ErrorCode::UnavailableOverTransport
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "bug: the provider was asked before the gate refused"
+        );
+    }
+
+    #[tokio::test]
+    async fn dravrs_own_surfaces_get_the_providers_listing() {
+        let (provider, calls) = governed();
+        let (listed, _) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(
+                BTreeSet::new(),
+                ai_read(provider.segment_effort_history("611413", window())),
+            ),
+        )
+        .await;
+        assert_eq!(
+            listed.expect("bug: the athlete's own surface reads the listing"),
+            vec![hit()],
+            "bug: the wrapper must forward to the provider, not answer for it"
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
 }

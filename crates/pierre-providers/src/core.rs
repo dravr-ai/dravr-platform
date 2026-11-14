@@ -128,7 +128,7 @@ use crate::delegation::{CoachRoster, DelegatedReads};
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SportType, Stats, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
+    SegmentEffort, SportType, Stats, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget::RequestBudget;
@@ -615,6 +615,25 @@ pub trait FitnessProvider: Send + Sync {
         Err(planned_workouts_unsupported(self.name()))
     }
 
+    // ── Segment efforts ──────────────────────────────────────────────────
+
+    /// Every effort the athlete made on segment `segment_id` over `window`,
+    /// read live from the provider, in the order it lists them.
+    ///
+    /// A provider overrides this when its descriptor declares
+    /// [`ProviderCapabilities::SEGMENT_EFFORT_HISTORY`](crate::spi::ProviderCapabilities::SEGMENT_EFFORT_HISTORY).
+    /// Every other provider inherits the refusal from
+    /// [`segment_effort_history_unsupported`]: an empty list would read as a
+    /// segment the athlete never rode.
+    async fn segment_effort_history(
+        &self,
+        segment_id: &str,
+        window: SegmentEffortWindow,
+    ) -> AppResult<Vec<SegmentEffortHit>> {
+        let _ = (segment_id, window);
+        Err(segment_effort_history_unsupported(self.name()))
+    }
+
     // ── Coach roster ─────────────────────────────────────────────────────
 
     /// The athletes the account behind the stored credential coaches, and
@@ -757,6 +776,42 @@ pub fn planned_workouts_unsupported(provider: &str) -> AppError {
     ))
 }
 
+/// The refusal of a segment-effort listing by a provider that has none.
+///
+/// Names the provider the way the athlete knows it, as
+/// [`planned_workouts_unsupported`] does. A caller reads it as "ask the
+/// stored details instead", never as a segment with no efforts.
+#[must_use]
+pub fn segment_effort_history_unsupported(provider: &str) -> AppError {
+    AppError::invalid_input(format!(
+        "{} does not list a segment's efforts",
+        user_facing_name(provider)
+    ))
+}
+
+/// The calendar days a segment's efforts are listed over, both included, in
+/// the athlete's own calendar.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SegmentEffortWindow {
+    /// The first day listed.
+    pub from: NaiveDate,
+    /// The last day listed.
+    pub to: NaiveDate,
+}
+
+/// One effort on a segment, as a provider's listing of the athlete's efforts
+/// on it returns it: the effort, and the activity it was made in.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SegmentEffortHit {
+    /// The effort itself.
+    pub effort: SegmentEffort,
+    /// The provider's id of the activity the effort belongs to.
+    pub activity_id: String,
+    /// The sport the segment is for, when the provider names it: Strava names
+    /// the segment's sport (`Ride`, `Run`), not the activity's own.
+    pub activity_type: Option<SportType>,
+}
+
 /// The stream set of an activity its provider holds no samples for: zero
 /// samples on every channel.
 ///
@@ -843,5 +898,28 @@ pub trait ProviderFactory: Send + Sync {
     /// credential, or `None` when it cannot be read on anyone's behalf.
     fn delegated_reads(&self) -> Option<&dyn DelegatedReads> {
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_core::errors::ErrorCode;
+
+    use super::segment_effort_history_unsupported;
+
+    /// A provider that lists no segment's efforts says so under the name the
+    /// athlete knows it by, never a backend slug, so the caller falls back to
+    /// the stored details instead of reporting a segment never ridden.
+    #[test]
+    fn the_listing_refusal_names_the_service_the_athlete_connected() {
+        let refusal = segment_effort_history_unsupported("sciotte");
+        assert_eq!(refusal.code, ErrorCode::InvalidInput);
+        assert!(
+            refusal
+                .message
+                .contains("does not list a segment's efforts")
+                && !refusal.message.contains("sciotte"),
+            "bug: the refusal leaks the backend slug: {refusal}"
+        );
     }
 }

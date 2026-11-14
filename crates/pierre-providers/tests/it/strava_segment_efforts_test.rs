@@ -11,8 +11,10 @@
 //! segment-efforts endpoint pages. A loopback socket stands in for Strava so
 //! the request the provider sends is the one asserted, query string and all.
 
-use chrono::{Duration, Utc};
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials};
+use chrono::{Duration, NaiveDate, Utc};
+use pierre_providers::core::{FitnessProvider, OAuth2Credentials, SegmentEffortWindow};
+use pierre_providers::errors::ErrorCode;
+use pierre_providers::models::SportType;
 use pierre_providers::strava_provider::StravaProvider;
 use secrecy::SecretString;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -138,5 +140,78 @@ async fn a_missing_activity_is_named_by_its_id_alone() {
     assert!(
         text.contains("'123'") && !text.contains("include_all_efforts"),
         "bug: the missing resource is the activity id, not the query string: {text}"
+    );
+}
+
+/// One row of `GET /segment_efforts` on segment 611413, in activity
+/// `activity`; `None` for a row that names no activity.
+fn listed_effort(id: usize, activity: Option<usize>) -> String {
+    let activity = activity.map_or_else(String::new, |a| format!(r#""activity":{{"id":{a}}},"#));
+    format!(
+        r#"{{"id":{id},{activity}"name":"Camillien-Houde","elapsed_time":{},"start_date":"2026-06-01T12:00:00Z","distance":1820.5,"pr_rank":null,"segment":{{"id":611413,"name":"Camillien-Houde","activity_type":"Ride"}}}}"#,
+        400 + id % 60
+    )
+}
+
+fn window() -> SegmentEffortWindow {
+    SegmentEffortWindow {
+        from: NaiveDate::from_ymd_opt(2016, 11, 13).unwrap(),
+        to: NaiveDate::from_ymd_opt(2026, 11, 13).unwrap(),
+    }
+}
+
+/// A full page of 200 means more may follow; a short page ends the listing.
+#[tokio::test]
+async fn one_segments_efforts_are_listed_page_by_page_until_a_short_page() {
+    let page_one: Vec<String> = (0..200)
+        .map(|i| listed_effort(i, Some(1_000 + i)))
+        .collect();
+    let mut page_two: Vec<String> = (200..202)
+        .map(|i| listed_effort(i, Some(1_000 + i)))
+        .collect();
+    page_two.push(listed_effort(202, None));
+    let (base_url, served) = stub(vec![
+        ("200 OK", format!("[{}]", page_one.join(","))),
+        ("200 OK", format!("[{}]", page_two.join(","))),
+    ])
+    .await;
+
+    let hits = provider(base_url)
+        .await
+        .segment_effort_history("611413", window())
+        .await
+        .unwrap();
+    let lines = served.await.unwrap();
+
+    let query = "segment_id=611413&start_date_local=2016-11-13T00:00:00Z&end_date_local=2026-11-13T23:59:59Z&per_page=200";
+    assert_eq!(
+        lines,
+        vec![
+            format!("GET /segment_efforts?{query}&page=1 HTTP/1.1"),
+            format!("GET /segment_efforts?{query}&page=2 HTTP/1.1"),
+        ],
+        "bug: the listing pages until a short page, over the athlete's calendar days"
+    );
+    assert_eq!(
+        hits.len(),
+        202,
+        "bug: every effort naming its activity is a hit, and the one naming none is skipped"
+    );
+    assert_eq!(hits[0].activity_id, "1000");
+    assert_eq!(hits[0].effort.segment_id.as_deref(), Some("611413"));
+    assert_eq!(hits[0].activity_type, Some(SportType::Ride));
+}
+
+#[tokio::test]
+async fn a_segment_id_that_is_not_a_number_is_refused_before_any_request() {
+    let err = provider("http://127.0.0.1:9".to_owned())
+        .await
+        .segment_effort_history("611413&per_page=1", window())
+        .await
+        .expect_err("a segment id is a number");
+    assert_eq!(err.code, ErrorCode::InvalidInput, "{err}");
+    assert!(
+        err.message.contains("segment id is a number"),
+        "bug: the refusal is the id's, not the provider's: {err}"
     );
 }
