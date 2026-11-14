@@ -37,7 +37,7 @@
 //! says the history walk is still copying it in, first. Rows the transport
 //! withheld ask no walk.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration as StdDuration, Instant};
@@ -46,13 +46,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Months, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use lru::LruCache;
-use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
+use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::constants::oauth::providers::{companion_keys, STRAVA};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::coverage::{Completeness, Coverage, IncompleteReason, Pending};
+use pierre_core::models::coverage::{Completeness, IncompleteReason, Pending};
 use pierre_core::models::{Activity, SegmentEffort, TenantId};
 use pierre_core::text_fold::fold_for_match;
-use pierre_core::untrusted::display_line;
 use pierre_database::repositories::{CachedRowCursor, CachedRowsQuery};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
@@ -63,10 +62,13 @@ use pierre_services::training_history_read::{
     history_source_order, history_store_keys, user_timezone,
 };
 use pierre_tools_core::ToolResult;
-use serde::Serialize;
 use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
+
+pub mod answer;
+
+use answer::{answer, effort_row, AnsweredBy, SegmentHistoryResult};
 
 use crate::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, segment_detail_backend, DetailWalkAsk,
@@ -79,7 +81,6 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
-use crate::implementations::activity_summary::SEGMENT_NAME_MAX_CHARS;
 use crate::implementations::data_helpers::segments_read_coverage;
 use crate::implementations::fitness_support::filter_activities_by_sport_type;
 use crate::protocol::UniversalExecutor;
@@ -117,114 +118,6 @@ const REFUSAL_MEMO_ATHLETES: NonZeroUsize = match NonZeroUsize::new(10_000) {
 /// [`REFUSAL_MEMO_TTL`].
 static REFUSAL_MEMO: LazyLock<Mutex<LruCache<(Uuid, String), Instant>>> =
     LazyLock::new(|| Mutex::new(LruCache::new(REFUSAL_MEMO_ATHLETES)));
-
-// ============================================================================
-// The answer
-// ============================================================================
-
-/// Which of the two places answered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AnsweredBy {
-    /// The provider's live listing of the segment's efforts: complete.
-    LiveSegmentHistory,
-    /// The segment efforts stored with the athlete's activities.
-    StoredDetails,
-}
-
-/// One effort on a matched segment.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
-pub struct SegmentHistoryEffort {
-    /// The service the effort came from, as the athlete knows it (`strava`).
-    pub provider: String,
-    /// The service that recorded it, when the provider relays another's.
-    pub source: String,
-    /// The provider's id of the activity the effort was made in.
-    pub activity_id: String,
-    /// That activity's title, as one line; absent from a live listing, which
-    /// names only the activity's id.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub activity_name: Option<String>,
-    /// When the effort started (RFC 3339, UTC).
-    pub start_date: String,
-    /// Seconds from the segment's start to its end.
-    pub elapsed_time: u64,
-    /// Seconds moving on the segment.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub moving_time: Option<u64>,
-    /// The segment's length, in meters.
-    pub distance: f64,
-    /// Average heart rate over the effort (bpm).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub average_heart_rate: Option<u32>,
-    /// Average power over the effort (watts).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub average_watts: Option<u32>,
-    /// The effort's rank among the athlete's own on the segment when it was
-    /// made (1 = their best then).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub pr_rank: Option<u32>,
-    /// The effort's rank on the segment's overall leaderboard when it was
-    /// made.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub kom_rank: Option<u32>,
-    /// The segment's id.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub segment_id: Option<String>,
-    /// The segment's name, as one line: whoever created the segment wrote it.
-    pub segment_name: String,
-}
-
-/// One segment the call matched.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
-pub struct MatchedSegment {
-    /// The service the segment is on (`strava`).
-    pub provider: String,
-    /// The segment's id, when its efforts carry one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    /// The segment's name, as one line.
-    pub name: String,
-}
-
-/// One segment's efforts on one service, summed.
-#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
-pub struct SegmentSummary {
-    /// The service the efforts came from (`strava`).
-    pub provider: String,
-    /// The segment's id, when its efforts carry one.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub segment_id: Option<String>,
-    /// The segment's name, as one line.
-    pub segment_name: String,
-    /// Efforts listed.
-    pub count: usize,
-    /// Efforts listed per calendar year, in the athlete's timezone.
-    pub by_year: BTreeMap<String, usize>,
-    /// The fastest effort's elapsed time, in seconds.
-    pub best_elapsed_time: u64,
-    /// When the fastest effort started (RFC 3339, UTC).
-    pub best_start_date: String,
-}
-
-/// What `get_segment_history` answers with.
-#[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct SegmentHistoryResult {
-    /// Every effort on the matched segments, newest first.
-    pub efforts: Vec<SegmentHistoryEffort>,
-    /// The distinct segments matched.
-    pub segments: Vec<MatchedSegment>,
-    /// The efforts summed per segment and service.
-    pub summary: Vec<SegmentSummary>,
-    /// Where the efforts were read: the provider's live listing, or the
-    /// stored details of the athlete's activities.
-    pub answered_by: AnsweredBy,
-    /// Whether the efforts are all there are in the window: `window.total` is
-    /// the activities in it, `window.returned` the activities whose segments
-    /// were read; with `incomplete_reason` and the walk still `pending` when
-    /// some were not, and the `note` saying what may be claimed.
-    pub coverage: Coverage,
-}
 
 // ============================================================================
 // The ask
@@ -783,110 +676,6 @@ async fn strava_connected(runtime: &Arc<dyn ToolRuntime>, athlete: Athlete) -> b
 }
 
 // ============================================================================
-// The payload
-// ============================================================================
-
-/// One effort as the answer lists it.
-fn effort_row(
-    provider: &str,
-    source: &str,
-    activity_id: &str,
-    activity_name: Option<&str>,
-    effort: &SegmentEffort,
-) -> SegmentHistoryEffort {
-    SegmentHistoryEffort {
-        provider: provider.to_owned(),
-        source: source.to_owned(),
-        activity_id: activity_id.to_owned(),
-        activity_name: activity_name.map(|name| display_line(name, SEGMENT_NAME_MAX_CHARS)),
-        start_date: effort.start_date.to_rfc3339(),
-        elapsed_time: effort.elapsed_time,
-        moving_time: effort.moving_time,
-        distance: effort.distance,
-        average_heart_rate: effort.average_heart_rate,
-        average_watts: effort.average_watts,
-        pr_rank: effort.pr_rank,
-        kom_rank: effort.kom_rank,
-        segment_id: effort.segment_id.clone(),
-        segment_name: display_line(&effort.name, SEGMENT_NAME_MAX_CHARS),
-    }
-}
-
-/// The answer over `efforts`, newest first, with the segments they are on
-/// and their summary per segment and service.
-fn answer(
-    mut efforts: Vec<SegmentHistoryEffort>,
-    answered_by: AnsweredBy,
-    coverage: Coverage,
-    zone: Tz,
-) -> SegmentHistoryResult {
-    efforts.sort_by(|a, b| b.start_date.cmp(&a.start_date));
-    let mut groups: BTreeMap<(String, String), Vec<&SegmentHistoryEffort>> = BTreeMap::new();
-    for effort in &efforts {
-        let segment = effort
-            .segment_id
-            .clone()
-            .unwrap_or_else(|| effort.segment_name.clone());
-        groups
-            .entry((effort.provider.clone(), segment))
-            .or_default()
-            .push(effort);
-    }
-    let mut segments = Vec::with_capacity(groups.len());
-    let mut summary = Vec::with_capacity(groups.len());
-    for ((provider, _), group) in &groups {
-        let Some(first) = group.first() else {
-            continue;
-        };
-        segments.push(MatchedSegment {
-            provider: provider.clone(),
-            id: first.segment_id.clone(),
-            name: first.segment_name.clone(),
-        });
-        summary.push(summarize(provider, group, zone));
-    }
-    SegmentHistoryResult {
-        efforts,
-        segments,
-        summary,
-        answered_by,
-        coverage,
-    }
-}
-
-/// One segment's efforts on one service, summed.
-fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: Tz) -> SegmentSummary {
-    let mut by_year: BTreeMap<String, usize> = BTreeMap::new();
-    for effort in group {
-        let year = DateTime::parse_from_rfc3339(&effort.start_date)
-            .map(|at| {
-                local_date(at.with_timezone(&Utc), zone)
-                    .format("%Y")
-                    .to_string()
-            })
-            .unwrap_or_default();
-        *by_year.entry(year).or_default() += 1;
-    }
-    let best = group
-        .iter()
-        .min_by_key(|effort| effort.elapsed_time)
-        .copied();
-    SegmentSummary {
-        provider: provider.to_owned(),
-        segment_id: best.and_then(|effort| effort.segment_id.clone()),
-        segment_name: best
-            .map(|effort| effort.segment_name.clone())
-            .unwrap_or_default(),
-        count: group.len(),
-        by_year,
-        best_elapsed_time: best.map_or(0, |effort| effort.elapsed_time),
-        best_start_date: best
-            .map(|effort| effort.start_date.clone())
-            .unwrap_or_default(),
-    }
-}
-
-// ============================================================================
 // The tool
 // ============================================================================
 
@@ -927,11 +716,11 @@ impl McpTool<dyn ToolRuntime> for GetSegmentHistoryTool {
     fn definition(&self) -> Tool {
         answers_with::<SegmentHistoryResult>(tool_definition(
             "get_segment_history",
-            "Every effort the athlete made on one segment (a named climb or stretch of road) in \
-             a window, with each effort's activity, the count per year and the best time. \
-             coverage.window.total counts the window's activities, returned those whose \
-             segments were read; when incomplete, say how many were read, not a final count or \
-             best.",
+            "A segment's efforts (a named climb or road stretch) in a window, each with its \
+             activity; summary has every effort's count per year and best time; efforts lists \
+             50 at most (best, ranked, newest). coverage.window.total counts the window's \
+             activities, returned those whose segments were read; when incomplete, say how many \
+             were read, not a final count or best.",
             input_schema(),
             annotations(
                 "Get segment history",

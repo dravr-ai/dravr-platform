@@ -776,7 +776,7 @@ export interface GetRecoveryMetricsParams {
 
 
 /**
- * Every effort the athlete made on one segment (a named climb or stretch of road) in a window, with each effort's activity, the count per year and the best time. coverage.window.total counts the window's activities, returned those whose segments were read; when incomplete, say how many were read, not a final count or best.
+ * A segment's efforts (a named climb or road stretch) in a window, each with its activity; summary has every effort's count per year and best time; efforts lists 50 at most (best, ranked, newest). coverage.window.total counts the window's activities, returned those whose segments were read; when incomplete, say how many were read, not a final count or best.
  */
 export interface GetSegmentHistoryParams {
 

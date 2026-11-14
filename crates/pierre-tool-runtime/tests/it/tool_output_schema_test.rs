@@ -189,10 +189,10 @@ use pierre_tool_runtime::implementations::recipes::{
 use pierre_tool_runtime::implementations::routes::{
     DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
 };
-use pierre_tool_runtime::implementations::segments::{
-    AnsweredBy, GetSegmentHistoryTool, MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult,
-    SegmentSummary,
+use pierre_tool_runtime::implementations::segments::answer::{
+    AnsweredBy, MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult, SegmentSummary,
 };
+use pierre_tool_runtime::implementations::segments::GetSegmentHistoryTool;
 use pierre_tool_runtime::implementations::sleep::output::{
     RecoveryScoreResult, RestDayResult, SleepQualityResult, SleepScheduleResult, SleepTrendsResult,
 };
@@ -1393,6 +1393,8 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
     ] {
         let sample = SegmentHistoryResult {
             efforts: vec![effort("strava")],
+            // A trimmed list names the whole count.
+            efforts_total: Some(120),
             segments: vec![MatchedSegment {
                 provider: "strava".to_owned(),
                 id: Some("611413".to_owned()),

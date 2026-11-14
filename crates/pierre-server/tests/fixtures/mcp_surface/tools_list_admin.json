@@ -15562,7 +15562,7 @@
     },
     {
       "name": "get_segment_history",
-      "description": "Every effort the athlete made on one segment (a named climb or stretch of road) in a window, with each effort's activity, the count per year and the best time. coverage.window.total counts the window's activities, returned those whose segments were read; when incomplete, say how many were read, not a final count or best.",
+      "description": "A segment's efforts (a named climb or road stretch) in a window, each with its activity; summary has every effort's count per year and best time; efforts lists 50 at most (best, ranked, newest). coverage.window.total counts the window's activities, returned those whose segments were read; when incomplete, say how many were read, not a final count or best.",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -16216,11 +16216,20 @@
                 "description": "Whether the efforts are all there are in the window: `window.total` is\nthe activities in it, `window.returned` the activities whose segments\nwere read; with `incomplete_reason` and the walk still `pending` when\nsome were not, and the `note` saying what may be claimed."
               },
               "efforts": {
-                "description": "Every effort on the matched segments, newest first.",
+                "description": "The efforts on the matched segments, newest first: every one, or, past\n50, each segment's best, the ranked ones and the newest.",
                 "items": {
                   "$ref": "#/$defs/SegmentHistoryEffort"
                 },
                 "type": "array"
+              },
+              "efforts_total": {
+                "description": "How many efforts the matched segments hold, when `efforts` lists only\nsome of them; `summary` counts and times them all.",
+                "format": "uint",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
               },
               "segments": {
                 "description": "The distinct segments matched.",
