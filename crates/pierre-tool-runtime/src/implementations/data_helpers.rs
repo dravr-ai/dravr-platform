@@ -19,8 +19,10 @@ use chrono::{DateTime, NaiveDate, Utc};
 
 use serde_json::{json, Value};
 
+#[cfg(feature = "tools-data")]
+use pierre_core::models::coverage::Pending;
 use pierre_core::models::coverage::{
-    Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, WindowScope, WindowTotals,
+    Completeness, Coverage, CoverageWindow, IncompleteReason, WindowScope, WindowTotals,
 };
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
@@ -230,6 +232,7 @@ pub fn activity_coverage(
 /// only the activities it holds efforts of). Always present, unlike
 /// [`activity_coverage`]: a segment's efforts are never more than the
 /// activities read, so a model must always see how many those were.
+#[cfg(feature = "tools-data")]
 #[must_use]
 pub(crate) fn segments_read_coverage(
     activities: Option<usize>,

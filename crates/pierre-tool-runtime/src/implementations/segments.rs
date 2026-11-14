@@ -823,9 +823,9 @@ crate::declare_security!(GetSegmentHistoryTool => empty);
 
 #[cfg(test)]
 mod tests {
-    use pierre_core::errors::ErrorCode;
     use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_providers::core::segment_listing_refused;
+    use pierre_providers::delegation::athlete_off_roster;
     use serde_json::json;
 
     use super::*;
@@ -1050,8 +1050,8 @@ mod tests {
             AppError::not_found("strava data is withheld from AI"),
             AppError::provider_auth_required(STRAVA),
             AppError::invalid_input("a Strava segment id is a number"),
-            // A plain permission refusal that is not the listing's.
-            AppError::new(ErrorCode::PermissionDenied, "not on the roster"),
+            // A provider's permission refusal that is not the listing's.
+            athlete_off_roster("Strava"),
         ] {
             assert!(
                 !provider_refused(&passing),

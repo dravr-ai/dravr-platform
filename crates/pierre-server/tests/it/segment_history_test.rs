@@ -1749,6 +1749,11 @@ async fn a_coach_reads_the_athletes_segment_history_in_their_thread() {
         0,
         "bug: the walk's call was taken from the coach's day window"
     );
+    // The walk is told of after its row ends.
+    let deadline = Instant::now() + StdDuration::from_secs(20);
+    while told.walks.lock().unwrap().is_empty() && Instant::now() < deadline {
+        sleep(StdDuration::from_millis(50)).await;
+    }
     assert_eq!(
         *told.walks.lock().unwrap(),
         vec![(athlete.0, oauth_providers::STRAVA.to_owned(), 1)],

@@ -529,7 +529,9 @@ async fn owed_walk_progress(
 /// The [`Pending`] of the history walk owed under `key`
 /// ([`history_walk_owed`](crate::activity_fetch::history_walk_owed)), from
 /// its recorded progress; a progress that cannot be read reads as nothing
-/// walked yet. It only reads: no walk is asked.
+/// walked yet. It only reads: no walk is asked. Its one reader,
+/// `get_segment_history`, is a `tools-data` tool.
+#[cfg(feature = "tools-data")]
 pub(crate) async fn owed_history_walk_pending(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,

@@ -805,12 +805,10 @@ const SEGMENT_LISTING_REFUSED: &str = "segment_listing_refused";
 /// athlete, and must not keep them off the listing.
 #[must_use]
 pub fn segment_listing_refused(provider: &str, status: u16) -> AppError {
+    let service = user_facing_name(provider);
     let mut error = AppError::new(
         ErrorCode::PermissionDenied,
-        format!(
-            "{} refused to list this athlete's segment efforts (status {status})",
-            user_facing_name(provider)
-        ),
+        format!("{service} refused to list this athlete's segment efforts"),
     );
     let mut details = serde_json::Map::new();
     details.insert(
