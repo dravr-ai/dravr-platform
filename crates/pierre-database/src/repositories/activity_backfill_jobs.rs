@@ -53,7 +53,7 @@ pub use kind::BackfillJobKind;
 ///
 /// A unit is what the job's kind walks: a month of history for a
 /// [`BackfillJobKind::HistoryWalk`], an activity whose detail is read for a
-/// detail walk. The columns keep their first names,
+/// [`BackfillJobKind::DetailWalk`]. The columns keep their first names,
 /// `months_total` and `months_done`, which an applied migration fixed.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct JobProgress {
@@ -141,9 +141,14 @@ pub struct ActivityBackfillJobRow {
     pub provider: String,
     /// What the job is for, as the ask that started it recorded.
     pub kind: BackfillJobKind,
-    /// The requested window's deep `after` (unix seconds).
+    /// The requested window's deep `after` (unix seconds). A walk's floor: a
+    /// [`BackfillJobKind::DetailWalk`] asked again while owed lowers it
+    /// ([`ActivityBackfillJobRepository::widen_detail_walk`]), and a step's
+    /// progress write never touches it.
     pub after_ts: Option<i64>,
-    /// The requested window's `before` (unix seconds).
+    /// The requested window's `before` (unix seconds). A walk's cursor: it
+    /// starts at the window's top and each step moves it down past the rows
+    /// it settled, so a walk read newest first under it always ends.
     pub before_ts: Option<i64>,
     /// The requested fetch limit.
     pub fetch_limit: Option<i64>,
