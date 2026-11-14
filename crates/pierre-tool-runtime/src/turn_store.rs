@@ -145,7 +145,11 @@ mod tests {
             None,
             "bug: another turn must not take this turn's value"
         );
-        assert_eq!(store.take(&turn("turn-a")), Some("a"));
+        assert_eq!(
+            store.take(&turn("turn-a")),
+            Some("a"),
+            "bug: the recording turn must take its value"
+        );
         assert_eq!(store.take(&turn("turn-a")), None, "bug: taken once");
     }
 
@@ -162,7 +166,11 @@ mod tests {
             held.push(2);
             held
         });
-        assert_eq!(store.take(&key), Some(vec![1, 2]));
+        assert_eq!(
+            store.take(&key),
+            Some(vec![1, 2]),
+            "bug: the turn holds what the merge returned"
+        );
     }
 
     /// Ages the entries by reading them from a later `now`, because an
@@ -224,7 +232,11 @@ mod tests {
             TURN_STORE_CAP,
             "bug: a turn writing again must not sweep the store"
         );
-        assert_eq!(store.take(&held), Some("again"));
+        assert_eq!(
+            store.take(&held),
+            Some("again"),
+            "bug: the turn writing again keeps its latest value"
+        );
     }
 
     /// The stamp is what decides a rewritten turn's fate in the sweep: the
@@ -255,6 +267,10 @@ mod tests {
             None,
             "bug: a turn stamped by its first write ages from it, whatever came after"
         );
-        assert_eq!(store.take(&next), Some("next"));
+        assert_eq!(
+            store.take(&next),
+            Some("next"),
+            "bug: the turn that overflowed the store keeps its own"
+        );
     }
 }
