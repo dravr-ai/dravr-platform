@@ -14,7 +14,7 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{DetailWalkEnd, JobLease, JobProgressStep};
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_providers::deduplication::native_activity_key;
+use pierre_providers::deduplication::one_activity_key;
 use pierre_providers::request_budget::in_detail_walk;
 use pierre_providers::CoreFitnessProvider;
 use tracing::{info, instrument, warn};
@@ -320,8 +320,7 @@ impl Reader<'_> {
             .iter()
             .find(|copy| copy.provider == job.provider_name)
             .unwrap_or(first);
-        let id = native_activity_key(&listed.activity)
-            .map_or_else(|| listed.activity.id().to_owned(), |(_, id)| id.to_owned());
+        let (_, id) = one_activity_key(&listed.activity);
         let fetched = in_detail_walk(
             job.user_id,
             ai_scope::unfiltered(self.provider.get_activity(&id)),

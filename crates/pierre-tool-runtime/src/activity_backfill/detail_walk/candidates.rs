@@ -13,7 +13,7 @@ use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     CachedActivityRow, CachedRowCursor, CachedRowsQuery, WalkTried,
 };
-use pierre_providers::deduplication::native_activity_key;
+use pierre_providers::deduplication::one_activity_key;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -267,15 +267,11 @@ fn rows_by_second(rows: Vec<CachedActivityRow>, sport: Option<&str>) -> Vec<Seco
 /// The service and its own activity id the copies of one activity share.
 type NativeKey = (String, String);
 
-/// What makes `row` one activity with its other copies: the service's own
-/// activity id ([`native_activity_key`]), the same under the session's key
-/// and the grant's whatever start each lists it at, or its own key and id
-/// for a row that has no copy elsewhere.
+/// What makes `row` one activity with its other copies
+/// ([`one_activity_key`]): the service's own activity id, the same under the
+/// session's key and the grant's whatever start each lists it at.
 fn identity(row: &CachedActivityRow) -> NativeKey {
-    native_activity_key(&row.activity).map_or_else(
-        || (row.provider.clone(), row.activity.id().to_owned()),
-        |(service, id)| (service.to_owned(), id.to_owned()),
-    )
+    one_activity_key(&row.activity)
 }
 
 /// The activities among one second's `rows` no copy of which in that second

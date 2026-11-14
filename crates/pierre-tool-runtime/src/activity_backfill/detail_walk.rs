@@ -25,7 +25,7 @@
 //! session's and the grant's copies of one activity, which share it, are
 //! never split by a page's edge: a full page's oldest second is left to the
 //! next read. It matches the walk's sport ([`filter_activities_by_sport_type`](crate::implementations::fitness_support::filter_activities_by_sport_type)),
-//! counts the copies of one activity as one ([`native_activity_key`](pierre_providers::deduplication::native_activity_key)), and
+//! counts the copies of one activity as one ([`one_activity_key`](pierre_providers::deduplication::one_activity_key)), and
 //! reads up to `DETAIL_WALK_STEP_ACTIVITIES` whose efforts no copy holds,
 //! each through the backend in the walk's own day budget ([`in_detail_walk`](pierre_providers::request_budget::in_detail_walk)).
 //! What it read is stored beside its row (`store_detail_from_live_grant`):

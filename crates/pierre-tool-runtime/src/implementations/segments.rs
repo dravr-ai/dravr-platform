@@ -60,7 +60,7 @@ use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::activity_origin;
 use pierre_providers::core::{is_segment_listing_refused, SegmentEffortHit, SegmentEffortWindow};
-use pierre_providers::deduplication::{merge_duplicates, native_activity_key, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, one_activity_key, DedupConfig};
 use pierre_services::training_history_read::{
     history_source_order, history_store_keys, user_timezone,
 };
@@ -381,7 +381,7 @@ fn segment_keys() -> Vec<&'static str> {
 /// The stored rows one call reads, up to its cap of activities.
 ///
 /// The cap counts activities, not rows: the session's, the grant's and the
-/// export's copies of one ride are one ([`native_activity_key`]), so an
+/// export's copies of one ride are one ([`one_activity_key`]), so an
 /// athlete whose rides each sit under two or three keys reads as deep a
 /// window as one whose rides sit under one. A row naming no activity its
 /// copies share counts as its own. Memory stays bounded all the same: no
@@ -412,11 +412,7 @@ impl WindowRows {
     /// Take one page of rows; whether the read is full.
     fn take(&mut self, page: impl IntoIterator<Item = Activity>) -> bool {
         for row in page {
-            let activity = native_activity_key(&row).map_or_else(
-                || (row.provider().to_owned(), row.id().to_owned()),
-                |(service, id)| (service.to_owned(), id.to_owned()),
-            );
-            self.activities.insert(activity);
+            self.activities.insert(one_activity_key(&row));
             self.rows.push(row);
         }
         self.activities.len() >= self.cap || self.rows.len() >= self.row_cap
