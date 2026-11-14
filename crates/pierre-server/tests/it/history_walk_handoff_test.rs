@@ -1363,13 +1363,12 @@ impl Fixture {
     /// Sweep the walk until its session handed off to the grant and no step
     /// holds the row: the API phase is owed, its next step not yet taken.
     async fn reach_the_api_phase(&self) {
-        let fx = self;
         self.step_until(true, "the session handed off", move || async move {
-            fx.resources
+            self.resources
                 .common
                 .repos
                 .activity_backfill_jobs
-                .history_walk_row(fx.user_id, fx.tenant, oauth_providers::SCIOTTE)
+                .history_walk_row(self.user_id, self.tenant, oauth_providers::SCIOTTE)
                 .await
                 .unwrap()
                 .expect("the walk's row is kept")
