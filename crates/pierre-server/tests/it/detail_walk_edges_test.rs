@@ -23,16 +23,20 @@
 use crate::detail_walk_test::{
     mock_strava, ride_listed_at, since, store_rides, walk_ended, walk_row, DAY, SESSION,
 };
-use crate::history_walk_api_test::{open_window, server, strava_athlete};
+use crate::history_walk_api_test::{open_window, server, strava_athlete, with_window};
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::Utc;
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::models::coverage::{IncompleteReason, Pending};
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::repositories::BackfillJobState;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_tool_runtime::activity_backfill::detail_walk::{ask_detail_walk, DetailWalkAsked};
+use pierre_tool_runtime::activity_backfill::detail_walk::{
+    ask_detail_walk, detail_walk_pending, DetailWalkAsked,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::time::sleep;
 use uuid::Uuid;
@@ -287,5 +291,137 @@ async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
         (ended.progress.units_done, ended.progress.rows_landed),
         (3, 2),
         "bug: the ride walked past in a second the spent day cut short is counted twice"
+    );
+}
+
+/// A walk's ETA is paced by the athlete's real walk day, as the budget sizes
+/// it for the app that signs the grant's calls: at 40 a day the walk gets 5,
+/// so one ride left is a fifth of a day, never the 1,728 s of a full 50.
+#[tokio::test]
+async fn the_eta_is_paced_by_the_athletes_real_walk_day() {
+    let (api_base, mock) = mock_strava().await;
+    // 40 a day: a background share of 10, half of it, 5, for the walk.
+    let resources = server(&api_base, 40).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
+    open_window(&resources).await;
+
+    let gate = mock.hold_next_read();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            since(now - 10 * DAY),
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the one ride is owed"
+    );
+    mock.read_held().await;
+    let pending = detail_walk_pending(&runtime, user_id, tenant, oauth_providers::STRAVA)
+        .await
+        .unwrap();
+    gate.notify_one();
+    assert_eq!(
+        pending,
+        Some(Pending::DetailWalkRunning {
+            units_done: 0,
+            units_total: Some(1),
+            eta_secs: Some(17_280),
+        }),
+        "bug: one ride left at the athlete's 5 a day is not 17,280 s"
+    );
+}
+
+/// An app registered at under 8 calls a day leaves a walk no call at all:
+/// no walk is recorded, which would only pause until each day's end,
+/// forever, and the window reads as one no backend can supply efforts for.
+#[tokio::test]
+async fn an_app_with_no_room_for_a_walk_records_none() {
+    let (api_base, mock) = mock_strava().await;
+    // 7 a day: a background share of 1, half of it rounded down, 0.
+    let resources = server(&api_base, 7).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    store_rides(&resources, user_id, tenant, SESSION, &[now - 5 * DAY]).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        since(now - 10 * DAY),
+    )
+    .await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::NoBudget,
+        "bug: a walk with no call a day was asked"
+    );
+    assert_eq!(
+        asked.segment_reason(),
+        Some(IncompleteReason::SegmentDetailUnavailable),
+        "bug: a window no walk can read reads as being read"
+    );
+    assert!(
+        walk_row(&resources, user_id, tenant).await.is_none(),
+        "bug: a walk with no call a day was recorded"
+    );
+    sleep(Duration::from_millis(200)).await;
+    assert!(mock.detail_reads().is_empty(), "no ride was read");
+}
+
+/// A walk owed when its app's day shrank to no room for it ends incomplete
+/// at its next step, never paused day after day.
+#[tokio::test]
+async fn an_owed_walk_whose_app_lost_its_room_ends_incomplete() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    // Twelve rides: the first step reads ten, and the walk stays owed.
+    let starts: Vec<i64> = (1..=12).map(|day| now - day * DAY).collect();
+    store_rides(&resources, user_id, tenant, SESSION, &starts).await;
+    open_window(&resources).await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            since(now - 20 * DAY),
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 12 },
+        "the twelve rides are owed"
+    );
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while walk_row(&resources, user_id, tenant)
+        .await
+        .is_none_or(|row| row.progress.units_done < 10)
+    {
+        assert!(Instant::now() < deadline, "the first step did not record");
+        sleep(Duration::from_millis(20)).await;
+    }
+
+    // The app is now registered at 7 a day.
+    let shrunk = with_window(&resources, 7);
+    let ended = walk_ended(&shrunk, user_id, tenant).await;
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Incomplete,
+        "bug: a walk with no call a day left was not ended"
+    );
+    assert_eq!(
+        mock.detail_reads().len(),
+        10,
+        "no ride was read once the app had no room"
     );
 }

@@ -71,6 +71,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use super::{enqueue, now_ms, provider_tenant_id_str, ActivityBackfillJob, Enqueued};
+use crate::protocol::AuthService;
 use crate::runtime::ToolRuntime;
 use candidates::Athlete;
 pub(super) use step::run_detail_walk;
@@ -153,13 +154,20 @@ pub enum DetailWalkAsked {
     },
     /// The store or the ledger could not be read or written (logged).
     NotRecorded,
+    /// The backend's budget leaves the athlete's walk no call a day (an app
+    /// registered at under 8 a day): no walk is recorded, which would only
+    /// pause until each day's end, forever. No backend can read the
+    /// window's efforts within its budget.
+    NoBudget,
 }
 
 impl DetailWalkAsked {
     /// Why a segments window the ask answers is short of its efforts: a
     /// walk recorded or widened is still reading them
     /// ([`IncompleteReason::SegmentDetailWalking`]); one that ended lately
-    /// left some unread ([`IncompleteReason::SegmentDetailPartial`]).
+    /// left some unread ([`IncompleteReason::SegmentDetailPartial`]); a
+    /// budget with no call a day for a walk reads none
+    /// ([`IncompleteReason::SegmentDetailUnavailable`]).
     /// `None` when nothing is left to read, or when nothing could be
     /// recorded: the caller's own count says whether the window is short.
     #[must_use]
@@ -169,6 +177,7 @@ impl DetailWalkAsked {
             Self::RecentlyWalked { unreadable } => Some(IncompleteReason::SegmentDetailPartial {
                 unreadable: u64::try_from(unreadable).unwrap_or(0),
             }),
+            Self::NoBudget => Some(IncompleteReason::SegmentDetailUnavailable),
             Self::NothingUnread | Self::NotRecorded => None,
         }
     }
@@ -199,6 +208,10 @@ pub async fn ask_detail_walk(
         user_id,
         tenant_id,
     };
+    if walk_daily_calls(&athlete, backend).await == Some(0) {
+        info!(user_id = %user_id, backend, "Detail walk: the backend's budget leaves a walk no call a day; none is recorded");
+        return DetailWalkAsked::NoBudget;
+    }
     let Ok(row) = walk_row(&athlete, backend).await else {
         return DetailWalkAsked::NotRecorded;
     };
@@ -228,8 +241,21 @@ pub async fn ask_detail_walk(
             unreadable: units_total,
         };
     }
+    record_walk(&athlete, backend, ask, units_total).await
+}
+
+/// Record and start a walk of `ask`'s window through `backend`, counted at
+/// `units_total` activities to read; when another ask recorded one between
+/// this one's read and its record, widen that one instead.
+async fn record_walk(
+    athlete: &Athlete<'_>,
+    backend: &str,
+    ask: DetailWalkAsk<'_>,
+    units_total: i64,
+) -> DetailWalkAsked {
+    let (user_id, tenant_id) = (athlete.user_id, athlete.tenant_id);
     let job = ActivityBackfillJob {
-        resources: Arc::clone(runtime),
+        resources: Arc::clone(athlete.runtime),
         user_id,
         tenant_id,
         tenant_id_str: provider_tenant_id_str(tenant_id),
@@ -262,8 +288,8 @@ pub async fn ask_detail_walk(
     }
     // Recorded by another ask between the read and the record: this one
     // widens it.
-    match owed_walk(&athlete, backend).await {
-        Ok(Some(row)) => widen(&athlete, backend, &row, ask).await,
+    match owed_walk(athlete, backend).await {
+        Ok(Some(row)) => widen(athlete, backend, &row, ask).await,
         _ => DetailWalkAsked::NotRecorded,
     }
 }
@@ -364,8 +390,9 @@ async fn widen(
 /// ([`Pending::DetailWalkRunning`]), or `None` when none is owed.
 ///
 /// Its ETA is the activities left at the slower of the pace its steps
-/// measured and the one its budget allows: one activity a call, at most
-/// [`DETAIL_WALK_DAILY_CALLS`] calls a day.
+/// measured and the one its budget allows: one activity a call, at most the
+/// calls a day the athlete's walk window holds as the backend's budget sizes
+/// it ([`walk_daily_calls`]).
 ///
 /// # Errors
 ///
@@ -381,17 +408,40 @@ pub async fn detail_walk_pending(
         .activity_backfill_jobs
         .detail_walk_row(user_id, tenant_id, backend)
         .await?;
-    Ok(row
-        .filter(|row| row.state == BackfillJobState::Owed)
-        .map(|row| detail_walk_running(&row.progress)))
+    let Some(row) = row.filter(|row| row.state == BackfillJobState::Owed) else {
+        return Ok(None);
+    };
+    let athlete = Athlete {
+        runtime,
+        user_id,
+        tenant_id,
+    };
+    let daily_calls = walk_daily_calls(&athlete, backend).await;
+    Ok(Some(detail_walk_running(&row.progress, daily_calls)))
+}
+
+/// The calls a day the athlete's detail walk through `backend` may make, as
+/// the budget its stored credential is counted in sizes the walk's window
+/// ([`RequestBudget::detail_walk_daily_calls`](pierre_providers::request_budget::RequestBudget::detail_walk_daily_calls)).
+/// `None` when nothing counts the backend's calls for the athlete, or its
+/// budget has no walk window: the walk is then held to its background share
+/// alone.
+async fn walk_daily_calls(athlete: &Athlete<'_>, backend: &str) -> Option<u32> {
+    AuthService::new(Arc::clone(athlete.runtime))
+        .stored_request_budget(backend, athlete.user_id, athlete.tenant_id)
+        .await?
+        .detail_walk_daily_calls(backend)
+        .await
 }
 
 /// A running detail walk's [`Pending`] from its recorded progress
-/// ([`Pending::detail_walk_running`]).
+/// ([`Pending::detail_walk_running`]), at `daily_calls` a day, or
+/// [`DETAIL_WALK_DAILY_CALLS`] when no budget sizes the walk's day.
 #[must_use]
-pub fn detail_walk_running(progress: &JobProgress) -> Pending {
+pub fn detail_walk_running(progress: &JobProgress, daily_calls: Option<u32>) -> Pending {
     let units = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
-    let budget_pace = SECS_PER_DAY / f64::from(DETAIL_WALK_DAILY_CALLS);
+    let day = daily_calls.unwrap_or(DETAIL_WALK_DAILY_CALLS).max(1);
+    let budget_pace = SECS_PER_DAY / f64::from(day);
     let pace = progress
         .secs_per_unit
         .map_or(budget_pace, |measured| measured.max(budget_pace));
@@ -428,7 +478,7 @@ mod tests {
             secs_per_unit: Some(measured),
         };
         assert_eq!(
-            detail_walk_running(&progress(5.0)),
+            detail_walk_running(&progress(5.0), None),
             Pending::DetailWalkRunning {
                 units_done: 10,
                 units_total: Some(60),
@@ -437,13 +487,22 @@ mod tests {
             "bug: 50 activities left at 50 a day is a day, however fast a step measured"
         );
         assert_eq!(
-            detail_walk_running(&progress(3_000.0)),
+            detail_walk_running(&progress(3_000.0), None),
             Pending::DetailWalkRunning {
                 units_done: 10,
                 units_total: Some(60),
                 eta_secs: Some(50 * 3_000),
             },
             "bug: a measured pace slower than the budget's is the walk's"
+        );
+        assert_eq!(
+            detail_walk_running(&progress(5.0), Some(10)),
+            Pending::DetailWalkRunning {
+                units_done: 10,
+                units_total: Some(60),
+                eta_secs: Some(50 * 8_640),
+            },
+            "bug: a walk held to 10 a day is paced as if it had 50"
         );
     }
 
@@ -461,6 +520,11 @@ mod tests {
             DetailWalkAsked::RecentlyWalked { unreadable: 3 }.segment_reason(),
             Some(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
             "bug: a walk that ended lately reads as still walking"
+        );
+        assert_eq!(
+            DetailWalkAsked::NoBudget.segment_reason(),
+            Some(IncompleteReason::SegmentDetailUnavailable),
+            "bug: a window no walk has a call to read reads as complete"
         );
         assert_eq!(DetailWalkAsked::NothingUnread.segment_reason(), None);
         assert_eq!(DetailWalkAsked::NotRecorded.segment_reason(), None);

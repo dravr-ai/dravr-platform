@@ -817,6 +817,48 @@ async fn a_session_only_athlete_reads_segments_unavailable() {
     );
 }
 
+/// An athlete whose grant's app is registered at 7 calls a day: its
+/// budget leaves a walk no call, so no walk is recorded, and the window
+/// says no backend can read the efforts.
+#[tokio::test]
+async fn an_app_with_no_room_for_a_walk_reads_segments_unavailable() {
+    let (base, mock) = mock_strava(Listing::Status(402)).await;
+    let resources = server(&base, 7).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    stored_to_its_end(&resources, user_id, tenant, oauth_providers::STRAVA).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(4))],
+    )
+    .await;
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+
+    let coverage = &payload["coverage"];
+    assert_eq!(coverage["complete"], false, "{coverage}");
+    assert_eq!(
+        coverage["incomplete_reason"], "segment_detail_unavailable",
+        "bug: a walk with no call a day reads as reading: {coverage}"
+    );
+    assert!(
+        walk_row(&resources, user_id, tenant).await.is_none(),
+        "bug: a walk with no call a day was recorded"
+    );
+    assert_eq!(
+        mock.detail_reads(),
+        0,
+        "bug: a ride was read with no call left for a walk"
+    );
+}
+
 /// Give the athlete a live Strava session and its connection.
 async fn hold_session(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
     let now = Utc::now();

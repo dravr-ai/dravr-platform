@@ -20,7 +20,7 @@ use pierre_providers::CoreFitnessProvider;
 use tracing::{info, instrument, warn};
 
 use super::candidates::{take_seconds, Athlete, Unread};
-use super::walk_keys;
+use super::{walk_daily_calls, walk_keys};
 use crate::activity_backfill::history_walk::retry_at_ms;
 use crate::activity_backfill::owed_write::{land_owed, Landed};
 use crate::activity_backfill::{
@@ -46,6 +46,8 @@ enum Step {
     },
     /// The backend's credential is dead.
     AuthRequired,
+    /// The backend's budget leaves the walk no call a day.
+    NoBudget,
     /// The store, or the backend before any read, failed.
     Failed { step: JobProgressStep },
     /// The step's row is no longer its own: it records nothing.
@@ -149,6 +151,9 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
             step: progress.step(),
             ended: taken.reached_floor,
         };
+    }
+    if walk_daily_calls(&athlete, &job.provider_name).await == Some(0) {
+        return Step::NoBudget;
     }
     let executor =
         UniversalExecutor::new(job.resources.clone()).with_scopes(OAuthScope::self_grant());
@@ -368,6 +373,13 @@ async fn settle(
                 job,
             );
         }
+        // Its app's day shrank to no call for a walk: a pause would last
+        // forever.
+        Step::NoBudget => log_write(
+            "the backend's budget leaves the walk no call a day; the walk ends incomplete",
+            ledger.end_backfill_job_incomplete(lease).await,
+            job,
+        ),
         Step::Failed { step } if moved(&step, job) => log_write(
             "a step failed part-way; what it read is recorded",
             ledger.record_job_progress(lease, step).await,
