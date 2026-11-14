@@ -17,12 +17,14 @@
 //! `get_activities` sidecar, the training-history series, the volume weeks and
 //! a provider's aggregate totals. It says whether the window is complete
 //! ([`Completeness`]), what it spans ([`CoverageWindow`]), the first day the
-//! stored history stands behind (`trustworthy_from`), and the history walk
-//! still owed for it ([`Pending`]). On the wire it flattens to `complete`,
+//! stored history stands behind (`trustworthy_from`), and the walk still owed
+//! for it ([`Pending`]): the history walk that copies the athlete's history
+//! in, or the detail walk that reads its segment efforts. On the wire it flattens to `complete`,
 //! `incomplete_reason`, `window`, `trustworthy_from`, `pending` and the `note`
 //! a model reads ([`Coverage::note`]).
 
 use std::borrow::Cow;
+use std::fmt::Write as _;
 use std::time::Duration;
 
 use chrono::NaiveDate;
@@ -48,6 +50,21 @@ pub enum IncompleteReason {
     ShallowHistory,
     /// Nothing stored covers the window, so nothing was computed.
     NoStoredActivities,
+    /// The window's activities are stored, but the segment efforts of some
+    /// were never read; the detail walk reading them runs on
+    /// ([`Pending::DetailWalkRunning`]).
+    SegmentDetailWalking,
+    /// A detail walk ended over the window, and the segment efforts of
+    /// `unreadable` of its activities could not be read: the backend
+    /// answered nothing for them, or they are held only in the athlete's
+    /// own export, which no walk reads.
+    SegmentDetailPartial {
+        /// Activities of the window whose segment efforts were not read.
+        unreadable: u64,
+    },
+    /// No backend the athlete holds reads segment efforts: they come from
+    /// Strava's API, which this athlete has not connected.
+    SegmentDetailUnavailable,
 }
 
 impl IncompleteReason {
@@ -70,6 +87,15 @@ impl IncompleteReason {
             }
             Self::HistoryWalkRunning => Some(
                 "the athlete's history is still being copied in, so only the activities stored so far are shown; older ones land as the walk reaches them",
+            ),
+            Self::SegmentDetailWalking => Some(
+                "the segment efforts of some of its activities are still being read in the background, so the efforts here are not final; the rest land as the walk reaches them",
+            ),
+            Self::SegmentDetailPartial { .. } => Some(
+                "the segment efforts of some of its activities could not be read, so the efforts here are not all the athlete's",
+            ),
+            Self::SegmentDetailUnavailable => Some(
+                "segment efforts can't be read for this athlete yet; they come from Strava's API, which this athlete hasn't connected",
             ),
             Self::ShallowHistory | Self::NoStoredActivities => None,
         }
@@ -124,6 +150,10 @@ pub enum WindowScope {
         /// Length of the window, in days.
         days: u32,
     },
+    /// The window the caller asked for, `[asked_from, asked_to]`, counted in
+    /// segment reads: `total` is every activity in it, `returned` those whose
+    /// segment efforts were read (`get_segment_history`).
+    SegmentsRead,
 }
 
 /// Count, distance, duration and climb summed over a whole window, taken
@@ -193,7 +223,9 @@ pub struct CoverageWindow {
     pub totals: Option<WindowTotals>,
 }
 
-/// What is still owed for a window: the history walk that would fill it.
+/// What is still owed for a window: the history walk that would fill it with
+/// activities, or the detail walk that reads the segment efforts of the
+/// activities it holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Pending {
@@ -211,6 +243,19 @@ pub enum Pending {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         eta_secs: Option<u64>,
     },
+    /// A detail walk is reading the segment efforts of the window's
+    /// activities, newest first.
+    DetailWalkRunning {
+        /// Activities the walk has read so far.
+        units_done: u32,
+        /// Activities the walk has to read; absent while not counted.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        units_total: Option<u32>,
+        /// Seconds until the walk has read them all at its pace; absent
+        /// until it has a total and a pace.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        eta_secs: Option<u64>,
+    },
 }
 
 impl Pending {
@@ -225,20 +270,45 @@ impl Pending {
         months_total: Option<u32>,
         secs_per_month: Option<f64>,
     ) -> Self {
-        let eta_secs = months_total.zip(secs_per_month).and_then(|(total, pace)| {
-            let left = f64::from(total.saturating_sub(months_done));
-            // A pace that is negative, not a number or past any duration is
-            // no measurement, and gives no ETA.
-            Duration::try_from_secs_f64((left * pace).ceil())
-                .ok()
-                .map(|eta| eta.as_secs())
-        });
         Self::HistoryWalkRunning {
             months_done,
             months_total,
-            eta_secs,
+            eta_secs: eta_secs(months_done, months_total, secs_per_month),
         }
     }
+
+    /// A running detail walk's state from its recorded progress:
+    /// `units_done` of `units_total` activities read, each taking
+    /// `secs_per_unit`, the pace the walk goes at (the reader takes the
+    /// slower of what its steps measured and what its budget allows).
+    ///
+    /// The ETA is the activities left times that pace, and needs both.
+    #[must_use]
+    pub fn detail_walk_running(
+        units_done: u32,
+        units_total: Option<u32>,
+        secs_per_unit: Option<f64>,
+    ) -> Self {
+        Self::DetailWalkRunning {
+            units_done,
+            units_total,
+            eta_secs: eta_secs(units_done, units_total, secs_per_unit),
+        }
+    }
+}
+
+/// Seconds until a walk at `pace` seconds a unit covers the units it has
+/// left: `total` less `done`, none once past its total. `None` without a
+/// total or a pace.
+fn eta_secs(done: u32, total: Option<u32>, pace: Option<f64>) -> Option<u64> {
+    total.zip(pace).and_then(|(total, pace)| {
+        let left = f64::from(total.saturating_sub(done));
+        // A pace that is negative, not a number or past any duration is
+        // no measurement, and gives no ETA.
+        Duration::try_from_secs_f64((left * pace).ceil())
+            .ok()
+            .map(|eta| eta.as_secs())
+    })
 }
 
 /// Whether a served window is the whole truth for the window asked, what it
@@ -252,7 +322,7 @@ pub struct Coverage {
     /// The first day the stored history stands behind, when it starts later
     /// than the window asked.
     pub trustworthy_from: Option<NaiveDate>,
-    /// The history walk still owed for the window, when one is.
+    /// The walk still owed for the window, when one is.
     pub pending: Option<Pending>,
 }
 
@@ -300,6 +370,7 @@ impl Coverage {
         match self.completeness.reason() {
             Some(IncompleteReason::NoStoredActivities) => self.nothing_stored_note(),
             Some(IncompleteReason::ShallowHistory) => self.shallow_history_note(),
+            _ if self.window.scope == WindowScope::SegmentsRead => self.segments_read_note(),
             _ if self.window.scope == WindowScope::Asked => self.activities_note(),
             _ => None,
         }
@@ -374,6 +445,41 @@ impl Coverage {
                  the whole window.",
             );
         }
+        Some(note)
+    }
+
+    /// A segments window's note ([`WindowScope::SegmentsRead`]): how many of
+    /// the window's activities had their segment efforts read, and, when the
+    /// window is incomplete, why and what may not be claimed from it. It
+    /// counts the activities read, never the efforts listed: those are every
+    /// effort of the read activities, and there is no slice of them to
+    /// frame.
+    fn segments_read_note(&self) -> Option<String> {
+        let total = self.window.total?;
+        let read = self.window.returned;
+        let span_phrase = match (self.window.asked_from, self.window.asked_to) {
+            (Some(from), Some(to)) => format!(" from {from} to {to}"),
+            _ => String::new(),
+        };
+        let mut note = format!(
+            "{read} of {total} activities in this window{span_phrase} have their segment efforts read."
+        );
+        let Some(reason) = self.completeness.reason() else {
+            return Some(note);
+        };
+        note.push_str(" This window is INCOMPLETE");
+        if let Some(why) = reason.explanation() {
+            note.push_str(": ");
+            note.push_str(why);
+        }
+        note.push('.');
+        if let IncompleteReason::SegmentDetailPartial { unreadable } = reason {
+            let _ = write!(
+                note,
+                " {unreadable} of its activities could not have their segment efforts read."
+            );
+        }
+        note.push_str(" Do not state an effort count, a best time or that the athlete never rode a segment in the period as fact: say how many activities were read and that the rest were not.");
         Some(note)
     }
 }
@@ -742,6 +848,149 @@ mod tests {
             "bug: the note points at the whole window's totals: {note}"
         );
         Ok(())
+    }
+
+    fn segments(total: u64, read: u64) -> Result<CoverageWindow, &'static str> {
+        Ok(CoverageWindow {
+            scope: WindowScope::SegmentsRead,
+            asked_from: Some(day(2016, 1, 1)?),
+            asked_to: Some(day(2026, 11, 13)?),
+            total: Some(total),
+            returned: read,
+            ..CoverageWindow::default()
+        })
+    }
+
+    #[test]
+    fn a_complete_segments_window_counts_the_activities_read() -> TestResult {
+        let note = Coverage::complete(segments(12, 12)?)
+            .note()
+            .ok_or("no note")?;
+        assert_eq!(
+            note,
+            "12 of 12 activities in this window from 2016-01-01 to 2026-11-13 have their segment efforts read.",
+            "bug: a complete segments window counts the activities read"
+        );
+        assert!(
+            !note.contains("shown below"),
+            "bug: a segments note frames no shown slice: {note}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_walking_segments_window_forbids_a_final_count() -> TestResult {
+        let coverage = Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
+            window: segments(40, 12)?,
+            trustworthy_from: None,
+            pending: Some(Pending::detail_walk_running(12, Some(40), Some(1_728.0))),
+        };
+        let wire = serde_json::to_value(&coverage)?;
+        assert_eq!(
+            wire["incomplete_reason"], "segment_detail_walking",
+            "bug: the reason travels snake_case"
+        );
+        assert_eq!(
+            wire["pending"],
+            json!({
+                "kind": "detail_walk_running",
+                "units_done": 12,
+                "units_total": 40,
+                "eta_secs": 48_384,
+            }),
+            "bug: 28 activities left at 1728 s an activity"
+        );
+        let note = wire["note"].as_str().ok_or("no note")?;
+        assert!(
+            note.starts_with("12 of 40 activities in this window"),
+            "bug: the note counts the activities read: {note}"
+        );
+        assert!(
+            note.contains(
+                "INCOMPLETE: the segment efforts of some of its activities are still being read"
+            ),
+            "bug: the running walk is named: {note}"
+        );
+        assert!(
+            note.contains("Do not state an effort count"),
+            "bug: an incomplete segments window forbids a final count: {note}"
+        );
+        assert!(
+            !note.contains("shown below"),
+            "bug: a segments note frames no shown slice: {note}"
+        );
+        let back: Coverage = serde_json::from_value(wire)?;
+        assert_eq!(back, coverage, "bug: the wire shape reads back as written");
+        Ok(())
+    }
+
+    #[test]
+    fn a_partial_segments_window_names_what_could_not_be_read() -> TestResult {
+        let coverage = Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::SegmentDetailPartial {
+                unreadable: 3,
+            }),
+            window: segments(40, 37)?,
+            trustworthy_from: None,
+            pending: None,
+        };
+        let wire = serde_json::to_value(&coverage)?;
+        assert_eq!(
+            wire["incomplete_reason"],
+            json!({ "segment_detail_partial": { "unreadable": 3 } }),
+            "bug: the partial reason carries how many could not be read"
+        );
+        let note = wire["note"].as_str().ok_or("no note")?;
+        assert!(
+            note.contains("3 of its activities could not have their segment efforts read"),
+            "bug: the note names the unreadable count: {note}"
+        );
+        let back: Coverage = serde_json::from_value(wire)?;
+        assert_eq!(back, coverage, "bug: the wire shape reads back as written");
+        Ok(())
+    }
+
+    #[test]
+    fn segments_nobody_can_read_promise_no_connect_step() -> TestResult {
+        let coverage = Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::SegmentDetailUnavailable),
+            window: segments(40, 0)?,
+            trustworthy_from: None,
+            pending: None,
+        };
+        let note = coverage.note().ok_or("no note")?;
+        assert!(
+            note.contains("they come from Strava's API, which this athlete hasn't connected"),
+            "bug: the note says where efforts come from: {note}"
+        );
+        assert!(
+            !note.to_lowercase().contains("connect strava"),
+            "bug: the note promises no connect step: {note}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_detail_walk_without_a_total_or_a_pace_has_no_eta() {
+        assert_eq!(
+            Pending::detail_walk_running(5, None, Some(1_728.0)),
+            Pending::DetailWalkRunning {
+                units_done: 5,
+                units_total: None,
+                eta_secs: None,
+            },
+            "bug: no total, no ETA"
+        );
+        assert_eq!(
+            Pending::detail_walk_running(5, Some(9), None),
+            Pending::DetailWalkRunning {
+                units_done: 5,
+                units_total: Some(9),
+                eta_secs: None,
+            },
+            "bug: no pace, no ETA"
+        );
     }
 
     #[test]

@@ -7,7 +7,9 @@
 //! A count stated from an incomplete activity window is not a fact.
 //!
 //! `get_activities` stamps `coverage.complete: false` into its own result
-//! when the window it served is partial (carnet#1481). The `ReAct` and text
+//! when the window it served is partial (carnet#1481), and
+//! `get_segment_history` does the same when the segment efforts of some of
+//! the window's activities were not read (carnet#1483). The `ReAct` and text
 //! loops hold the tool payloads and read that stamp straight off them. The
 //! Copilot-headless loop holds nothing: its tools run inside an ACP
 //! subprocess whose calls reach Dravr through the tool host on a separate
@@ -33,8 +35,12 @@ use crate::guardian::TurnKey;
 /// that was not enough; a dropped mark costs the re-ask, not the answer.
 const MARK_CAP: usize = 10_000;
 
-/// Whether one tool payload is a `get_activities` window that says it is
-/// incomplete (`coverage.complete` false).
+/// The tools whose result carries a window's coverage under `coverage`: a
+/// count stated over one that is short of the ask is re-asked.
+const COUNTED_WINDOW_TOOLS: [&str; 2] = ["get_activities", "get_segment_history"];
+
+/// Whether one tool payload is a `get_activities` or `get_segment_history`
+/// window that says it is incomplete (`coverage.complete` false).
 ///
 /// Keyed on the tool name so only the envelope that carries this contract can
 /// raise it — a nested field of some other tool's output cannot.
@@ -44,7 +50,7 @@ pub fn incomplete_window_in_payload(tool_name: &str, payload: &Value) -> bool {
 
     let Some(coverage) = payload
         .get("coverage")
-        .filter(|_| tool_name == "get_activities")
+        .filter(|_| COUNTED_WINDOW_TOOLS.contains(&tool_name))
     else {
         return false;
     };
@@ -72,16 +78,21 @@ pub fn mark_if_incomplete(
 /// Whether `reason` leaves the window short of the period asked. A provider
 /// that could not be read (`provider_unavailable`) does not: the reconnect
 /// offer answers it, and re-asking every reply until the athlete reconnects
-/// would answer it twice. A daily series' reasons are not a window of
-/// activities' and never reach here.
+/// would answer it twice. Nor do segment efforts no backend the athlete holds
+/// reads (`segment_detail_unavailable`), for the same reason: no re-ask
+/// changes them until the athlete connects one. A daily series' reasons are
+/// not a window of activities' and never reach here.
 const fn counted_short(reason: IncompleteReason) -> bool {
     match reason {
         IncompleteReason::LiveReadRunning
         | IncompleteReason::ReadCapped
-        | IncompleteReason::HistoryWalkRunning => true,
+        | IncompleteReason::HistoryWalkRunning
+        | IncompleteReason::SegmentDetailWalking
+        | IncompleteReason::SegmentDetailPartial { .. } => true,
         IncompleteReason::ProviderUnavailable
         | IncompleteReason::ShallowHistory
-        | IncompleteReason::NoStoredActivities => false,
+        | IncompleteReason::NoStoredActivities
+        | IncompleteReason::SegmentDetailUnavailable => false,
     }
 }
 
@@ -173,6 +184,34 @@ mod tests {
         assert!(
             !incomplete_window_in_payload("get_activities", &json!({})),
             "bug: a coverage-less window is not incomplete"
+        );
+    }
+
+    #[test]
+    fn a_partial_segments_window_is_short_of_the_ask() {
+        let walking = json!({
+            "coverage": { "complete": false, "incomplete_reason": "segment_detail_walking" }
+        });
+        assert!(
+            incomplete_window_in_payload("get_segment_history", &walking),
+            "bug: a segments window the detail walk has not finished is short of the ask"
+        );
+        assert!(
+            incomplete_window_in_payload(
+                "get_segment_history",
+                &json!({ "coverage": {
+                    "complete": false,
+                    "incomplete_reason": { "segment_detail_partial": { "unreadable": 3 } }
+                } })
+            ),
+            "bug: a segments window with unreadable activities is short of the ask"
+        );
+        assert!(
+            !incomplete_window_in_payload(
+                "get_segment_history",
+                &json!({ "coverage": { "complete": false, "incomplete_reason": "segment_detail_unavailable" } })
+            ),
+            "bug: segments no backend reads are the connection's to answer, not the count guard's"
         );
     }
 
