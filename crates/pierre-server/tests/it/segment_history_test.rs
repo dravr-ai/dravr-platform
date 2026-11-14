@@ -1082,9 +1082,10 @@ async fn a_session_only_athlete_reads_segments_unavailable() {
 
 /// An athlete whose grant's app is registered at 7 calls a day: its
 /// budget leaves a walk no call, so no walk is recorded, and the window
-/// says no backend can read the efforts.
+/// says Strava could not be read, never that the athlete has not connected
+/// it: they have.
 #[tokio::test]
-async fn an_app_with_no_room_for_a_walk_reads_segments_unavailable() {
+async fn an_app_with_no_room_for_a_walk_reads_strava_unavailable() {
     let (base, mock) = mock_strava(Listing::Status(402)).await;
     let resources = server(&base, 7).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
@@ -1108,9 +1109,10 @@ async fn an_app_with_no_room_for_a_walk_reads_segments_unavailable() {
     let coverage = &payload["coverage"];
     assert_eq!(coverage["complete"], false, "{coverage}");
     assert_eq!(
-        coverage["incomplete_reason"], "segment_detail_unavailable",
-        "bug: a walk with no call a day reads as reading: {coverage}"
+        coverage["incomplete_reason"], "provider_unavailable",
+        "bug: a walk with no call a day reads as reading, or as Strava not connected: {coverage}"
     );
+    assert_never_says_not_connected(coverage);
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),
         "bug: a walk with no call a day was recorded"
@@ -1120,6 +1122,68 @@ async fn an_app_with_no_room_for_a_walk_reads_segments_unavailable() {
         0,
         "bug: a ride was read with no call left for a walk"
     );
+}
+
+/// The note of a window whose athlete holds a Strava grant never says they
+/// have not connected Strava.
+fn assert_never_says_not_connected(coverage: &Value) {
+    let note = coverage["note"].as_str().unwrap_or_default();
+    assert!(
+        !note.contains("hasn't connected"),
+        "bug: an athlete holding a Strava grant is told they have not connected it: {note}"
+    );
+}
+
+/// An athlete whose Strava grant needs re-authorizing holds it, though it is
+/// not live: the window says Strava could not be read, never that they have
+/// not connected it, and asks no walk of a grant that cannot read.
+#[tokio::test]
+async fn a_grant_needing_reauth_reads_strava_unavailable() {
+    let (base, mock) = mock_strava(Listing::Status(402)).await;
+    let resources = server(&base, 1_000).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    stored_to_its_end(&resources, user_id, tenant, oauth_providers::STRAVA).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(4))],
+    )
+    .await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            Some("invalid_grant"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+
+    let coverage = &payload["coverage"];
+    assert_eq!(coverage["complete"], false, "{coverage}");
+    assert_eq!(
+        coverage["incomplete_reason"], "provider_unavailable",
+        "bug: a lapsed grant reads as Strava not connected: {coverage}"
+    );
+    assert_never_says_not_connected(coverage);
+    assert!(
+        walk_row(&resources, user_id, tenant).await.is_none(),
+        "bug: a walk was asked of a grant that needs re-authorizing"
+    );
+    assert_eq!(mock.detail_reads(), 0, "bug: a lapsed grant read a ride");
 }
 
 /// Give the athlete a live Strava session and its connection.

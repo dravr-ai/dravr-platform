@@ -373,8 +373,8 @@ async fn an_app_with_no_room_for_a_walk_records_none() {
     );
     assert_eq!(
         asked.segment_reason(),
-        Some(IncompleteReason::SegmentDetailUnavailable),
-        "bug: a window no walk can read reads as being read"
+        Some(IncompleteReason::ProviderUnavailable),
+        "bug: a window no walk can read reads as being read, or as Strava not connected"
     );
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),

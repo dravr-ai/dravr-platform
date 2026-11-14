@@ -71,7 +71,9 @@ use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::field_support::ActivityFields;
 use pierre_providers::request_budget::DETAIL_WALK_DAILY_CALLS;
 use pierre_providers::ProviderDescriptor;
-use pierre_services::training_history_read::{history_source_order, history_store_keys};
+use pierre_services::training_history_read::{
+    history_source_order, history_store_keys, HistorySource,
+};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -99,14 +101,28 @@ const SECS_PER_DAY: f64 = 86_400.0;
 ///
 /// The first live one among the backends holding that history, grant or
 /// session, whose descriptor declares segment efforts on a detail read.
-/// `None` when the athlete holds none: no walk can read them.
+/// `None` when the athlete holds none live: no walk can read them.
 pub async fn segment_detail_backend(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
     tenant_id: TenantId,
     provider: &str,
 ) -> Option<String> {
-    live_backend_serving(runtime, user_id, tenant_id, provider, |descriptor| {
+    segment_detail_serving(runtime, user_id, tenant_id, provider)
+        .await
+        .live()
+}
+
+/// What the athlete holds of the backends that read segment efforts on a
+/// detail read of `provider`'s history ([`segment_detail_backend`]): one
+/// live, one held that cannot read now, or none.
+pub(crate) async fn segment_detail_serving(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+) -> Serving {
+    backend_serving(runtime, user_id, tenant_id, provider, |descriptor| {
         descriptor
             .activity_fields()
             .detail_only
@@ -115,11 +131,34 @@ pub async fn segment_detail_backend(
     .await
 }
 
+/// What the athlete holds of the backends that serve something.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Serving {
+    /// This backend serves it, live.
+    Live(String),
+    /// A backend that serves it is held, its credential stored, but not
+    /// live: it needs re-authorizing, was revoked, or is delegated. Strava
+    /// stands connected for the athlete, and cannot be read for them now.
+    Lapsed,
+    /// The athlete holds no backend that serves it.
+    Absent,
+}
+
+impl Serving {
+    /// The live backend, if one is.
+    pub(crate) fn live(self) -> Option<String> {
+        match self {
+            Self::Live(backend) => Some(backend),
+            Self::Lapsed | Self::Absent => None,
+        }
+    }
+}
+
 /// The first live backend, in the athlete's order among those holding
 /// `provider`'s history, whose descriptor `serves`: the one resolution of
 /// "which backend the athlete holds reads this" for segment efforts, whether
 /// on a detail read ([`segment_detail_backend`]) or listed per segment.
-/// `None` when the athlete holds none.
+/// `None` when the athlete holds none live.
 pub(crate) async fn live_backend_serving(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -127,17 +166,53 @@ pub(crate) async fn live_backend_serving(
     provider: &str,
     serves: impl Fn(&dyn ProviderDescriptor) -> bool + Send,
 ) -> Option<String> {
-    let registry = runtime.provider_registry();
-    history_source_order(runtime.repos(), user_id, tenant_id, provider)
+    backend_serving(runtime, user_id, tenant_id, provider, serves)
         .await
-        .into_iter()
-        .filter(|source| source.live)
-        .find(|source| {
-            registry
-                .get_descriptor(&source.backend)
-                .is_some_and(&serves)
-        })
-        .map(|source| source.backend)
+        .live()
+}
+
+/// What the athlete holds, in their order among the backends holding
+/// `provider`'s history, of those whose descriptor `serves` ([`Serving`]):
+/// the first live one; else whether one is held at all, its credential
+/// stored though not live. A token row that cannot be read counts as held,
+/// as the source order counts it.
+async fn backend_serving(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    serves: impl Fn(&dyn ProviderDescriptor) -> bool + Send,
+) -> Serving {
+    let registry = runtime.provider_registry();
+    let serving: Vec<HistorySource> =
+        history_source_order(runtime.repos(), user_id, tenant_id, provider)
+            .await
+            .into_iter()
+            .filter(|source| {
+                registry
+                    .get_descriptor(&source.backend)
+                    .is_some_and(&serves)
+            })
+            .collect();
+    if let Some(live) = serving.iter().find(|source| source.live) {
+        return Serving::Live(live.backend.clone());
+    }
+    for source in &serving {
+        match runtime
+            .repos()
+            .oauth_tokens
+            .get_token(user_id, tenant_id, &source.backend)
+            .await
+        {
+            Ok(None) => {}
+            Ok(Some(_)) => return Serving::Lapsed,
+            Err(e) => {
+                warn!(user_id = %user_id, backend = %source.backend, error = %e, "Detail walk: the token row could not be read; the backend reads as held");
+                return Serving::Lapsed;
+            }
+        }
+    }
+    Serving::Absent
 }
 
 /// The window a detail walk is asked to read.
@@ -176,8 +251,8 @@ pub enum DetailWalkAsked {
     NotRecorded,
     /// The backend's budget leaves the athlete's walk no call a day (an app
     /// registered at under 8 a day): no walk is recorded, which would only
-    /// pause until each day's end, forever. No backend can read the
-    /// window's efforts within its budget.
+    /// pause until each day's end, forever. The backend is connected, and
+    /// cannot read the window's efforts within its budget.
     NoBudget,
 }
 
@@ -186,8 +261,8 @@ impl DetailWalkAsked {
     /// walk recorded or widened is still reading them
     /// ([`IncompleteReason::SegmentDetailWalking`]); one that ended lately
     /// left some unread ([`IncompleteReason::SegmentDetailPartial`]); a
-    /// budget with no call a day for a walk reads none
-    /// ([`IncompleteReason::SegmentDetailUnavailable`]).
+    /// budget with no call a day for a walk reads none: the backend the
+    /// athlete connected cannot be read ([`IncompleteReason::ProviderUnavailable`]).
     /// `None` when nothing is left to read, or when nothing could be
     /// recorded: the caller's own count says whether the window is short.
     #[must_use]
@@ -197,7 +272,7 @@ impl DetailWalkAsked {
             Self::RecentlyWalked { unreadable } => Some(IncompleteReason::SegmentDetailPartial {
                 unreadable: u64::try_from(unreadable).unwrap_or(0),
             }),
-            Self::NoBudget => Some(IncompleteReason::SegmentDetailUnavailable),
+            Self::NoBudget => Some(IncompleteReason::ProviderUnavailable),
             Self::NothingUnread | Self::NotRecorded => None,
         }
     }
@@ -609,8 +684,8 @@ mod tests {
         );
         assert_eq!(
             DetailWalkAsked::NoBudget.segment_reason(),
-            Some(IncompleteReason::SegmentDetailUnavailable),
-            "bug: a window no walk has a call to read reads as complete"
+            Some(IncompleteReason::ProviderUnavailable),
+            "bug: a window no walk has a call to read reads as complete, or as Strava not connected"
         );
         assert_eq!(DetailWalkAsked::NothingUnread.segment_reason(), None);
         assert_eq!(DetailWalkAsked::NotRecorded.segment_reason(), None);

@@ -73,8 +73,8 @@ pub mod answer;
 use answer::{answer, effort_row, AnsweredBy, SegmentHistoryResult};
 
 use crate::activity_backfill::detail_walk::{
-    ask_detail_walk, detail_walk_pending, live_backend_serving, segment_detail_backend,
-    DetailWalkAsk,
+    ask_detail_walk, detail_walk_pending, live_backend_serving, segment_detail_serving,
+    DetailWalkAsk, Serving,
 };
 use crate::activity_backfill::history_walk::start_history_walk;
 use crate::activity_backfill::provider_tenant_id_str;
@@ -674,29 +674,45 @@ async fn history_owed(
 }
 
 /// The segment reason of a window with unread activities, asking the walk
-/// that reads them: with a backend that reads segment efforts, a detail walk
-/// of the window is asked, which is reading them
+/// that reads them: with a live backend that reads segment efforts, a detail
+/// walk of the window is asked, which is reading them
 /// ([`IncompleteReason::SegmentDetailWalking`]) or ended lately leaving some
-/// unread ([`IncompleteReason::SegmentDetailPartial`]); with none,
-/// [`IncompleteReason::SegmentDetailUnavailable`]. An athlete with no Strava
-/// connection and nothing stored reads complete and empty. A capped window
-/// asks whatever its newest activities held: the walk counts the rest.
+/// unread ([`IncompleteReason::SegmentDetailPartial`]); one connected but
+/// unable to read them now (a credential to re-authorize, an app with no
+/// call a day for a walk) is [`IncompleteReason::ProviderUnavailable`]; with
+/// none connected, [`IncompleteReason::SegmentDetailUnavailable`]. An
+/// athlete with no Strava connection and nothing stored reads complete and
+/// empty. A capped window asks whatever its newest activities held: the
+/// walk counts the rest.
 async fn segments_owed(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
     ask: &SegmentAsk,
     shape: WindowShape,
 ) -> (Completeness, Option<Pending>) {
-    let Some(backend) =
-        segment_detail_backend(runtime, athlete.user_id, athlete.tenant_id, STRAVA).await
-    else {
-        if shape.unread() == 0 && (shape.total > 0 || !strava_connected(runtime, athlete).await) {
+    let backend = match segment_detail_serving(runtime, athlete.user_id, athlete.tenant_id, STRAVA)
+        .await
+    {
+        Serving::Live(backend) => backend,
+        Serving::Lapsed if shape.unread() == 0 && shape.total > 0 => {
             return (Completeness::Complete, None);
         }
-        return (
-            Completeness::Incomplete(IncompleteReason::SegmentDetailUnavailable),
-            None,
-        );
+        Serving::Lapsed => {
+            return (
+                Completeness::Incomplete(IncompleteReason::ProviderUnavailable),
+                None,
+            );
+        }
+        Serving::Absent => {
+            if shape.unread() == 0 && (shape.total > 0 || !strava_connected(runtime, athlete).await)
+            {
+                return (Completeness::Complete, None);
+            }
+            return (
+                Completeness::Incomplete(IncompleteReason::SegmentDetailUnavailable),
+                None,
+            );
+        }
     };
     if complete_without_walk(shape) {
         return (Completeness::Complete, None);
