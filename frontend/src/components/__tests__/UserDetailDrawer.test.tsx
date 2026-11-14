@@ -40,10 +40,7 @@ vi.mock('../FeatureFlagsPanel', () => ({
   default: () => null,
 }));
 
-vi.mock('../PasswordResetModal', () => ({
-  default: () => null,
-}));
-
+// The real reset modal: it opens over the drawer, and Escape closes it first.
 // Role is mutable so tests can flip between super_admin and admin
 let mockRole: 'super_admin' | 'admin' = 'super_admin';
 vi.mock('../../hooks/useAuth', () => ({
@@ -140,6 +137,28 @@ describe('UserDetailDrawer tier control', () => {
       tier: 'professional',
     });
     clearUserTier.mockResolvedValue({ removed: true });
+  });
+
+  it('closes the password reset modal over it on one Escape, and itself on the next', async () => {
+    const onClose = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <UserDetailDrawer user={targetUser} isOpen onClose={onClose} onAction={vi.fn()} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText('Monthly Usage')).toBeInTheDocument());
+    expect(screen.getByRole('dialog', { name: 'User Details' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reset Password' }));
+    expect(screen.getByRole('dialog', { name: 'Reset User Password' })).toBeInTheDocument();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Reset User Password' })).not.toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('tells apart the rows of one model by call type', async () => {

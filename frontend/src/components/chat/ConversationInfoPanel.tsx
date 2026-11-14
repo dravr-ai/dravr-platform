@@ -4,13 +4,14 @@
 // ABOUTME: The right drawer behind the thread header — Group info, Agent info, a plan thread's athlete, or a plain thread's own controls
 // ABOUTME: Tapping the header is how App Messaging reaches this, so nothing here needs a tab of its own
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { clsx } from 'clsx';
 import { Trash2, Users } from 'lucide-react';
 import type { Conversation } from '@pierre/shared-types';
 import { avatarSlot, initialsFor, PLAN_THREAD_KEYS } from '@pierre/chat-utils';
 import { Button, Input } from '../ui';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
+import { useDialog } from '../../hooks/useDialog';
 import { useGroup } from '../../hooks/useGroups';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import GroupInfoPanel from '../groups/GroupInfoPanel';
@@ -137,20 +138,19 @@ export default function ConversationInfoPanel({
   const [title, setTitle] = useState(conversation.title ?? '');
   const [participantsOpen, setParticipantsOpen] = useState(openParticipants);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  // Focus trap, focus restore, Escape and the scroll lock, on the same stack
+  // as every other layer: a group's confirm dialog opened from inside closes
+  // first, and the panel stays.
+  const { containerRef } = useDialog({ open: true, onClose });
 
   const trimmed = title.trim();
   const renameDisabled = !trimmed || trimmed === (conversation.title ?? '');
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-end bg-black/60"
+      ref={containerRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-start justify-end bg-black/60 focus:outline-none"
       role="dialog"
       aria-modal="true"
       aria-label={t(HEADING_KEYS[shape])}

@@ -32,6 +32,7 @@ import {
 } from '@pierre/shared-constants';
 import { useDistanceUnit } from '@pierre/ui-logic';
 import { useTheme } from '../../hooks/useTheme';
+import { useEscapeLayer } from '../../hooks/useDialog';
 import { addRouteLayers } from './routeLayers';
 import { addRouteMarkers } from './routeMarkers';
 
@@ -335,15 +336,10 @@ export default function RouteView({
     return () => document.removeEventListener('fullscreenchange', sync);
   }, []);
 
-  // The overlay has no browser behind it, so Esc is the page's to honour.
-  useEffect(() => {
-    if (screen !== 'overlay') return;
-    const close = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setScreen('inline');
-    };
-    document.addEventListener('keydown', close);
-    return () => document.removeEventListener('keydown', close);
-  }, [screen]);
+  // The overlay has no browser behind it, so Esc is the page's to honour —
+  // as the top layer, so it folds the map back without closing the Today
+  // sheet the card sits in.
+  useEscapeLayer(screen === 'overlay', () => setScreen('inline'));
 
   // Full screen, the map is the page: a wheel and a one-finger drag work it
   // directly. Inline, they belong to the thread the card scrolls in. Either

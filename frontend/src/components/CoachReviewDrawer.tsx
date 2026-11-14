@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { StorePackageReview } from '../services/api/admin';
@@ -14,6 +14,7 @@ import CoachRejectionModal from './CoachRejectionModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { useDialog } from '../hooks/useDialog';
 
 // Category colors matching SystemCoachesTab
 const CATEGORY_COLORS: Record<string, string> = {
@@ -81,6 +82,12 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
     onClose();
   };
 
+  const titleId = useId();
+  // Focus trap, focus restore, Escape and the scroll lock: one layer on the
+  // same stack as every other dialog.
+  // The rejection modal opens over the drawer and closes first.
+  const { containerRef } = useDialog({ open: isOpen && !!coach, onClose });
+
   if (!isOpen || !coach) return null;
 
   // Truncate prompt for preview (show first 500 chars)
@@ -98,10 +105,17 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-[480px] bg-surface z-50 border-l ghost-border flex flex-col">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="fixed inset-y-0 right-0 w-full max-w-[480px] bg-surface z-50 border-l ghost-border flex flex-col focus:outline-none"
+      >
         {/* Header - Sticky */}
         <div className="sticky top-0 bg-surface/95 backdrop-blur-lg border-b ghost-border px-6 py-4 flex justify-between items-center z-10">
-          <h2 className="text-xl font-semibold text-on-surface">Review Agent</h2>
+          <h2 id={titleId} className="text-xl font-semibold text-on-surface">Review Agent</h2>
           <button
             onClick={onClose}
             aria-label="Close drawer"

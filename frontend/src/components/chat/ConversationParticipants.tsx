@@ -12,6 +12,7 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Input, useErrorToast, useSuccessToast } from '../ui';
 import type { ConversationParticipant } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { useEscapeLayer } from '../../hooks/useDialog';
 import { describeApiError } from '@pierre/ui-logic';
 
 interface ConversationParticipantsProps {
@@ -51,6 +52,9 @@ export default function ConversationParticipants({
     if (controlledOpen === undefined) setUncontrolledOpen(next);
   };
   const [newUserId, setNewUserId] = useState('');
+  // A layer over the info panel: Escape folds the list and leaves the panel
+  // up, even when the panel opens with the list already expanded.
+  const listRef = useEscapeLayer(open, () => setOpen(false));
 
   const { data: participants = [], isLoading } = useQuery({
     queryKey: QUERY_KEYS.chat.participants(conversationId),
@@ -105,6 +109,7 @@ export default function ConversationParticipants({
 
       {open && (
         <div
+          ref={listRef}
           role="dialog"
           aria-label={t('chat.participantsAria')}
           className="absolute right-0 z-20 mt-2 w-80 max-w-[90vw] rounded-xl border ghost-border bg-surface p-3"

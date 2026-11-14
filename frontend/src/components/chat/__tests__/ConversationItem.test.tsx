@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { AVATAR_SLOT_HUES, AVATAR_SLOTS, buildConversationRow } from '@pierre/chat-utils';
 
 /** The words the row cannot spell itself, as the English client resolves them. */
@@ -13,6 +14,7 @@ const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitle
 import type { Conversation } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
 import ConversationItem from '../ConversationItem';
+import { Sheet } from '../../ui/Sheet';
 import { AVATAR_SLOT_CLASSES, avatarSlotClass } from '../avatarSlots';
 
 const NOW = new Date('2026-08-27T12:00:00');
@@ -258,6 +260,72 @@ describe('ConversationItem actions', () => {
     renderRow(conversation(), {}, { isSelected: true });
 
     expect(screen.getByRole('button', { name: /Sunday long run/ })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('closes its menu on Escape and leaves the history sheet it sits in open', async () => {
+    const user = userEvent.setup();
+    const onSheetClose = vi.fn();
+    render(
+      <Sheet side="left" title="History" onClose={onSheetClose}>
+        <ul>
+          <ConversationItem
+            row={buildConversationRow(conversation(), LABELS, NOW)}
+            isSelected={false}
+            isEditing={false}
+            editedTitleValue=""
+            onSelect={noop}
+            onStartRename={noop}
+            onMarkUnread={noop}
+            onDelete={noop}
+            onTitleChange={noop}
+            onSaveRename={noop}
+            onCancelRename={noop}
+          />
+        </ul>
+      </Sheet>,
+    );
+
+    await user.click(screen.getByTestId('conversation-actions-trigger'));
+    expect(screen.getByRole('menu', { name: 'Conversation actions' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    // carnet#1553: the menu and the sheet both listened on `document`.
+    expect(screen.queryByRole('menu', { name: 'Conversation actions' })).toBeNull();
+    expect(onSheetClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(onSheetClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a rename on Escape without closing the history sheet', async () => {
+    const user = userEvent.setup();
+    const onSheetClose = vi.fn();
+    const onCancelRename = vi.fn();
+    render(
+      <Sheet side="left" title="History" onClose={onSheetClose}>
+        <ul>
+          <ConversationItem
+            row={buildConversationRow(conversation(), LABELS, NOW)}
+            isSelected={false}
+            isEditing
+            editedTitleValue="Sunday tempo"
+            onSelect={noop}
+            onStartRename={noop}
+            onMarkUnread={noop}
+            onDelete={noop}
+            onTitleChange={noop}
+            onSaveRename={noop}
+            onCancelRename={onCancelRename}
+          />
+        </ul>
+      </Sheet>,
+    );
+
+    screen.getByLabelText('Conversation title').focus();
+    await user.keyboard('{Escape}');
+
+    expect(onCancelRename).toHaveBeenCalledTimes(1);
+    expect(onSheetClose).not.toHaveBeenCalled();
   });
 
   it('renames through a design-system input, not a raw field', () => {

@@ -10,11 +10,15 @@ import type { AdminToken } from '../types/api';
 import type { RotateAdminTokenResponse } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { useDialog } from '../hooks/useDialog';
 
 interface ApiKeyDetailsProps {
   token: AdminToken;
   onBack: () => void;
 }
+
+/** The reveal's heading, which is also its accessible name. */
+const TOKEN_ROTATED_TITLE = 'API Token Rotated Successfully';
 
 interface TokenSuccessModalProps {
   isOpen: boolean;
@@ -30,6 +34,10 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
   tokenInfo 
 }) => {
   const [copied, setCopied] = useState(false);
+  // Focus trap, focus restore and the scroll lock: one layer on the same stack
+  // as every other dialog. Escape does not dismiss it: the token is shown this
+  // once, and a stray key must not throw it away before it is copied.
+  const { containerRef } = useDialog({ open: isOpen, onClose, closeOnEscape: false });
 
   const copyToClipboard = async () => {
     try {
@@ -44,10 +52,17 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-label={TOKEN_ROTATED_TITLE}
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 focus:outline-none"
+    >
       <Card variant="dark" className="max-w-2xl mx-4 w-full">
         <CardHeader
-          title="API Token Rotated Successfully"
+          title={TOKEN_ROTATED_TITLE}
           subtitle="Your new API token is ready"
         />
 

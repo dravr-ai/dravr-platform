@@ -10,6 +10,7 @@ import { MessageSquarePlus, Plus, UserPlus, Users } from 'lucide-react';
 import { COMMAND_DRAFTS } from '@pierre/shared-constants';
 import { Button, Input, Modal, ModalActions } from '../ui';
 import { useTranslation } from '@pierre/i18n';
+import { useEscapeLayer } from '../../hooks/useDialog';
 
 export interface ChatComposeMenuProps {
   /**
@@ -60,6 +61,9 @@ export default function ChatComposeMenu({
   const [namingGroup, setNamingGroup] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // A layer over whatever the menu opens in: Escape closes the menu alone.
+  const menuRef = useEscapeLayer(open, () => setOpen(false));
+
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent) => {
@@ -67,14 +71,9 @@ export default function ChatComposeMenu({
         setOpen(false);
       }
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
     document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
 
@@ -103,6 +102,7 @@ export default function ChatComposeMenu({
 
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label={t('chat.startConversationPrompt')}
           data-testid="chat-compose-menu"

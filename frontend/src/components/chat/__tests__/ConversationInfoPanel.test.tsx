@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the header info drawer's four shapes — Group info, a plan thread's athlete, Agent info, and a plain thread
-// ABOUTME: Pins that the shape is read off the conversation and that Remove sends the /agent remove command
+// ABOUTME: Pins that the shape is read off the conversation, that Remove sends /agent remove, and that Escape closes a confirm over it first
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -27,11 +27,32 @@ vi.mock('../../../services/api', () => ({
   groupsApi: { getGroup: (...a: unknown[]) => getGroup(...a) },
 }));
 
-vi.mock('../../groups/GroupInfoPanel', () => ({
-  default: ({ groupId }: { groupId: string }) => (
-    <div data-testid="group-info-panel">group {groupId}</div>
-  ),
-}));
+// The real panel opens a ConfirmDialog over the drawer (leave, remove a
+// member); the stand-in keeps one so the stack can be exercised.
+vi.mock('../../groups/GroupInfoPanel', async () => {
+  const { useState } = await import('react');
+  const { ConfirmDialog } = await vi.importActual<typeof import('../../ui')>('../../ui');
+  return {
+    default: function GroupInfoPanel({ groupId }: { groupId: string }) {
+      const [confirming, setConfirming] = useState(false);
+      return (
+        <div data-testid="group-info-panel">
+          group {groupId}
+          <button type="button" onClick={() => setConfirming(true)}>
+            Leave group
+          </button>
+          <ConfirmDialog
+            isOpen={confirming}
+            onClose={() => setConfirming(false)}
+            onConfirm={() => setConfirming(false)}
+            title="Leave the group?"
+            message="You stop seeing its threads."
+          />
+        </div>
+      );
+    },
+  };
+});
 
 const COACH = {
   id: 'coach-1',
@@ -201,6 +222,22 @@ describe('ConversationInfoPanel', () => {
     await waitFor(() => expect(list).toHaveTextContent('owner-1 · owner'));
   });
 
+  it('folds a participants list it opened with on the first Escape, and closes on the next', async () => {
+    const user = userEvent.setup();
+    // The panel and the list inside it mount in the same render, and the
+    // list's effect runs first: by push order alone the panel would take the
+    // Escape.
+    const handlers = renderPanel(conversation(), { openParticipants: true });
+    await screen.findByRole('list', { name: 'Participant list' });
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('list', { name: 'Participant list' })).not.toBeInTheDocument();
+    expect(handlers.onClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(handlers.onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('closes on Escape', async () => {
     const user = userEvent.setup();
     const handlers = renderPanel(conversation());
@@ -209,5 +246,23 @@ describe('ConversationInfoPanel', () => {
     await user.keyboard('{Escape}');
 
     expect(handlers.onClose).toHaveBeenCalled();
+  });
+
+  it('stays open under a confirm dialog that Escape closes', async () => {
+    const user = userEvent.setup();
+    const handlers = renderPanel(conversation({ group_id: 'group-7', group_name: 'Sunday Riders', agent_id: 'coach-1' }));
+
+    await user.click(await screen.findByRole('button', { name: 'Leave group' }));
+    expect(screen.getByRole('dialog', { name: 'Leave the group?' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    // carnet#1553: the panel listened on `window` and closed with the
+    // confirm dialog over it.
+    expect(screen.queryByRole('dialog', { name: 'Leave the group?' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('conversation-info-panel')).toBeInTheDocument();
+    expect(handlers.onClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(handlers.onClose).toHaveBeenCalledTimes(1);
   });
 });

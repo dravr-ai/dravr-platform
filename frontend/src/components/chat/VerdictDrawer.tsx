@@ -19,6 +19,7 @@ import {
 import { claimInContext, formatDateTime, parseEvidenceRefs } from '@pierre/chat-utils';
 import type { EvidenceRef } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
+import { useDialog, useEscapeLayer } from '../../hooks/useDialog';
 
 /** The reply the verdicts were drawn from, as the chat surface holds it. */
 export interface VerdictSource {
@@ -235,23 +236,18 @@ function VerdictActions({ verdict, onCopyReference }: { verdict: ClaimVerdict; o
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // The menu is the layer over the drawer: an Escape closes it alone, and the
+  // next one closes the drawer.
+  const menuRef = useEscapeLayer(open, () => setOpen(false));
+
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
     };
-    // The drawer closes on Escape from `window`; a menu that is open takes
-    // the key first and closes alone.
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.stopPropagation();
-      setOpen(false);
-    };
     document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
 
@@ -271,6 +267,7 @@ function VerdictActions({ verdict, onCopyReference }: { verdict: ClaimVerdict; o
       </button>
       {open ? (
         <div
+          ref={menuRef}
           role="menu"
           aria-label={t('chat.verdictActions')}
           className="absolute right-0 z-30 mt-1 w-60 rounded-xl border ghost-border bg-surface-container-lowest p-1.5 shadow-floating"
@@ -442,17 +439,15 @@ export default function VerdictDrawer({
   // what the chip said — « 2 appuyées · 1 invérifiable » — never a second
   // reading of the same rows.
   const headerSummary = summarizeVerdicts(verdicts);
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  // Focus trap, focus restore, Escape and the scroll lock, on the same stack
+  // as every other layer: the actions menu inside closes first.
+  const { containerRef } = useDialog({ open: true, onClose });
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-end bg-scrim/60"
+      ref={containerRef}
+      tabIndex={-1}
+      className="fixed inset-0 z-50 flex items-start justify-end bg-scrim/60 focus:outline-none"
       role="dialog"
       aria-modal="true"
       aria-label={t('chat.verdictDrawerAria')}

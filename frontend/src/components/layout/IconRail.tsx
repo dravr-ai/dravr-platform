@@ -9,6 +9,7 @@ import { clsx } from 'clsx';
 import { LogOut, MessageSquareText, Settings } from 'lucide-react';
 import { DravrLogo } from '../DravrLogo';
 import { useTranslation } from '@pierre/i18n';
+import { useEscapeLayer } from '../../hooks/useDialog';
 import {
   badgeLabel,
   countKey,
@@ -186,19 +187,18 @@ function AccountMenu({
     const onPointerDown = (event: PointerEvent) => {
       if (!containerRef.current?.contains(event.target as Node)) setOpen(false);
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        setOpen(false);
-        toggleRef.current?.focus();
-      }
-    };
     document.addEventListener('pointerdown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('pointerdown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
     };
   }, [open]);
+
+  // A layer like any other: Escape closes the menu alone and hands focus back
+  // to the avatar that opened it.
+  const menuRef = useEscapeLayer(open, () => {
+    setOpen(false);
+    toggleRef.current?.focus();
+  });
 
   const choose = (action: () => void) => () => {
     setOpen(false);
@@ -235,6 +235,7 @@ function AccountMenu({
       </button>
       {open && (
         <div
+          ref={menuRef}
           id={menuId}
           className="absolute bottom-0 left-full z-50 ml-2 flex w-64 flex-col rounded-xl border ghost-border bg-surface-container-lowest p-1.5 shadow-floating"
         >

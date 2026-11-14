@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserTier } from '../types/api';
@@ -17,6 +17,7 @@ import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { formatCost } from '../utils/formatCost';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { useDialog } from '../hooks/useDialog';
 
 interface UserDetailDrawerProps {
   user: User | null;
@@ -158,6 +159,12 @@ export default function UserDetailDrawer({
     },
   });
 
+  const titleId = useId();
+  // Focus trap, focus restore, Escape and the scroll lock: one layer on the
+  // same stack as every other dialog.
+  // The password reset modal opens over the drawer and closes first.
+  const { containerRef } = useDialog({ open: isOpen && !!user, onClose });
+
   if (!isOpen || !user) return null;
 
   const formatLimit = (limit: number | null) => {
@@ -185,10 +192,17 @@ export default function UserDetailDrawer({
       />
 
       {/* Drawer */}
-      <div className="fixed inset-y-0 right-0 w-full max-w-md bg-surface-container-low z-50 overflow-y-auto">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="fixed inset-y-0 right-0 w-full max-w-md bg-surface-container-low z-50 overflow-y-auto focus:outline-none"
+      >
         {/* Header */}
         <div className="sticky top-0 bg-surface-container-low border-b ghost-border px-6 py-4 flex justify-between items-center">
-          <h2 className="text-xl font-semibold text-on-surface">User Details</h2>
+          <h2 id={titleId} className="text-xl font-semibold text-on-surface">User Details</h2>
           <button
             onClick={onClose}
             aria-label="Close drawer"

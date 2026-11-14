@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { Button, Textarea } from './ui';
 import { useAuth } from '../hooks/useAuth';
+import { useDialog } from '../hooks/useDialog';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import ApiKeyList from './ApiKeyList';
@@ -22,6 +23,11 @@ interface TokenSuccessModalProps {
 
 const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, response }) => {
   const [copied, setCopied] = useState(false);
+  const titleId = useId();
+  // Focus trap, focus restore and the scroll lock: one layer on the same stack
+  // as every other dialog. Escape does not dismiss it: the token is shown this
+  // once, and a stray key must not throw it away before it is copied.
+  const { containerRef } = useDialog({ open: isOpen, onClose, closeOnEscape: false });
 
   const copyToClipboard = async () => {
     try {
@@ -36,10 +42,17 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 focus:outline-none"
+    >
       <div className="bg-surface-container-low rounded-lg max-w-2xl mx-4 w-full p-6 border ghost-border">
         <div className="mb-6">
-          <h3 className="text-lg font-semibold text-on-surface">
+          <h3 id={titleId} className="text-lg font-semibold text-on-surface">
             API Token Generated Successfully
           </h3>
           <p className="text-on-surface-variant mt-1">

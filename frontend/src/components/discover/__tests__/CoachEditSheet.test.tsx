@@ -116,7 +116,8 @@ describe('CoachEditSheet', () => {
     await screen.findByRole('heading', { name: 'Edit Agent' });
 
     await user.click(screen.getByRole('button', { name: 'Delete this agent' }));
-    const dialog = screen.getByRole('dialog');
+    // The form is a dialog too; the confirm over it is named by its heading.
+    const dialog = screen.getByRole('dialog', { name: 'Delete Agent?' });
     expect(within(dialog).getByText('Delete Agent?')).toBeInTheDocument();
     expect(within(dialog).getByText(`Delete agent "${COACH_TITLE}"? This cannot be undone.`)).toBeInTheDocument();
     await user.click(within(dialog).getByRole('button', { name: 'Delete' }));
@@ -132,7 +133,7 @@ describe('CoachEditSheet', () => {
     await screen.findByRole('heading', { name: 'Edit Agent' });
 
     await user.click(screen.getByRole('button', { name: 'Delete this agent' }));
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Cancel' }));
+    await user.click(within(screen.getByRole('dialog', { name: 'Delete Agent?' })).getByRole('button', { name: 'Cancel' }));
 
     expect(deleteCoach).not.toHaveBeenCalled();
     expect(onClose).not.toHaveBeenCalled();
@@ -163,7 +164,12 @@ describe('CoachEditSheet', () => {
     await screen.findByRole('heading', { name: 'Edit Agent' });
 
     await user.click(await screen.findByTestId('agent-version-revert-1'));
-    await user.click(within(screen.getByRole('dialog')).getByRole('button', { name: i18n.t('discover.versionRevertConfirm') }));
+    await user.click(
+      within(screen.getByRole('dialog', { name: i18n.t('discover.versionRevertConfirmTitle', { version: 1 }) })).getByRole(
+        'button',
+        { name: i18n.t('discover.versionRevertConfirm') },
+      ),
+    );
 
     await waitFor(() =>
       expect(screen.getByPlaceholderText('e.g., Marathon Training Agent')).toHaveValue('Threshold Coach'),
@@ -173,6 +179,34 @@ describe('CoachEditSheet', () => {
     await user.click(screen.getByRole('button', { name: 'Save Changes' }));
     await waitFor(() => expect(updateCoach).toHaveBeenCalledTimes(1));
     expect((updateCoach.mock.calls[0] as [string, { title: string }])[1].title).toBe('Threshold Coach');
+  });
+
+  it('closes on Escape while the agent is still loading', async () => {
+    getCoach.mockReturnValueOnce(new Promise(() => {}));
+    const { onClose } = renderSheet();
+
+    // The loading overlay is a layer of its own until the form's dialog takes over.
+    expect(screen.getByRole('status', { name: 'Loading agent' })).toBeInTheDocument();
+    await userEvent.setup().keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the load failure on Escape', async () => {
+    getCoach.mockRejectedValueOnce(apiRefusal(404, { message: 'Coach coach-tempo not found' }));
+    const { onClose } = renderSheet();
+
+    const failure = await screen.findByRole('alertdialog');
+    expect(failure).toContainElement(document.activeElement as HTMLElement);
+    await userEvent.setup().keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes the form on Escape once the agent has loaded', async () => {
+    const { onClose } = renderSheet();
+    expect(await screen.findByRole('dialog', { name: 'Edit Agent' })).toBeInTheDocument();
+
+    await userEvent.setup().keyboard('{Escape}');
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 
   it('shows the load failure instead of an empty form', async () => {

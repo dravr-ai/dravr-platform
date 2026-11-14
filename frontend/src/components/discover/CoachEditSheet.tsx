@@ -16,6 +16,7 @@ import { coachToFormData, formDataToUpdateRequest } from './coachForm';
 import type { AgentFormData } from './coachForm';
 import type { Agent } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { useDialog } from '../../hooks/useDialog';
 import { describeApiError } from '@pierre/ui-logic';
 
 /** Cache slot for one agent, under the `coaches` prefix every agent mutation invalidates. */
@@ -84,9 +85,20 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
     onError: () => setConfirmingDelete(false),
   });
 
+  // Loading and failure are overlays of their own, so each is a layer until
+  // the form's dialog takes over: Escape closes them as it closes the form.
+  const { containerRef } = useDialog({ open: isError || formData === null, onClose });
+
   if (isError) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" role="alertdialog" aria-label={t('discover.agentLoadFailed')}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="fixed inset-0 z-50 flex items-center justify-center focus:outline-none"
+        role="alertdialog"
+        aria-modal="true"
+        aria-label={t('discover.agentLoadFailed')}
+      >
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
         <div className="relative bg-surface rounded-2xl max-w-sm w-full mx-4 p-6 text-center">
           <h2 className="text-lg font-semibold text-on-surface mb-2">{t('discover.agentLoadFailedTitle')}</h2>
@@ -101,7 +113,13 @@ export default function CoachEditSheet({ agentId, onClose }: AgentEditSheetProps
 
   if (formData === null) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center" role="status" aria-label={t('discover.loadingAgent')}>
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="fixed inset-0 z-50 flex items-center justify-center focus:outline-none"
+        role="status"
+        aria-label={t('discover.loadingAgent')}
+      >
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
         <div className="relative pierre-spinner w-8 h-8" />
       </div>

@@ -98,6 +98,20 @@ describe('ApiKeyDetails', () => {
     expect(onBack).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps the rotated token on screen through an Escape, as a dialog that holds focus', async () => {
+    rotateAdminToken.mockResolvedValue({ jwt_token: 'pierre_at_rotated_jwt', service_name: 'svc', token_prefix: 'new_prefix' });
+    const { onBack } = renderDetails();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Rotate Key' }));
+    const dialog = await screen.findByRole('dialog', { name: 'API Token Rotated Successfully' });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+
+    // Shown once: a stray Escape must not throw it away before it is copied.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'API Token Rotated Successfully' })).toBeInTheDocument();
+    expect(onBack).not.toHaveBeenCalled();
+  });
+
   it('revokes the token and returns to the list', async () => {
     revokeAdminToken.mockResolvedValue({ success: true });
     const { onBack } = renderDetails();

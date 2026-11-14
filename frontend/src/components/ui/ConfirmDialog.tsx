@@ -4,7 +4,7 @@
 // ABOUTME: Reusable confirmation dialog for destructive actions
 // ABOUTME: Replaces native confirm() with consistent Pierre-styled modal
 
-import React from 'react';
+import React, { useId } from 'react';
 import { Modal, ModalActions } from './Modal';
 import { Button } from './Button';
 import { useTranslation } from '@pierre/i18n';
@@ -77,6 +77,10 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   // cannot call a hook, and both of these are copy rather than configuration.
   const confirmText = confirmLabel ?? t('common.confirm');
   const cancelText = cancelLabel ?? t('common.cancel');
+  // The dialog is named by its own heading and described by its message:
+  // without them a screen reader announced an unnamed dialog.
+  const headingId = useId();
+  const messageId = useId();
   const styles = variantStyles[variant];
   const displayIcon = icon || defaultIcons[variant];
 
@@ -92,6 +96,8 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
       showCloseButton={false}
       closeOnOverlayClick={!isLoading}
       closeOnEscape={!isLoading}
+      labelledBy={headingId}
+      describedBy={messageId}
     >
       <div className="text-center sm:text-left">
         <div className="mx-auto sm:mx-0 flex items-center justify-center sm:justify-start gap-4">
@@ -99,12 +105,12 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             {displayIcon}
           </div>
           <div className="flex-1 min-w-0">
-            <h3 className="text-lg font-semibold text-on-surface">
+            <h3 id={headingId} className="text-lg font-semibold text-on-surface">
               {title}
             </h3>
           </div>
         </div>
-        <p className="mt-3 text-sm text-on-surface sm:pl-16">
+        <p id={messageId} className="mt-3 text-sm text-on-surface sm:pl-16">
           {message}
         </p>
       </div>

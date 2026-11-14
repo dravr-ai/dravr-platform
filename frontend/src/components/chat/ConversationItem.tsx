@@ -12,6 +12,7 @@ import { badgeLabel, countKey, UNREAD_COUNT_ARIA_KEYS } from '@pierre/shared-con
 import { IconButton, Input } from '../ui';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import { useTranslation } from '@pierre/i18n';
+import { useEscapeLayer } from '../../hooks/useDialog';
 
 interface ConversationItemProps {
   row: ConversationRowModel;
@@ -59,19 +60,18 @@ function RowMenu({
   const { t } = useTranslation();
   const rootRef = useRef<HTMLDivElement>(null);
 
+  // A layer over the history sheet the row sits in: Escape closes the menu
+  // and leaves the sheet up.
+  const menuRef = useEscapeLayer(open, () => setOpen(false));
+
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: MouseEvent) => {
       if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
     };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
     document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
     return () => {
       document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
     };
   }, [open, setOpen]);
 
@@ -107,6 +107,7 @@ function RowMenu({
       </IconButton>
       {open && (
         <div
+          ref={menuRef}
           role="menu"
           aria-label={t('chat.conversationActions')}
           data-testid="conversation-actions-menu"

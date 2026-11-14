@@ -1,11 +1,10 @@
-// ABOUTME: Unit tests for headless UI hooks (useButton, useAsyncAction, useModal, useFormField, useToast)
+// ABOUTME: Unit tests for headless UI hooks (useButton, useAsyncAction, useFormField, useToast)
 // ABOUTME: Tests hook state management, callbacks, and accessibility props
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useButton } from '../src/useButton';
 import { useAsyncAction } from '../src/useAsyncAction';
-import { useModal, useConfirmDialog } from '../src/useModal';
 import { useFormField, required, email } from '../src/useFormField';
 import { useToast } from '../src/useToast';
 
@@ -158,123 +157,6 @@ describe('useAsyncAction', () => {
     act(() => result.current.reset());
     expect(result.current.isIdle).toBe(true);
     expect(result.current.result).toBeNull();
-  });
-});
-
-describe('useModal', () => {
-  it('starts closed by default', () => {
-    const { result } = renderHook(() => useModal());
-    expect(result.current.isOpen).toBe(false);
-  });
-
-  it('starts open when initialOpen is true', () => {
-    const { result } = renderHook(() => useModal({ initialOpen: true }));
-    expect(result.current.isOpen).toBe(true);
-  });
-
-  it('opens and closes', () => {
-    const { result } = renderHook(() => useModal());
-
-    act(() => result.current.open());
-    expect(result.current.isOpen).toBe(true);
-
-    act(() => result.current.close());
-    expect(result.current.isOpen).toBe(false);
-  });
-
-  it('toggles state', () => {
-    const { result } = renderHook(() => useModal());
-
-    act(() => result.current.toggle());
-    expect(result.current.isOpen).toBe(true);
-
-    act(() => result.current.toggle());
-    expect(result.current.isOpen).toBe(false);
-  });
-
-  it('handles escape key when enabled', () => {
-    const { result } = renderHook(() => useModal({ closeOnEscape: true }));
-
-    act(() => result.current.open());
-    expect(result.current.isOpen).toBe(true);
-
-    act(() => result.current.escapeKeyHandler({ key: 'Escape' }));
-    expect(result.current.isOpen).toBe(false);
-  });
-
-  it('ignores non-escape keys', () => {
-    const { result } = renderHook(() => useModal({ closeOnEscape: true }));
-
-    act(() => result.current.open());
-    act(() => result.current.escapeKeyHandler({ key: 'Enter' }));
-    expect(result.current.isOpen).toBe(true);
-  });
-
-  it('calls onOpen and onClose callbacks', () => {
-    const onOpen = vi.fn();
-    const onClose = vi.fn();
-
-    const { result } = renderHook(() => useModal({ onOpen, onClose }));
-
-    act(() => result.current.open());
-    expect(onOpen).toHaveBeenCalledOnce();
-
-    act(() => result.current.close());
-    expect(onClose).toHaveBeenCalledOnce();
-  });
-
-  it('closes on backdrop click when closeOnOutsideClick is true', () => {
-    const { result } = renderHook(() => useModal({ closeOnOutsideClick: true }));
-
-    act(() => result.current.open());
-
-    const target = {};
-    act(() => result.current.backdropProps.onClick({ target, currentTarget: target }));
-    expect(result.current.isOpen).toBe(false);
-  });
-
-  it('does not close on content click', () => {
-    const { result } = renderHook(() => useModal({ closeOnOutsideClick: true }));
-
-    act(() => result.current.open());
-
-    const stopPropagation = vi.fn();
-    act(() => result.current.contentProps.onClick({ stopPropagation }));
-    expect(stopPropagation).toHaveBeenCalled();
-    expect(result.current.isOpen).toBe(true);
-  });
-});
-
-describe('useConfirmDialog', () => {
-  it('calls onConfirm and closes', async () => {
-    const onConfirm = vi.fn().mockResolvedValue(undefined);
-
-    const { result } = renderHook(() =>
-      useConfirmDialog({ onConfirm })
-    );
-
-    act(() => result.current.open());
-    expect(result.current.isOpen).toBe(true);
-
-    await act(async () => {
-      await result.current.confirm();
-    });
-
-    expect(onConfirm).toHaveBeenCalled();
-    expect(result.current.isOpen).toBe(false);
-  });
-
-  it('calls onCancel and closes', () => {
-    const onCancel = vi.fn();
-    const { result } = renderHook(() =>
-      useConfirmDialog({ onConfirm: vi.fn(), onCancel })
-    );
-
-    act(() => result.current.open());
-    act(() => result.current.cancel());
-
-    expect(onCancel).toHaveBeenCalled();
-    expect(result.current.isOpen).toBe(false);
   });
 });
 

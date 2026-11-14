@@ -19,6 +19,14 @@ export interface ModalProps {
   closeOnOverlayClick?: boolean;
   closeOnEscape?: boolean;
   footer?: React.ReactNode;
+  /**
+   * The id of a heading inside `children` that names the dialog, for a dialog
+   * that draws its own heading instead of passing `title` (ConfirmDialog).
+   * Ignored when `title` is set: the header's heading names it then.
+   */
+  labelledBy?: string;
+  /** The id of the text inside `children` that describes the dialog. */
+  describedBy?: string;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -31,11 +39,13 @@ export const Modal: React.FC<ModalProps> = ({
   closeOnOverlayClick = true,
   closeOnEscape = true,
   footer,
+  labelledBy,
+  describedBy,
 }) => {
   const { t } = useTranslation();
   // Focus trap, focus restore, Escape and the refcounted scroll lock all live
-  // in useDialog, shared with the two provider modals that render their own
-  // overlay rather than composing this one.
+  // in useDialog, shared with every dialog that renders its own overlay
+  // rather than composing this one, and stacked with every open popover.
   const { containerRef } = useDialog({ open: isOpen, onClose, closeOnEscape });
   // A unique id per instance. This was the literal string 'modal-title', so two
   // mounted dialogs put duplicate ids in the document and aria-labelledby
@@ -65,7 +75,8 @@ export const Modal: React.FC<ModalProps> = ({
       onClick={handleOverlayClick}
       role="dialog"
       aria-modal="true"
-      aria-labelledby={title ? titleId : undefined}
+      aria-labelledby={title ? titleId : labelledBy}
+      aria-describedby={describedBy}
     >
       <div
         ref={containerRef}

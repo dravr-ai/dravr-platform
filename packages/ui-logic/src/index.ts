@@ -53,15 +53,6 @@ export {
   pattern,
 } from './useFormField';
 
-// Modal hooks
-export {
-  type UseModalProps,
-  type UseModalReturn,
-  useModal,
-  type UseConfirmDialogProps,
-  type UseConfirmDialogReturn,
-  useConfirmDialog,
-} from './useModal';
 export { useAbortOnClose } from './useAbortOnClose';
 export { isSignInPhaseLive, useSignInAttempt } from './useSignInAttempt';
 export type { SignInAttempt, SignInAttemptOptions } from './useSignInAttempt';
