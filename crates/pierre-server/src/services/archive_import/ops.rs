@@ -32,7 +32,7 @@ use futures_util::stream;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ActivityGearKey, TenantId};
-use pierre_database::repositories::CachedActivityRow;
+use pierre_database::repositories::{CachedActivityRow, CachedRowsQuery};
 use pierre_providers::fit_decode::ImportDecodeGate;
 use pierre_services::gear_release::{
     row_key, workout_twins, WORKOUT_ROW_LIMIT, WORKOUT_WINDOW_HOURS,
@@ -553,9 +553,7 @@ async fn live_twins(
         .get_cached_activity_rows(
             user_id,
             tenant_id,
-            start - window,
-            start + window,
-            WORKOUT_ROW_LIMIT,
+            &CachedRowsQuery::window(start - window, start + window, WORKOUT_ROW_LIMIT),
         )
         .await?;
     let imported = ActivityGearKey {

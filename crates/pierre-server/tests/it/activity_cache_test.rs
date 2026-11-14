@@ -449,7 +449,7 @@ async fn fetch_mark_advances_freshness_without_rows() {
 /// of its own is not a detail read at all.
 #[tokio::test]
 async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
-    use pierre_database::repositories::ActivityDetail;
+    use pierre_database::repositories::{ActivityDetail, CachedRowsQuery};
 
     common::init_server_config();
     let database = common::create_test_database().await.unwrap();
@@ -494,9 +494,7 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
         .get_cached_activity_rows(
             user_id,
             &tenant_id,
-            Utc::now() - Duration::days(10),
-            Utc::now(),
-            10,
+            &CachedRowsQuery::window(Utc::now() - Duration::days(10), Utc::now(), 10),
         )
         .await
         .unwrap();
@@ -521,5 +519,142 @@ async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
     assert!(
         !segment_read("listed-efforts"),
         "bug: a list copy's own efforts read as a detail read of its segments"
+    );
+}
+
+/// One activity both backends hold, filed under each key with the same id
+/// and start, beside a ride the export alone holds and two more rides.
+async fn mirrored_window(
+    database: &Database,
+    user_id: uuid::Uuid,
+    tenant_id: TenantId,
+) -> DateTime<Utc> {
+    let repo = &database.repositories().activity_cache;
+    let shared = Utc::now() - Duration::days(5);
+    let at = |id: &str, provider: &str, start: DateTime<Utc>| activity_at(id, provider, start);
+    for (key, rows) in [
+        (
+            "strava",
+            vec![
+                at("100", "strava", shared),
+                at("101", "strava", shared + Duration::days(1)),
+            ],
+        ),
+        (
+            "sciotte",
+            vec![
+                at("100", "sciotte", shared),
+                at("102", "sciotte", shared - Duration::days(1)),
+            ],
+        ),
+        ("strava_archive", vec![at("103", "strava", shared)]),
+    ] {
+        repo.upsert_activities(user_id, &tenant_id, key, &rows)
+            .await
+            .unwrap();
+    }
+    shared
+}
+
+/// A read names the keys it reads: only rows filed under them come back,
+/// and an empty set of keys reads nothing, never every key.
+#[tokio::test]
+async fn a_rows_read_takes_only_the_keys_it_names() {
+    use pierre_database::repositories::CachedRowsQuery;
+
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = TenantId::generate();
+    mirrored_window(&database, user_id, tenant_id).await;
+    let repo = &database.repositories().activity_cache;
+    let window = CachedRowsQuery::window(Utc::now() - Duration::days(30), Utc::now(), 50);
+
+    let every = repo
+        .get_cached_activity_rows(user_id, &tenant_id, &window)
+        .await
+        .unwrap();
+    assert_eq!(every.len(), 5, "bug: a read naming no keys reads every key");
+
+    let keys = ["strava", "sciotte"];
+    let named = repo
+        .get_cached_activity_rows(user_id, &tenant_id, &window.clone().under_keys(&keys))
+        .await
+        .unwrap();
+    let mut read: Vec<(String, String)> = named
+        .iter()
+        .map(|row| (row.provider.clone(), row.activity.id().to_owned()))
+        .collect();
+    read.sort();
+    assert_eq!(
+        read,
+        [
+            ("sciotte".to_owned(), "100".to_owned()),
+            ("sciotte".to_owned(), "102".to_owned()),
+            ("strava".to_owned(), "100".to_owned()),
+            ("strava".to_owned(), "101".to_owned()),
+        ],
+        "bug: a read takes a row filed under a key it did not name"
+    );
+
+    let none: [&str; 0] = [];
+    assert!(
+        repo.get_cached_activity_rows(user_id, &tenant_id, &window.under_keys(&none))
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a read naming no key at all reads every key"
+    );
+}
+
+/// Paging below a cursor reads every row once, newest first, even the two
+/// copies of one activity that share a start and an id across a page's edge;
+/// and another tenant's rows never come back on any page.
+#[tokio::test]
+async fn paging_below_a_cursor_reads_every_row_once_in_its_tenant() {
+    use pierre_database::repositories::{CachedRowCursor, CachedRowsQuery};
+
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = TenantId::generate();
+    mirrored_window(&database, user_id, tenant_id).await;
+    let elsewhere = TenantId::generate();
+    mirrored_window(&database, user_id, elsewhere).await;
+    let repo = &database.repositories().activity_cache;
+    let keys = ["strava", "sciotte"];
+    let window =
+        CachedRowsQuery::window(Utc::now() - Duration::days(30), Utc::now(), 2).under_keys(&keys);
+
+    let mut pages: Vec<Vec<(String, String)>> = Vec::new();
+    let mut below: Option<CachedRowCursor> = None;
+    loop {
+        let query = CachedRowsQuery {
+            below: below.clone(),
+            ..window.clone()
+        };
+        let page = repo
+            .get_cached_activity_rows(user_id, &tenant_id, &query)
+            .await
+            .unwrap();
+        if page.is_empty() {
+            break;
+        }
+        below = page.last().map(CachedRowCursor::after);
+        pages.push(
+            page.iter()
+                .map(|row| (row.provider.clone(), row.activity.id().to_owned()))
+                .collect(),
+        );
+        assert!(pages.len() < 10, "the paging never ended");
+    }
+    let pair = |key: &str, id: &str| (key.to_owned(), id.to_owned());
+    assert_eq!(
+        pages,
+        [
+            vec![pair("strava", "101"), pair("strava", "100")],
+            vec![pair("sciotte", "100"), pair("sciotte", "102")],
+        ],
+        "bug: paging below a cursor skips or repeats a row, or reads another tenant's"
     );
 }

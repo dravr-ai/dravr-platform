@@ -13,6 +13,7 @@ use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow, IncompleteReason};
+use pierre_database::repositories::CachedRowsQuery;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -52,7 +53,11 @@ pub(super) async fn get_training_volume(
         &resources,
         repos
             .activity_cache
-            .get_cached_activity_rows(user_id, &tenant_id, opens, now, MAX_VOLUME_ROWS)
+            .get_cached_activity_rows(
+                user_id,
+                &tenant_id,
+                &CachedRowsQuery::window(opens, now, MAX_VOLUME_ROWS),
+            )
             .await?,
     );
     let read_full = usize::try_from(MAX_VOLUME_ROWS).is_ok_and(|cap| rows.len() >= cap);
@@ -95,7 +100,11 @@ pub(super) async fn get_training_volume(
             &resources,
             repos
                 .activity_cache
-                .get_cached_activity_rows(user_id, &tenant_id, since, opens, 1)
+                .get_cached_activity_rows(
+                    user_id,
+                    &tenant_id,
+                    &CachedRowsQuery::window(since, opens, 1),
+                )
                 .await?,
         );
         match (older.is_empty(), oldest_read) {

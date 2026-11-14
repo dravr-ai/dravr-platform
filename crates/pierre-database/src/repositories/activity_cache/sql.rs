@@ -84,9 +84,43 @@ pub(crate) const GET_CACHED_ACTIVITY_ROWS_SQL: &str = r"
           AND rt.activity_id = ca.activity_id
           AND (rt.expires_at IS NULL OR rt.expires_at > $6)
     WHERE ca.user_id = $1 AND ca.tenant_id = $2
-      AND ca.start_date >= $3 AND ca.start_date <= $4
-    ORDER BY ca.start_date DESC
-    LIMIT $5";
+      AND ca.start_date >= $3 AND ca.start_date <= $4";
+
+/// [`GET_CACHED_ACTIVITY_ROWS_SQL`] as one read asks it
+/// ([`CachedRowsQuery`](super::CachedRowsQuery)): below a page's cursor when
+/// `below`, bound as `$7`–`$9`, and over `keys` provider keys when non-zero,
+/// one placeholder each from the next free number, as `users_by_ids_sql`
+/// binds its batch. Only the placeholder count is formatted; every value
+/// binds through the codec. Ordered by start, key, then id, all descending,
+/// so the cursor's tie-break is the order's own and a page's edge between two
+/// rows of one start never skips or repeats one.
+pub(crate) fn cached_activity_rows_sql(keys: usize, below: bool) -> String {
+    let mut sql = GET_CACHED_ACTIVITY_ROWS_SQL.to_owned();
+    if below {
+        sql.push_str(
+            "
+      AND (ca.start_date < $7
+           OR (ca.start_date = $7
+               AND (ca.provider < $8 OR (ca.provider = $8 AND ca.activity_id < $9))))",
+        );
+    }
+    let next = if below { 10 } else { 7 };
+    if keys > 0 {
+        let placeholders = (next..next + keys)
+            .map(|i| format!("${i}"))
+            .collect::<Vec<_>>()
+            .join(", ");
+        sql.push_str("\n      AND ca.provider IN (");
+        sql.push_str(&placeholders);
+        sql.push(')');
+    }
+    sql.push_str(
+        "
+    ORDER BY ca.start_date DESC, ca.provider DESC, ca.activity_id DESC
+    LIMIT $5",
+    );
+    sql
+}
 
 /// One cached activity, by the table's uniqueness key.
 pub(crate) const GET_CACHED_ACTIVITY_SQL: &str = r"

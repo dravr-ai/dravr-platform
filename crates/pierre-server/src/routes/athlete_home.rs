@@ -130,7 +130,7 @@ use pierre_core::models::{
     Activity, ConnectionStatus, DataFreshness, ProviderConnection, TenantId,
 };
 use pierre_database::repositories::{
-    sport_type_string, ActivityFetchFailure, CachedActivityRow, StoredRouteOutcome,
+    sport_type_string, ActivityFetchFailure, CachedActivityRow, CachedRowsQuery, StoredRouteOutcome,
 };
 use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
@@ -624,7 +624,11 @@ async fn recent_workouts(
         let rows = resources
             .repos()
             .activity_cache
-            .get_cached_activity_rows(user_id, tenant_id, since, now, read)
+            .get_cached_activity_rows(
+                user_id,
+                tenant_id,
+                &CachedRowsQuery::window(since, now, read),
+            )
             .await?;
         let exhausted = usize::try_from(read).is_ok_and(|asked| rows.len() < asked);
         let workouts = home_activities(&served_rows(resources, rows), limit, sport);
@@ -970,9 +974,11 @@ async fn activity_view(
         .get_cached_activity_rows(
             asked.user_id,
             &asked.tenant_id,
-            asked.start - window,
-            asked.start + window,
-            DETAIL_MERGE_ROW_LIMIT,
+            &CachedRowsQuery::window(
+                asked.start - window,
+                asked.start + window,
+                DETAIL_MERGE_ROW_LIMIT,
+            ),
         )
         .await?;
     let rows = served_rows(resources, rows);

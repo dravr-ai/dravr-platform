@@ -216,17 +216,16 @@ pub trait ActivityCacheRepository: Send + Sync {
         limit: i64,
     ) -> AppResult<Vec<Activity>>;
 
-    /// Cached activities for a user within `[start, end]` across every
-    /// provider, newest first, each with the provider key its row is stored
-    /// under and what its stored route read settled — read in the same
-    /// query, scoped to the same tenant and user.
+    /// Cached activities for a user in the window `query` names, newest
+    /// first, each with the provider key its row is stored under and what its
+    /// stored route read settled — read in the same query, scoped to the same
+    /// tenant and user. `query` narrows it to the keys it names and pages it
+    /// below a cursor ([`CachedRowsQuery`]).
     async fn get_cached_activity_rows(
         &self,
         user_id: Uuid,
         tenant_id: &TenantId,
-        start: DateTime<Utc>,
-        end: DateTime<Utc>,
-        limit: i64,
+        query: &CachedRowsQuery<'_>,
     ) -> AppResult<Vec<CachedActivityRow>>;
 
     /// One cached activity by its provider and the provider's id for it, or
@@ -477,11 +476,14 @@ pub(crate) mod sql;
 pub(crate) mod stored_json;
 
 pub use records::{ActivityDetail, ActivityFetchFailure, ActivityFetchFailureRecord};
+/// Which rows a rows read takes
+mod rows_query;
 pub(crate) use rows::{
     activity_from_row, backfill_coverage_from_row, cached_activity_row_from_row,
     capture_freshness_from_row, fetch_failure_from_row, later, provider_column,
     stored_activity_from_row, timestamp_column,
 };
+pub use rows_query::{CachedRowCursor, CachedRowsQuery};
 pub use stored_json::amended_summary;
 
 /// String form of an activity's sport type for the indexed column.
@@ -611,22 +613,35 @@ macro_rules! impl_activity_cache_repository {
                 &self,
                 user_id: Uuid,
                 tenant_id: &TenantId,
-                start: DateTime<Utc>,
-                end: DateTime<Utc>,
-                limit: i64,
+                query: &$crate::repositories::activity_cache::CachedRowsQuery<'_>,
             ) -> AppResult<Vec<CachedActivityRow>> {
-                let rows = sqlx::query(GET_CACHED_ACTIVITY_ROWS_SQL)
+                let keys = query.keys.unwrap_or_default();
+                if query.keys.is_some() && keys.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let sql = $crate::repositories::activity_cache::sql::cached_activity_rows_sql(
+                    keys.len(),
+                    query.below.is_some(),
+                );
+                let mut read = sqlx::query(&sql)
                     .bind(user_id.to_string())
                     .bind(tenant_id.to_string())
-                    .bind(start)
-                    .bind(end)
-                    .bind(limit)
-                    .bind(Utc::now())
-                    .fetch_all(self.pool())
-                    .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get cached activity rows: {e}"))
-                    })?;
+                    .bind(query.start)
+                    .bind(query.end)
+                    .bind(query.limit)
+                    .bind(Utc::now());
+                if let Some(below) = &query.below {
+                    read = read
+                        .bind(below.start_date)
+                        .bind(&below.provider)
+                        .bind(&below.activity_id);
+                }
+                for key in keys {
+                    read = read.bind(*key);
+                }
+                let rows = read.fetch_all(self.pool()).await.map_err(|e| {
+                    AppError::database(format!("Failed to get cached activity rows: {e}"))
+                })?;
                 rows.iter().map(cached_activity_row_from_row).collect()
             }
 

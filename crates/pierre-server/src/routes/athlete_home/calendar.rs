@@ -36,6 +36,7 @@ use chrono_tz::Tz;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::oauth_providers::{self, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::repositories::CachedRowsQuery;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
@@ -129,7 +130,11 @@ pub(super) async fn get_calendar(
     let limit = row_limit(from, to, connections.len());
     let rows = repos
         .activity_cache
-        .get_cached_activity_rows(user_id, &tenant_id, read_from, read_to, limit)
+        .get_cached_activity_rows(
+            user_id,
+            &tenant_id,
+            &CachedRowsQuery::window(read_from, read_to, limit),
+        )
         .await?;
     if usize::try_from(limit).is_ok_and(|limit| rows.len() >= limit) {
         warn!(

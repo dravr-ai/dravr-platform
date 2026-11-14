@@ -43,7 +43,7 @@ use pierre_core::models::{
     TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
-use pierre_database::repositories::CaptureFreshness;
+use pierre_database::repositories::{CachedRowsQuery, CaptureFreshness};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::admin::diagnostics::partition_stale_captures;
 use pierre_providers::core::{
@@ -1159,9 +1159,11 @@ impl Pair {
             .get_cached_activity_rows(
                 self.user_id,
                 &self.tenant,
-                Utc::now() - Duration::days(30),
-                Utc::now() + Duration::days(1),
-                100,
+                &CachedRowsQuery::window(
+                    Utc::now() - Duration::days(30),
+                    Utc::now() + Duration::days(1),
+                    100,
+                ),
             )
             .await
             .unwrap()

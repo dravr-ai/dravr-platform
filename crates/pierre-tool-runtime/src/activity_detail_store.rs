@@ -23,7 +23,7 @@ use chrono::{DateTime, Duration, Utc};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::ActivityDetail;
+use pierre_database::repositories::{ActivityDetail, CachedRowsQuery};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::mirror_backend_for;
@@ -232,9 +232,7 @@ pub async fn stored_details(
         .get_cached_activity_rows(
             user_id,
             &tenant_id,
-            since,
-            Utc::now(),
-            STORED_DETAIL_LOOKUP_LIMIT,
+            &CachedRowsQuery::window(since, Utc::now(), STORED_DETAIL_LOOKUP_LIMIT),
         )
         .await
     {
