@@ -37,16 +37,20 @@
 //!
 //! **What stops a step.** An activity the backend cannot read (gone, or any
 //! other answer but the ones below) is skipped: the cursor moves past it, and
-//! it is counted read, never stored. A spent budget pauses the walk until its
-//! window ends; a step that read some first records them, and the next claim
-//! is the one that pauses. A dead credential ends the walk incomplete. A
-//! failed store retries the step a lease later, its attempt counted.
+//! it is counted read, once its second is finished, never stored. A spent
+//! budget pauses the walk until its window ends; a step that read some first
+//! records them, and the next claim is the one that pauses. A budget with no
+//! call a day for a walk records none, and ends one owed. A dead credential
+//! ends the walk incomplete. A failed store retries the step a lease later,
+//! its attempt counted.
 //!
 //! **Where it ends.** When its cursor passes the window's floor (`after_ts`).
-//! The row is kept as walked with its window, when it ended and its counts:
-//! an ask within [`DETAIL_WALK_STANDS_MS`] over that window reads nothing
-//! again ([`DetailWalkAsked::RecentlyWalked`]), the activities the walk could
-//! not read reported unread, never re-read at the athlete's cost. The athlete is
+//! The row is kept as walked with its window, when it ended and its counts.
+//! A walk asked within [`DETAIL_WALK_STANDS_MS`] after it reads nothing it
+//! tried again: only what lies outside its window or reached the store after
+//! it was asked, and when that is nothing, none is recorded
+//! ([`DetailWalkAsked::RecentlyWalked`]): the activities it could not read
+//! are reported unread, never re-read at the athlete's cost. The athlete is
 //! told once, in their personal thread, how many activities had their
 //! efforts read, when that is any
 //! ([`BackfillNotifier::push_detail_walk_complete`](crate::runtime::BackfillNotifier::push_detail_walk_complete)).
@@ -80,12 +84,11 @@ pub(super) use step::run_detail_walk;
 /// takes stop once they hold this many.
 pub const DETAIL_WALK_STEP_ACTIVITIES: usize = 10;
 
-/// How long a detail walk that ended walked stands for its window (ms).
+/// How long what a detail walk that ended walked tried stands (ms).
 ///
-/// An ask within it over that window records no fresh walk, which would
-/// only spend the athlete's day re-reading the activities the backend could
-/// not read. A week: a ride deleted or made private since is read again
-/// soon enough.
+/// A walk asked within it reads none of that again, which would only spend
+/// the athlete's day re-reading the activities the backend could not read.
+/// A week: a ride deleted or made private since is read again soon enough.
 pub const DETAIL_WALK_STANDS_MS: i64 = 7 * 86_400_000;
 
 /// Seconds in a day.
