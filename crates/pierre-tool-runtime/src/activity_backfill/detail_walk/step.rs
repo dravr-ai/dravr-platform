@@ -21,8 +21,8 @@ use tracing::{info, instrument, warn};
 
 use super::candidates::{take_seconds, Athlete, Unread};
 use super::{walk_daily_calls, walk_keys, walk_row};
-use crate::activity_backfill::history_walk::retry_at_ms;
 use crate::activity_backfill::owed_write::{land_owed, Landed};
+use crate::activity_backfill::pause::retry_at_ms;
 use crate::activity_backfill::{
     keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, ActivityBackfillJob,
     MAX_BACKFILL_ATTEMPTS,
@@ -39,10 +39,10 @@ enum Step {
     /// The step read what it took; `ended` once its cursor passed the floor.
     Walked { step: JobProgressStep, ended: bool },
     /// A spent budget stopped the step: until the refusing window ends
-    /// (unix ms) when the refusal named its end.
+    /// (unix ms), or a lease from now when the refusal named no end.
     Paused {
         step: JobProgressStep,
-        until_ms: Option<i64>,
+        until_ms: i64,
     },
     /// The backend's credential is dead.
     AuthRequired,
@@ -241,8 +241,8 @@ enum Read {
     /// The backend answered that it cannot be read ([`answered_unreadable`]),
     /// or no row stands to store it beside: it is walked past.
     Skipped,
-    /// A spent budget refused the read.
-    Paused(Option<i64>),
+    /// A spent budget refused the read: until when ([`retry_at_ms`]).
+    Paused(i64),
     /// The backend's credential is dead.
     AuthRequired,
     /// The store failed, or the backend failed to answer for it: the step
@@ -410,7 +410,9 @@ async fn settle(
         ),
         Step::Paused { until_ms, .. } => log_write(
             "a budget refused the step; it resumes once the window ends",
-            ledger.release_backfill_job_claim(lease, until_ms).await,
+            ledger
+                .release_backfill_job_claim(lease, Some(until_ms))
+                .await,
             job,
         ),
         Step::AuthRequired => {

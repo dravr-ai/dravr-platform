@@ -115,8 +115,8 @@ use uuid::Uuid;
 
 use super::{
     capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, owed_write,
-    provider_tenant_id_str, spawn_activity_backfill, warm_training_history, ActivityBackfillJob,
-    BackfillFetch, MAX_BACKFILL_ATTEMPTS,
+    pause::retry_at_ms, provider_tenant_id_str, spawn_activity_backfill, warm_training_history,
+    ActivityBackfillJob, BackfillFetch, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::implementations::data_helpers::historical_backfill_fetch_limit;
@@ -422,9 +422,9 @@ enum Step {
     /// The walk reached the end of the history with this last step.
     Ended(JobProgressStep),
     /// A request budget refused the step: the walk resumes later, from the
-    /// same cursor, once the refusing window ends (unix ms) when the refusal
-    /// named its end, or as soon as the sweep comes back when it did not.
-    Paused(Option<i64>),
+    /// same cursor, once the refusing window ends (unix ms), or a lease from
+    /// now when the refusal named no end ([`retry_at_ms`]).
+    Paused(i64),
     /// The source's credential is dead.
     AuthRequired,
     /// A transient failure: nothing of the step is recorded.
@@ -559,7 +559,9 @@ async fn settle_step(
         }
         Step::Paused(until_ms) => log_write(
             "a request budget refused the step; it resumes in a later window",
-            ledger.release_backfill_job_claim(lease, until_ms).await,
+            ledger
+                .release_backfill_job_claim(lease, Some(until_ms))
+                .await,
             job,
         ),
         Step::AuthRequired => {
@@ -1009,7 +1011,7 @@ fn with_floor(step: Step, learned: Option<JobFloor>) -> Step {
 async fn account_floor(
     job: &ActivityBackfillJob,
     provider: &dyn CoreFitnessProvider,
-) -> Result<Option<JobFloor>, Option<i64>> {
+) -> Result<Option<JobFloor>, i64> {
     match ai_scope::unfiltered(provider.get_athlete()).await {
         Ok(athlete) => {
             let created = athlete
@@ -1027,18 +1029,6 @@ async fn account_floor(
             Ok(None)
         }
     }
-}
-
-/// When a rate-limit refusal lets the walk try again (unix ms): the end of
-/// the refusing window, which a budget refusal names; `None` when it names
-/// none, and the sweep's next pass may try.
-pub(super) fn retry_at_ms(refusal: &AppError) -> Option<i64> {
-    refusal.retry_after_secs().map(|secs| {
-        let wait_ms = i64::try_from(secs)
-            .unwrap_or(i64::MAX)
-            .saturating_mul(1_000);
-        Utc::now().timestamp_millis().saturating_add(wait_ms)
-    })
 }
 
 /// A read that failed: a dead credential, or a transient failure.

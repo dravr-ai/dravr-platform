@@ -78,6 +78,8 @@ mod in_flight;
 pub(crate) mod live_read;
 /// A walk step's write to the store, against a purge of what it reads
 mod owed_write;
+/// When a walk a rate limit paused may try again
+mod pause;
 /// What a job does when it finds its provider session dead
 mod reauth;
 
