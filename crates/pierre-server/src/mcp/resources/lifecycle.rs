@@ -230,15 +230,16 @@ impl ServerContext {
         });
         let database_arc = Arc::new(database);
         let repos = Arc::clone(database_arc.repositories());
-        // One live store, and the one purge over it every disconnect takes.
-        let live_activities = live_store(options.live_records, &repos);
-        let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
         // The binary passes the deployment's blob store; a context built
         // without one keeps blobs in memory over an in-memory database and
         // has none over any other, where uploads are refused.
         let blobs = options
             .blobs
             .unwrap_or_else(|| blob_store_when_unset(&config.database.url));
+        // One live store over the same blob store, and the one purge over it
+        // every disconnect takes.
+        let live_activities = live_store(options.live_records, blobs.clone().ok(), &repos);
+        let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
         let originals = Arc::new(OriginalsStore::new(
             blobs,
             Arc::clone(&repos.uploaded_activity_files),

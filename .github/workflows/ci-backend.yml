@@ -1640,10 +1640,16 @@ jobs:
           # 145 ceiling (run 43336029155) while main sat exactly on it.
           # ChefFamille chose to raise both ceilings by one MB (2026-11-12).
           #
+          # carnet#1566 (barrage's original leases and deletion guard, barrage
+          # v0.19.1) arrived with main exactly on 119 (run 43608373096) and
+          # the thin proxy reading 148 against 147 (run 43609078979).
+          # ChefFamille chose to raise both ceilings by about 2MB
+          # (2026-11-14): shipped 121, thin 150.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (147), so a branch push that skips this job
+          # scaled to that build (150), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=119
+          MAX_SIZE_MB=121
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

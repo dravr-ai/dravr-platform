@@ -89,6 +89,7 @@ impl World {
         let (user_id, tenant_id) = seed_athlete(&repos).await;
         let live = BarrageLiveStore::new(
             Arc::clone(&records),
+            None,
             Arc::new(LiveCacheSink::new(Arc::clone(&repos))),
             repos,
         );
