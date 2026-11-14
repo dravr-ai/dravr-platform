@@ -407,14 +407,16 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         provider: &str,
     ) -> AppResult<Option<HistoryWalkRowState>>;
 
-    /// The history walk row `lease` was taken on, `user_id`'s in
+    /// The `kind` walk row `lease` was taken on, `user_id`'s in
     /// `tenant_id`, as it stands now, the lease or not; `None` when it is
-    /// gone. What a step reads around its write to the store.
+    /// gone, or is of another kind. What a step reads around its write to
+    /// the store.
     async fn leased_walk_row(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         lease: &JobLease,
+        kind: BackfillJobKind,
     ) -> AppResult<Option<LeasedWalkRow>>;
 
     /// A step of a job that walks down its window landed: add `step` to the
@@ -893,17 +895,18 @@ macro_rules! impl_activity_backfill_job_repository {
                 user_id: Uuid,
                 tenant_id: TenantId,
                 lease: &JobLease,
+                kind: BackfillJobKind,
             ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::LeasedWalkRow>>
             {
                 let failed = |e: sqlx::Error| {
-                    AppError::database(format!("Failed to read a leased history walk row: {e}"))
+                    AppError::database(format!("Failed to read a leased walk row: {e}"))
                 };
                 let row =
                     sqlx::query($crate::repositories::activity_backfill_jobs::LEASED_WALK_ROW_SQL)
                         .bind(&lease.id)
                         .bind(user_id.to_string())
                         .bind(tenant_id)
-                        .bind(BackfillJobKind::HistoryWalk.as_str())
+                        .bind(kind.as_str())
                         .fetch_optional(self.pool())
                         .await
                         .map_err(failed)?;

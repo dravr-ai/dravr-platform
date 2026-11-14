@@ -84,7 +84,9 @@ use std::time::Duration as StdDuration;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::AppError;
 use pierre_core::models::Activity;
-use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, PurgeReason};
+use pierre_database::repositories::{
+    BackfillJobKind, BackfillJobState, JobLease, LeasedWalkRow, PurgeReason,
+};
 use tokio::time;
 use tracing::{info, warn};
 
@@ -257,7 +259,7 @@ async fn leased_row(
     job.resources
         .repos()
         .activity_backfill_jobs
-        .leased_walk_row(job.user_id, job.tenant_id, lease)
+        .leased_walk_row(job.user_id, job.tenant_id, lease, BackfillJobKind::HistoryWalk)
         .await
         .map_err(|e| {
             warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the step's row could not be read around its write");

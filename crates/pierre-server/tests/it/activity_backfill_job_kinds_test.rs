@@ -1066,3 +1066,36 @@ async fn a_detail_walk_asked_again_widens_its_floor_only() {
         "bug: an ended walk is widened instead of recorded afresh"
     );
 }
+
+/// A detail walk's step reads its own row around its write to the store, as
+/// a history walk's does: the row its lease was taken on, of its own kind.
+#[tokio::test]
+async fn a_detail_walk_reads_back_the_row_its_lease_was_taken_on() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let lease = JobLease {
+        id: claimed[0].id.clone(),
+        token: claimed[0].lease_token.clone().unwrap(),
+    };
+
+    let row = ledger
+        .leased_walk_row(user, tenant, &lease, BackfillJobKind::DetailWalk)
+        .await
+        .unwrap()
+        .expect("bug: a detail walk's step reads its own row back");
+    assert!(row.leased_here, "bug: the step's lease holds the row");
+    assert_eq!(row.state, BackfillJobState::Owed, "bug: the walk is owed");
+    assert!(
+        ledger
+            .leased_walk_row(user, tenant, &lease, BackfillJobKind::HistoryWalk)
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a read of another kind finds a detail walk's row"
+    );
+}
