@@ -200,8 +200,10 @@ pub async fn serve_covered_history(
     let after_ts = window.after.unwrap_or(0);
     let depth_covered =
         history_depth_covered(runtime, provider_slug, user_id, tenant_id, after_ts).await;
-    let walk_running =
-        !depth_covered && history_walk_owed(runtime, provider_slug, user_id, tenant_id).await;
+    let walk_running = !depth_covered
+        && history_walk_owed(runtime, provider_slug, user_id, tenant_id)
+            .await
+            .is_some();
     // A window no record vouches for, and no walk is filling, is fetched
     // whatever the store holds, so it is not read.
     let cached = if depth_covered || walk_running {
@@ -237,19 +239,25 @@ pub async fn serve_covered_history(
     })
 }
 
-/// Whether a history walk under any of `provider_slug`'s history keys is
-/// owed: recorded, running, waiting for the resume sweep, or owed the reopen
-/// of a phase a purge took
-/// ([`walk_across_pair`]). A ledger that cannot be read counts as no walk,
-/// so the window is read as before.
-async fn history_walk_owed(
+/// The key of the history walk owed under any of `provider_slug`'s history
+/// keys: recorded, running, waiting for the resume sweep, or owed the reopen
+/// of a phase a purge took ([`walk_across_pair`]). `None` when none is owed;
+/// a ledger that cannot be read counts as no walk, so the window is read as
+/// before.
+///
+/// It only reads: a read that finds the depth missing and no walk owed asks
+/// one where it reads the provider live, never here. `get_segment_history`
+/// asks it too, for Strava alone, so another provider's walk is never
+/// reported as, or started for, a segment's window.
+pub(crate) async fn history_walk_owed(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,
     tenant_id: TenantId,
-) -> bool {
+) -> Option<String> {
     match walk_across_pair(runtime.repos(), user_id, tenant_id, provider_slug).await {
-        Ok(walk) => matches!(walk, PairWalk::Owed { .. } | PairWalk::Purged { .. }),
+        Ok(PairWalk::Owed { key } | PairWalk::Purged { key }) => Some(key),
+        Ok(PairWalk::Walked | PairWalk::WalkedThrough | PairWalk::Open) => None,
         Err(e) => {
             warn!(
                 user_id = %user_id,
@@ -257,7 +265,7 @@ async fn history_walk_owed(
                 error = %e,
                 "history walk state read failed; the window reads as not walking"
             );
-            false
+            None
         }
     }
 }
@@ -266,7 +274,11 @@ async fn history_walk_owed(
 /// ([`history_store_keys`]) reached `after_ts`, each record
 /// judged at its own key's current capture ([`historical_depth_covered`]).
 /// A record that cannot be read counts as absent.
-async fn history_depth_covered(
+///
+/// `get_segment_history` asks it too: a segments window deeper than the
+/// stored history is short of its activities before it is short of their
+/// efforts.
+pub(crate) async fn history_depth_covered(
     runtime: &Arc<dyn ToolRuntime>,
     provider_slug: &str,
     user_id: Uuid,

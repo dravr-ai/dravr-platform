@@ -546,6 +546,7 @@ async fn seed_provider_rows(
                 turn_id: None,
                 asked_message_id: None,
                 walk_backend: None,
+                walk_sport: None,
             })
             .await
             .unwrap();
@@ -1573,6 +1574,7 @@ async fn walk_reading_grant(repos: &RepositoryRegistry, user: Uuid, tenant: Tena
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         repos
@@ -1593,7 +1595,7 @@ async fn walk_reading_grant(repos: &RepositoryRegistry, user: Uuid, tenant: Tena
                 &WalkHandOff {
                     backend: grant.to_owned(),
                     before_ts: Some(1_700_000_000),
-                    months_done: 24,
+                    units_done: 24,
                     rows_landed: 2,
                     fetch_limit: 200,
                 },
@@ -1926,7 +1928,7 @@ fn reconnect_below_session() -> WalkHandOff {
     WalkHandOff {
         backend: "strava".to_owned(),
         before_ts: Some(1_700_000_000),
-        months_done: 24,
+        units_done: 24,
         rows_landed: 0,
         fetch_limit: 200,
     }
@@ -2014,7 +2016,7 @@ async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() 
     );
     let step = JobProgressStep {
         before_ts: 1_600_000_000,
-        months_walked: 12,
+        units_done: 12,
         rows_landed: 1,
         secs_per_unit: None,
         floor: None,
@@ -2117,6 +2119,7 @@ async fn a_new_walk_ask_never_replaces_a_purged_walk() {
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         !repos

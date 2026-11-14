@@ -48,6 +48,7 @@ use pierre_cache::CacheKey;
 use pierre_core::constants::oauth_providers::UPLOAD;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, TenantId};
+use pierre_database::repositories::CachedRowsQuery;
 use pierre_providers::backend_resolver::user_facing_name;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_providers::fit_decode::decode_bounded;
@@ -304,9 +305,11 @@ async fn held_copy(
         .get_cached_activity_rows(
             user_id,
             &tenant_id,
-            session.start_date() - window,
-            end + window,
-            DUPLICATE_ROW_LIMIT,
+            &CachedRowsQuery::window(
+                session.start_date() - window,
+                end + window,
+                DUPLICATE_ROW_LIMIT,
+            ),
         )
         .await?;
     Ok(paired_copy(

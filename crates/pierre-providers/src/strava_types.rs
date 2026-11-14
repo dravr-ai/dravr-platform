@@ -160,13 +160,32 @@ pub struct StravaLap {
     pub average_watts: Option<f32>,
 }
 
-/// Strava segment effort data from detailed activity endpoint
+/// Strava segment effort: one entry of a detailed activity's
+/// `segment_efforts`, and one row of `GET /segment_efforts`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StravaSegmentEffort {
     /// Unique identifier for this segment effort
     pub id: Option<u64>,
     /// Name of the segment
     pub name: Option<String>,
+    /// When the effort started (UTC, RFC 3339)
+    #[serde(default)]
+    pub start_date: Option<String>,
+    /// The athlete's rank of this effort among their own on the segment
+    /// (1 = best), when it is one of their top three
+    #[serde(default)]
+    pub pr_rank: Option<u32>,
+    /// The effort's overall rank on the segment's leaderboard, when it is in
+    /// the top ten
+    #[serde(default)]
+    pub kom_rank: Option<u32>,
+    /// The segment the effort was ridden or run on
+    #[serde(default)]
+    pub segment: Option<StravaSummarySegment>,
+    /// The activity the effort belongs to; `GET /segment_efforts` names it,
+    /// a detailed activity's own efforts name the activity itself
+    #[serde(default)]
+    pub activity: Option<StravaMetaActivity>,
     /// Total elapsed time for the segment (seconds)
     pub elapsed_time: Option<u32>,
     /// Time spent moving during the segment (seconds)
@@ -181,6 +200,31 @@ pub struct StravaSegmentEffort {
     pub average_cadence: Option<f32>,
     /// Average power output during the segment (watts)
     pub average_watts: Option<f32>,
+}
+
+/// Strava's summary segment: the segment an effort was on, shared by every
+/// effort over it.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StravaSummarySegment {
+    /// The segment's id, which groups one athlete's efforts on it
+    pub id: Option<u64>,
+    /// The segment's name, written by whoever created it. Untrusted text.
+    pub name: Option<String>,
+    /// The segment's length (meters)
+    pub distance: Option<f64>,
+    /// The segment's average grade (percent)
+    pub average_grade: Option<f32>,
+    /// Strava's climb category, 0 (uncategorized) to 5 (hors catégorie)
+    pub climb_category: Option<i32>,
+    /// The sport the segment is for (`Ride`, `Run`)
+    pub activity_type: Option<String>,
+}
+
+/// Strava's meta activity: an activity named by its id alone.
+#[derive(Debug, Clone, Deserialize)]
+pub struct StravaMetaActivity {
+    /// The activity's id
+    pub id: Option<u64>,
 }
 
 /// The gear a detailed activity names: Strava's summary gear shape.

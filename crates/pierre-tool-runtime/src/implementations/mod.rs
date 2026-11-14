@@ -139,6 +139,11 @@ pub mod stored_data;
 #[cfg(feature = "tools-data")]
 pub mod continuous_series;
 
+/// `get_segment_history` — every effort the athlete made on one segment,
+/// from the live listing or the stored details (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+pub mod segments;
+
 /// Endurance Phase 5 workout tools: `list_workout_templates`, `prescribe_workout`
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]

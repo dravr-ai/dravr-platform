@@ -4,7 +4,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! A step's write to the activity store, against a purge of what it reads.
+//! A walk step's write to the activity store, against a purge of what it
+//! reads.
+//!
+//! Every walk kind writes through here: a history walk's page
+//! ([`BackfillJobKind::HistoryWalk`](pierre_database::repositories::BackfillJobKind::HistoryWalk)), and the grant's copy of an activity
+//! only its session listed, which a detail walk writes before it stores the
+//! detail the grant read
+//! ([`BackfillJobKind::DetailWalk`](pierre_database::repositories::BackfillJobKind::DetailWalk)). The step's row is
+//! the one of its job's kind (`job.kind`) its lease was taken on.
 //!
 //! A step reads its page from the provider, then writes it through the store
 //! ([`persist_backfill_activities`]) under the key it reads
@@ -88,7 +96,7 @@ use pierre_database::repositories::{BackfillJobState, JobLease, LeasedWalkRow, P
 use tokio::time;
 use tracing::{info, warn};
 
-use super::super::{persist_backfill_activities, ActivityBackfillJob, Persisted};
+use super::{persist_backfill_activities, ActivityBackfillJob, Persisted};
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::protocol::UniversalExecutor;
 
@@ -174,7 +182,7 @@ pub(super) async fn land_owed(
     };
     let Some(row) = before.filter(|row| row.leased_here && row.state == BackfillJobState::Owed)
     else {
-        info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's row is no longer its own; nothing it read is written");
+        info!(user_id = %job.user_id, provider = %job.provider_name, kind = %job.kind, "Walk step: the step's row is no longer its own; nothing it read is written");
         return Landed::Stopped;
     };
     let Ok(held) = held_before(job, activities).await else {
@@ -227,14 +235,14 @@ async fn settle(
             landed.map_or(Landed::Failed, |persisted| Landed::Rows(persisted.rows))
         }
         Ok(AfterWrite::Gone) => landed.map_or(Landed::Failed, |persisted| {
-            info!(user_id = %job.user_id, provider = %job.provider_name, rows = persisted.rows, "History walk: the step's row went with no purge of its key; its page stays");
+            info!(user_id = %job.user_id, provider = %job.provider_name, rows = persisted.rows, "Walk step: the step's row went with no purge of its key; its page stays");
             Landed::Kept
         }),
         // LIMITATION(registre#1556): an expiry's take-back can still remove a ride another writer stored after this step's write.
         Ok(AfterWrite::Purged(purge)) => {
             let reach = Reach::from(purge);
             if reach == Reach::Added && !inserted_every_one(activities, held, landed) {
-                info!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's write could not be shown to have inserted all it added; nothing it added is taken back");
+                info!(user_id = %job.user_id, provider = %job.provider_name, kind = %job.kind, "Walk step: the step's write could not be shown to have inserted all it added; nothing it added is taken back");
                 return Landed::Stopped;
             }
             take_back(job, activities, held, reach).await;
@@ -242,14 +250,14 @@ async fn settle(
         }
         // LIMITATION(registre#1555): `settle`'s unreadable arm takes nothing back, so a purge just before the outage leaves the page.
         Err(()) => {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, "History walk: the step's check after its write stayed unreadable through its retries; nothing is taken back and the step fails");
+            warn!(user_id = %job.user_id, provider = %job.provider_name, kind = %job.kind, "Walk step: the step's check after its write stayed unreadable through its retries; nothing is taken back and the step fails");
             Landed::Failed
         }
     }
 }
 
-/// The row `lease` was taken on, as it stands now; `Err` (logged) when the
-/// ledger could not be read.
+/// The row of the job's kind `lease` was taken on, as it stands now; `Err`
+/// (logged) when the ledger could not be read.
 async fn leased_row(
     job: &ActivityBackfillJob,
     lease: &JobLease,
@@ -257,10 +265,10 @@ async fn leased_row(
     job.resources
         .repos()
         .activity_backfill_jobs
-        .leased_walk_row(job.user_id, job.tenant_id, lease)
+        .leased_walk_row(job.user_id, job.tenant_id, lease, job.kind)
         .await
         .map_err(|e| {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the step's row could not be read around its write");
+            warn!(user_id = %job.user_id, provider = %job.provider_name, kind = %job.kind, error = %e, "Walk step: the step's row could not be read around its write");
         })
 }
 
@@ -290,7 +298,7 @@ async fn held_before(job: &ActivityBackfillJob, activities: &[Activity]) -> Resu
         Ok::<_, AppError>(Held { recorded, served })
     };
     read.await.map_err(|e| {
-        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the store could not be read before the step's write");
+        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Walk step: the store could not be read before the step's write");
     })
 }
 
@@ -311,7 +319,7 @@ async fn purges_since(job: &ActivityBackfillJob, since: DateTime<Utc>) -> Result
         .purge_reasons_since(job.user_id, &job.tenant_id, &job.provider_name, since)
         .await
         .map_err(|e| {
-            warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the purges of the step's key could not be read");
+            warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Walk step: the purges of the step's key could not be read");
         })
 }
 
@@ -422,11 +430,11 @@ async fn take_back(job: &ActivityBackfillJob, activities: &[Activity], held: &He
         {
             Ok(_) => taken += 1,
             Err(e) => {
-                warn!(user_id = %job.user_id, provider = %job.provider_name, activity_id = id, error = %e, "History walk: a row the step wrote could not be taken back");
+                warn!(user_id = %job.user_id, provider = %job.provider_name, activity_id = id, error = %e, "Walk step: a row the step wrote could not be taken back");
             }
         }
     }
-    info!(user_id = %job.user_id, provider = %job.provider_name, taken, ?reach, "History walk: rows the step wrote are taken back");
+    info!(user_id = %job.user_id, provider = %job.provider_name, taken, ?reach, "Walk step: rows the step wrote are taken back");
 }
 
 #[cfg(test)]

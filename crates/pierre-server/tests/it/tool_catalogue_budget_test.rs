@@ -67,7 +67,13 @@ use crate::common;
 /// `get_stats` and `get_training_history` read one stored window behind one
 /// `Coverage`, and their arguments now say what an incomplete window means.
 /// Measured 95,022 (~55 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 95_450;
+///
+/// 2026-11-14: 95,450 → 95,900 for `get_segment_history` (carnet#1483), one
+/// segment's efforts across the athlete's activities: five string arguments
+/// cut to a few words each, and a description that says how to read its
+/// coverage, whose first draft was cut by 202 bytes. Measured 95,871 (~849
+/// bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 95_900;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

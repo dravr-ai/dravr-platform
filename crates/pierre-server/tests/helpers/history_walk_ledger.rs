@@ -48,6 +48,7 @@ pub(crate) async fn owe_history_walk(
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         repos
@@ -74,7 +75,7 @@ pub(crate) async fn end_history_walk(
 ) {
     let step = JobProgressStep {
         before_ts: WALK_FLOOR,
-        months_walked: 12,
+        units_done: 12,
         rows_landed: 0,
         secs_per_unit: None,
         floor: None,

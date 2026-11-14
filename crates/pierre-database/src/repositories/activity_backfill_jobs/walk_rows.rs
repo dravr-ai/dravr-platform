@@ -45,12 +45,12 @@ pub enum ReopenFrom {
     PhasePurged,
 }
 
-/// The history walk row a step's lease was taken on, as it stands now
+/// The walk row a step's lease was taken on, as it stands now
 /// ([`super::ActivityBackfillJobRepository::leased_walk_row`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LeasedWalkRow {
-    /// The key the walk is filed under: its session, or the grant walked
-    /// alone.
+    /// The key the walk is filed under: a history walk's session, or the
+    /// grant walked alone; a detail walk's backend.
     pub provider: String,
     /// Owed, or how it ended or was settled.
     pub state: BackfillJobState,

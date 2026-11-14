@@ -45,7 +45,7 @@ use pierre_tool_runtime::context::TurnAsk;
 use pierre_tool_runtime::runtime::ToolRuntime;
 #[cfg(feature = "client-messaging")]
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
 };
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout};
@@ -439,6 +439,8 @@ impl BackfillNotifier for RecordingNotifier {
     // No live read ends a walk: nothing here reaches it.
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
 
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
+
     async fn push_provider_reauth(
         &self,
         _: Uuid,
@@ -654,6 +656,7 @@ async fn the_sweep_resumes_a_live_read_whose_instance_died() {
         turn_id: Some("turn-dead".to_owned()),
         asked_message_id: Some("msg-dead".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         runtime
@@ -826,6 +829,8 @@ impl BackfillNotifier for ReaskingNotifier {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
@@ -1081,6 +1086,7 @@ async fn an_ask_beside_a_read_owed_elsewhere_waits_for_its_rows() {
         turn_id: Some("turn-msg-1".to_owned()),
         asked_message_id: Some("msg-1".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         runtime

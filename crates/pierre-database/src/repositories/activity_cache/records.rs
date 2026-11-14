@@ -134,14 +134,59 @@ impl ActivityDetail {
     /// Whether the read carried none of the detail-only fields: an activity
     /// that has none reads this way, and so does one whose provider served it
     /// without them because the request carrying them failed.
+    ///
+    /// An empty efforts list counts as none. A Strava API detail read stamps
+    /// its efforts, `[]` for a ride over no segment, and that stamp
+    /// alone proves no more than an empty read does, so the read is checked
+    /// again at its recheck instant. The stamp still serializes, and that key
+    /// is what marks the row's segments as read.
     #[must_use]
     pub const fn is_empty(&self) -> bool {
+        let no_efforts = match &self.segment_efforts {
+            None => true,
+            Some(efforts) => efforts.is_empty(),
+        };
         self.splits.is_none()
             && self.laps.is_none()
             && self.description.is_none()
             && self.device_name.is_none()
-            && self.segment_efforts.is_none()
+            && no_efforts
             && self.gear.is_none()
             && self.private_note.is_none()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ActivityDetail;
+
+    /// A Strava API detail read stamps its segment efforts, an empty list
+    /// for a ride over no segment. That stamp alone fills nothing, so
+    /// the read stays empty and is checked again; the key still serializes,
+    /// which is what marks the row's segments as read.
+    #[test]
+    fn an_empty_efforts_list_alone_leaves_the_detail_empty() {
+        let stamped = ActivityDetail {
+            segment_efforts: Some(Vec::new()),
+            ..ActivityDetail::default()
+        };
+        assert!(
+            stamped.is_empty(),
+            "bug: an empty efforts list fills nothing, so the read must be rechecked"
+        );
+        let json = serde_json::to_string(&stamped).unwrap();
+        assert_eq!(
+            json, r#"{"segment_efforts":[]}"#,
+            "bug: the empty efforts list must still serialize as the segment-read stamp"
+        );
+        let with_laps = ActivityDetail {
+            laps: Some(Vec::new()),
+            segment_efforts: Some(Vec::new()),
+            ..ActivityDetail::default()
+        };
+        assert!(
+            !with_laps.is_empty(),
+            "bug: only the efforts list is read through to its contents"
+        );
     }
 }

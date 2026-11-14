@@ -53,6 +53,17 @@
 //! [`in_background`], whose requests stop at [`BACKGROUND_SHARE_PERCENT`] of
 //! each window, an app's pooled windows included, so a backfill can never
 //! spend what the reads an athlete is waiting on need.
+//!
+//! The walk that reads an athlete's activities in detail, for their segment
+//! efforts (carnet#1483), runs inside [`in_detail_walk`]: in the background
+//! share, and, at a provider with detail-walk windows (Strava), in two more
+//! daily windows of the signing app. Every athlete's walk shares the app's,
+//! half the background share of the app's day as the app actually has it —
+//! the provider's, the configured one, a pool's or a tenant app's registered
+//! limit — 125 of Strava's standard 1,000. Each athlete's walk has its own,
+//! [`DETAIL_WALK_DAILY_CALLS`], never more than the app's. Those two are
+//! sized already, so a request finds the whole of each, while the app's own
+//! windows stay at the background share.
 
 use std::fmt;
 use std::future::Future;
@@ -76,6 +87,7 @@ use serde_json::Value;
 ))]
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
+use uuid::Uuid;
 
 #[cfg(any(
     feature = "provider-coros",
@@ -119,6 +131,19 @@ pub const GARMIN_ACTIVITY_FILES: &str = "garmin_activity_files";
 /// quarters of every window.
 pub const BACKGROUND_SHARE_PERCENT: u32 = 25;
 
+/// The most requests one athlete's detail walk may make in a day, per app
+/// signing them ([`in_detail_walk`]), at a provider with detail-walk windows.
+///
+/// JF's call on carnet#1483: 50 Strava calls an athlete a day, retries
+/// included, each request counted once it is admitted.
+pub const DETAIL_WALK_DAILY_CALLS: u32 = 50;
+
+/// The share, in percent, of the background share of an app's day that every
+/// athlete's detail walk together may spend: half, 125 of Strava's standard
+/// 1,000 (JF's call on carnet#1483), so the walk of an athlete's history keeps
+/// the other half.
+const DETAIL_WALK_PERCENT_OF_BACKGROUND: u32 = 50;
+
 /// The `tenant_id` and `user_id` a provider's budget buckets are counted
 /// under: the budget is the application's, owed to no tenant or user.
 pub const PLATFORM_SCOPE: &str = "platform";
@@ -148,9 +173,32 @@ pub fn api_key_counter_key(provider: &str, account: &str) -> String {
     format!("provider_key_requests:{provider}:{account}")
 }
 
+/// The `counter_key` of the detail walk's app window under `holder_key`.
+///
+/// `holder_key` is the key of the windows of the app the walk's requests are
+/// signed by ([`budget_counter_key`]); this window counts what every
+/// athlete's detail walk spends in a day.
+#[must_use]
+pub fn detail_walk_counter_key(holder_key: &str) -> String {
+    format!("{holder_key}:detail_walk")
+}
+
+/// The `counter_key` of `user_id`'s detail-walk window under `holder_key`.
+///
+/// `holder_key` is the key of the windows of the app the walk's requests are
+/// signed by ([`budget_counter_key`]); this window counts what one athlete's
+/// detail walk spends in a day.
+#[must_use]
+pub fn detail_walk_athlete_counter_key(holder_key: &str, user_id: Uuid) -> String {
+    format!("{holder_key}:detail_walk:{user_id}")
+}
+
 tokio::task_local! {
     /// Set while the running task does work nobody is waiting on.
     static BACKGROUND: ();
+    /// The athlete whose activities the running task is reading in detail,
+    /// set inside [`in_detail_walk`].
+    static DETAIL_WALK: Uuid;
 }
 
 /// Run `work` as work nobody is waiting on: each provider request it makes is
@@ -158,6 +206,25 @@ tokio::task_local! {
 /// [`BACKGROUND_SHARE_PERCENT`] of its budget.
 pub async fn in_background<F: Future>(work: F) -> F::Output {
     BACKGROUND.scope((), work).await
+}
+
+/// Run `work` as the detail walk of `user_id`'s activities.
+///
+/// The walk is work nobody is waiting on, so it runs inside
+/// [`in_background`], and its requests to a provider with detail-walk
+/// windows also fit those windows, the app's and the athlete's, each
+/// [`ONE_DAY`].
+///
+/// The scope is a task-local: it holds only for `work` as it is polled, so a
+/// walk spawned onto its own task is wrapped where it is spawned.
+pub async fn in_detail_walk<F: Future>(user_id: Uuid, work: F) -> F::Output {
+    in_background(DETAIL_WALK.scope(user_id, work)).await
+}
+
+/// The athlete whose detail walk the running task is, inside
+/// [`in_detail_walk`].
+fn detail_walk_athlete() -> Option<Uuid> {
+    DETAIL_WALK.try_with(|user_id| *user_id).ok()
 }
 
 /// Whether the running task is inside [`in_background`]: work nobody is
@@ -245,6 +312,28 @@ impl Budget {
     fn allowance(self, share_percent: u32) -> i64 {
         i64::from(self.max_calls) * i64::from(share_percent) / 100
     }
+}
+
+/// One window a request is taken from: the `budget` counted under `key`,
+/// of which the request may find at most `share_percent` spent.
+///
+/// Each window carries its own share, so the windows a request fits are not
+/// all scaled alike: the provider's windows at the share of the running task,
+/// a window already sized for one kind of work at the whole of it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Window {
+    key: String,
+    budget: Budget,
+    share_percent: u32,
+}
+
+/// The two day windows of one athlete's detail walk under a holder: counted
+/// under the holder's day window's key, the athlete's held to the app's.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct DetailWalkSizes {
+    day_key: String,
+    athlete_calls: u32,
+    app_calls: u32,
 }
 
 /// An app's windows at a provider that sizes them by the athletes who
@@ -348,6 +437,9 @@ pub struct ProviderRateLimiter {
     /// Map of `provider_name` -> the budgets it keeps for each personal API
     /// key.
     api_key_budgets: DashMap<String, Vec<Budget>>,
+    /// Map of `provider_name` -> the most requests one athlete's detail walk
+    /// may make in a day: the providers with detail-walk windows.
+    detail_walks: DashMap<String, u32>,
 }
 
 impl fmt::Debug for ProviderRateLimiter {
@@ -357,6 +449,7 @@ impl fmt::Debug for ProviderRateLimiter {
             .field("pools", &self.pools)
             .field("grant_counts", &self.grant_counts)
             .field("api_key_budgets", &self.api_key_budgets)
+            .field("detail_walks", &self.detail_walks)
             .finish_non_exhaustive()
     }
 }
@@ -485,6 +578,11 @@ impl ProviderRateLimiter {
             ],
         );
 
+        // Strava: the walk that reads an athlete's activities in detail for
+        // their segment efforts, at most 50 calls an athlete a day.
+        let detail_walks = DashMap::new();
+        detail_walks.insert("strava".to_owned(), DETAIL_WALK_DAILY_CALLS);
+
         info!(
             provider_count = budgets.len() + pools.len(),
             "Provider rate limiter initialized"
@@ -497,6 +595,7 @@ impl ProviderRateLimiter {
             pools,
             grant_counts: DashMap::new(),
             api_key_budgets,
+            detail_walks,
         }
     }
 
@@ -532,8 +631,12 @@ impl ProviderRateLimiter {
         } else {
             100
         };
-        let windows = self.windows_for(provider, holder).await;
-        let status = self.take(&windows, share).await?;
+        let windows = self.windows_for(provider, holder, share).await;
+        let windows = match detail_walk_athlete() {
+            Some(user_id) => self.with_detail_walk_windows(provider, user_id, windows),
+            None => windows,
+        };
+        let status = self.take(&windows).await?;
         if let RateLimitStatus::Exceeded { retry_after } = &status {
             // No app: the windows spent are a personal API key's own.
             let app = holder.app();
@@ -625,9 +728,15 @@ impl ProviderRateLimiter {
     }
 
     /// Every window a request to `provider` counted for `holder` is taken
-    /// from, each with the counter key it is counted under: an app's, or a
-    /// personal key's.
-    async fn windows_for(&self, provider: &str, holder: &Holder) -> Vec<(String, Budget)> {
+    /// from, each with the counter key it is counted under, an app's or a
+    /// personal key's, and the `share_percent` of it the running task may
+    /// spend.
+    async fn windows_for(
+        &self,
+        provider: &str,
+        holder: &Holder,
+        share_percent: u32,
+    ) -> Vec<Window> {
         let (key, budgets) = match holder {
             Holder::App { app, daily_limit } => (
                 budget_counter_key(provider, app),
@@ -640,34 +749,107 @@ impl ProviderRateLimiter {
         };
         budgets
             .into_iter()
-            .map(|budget| (key.clone(), budget))
+            .map(|budget| Window {
+                key: key.clone(),
+                budget,
+                share_percent,
+            })
             .collect()
     }
 
-    /// Take one request from every one of `windows` that holds fewer than
-    /// `share_percent` of its budget; when one does not, give back the
-    /// windows already taken and say how long until that one resets.
-    async fn take(
+    /// `windows`, the holder's windows at `provider`, preceded by the two
+    /// daily windows of `user_id`'s detail walk when `provider` has them:
+    /// the athlete's, then the app's.
+    ///
+    /// The app's walk window is half the background share of the holder's
+    /// day as `windows` carries it, so whatever sized the day — the
+    /// provider's, the configured one, a pool's or a tenant app's registered
+    /// limit — sizes it; the athlete's is [`DETAIL_WALK_DAILY_CALLS`], never
+    /// more than the app's. Both are taken whole: their sizes are already
+    /// the walk's share. They come first, so a walk whose day is spent is
+    /// refused until that day ends without touching the windows the reads an
+    /// athlete is waiting on count in.
+    ///
+    /// A holder with no daily window has no day to take a share of, and its
+    /// walk is held to its background share alone.
+    fn with_detail_walk_windows(
         &self,
-        windows: &[(String, Budget)],
-        share_percent: u32,
-    ) -> AppResult<RateLimitStatus> {
+        provider: &str,
+        user_id: Uuid,
+        windows: Vec<Window>,
+    ) -> Vec<Window> {
+        let Some(sizes) = self.detail_walk_sizes(provider, &windows) else {
+            return windows;
+        };
+        let whole_day = |key: String, max_calls: u32| Window {
+            key,
+            budget: Budget {
+                max_calls,
+                window: ONE_DAY,
+            },
+            share_percent: 100,
+        };
+        let mut walk = vec![
+            whole_day(
+                detail_walk_athlete_counter_key(&sizes.day_key, user_id),
+                sizes.athlete_calls,
+            ),
+            whole_day(detail_walk_counter_key(&sizes.day_key), sizes.app_calls),
+        ];
+        walk.extend(windows);
+        walk
+    }
+
+    /// The two day windows of a detail walk at `provider` for a holder whose
+    /// windows are `windows` ([`Self::with_detail_walk_windows`]); `None`
+    /// when `provider` has no walk windows or the holder no daily window.
+    fn detail_walk_sizes(&self, provider: &str, windows: &[Window]) -> Option<DetailWalkSizes> {
+        let athlete_calls = self.detail_walks.get(provider).map(|calls| *calls)?;
+        let day = windows
+            .iter()
+            .find(|window| window.budget.window == ONE_DAY)?;
+        let background_day = Budget {
+            max_calls: u32::try_from(day.budget.allowance(BACKGROUND_SHARE_PERCENT))
+                .unwrap_or(u32::MAX),
+            window: ONE_DAY,
+        };
+        let app_calls = u32::try_from(background_day.allowance(DETAIL_WALK_PERCENT_OF_BACKGROUND))
+            .unwrap_or(u32::MAX);
+        Some(DetailWalkSizes {
+            day_key: day.key.clone(),
+            athlete_calls: athlete_calls.min(app_calls),
+            app_calls,
+        })
+    }
+
+    /// The calls a day one athlete's detail walk at `provider` may make for
+    /// `holder`, as [`Self::with_detail_walk_windows`] sizes its window.
+    async fn detail_walk_daily_calls(&self, provider: &str, holder: &Holder) -> Option<u32> {
+        let windows = self.windows_for(provider, holder, 100).await;
+        self.detail_walk_sizes(provider, &windows)
+            .map(|sizes| sizes.athlete_calls)
+    }
+
+    /// Take one request from every one of `windows` that holds fewer than
+    /// its share of its budget; when one does not, give back the windows
+    /// already taken and say how long until that one resets.
+    async fn take(&self, windows: &[Window]) -> AppResult<RateLimitStatus> {
         let now = Utc::now();
         let mut taken: Vec<(&str, String)> = Vec::with_capacity(windows.len());
-        for (key, budget) in windows {
-            let period = budget_period(now, budget.window);
+        for window in windows {
+            let period = budget_period(now, window.budget.window);
             let landed = self
                 .counters
                 .increment_counter_below(
                     PLATFORM_SCOPE,
                     PLATFORM_SCOPE,
-                    key,
+                    &window.key,
                     &period,
-                    budget.allowance(share_percent),
+                    window.budget.allowance(window.share_percent),
                 )
                 .await?;
             if landed {
-                taken.push((key, period));
+                taken.push((&window.key, period));
                 continue;
             }
             for (key, period) in &taken {
@@ -675,7 +857,7 @@ impl ProviderRateLimiter {
                     .increment_counter(PLATFORM_SCOPE, PLATFORM_SCOPE, key, period, -1)
                     .await?;
             }
-            let (_, end_ms) = bucket_bounds(now, budget.window);
+            let (_, end_ms) = bucket_bounds(now, window.budget.window);
             let retry_ms = u64::try_from(end_ms - now.timestamp_millis()).unwrap_or(0);
             return Ok(RateLimitStatus::Exceeded {
                 retry_after: Duration::from_millis(retry_ms),
@@ -764,6 +946,21 @@ impl RequestBudget {
                 Ok(())
             }
         }
+    }
+
+    /// The calls a day one athlete's detail walk at `provider` may make
+    /// under this budget's holder, as the limiter sizes the walk's window:
+    /// [`DETAIL_WALK_DAILY_CALLS`], held to the app's walk window, which is
+    /// half the background share of the holder's actual day (`0` for a day
+    /// under 8). A walk's ETA is paced by it, and a walk with no room at all
+    /// is never recorded.
+    ///
+    /// `None` when `provider` has no walk windows, or the holder no daily
+    /// window: its walk is held to its background share alone.
+    pub async fn detail_walk_daily_calls(&self, provider: &str) -> Option<u32> {
+        self.limiter
+            .detail_walk_daily_calls(provider, &self.holder)
+            .await
     }
 }
 

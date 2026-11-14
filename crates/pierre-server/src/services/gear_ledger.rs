@@ -59,7 +59,7 @@ use pierre_core::models::{
     GearAttribution, GearDeclaration, GearKind, SportType, TenantId,
     DEFAULT_SHOE_WARN_DISTANCE_METERS, MAX_GEAR_PER_ATHLETE,
 };
-use pierre_database::repositories::CachedActivityRow;
+use pierre_database::repositories::{CachedActivityRow, CachedRowsQuery};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::backend_pair_for;
@@ -130,7 +130,11 @@ pub async fn read_ledger(
     }
     let stored = repos
         .activity_cache
-        .get_cached_activity_rows(user_id, tenant_id, since, now, LEDGER_ROW_LIMIT)
+        .get_cached_activity_rows(
+            user_id,
+            tenant_id,
+            &CachedRowsQuery::window(since, now, LEDGER_ROW_LIMIT),
+        )
         .await?;
     let stored_count = stored.len();
     let rows = served_rows(resources, stored);
@@ -246,9 +250,11 @@ async fn owned_workout(
             .get_cached_activity_rows(
                 user_id,
                 tenant_id,
-                activity.start_date() - window,
-                activity.start_date() + window,
-                WORKOUT_ROW_LIMIT,
+                &CachedRowsQuery::window(
+                    activity.start_date() - window,
+                    activity.start_date() + window,
+                    WORKOUT_ROW_LIMIT,
+                ),
             )
             .await?,
     );
@@ -467,9 +473,7 @@ pub(crate) async fn attribute_imported_gear(
             .get_cached_activity_rows(
                 user_id,
                 tenant_id,
-                start - window,
-                start + window,
-                WORKOUT_ROW_LIMIT,
+                &CachedRowsQuery::window(start - window, start + window, WORKOUT_ROW_LIMIT),
             )
             .await?;
         let copies = ledger_workouts(&rows)

@@ -17,7 +17,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{Duration, TimeZone, Utc};
-use pierre_contremaitre::messaging_strings::{KEY_HISTORY_WALK_COMPLETE, KEY_LIVE_READ_OVERTAKEN};
+use pierre_contremaitre::messaging_strings::{
+    KEY_DETAIL_WALK_COMPLETE, KEY_HISTORY_WALK_COMPLETE, KEY_LIVE_READ_OVERTAKEN,
+};
 use pierre_core::models::messaging::MessageContent;
 use pierre_core::models::{AddMessageParams, TenantId, COMMAND_FINISH_REASON};
 use pierre_core::transport::TransportPolicy;
@@ -25,7 +27,9 @@ use pierre_database::repositories::BackfillJobKind;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
 use pierre_mcp_server::services::platform_post::{PlatformPost, PlatformPostRequest, PostedReply};
-use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier, HistoryWalkCompletion};
+use pierre_tool_runtime::runtime::{
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion,
+};
 use uuid::Uuid;
 
 use crate::messaging_fixtures;
@@ -414,6 +418,85 @@ async fn a_walk_end_posts_one_line_in_the_personal_thread() {
     );
 }
 
+/// A detail walk's end is one line in the athlete's personal thread, the
+/// count of activities whose efforts it read, sent once per walk however
+/// many replicas end it; a later walk, asked later, posts its own.
+#[tokio::test]
+async fn a_detail_walk_end_posts_one_line_per_walk_in_the_personal_thread() {
+    let db = create_test_db().await;
+    let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+    let (user, tenant) = seed_user(&db).await;
+    repos.users.update_locale(user, "en").await.unwrap();
+    let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
+    let catalogue = strings();
+    // The line is authored in dravr-contremaitre, which lands first; until
+    // the pinned catalogue carries it, a stand-in template is registered so
+    // what is pinned here is the send-once, through the catalogue's render.
+    if catalogue
+        .get_exact(KEY_DETAIL_WALK_COMPLETE, "en")
+        .is_none()
+    {
+        catalogue.update(
+            KEY_DETAIL_WALK_COMPLETE,
+            "en",
+            "{0}".to_owned(),
+            "stand-in".to_owned(),
+        );
+    }
+    let notifier = ServerBackfillNotifier::with_resolver_and_platform_post(
+        Arc::clone(&repos),
+        Arc::clone(&catalogue),
+        Arc::new(FakeResolver::new(Arc::new(CapturingChannel::default()))),
+        Arc::new(RecordingPost::default()),
+        Arc::from(LINK_SECRET),
+        BASE_URL.to_owned(),
+    );
+    let completion = DetailWalkCompletion {
+        user_id: user,
+        tenant_id: tenant,
+        provider: "strava",
+        asked_at_ms: 1_763_000_000_000,
+        activity_count: 37,
+    };
+
+    notifier.push_detail_walk_complete(completion).await;
+    notifier.push_detail_walk_complete(completion).await;
+
+    let expected = catalogue.render(KEY_DETAIL_WALK_COMPLETE, "en", &["37"]);
+    assert!(
+        expected.contains("37"),
+        "the catalogue's line names the count: {expected}"
+    );
+    let posted = |repos: Arc<RepositoryRegistry>, conversation: String| async move {
+        repos
+            .chat
+            .get_messages(&conversation, &user.to_string(), tenant)
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|message| message.role == "assistant")
+            .map(|message| message.content)
+            .collect::<Vec<String>>()
+    };
+    assert_eq!(
+        posted(Arc::clone(&repos), conversation.clone()).await,
+        vec![expected.clone()],
+        "bug: a detail walk's end is one line in the personal thread, sent once"
+    );
+
+    notifier
+        .push_detail_walk_complete(DetailWalkCompletion {
+            asked_at_ms: completion.asked_at_ms + 1,
+            ..completion
+        })
+        .await;
+    assert_eq!(
+        posted(Arc::clone(&repos), conversation).await.len(),
+        2,
+        "bug: a later walk's end was taken for the first one's"
+    );
+}
+
 /// A Telegram thread with nothing warmed for the read: the cache read comes
 /// back empty, the case the "ask me again" nudge answers for a read that
 /// landed. A read that gave up never gets it — the nudge says data landed.
@@ -686,6 +769,106 @@ mod in_app {
             thread.stored_turns().await
         );
         assert_eq!(thread.ready_pushes().await, 0, "bug: and pinged it");
+    }
+
+    /// A web thread for an `en` athlete with the app push wired, whose
+    /// catalogue holds a detail walk's line (a stand-in until the pinned
+    /// contremaitre carries it), as a walk's end finds it.
+    async fn walk_in_app_thread() -> InAppThread {
+        let db = create_test_db().await;
+        let repos: Arc<RepositoryRegistry> = Arc::clone(db.repositories());
+        let (user, tenant) = seed_user(&db).await;
+        repos.users.update_locale(user, "en").await.unwrap();
+        let conversation = seed_conversation(&db, &user.to_string(), tenant).await;
+        let catalogue = strings();
+        if catalogue
+            .get_exact(KEY_DETAIL_WALK_COMPLETE, "en")
+            .is_none()
+        {
+            catalogue.update(
+                KEY_DETAIL_WALK_COMPLETE,
+                "en",
+                "{0}".to_owned(),
+                "stand-in".to_owned(),
+            );
+        }
+        let post = Arc::new(AgentPost {
+            posted: false,
+            asked: Mutex::new(Vec::new()),
+        });
+        let service = notification_service(&db);
+        let slot: Arc<dyn PlatformPost> = post.clone();
+        let notifier = ServerBackfillNotifier::from_handles(
+            Arc::clone(&repos),
+            catalogue,
+            Arc::new(OnceLock::from(slot)),
+            Arc::from(LINK_SECRET),
+            BASE_URL.to_owned(),
+            Some(Arc::clone(&service)),
+        );
+        InAppThread {
+            _db: db,
+            repos,
+            user,
+            tenant,
+            conversation,
+            post,
+            service,
+            notifier,
+        }
+    }
+
+    /// The control: a history walk's end did load activities, and its line
+    /// raises the push that says so. Without it the next test could not tell
+    /// a guard from a push that never fires in this harness.
+    #[tokio::test]
+    async fn a_history_walk_end_pings_the_activities_it_loaded() {
+        let thread = walk_in_app_thread().await;
+        thread
+            .notifier
+            .push_history_walk_complete(HistoryWalkCompletion {
+                user_id: thread.user,
+                tenant_id: thread.tenant,
+                provider: "strava",
+                oldest: Utc.with_ymd_and_hms(2014, 3, 2, 8, 0, 0).unwrap(),
+                activity_count: 412,
+            })
+            .await;
+        assert_eq!(thread.stored_turns().await.len(), 1, "the walk's line");
+        assert_eq!(
+            thread.ready_pushes().await,
+            1,
+            "a history walk's end raises the ready push"
+        );
+    }
+
+    /// A detail walk loads no activity: it reads the segment efforts of
+    /// activities already stored. Its end is the line in the personal
+    /// thread, and never the "your history is ready — N activities loaded"
+    /// push a loaded history raises.
+    #[tokio::test]
+    async fn a_detail_walk_end_stores_its_line_and_never_pings_activities_loaded() {
+        let thread = walk_in_app_thread().await;
+        thread
+            .notifier
+            .push_detail_walk_complete(DetailWalkCompletion {
+                user_id: thread.user,
+                tenant_id: thread.tenant,
+                provider: "strava",
+                asked_at_ms: 1_763_000_000_000,
+                activity_count: 37,
+            })
+            .await;
+        assert_eq!(
+            thread.stored_turns().await.len(),
+            1,
+            "the walk's end is one line in the personal thread"
+        );
+        assert_eq!(
+            thread.ready_pushes().await,
+            0,
+            "bug: a detail walk's end pushed \"activities loaded\" when it loaded none"
+        );
     }
 
     #[tokio::test]

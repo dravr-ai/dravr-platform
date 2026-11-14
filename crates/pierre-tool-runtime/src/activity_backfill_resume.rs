@@ -109,7 +109,7 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
 /// Hand back a claim this sweep could not run, with its attempt. A release
 /// that fails is logged: the claim's lease lapses as it would have.
 async fn release_claim(ledger: &dyn ActivityBackfillJobRepository, lease: &JobLease) {
-    if let Err(e) = ledger.release_backfill_job_claim(lease).await {
+    if let Err(e) = ledger.release_backfill_job_claim(lease, None).await {
         warn!(row_id = %lease, error = %e, "Activity backfill resume: a claim could not be handed back");
     }
 }
@@ -194,6 +194,10 @@ async fn job_from_row(
         row.walk_backend
             .clone()
             .unwrap_or_else(|| row.provider.clone())
+    } else if row.kind == BackfillJobKind::DetailWalk {
+        // Filed under the backend that reads it, which it reads exactly as
+        // named: never resolved to the session first.
+        row.provider.clone()
     } else {
         backend_resolver::resolve_backend(
             resources.repos(),
@@ -229,6 +233,7 @@ async fn job_from_row(
         kind: row.kind,
         turn_id: row.turn_id,
         asked_message_id: row.asked_message_id,
+        walk_sport: row.walk_sport,
     }
 }
 

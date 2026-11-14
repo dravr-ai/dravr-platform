@@ -1,5 +1,6 @@
 // ABOUTME: Pins that an activity's name reaches the model as one defanged, capped line on every read shape
-// ABOUTME: The prose list, the summary and the detail serialization all carry the same neutralized title
+// ABOUTME: The prose list, the summary and the detail serialization all carry the same neutralized title,
+// ABOUTME: and a segment's name, which another Strava user wrote, crosses the detail the same way
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,7 +18,7 @@ use std::collections::HashMap;
 use std::slice;
 
 use chrono::{TimeZone, Utc};
-use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, SegmentEffort, SportType};
 use pierre_core::untrusted::ACTIVITY_NAME_MAX_CHARS;
 use pierre_tool_runtime::implementations::activity_list_render::format_activities_as_list;
 use pierre_tool_runtime::implementations::activity_summary::{detail_json, ActivitySummary};
@@ -80,4 +81,42 @@ fn a_title_that_runs_on_is_capped() {
     assert!(name.ends_with('…'));
     let value = detail_json(&[workout(&long)]).unwrap();
     assert_eq!(value[0]["name"].as_str().unwrap(), name);
+}
+
+/// A segment's name is written by whoever created the segment on Strava,
+/// another athlete entirely, so it crosses the detail as one defanged line.
+#[test]
+fn the_detail_serialization_neutralizes_a_segments_name() {
+    let ride = ActivityBuilder::new(
+        "16101",
+        "Tour",
+        SportType::Ride,
+        Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap(),
+        3_600,
+        "strava",
+    )
+    .segment_efforts(vec![SegmentEffort {
+        id: "9001".to_owned(),
+        segment_id: Some("611413".to_owned()),
+        name: INJECTED.to_owned(),
+        elapsed_time: 412,
+        moving_time: None,
+        start_date: Utc.with_ymd_and_hms(2026, 11, 7, 13, 10, 0).unwrap(),
+        distance: 1_820.5,
+        average_heart_rate: None,
+        max_heart_rate: None,
+        average_cadence: None,
+        average_watts: None,
+        kom_rank: None,
+        pr_rank: None,
+        climb_category: None,
+        average_grade: None,
+        elevation_gain: None,
+    }])
+    .build();
+    let value = detail_json(&[ride]).unwrap();
+    assert_eq!(
+        value[0]["segment_efforts"][0]["name"], NEUTRALIZED,
+        "bug: a segment's name reached the model as written"
+    );
 }

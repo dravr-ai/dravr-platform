@@ -582,6 +582,18 @@ fn native_activity_id(activity: &Activity) -> Option<(&str, &str, TwinPath)> {
     Some((service, activity.id(), path))
 }
 
+/// The service and the service's own activity id a row is keyed by, when
+/// its copies share it ([`native_activity_id`]): two rows with the same key
+/// are one workout.
+///
+/// The one test of "the same activity" a caller outside the merger uses, so
+/// that a walk picking which activities to read and the merger counting them
+/// never disagree about which rows are copies.
+#[must_use]
+pub fn native_activity_key(activity: &Activity) -> Option<(&str, &str)> {
+    native_activity_id(activity).map(|(service, id, _)| (service, id))
+}
+
 /// The source each row stands as under the one rule: its own
 /// ([`activity_source`]), except that a row naming no recorder takes the one
 /// a native twin of it names.
@@ -1119,5 +1131,57 @@ impl DisjointSets {
             let moved = mem::take(&mut self.members[child]);
             self.members[root].extend(moved);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+    use pierre_core::constants::oauth::providers as oauth_providers;
+    use pierre_core::models::{Activity, ActivityBuilder, SportType};
+
+    use super::native_activity_key;
+
+    fn row(id: &str, provider: &str, source: Option<&str>) -> Activity {
+        let start = Utc.with_ymd_and_hms(2026, 11, 7, 13, 0, 0).unwrap();
+        let builder = ActivityBuilder::new(id, "Ride", SportType::Ride, start, 3_600, provider);
+        match source {
+            Some(source) => builder.source(source).build(),
+            None => builder.build(),
+        }
+    }
+
+    /// Strava's API row, its session capture and the athlete's export of one
+    /// activity share Strava's id, so they are one activity; a row of a
+    /// service with no such pair names nothing in common.
+    #[test]
+    fn copies_of_one_strava_activity_share_its_native_key() {
+        let api = row("16101", oauth_providers::STRAVA, None);
+        let session = row(
+            "16101",
+            oauth_providers::SCIOTTE,
+            Some(oauth_providers::STRAVA),
+        );
+        let export = row("16101", oauth_providers::STRAVA_ARCHIVE, None);
+        assert_eq!(
+            native_activity_key(&api),
+            Some(("strava", "16101")),
+            "bug: an API row is keyed by Strava's own activity id"
+        );
+        assert_eq!(
+            native_activity_key(&session),
+            native_activity_key(&api),
+            "bug: a session row shares its API copy's key"
+        );
+        assert_eq!(
+            native_activity_key(&export),
+            native_activity_key(&api),
+            "bug: an export row shares its API copy's key"
+        );
+        assert_eq!(
+            native_activity_key(&row("w1", oauth_providers::WHOOP, None)),
+            None,
+            "bug: a WHOOP row's id names nothing a Strava row shares"
+        );
     }
 }

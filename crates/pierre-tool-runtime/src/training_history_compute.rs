@@ -45,6 +45,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{Coverage, Pending};
 use pierre_core::models::{DailyTrainingState, TenantId};
 use pierre_database::repositories::{BackfillJobKind, JobProgress};
+use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::training_history_compute::MAX_BACKFILL_DAYS;
 use pierre_providers::ai_scope;
 use pierre_runtime_context::DataContext;
@@ -480,12 +481,8 @@ async fn request_walks<'a>(
         };
         match walk_across_pair(repos, user_id, tenant_id, &source.backend).await {
             Ok(PairWalk::Owed { key } | PairWalk::Purged { key }) => {
-                match repos
-                    .activity_backfill_jobs
-                    .job_progress(user_id, tenant_id, &key, BackfillJobKind::HistoryWalk)
-                    .await
-                {
-                    Ok(progress) => running.push(progress.unwrap_or_default()),
+                match owed_walk_progress(repos, user_id, tenant_id, &key).await {
+                    Ok(progress) => running.push(progress),
                     Err(e) => warn!(
                         user_id = %user_id,
                         backend = %source.backend,
@@ -514,12 +511,53 @@ async fn request_walks<'a>(
     WalkAsk { pending, started }
 }
 
+/// The recorded progress of the history walk owed under `key`; one that has
+/// recorded no step yet has walked nothing.
+async fn owed_walk_progress(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    key: &str,
+) -> AppResult<JobProgress> {
+    Ok(repos
+        .activity_backfill_jobs
+        .job_progress(user_id, tenant_id, key, BackfillJobKind::HistoryWalk)
+        .await?
+        .unwrap_or_default())
+}
+
+/// The [`Pending`] of the history walk owed under `key`
+/// ([`history_walk_owed`](crate::activity_fetch::history_walk_owed)), from
+/// its recorded progress; a progress that cannot be read reads as nothing
+/// walked yet. It only reads: no walk is asked. Its one reader,
+/// `get_segment_history`, is a `tools-data` tool.
+#[cfg(feature = "tools-data")]
+pub(crate) async fn owed_history_walk_pending(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    key: &str,
+) -> Pending {
+    let progress = owed_walk_progress(resources.repos(), user_id, tenant_id, key)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(
+                user_id = %user_id,
+                key,
+                error = %e,
+                "training history: the walk's progress could not be read"
+            );
+            JobProgress::default()
+        });
+    walk_running(&progress)
+}
+
 /// Months a walk has left, the longest when its floor is not known yet: the
 /// walk the window waits longest on is the one it reports.
 fn months_left(progress: &JobProgress) -> i64 {
     progress
-        .months_total
-        .map_or(i64::MAX, |total| total.saturating_sub(progress.months_done))
+        .units_total
+        .map_or(i64::MAX, |total| total.saturating_sub(progress.units_done))
 }
 
 /// A running walk's [`Pending`] from its recorded progress. Its
@@ -528,8 +566,8 @@ fn months_left(progress: &JobProgress) -> i64 {
 fn walk_running(progress: &JobProgress) -> Pending {
     let months = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
     Pending::running(
-        months(progress.months_done),
-        progress.months_total.map(months),
+        months(progress.units_done),
+        progress.units_total.map(months),
         progress.secs_per_unit,
     )
 }

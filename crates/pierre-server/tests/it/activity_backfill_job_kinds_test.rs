@@ -18,8 +18,8 @@ use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
-    JobLeaseState, JobProgress, JobProgressStep,
+    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, DetailWalkEnd,
+    DetailWalkRow, JobLease, JobLeaseState, JobProgress, JobProgressStep, WalkTried, WalkWiden,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -52,6 +52,7 @@ fn owed_row(tenant: TenantId, user: Uuid, kind: BackfillJobKind) -> ActivityBack
         turn_id: Some("turn-1".to_owned()),
         asked_message_id: Some("message-1".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     }
 }
 
@@ -218,7 +219,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
     let user = Uuid::new_v4();
     let mut walk = owed_row(tenant, user, BackfillJobKind::HistoryWalk);
     walk.leased_until_ms = now_ms() + 10 * 60_000;
-    walk.progress.months_total = Some(120);
+    walk.progress.units_total = Some(120);
     assert!(
         ledger.record_backfill_job(&walk).await.unwrap(),
         "bug: the walk is recorded"
@@ -241,7 +242,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
     };
     let first_step = JobProgressStep {
         before_ts: 1_600_000_000,
-        months_walked: 36,
+        units_done: 36,
         rows_landed: 10,
         secs_per_unit: Some(4.5),
         floor: None,
@@ -260,8 +261,8 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
             .await
             .unwrap(),
         Some(JobProgress {
-            months_total: Some(120),
-            months_done: 0,
+            units_total: Some(120),
+            units_done: 0,
             rows_landed: 0,
             secs_per_unit: None,
         }),
@@ -281,8 +282,8 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
             .await
             .unwrap(),
         Some(JobProgress {
-            months_total: Some(120),
-            months_done: 36,
+            units_total: Some(120),
+            units_done: 36,
             rows_landed: 10,
             secs_per_unit: Some(4.5),
         }),
@@ -322,7 +323,7 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
                 &next_holder,
                 JobProgressStep {
                     before_ts: 1_500_000_000,
-                    months_walked: 36,
+                    units_done: 36,
                     rows_landed: 5,
                     secs_per_unit: None,
                     floor: None,
@@ -338,8 +339,8 @@ async fn a_walks_progress_is_written_only_under_the_lease_that_holds_it() {
             .await
             .unwrap(),
         Some(JobProgress {
-            months_total: Some(120),
-            months_done: 72,
+            units_total: Some(120),
+            units_done: 72,
             rows_landed: 15,
             secs_per_unit: Some(4.5),
         }),
@@ -497,7 +498,7 @@ async fn a_walk_asked_after_one_ended_starts_from_the_top() {
     };
     let last_step = JobProgressStep {
         before_ts: 1_400_000_000,
-        months_walked: 48,
+        units_done: 48,
         rows_landed: 30,
         secs_per_unit: Some(2.0),
         floor: None,
@@ -777,5 +778,830 @@ async fn a_kind_from_a_newer_build_is_left_to_it() {
         [known.id.as_str()],
         "bug: a reap takes only the kinds this build knows, and leaves a row \
          of a kind only a newer build can run"
+    );
+}
+
+/// A detail walk is a fourth kind beside the others, and it keeps the sport
+/// it was asked for through the claim and the reap: the step that reads its
+/// window filters on it.
+#[tokio::test]
+async fn a_detail_walk_is_its_own_row_and_keeps_its_sport() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = owed_row(tenant, user, BackfillJobKind::HistoryWalk);
+    let detail = ActivityBackfillJobRow {
+        walk_sport: Some("Ride".to_owned()),
+        ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
+    };
+    for row in [&walk, &detail] {
+        assert!(
+            ledger.record_backfill_job(row).await.unwrap(),
+            "bug: the {} row is recorded beside the other kinds",
+            row.kind
+        );
+    }
+
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let taken = claimed
+        .iter()
+        .find(|row| row.id == detail.id)
+        .expect("bug: a detail walk is a kind this build claims");
+    assert_eq!(
+        taken.kind,
+        BackfillJobKind::DetailWalk,
+        "bug: the kind round-trips"
+    );
+    assert_eq!(
+        taken.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the claim returns the sport the walk was asked for"
+    );
+    let other = claimed.iter().find(|row| row.id == walk.id).unwrap();
+    assert_eq!(other.walk_sport, None, "bug: a history walk has no sport");
+
+    let reaped = ledger
+        .reap_exhausted_backfill_jobs(now_ms() + 60 * 60_000, 0)
+        .await
+        .unwrap();
+    let gone = reaped
+        .iter()
+        .find(|row| row.id == detail.id)
+        .expect("bug: an exhausted detail walk is reaped");
+    assert_eq!(
+        gone.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the reaped row names its sport"
+    );
+}
+
+/// A claim handed back to wait for a spent budget's window gives its attempt
+/// back and is not claimed again before the instant it names; one handed back
+/// with no instant keeps the retry instant it already had, never reset to due
+/// at once.
+#[tokio::test]
+async fn a_paused_claim_waits_for_its_instant_and_keeps_its_attempts() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
+    let claim_at = |now_ms: i64| BackfillJobClaim {
+        now_ms,
+        ..claim_now()
+    };
+    let lease_of = |row: &ActivityBackfillJobRow| JobLease {
+        id: row.id.clone(),
+        token: row.lease_token.clone().unwrap(),
+    };
+
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    assert_eq!(claimed.len(), 1, "the walk is claimed");
+    assert_eq!(claimed[0].attempts, 2, "the claim counts an attempt");
+    let until = now_ms() + 60 * 60_000;
+    assert!(
+        ledger
+            .release_backfill_job_claim(&lease_of(&claimed[0]), Some(until))
+            .await
+            .unwrap(),
+        "bug: the claim's own lease hands it back"
+    );
+    assert!(
+        ledger
+            .claim_stale_backfill_jobs(claim_at(until - 1))
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a paused claim is taken again before the instant it waits for"
+    );
+    let resumed = ledger
+        .claim_stale_backfill_jobs(claim_at(until))
+        .await
+        .unwrap();
+    assert_eq!(
+        resumed.len(),
+        1,
+        "bug: a paused claim is due at its instant"
+    );
+    assert_eq!(
+        resumed[0].attempts, 2,
+        "bug: a pause spends no attempt: the claim's own was given back"
+    );
+
+    assert!(
+        ledger
+            .release_backfill_job_claim(&lease_of(&resumed[0]), None)
+            .await
+            .unwrap(),
+        "the claim is handed back with no instant"
+    );
+    assert!(
+        ledger
+            .claim_stale_backfill_jobs(claim_at(until - 1))
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a claim handed back with no instant lost the retry it had and is \
+         due before it"
+    );
+    assert_eq!(
+        ledger
+            .claim_stale_backfill_jobs(claim_at(until))
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "bug: a claim handed back with no instant is due at the retry it had"
+    );
+}
+
+/// The detail walk owed for the pair, as a claim made now reads it, handed
+/// straight back.
+async fn owed_detail_walk(db: &Database) -> ActivityBackfillJobRow {
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let row = claimed
+        .into_iter()
+        .find(|row| row.kind == BackfillJobKind::DetailWalk)
+        .expect("the detail walk is owed and claimable");
+    let lease = JobLease {
+        id: row.id.clone(),
+        token: row.lease_token.clone().unwrap(),
+    };
+    assert!(
+        ledger
+            .release_backfill_job_claim(&lease, None)
+            .await
+            .unwrap(),
+        "bug: the claim just taken on the owed detail walk is not given back"
+    );
+    row
+}
+
+/// A detail walk asked again while one is owed widens only its floor: the
+/// cursor a step moved stays where it is, the total becomes what is done plus
+/// what the new ask left unread, and a different sport reads every sport.
+/// Never another tenant's row, and never an ended one.
+#[tokio::test]
+async fn a_detail_walk_asked_again_widens_its_floor_only() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut walk = ActivityBackfillJobRow {
+        walk_sport: Some("Ride".to_owned()),
+        ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
+    };
+    walk.progress.units_total = Some(10);
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
+    // A step: four activities read, the cursor moved down.
+    let row = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let held = JobLease {
+        id: row[0].id.clone(),
+        token: row[0].lease_token.clone().unwrap(),
+    };
+    assert!(
+        ledger
+            .record_job_progress(
+                &held,
+                JobProgressStep {
+                    before_ts: 1_705_000_000,
+                    units_done: 4,
+                    rows_landed: 3,
+                    secs_per_unit: None,
+                    floor: None,
+                },
+            )
+            .await
+            .unwrap(),
+        "bug: the step holding the lease cannot record its progress"
+    );
+
+    let widen = |after_ts: i64, sport: Option<&str>, units_left: i64| WalkWiden {
+        after_ts,
+        walk_sport: sport.map(str::to_owned),
+        units_left,
+    };
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &widen(1_600_000_000, Some("Ride"), 20)
+            )
+            .await
+            .unwrap(),
+        "bug: the owed walk is widened"
+    );
+    let widened = owed_detail_walk(&db).await;
+    assert_eq!(
+        widened.after_ts,
+        Some(1_600_000_000),
+        "bug: the floor moves down"
+    );
+    assert_eq!(
+        widened.before_ts,
+        Some(1_705_000_000),
+        "bug: a widen never moves the cursor a step left"
+    );
+    assert_eq!(
+        widened.progress.units_total,
+        Some(24),
+        "bug: the total is what is done plus what the new window leaves unread"
+    );
+    assert_eq!(
+        widened.progress.units_done, 4,
+        "bug: a widen keeps the progress"
+    );
+    assert_eq!(
+        widened.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the same sport stays"
+    );
+
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &widen(1_650_000_000, Some("Run"), 5)
+            )
+            .await
+            .unwrap(),
+        "bug: an owed walk asked again for another sport is not widened"
+    );
+    let narrower = owed_detail_walk(&db).await;
+    assert_eq!(
+        narrower.after_ts,
+        Some(1_600_000_000),
+        "bug: an ask with a higher floor never narrows the walk"
+    );
+    assert_eq!(
+        narrower.walk_sport, None,
+        "bug: two different sports asked read every sport"
+    );
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &widen(1_500_000_000, Some("Ride"), 5)
+            )
+            .await
+            .unwrap(),
+        "bug: an owed walk asked again with a lower floor is not widened"
+    );
+    assert_eq!(
+        owed_detail_walk(&db).await.walk_sport,
+        None,
+        "bug: a walk that reads every sport never narrows back to one"
+    );
+
+    assert!(
+        !ledger
+            .widen_detail_walk(
+                user,
+                TenantId::generate(),
+                PROVIDER,
+                &widen(1_000_000_000, None, 5)
+            )
+            .await
+            .unwrap(),
+        "bug: an ask from another tenant widens this tenant's walk"
+    );
+    let held = {
+        let row = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+        JobLease {
+            id: row[0].id.clone(),
+            token: row[0].lease_token.clone().unwrap(),
+        }
+    };
+    assert!(
+        ledger.end_backfill_job_incomplete(&held).await.unwrap(),
+        "bug: the step holding the lease cannot end the walk"
+    );
+    assert!(
+        !ledger
+            .widen_detail_walk(user, tenant, PROVIDER, &widen(1_000_000_000, None, 5))
+            .await
+            .unwrap(),
+        "bug: an ended walk is widened instead of recorded afresh"
+    );
+}
+
+/// A detail walk's step reads its own row around its write to the store, as
+/// a history walk's does: the row its lease was taken on, of its own kind.
+#[tokio::test]
+async fn a_detail_walk_reads_back_the_row_its_lease_was_taken_on() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let lease = JobLease {
+        id: claimed[0].id.clone(),
+        token: claimed[0].lease_token.clone().unwrap(),
+    };
+
+    let row = ledger
+        .leased_walk_row(user, tenant, &lease, BackfillJobKind::DetailWalk)
+        .await
+        .unwrap()
+        .expect("bug: a detail walk's step reads its own row back");
+    assert!(row.leased_here, "bug: the step's lease holds the row");
+    assert_eq!(row.state, BackfillJobState::Owed, "bug: the walk is owed");
+    assert!(
+        ledger
+            .leased_walk_row(user, tenant, &lease, BackfillJobKind::HistoryWalk)
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a read of another kind finds a detail walk's row"
+    );
+}
+
+/// The detail walk owed for the pair, claimed now, with its lease.
+async fn claimed_detail_walk(db: &Database) -> (ActivityBackfillJobRow, JobLease) {
+    let claimed = db
+        .repositories()
+        .activity_backfill_jobs
+        .claim_stale_backfill_jobs(claim_now())
+        .await
+        .unwrap();
+    let row = claimed
+        .into_iter()
+        .find(|row| row.kind == BackfillJobKind::DetailWalk)
+        .expect("the detail walk is owed and claimable");
+    let lease = JobLease {
+        id: row.id.clone(),
+        token: row.lease_token.clone().unwrap(),
+    };
+    (row, lease)
+}
+
+/// When the last step of a detail walk ends it (unix ms).
+const WALK_ENDED_AT_MS: i64 = 1_763_100_000_000;
+
+/// The last step of a detail walk that reached the floor `walked_floor`.
+fn last_step(walked_floor: Option<i64>) -> DetailWalkEnd {
+    DetailWalkEnd {
+        before_ts: walked_floor.unwrap_or(0),
+        units_done: 3,
+        rows_landed: 2,
+        secs_per_unit: Some(1_728.0),
+        walked_floor,
+        ended_at_ms: WALK_ENDED_AT_MS,
+    }
+}
+
+/// A detail walk that reached its floor ends walked, and its row keeps its
+/// window's floor and what it read, for the ask that comes after it.
+#[tokio::test]
+async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    walk.progress.units_total = Some(10);
+    walk.progress.units_done = 7;
+    walk.progress.rows_landed = 5;
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
+    let (row, lease) = claimed_detail_walk(&db).await;
+
+    let ended = ledger
+        .end_detail_walk(&lease, &last_step(row.after_ts))
+        .await
+        .unwrap()
+        .expect("bug: a walk whose floor stood still ends under its lease");
+    assert_eq!(
+        ended.created_at_ms, walk.created_at_ms,
+        "bug: the end names when its walk was asked, which keys the walk's one post"
+    );
+    let ended = ended.progress;
+    assert_eq!(
+        ended,
+        JobProgress {
+            units_total: Some(10),
+            units_done: 10,
+            rows_landed: 7,
+            secs_per_unit: Some(1_728.0),
+        },
+        "bug: the end adds its last step to the walk's progress"
+    );
+    assert_eq!(
+        ledger
+            .backfill_job_state(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
+            .await
+            .unwrap(),
+        Some(BackfillJobState::Walked),
+        "bug: a walk that reached its floor is kept as walked"
+    );
+    assert_eq!(
+        ledger
+            .job_progress(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
+            .await
+            .unwrap(),
+        Some(ended),
+        "bug: the ended row keeps what the walk read"
+    );
+    assert_eq!(
+        ledger
+            .detail_walk_row(user, tenant, PROVIDER)
+            .await
+            .unwrap(),
+        Some(DetailWalkRow {
+            state: BackfillJobState::Walked,
+            after_ts: row.after_ts,
+            before_ts: row.after_ts,
+            window_top_ts: walk.before_ts,
+            ended_at_ms: Some(WALK_ENDED_AT_MS),
+            walk_sport: None,
+            created_at_ms: walk.created_at_ms,
+            tried: None,
+            progress: ended,
+        }),
+        "bug: the ended row reads back with its window's floor and top, its cursor at the floor, \
+         when it ended, and its counts"
+    );
+    assert_eq!(
+        ledger
+            .detail_walk_row(user, TenantId::generate(), PROVIDER)
+            .await
+            .unwrap(),
+        None,
+        "bug: another tenant reads this tenant's detail walk"
+    );
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &last_step(row.after_ts))
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: an ended walk is ended twice"
+    );
+
+    // The range the ended walk tried, written on its row before a fresh
+    // walk replaces it, is carried by the fresh walk; never by another
+    // tenant's ask.
+    let tried = WalkTried {
+        floor_ts: row.after_ts,
+        top_ts: 1_710_000_000,
+        asked_ms: walk.created_at_ms,
+        ended_ms: WALK_ENDED_AT_MS,
+    };
+    assert!(
+        !ledger
+            .set_detail_walk_tried(user, TenantId::generate(), PROVIDER, Some(&tried))
+            .await
+            .unwrap(),
+        "bug: another tenant's ask wrote this tenant's walk"
+    );
+    assert!(
+        ledger
+            .set_detail_walk_tried(user, tenant, PROVIDER, Some(&tried))
+            .await
+            .unwrap(),
+        "the ended walk takes the range it tried"
+    );
+
+    // A fresh walk recorded over the ended one is owed again, over its own
+    // window, and has not ended.
+    let mut fresh = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    fresh.before_ts = Some(1_720_000_000);
+    assert!(
+        ledger.record_backfill_job(&fresh).await.unwrap(),
+        "bug: a fresh walk is not recorded over the ended one"
+    );
+    let fresh_row = ledger
+        .detail_walk_row(user, tenant, PROVIDER)
+        .await
+        .unwrap()
+        .expect("the fresh walk is recorded");
+    assert_eq!(
+        (
+            fresh_row.state,
+            fresh_row.window_top_ts,
+            fresh_row.ended_at_ms
+        ),
+        (BackfillJobState::Owed, Some(1_720_000_000), None),
+        "bug: a fresh walk over an ended one kept the old one's top or end"
+    );
+    assert_eq!(
+        fresh_row.tried,
+        Some(tried),
+        "bug: the fresh walk lost the range the ended one tried"
+    );
+    assert!(
+        !ledger
+            .set_detail_walk_tried(user, tenant, PROVIDER, None)
+            .await
+            .unwrap(),
+        "bug: an owed walk's tried range was rewritten"
+    );
+}
+
+/// A walk of one sport widened to every sport goes back to its window's
+/// top, drops the range a walk of that sport tried, and takes its lease back
+/// from the step holding it, whose progress then writes nothing over that.
+#[tokio::test]
+async fn a_walk_widened_to_every_sport_restarts_at_its_top() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    walk.walk_sport = Some("Ride".to_owned());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "the ride walk is recorded"
+    );
+    let (_, lease) = claimed_detail_walk(&db).await;
+    let step = JobProgressStep {
+        before_ts: 1_705_000_000,
+        units_done: 10,
+        rows_landed: 10,
+        secs_per_unit: None,
+        floor: None,
+    };
+    assert!(
+        ledger.record_job_progress(&lease, step).await.unwrap(),
+        "the first step moves the cursor below the window's top"
+    );
+    let (_, lease) = claimed_detail_walk(&db).await;
+
+    let same_sport = WalkWiden {
+        after_ts: 1_690_000_000,
+        walk_sport: Some("Ride".to_owned()),
+        units_left: 2,
+    };
+    assert!(
+        ledger
+            .widen_detail_walk(user, tenant, PROVIDER, &same_sport)
+            .await
+            .unwrap(),
+        "an ask of the same sport widens the owed walk"
+    );
+    let row = ledger
+        .detail_walk_row(user, tenant, PROVIDER)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (row.before_ts, row.walk_sport.as_deref()),
+        (Some(1_705_000_000), Some("Ride")),
+        "bug: a widen of the same sport moved the cursor"
+    );
+
+    let every_sport = WalkWiden {
+        walk_sport: None,
+        ..same_sport
+    };
+    assert!(
+        ledger
+            .widen_detail_walk(user, tenant, PROVIDER, &every_sport)
+            .await
+            .unwrap(),
+        "an ask of every sport widens the owed walk"
+    );
+    let row = ledger
+        .detail_walk_row(user, tenant, PROVIDER)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        (row.before_ts, row.walk_sport, row.tried),
+        (walk.before_ts, None, None),
+        "bug: a walk widened to every sport did not go back to its window's top"
+    );
+    assert!(
+        !ledger.record_job_progress(&lease, step).await.unwrap(),
+        "bug: the step running when the sport widened wrote its cursor over the restart"
+    );
+    assert_eq!(
+        ledger
+            .detail_walk_row(user, tenant, PROVIDER)
+            .await
+            .unwrap()
+            .unwrap()
+            .before_ts,
+        walk.before_ts,
+        "the restart stands"
+    );
+}
+
+/// An ask that widens the floor while the walk's last step runs is never
+/// lost with the end: the step walked to the floor it claimed, the row now
+/// holds a lower one, so the end is refused and the row stays owed at the
+/// widened floor, the step's progress written under the lease it still holds.
+#[tokio::test]
+async fn a_floor_widened_under_the_last_step_keeps_the_walk_owed() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
+    let (row, lease) = claimed_detail_walk(&db).await;
+
+    let widen = WalkWiden {
+        after_ts: 1_600_000_000,
+        walk_sport: None,
+        units_left: 4,
+    };
+    assert!(
+        ledger
+            .widen_detail_walk(user, tenant, PROVIDER, &widen)
+            .await
+            .unwrap(),
+        "the ask widens the owed walk while its step runs"
+    );
+    let end = last_step(row.after_ts);
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &end)
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a walk ends over a floor an ask lowered while its last step ran"
+    );
+    assert_eq!(
+        ledger
+            .backfill_job_state(user, tenant, PROVIDER, BackfillJobKind::DetailWalk)
+            .await
+            .unwrap(),
+        Some(BackfillJobState::Owed),
+        "bug: the widened walk stays owed"
+    );
+    assert!(
+        ledger
+            .record_job_progress(
+                &lease,
+                JobProgressStep {
+                    before_ts: end.before_ts,
+                    units_done: end.units_done,
+                    rows_landed: end.rows_landed,
+                    secs_per_unit: end.secs_per_unit,
+                    floor: None,
+                },
+            )
+            .await
+            .unwrap(),
+        "bug: the refused end leaves the row under the step's lease, for its progress"
+    );
+    let owed = owed_detail_walk(&db).await;
+    assert_eq!(
+        owed.after_ts,
+        Some(1_600_000_000),
+        "bug: the next step walks down to the widened floor"
+    );
+    assert_eq!(
+        owed.before_ts, row.after_ts,
+        "bug: the next step starts where the refused end's step stopped"
+    );
+}
+
+/// A walk with no floor ends when its step names none either, and a stale
+/// lease ends nothing.
+#[tokio::test]
+async fn a_detail_walk_with_no_floor_ends_only_under_its_lease() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = ActivityBackfillJobRow {
+        after_ts: None,
+        ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
+    };
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
+    let (_, lease) = claimed_detail_walk(&db).await;
+
+    let stale = JobLease {
+        id: lease.id.clone(),
+        token: Uuid::new_v4().to_string(),
+    };
+    assert!(
+        ledger
+            .end_detail_walk(&stale, &last_step(None))
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a lease that no longer holds the row ends it"
+    );
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &last_step(Some(1_700_000_000)))
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a step that walked to a floor ends a walk that has none"
+    );
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &last_step(None))
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a walk with no floor ends under its lease"
+    );
+}
+
+/// An owed detail walk with no floor reads down to the athlete's first
+/// activity, the widest window there is: an ask with a floor widens nothing
+/// below it, so the floor stays NULL, the total is still recounted, and the
+/// walk still ends only on a step that names no floor.
+#[tokio::test]
+async fn a_detail_walk_with_no_floor_keeps_none_when_widened() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut walk = ActivityBackfillJobRow {
+        after_ts: None,
+        walk_sport: Some("Ride".to_owned()),
+        ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
+    };
+    walk.progress.units_done = 4;
+    walk.progress.units_total = Some(10);
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: a detail walk with no floor is recorded"
+    );
+
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &WalkWiden {
+                    after_ts: 1_600_000_000,
+                    walk_sport: Some("Ride".to_owned()),
+                    units_left: 9,
+                },
+            )
+            .await
+            .unwrap(),
+        "bug: an owed walk with no floor is still matched by the widen, so the \
+         asker records no second walk"
+    );
+    let widened = owed_detail_walk(&db).await;
+    assert_eq!(
+        widened.after_ts, None,
+        "bug: a widen raised a walk with no floor to the ask's floor, narrowing \
+         the window it reads"
+    );
+    assert_eq!(
+        widened.progress.units_total,
+        Some(13),
+        "bug: the total is what is done plus what the new ask leaves unread"
+    );
+    assert_eq!(
+        widened.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the same sport stays"
+    );
+
+    let (_, lease) = claimed_detail_walk(&db).await;
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &last_step(Some(1_600_000_000)))
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a step that walked to the ask's floor ends a widened walk that has none"
+    );
+    assert!(
+        ledger
+            .end_detail_walk(&lease, &last_step(None))
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a widened walk with no floor ends on a step that names none"
     );
 }

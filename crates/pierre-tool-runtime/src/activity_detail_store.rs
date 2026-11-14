@@ -17,13 +17,14 @@
 //! fourteen days.
 
 use std::collections::HashMap;
+use std::future::Future;
 use std::slice;
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, TenantId};
-use pierre_database::repositories::ActivityDetail;
+use pierre_database::repositories::{ActivityDetail, CachedRowsQuery};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::mirror_backend_for;
@@ -112,28 +113,69 @@ pub async fn store_detail(
     detailed: &Activity,
 ) -> bool {
     let answered = answered_key(provider, detailed);
+    let copy = copy_under_grant(repos, store, tenant_id, user_id, answered, detailed);
+    store_detail_from_live_grant(repos, tenant_id, user_id, provider, detailed, copy).await
+        == DetailKept::Stored
+}
+
+/// What keeping a detail read came to
+/// ([`store_detail_from_live_grant`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DetailKept {
+    /// The detail is stored beside its row.
+    Stored,
+    /// No row stands to store it beside: the row left the cache, or the
+    /// grant's copy of it was not written.
+    NotCached,
+    /// The store failed (logged).
+    Failed,
+}
+
+/// [`store_detail`] for a caller that has just read `detailed` through a
+/// live grant itself.
+///
+/// The grant's copy of an activity only its session listed is written by
+/// `copy`, which answers how many rows it wrote, and not only while the
+/// grant shows a last sync, as [`store_detail`]'s is.
+///
+/// A detail walk reads through the athlete's live grant and writes the copy
+/// through its owed-write guard, so a purge of the grant landing between its
+/// read and its write takes the copy back (`activity_backfill::detail_walk`).
+/// `copy` runs only when the grant answered for a row it holds no copy of;
+/// what the grant answered for a row it holds is stored beside that row.
+pub(crate) async fn store_detail_from_live_grant(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    provider: &str,
+    detailed: &Activity,
+    copy: impl Future<Output = AppResult<u64>>,
+) -> DetailKept {
+    let answered = answered_key(provider, detailed);
     match keep_detail(repos, tenant_id, user_id, answered, detailed).await {
-        Ok(false) if answered != provider => {
-            let copied =
-                copy_under_grant(repos, store, tenant_id, user_id, answered, detailed).await;
-            match copied {
-                Ok(0) => false,
-                Ok(_) => keep_detail(repos, tenant_id, user_id, answered, detailed)
-                    .await
-                    .unwrap_or(false),
-                Err(e) => {
-                    warn!(
-                        activity_id = detailed.id(),
-                        provider = answered,
-                        error = %e,
-                        "writing the grant's copy of an activity it answered failed; its detail is not kept"
-                    );
-                    false
-                }
+        Ok(false) if answered != provider => match copy.await {
+            Ok(0) => DetailKept::NotCached,
+            Ok(_) => kept(keep_detail(repos, tenant_id, user_id, answered, detailed).await),
+            Err(e) => {
+                warn!(
+                    activity_id = detailed.id(),
+                    provider = answered,
+                    error = %e,
+                    "writing the grant's copy of an activity it answered failed; its detail is not kept"
+                );
+                DetailKept::Failed
             }
-        }
-        Ok(stored) => stored,
-        Err(()) => false,
+        },
+        other => kept(other),
+    }
+}
+
+/// What one store of a detail beside its row came to.
+const fn kept(stored: Result<bool, ()>) -> DetailKept {
+    match stored {
+        Ok(true) => DetailKept::Stored,
+        Ok(false) => DetailKept::NotCached,
+        Err(()) => DetailKept::Failed,
     }
 }
 
@@ -232,9 +274,7 @@ pub async fn stored_details(
         .get_cached_activity_rows(
             user_id,
             &tenant_id,
-            since,
-            Utc::now(),
-            STORED_DETAIL_LOOKUP_LIMIT,
+            &CachedRowsQuery::window(since, Utc::now(), STORED_DETAIL_LOOKUP_LIMIT),
         )
         .await
     {

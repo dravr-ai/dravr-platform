@@ -23,7 +23,7 @@
 use chrono::Duration;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{Activity, ActivityGearKey, TenantId};
-use pierre_database::repositories::CachedActivityRow;
+use pierre_database::repositories::{CachedActivityRow, CachedRowsQuery};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::deduplication::{is_canonical_copy, merge_duplicates, DedupConfig};
 use uuid::Uuid;
@@ -201,9 +201,7 @@ pub async fn release_activity_gear(
         .get_cached_activity_rows(
             user_id,
             tenant_id,
-            start - window,
-            start + window,
-            WORKOUT_ROW_LIMIT,
+            &CachedRowsQuery::window(start - window, start + window, WORKOUT_ROW_LIMIT),
         )
         .await?;
     let successor = successor_copy(&rows, &released);
@@ -235,6 +233,8 @@ mod tests {
             .build(),
             route: None,
             detail_read: false,
+            segment_read: false,
+            stored_at: None,
         }
     }
 
@@ -336,6 +336,8 @@ mod tests {
             .build(),
             route: None,
             detail_read: false,
+            segment_read: false,
+            stored_at: None,
         };
         assert!(
             workout_distance(&row.activity).abs() < f64::EPSILON,

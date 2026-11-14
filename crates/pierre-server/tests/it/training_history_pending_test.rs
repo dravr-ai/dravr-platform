@@ -144,12 +144,12 @@ async fn walk_a_third_down(fx: &Fixture) -> JobLease {
     let lease = owe_history_walk(fx.runtime.repos(), fx.user_id, fx.tenant, BACKEND).await;
     let step = JobProgressStep {
         before_ts: (Utc::now() - Duration::days(36 * 30)).timestamp(),
-        months_walked: 36,
+        units_done: 36,
         rows_landed: 140,
         secs_per_unit: Some(4.0),
         floor: Some(JobFloor {
             after_ts: WALK_FLOOR,
-            months_total: Some(120),
+            units_total: Some(120),
         }),
     };
     assert!(

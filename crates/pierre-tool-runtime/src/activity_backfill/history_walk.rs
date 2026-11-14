@@ -114,9 +114,9 @@ use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
 use super::{
-    capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms,
-    provider_tenant_id_str, spawn_activity_backfill, warm_training_history, ActivityBackfillJob,
-    BackfillFetch, MAX_BACKFILL_ATTEMPTS,
+    capture_with_head, keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, owed_write,
+    pause::retry_at_ms, provider_tenant_id_str, spawn_activity_backfill, warm_training_history,
+    ActivityBackfillJob, BackfillFetch, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::implementations::data_helpers::historical_backfill_fetch_limit;
@@ -124,8 +124,6 @@ use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::{HistoryWalkCompletion, ToolRuntime, WalkTrigger};
 
-/// A step's write to the store, against a purge of what it reads
-mod owed_write;
 /// What a walk copies on top of the activities: the wellness before a push grant
 mod wellness;
 
@@ -208,6 +206,7 @@ pub async fn start_history_walk(
         kind: BackfillJobKind::HistoryWalk,
         turn_id: None,
         asked_message_id: None,
+        walk_sport: None,
     })
     .await;
     info!(
@@ -387,7 +386,7 @@ async fn hand_off_below(
     Ok(Some(WalkHandOff {
         backend: grant.backend,
         before_ts,
-        months_done: before_ts.map_or(0, |before| months_between(Utc::now().timestamp(), before)),
+        units_done: before_ts.map_or(0, |before| months_between(Utc::now().timestamp(), before)),
         rows_landed,
         fetch_limit: i64::try_from(API_WALK_PAGE).unwrap_or(i64::MAX),
     }))
@@ -423,8 +422,9 @@ enum Step {
     /// The walk reached the end of the history with this last step.
     Ended(JobProgressStep),
     /// A request budget refused the step: the walk resumes later, from the
-    /// same cursor.
-    Paused,
+    /// same cursor, once the refusing window ends (unix ms), or a lease from
+    /// now when the refusal named no end ([`retry_at_ms`]).
+    Paused(i64),
     /// The source's credential is dead.
     AuthRequired,
     /// A transient failure: nothing of the step is recorded.
@@ -557,9 +557,11 @@ async fn settle_step(
                 ),
             }
         }
-        Step::Paused => log_write(
+        Step::Paused(until_ms) => log_write(
             "a request budget refused the step; it resumes in a later window",
-            ledger.release_backfill_job_claim(lease).await,
+            ledger
+                .release_backfill_job_claim(lease, Some(until_ms))
+                .await,
             job,
         ),
         Step::AuthRequired => {
@@ -755,6 +757,7 @@ fn phase_reading(
         kind: BackfillJobKind::HistoryWalk,
         turn_id: None,
         asked_message_id: None,
+        walk_sport: None,
     }
 }
 
@@ -854,7 +857,7 @@ impl Cursor {
 const fn no_step(before_ts: i64) -> JobProgressStep {
     JobProgressStep {
         before_ts,
-        months_walked: 0,
+        units_done: 0,
         rows_landed: 0,
         secs_per_unit: None,
         floor: None,
@@ -901,7 +904,7 @@ async fn session_step(
     };
     if activities.is_empty() {
         let mut step = no_step(bottom);
-        step.months_walked = months_between(cursor.top, bottom);
+        step.units_done = months_between(cursor.top, bottom);
         return Step::Ended(step);
     }
     let span = StepSpan {
@@ -928,7 +931,7 @@ async fn api_step(
     let learned = if cursor.learn_floor {
         match account_floor(job, provider).await {
             Ok(learned) => learned,
-            Err(()) => return Step::Paused,
+            Err(until_ms) => return Step::Paused(until_ms),
         }
     } else {
         None
@@ -953,7 +956,9 @@ async fn api_step(
         let activities =
             match ai_scope::unfiltered(provider.get_activities_with_params(&read)).await {
                 Ok(activities) => activities,
-                Err(e) if e.code == ErrorCode::ExternalRateLimited => return Step::Paused,
+                Err(e) if e.code == ErrorCode::ExternalRateLimited => {
+                    return Step::Paused(retry_at_ms(&e));
+                }
                 Err(e) => return failed_read(job, &e),
             };
         if !activities.is_empty() {
@@ -975,7 +980,7 @@ async fn api_step(
         cursor.first = false;
         if bottom <= cursor.floor || empty_windows >= EMPTY_WINDOWS_ENDING_A_WALK {
             let mut step = no_step(bottom);
-            step.months_walked = months_between(walk_top, bottom);
+            step.units_done = months_between(walk_top, bottom);
             step.floor = learned;
             return Step::Ended(step);
         }
@@ -1001,11 +1006,12 @@ fn with_floor(step: Step, learned: Option<JobFloor>) -> Step {
 /// the months from now down to it; [`WHOLE_ACCOUNT_AFTER`] with no length
 /// when it names none, so the walk ends on its empty years and the profile
 /// is not read again. `Ok(None)` when the profile cannot be read for any
-/// reason but a spent budget, which is `Err`.
+/// reason but a spent budget, which is `Err` with the instant the refusing
+/// window ends ([`retry_at_ms`]).
 async fn account_floor(
     job: &ActivityBackfillJob,
     provider: &dyn CoreFitnessProvider,
-) -> Result<Option<JobFloor>, ()> {
+) -> Result<Option<JobFloor>, i64> {
     match ai_scope::unfiltered(provider.get_athlete()).await {
         Ok(athlete) => {
             let created = athlete
@@ -1013,11 +1019,11 @@ async fn account_floor(
                 .map(|created| created.timestamp().max(WHOLE_ACCOUNT_AFTER));
             Ok(Some(JobFloor {
                 after_ts: created.unwrap_or(WHOLE_ACCOUNT_AFTER),
-                months_total: created
+                units_total: created
                     .map(|after_ts| months_between(Utc::now().timestamp(), after_ts)),
             }))
         }
-        Err(e) if e.code == ErrorCode::ExternalRateLimited => Err(()),
+        Err(e) if e.code == ErrorCode::ExternalRateLimited => Err(retry_at_ms(&e)),
         Err(e) => {
             warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the athlete's profile could not be read; walking to the empty years");
             Ok(None)
@@ -1099,7 +1105,7 @@ async fn land(
     let months = months_between(span.top, next);
     let step = JobProgressStep {
         before_ts: next,
-        months_walked: months,
+        units_done: months,
         rows_landed: i64::try_from(landed).unwrap_or(i64::MAX),
         secs_per_unit: secs_per_month(span.started, months),
         floor: None,

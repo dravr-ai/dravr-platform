@@ -217,6 +217,7 @@ async fn a_finished_backfills_warm_starts_no_capture_on_another_provider() {
         kind: BackfillJobKind::Backfill,
         turn_id: None,
         asked_message_id: None,
+        walk_sport: None,
     })
     .await;
     assert!(started, "a fresh pair starts a backfill");

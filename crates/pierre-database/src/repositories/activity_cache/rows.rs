@@ -86,6 +86,25 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
+    activity_with_detail(row).map(|(activity, _)| activity)
+}
+
+/// The stored detail key whose presence marks a row's segments as read: an
+/// [`ActivityDetail`](super::ActivityDetail) writes it only for a read that
+/// stamped efforts, an empty list included.
+const SEGMENT_EFFORTS_KEY: &str = "segment_efforts";
+
+/// [`activity_from_row`], and whether the row's stored detail read its
+/// segments ([`CachedActivityRow::segment_read`]). Only `detail_json` says
+/// so: `data_json` can carry efforts of its own (a grant copy of a detailed
+/// list read), which is no detail read of the row.
+fn activity_with_detail<R>(row: &R) -> AppResult<(Activity, bool)>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
     let data_json: String = row
         .try_get("data_json")
         .map_err(|e| AppError::database(format!("activity col data_json: {e}")))?;
@@ -93,14 +112,18 @@ where
         .try_get("detail_json")
         .map_err(|e| AppError::database(format!("activity col detail_json: {e}")))?;
     let Some(detail_json) = detail_json else {
-        return serde_json::from_str::<Activity>(&data_json).map_err(|e| {
+        let activity = serde_json::from_str::<Activity>(&data_json).map_err(|e| {
             AppError::database(format!("Failed to deserialize cached activity: {e}"))
-        });
+        })?;
+        return Ok((activity, false));
     };
     let mut activity = json_object(&data_json, "data_json")?;
-    fill_missing(&mut activity, json_object(&detail_json, "detail_json")?);
-    serde_json::from_value::<Activity>(Value::Object(activity))
-        .map_err(|e| AppError::database(format!("Failed to deserialize cached activity: {e}")))
+    let detail = json_object(&detail_json, "detail_json")?;
+    let segment_read = detail.contains_key(SEGMENT_EFFORTS_KEY);
+    fill_missing(&mut activity, detail);
+    let activity = serde_json::from_value::<Activity>(Value::Object(activity))
+        .map_err(|e| AppError::database(format!("Failed to deserialize cached activity: {e}")))?;
+    Ok((activity, segment_read))
 }
 
 /// Read a [`StoredActivityRow`] out of one row of
@@ -165,6 +188,7 @@ where
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     bool: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     let provider: String = row
         .try_get("provider")
@@ -172,11 +196,14 @@ where
     let detail_read: bool = row
         .try_get("detail_settled")
         .map_err(|e| AppError::database(format!("activity col detail_settled: {e}")))?;
+    let (activity, segment_read) = activity_with_detail(row)?;
     Ok(CachedActivityRow {
         provider,
-        activity: activity_from_row(row)?,
+        activity,
         route: joined_route_outcome(row)?,
         detail_read,
+        segment_read,
+        stored_at: Some(timestamp_column(row, "stored_at")?),
     })
 }
 

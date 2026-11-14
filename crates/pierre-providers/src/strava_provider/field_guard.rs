@@ -1,5 +1,5 @@
 // ABOUTME: Pins that the Strava API mapper fills every field the Strava descriptor declares
-// ABOUTME: A list row from the summary shape, a detail read with all nine stream channels
+// ABOUTME: A list row from the summary shape, a detail read with its efforts and all nine stream channels
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -54,7 +54,15 @@ mod tests {
             "gear": { "id": "b123", "name": "Gravel" },
             "perceived_exertion": 6.0,
             "splits_metric": [{ "distance": 1_000.0, "elapsed_time": 120, "moving_time": 118, "split": 1 }],
-            "laps": [{ "id": 1, "elapsed_time": 7_400, "moving_time": 7_020, "distance": 61_200.0 }]
+            "laps": [{ "id": 1, "elapsed_time": 7_400, "moving_time": 7_020, "distance": 61_200.0 }],
+            "segment_efforts": [{
+                "id": 9_001,
+                "name": "Camillien-Houde",
+                "elapsed_time": 412,
+                "start_date": "2026-11-07T13:10:00Z",
+                "distance": 1_820.5,
+                "segment": { "id": 611_413, "name": "Camillien-Houde" }
+            }]
         })
         .as_object()
         .unwrap()

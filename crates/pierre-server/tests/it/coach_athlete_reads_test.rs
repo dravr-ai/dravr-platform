@@ -209,7 +209,12 @@ async fn open_thread(
 pub(crate) async fn fixture() -> Fixture {
     common::init_server_config();
     common::init_test_http_clients();
-    let res = common::create_test_server_resources().await.unwrap();
+    fixture_on(common::create_test_server_resources().await.unwrap()).await
+}
+
+/// The coach, the athlete, their group and the coach's thread about the
+/// athlete, on `res`: a server a test configured for itself.
+pub(crate) async fn fixture_on(res: Arc<ServerContext>) -> Fixture {
     let coach = person(&res, "coach", "Cole Coach").await;
     let athlete = person(&res, "athlete", ATHLETE_NAME).await;
     let repos = &res.common.repos;
@@ -838,7 +843,7 @@ fn day(date: NaiveDate) -> String {
 /// The training reads, which take `athlete` over MCP and A2A: the first
 /// eight, and the rest of the class (carnet#1387 Phase 2). `export_routes`
 /// builds its schema from the same function as `extract_activity_streams`.
-pub(crate) const TRAINING_READS: [&str; 26] = [
+pub(crate) const TRAINING_READS: [&str; 27] = [
     "get_training_history",
     "analyze_training_load",
     "calculate_fitness_score",
@@ -852,6 +857,7 @@ pub(crate) const TRAINING_READS: [&str; 26] = [
     "compare_activities",
     "analyze_weather_impact",
     "export_latest_snapshot",
+    "get_segment_history",
     "analyze_performance_trends",
     "detect_patterns",
     "predict_performance",

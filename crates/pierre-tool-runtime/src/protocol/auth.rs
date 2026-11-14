@@ -649,6 +649,37 @@ impl AuthService {
         }
     }
 
+    /// The request budget the athlete's stored token for `provider_name`
+    /// is admitted against, read without refreshing it: what sizes the calls
+    /// a walk through that token may make, asked on a tool's read path,
+    /// where no refresh over the network belongs. `None` when no token is
+    /// stored, the store cannot be read (logged), or nothing counts its
+    /// calls.
+    #[cfg(feature = "tools-data")]
+    pub(crate) async fn stored_request_budget(
+        &self,
+        provider_name: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+    ) -> Option<RequestBudget> {
+        let token = match self
+            .resources
+            .repos()
+            .oauth_tokens
+            .get_token(user_id, tenant_id, provider_name)
+            .await
+        {
+            Ok(token) => token?,
+            Err(e) => {
+                warn!(%user_id, provider = provider_name, error = %e, "the stored token could not be read to size its budget");
+                return None;
+            }
+        };
+        let token_data = Self::token_data(provider_name, token);
+        self.request_budget_for(provider_name, &token_data, user_id, &tenant_id.to_string())
+            .await
+    }
+
     /// Create provider with token and tenant-aware credentials
     async fn create_provider_with_token(
         &self,

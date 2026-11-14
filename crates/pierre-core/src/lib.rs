@@ -91,6 +91,9 @@ pub mod json_value;
 /// Neutralizing untrusted text before it is interpolated into a structured destination
 pub mod untrusted;
 
+/// Folding text for matching: accents, case and spacing set aside
+pub mod text_fold;
+
 /// Authorization header parsing helpers (bearer token extraction, API key detection)
 pub mod auth_header;
 

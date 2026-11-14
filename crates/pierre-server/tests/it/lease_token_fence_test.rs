@@ -136,6 +136,7 @@ async fn a_lapsed_backfill_claim_cannot_renew_or_finish_the_row_another_claim_to
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(ledger.record_backfill_job(&row).await.unwrap());
     let claim_at = |now_ms| BackfillJobClaim {

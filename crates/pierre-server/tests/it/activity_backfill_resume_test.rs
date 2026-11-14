@@ -29,7 +29,8 @@ use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, JobLease, JobProgress,
+    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
+    JobProgress,
 };
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
@@ -190,6 +191,7 @@ fn job(fx: &Fixture, provider: &str, conversation_id: Option<&str>) -> ActivityB
         kind: BackfillJobKind::Backfill,
         turn_id: None,
         asked_message_id: None,
+        walk_sport: None,
     }
 }
 
@@ -223,6 +225,7 @@ fn seeded_row(
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     }
 }
 
@@ -554,11 +557,17 @@ async fn a_released_claim_returns_its_attempt() {
         token: claimed[0].lease_token.clone().unwrap(),
     };
     assert!(
-        ledger.release_backfill_job_claim(&lease).await.unwrap(),
+        ledger
+            .release_backfill_job_claim(&lease, None)
+            .await
+            .unwrap(),
         "bug: the lease holder hands its claim back"
     );
     assert!(
-        !ledger.release_backfill_job_claim(&lease).await.unwrap(),
+        !ledger
+            .release_backfill_job_claim(&lease, None)
+            .await
+            .unwrap(),
         "a released claim holds the row no more"
     );
     let again: Vec<ActivityBackfillJobRow> = ledger
@@ -572,5 +581,64 @@ async fn a_released_claim_returns_its_attempt() {
     assert_eq!(
         again[0].attempts, 2,
         "bug: the release returned the attempt"
+    );
+}
+
+/// A detail walk the sweep claims runs its step, not a hand-back: one whose
+/// window holds nothing left to read ends walked on that step, and the next
+/// sweep takes nothing.
+#[tokio::test]
+async fn a_resumed_detail_walk_with_nothing_to_read_ends_walked() {
+    let fx = fixture().await;
+    let walk = ActivityBackfillJobRow {
+        kind: BackfillJobKind::DetailWalk,
+        ..seeded_row(
+            &fx,
+            TOKENLESS_PROVIDER,
+            Duration::from_mins(10),
+            Duration::ZERO,
+            1,
+        )
+    };
+    assert!(
+        fx.runtime
+            .repos()
+            .activity_backfill_jobs
+            .record_backfill_job(&walk)
+            .await
+            .unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
+
+    let resumed = resume_backfill_jobs(Arc::clone(&fx.runtime)).await.unwrap();
+    assert_eq!(
+        resumed, 1,
+        "the lapsed detail walk is claimed and dispatched"
+    );
+    let ledger = &fx.runtime.repos().activity_backfill_jobs;
+    let deadline = Instant::now() + RUN_BUDGET;
+    loop {
+        let state = ledger
+            .backfill_job_state(
+                fx.user_id,
+                fx.tenant,
+                TOKENLESS_PROVIDER,
+                BackfillJobKind::DetailWalk,
+            )
+            .await
+            .unwrap();
+        if state == Some(BackfillJobState::Walked) {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "bug: the claimed detail walk did not run its step within {RUN_BUDGET:?} (row: {state:?})"
+        );
+        sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        resume_backfill_jobs(Arc::clone(&fx.runtime)).await.unwrap(),
+        0,
+        "bug: a detail walk that ended is claimed again by the next sweep"
     );
 }

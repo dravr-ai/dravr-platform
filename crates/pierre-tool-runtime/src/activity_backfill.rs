@@ -68,12 +68,18 @@ use crate::training_history_compute::{
 };
 use pierre_providers::ai_scope;
 
+/// A detail walk: the segment efforts of a window's stored activities read in
+pub mod detail_walk;
 /// A history walk: the athlete's whole history paged into the store
 pub mod history_walk;
 /// Which run holds a job's in-flight key in this process
 mod in_flight;
 /// A chat turn's live list read as a durable job
 pub(crate) mod live_read;
+/// A walk step's write to the store, against a purge of what it reads
+mod owed_write;
+/// When a walk a rate limit paused may try again
+mod pause;
 /// What a job does when it finds its provider session dead
 mod reauth;
 
@@ -200,6 +206,9 @@ pub struct ActivityBackfillJob {
     /// follow-up answers it only while it is the conversation's newest.
     /// `None` for every other kind, and for a read no stored message asked.
     pub asked_message_id: Option<String>,
+    /// The sport type a [`BackfillJobKind::DetailWalk`] reads, kept on its
+    /// row; `None` for every sport, and for every other kind.
+    pub walk_sport: Option<String>,
 }
 
 impl fmt::Debug for ActivityBackfillJob {
@@ -214,6 +223,7 @@ impl fmt::Debug for ActivityBackfillJob {
             .field("kind", &self.kind)
             .field("turn_id", &self.turn_id)
             .field("asked_message_id", &self.asked_message_id)
+            .field("walk_sport", &self.walk_sport)
             .finish_non_exhaustive()
     }
 }
@@ -243,7 +253,10 @@ pub async fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
         );
         return false;
     }
-    matches!(enqueue(job, None).await, Enqueued::Started)
+    matches!(
+        enqueue(job, None, JobProgress::default()).await,
+        Enqueued::Started
+    )
 }
 
 /// What asking for a job came to.
@@ -262,6 +275,10 @@ enum Enqueued {
     /// it, so its follow-up answers this ask. The ask comes back with its
     /// handoff.
     Owed(ActivityBackfillJob, Option<live_read::LiveReadHandoff>),
+    /// The ledger could not record a job of a kind that never runs without
+    /// its row ([`BackfillJobKind::DetailWalk`]): nothing was spawned, and the
+    /// in-flight key was given back, so the next ask tries again.
+    Unrecorded,
 }
 
 /// Take the in-flight key, record the row, and spawn the run: the one path
@@ -273,9 +290,13 @@ enum Enqueued {
 /// ([`live_read::take_over_idle`]), and one that landed here over a window
 /// narrower than this ask's is succeeded by it
 /// ([`live_read::succeeds`]): neither holds a provider read to wait on.
+///
+/// The row starts at `progress`: nothing done, and the units to do when the
+/// ask counted them (a detail walk's activities to read).
 async fn enqueue(
     job: ActivityBackfillJob,
     handoff: Option<live_read::LiveReadHandoff>,
+    progress: JobProgress,
 ) -> Enqueued {
     let key = in_flight_key(job.tenant_id, job.user_id, &job.provider_name, job.kind);
     let claim = match claim(&key, |run| live_read::succeeds(&job, run)) {
@@ -291,7 +312,10 @@ async fn enqueue(
         }
     };
 
-    let row = job_row(&job);
+    let row = ActivityBackfillJobRow {
+        progress,
+        ..job_row(&job)
+    };
     let recorded = match record_backfill_job(&job, &row).await {
         Recorded::Inserted(row_id) => Some((row_id, 1)),
         Recorded::AlreadyOwed => {
@@ -306,6 +330,13 @@ async fn enqueue(
                 );
                 return Enqueued::Owed(job, handoff);
             }
+        }
+        // A detail walk's step writes nothing without a row to guard its
+        // writes by: a run spawned without one would read nothing, and the
+        // ask would report a walk that is not there.
+        Recorded::Unrecorded if job.kind == BackfillJobKind::DetailWalk => {
+            release_in_flight(&claim);
+            return Enqueued::Unrecorded;
         }
         Recorded::Unrecorded => None,
     };
@@ -388,17 +419,19 @@ pub(crate) fn answer_reaped_live_read(job: ActivityBackfillJob) -> bool {
 
 /// The task every job runs in: holds the in-flight key for the life of the
 /// run and, when the job is on file, its row. What runs is the job's kind:
-/// a live read ([`live_read`]), a history walk ([`history_walk`]), or a
-/// backfill. A job neither a conversation nor a turn waits on runs [`in_background`],
-/// leaving the head reads athletes wait on the rest of each window
-/// (carnet#1478).
+/// a live read ([`live_read`]), a history walk ([`history_walk`]), a detail
+/// walk ([`detail_walk`]), or a backfill. A job neither a conversation nor a
+/// turn waits on runs [`in_background`], leaving the head reads athletes
+/// wait on the rest of each window (carnet#1478); so does every detail walk,
+/// whatever asked it: nobody waits on it.
 fn spawn_backfill_run(
     job: ActivityBackfillJob,
     claim: InFlightClaim,
     recorded: Option<(JobLease, i64)>,
     handoff: Option<live_read::LiveReadHandoff>,
 ) {
-    let awaited = job.pierre_conversation_id.is_some() || handoff.is_some();
+    let awaited = job.kind != BackfillJobKind::DetailWalk
+        && (job.pierre_conversation_id.is_some() || handoff.is_some());
     let (user_id, provider, kind) = (job.user_id, job.provider_name.clone(), job.kind);
     let run = async move {
         let after = match job.kind {
@@ -409,6 +442,10 @@ fn spawn_backfill_run(
             BackfillJobKind::HistoryWalk => history_walk::run_history_walk(&job, recorded).await,
             BackfillJobKind::Backfill => {
                 run_backfill(&job, recorded).await;
+                history_walk::AfterStep::Settled
+            }
+            BackfillJobKind::DetailWalk => {
+                detail_walk::run_detail_walk(&job, recorded).await;
                 history_walk::AfterStep::Settled
             }
         };
@@ -525,6 +562,7 @@ fn job_row(job: &ActivityBackfillJob) -> ActivityBackfillJobRow {
         turn_id: job.turn_id.clone(),
         asked_message_id: job.asked_message_id.clone(),
         walk_backend: None,
+        walk_sport: job.walk_sport.clone(),
     }
 }
 

@@ -40,7 +40,7 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobKind, JobLease, JobLeaseState, LiveReadAsk,
+    ActivityBackfillJobRow, BackfillJobKind, JobLease, JobLeaseState, JobProgress, LiveReadAsk,
 };
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
@@ -130,8 +130,11 @@ pub(crate) async fn start_live_read(
         authenticated,
         reply,
     };
-    let (job, handoff, here) = match enqueue(job, Some(handoff)).await {
-        Enqueued::Started => return LiveReadStart::Started(answer),
+    let (job, handoff, here) = match enqueue(job, Some(handoff), JobProgress::default()).await {
+        // A live read runs unrecorded, so `Unrecorded` never comes back for
+        // one; were it to, the handoff's sender is gone and the turn's
+        // receiver closes, as for a read that never started.
+        Enqueued::Started | Enqueued::Unrecorded => return LiveReadStart::Started(answer),
         Enqueued::InFlightHere(job, handoff, run) => (job, handoff, Some(run)),
         Enqueued::Owed(job, handoff) => (job, handoff, None),
     };

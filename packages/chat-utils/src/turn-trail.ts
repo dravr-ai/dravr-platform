@@ -115,6 +115,7 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   compare_activities: 'readActivities',
   extract_activity_streams: 'readActivities',
   get_heart_rate_series: 'readActivities',
+  get_segment_history: 'readActivities',
   calculate_metrics: 'readActivities',
   export_intervals: 'readActivities',
   export_routes: 'readActivities',

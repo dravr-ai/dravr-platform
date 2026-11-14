@@ -39,7 +39,8 @@ use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry, ToolRuntime,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
+    ToolRuntime,
 };
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout, Instant};
@@ -234,6 +235,8 @@ impl BackfillNotifier for HeldNotifier {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
@@ -434,6 +437,8 @@ impl BackfillNotifier for WideningNotifier {
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
 
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
+
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
     async fn push_reauth_to_linked_channels(
@@ -577,6 +582,7 @@ async fn other_tenants_read(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid) {
         turn_id: Some("turn-other".to_owned()),
         asked_message_id: Some("msg-other".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         runtime
@@ -692,6 +698,8 @@ impl BackfillNotifier for HeldOnceNotifier {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
@@ -923,6 +931,8 @@ impl BackfillNotifier for UnavailableReAsk {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
@@ -1176,6 +1186,7 @@ async fn a_reaped_read_still_follows_up_its_ask_once() {
         turn_id: conversation.map(|_| "turn-9".to_owned()),
         asked_message_id: conversation.map(|_| "msg-9".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     };
     let ledger = &runtime.repos().activity_backfill_jobs;
     assert!(

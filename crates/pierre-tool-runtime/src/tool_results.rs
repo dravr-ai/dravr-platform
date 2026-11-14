@@ -140,8 +140,8 @@ const ACTIVITY_ADDRESSING_FIELDS: [&str; 4] = ["id", "name", "sport_type", "star
 /// comments under the activity (a TrainingPeaks athlete or coach comment, a
 /// COROS note, each fenced the same way), the gear and device, the moving time
 /// beside the elapsed one, the workout tag, and the segment efforts of a
-/// detailed row. The athlete-visible prose list never holds free text, so
-/// these reach the model only here.
+/// detailed row, capped by [`cap_segment_efforts`]. The athlete-visible prose
+/// list never holds free text, so these reach the model only here.
 const ACTIVITY_CONTEXT_FIELDS: [&str; 11] = [
     "description",
     "description_excerpt",
@@ -155,6 +155,19 @@ const ACTIVITY_CONTEXT_FIELDS: [&str; 11] = [
     "commute",
     "segment_efforts",
 ];
+
+/// Most segment efforts one activity carries in the chat projection.
+///
+/// A long ride crosses dozens of segments, each effort a dozen fields, and the
+/// projection is re-paid on every later turn. The stored detail keeps every
+/// effort; `get_segment_history` answers for one segment across rides.
+const MAX_PROJECTED_EFFORTS: usize = 10;
+
+/// The key holding an activity's segment efforts.
+const SEGMENT_EFFORTS_KEY: &str = "segment_efforts";
+
+/// The key a trimmed activity row says how many efforts it had under.
+const SEGMENT_EFFORTS_TOTAL_KEY: &str = "segment_efforts_total";
 
 /// Most athlete notes the prefetch appends.
 const MAX_ATHLETE_NOTES: usize = 15;
@@ -286,6 +299,7 @@ pub fn project_activities_payload(tool_name: &str, response: &Value) -> Option<V
                                 kept.insert((*field).to_owned(), value.clone());
                             }
                         }
+                        cap_segment_efforts(&mut kept);
                         Value::Object(kept)
                     },
                 )
@@ -295,6 +309,36 @@ pub fn project_activities_payload(tool_name: &str, response: &Value) -> Option<V
     }
 
     Some(Value::Object(projected))
+}
+
+/// Keep at most [`MAX_PROJECTED_EFFORTS`] of a projected row's efforts: the
+/// ones the athlete ranked on (a personal record or a leaderboard place)
+/// first, then the rest in the order ridden. A row that loses any says how
+/// many it had (`segment_efforts_total`), so the count is never read off the
+/// trimmed list.
+fn cap_segment_efforts(row: &mut Map<String, Value>) {
+    let Some(Value::Array(efforts)) = row.get_mut(SEGMENT_EFFORTS_KEY) else {
+        return;
+    };
+    let total = efforts.len();
+    if total <= MAX_PROJECTED_EFFORTS {
+        return;
+    }
+    let ranked = |effort: &Value| {
+        ["pr_rank", "kom_rank"]
+            .iter()
+            .any(|key| effort.get(*key).is_some_and(|rank| !rank.is_null()))
+    };
+    let started = |effort: &Value| {
+        effort
+            .get("start_date")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    efforts.sort_by_cached_key(|effort| (!ranked(effort), started(effort)));
+    efforts.truncate(MAX_PROJECTED_EFFORTS);
+    row.insert(SEGMENT_EFFORTS_TOTAL_KEY.to_owned(), Value::from(total));
 }
 
 /// Format function responses as `<tool_result>` text blocks.
@@ -411,7 +455,7 @@ mod tests {
 
     use pierre_llm::FunctionResponse;
 
-    use super::{athlete_notes, incomplete_window_in_responses};
+    use super::{athlete_notes, incomplete_window_in_responses, project_activities_payload};
 
     fn response(name: &str, complete: Option<bool>) -> FunctionResponse {
         let mut payload = json!({ "activity_list": "1. …" });
@@ -509,6 +553,74 @@ mod tests {
         assert!(
             athlete_notes(&json!({ "activity_list": "" })).is_empty(),
             "bug: no rows, no notes"
+        );
+    }
+
+    /// One effort as the detail serializer writes it; `rank` sets `pr_rank`.
+    fn effort(id: usize, minute: usize, rank: Option<u32>) -> serde_json::Value {
+        let mut effort = json!({
+            "id": id.to_string(),
+            "name": format!("Segment {id}"),
+            "elapsed_time": 300,
+            "start_date": format!("2026-11-07T13:{minute:02}:00Z"),
+            "distance": 1_000.0
+        });
+        if let Some(rank) = rank {
+            effort["pr_rank"] = json!(rank);
+        }
+        effort
+    }
+
+    fn projected_efforts(efforts: &[serde_json::Value]) -> serde_json::Value {
+        let payload = json!({
+            "activity_list": "1. [ride] Tour du Mont-Royal - 2026-11-07",
+            "activities": [{ "id": "16101", "name": "Tour", "segment_efforts": efforts }]
+        });
+        project_activities_payload("get_activities", &payload).unwrap()["activities"][0].clone()
+    }
+
+    /// A long ride crosses dozens of segments; the chat projection keeps the
+    /// ten that matter, ranked efforts first and then in the order ridden,
+    /// and says how many there were. The stored detail keeps them all.
+    #[test]
+    fn the_projection_keeps_ten_efforts_ranked_ones_first() {
+        let mut efforts: Vec<serde_json::Value> =
+            (0..14).map(|i| effort(i, 59 - i, None)).collect();
+        efforts[12] = effort(12, 1, Some(1));
+        efforts[13] = effort(13, 0, Some(3));
+        let row = projected_efforts(&efforts);
+        let kept: Vec<&str> = row["segment_efforts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            kept,
+            vec!["13", "12", "11", "10", "9", "8", "7", "6", "5", "4"],
+            "bug: ranked efforts first, then the rest in the order ridden, ten in all"
+        );
+        assert_eq!(
+            row["segment_efforts_total"], 14,
+            "bug: a trimmed list says how many efforts the ride has"
+        );
+    }
+
+    #[test]
+    fn a_short_effort_list_travels_whole_and_uncounted() {
+        let efforts: Vec<serde_json::Value> = (0..3).map(|i| effort(i, i, None)).collect();
+        let row = projected_efforts(&efforts);
+        assert_eq!(
+            row["segment_efforts"]
+                .as_array()
+                .expect("bug: the projection carries the efforts as a list")
+                .len(),
+            3,
+            "bug: a list of ten or fewer travels whole"
+        );
+        assert!(
+            row.get("segment_efforts_total").is_none(),
+            "bug: an untrimmed list carries no total"
         );
     }
 }

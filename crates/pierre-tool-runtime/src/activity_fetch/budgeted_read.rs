@@ -413,6 +413,7 @@ fn live_read_job(runtime: &Arc<dyn ToolRuntime>, read: OwnedLiveRead) -> Activit
         kind: BackfillJobKind::LiveRead,
         turn_id,
         asked_message_id,
+        walk_sport: None,
     }
 }
 

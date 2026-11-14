@@ -16,6 +16,7 @@
 //! - `GetHealthSnapshotsTool` - Query stored health snapshots (body composition, vitals)
 //! - `ListDataSourcesTool` - List connected data sources (devices and providers)
 //! - `GetHeartRateSeriesTool` - Query stored intraday heart rate and HRV series
+//! - `GetSegmentHistoryTool` - Every effort the athlete made on one segment
 //!
 //! Stored-data tools (sleep sessions, recovery metrics, health snapshots, data
 //! sources) execute their query bodies inline. Provider-API tools (activities,
@@ -72,6 +73,7 @@ use crate::implementations::fitness_support::{
 };
 use crate::implementations::handler_bridge;
 use crate::implementations::planned_workouts::GetPlannedWorkoutsTool;
+use crate::implementations::segments::GetSegmentHistoryTool;
 use crate::implementations::stored_data::{
     GetHealthSnapshotsTool, GetRecoveryMetricsTool, GetSleepSessionsTool, ListDataSourcesTool,
 };
@@ -636,6 +638,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         kind: BackfillJobKind::Backfill,
                         turn_id: None,
                         asked_message_id: None,
+                    walk_sport: None,
                     };
                     match backfill_inline_and_serve(job, &coverage_params, before).await {
                         InlineHistoricalServe::AuthRequired => {
@@ -674,6 +677,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         kind: BackfillJobKind::Backfill,
                         turn_id: None,
                         asked_message_id: None,
+                    walk_sport: None,
                     })
                     .await;
                     // `started == false` means a backfill for this window is
@@ -1131,6 +1135,7 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(GetHealthSnapshotsTool),
         Box::new(ListDataSourcesTool),
         Box::new(GetHeartRateSeriesTool),
+        Box::new(GetSegmentHistoryTool),
     ]
 }
 

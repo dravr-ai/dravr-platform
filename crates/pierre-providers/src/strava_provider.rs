@@ -10,7 +10,7 @@
 use super::circuit_breaker::CircuitBreaker;
 use super::core::{
     keep_timed, no_recorded_samples, ActivityQueryParams, FitnessProvider, OAuth2Credentials,
-    ProviderConfig, TokenRefreshCallback,
+    ProviderConfig, SegmentEffortHit, SegmentEffortWindow, TokenRefreshCallback,
 };
 use super::errors::provider::ProviderError;
 use crate::activity_paging::pages_for;
@@ -147,24 +147,41 @@ impl StravaProvider {
             first_error.resource, first_error.field, first_error.error_code
         );
 
-        let resource_id = url.split('/').next_back().unwrap_or("unknown").to_owned();
-
         Some(ProviderError::NotFound {
             provider: oauth_providers::STRAVA.to_owned(),
             resource_type: first_error.resource,
-            resource_id,
+            resource_id: Self::requested_resource_id(url),
         })
     }
 
-    /// Strava names the missing resource in a 404 body, which says more than
-    /// the status code does; everything else — including the 401 → re-auth
-    /// mapping — is the shared behaviour in [`utils::api_error`].
+    /// The last path segment of `url`, without the query a detail read
+    /// carries: the id of the resource it asked for.
+    fn requested_resource_id(url: &str) -> String {
+        let path = url.split('?').next().unwrap_or(url);
+        path.split('/').next_back().unwrap_or("unknown").to_owned()
+    }
+
+    /// A `404` is Strava's answer that the resource asked for is missing —
+    /// deleted, private, or never there — never a request that failed:
+    /// [`ErrorCode::ResourceNotFound`], which the circuit breaker counts as
+    /// an answer and a detail walk walks past, where a failed request is
+    /// read again. The body names the resource when Strava sends one.
+    /// Everything else — including the 401 → re-auth mapping — is the shared
+    /// behaviour in [`utils::api_error`].
     fn missing_resource(status: reqwest::StatusCode, text: &str, url: &str) -> Option<AppError> {
-        if status.as_u16() != 404 {
+        if status != reqwest::StatusCode::NOT_FOUND {
             return None;
         }
-        Self::parse_not_found_error(text, url)
-            .map(|err| AppError::external_service(oauth_providers::STRAVA, err.to_string()))
+        let missing =
+            Self::parse_not_found_error(text, url).unwrap_or_else(|| ProviderError::NotFound {
+                provider: oauth_providers::STRAVA.to_owned(),
+                resource_type: "resource".to_owned(),
+                resource_id: Self::requested_resource_id(url),
+            });
+        Some(AppError::new(
+            ErrorCode::ResourceNotFound,
+            missing.to_string(),
+        ))
     }
 
     /// Retrieve the current access token from credentials
@@ -361,6 +378,7 @@ impl StravaProvider {
     ) -> AppResult<Activity> {
         let splits = Self::convert_strava_splits(detailed.splits_metric.as_deref());
         let laps = Self::convert_strava_laps(detailed.laps.as_deref());
+        let efforts = Self::convert_strava_segment_efforts(detailed.segment_efforts.as_deref());
 
         // Kudos, comment, athlete, photo, and achievement counts are surfaced
         // only to the Strava UI — not to agent reasoning — so we drop them
@@ -368,6 +386,7 @@ impl StravaProvider {
         Ok(Self::strava_activity_builder(detailed.summary)?
             .splits_opt(splits)
             .laps_opt(laps)
+            .segment_efforts_opt(efforts)
             .description_opt(detailed.description.filter(|d| !d.trim().is_empty()))
             // The recording device, which names the Garmin model a
             // Garmin-recorded activity is attributed to (carnet#521).
@@ -542,7 +561,7 @@ impl StravaProvider {
     /// # Errors
     /// Returns error if API request fails, authentication is invalid, or response parsing fails
     pub async fn get_activity_details(&self, id: &str) -> AppResult<Activity> {
-        let endpoint = format!("activities/{id}");
+        let endpoint = detail_endpoint(id);
         let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
         Self::convert_detailed_strava_activity(detailed_activity, None)
     }
@@ -556,7 +575,7 @@ impl StravaProvider {
     /// Best-effort on the streams half otherwise: a streams request that
     /// failed degrades to the plain detail activity, with no stream set.
     async fn get_activity_details_with_streams(&self, id: &str) -> AppResult<Activity> {
-        let endpoint = format!("activities/{id}");
+        let endpoint = detail_endpoint(id);
         let detailed_activity: DetailedActivityResponse = self.api_request(&endpoint).await?;
         let streams = match self.fetch_streams(id).await {
             Ok(streams) => streams,
@@ -875,6 +894,14 @@ impl FitnessProvider for StravaProvider {
         self.fetch_streams(id).await
     }
 
+    async fn segment_effort_history(
+        &self,
+        segment_id: &str,
+        window: SegmentEffortWindow,
+    ) -> AppResult<Vec<SegmentEffortHit>> {
+        self.list_segment_efforts(segment_id, window).await
+    }
+
     async fn get_stats(&self) -> AppResult<Stats> {
         let athlete = self.get_athlete().await?;
         let endpoint = format!("athletes/{}/stats", athlete.id);
@@ -1091,6 +1118,13 @@ impl ProviderFactory for StravaProviderFactory {
     }
 }
 
+/// The detail endpoint of activity `id`, asking for every segment effort:
+/// without `include_all_efforts` Strava sends only the ones it deems
+/// important, and a detail read stamps the efforts it got as all of them.
+fn detail_endpoint(id: &str) -> String {
+    format!("activities/{id}?include_all_efforts=true")
+}
+
 /// Seconds east of UTC from Strava's `utc_offset`, or `None` for a value that
 /// is not a whole second count inside every civil zone.
 fn strava_utc_offset(seconds: f64) -> Option<i32> {
@@ -1104,3 +1138,6 @@ fn strava_utc_offset(seconds: f64) -> Option<i32> {
 
 /// The field dictionary guard for this mapper.
 mod field_guard;
+
+/// Segment efforts: the detail read's, and one segment's listed.
+mod segments;

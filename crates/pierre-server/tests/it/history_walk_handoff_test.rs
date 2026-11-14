@@ -37,7 +37,7 @@ use crate::history_walk_api_test::{
     hold_strava_grant, mock_strava, open_window, rows_under, strava_athlete, with_window,
     MockStrava,
 };
-use crate::history_walk_test::age_job_rows;
+use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -68,8 +68,8 @@ use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill::{BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS};
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry, ToolRuntime,
-    WalkTrigger,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
+    ToolRuntime, WalkTrigger,
 };
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -193,6 +193,8 @@ impl BackfillNotifier for Told {
             completion.activity_count,
         ));
     }
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
@@ -333,6 +335,7 @@ impl Fixture {
     async fn sweep(&self, fresh: bool) {
         if fresh {
             open_window(&self.resources).await;
+            paused_retries_due(&self.resources, self.user_id).await;
         }
         age_job_rows(&self.resources, self.user_id).await;
         resume_backfill_jobs(self.runtime()).await.unwrap();
@@ -456,14 +459,14 @@ async fn a_session_walk_goes_on_through_the_grant_below_its_oldest_row() {
         "bug: the progress counts both phases' rows"
     );
     let total = progress
-        .months_total
+        .units_total
         .expect("the grant's profile names the floor");
     assert!(
         (70..=72).contains(&total),
         "bug: the walk's length runs from now to the account's creation: {progress:?}"
     );
     assert!(
-        progress.months_done <= total && progress.months_done >= total - 4,
+        progress.units_done <= total && progress.units_done >= total - 4,
         "bug: the months done cover both phases without counting the session's empty step twice: {progress:?}"
     );
 
@@ -1860,7 +1863,7 @@ async fn a_termination_settles_a_purged_walk_the_sweep_would_have_reopened() {
 /// once armed, the next write of `provider` waits for the test before it
 /// lands, so a purge can commit between a step's check of its row and its
 /// write.
-struct HeldWrite {
+pub(crate) struct HeldWrite {
     inner: Arc<dyn LiveActivityStore>,
     armed: Mutex<Option<Hold>>,
 }
@@ -1869,17 +1872,17 @@ struct HeldWrite {
 /// it land, the signals that it reached the store and that it landed, and,
 /// when set, the gate that lets the write return to its step once landed.
 #[derive(Clone)]
-struct Hold {
+pub(crate) struct Hold {
     provider: String,
-    gate: Arc<Notify>,
-    reached: Arc<Notify>,
-    landed: Arc<Notify>,
+    pub(crate) gate: Arc<Notify>,
+    pub(crate) reached: Arc<Notify>,
+    pub(crate) landed: Arc<Notify>,
     resume: Option<Arc<Notify>>,
 }
 
 impl HeldWrite {
     /// Hold the next write of `provider`.
-    fn hold_next_write(&self, provider: &str) -> Hold {
+    pub(crate) fn hold_next_write(&self, provider: &str) -> Hold {
         let hold = Hold {
             provider: provider.to_owned(),
             gate: Arc::new(Notify::new()),
@@ -2064,18 +2067,27 @@ impl LiveActivityStore for HeldWrite {
     }
 }
 
+/// `resources` writing every activity through a store whose writes the
+/// test can hold ([`HeldWrite`]), and that store.
+pub(crate) fn holding_writes(
+    resources: &Arc<ServerContext>,
+) -> (Arc<ServerContext>, Arc<HeldWrite>) {
+    let mut context = (**resources).clone();
+    let held = Arc::new(HeldWrite {
+        inner: Arc::clone(&context.common.live_activities),
+        armed: Mutex::new(None),
+    });
+    let store: Arc<dyn LiveActivityStore> = held.clone();
+    context.common.live_activities = store;
+    (Arc::new(context), held)
+}
+
 impl Fixture {
     /// Write every activity through a store whose writes the test can hold
     /// ([`HeldWrite`]), before any walk runs.
     fn hold_writes(&mut self) -> Arc<HeldWrite> {
-        let mut context = (*self.resources).clone();
-        let held = Arc::new(HeldWrite {
-            inner: Arc::clone(&context.common.live_activities),
-            armed: Mutex::new(None),
-        });
-        let store: Arc<dyn LiveActivityStore> = held.clone();
-        context.common.live_activities = store;
-        self.resources = Arc::new(context);
+        let (resources, held) = holding_writes(&self.resources);
+        self.resources = resources;
         held
     }
 }

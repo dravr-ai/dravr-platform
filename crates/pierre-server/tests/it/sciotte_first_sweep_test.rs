@@ -447,6 +447,7 @@ async fn pair_walk_owed(resources: &Arc<ServerContext>, user_id: Uuid, tenant: T
             turn_id: None,
             asked_message_id: None,
             walk_backend: None,
+            walk_sport: None,
         })
         .await
         .unwrap();
