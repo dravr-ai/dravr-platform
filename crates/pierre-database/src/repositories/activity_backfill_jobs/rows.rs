@@ -1,8 +1,10 @@
 // ABOUTME: Decodes an activity_backfill_jobs row: the whole job a claim returns, or the progress columns alone
-// ABOUTME: Shared by both backends' implementations, which name these helpers unqualified
+// ABOUTME: Shared by both backends' implementations, which name these helpers unqualified; a row prints without its lease token
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
+
+use std::fmt;
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
@@ -105,4 +107,31 @@ where
             .try_get("walk_sport")
             .map_err(|e| column_error("walk_sport", &e))?,
     })
+}
+
+/// Prints every field but the lease token, which grants the right to renew
+/// and finish the row and so stays out of logs and panics.
+impl fmt::Debug for ActivityBackfillJobRow {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("ActivityBackfillJobRow")
+            .field("id", &self.id)
+            .field("tenant_id", &self.tenant_id)
+            .field("user_id", &self.user_id)
+            .field("provider", &self.provider)
+            .field("kind", &self.kind)
+            .field("after_ts", &self.after_ts)
+            .field("before_ts", &self.before_ts)
+            .field("fetch_limit", &self.fetch_limit)
+            .field("conversation_id", &self.conversation_id)
+            .field("created_at_ms", &self.created_at_ms)
+            .field("leased_until_ms", &self.leased_until_ms)
+            .field("attempts", &self.attempts)
+            .field("lease_token", &"[redacted]")
+            .field("progress", &self.progress)
+            .field("turn_id", &self.turn_id)
+            .field("asked_message_id", &self.asked_message_id)
+            .field("walk_backend", &self.walk_backend)
+            .field("walk_sport", &self.walk_sport)
+            .finish()
+    }
 }

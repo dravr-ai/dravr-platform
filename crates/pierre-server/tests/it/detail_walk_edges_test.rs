@@ -576,6 +576,84 @@ async fn a_walk_widened_to_every_sport_reads_the_runs_above_its_cursor() {
     );
 }
 
+/// The rides the grant already holds are detailed in place, with no copy
+/// to write: the step a widen to every sport took the lease from still
+/// stores them. They are read, so no later step reads or counts them, and
+/// the walk counts them stored all the same: its end, and the post that
+/// tells it, count every activity whose efforts it read.
+#[tokio::test]
+async fn rides_stored_by_a_step_a_sport_widen_stopped_are_counted() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    // Twelve rides the grant listed, and a run newer than all of them.
+    let rides: Vec<i64> = (2..=13).map(|day| now - day * DAY).collect();
+    let run = now - DAY;
+    store_rides(&resources, user_id, tenant, oauth_providers::STRAVA, &rides).await;
+    store_runs(&resources, user_id, tenant, &[run]).await;
+    open_window(&resources).await;
+
+    let gate = mock.hold_next_read();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let window = since(now - 20 * DAY);
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            DetailWalkAsk {
+                sport: Some("Ride"),
+                ..window
+            },
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 12 },
+        "the twelve rides are owed"
+    );
+    mock.read_held().await;
+    assert_eq!(
+        ask_detail_walk(&runtime, user_id, tenant, oauth_providers::STRAVA, window).await,
+        DetailWalkAsked::Widened,
+        "an ask for every sport while a ride walk is owed widens it"
+    );
+    gate.notify_one();
+    // The stopped step reads its ten rides and settles before the sweep
+    // runs the walk on (which moves the ask time the credit is keyed by).
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let row = walk_row(&resources, user_id, tenant).await.unwrap();
+        if row.progress.rows_landed >= 10 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "bug: the ten rides the stopped step stored are not counted on its walk: {row:?}"
+        );
+        sleep(Duration::from_millis(20)).await;
+    }
+
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    let mut reads = mock.detail_reads();
+    reads.sort_unstable();
+    reads.dedup();
+    assert_eq!(
+        reads.len(),
+        13,
+        "the twelve rides and the run are each read: {reads:?}"
+    );
+    assert_eq!(
+        (
+            ended.state,
+            ended.progress.units_done,
+            ended.progress.rows_landed
+        ),
+        (BackfillJobState::Walked, 13, 13),
+        "bug: the rides the stopped step stored on the grant's rows are not counted stored"
+    );
+}
+
 /// Ask until the run an earlier ask spawned has let the pair go: the ask
 /// that finds it still running records nothing.
 async fn ask_once_the_run_is_done(

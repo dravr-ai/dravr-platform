@@ -50,8 +50,9 @@ enum Step {
     NoBudget,
     /// The store, or the backend before any read, failed.
     Failed { step: JobProgressStep },
-    /// The step's row is no longer its own: it records nothing.
-    Stopped,
+    /// The step's row is no longer its own: it records nothing on it but
+    /// what it stored ([`credit_stored`]).
+    Stopped { step: JobProgressStep },
 }
 
 /// Run one step of the detail walk `job` is, and settle its row. A walk the
@@ -72,8 +73,13 @@ pub(in crate::activity_backfill) async fn run_detail_walk(
     };
     let renewal = keep_backfill_lease(job, &lease);
     let attempt_started_at = Utc::now();
-    let step = walk_step(job, &lease).await;
-    settle(job, &lease, attempts, step, attempt_started_at).await;
+    let mut asked_ms = None;
+    let step = walk_step(job, &lease, &mut asked_ms).await;
+    let held = Held {
+        lease: &lease,
+        asked_ms,
+    };
+    settle(job, &held, attempts, step, attempt_started_at).await;
     drop(renewal);
 }
 
@@ -112,8 +118,21 @@ impl Progress {
     }
 }
 
-/// Read one step of the walk below its cursor, for the row `lease` holds.
-async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
+/// The row a step holds: its lease, and when the walk on it was asked (unix
+/// ms), once the step read the row; what it stored is credited to that walk
+/// alone ([`credit_stored`]).
+struct Held<'run> {
+    lease: &'run JobLease,
+    asked_ms: Option<i64>,
+}
+
+/// Read one step of the walk below its cursor, for the row `lease` holds;
+/// `asked_ms` takes when the walk on the row was asked, once it is read.
+async fn walk_step(
+    job: &ActivityBackfillJob,
+    lease: &JobLease,
+    asked_ms: &mut Option<i64>,
+) -> Step {
     let floor = job.query_params.after.unwrap_or(0);
     let cursor = job
         .query_params
@@ -146,6 +165,7 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
             step: progress.step(),
         };
     };
+    *asked_ms = row.as_ref().map(|row| row.created_at_ms);
     let tried = row.and_then(|row| row.tried);
     let Ok(taken) = take_seconds(
         &athlete,
@@ -217,7 +237,11 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
                         step: progress.step(),
                     }
                 }
-                Read::Stopped => return Step::Stopped,
+                Read::Stopped => {
+                    return Step::Stopped {
+                        step: progress.step(),
+                    }
+                }
             }
         }
         progress.walked_to = second.at;
@@ -388,26 +412,24 @@ impl Reader<'_> {
 /// What `step` does to the walk's row.
 async fn settle(
     job: &ActivityBackfillJob,
-    lease: &JobLease,
+    held: &Held<'_>,
     attempts: i64,
     step: Step,
     attempt_started_at: DateTime<Utc>,
 ) {
     let ledger = &job.resources.repos().activity_backfill_jobs;
+    let lease = held.lease;
     match step {
-        Step::Walked { step, ended: true } => end_walk(job, lease, step).await,
-        Step::Walked { step, ended: false } => log_write(
-            "a step landed; the next reads below it",
-            ledger.record_job_progress(lease, step).await,
-            job,
-        ),
+        Step::Walked { step, ended: true } => end_walk(job, held, step).await,
+        Step::Walked { step, ended: false } => {
+            record(job, held, "a step landed; the next reads below it", step).await;
+        }
         // The activities read before the refusal are recorded, which
         // releases the row: the next claim meets the refusal and pauses.
-        Step::Paused { step, .. } if moved(&step, job) => log_write(
-            "a budget refused the step part-way; what it read is recorded",
-            ledger.record_job_progress(lease, step).await,
-            job,
-        ),
+        Step::Paused { step, .. } if moved(&step, job) => {
+            let what = "a budget refused the step part-way; what it read is recorded";
+            record(job, held, what, step).await;
+        }
         Step::Paused { until_ms, .. } => log_write(
             "a budget refused the step; it resumes once the window ends",
             ledger
@@ -430,11 +452,10 @@ async fn settle(
             ledger.end_backfill_job_incomplete(lease).await,
             job,
         ),
-        Step::Failed { step } if moved(&step, job) => log_write(
-            "a step failed part-way; what it read is recorded",
-            ledger.record_job_progress(lease, step).await,
-            job,
-        ),
+        Step::Failed { step } if moved(&step, job) => {
+            let what = "a step failed part-way; what it read is recorded";
+            record(job, held, what, step).await;
+        }
         Step::Failed { .. } if attempts >= MAX_BACKFILL_ATTEMPTS => log_write(
             "failed on its last attempt; the walk ends incomplete",
             ledger.end_backfill_job_incomplete(lease).await,
@@ -447,12 +468,56 @@ async fn settle(
                 .await,
             job,
         ),
-        Step::Stopped => log_write(
-            "the step's row is no longer its own; giving its lease up",
-            ledger.renew_backfill_job_lease(lease, 0).await,
-            job,
-        ),
+        Step::Stopped { step } => {
+            credit_stored(job, held, &step).await;
+            log_write(
+                "the step's row is no longer its own; giving its lease up",
+                ledger.renew_backfill_job_lease(lease, 0).await,
+                job,
+            );
+        }
     }
+}
+
+/// Record `step` on the row `held`, releasing it for the next step; when the
+/// row is no longer this lease's, credit what the step stored to its walk.
+async fn record(job: &ActivityBackfillJob, held: &Held<'_>, what: &str, step: JobProgressStep) {
+    let ledger = &job.resources.repos().activity_backfill_jobs;
+    let recorded = ledger.record_job_progress(held.lease, step).await;
+    if matches!(recorded, Ok(false)) {
+        credit_stored(job, held, &step).await;
+    }
+    log_write(what, recorded, job);
+}
+
+/// Credit the walk on the row `held` with the activities `step` stored,
+/// once the row was no longer this step's to write: a widen to every sport
+/// takes the lease back, and a ride stored on the grant's own row needs no
+/// lease to land. What it stored is read, so no later step reads or counts
+/// it: without this the walk, and the post telling its end, count it never.
+/// What the step walked past is read again from the cursor the row keeps,
+/// and counted then.
+async fn credit_stored(job: &ActivityBackfillJob, held: &Held<'_>, step: &JobProgressStep) {
+    let Some(asked_ms) = held.asked_ms.filter(|_| step.rows_landed > 0) else {
+        return;
+    };
+    let credited = job
+        .resources
+        .repos()
+        .activity_backfill_jobs
+        .credit_detail_walk(
+            &held.lease.id,
+            job.user_id,
+            job.tenant_id,
+            asked_ms,
+            step.rows_landed,
+        )
+        .await;
+    log_write(
+        "the row was taken back; what the step stored is credited to its walk",
+        credited,
+        job,
+    );
 }
 
 /// Whether `step` moved the walk: read an activity, or moved its cursor.
@@ -463,8 +528,9 @@ fn moved(step: &JobProgressStep, job: &ActivityBackfillJob) -> bool {
 /// End the walk on its last `step`, which passed the floor it claimed, and
 /// tell the athlete once. An ask that widened the floor meanwhile keeps the
 /// walk owed: the step is recorded and the next one walks on down.
-async fn end_walk(job: &ActivityBackfillJob, lease: &JobLease, step: JobProgressStep) {
+async fn end_walk(job: &ActivityBackfillJob, held: &Held<'_>, step: JobProgressStep) {
     let ledger = &job.resources.repos().activity_backfill_jobs;
+    let lease = held.lease;
     let end = DetailWalkEnd {
         before_ts: step.before_ts,
         units_done: step.units_done,
@@ -484,11 +550,10 @@ async fn end_walk(job: &ActivityBackfillJob, lease: &JobLease, step: JobProgress
             );
             announce_walked(job, ended.created_at_ms, ended.progress.rows_landed).await;
         }
-        Ok(None) => log_write(
-            "the floor moved under the last step; the walk goes on below it",
-            ledger.record_job_progress(lease, step).await,
-            job,
-        ),
+        Ok(None) => {
+            let what = "the floor moved under the last step; the walk goes on below it";
+            record(job, held, what, step).await;
+        }
         Err(e) => {
             warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Detail walk: the walk's end could not be written; the sweep retries the step");
         }
@@ -497,6 +562,12 @@ async fn end_walk(job: &ActivityBackfillJob, lease: &JobLease, step: JobProgress
 
 /// Tell the athlete the walk asked at `asked_at_ms` ended having stored the
 /// efforts of `stored` activities. A walk that stored none says nothing.
+///
+/// The count is what it stored, never what it walked: an activity walked
+/// past is one Strava answered it does not have (gone, or refused as
+/// malformed), which holds no efforts to read, and the segment tool names it
+/// unread when asked. Any other failure stops the walk short of its floor,
+/// and a walk that ends so is never told.
 async fn announce_walked(job: &ActivityBackfillJob, asked_at_ms: i64, stored: i64) {
     let Some(notifier) = job.resources.backfill_notifier() else {
         return;

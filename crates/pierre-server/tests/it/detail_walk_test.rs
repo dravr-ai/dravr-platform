@@ -921,6 +921,51 @@ async fn a_walk_that_stored_efforts_tells_its_end_once() {
     );
 }
 
+/// A walk that walked past a ride Strava no longer has tells what it stored,
+/// never what it walked: two of its three rides.
+#[tokio::test]
+async fn a_walk_that_walked_past_a_ride_tells_only_what_it_stored() {
+    let (api_base, mock) = mock_strava().await;
+    let told = Arc::new(Told::default());
+    let resources = telling(&server(&api_base, 400).await, &told);
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let starts = [now - 2 * DAY, now - 3 * DAY, now - 4 * DAY];
+    mock.missing.lock().unwrap().insert(starts[1]);
+    store_rides(&resources, user_id, tenant, SESSION, &starts).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        since(now - 10 * DAY),
+    )
+    .await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 3 },
+        "the three rides are owed"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        (
+            ended.state,
+            ended.progress.units_done,
+            ended.progress.rows_landed
+        ),
+        (BackfillJobState::Walked, 3, 2),
+        "the walk walked three rides and stored two"
+    );
+    assert_eq!(
+        *told.walks.lock().unwrap(),
+        vec![(oauth_providers::STRAVA.to_owned(), 2)],
+        "bug: the post counts a ride the walk walked past as read"
+    );
+}
+
 /// The session lists a ride on its day alone, the grant at its real start:
 /// two rows of one ride that start in different seconds. The walk counts and
 /// reads it once, and a later ask finds nothing left to read.

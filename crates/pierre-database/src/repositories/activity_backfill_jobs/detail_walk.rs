@@ -103,6 +103,18 @@ pub(crate) const END_DETAIL_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
        AND (after_ts = $7 OR (after_ts IS NULL AND $7 IS NULL)) \
      RETURNING months_total, months_done, rows_landed, secs_per_unit, created_at_ms";
 
+/// Adds the activities a detail walk's step stored (`$5`) to the done and
+/// stored counts of its walk (`$1`, the row's id, of kind `$4`, the user's
+/// `$2` in tenant `$3`), whatever lease holds the row now: once a widen to
+/// every sport took the step's lease back, its own progress write lands
+/// nothing, and what it stored is read, so no later step counts it. Only
+/// while that same walk (asked at `$6`) is still owed: a walk recorded over
+/// the row since never read them.
+pub(crate) const CREDIT_DETAIL_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
+     SET months_done = months_done + $5, rows_landed = rows_landed + $5 \
+     WHERE id = $1 AND user_id = $2 AND tenant_id = $3 AND kind = $4 \
+       AND created_at_ms = $6 AND outcome IS NULL";
+
 /// How a detail walk ended ([`super::ActivityBackfillJobRepository::end_detail_walk`]).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct DetailWalkEnded {

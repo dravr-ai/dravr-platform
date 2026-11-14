@@ -7,7 +7,6 @@
 use async_trait::async_trait;
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
-use std::fmt;
 use uuid::Uuid;
 
 use crate::repositories::memory_extraction_jobs::JobLease;
@@ -34,8 +33,8 @@ pub(crate) use walk_statements::{
 /// A detail walk asked again while one is owed
 mod detail_walk;
 pub(crate) use detail_walk::{
-    detail_walk_ended_from_row, detail_walk_row_from_row, DETAIL_WALK_ROW_SQL, END_DETAIL_WALK_SQL,
-    SET_DETAIL_WALK_TRIED_SQL, WIDEN_DETAIL_WALK_SQL,
+    detail_walk_ended_from_row, detail_walk_row_from_row, CREDIT_DETAIL_WALK_SQL,
+    DETAIL_WALK_ROW_SQL, END_DETAIL_WALK_SQL, SET_DETAIL_WALK_TRIED_SQL, WIDEN_DETAIL_WALK_SQL,
 };
 pub use detail_walk::{DetailWalkEnd, DetailWalkEnded, DetailWalkRow, WalkTried, WalkWiden};
 /// The statements of a row's life past its record
@@ -48,6 +47,7 @@ pub(crate) use job_statements::{
 };
 /// The `outcome` column: how an ended row ended
 mod outcome;
+pub use outcome::BackfillJobState;
 pub(crate) use outcome::{
     backfill_job_state_of, incomplete_outcome, phase_purged_outcome, walked_outcome,
 };
@@ -139,33 +139,6 @@ pub struct ActivityBackfillJobRow {
     pub walk_sport: Option<String>,
 }
 
-/// Prints every field but the lease token, which grants the right to renew
-/// and finish the row and so stays out of logs and panics.
-impl fmt::Debug for ActivityBackfillJobRow {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("ActivityBackfillJobRow")
-            .field("id", &self.id)
-            .field("tenant_id", &self.tenant_id)
-            .field("user_id", &self.user_id)
-            .field("provider", &self.provider)
-            .field("kind", &self.kind)
-            .field("after_ts", &self.after_ts)
-            .field("before_ts", &self.before_ts)
-            .field("fetch_limit", &self.fetch_limit)
-            .field("conversation_id", &self.conversation_id)
-            .field("created_at_ms", &self.created_at_ms)
-            .field("leased_until_ms", &self.leased_until_ms)
-            .field("attempts", &self.attempts)
-            .field("lease_token", &"[redacted]")
-            .field("progress", &self.progress)
-            .field("turn_id", &self.turn_id)
-            .field("asked_message_id", &self.asked_message_id)
-            .field("walk_backend", &self.walk_backend)
-            .field("walk_sport", &self.walk_sport)
-            .finish()
-    }
-}
-
 /// The ask a live read's row was bound to when it finished.
 ///
 /// This is where its follow-up goes. A newer ask while the read was owed
@@ -179,37 +152,6 @@ pub struct LiveReadAsk {
     pub turn_id: Option<String>,
     /// The user message that asked last.
     pub asked_message_id: Option<String>,
-}
-
-/// What the ledger holds for one `(user, provider, kind)`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BackfillJobState {
-    /// A job is owed: recorded, running or waiting for the resume sweep.
-    Owed,
-    /// The job ended before what it was asked for landed, and its row was
-    /// kept to say so ([`ActivityBackfillJobRepository::end_backfill_job_incomplete`]):
-    /// a history walk whose session expired mid-copy.
-    Incomplete,
-    /// A walk reached the end of what it walks, and its row was kept to say
-    /// so: a history walk the end of the athlete's history
-    /// ([`ActivityBackfillJobRepository::end_history_walk`]), a detail walk
-    /// its window's floor ([`ActivityBackfillJobRepository::end_detail_walk`]).
-    Walked,
-    /// A purge of the grant a history walk's API phase was paging took that
-    /// phase while it was owed. The row is still the walk of the pair: a step
-    /// may still hold its lease and be paging the grant, so no walk of the
-    /// grant starts beside it, and the step records nothing on the row and
-    /// leaves none of what it read in the store (it checks the row around its
-    /// write, [`ActivityBackfillJobRepository::leased_walk_row`]). Once no
-    /// step holds the lease, the phase is reopened below the session's own
-    /// rows when a grant is live, or the row is kept as
-    /// [`Self::Walked`] when none is
-    /// ([`ActivityBackfillJobRepository::reopen_history_walk`],
-    /// [`ActivityBackfillJobRepository::settle_purged_history_walk`]); the
-    /// resume sweep does it for a row whose step died
-    /// ([`ActivityBackfillJobRepository::purged_history_walks`]). A
-    /// whole-provider purge of that grant settles it as walked at once.
-    PhasePurged,
 }
 
 /// Whether an attempt holds an owed row's lease right now.
@@ -407,6 +349,19 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         lease: &JobLease,
         end: &DetailWalkEnd,
     ) -> AppResult<Option<DetailWalkEnded>>;
+
+    /// Add `stored` activities a [`BackfillJobKind::DetailWalk`] step stored
+    /// after its lease was taken back to the done and stored counts of its
+    /// walk (row `row_id`, asked at `asked_at_ms`), while it is still owed
+    /// ([`CREDIT_DETAIL_WALK_SQL`]). `false` when that walk is not.
+    async fn credit_detail_walk(
+        &self,
+        row_id: &str,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        asked_at_ms: i64,
+        stored: i64,
+    ) -> AppResult<bool>;
 
     /// The [`BackfillJobKind::DetailWalk`] filed under `(user_id, provider)`
     /// in `tenant_id`, owed or ended, or `None` when the ledger holds none.
@@ -954,6 +909,27 @@ macro_rules! impl_activity_backfill_job_repository {
                 row.as_ref()
                     .map($crate::repositories::activity_backfill_jobs::detail_walk_ended_from_row)
                     .transpose()
+            }
+
+            async fn credit_detail_walk(
+                &self,
+                row_id: &str,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                asked_at_ms: i64,
+                stored: i64,
+            ) -> AppResult<bool> {
+                let credited = sqlx::query($crate::repositories::activity_backfill_jobs::CREDIT_DETAIL_WALK_SQL)
+                    .bind(row_id)
+                    .bind(user_id.to_string())
+                    .bind(tenant_id)
+                    .bind(BackfillJobKind::DetailWalk.as_str())
+                    .bind(stored)
+                    .bind(asked_at_ms)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to credit a detail walk: {e}")))?;
+                Ok(credited.rows_affected() == 1)
             }
 
             async fn set_detail_walk_tried(
