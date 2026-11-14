@@ -385,6 +385,7 @@ export function importOutcomeKey(outcome: string): string {
     'invalid_row',
     'zero_elapsed',
     'deleted_by_athlete',
+    'future_dated',
   ];
   return `providers.import.strava.outcome.${known.includes(outcome) ? outcome : 'unreadable_file'}`;
 }

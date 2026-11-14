@@ -375,3 +375,40 @@ async fn a_provider_whose_reads_the_store_does_not_keep_is_purged_from_the_table
         "bug: the purged ride is still served"
     );
 }
+
+/// A live read whose start is a day and more after the read is refused, and
+/// counted as refused so a caller's accounting of the page still adds up.
+#[tokio::test]
+async fn a_live_read_starting_in_the_future_is_refused_and_counted() {
+    let records = Arc::new(MemoryActivityRecordStore::new());
+    let resources = server_over(Arc::clone(&records)).await;
+    let (user_id, tenant_id) = athlete(&resources, "future-start").await;
+    let read = resources
+        .common
+        .live_activities
+        .ingest(
+            user_id,
+            tenant_id,
+            STRAVA,
+            &[ride("9100", -48, STRAVA), ride("9101", 5, STRAVA)],
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        read.stored, 1,
+        "bug: only the ride that started is kept: {read:?}"
+    );
+    assert_eq!(
+        read.inserted, 1,
+        "bug: only the ride that started is inserted: {read:?}"
+    );
+    assert_eq!(
+        read.refused, 1,
+        "bug: the future start is counted as refused: {read:?}"
+    );
+    assert!(
+        !served(&resources, (user_id, tenant_id), STRAVA, "9100").await,
+        "bug: a ride starting in the future is served"
+    );
+}

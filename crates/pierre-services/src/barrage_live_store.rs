@@ -101,7 +101,7 @@ impl BarrageLiveStore {
     }
 
     /// Store and serve `rows` of `live`. Barrage refuses a row the athlete
-    /// deleted, and serves only what it kept.
+    /// deleted or one that starts in the future, and serves only what it kept.
     async fn store(
         &self,
         scope: Scope,
@@ -114,11 +114,20 @@ impl BarrageLiveStore {
             .ingest(&scope, live, &rows, &[])
             .await
             .map_err(|e| store_error(source, &e))?;
+        // Barrage refuses a row that starts after the read, past a clock's
+        // skew; this count is the only trace those rows leave.
+        if report.future_dated > 0 {
+            warn!(
+                provider = source.as_str(),
+                refused = report.future_dated,
+                "live rows starting in the future were refused"
+            );
+        }
         let counts = report.counts;
         Ok(LiveIngest {
             stored: counts.inserted + counts.updated + counts.unchanged + counts.rewritten,
             inserted: counts.inserted,
-            refused: counts.erased,
+            refused: counts.erased + report.future_dated,
             newer_session: report.newer_session,
         })
     }

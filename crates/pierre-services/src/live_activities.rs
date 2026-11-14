@@ -29,7 +29,9 @@ pub struct LiveIngest {
     pub stored: u64,
     /// Rows the write inserted: the store held no record of them before it.
     pub inserted: u64,
-    /// Rows the write refused: the athlete deleted them ([`LiveActivityStore::erase`]).
+    /// Rows the write refused: the athlete deleted them
+    /// ([`LiveActivityStore::erase`]), or they start in the future, past a
+    /// clock's skew of the read.
     pub refused: u64,
     /// Whether a session newer than every activity held landed.
     pub newer_session: bool,
