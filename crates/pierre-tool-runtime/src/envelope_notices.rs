@@ -19,6 +19,8 @@
 //! replaces what an earlier save reported for it, and the notice never warns
 //! about a session the agent already fixed.
 
+use std::sync::Arc;
+
 use chrono::Days;
 use pierre_core::models::periodization::{EnvelopeFinding, WorkoutPurpose};
 use pierre_core::models::TargetAnchor;
@@ -309,11 +311,25 @@ impl EnvelopeNotices {
     pub fn take(&self, key: &TurnKey) -> Vec<NoticeDay> {
         self.notices.take(key).unwrap_or_default()
     }
+
+    /// [`Self::take`] for a turn that ended while a headless tool call of its
+    /// may still run — the athlete stopped it: a write such a call reports
+    /// later is handed to `late`, never held for a turn that will not take it
+    /// again (carnet#1519).
+    #[must_use]
+    pub fn take_and_seal(
+        &self,
+        key: &TurnKey,
+        late: impl Fn(Vec<NoticeDay>) + Send + Sync + 'static,
+    ) -> Vec<NoticeDay> {
+        self.notices.seal(key, Arc::new(late)).unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::error::Error;
+    use std::sync::Mutex;
 
     use super::*;
     use crate::implementations::endurance_workouts_output::PrescribeWorkoutResult;
@@ -834,6 +850,37 @@ mod tests {
             store.take(&turn),
             Vec::<NoticeDay>::new(),
             "bug: a notice is taken once"
+        );
+    }
+
+    /// A stopped turn takes what its writes reported and seals its key: a
+    /// headless call that reports after the stop reaches the turn's sink, an
+    /// empty report reaches nothing, and the store keeps no entry for it.
+    #[test]
+    fn a_stopped_turn_hands_its_late_findings_to_its_sink() {
+        let store = EnvelopeNotices::new();
+        let turn = TurnKey::new(None, "stopped-turn");
+        store.record(&turn, vec![day("ratio_ceiling")]);
+        let late = Arc::new(Mutex::new(Vec::new()));
+        let sink = Arc::clone(&late);
+
+        let taken = store.take_and_seal(&turn, move |days| {
+            sink.lock().expect("lock").extend(days);
+        });
+        assert_eq!(taken.len(), 1, "bug: the stop takes what was recorded");
+
+        store.record(&turn, Vec::new());
+        store.record(&turn, vec![day("cycle_mean_floor")]);
+        let late = late.lock().expect("lock").clone();
+        assert_eq!(
+            late.len(),
+            1,
+            "bug: the late report reaches the stopped turn, once: {late:?}"
+        );
+        assert_eq!(
+            store.take(&turn),
+            Vec::<NoticeDay>::new(),
+            "bug: a late report must not wait in the store for a turn that ended"
         );
     }
 }

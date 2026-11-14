@@ -54,6 +54,8 @@ pub mod recorders;
 pub(crate) mod recovery;
 pub mod stages;
 pub mod suggestions;
+/// Detached work, spawned with a watcher that reports how it failed.
+mod supervised;
 pub mod surface_profile;
 pub(crate) mod team_offer;
 mod tool_budget;

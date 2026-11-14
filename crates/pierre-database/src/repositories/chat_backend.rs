@@ -33,6 +33,7 @@ macro_rules! impl_chat_repository {
         $crate::repositories::chat_subject::impl_chat_subject_open!($ty, $ids, $begin);
         $crate::repositories::chat_windows::impl_chat_windows!($ty, $ids);
         $crate::repositories::chat_member_rows::impl_chat_member_rows!($ty, $ids);
+        $crate::repositories::chat_stop_notice::impl_chat_stop_notice!($ty, $ids);
         $crate::repositories::chat_feedback::impl_chat_feedback!($ty, $ids);
         $crate::repositories::chat_participants::impl_chat_participants!($ty, $ids);
         $crate::repositories::chat_archive::impl_chat_archive!($ty, $ids);
@@ -613,6 +614,18 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
             ) -> AppResult<Vec<Uuid>> {
                 self.message_subjects(conversation_id, user_id, tenant_id)
+                    .await
+            }
+
+            async fn set_stopped_notice_blocks(
+                &self,
+                id: &str,
+                conversation: &str,
+                user: &str,
+                tenant: TenantId,
+                blocks: &str,
+            ) -> AppResult<bool> {
+                self.replace_stopped_notice_blocks(id, conversation, user, tenant, blocks)
                     .await
             }
 

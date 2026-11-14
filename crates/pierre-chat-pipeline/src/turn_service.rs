@@ -597,6 +597,7 @@ async fn execute_turn(
                 conversation_id: &request.conversation_id,
                 user_id: &turn_user_id,
                 tenant_id: request.conversation_tenant_id,
+                tool_tenant_id: request.tool_tenant_id,
                 turn_id: request.turn_id,
                 quota: &admitted_quota,
             };

@@ -321,9 +321,9 @@ impl Fixture {
             Some(STOPPED_TURN_FINISH_REASON)
         );
         assert_eq!(
-            messages[1].content_blocks,
-            stop_marker(&messages[0].id),
-            "the notice names the question it closed"
+            stored_blocks(&messages[1]),
+            settled_marker(&messages[0].id),
+            "the notice names the question it closed, settled by the turn it stopped"
         );
     }
 
@@ -340,6 +340,23 @@ impl Fixture {
         .await
         .unwrap()
     }
+}
+
+/// The stored `content_blocks` of `row`, as JSON.
+fn stored_blocks(row: &MessageRecord) -> Value {
+    serde_json::from_str(
+        row.content_blocks
+            .as_deref()
+            .expect("the row carries blocks"),
+    )
+    .expect("the blocks are JSON")
+}
+
+/// The stored marker of a stopped notice its turn settled: a persisted value
+/// later reads of the row depend on, written out rather than built by the
+/// code under test.
+fn settled_marker(question_id: &str) -> Value {
+    json!([{ "type": "turn_stop", "question_id": question_id, "state": "settled" }])
 }
 
 fn row(id: &str, role: &str, finish_reason: Option<&str>, blocks: Option<String>) -> MessageRecord {
@@ -554,7 +571,11 @@ async fn a_turn_that_ran_a_tool_round_is_still_stopped() {
         notice.finish_reason.as_deref(),
         Some(STOPPED_TURN_FINISH_REASON)
     );
-    assert_eq!(notice.content_blocks, stop_marker(&question.id));
+    assert_eq!(
+        stored_blocks(notice),
+        settled_marker(&question.id),
+        "the turn settled the notice; its read found nothing to warn about"
+    );
     assert_eq!(
         messages.iter().filter(|m| m.role == "assistant").count(),
         1,

@@ -13,7 +13,7 @@ use pierre_core::models::{
     AddMessageParams, ConversationLastMessage, ConversationPage, ConversationParticipant,
     ConversationRecord, ConversationSummary, MessageFeedbackRecord, MessagePage, MessageRecord,
     ParticipantRole, TenantId, ThreadTopic, UpsertMessageFeedbackParams, CHANNEL_TYPE_WEB,
-    COMMAND_FINISH_REASON, DIVIDER_FINISH_REASON,
+    COMMAND_FINISH_REASON, DIVIDER_FINISH_REASON, STOPPED_TURN_FINISH_REASON,
 };
 use pierre_core::transport::TransportPolicy;
 use sqlx::postgres::PgRow;
@@ -53,6 +53,7 @@ use crate::repositories::chat_participants::{
     ADD_PARTICIPANT_SQL, GET_PARTICIPANT_SQL, LIST_PARTICIPANTS_SQL, REMOVE_PARTICIPANT_SQL,
 };
 use crate::repositories::chat_rows::{chat_column_error, instant_from_rfc3339, stamp_column};
+use crate::repositories::chat_stop_notice::SET_STOPPED_NOTICE_BLOCKS_SQL;
 use crate::repositories::chat_subject::{
     NewSubjectConversation, OpenedSubjectThread, CREATE_SUBJECT_CONVERSATION_SQL,
     REOPEN_SUBJECT_CONVERSATION_SQL, SUBJECT_CONVERSATION_SQL,

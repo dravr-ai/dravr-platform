@@ -373,6 +373,18 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
     ) -> AppResult<Vec<Uuid>>;
 
+    /// Replace the `content_blocks` of the stopped notice `message_id`, for a participant:
+    /// the one rewrite a stored row takes, so the envelope notice a stopped turn's writes
+    /// earned reaches the notice the stop request wrote (carnet#1519). `false` when none matches.
+    async fn set_stopped_notice_blocks(
+        &self,
+        message_id: &str,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        content_blocks: &str,
+    ) -> AppResult<bool>;
+
     /// Every assistant message in `tenant_id`, oldest first, from `since`
     /// on and past the `after_message_id` cursor when it names a stored
     /// message: the claim-verdict backfill's tenant-wide walk. An unknown

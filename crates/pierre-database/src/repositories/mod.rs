@@ -69,6 +69,8 @@ pub(crate) mod chat_member_rows;
 pub(crate) mod chat_participants;
 /// The row parsers `chat_backend` emits per backend.
 pub(crate) mod chat_rows;
+/// A stopped notice gaining the envelope notice its turn's writes earned.
+pub(crate) mod chat_stop_notice;
 /// A coach's thread bound to one athlete: its row, statements and open attempt.
 pub mod chat_subject;
 /// A thread read in windows, and the topics its dividers open.

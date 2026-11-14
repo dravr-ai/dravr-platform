@@ -38,6 +38,7 @@ use serde_json::{json, Value};
 use tracing::warn;
 
 use super::plan_block::append_block;
+use crate::turn_stop::settled_stop_marker;
 
 /// The preset parameters a stated value can leave the range of, each with its
 /// own sentence; any other key reads through the generic one.
@@ -61,7 +62,8 @@ pub(crate) fn notice_reader(conv: &ConversationRecord) -> AnchorReader {
 }
 
 /// The blocks of a reply the platform wrote in the model's place: a Guardian
-/// block, a reconnect prompt, or a withheld reply. Every edit earns its
+/// block, a reconnect prompt, or a withheld reply (a stopped notice is the
+/// fourth, in [`stop_notice_blocks`]). Every edit earns its
 /// warning (D3) whatever answered the turn, so they carry the notice alone;
 /// `None` when this turn's writes found nothing.
 pub(crate) fn notice_only_blocks(
@@ -73,6 +75,36 @@ pub(crate) fn notice_only_blocks(
 ) -> Option<String> {
     envelope_notice_block(strings, locale, reader, units, days)
         .and_then(|block| append_block(None, block))
+}
+
+/// The two values a stopped notice carries the turn's envelope notice in.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) struct StopNoticeBlocks {
+    /// The notice row's `content_blocks`: the [`settled_stop_marker`] naming the
+    /// question it closed, then the notice. Built whole, never appended to
+    /// what the row holds, so writing it twice stores it once.
+    pub(crate) row: String,
+    /// The envelope's: the notice alone, since the envelope's block walk would
+    /// read the marker as a chart.
+    pub(crate) envelope: String,
+}
+
+/// The blocks of a stopped notice, the other reply the platform writes in the
+/// model's place (carnet#1519): a turn the athlete stopped after a write went
+/// through still earns that write's warning (D3). `None` when this turn's
+/// writes found nothing, which leaves the notice as the stop request wrote it.
+pub(crate) fn stop_notice_blocks(
+    strings: &MessagingStringsRegistry,
+    locale: &str,
+    reader: AnchorReader,
+    units: UnitSystem,
+    question_id: &str,
+    days: &[NoticeDay],
+) -> Option<StopNoticeBlocks> {
+    let block = envelope_notice_block(strings, locale, reader, units, days)?;
+    let row = append_block(settled_stop_marker(question_id), block.clone())?;
+    let envelope = append_block(None, block)?;
+    Some(StopNoticeBlocks { row, envelope })
 }
 
 /// The notice for this turn's `days`, as the stored entry the reply carries,
@@ -520,6 +552,70 @@ mod tests {
             )
             .is_none(),
             "bug: a turn whose writes found nothing adds no block to a reply the platform wrote"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_stopped_notice_keeps_its_marker_and_carries_the_notice_once() -> TestResult {
+        let strings = MessagingStringsRegistry::new();
+        let warned = day(vec![finding("cycle_mean_floor", Some(71.6), Some(80.0))?]);
+        let blocks = stop_notice_blocks(
+            &strings,
+            "en",
+            AnchorReader::Athlete,
+            UnitSystem::Metric,
+            "question-1",
+            slice::from_ref(&warned),
+        )
+        .ok_or("a notice for a day with a finding")?;
+        let row: Vec<Value> = serde_json::from_str(&blocks.row)?;
+        assert_eq!(
+            row.len(),
+            2,
+            "bug: the stopped row holds its marker and the notice, nothing else: {row:#?}"
+        );
+        let marker: Vec<Value> =
+            serde_json::from_str(&settled_stop_marker("question-1").ok_or("a marker")?)?;
+        assert_eq!(
+            row[0], marker[0],
+            "bug: the row keeps the marker naming its question, or the question reads unanswered"
+        );
+        assert_eq!(
+            row[1]["type"], ENVELOPE_NOTICE_BLOCK_TYPE,
+            "bug: the notice follows the marker on the stopped row: {row:#?}"
+        );
+        let envelope: Vec<Value> = serde_json::from_str(&blocks.envelope)?;
+        assert_eq!(
+            envelope,
+            vec![row[1].clone()],
+            "bug: the envelope carries the notice alone; its block walk reads a marker as a chart"
+        );
+        let again = stop_notice_blocks(
+            &strings,
+            "en",
+            AnchorReader::Athlete,
+            UnitSystem::Metric,
+            "question-1",
+            &[warned],
+        );
+        assert_eq!(
+            again.as_ref(),
+            Some(&blocks),
+            "bug: the watch and the turn both write the stopped row; the same findings must \
+             write the same value, so the second write stores the notice once"
+        );
+        assert!(
+            stop_notice_blocks(
+                &strings,
+                "en",
+                AnchorReader::Athlete,
+                UnitSystem::Metric,
+                "question-1",
+                &[day(Vec::new())]
+            )
+            .is_none(),
+            "bug: a stopped turn whose writes found nothing leaves the notice as written"
         );
         Ok(())
     }

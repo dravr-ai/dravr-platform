@@ -41,6 +41,7 @@ use crate::stages::envelope_notice::notice_reader;
 use crate::stages::peer_grounding::PeerGroundingBlock;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
+use crate::turn_stop;
 use crate::ChatPipelineContext;
 use crate::{TurnEvent, TurnEventSink};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
@@ -124,6 +125,12 @@ pub(crate) async fn run_recovery_and_post_process(
         streamed_to,
     } = inputs;
     let mut draft = StreamedDraft { sink: streamed_to };
+    // The loop settled, so its findings left the store for `result`, which a
+    // stop from here on drops with the turn: the stop reads them off the
+    // turn's handle instead (carnet#1519). Nothing between the settle and this
+    // line yields on a surface with a stop control — its stage events go out
+    // on a channel send — so no stop lands while the findings are in neither.
+    turn_stop::tool_loop_settled(hooks, &result.envelope_days);
     // The notice writes a pace in the units the reply's reader reads, by the
     // rule the prompt's units section follows; read only when a day warns.
     let notice_units = if result

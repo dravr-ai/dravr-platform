@@ -621,11 +621,41 @@ pub enum PersistedReplyBlock {
     TurnStop {
         /// Id of the `user` row whose turn was stopped.
         question_id: String,
+        /// Whether the stopped turn has written what it owes the notice.
+        /// Omitted while pending, so a notice stored before the field existed
+        /// reads as pending.
+        #[serde(default, skip_serializing_if = "StopState::is_pending")]
+        state: StopState,
     },
     /// The athlete's room words a coach's question quotes — see
     /// [`RoomQuote`]. Carried by a `user` row beside its
     /// [`Self::TurnAuthor`] entry.
     RoomQuote(RoomQuote),
+}
+
+/// Where a stopped notice stands with the turn it stopped (carnet#1519).
+///
+/// The stop request writes the notice pending. The stopped turn settles it
+/// once it has written what it owes the notice — the envelope notice for the
+/// writes it made before the stop, when they earned one — and the stop
+/// request answers only then, so a re-read right after the stop reads the
+/// notice whole.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StopState {
+    /// Written by the stop request; the stopped turn has not settled it yet.
+    #[default]
+    Pending,
+    /// The stopped turn wrote what it owes the notice.
+    Settled,
+}
+
+impl StopState {
+    /// Whether the stopped turn has yet to settle the notice.
+    #[must_use]
+    pub const fn is_pending(&self) -> bool {
+        matches!(self, Self::Pending)
+    }
 }
 
 /// Whether a stored `content_blocks` entry of this `type` is a turn marker —

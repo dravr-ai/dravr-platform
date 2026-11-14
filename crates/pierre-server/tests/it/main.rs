@@ -785,6 +785,7 @@ mod sleep_training_load_provider_test;
 mod sse_manager_test;
 mod startup_banner_test;
 mod statistical_analysis_test;
+mod stopped_turn_envelope_notice_test;
 mod store_cursor_pagination_test;
 mod store_listings_repository_test;
 mod store_routes_test;
