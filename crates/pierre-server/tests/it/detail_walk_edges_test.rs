@@ -20,7 +20,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::detail_walk_test::{mock_strava, since, store_rides, walk_row, DAY, SESSION};
+use crate::detail_walk_test::{
+    mock_strava, ride_listed_at, since, store_rides, walk_ended, walk_row, DAY, SESSION,
+};
 use crate::history_walk_api_test::{open_window, server, strava_athlete};
 
 use std::sync::Arc;
@@ -33,6 +35,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::activity_backfill::detail_walk::{ask_detail_walk, DetailWalkAsked};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use tokio::time::sleep;
+use uuid::Uuid;
 
 /// The trigger, and on `PostgreSQL` the function behind it, that refuses
 /// every detail walk row the ledger is asked to record.
@@ -144,5 +147,88 @@ async fn a_walk_the_ledger_cannot_record_is_not_started() {
         .await,
         DetailWalkAsked::Started { units_total: 1 },
         "bug: the refused ask still holds the pair, so the next one never starts"
+    );
+}
+
+/// Mark every row the athlete's grant holds as read for its segments: a
+/// detail read stored on each, its efforts list empty.
+async fn grant_rows_read(resources: &Arc<ServerContext>, user_id: Uuid) {
+    let sql = "UPDATE cached_activities SET detail_json = '{\"segment_efforts\":[]}' \
+               WHERE user_id = $1 AND provider = 'strava'";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(db) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(db) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .execute(db.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
+/// A ride the session listed on its day, whose grant copy at its real start
+/// holds its efforts, is not read again however many read rows sit between
+/// it and the step's newest ride: the look for its other copies reads every
+/// row of its span, never only the first thousand.
+#[tokio::test]
+async fn a_read_copy_past_a_thousand_rows_still_stops_its_ride_being_read() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let real_start = now - 10 * DAY;
+    let day_start = real_start - real_start.rem_euclid(DAY);
+    let newest = now - 2 * DAY;
+    // The grant's copy of the ride, then 1,100 grant rides a minute apart
+    // just above it: all read.
+    let grant: Vec<i64> = (0..=1_100).map(|minute| real_start + minute * 60).collect();
+    store_rides(&resources, user_id, tenant, oauth_providers::STRAVA, &grant).await;
+    grant_rows_read(&resources, user_id).await;
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    runtime
+        .live_activities()
+        .ingest(
+            user_id,
+            tenant,
+            SESSION,
+            &[
+                ride_listed_at(SESSION, real_start, day_start),
+                ride_listed_at(SESSION, newest, newest),
+            ],
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    open_window(&resources).await;
+
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            since(now - 30 * DAY),
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "only the newest ride is unread: the other's grant copy holds its efforts"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        mock.detail_reads(),
+        vec![newest],
+        "bug: a ride whose read copy sat past the look's first thousand rows was read again"
+    );
+    assert_eq!(
+        ended.progress.units_done, 1,
+        "bug: the walk counted a ride read already"
     );
 }

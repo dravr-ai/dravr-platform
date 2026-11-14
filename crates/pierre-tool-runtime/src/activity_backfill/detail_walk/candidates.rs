@@ -10,7 +10,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::repositories::{CachedActivityRow, CachedRowsQuery};
+use pierre_database::repositories::{CachedActivityRow, CachedRowCursor, CachedRowsQuery};
 use pierre_providers::deduplication::native_activity_key;
 use tracing::warn;
 use uuid::Uuid;
@@ -29,8 +29,9 @@ const WALK_PAGES_PER_STEP: usize = 20;
 /// Seconds in a day, as a span of starts.
 const DAY_SECS: i64 = 86_400;
 
-/// Stored rows one look for the other copies of a step's activities takes:
-/// the rows a day either side of the activities it reads.
+/// Stored rows one page of the look for the other copies of a step's
+/// activities takes: the look reads every row a day either side of the
+/// activities it reads, a page at a time.
 const TWIN_LOOKUP_ROWS: i64 = 1_000;
 
 /// The athlete a walk reads for, and the runtime it reads through.
@@ -70,13 +71,13 @@ struct Page {
 
 impl Athlete<'_> {
     /// The athlete's rows under `keys` started in `[floor, top)`, newest
-    /// first, at most `limit`.
+    /// first, at most `limit`, after `below` when a page ended there.
     async fn rows_between(
         &self,
         keys: &[&str],
-        floor: i64,
-        top: i64,
+        (floor, top): (i64, i64),
         limit: i64,
+        below: Option<CachedRowCursor>,
     ) -> AppResult<Vec<CachedActivityRow>> {
         let (Some(start), Some(end)) = (
             Utc.timestamp_opt(floor, 0).single(),
@@ -91,15 +92,38 @@ impl Athlete<'_> {
         if end < start {
             return Ok(Vec::new());
         }
+        let query = CachedRowsQuery::window(start, end, limit).under_keys(keys);
+        let query = match below {
+            Some(cursor) => query.below(cursor),
+            None => query,
+        };
         self.runtime
             .repos()
             .activity_cache
-            .get_cached_activity_rows(
-                self.user_id,
-                &self.tenant_id,
-                &CachedRowsQuery::window(start, end, limit).under_keys(keys),
-            )
+            .get_cached_activity_rows(self.user_id, &self.tenant_id, &query)
             .await
+    }
+
+    /// Every activity under `keys` started in `[floor, top)` a copy of
+    /// which holds its efforts, read a page at a time down to `floor`.
+    async fn read_between(
+        &self,
+        keys: &[&str],
+        window: (i64, i64),
+    ) -> AppResult<HashSet<NativeKey>> {
+        let mut read = HashSet::new();
+        let mut below = None;
+        loop {
+            let rows = self
+                .rows_between(keys, window, TWIN_LOOKUP_ROWS, below)
+                .await?;
+            let full = i64::try_from(rows.len()).unwrap_or(i64::MAX) >= TWIN_LOOKUP_ROWS;
+            read.extend(rows.iter().filter(|row| row.segment_read).map(identity));
+            match rows.last() {
+                Some(last) if full => below = Some(CachedRowCursor::after(last)),
+                _ => return Ok(read),
+            }
+        }
     }
 
     /// Read the athlete's rows under `keys` started in `[floor, top)`, at
@@ -114,7 +138,9 @@ impl Athlete<'_> {
         top: i64,
         sport: Option<&str>,
     ) -> AppResult<Page> {
-        let rows = self.rows_between(keys, floor, top, WALK_PAGE_ROWS).await?;
+        let rows = self
+            .rows_between(keys, (floor, top), WALK_PAGE_ROWS, None)
+            .await?;
         let full = i64::try_from(rows.len()).unwrap_or(i64::MAX) >= WALK_PAGE_ROWS;
         let mut seconds = rows_by_second(rows, sport);
         if full && seconds.len() > 1 {
@@ -297,22 +323,18 @@ async fn drop_read_twins(
     let (Some(oldest), Some(newest)) = (starts().min(), starts().max()) else {
         return Ok(taken);
     };
-    let around = athlete
-        .rows_between(
+    let read = athlete
+        .read_between(
             keys,
-            oldest.saturating_sub(DAY_SECS),
-            newest.saturating_add(DAY_SECS + 1),
-            TWIN_LOOKUP_ROWS,
+            (
+                oldest.saturating_sub(DAY_SECS),
+                newest.saturating_add(DAY_SECS + 1),
+            ),
         )
         .await
         .map_err(|e| {
             warn!(user_id = %athlete.user_id, error = %e, "Detail walk: the store could not be read for the step's other copies");
         })?;
-    let read: HashSet<NativeKey> = around
-        .iter()
-        .filter(|row| row.segment_read)
-        .map(identity)
-        .collect();
     let mut seen: HashSet<NativeKey> = HashSet::new();
     for second in &mut taken.seconds {
         second.unread.retain(|unread| {
