@@ -644,8 +644,9 @@ impl BarrageLiveStore {
         Ok(held)
     }
 
-    /// Stop serving `scope`'s records of the live `source`, then delete them
-    /// and what the athlete had deleted of it.
+    /// Stop serving `scope`'s records of the live `source`, then delete them,
+    /// what the athlete had deleted of it and the originals no other record
+    /// keeps.
     async fn delete_scope(&self, scope: Scope, source: SourceKey) -> AppResult<()> {
         self.sink
             .retract(&scope, source, None, RetractReason::SourceDeleted)
