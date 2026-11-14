@@ -48,6 +48,7 @@
 //! efforts read, when that is any
 //! ([`BackfillNotifier::push_detail_walk_complete`](crate::runtime::BackfillNotifier::push_detail_walk_complete)).
 
+use std::collections::{HashMap, HashSet};
 use std::slice;
 use std::sync::Arc;
 use std::time::Instant;
@@ -98,6 +99,13 @@ const WALK_PAGES_PER_STEP: usize = 20;
 
 /// Seconds in a day.
 const SECS_PER_DAY: f64 = 86_400.0;
+
+/// Seconds in a day, as a span of starts.
+const DAY_SECS: i64 = 86_400;
+
+/// Stored rows one look for the other copies of a step's activities takes:
+/// the rows a day either side of the activities it reads.
+const TWIN_LOOKUP_ROWS: i64 = 1_000;
 
 /// The backend a detail walk of `provider`'s history reads for the athlete.
 ///
@@ -366,26 +374,28 @@ struct Second {
     unread: Vec<Unread>,
 }
 
-/// One read of the window's stored rows below `top`: the seconds it holds
-/// whole, newest first, and whether it reached the window's floor.
+/// The rows of the walk's sport that started in one second of the window.
+type SecondRows = (i64, Vec<CachedActivityRow>);
+
+/// One read of the window's stored rows below `top`: its rows of the walk's
+/// sport by the second they started in, whole seconds only, newest first,
+/// and whether it reached the window's floor.
 #[derive(Debug)]
 struct Page {
-    seconds: Vec<Second>,
+    seconds: Vec<SecondRows>,
     reached_floor: bool,
 }
 
 impl Athlete<'_> {
-    /// Read the athlete's rows under `keys` started in `[floor, top)`, at
-    /// most [`WALK_PAGE_ROWS`], as whole seconds: a full page's oldest second
-    /// may hold more rows past its edge, so it is left to the next read,
-    /// unless it is the page's only one.
-    async fn page(
+    /// The athlete's rows under `keys` started in `[floor, top)`, newest
+    /// first, at most `limit`.
+    async fn rows_between(
         &self,
         keys: &[&str],
         floor: i64,
         top: i64,
-        sport: Option<&str>,
-    ) -> AppResult<Page> {
+        limit: i64,
+    ) -> AppResult<Vec<CachedActivityRow>> {
         let (Some(start), Some(end)) = (
             Utc.timestamp_opt(floor, 0).single(),
             Utc.timestamp_opt(top, 0).single(),
@@ -397,23 +407,34 @@ impl Athlete<'_> {
         // `top` is excluded: the read's end is inclusive.
         let end: DateTime<Utc> = end - Duration::nanoseconds(1);
         if end < start {
-            return Ok(Page {
-                seconds: Vec::new(),
-                reached_floor: true,
-            });
+            return Ok(Vec::new());
         }
-        let rows = self
-            .runtime
+        self.runtime
             .repos()
             .activity_cache
             .get_cached_activity_rows(
                 self.user_id,
                 &self.tenant_id,
-                &CachedRowsQuery::window(start, end, WALK_PAGE_ROWS).under_keys(keys),
+                &CachedRowsQuery::window(start, end, limit).under_keys(keys),
             )
-            .await?;
+            .await
+    }
+
+    /// Read the athlete's rows under `keys` started in `[floor, top)`, at
+    /// most [`WALK_PAGE_ROWS`], as whole seconds: a full page's oldest second
+    /// may hold more rows past its edge, so it is left to the next read,
+    /// unless it is the page's only one. Only rows of `sport` are kept, but
+    /// every second the page read stays, so the cursor moves past it.
+    async fn page(
+        &self,
+        keys: &[&str],
+        floor: i64,
+        top: i64,
+        sport: Option<&str>,
+    ) -> AppResult<Page> {
+        let rows = self.rows_between(keys, floor, top, WALK_PAGE_ROWS).await?;
         let full = i64::try_from(rows.len()).unwrap_or(i64::MAX) >= WALK_PAGE_ROWS;
-        let mut seconds = by_second(rows, sport);
+        let mut seconds = rows_by_second(rows, sport);
         if full && seconds.len() > 1 {
             seconds.pop();
         }
@@ -424,7 +445,8 @@ impl Athlete<'_> {
     }
 
     /// How many activities started in `[floor, top)` under `keys`, of
-    /// `sport`, no copy of which holds its efforts.
+    /// `sport`, no copy of which holds its efforts: the copies of one
+    /// activity are one ([`identity`]) wherever in the window each starts.
     async fn unread_between(
         &self,
         keys: &[&str],
@@ -432,61 +454,65 @@ impl Athlete<'_> {
         top: i64,
         sport: Option<&str>,
     ) -> Result<i64, ()> {
-        let mut unread: i64 = 0;
+        let mut read: HashMap<NativeKey, bool> = HashMap::new();
         let mut top = top;
         loop {
             let page = self.page(keys, floor, top, sport).await.map_err(|e| {
                 warn!(user_id = %self.user_id, error = %e, "Detail walk: the store could not be read to count the window");
             })?;
-            for second in &page.seconds {
-                unread = unread.saturating_add(i64::try_from(second.unread.len()).unwrap_or(0));
+            for row in page.seconds.iter().flat_map(|(_, rows)| rows) {
+                *read.entry(identity(row)).or_insert(false) |= row.segment_read;
             }
             match page.seconds.last() {
-                Some(oldest) if !page.reached_floor => top = oldest.at,
-                _ => return Ok(unread),
+                Some((oldest, _)) if !page.reached_floor => top = *oldest,
+                _ => break,
             }
         }
+        let unread = read.values().filter(|read| !**read).count();
+        Ok(i64::try_from(unread).unwrap_or(i64::MAX))
     }
 }
 
-/// `rows`, newest first, as the seconds they started in, each holding its
-/// activities of `sport` whose efforts no copy holds: the copies of one
-/// activity are one ([`native_activity_key`]).
-fn by_second(rows: Vec<CachedActivityRow>, sport: Option<&str>) -> Vec<Second> {
-    let mut seconds: Vec<(i64, Vec<CachedActivityRow>)> = Vec::new();
+/// `rows`, newest first, by the second they started in, each second keeping
+/// only its rows of `sport`.
+fn rows_by_second(rows: Vec<CachedActivityRow>, sport: Option<&str>) -> Vec<SecondRows> {
+    let mut seconds: Vec<SecondRows> = Vec::new();
     for row in rows {
         let at = row.activity.start_date().timestamp();
-        match seconds.last_mut() {
-            Some((last, rows)) if *last == at => rows.push(row),
-            _ => seconds.push((at, vec![row])),
+        if !matches!(seconds.last(), Some((last, _)) if *last == at) {
+            seconds.push((at, Vec::new()));
+        }
+        let of_sport =
+            !filter_activities_by_sport_type(vec![row.activity.clone()], sport).is_empty();
+        if let (Some((_, rows)), true) = (seconds.last_mut(), of_sport) {
+            rows.push(row);
         }
     }
     seconds
-        .into_iter()
-        .map(|(at, rows)| Second {
-            at,
-            unread: unread_of(rows, sport),
-        })
-        .collect()
 }
 
 /// The service and its own activity id the copies of one activity share.
 type NativeKey = (String, String);
 
-/// The activities among one second's `rows` of `sport` no copy of which
-/// holds its efforts.
-fn unread_of(rows: Vec<CachedActivityRow>, sport: Option<&str>) -> Vec<Unread> {
-    let mut activities: Vec<(Option<NativeKey>, Vec<CachedActivityRow>)> = Vec::new();
+/// What makes `row` one activity with its other copies: the service's own
+/// activity id ([`native_activity_key`]), the same under the session's key
+/// and the grant's whatever start each lists it at, or its own key and id
+/// for a row that has no copy elsewhere.
+fn identity(row: &CachedActivityRow) -> NativeKey {
+    native_activity_key(&row.activity).map_or_else(
+        || (row.provider.clone(), row.activity.id().to_owned()),
+        |(service, id)| (service.to_owned(), id.to_owned()),
+    )
+}
+
+/// The activities among one second's `rows` no copy of which in that second
+/// holds its efforts; a copy elsewhere is the step's to look for
+/// ([`drop_read_twins`]).
+fn unread_of(rows: Vec<CachedActivityRow>) -> Vec<Unread> {
+    let mut activities: Vec<(NativeKey, Vec<CachedActivityRow>)> = Vec::new();
     for row in rows {
-        if filter_activities_by_sport_type(vec![row.activity.clone()], sport).is_empty() {
-            continue;
-        }
-        let key = native_activity_key(&row.activity)
-            .map(|(service, id)| (service.to_owned(), id.to_owned()));
-        match activities
-            .iter_mut()
-            .find(|(seen, _)| key.is_some() && *seen == key)
-        {
+        let key = identity(&row);
+        match activities.iter_mut().find(|(seen, _)| *seen == key) {
             Some((_, copies)) => copies.push(row),
             None => activities.push((key, vec![row])),
         }
@@ -705,9 +731,13 @@ async fn take_seconds(
         let page = athlete.page(keys, floor, top, sport).await.map_err(|e| {
             warn!(user_id = %athlete.user_id, error = %e, "Detail walk: the store could not be read for the step");
         })?;
-        for second in page.seconds {
+        for (at, rows) in page.seconds {
+            let second = Second {
+                at,
+                unread: unread_of(rows),
+            };
             if unread >= DETAIL_WALK_STEP_ACTIVITIES && !second.unread.is_empty() {
-                return Ok(taken);
+                return drop_read_twins(athlete, keys, taken).await;
             }
             unread += second.unread.len();
             top = second.at;
@@ -715,8 +745,60 @@ async fn take_seconds(
         }
         if page.reached_floor {
             taken.reached_floor = true;
-            return Ok(taken);
+            return drop_read_twins(athlete, keys, taken).await;
         }
+    }
+    drop_read_twins(athlete, keys, taken).await
+}
+
+/// Drop from `taken` every activity another copy of which, anywhere a day
+/// either side of the activities taken, holds its efforts, and every second
+/// copy of one activity the step took twice.
+///
+/// The copies of one activity can start in different seconds: a session's
+/// list read can carry only the day, while the grant's names the start, and
+/// the grant's copy the walk writes for a session-only ride carries the
+/// grant's start. Within a second the copies are already one ([`unread_of`]).
+async fn drop_read_twins(
+    athlete: &Athlete<'_>,
+    keys: &[&str],
+    mut taken: Taken,
+) -> Result<Taken, ()> {
+    let starts = || {
+        taken
+            .seconds
+            .iter()
+            .filter(|second| !second.unread.is_empty())
+            .map(|second| second.at)
+    };
+    let (Some(oldest), Some(newest)) = (starts().min(), starts().max()) else {
+        return Ok(taken);
+    };
+    let around = athlete
+        .rows_between(
+            keys,
+            oldest.saturating_sub(DAY_SECS),
+            newest.saturating_add(DAY_SECS + 1),
+            TWIN_LOOKUP_ROWS,
+        )
+        .await
+        .map_err(|e| {
+            warn!(user_id = %athlete.user_id, error = %e, "Detail walk: the store could not be read for the step's other copies");
+        })?;
+    let read: HashSet<NativeKey> = around
+        .iter()
+        .filter(|row| row.segment_read)
+        .map(identity)
+        .collect();
+    let mut seen: HashSet<NativeKey> = HashSet::new();
+    for second in &mut taken.seconds {
+        second.unread.retain(|unread| {
+            unread
+                .copies
+                .first()
+                .map(identity)
+                .is_some_and(|key| !read.contains(&key) && seen.insert(key))
+        });
     }
     Ok(taken)
 }
@@ -987,7 +1069,7 @@ mod tests {
     use pierre_core::models::coverage::Pending;
     use pierre_database::repositories::JobProgress;
 
-    use super::{by_second, detail_walk_running, Second};
+    use super::{detail_walk_running, rows_by_second, unread_of, Second};
 
     /// The unread activities of each second, by the first copy's id.
     fn unread_ids(seconds: &[Second]) -> HashMap<i64, Vec<String>> {
@@ -1067,7 +1149,13 @@ mod tests {
             row("sciotte", "102", 1_000, SportType::Ride, false),
             row("sciotte", "103", 1_000, SportType::Run, false),
         ];
-        let seconds = by_second(rows, Some("ride"));
+        let seconds: Vec<Second> = rows_by_second(rows, Some("ride"))
+            .into_iter()
+            .map(|(at, rows)| Second {
+                at,
+                unread: unread_of(rows),
+            })
+            .collect();
         let ids = unread_ids(&seconds);
         assert_eq!(
             ids.get(&2_000).map(Vec::len),

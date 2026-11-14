@@ -160,8 +160,14 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
 /// A ride started at `start` as `key` lists it, its id its start: the
 /// session's capture names Strava as its source.
 fn ride(key: &str, start: i64) -> Activity {
+    ride_listed_at(key, start, start)
+}
+
+/// The ride whose Strava id is `id` (its real start), as `key` lists it
+/// started at `start`: a session's list read can carry only the day.
+fn ride_listed_at(key: &str, id: i64, start: i64) -> Activity {
     let built = ActivityBuilder::new(
-        start.to_string(),
+        id.to_string(),
         "Morning ride",
         SportType::Ride,
         Utc.timestamp_opt(start, 0).unwrap(),
@@ -447,7 +453,11 @@ async fn a_spent_walk_day_pauses_the_walk_until_the_day_ends() {
         since(now - 10 * DAY),
     )
     .await;
-    assert_eq!(asked, DetailWalkAsked::Started { units_total: 7 });
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 7 },
+        "the seven rides of the window are owed"
+    );
 
     // The first step reads the day's five and records them.
     let deadline = Instant::now() + WALK_DEADLINE;
@@ -524,7 +534,11 @@ async fn an_ask_while_owed_widens_the_walk_and_it_walks_the_new_floor() {
         since(now - 15 * DAY),
     )
     .await;
-    assert_eq!(first, DetailWalkAsked::Started { units_total: 1 });
+    assert_eq!(
+        first,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the one ride above the first floor is owed"
+    );
     mock.read_held().await;
 
     let pending = detail_walk_pending(&runtime, user_id, tenant, oauth_providers::STRAVA)
@@ -567,7 +581,11 @@ async fn an_ask_while_owed_widens_the_walk_and_it_walks_the_new_floor() {
 
     gate.notify_one();
     let ended = walk_ended(&resources, user_id, tenant).await;
-    assert_eq!(ended.state, BackfillJobState::Walked);
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "bug: the widened walk never reached its new floor"
+    );
     assert_eq!(
         ended.progress.units_done, 3,
         "bug: the walk reads down to the widened floor"
@@ -598,7 +616,11 @@ async fn a_window_read_already_records_no_walk() {
         since(now - 30 * DAY),
     )
     .await;
-    assert_eq!(asked, DetailWalkAsked::NothingUnread);
+    assert_eq!(
+        asked,
+        DetailWalkAsked::NothingUnread,
+        "bug: a window with no stored ride asked for a walk"
+    );
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),
         "bug: an empty window recorded a walk"
@@ -686,7 +708,11 @@ async fn a_walk_that_stored_efforts_tells_its_end_once() {
         since(now - 20 * DAY),
     )
     .await;
-    assert_eq!(asked, DetailWalkAsked::Started { units_total: 12 });
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 12 },
+        "the twelve rides of the window are owed"
+    );
     let ended = walk_ended(&resources, user_id, tenant).await;
     assert_eq!(
         ended.progress.rows_landed, 12,
@@ -711,7 +737,11 @@ async fn a_walk_that_stored_efforts_tells_its_end_once() {
         since(now - 20 * DAY),
     )
     .await;
-    assert_eq!(asked, DetailWalkAsked::Started { units_total: 1 });
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 1 },
+        "the other athlete's one ride is owed"
+    );
     let ended = walk_ended(&resources, other, other_tenant).await;
     assert_eq!(
         ended.progress.rows_landed, 0,
@@ -721,5 +751,75 @@ async fn a_walk_that_stored_efforts_tells_its_end_once() {
         told.walks.lock().unwrap().len(),
         1,
         "bug: a walk that stored nothing told the athlete it ended"
+    );
+}
+
+/// The session lists a ride on its day alone, the grant at its real start:
+/// two rows of one ride that start in different seconds. The walk counts and
+/// reads it once, and a later ask finds nothing left to read.
+#[tokio::test]
+async fn copies_of_one_ride_listed_at_different_starts_are_read_once() {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let real_start = now - 10 * DAY;
+    let day_start = real_start - real_start.rem_euclid(DAY);
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    runtime
+        .live_activities()
+        .ingest(
+            user_id,
+            tenant,
+            SESSION,
+            &[ride_listed_at(SESSION, real_start, day_start)],
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[real_start],
+    )
+    .await;
+    open_window(&resources).await;
+
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        since(now - 30 * DAY),
+    )
+    .await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: the session's and the grant's copies of one ride are counted twice"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.progress.units_done, 1,
+        "bug: the walk read the ride once per copy"
+    );
+    assert_eq!(
+        mock.detail_reads(),
+        vec![real_start],
+        "bug: the ride is read through the grant once"
+    );
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            since(now - 30 * DAY),
+        )
+        .await,
+        DetailWalkAsked::NothingUnread,
+        "bug: a ride whose grant copy carries its efforts reads as unread through its session copy"
     );
 }
