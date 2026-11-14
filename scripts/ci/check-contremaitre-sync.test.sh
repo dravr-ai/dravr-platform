@@ -220,6 +220,35 @@ RS
 run "$root"
 expect_output "a computed tool name fails Check 3" "have a name this scan cannot read as a literal"
 
+# 4b. A schema built in a shape the scan reads no name from: an array of
+#     tuples mapped through a helper, as get_segment_history once was. The
+#     tool would read as declaring nothing, so the shared scan refuses it.
+root="$(tree unread_schema)"
+cat >> "$root/crates/demo/src/tools.rs" <<'RS'
+
+fn string_property(description: &str) -> PropertySchema {
+    PropertySchema {
+        property_type: "string".to_owned(),
+        description: Some(description.to_owned()),
+        ..Default::default()
+    }
+}
+
+impl McpTool for Epsilon {
+    fn definition(&self) -> Tool {
+        let properties: HashMap<String, PropertySchema> = [("from", "Start date.")]
+            .into_iter()
+            .map(|(name, description)| (name.to_owned(), string_property(description)))
+            .collect();
+        tool_definition("epsilon_tool", "Epsilon", object_schema(properties, None))
+    }
+}
+RS
+run "$root"
+expect_output "an unread schema fails Check 3" "Tool scan incomplete"
+expect_output "the refusal names the tool whose schema went unread" "tools.rs: epsilon_tool"
+expect_absent "no clean tool list is reported over an unread schema" "tools match"
+
 # ---------------------------------------------------------------------------
 # Check 1 and Check 8 (carnet#826). The fixture grows what they read: a
 # catalogue copy, the locale lists, the registry's KEY_* constants, a git

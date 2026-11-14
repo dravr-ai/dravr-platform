@@ -17,7 +17,7 @@
 //! provider's terms keep its data off (the governed provider refuses before
 //! any request), a dead grant, a spent budget, Strava refusing the listing to
 //! a non-subscriber. Only that last refusal is remembered, for the athlete
-//! and the backend, for a day ([`REFUSAL_MEMO`], [`provider_refused`]), so a
+//! and the backend, for a day ([`refusal`]), so a
 //! non-subscriber spends one listing a day, not one a call; a mistyped
 //! segment id or a failing Strava never keeps the athlete off it.
 //!
@@ -41,14 +41,12 @@
 //! ask no walk of either kind.
 
 use std::collections::{HashMap, HashSet};
-use std::num::NonZeroUsize;
-use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration as StdDuration, Instant};
+use std::sync::Arc;
+use std::time::Instant;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Months, NaiveDate, Utc};
 use chrono_tz::Tz;
-use lru::LruCache;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::constants::oauth::providers::{companion_keys, STRAVA, STRAVA_ARCHIVE};
 use pierre_core::errors::{AppError, AppResult};
@@ -59,7 +57,7 @@ use pierre_database::repositories::{CachedRowCursor, CachedRowsQuery};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::activity_origin;
-use pierre_providers::core::{is_segment_listing_refused, SegmentEffortHit, SegmentEffortWindow};
+use pierre_providers::core::{SegmentEffortHit, SegmentEffortWindow};
 use pierre_providers::deduplication::{merge_duplicates, one_activity_key, DedupConfig};
 use pierre_services::training_history_read::{
     history_source_order, history_store_keys, user_timezone,
@@ -70,8 +68,10 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 pub mod answer;
+mod refusal;
 
 use answer::{answer, effort_row, AnsweredBy, SegmentHistoryResult};
+use refusal::{provider_refused, refused_lately, remember_refusal};
 
 use crate::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, live_backend_serving, segment_detail_serving,
@@ -108,24 +108,6 @@ const STORE_PAGE_ROWS: i64 = 500;
 /// newest activities read and says it stopped short
 /// ([`IncompleteReason::ReadCapped`]).
 const MAX_WINDOW_ACTIVITIES: usize = 20_000;
-
-/// How long a failure of the live listing ([`provider_refused`]) keeps the
-/// athlete off it.
-const REFUSAL_MEMO_TTL: StdDuration = StdDuration::from_hours(24);
-
-/// Athletes the refusal memo holds at most; the least recently refused goes
-/// first.
-const REFUSAL_MEMO_ATHLETES: NonZeroUsize = match NonZeroUsize::new(10_000) {
-    Some(capacity) => capacity,
-    None => NonZeroUsize::MIN,
-};
-
-/// When each athlete's live listing through a backend was last refused by
-/// the provider ([`provider_refused`]), by
-/// `(athlete, backend)`: in process, bounded, read against
-/// [`REFUSAL_MEMO_TTL`].
-static REFUSAL_MEMO: LazyLock<Mutex<LruCache<(Uuid, String), Instant>>> =
-    LazyLock::new(|| Mutex::new(LruCache::new(REFUSAL_MEMO_ATHLETES)));
 
 // ============================================================================
 // The ask
@@ -243,38 +225,6 @@ fn window_instants(ask: &SegmentAsk, zone: Tz) -> (DateTime<Utc>, DateTime<Utc>)
 // ============================================================================
 // The live listing
 // ============================================================================
-
-/// Whether Strava refused `key`'s live listing within [`REFUSAL_MEMO_TTL`]
-/// of `now`.
-fn refused_lately(key: &(Uuid, String), now: Instant) -> bool {
-    REFUSAL_MEMO
-        .lock()
-        .ok()
-        .and_then(|mut memo| memo.get(key).copied())
-        .is_some_and(|at| now.saturating_duration_since(at) < REFUSAL_MEMO_TTL)
-}
-
-/// Remember that Strava refused `key`'s live listing at `now`.
-fn remember_refusal(key: (Uuid, String), now: Instant) {
-    if let Ok(mut memo) = REFUSAL_MEMO.lock() {
-        memo.put(key, now);
-    }
-}
-
-/// Whether `error` keeps the athlete off the listing for a day: only the
-/// provider refusing this athlete the listing, which needs a subscription
-/// (Strava's `402` or `403`, [`is_segment_listing_refused`]). It stands for
-/// every segment, so it is worth a day's wait.
-///
-/// Nothing else is: a `404` names a segment id the caller mistyped, a `5xx`,
-/// a request that could not be sent and an open circuit breaker are this
-/// request's, a gate that refused before any request (this transport, the
-/// athlete's consent), a spent budget or rate limit and a dead grant are
-/// read again on their own terms, and an id that is not a number is the
-/// call's. None says the athlete cannot list.
-fn provider_refused(error: &AppError) -> bool {
-    is_segment_listing_refused(error)
-}
 
 /// The live backend the athlete holds that lists a segment's efforts, among
 /// those holding their Strava history.
@@ -842,22 +792,29 @@ fn string_property(description: &str) -> PropertySchema {
 }
 
 fn input_schema() -> pierre_mcp_schema::JsonSchema {
-    let properties: HashMap<String, PropertySchema> = [
-        (
-            "segment_id",
-            "Segment id, from an activity's segment_efforts. This or segment_name.",
-        ),
-        (
-            "segment_name",
+    let mut properties: HashMap<String, PropertySchema> = HashMap::new();
+    properties.insert(
+        "segment_id".to_owned(),
+        string_property("Segment id, from an activity's segment_efforts. This or segment_name."),
+    );
+    properties.insert(
+        "segment_name".to_owned(),
+        string_property(
             "Segment name or part of it; case and accents ignored. This or segment_id.",
         ),
-        ("from", "YYYY-MM-DD; default ten years before to."),
-        ("to", "YYYY-MM-DD, included; default today."),
-        ("sport_type", "Only this sport (Ride, Run)."),
-    ]
-    .into_iter()
-    .map(|(name, description)| (name.to_owned(), string_property(description)))
-    .collect();
+    );
+    properties.insert(
+        "from".to_owned(),
+        string_property("YYYY-MM-DD; default ten years before to."),
+    );
+    properties.insert(
+        "to".to_owned(),
+        string_property("YYYY-MM-DD, included; default today."),
+    );
+    properties.insert(
+        "sport_type".to_owned(),
+        string_property("Only this sport (Ride, Run)."),
+    );
     object_schema(properties, None)
 }
 
@@ -924,8 +881,6 @@ crate::declare_security!(GetSegmentHistoryTool => empty);
 mod tests {
     use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
-    use pierre_providers::core::segment_listing_refused;
-    use pierre_providers::delegation::athlete_off_roster;
     use serde_json::json;
 
     use super::*;
@@ -1139,62 +1094,5 @@ mod tests {
             segments,
             "bug: the segment reason is lost"
         );
-    }
-
-    #[test]
-    fn a_refusal_strava_answered_is_remembered_for_a_day() {
-        let key = (Uuid::new_v4(), STRAVA.to_owned());
-        let at = Instant::now();
-        assert!(!refused_lately(&key, at), "bug: a fresh athlete is refused");
-        remember_refusal(key.clone(), at);
-        assert!(
-            refused_lately(&key, at + StdDuration::from_hours(23)),
-            "bug: a refusal is forgotten within the day"
-        );
-        assert!(
-            !refused_lately(&key, at + REFUSAL_MEMO_TTL),
-            "bug: a refusal outlives its day"
-        );
-    }
-
-    #[test]
-    fn only_strava_refusing_the_athlete_the_listing_is_remembered() {
-        for status in [402, 403] {
-            let refused = segment_listing_refused(STRAVA, status);
-            assert!(
-                provider_refused(&refused),
-                "bug: Strava refusing a non-subscriber ({status}) is not remembered"
-            );
-        }
-        for passing in [
-            // What the request itself answered, as `api_error` words it: a
-            // mistyped id, a failing Strava; a request never sent; an open
-            // breaker.
-            AppError::external_service(
-                STRAVA,
-                "Provider strava API error: 404 - strava API request failed with status 404 Not Found",
-            ),
-            AppError::external_service(
-                STRAVA,
-                "Provider strava API error: 500 - strava API request failed with status 500 Internal Server Error",
-            ),
-            AppError::external_service(STRAVA, "Failed to send request: connection refused"),
-            AppError::external_service(
-                "Strava",
-                "Circuit breaker open for provider strava, retry after 30s",
-            ),
-            // Gates that refused before any request, and the call's own.
-            AppError::unavailable_over_transport("this data is not available over this interface"),
-            AppError::not_found("strava data is withheld from AI"),
-            AppError::provider_auth_required(STRAVA),
-            AppError::invalid_input("a Strava segment id is a number"),
-            // A provider's permission refusal that is not the listing's.
-            athlete_off_roster("Strava"),
-        ] {
-            assert!(
-                !provider_refused(&passing),
-                "bug: an error that says nothing of the athlete keeps them off the listing: {passing:?}"
-            );
-        }
     }
 }

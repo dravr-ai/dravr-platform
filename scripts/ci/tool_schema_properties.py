@@ -49,7 +49,9 @@
 # `scan` raises on that rather than trusting it. It also counts every
 # `tool_definition(` call site against the ones whose name it could read as a
 # literal — 113 of 113 when written — so a computed name breaks the scan loudly
-# instead of quietly shrinking its coverage.
+# instead of quietly shrinking its coverage. And it refuses a tool whose segment
+# builds a `PropertySchema {` yet yields no property name: a schema written in a
+# shape neither property regex knows would otherwise read as declaring nothing.
 
 import glob
 import os
@@ -116,7 +118,8 @@ def scan(pattern="crates/**/*.rs", skip_tests=True):
     {"properties": set, "required": set, "rejections": {param: [site, ...]}}.
 
     Raises ScanError when the scan's own premise does not hold — an ordering
-    violation, or a tool name it could not read.
+    violation, a tool name it could not read, or a tool that builds a
+    PropertySchema the scan reads no property name from.
     """
     tools = {}
     orphans = {}
@@ -124,6 +127,7 @@ def scan(pattern="crates/**/*.rs", skip_tests=True):
     call_sites = 0
     named = 0
     ordering_violations = []
+    unread_schemas = []
 
     for path in sorted(glob.glob(pattern, recursive=True)):
         if skip_tests and (os.sep + "tests" + os.sep) in path:
@@ -189,6 +193,11 @@ def scan(pattern="crates/**/*.rs", skip_tests=True):
             )
             entry["properties"] |= set(PROP_INSERT.findall(before))
             entry["properties"] |= set(PROP_TUPLE.findall(before))
+            # The premise: a schema this tool builds is one the scan reads. A
+            # PropertySchema built in a shape neither regex knows reads as a
+            # tool declaring nothing, and every overlay parameter as dead.
+            if not entry["properties"] and "PropertySchema {" in before:
+                unread_schemas.append(f"{path}: {name}")
             for blob in REQUIRED_VEC.findall(before):
                 entry["required"] |= set(STRING_LIT.findall(blob))
             for rx in REJECTIONS:
@@ -197,6 +206,12 @@ def scan(pattern="crates/**/*.rs", skip_tests=True):
                         f"{path}:{_line_of(src, m.start() + r.start())}"
                     )
 
+    if unread_schemas:
+        raise ScanError(
+            "a tool builds a PropertySchema this scan reads no property name "
+            "from; declare each with properties.insert(\"name\".to_owned(), ...):"
+            "\n  " + "\n  ".join(unread_schemas)
+        )
     if ordering_violations:
         raise ScanError(
             "schema-before-definition ordering is violated, so these tools read "
