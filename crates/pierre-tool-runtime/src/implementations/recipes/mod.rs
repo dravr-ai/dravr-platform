@@ -124,10 +124,9 @@ impl McpTool<dyn ToolRuntime> for GetRecipeConstraintsTool {
         let schema = object_schema(properties, None);
         answers_with::<NutritionAnswer<RecipeConstraintsResult>>(tool_definition(
             "get_recipe_constraints",
-            "Get macro targets and constraints for generating a recipe. For an athlete with a \
-             medical/PAR-Q flag on file it returns qualitative `guidance` (meal purpose, \
-             restrictions, time limits) and `figures_withheld` instead of any kcal or gram \
-             target: their clinician sets those.",
+            "Get macro targets and constraints for generating a recipe. Under a medical/PAR-Q \
+             flag, or from outside Dravr's apps, it returns qualitative `guidance` (meal \
+             purpose, restrictions, time limits) and `figures_withheld`, not kcal or grams.",
             schema,
             annotations("Get recipe constraints", Effect::ReadOnly, Reach::Internal),
         ))

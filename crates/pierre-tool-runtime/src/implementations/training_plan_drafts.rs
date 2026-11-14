@@ -599,13 +599,7 @@ async fn publish(
     let calendar = match &calendar_push {
         CalendarPushOutcome::Pushed { .. } => None,
         CalendarPushOutcome::NotPushed { .. } => {
-            let fueling = FuelingDisclosure::for_athlete(
-                context.resources.repos(),
-                scope.tenant,
-                scope.user_id,
-            )
-            .await?;
-            calendar_preview_after_save(context, scope, &published.plan.id, today, &fueling).await
+            calendar_preview_after_save(context, scope, &published.plan.id, today).await
         }
     };
     let told = if published.athlete_notified {

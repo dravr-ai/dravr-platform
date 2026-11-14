@@ -58,10 +58,11 @@ const PUSH_TOOL: &str = "push_training_plan";
 /// Each entry carries its `prescription_id` so a later turn can name it to
 /// `prescribe_workout`'s `replaces` or to `withdraw_prescribed_workout`, and
 /// its `source` so the model knows which entries belong to the plan instead.
-/// `fueling` is the disclosure a push would render the days with, so the
-/// pending counts match what the push would write. `scope` is whose plan it
-/// is and who reads it: an athlete reading the calendar their human coach's
-/// link holds is told the coach pushes it ([`CalendarBlock::pushed_by`]).
+/// The days render with the push's own disclosure
+/// ([`FuelingDisclosure::for_athletes_calendar`]), so the pending counts match
+/// what the push would write whoever reads them. `scope` is whose plan it is
+/// and who reads it: an athlete reading the calendar their human coach's link
+/// holds is told the coach pushes it ([`CalendarBlock::pushed_by`]).
 ///
 /// # Errors
 ///
@@ -71,10 +72,10 @@ pub(super) async fn calendar_block(
     scope: &PlanScope,
     active_weeks: &[PlanWeek],
     today: NaiveDate,
-    fueling: &FuelingDisclosure,
 ) -> AppResult<CalendarBlock> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
+    let fueling = FuelingDisclosure::for_athletes_calendar(repos, tenant, user_id).await?;
     let ledger =
         calendar_ledger_target(context, tenant, user_id, ledger_connections(scope)).await?;
     let pushed_by = who_pushes(scope, &ledger);
@@ -88,7 +89,7 @@ pub(super) async fn calendar_block(
     // caller; the rest are served (carnet#769).
     ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
     let desired = for_calendar(
-        desired_entries(user_id, active_weeks, today, fueling),
+        desired_entries(user_id, active_weeks, today, &fueling),
         calendar_holds_week_notes(context.resources.provider_registry(), &target),
     );
     let pending = diff_against_ledger(&desired, &live)?;
@@ -153,14 +154,13 @@ pub(super) async fn calendar_block(
 ///
 /// Best-effort like the ramp check: the plan is already committed, so an
 /// unreadable ledger degrades to `None` rather than failing the save.
-/// `fueling` is the disclosure a push would render the days with; `scope`
-/// says who pushes it, as [`calendar_block`] does.
+/// The days render with the push's own disclosure, and `scope` says who
+/// pushes it, as [`calendar_block`] does.
 pub(super) async fn calendar_preview_after_save(
     context: &ToolExecutionContext,
     scope: &PlanScope,
     plan_id: &str,
     today: NaiveDate,
-    fueling: &FuelingDisclosure,
 ) -> Option<CalendarPreview> {
     let repos = context.resources.repos();
     let (tenant, user_id) = (scope.tenant, scope.user_id);
@@ -192,8 +192,12 @@ pub(super) async fn calendar_preview_after_save(
             .await,
         "plan weeks unreadable for the calendar preview",
     )?;
+    let fueling = best_effort(
+        FuelingDisclosure::for_athletes_calendar(repos, tenant, user_id).await,
+        "medical flag unreadable for the calendar preview",
+    )?;
     let desired = for_calendar(
-        desired_entries(user_id, &weeks, today, fueling),
+        desired_entries(user_id, &weeks, today, &fueling),
         calendar_holds_week_notes(context.resources.provider_registry(), &target),
     );
     let pending = best_effort(
@@ -223,7 +227,6 @@ pub(super) async fn calendar_after_own_save(
     scope: &PlanScope,
     plan_id: &str,
     today: NaiveDate,
-    fueling: &FuelingDisclosure,
 ) -> (Option<CalendarPushOutcome>, Option<CalendarPreview>) {
     let pushed = Box::pin(push_after_write(
         context,
@@ -239,7 +242,7 @@ pub(super) async fn calendar_after_own_save(
     let preview = match &calendar_push {
         Some(CalendarPushOutcome::Pushed { .. }) => None,
         Some(CalendarPushOutcome::NotPushed { .. }) | None => {
-            calendar_preview_after_save(context, scope, plan_id, today, fueling).await
+            calendar_preview_after_save(context, scope, plan_id, today).await
         }
     };
     (calendar_push, preview)

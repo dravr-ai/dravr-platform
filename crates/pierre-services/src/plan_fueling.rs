@@ -27,6 +27,19 @@
 //! the card, the prompt and the calendar cannot disagree about whether this
 //! athlete's rates are shown. A flag that cannot be read fails the surface
 //! rather than releasing the rates.
+//!
+//! Outside Dravr's own surfaces the nutrition gate withholds for every athlete
+//! ([`crate::medical_flag`], carnet#1565), so a plan read or saved over MCP,
+//! A2A or an API key carries no rates for anyone, and its words name no flag
+//! and no clinician: `EXTERNAL_FUELING_WITHHELD_CLAUSE` and the external
+//! refusal read the same whether a flag is on file or not.
+//!
+//! The athlete's own calendar is the exception: it is a destination the
+//! athlete owns, not an answer to the caller. What a push writes there, and
+//! what a preview counts against it, follows the athlete's flag on every
+//! transport ([`FuelingDisclosure::for_athletes_calendar`]), so a push an
+//! outside assistant starts writes the note an in-app push would. The caller
+//! reads only the push's counts and session names, never the note.
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{FuelingProtocol, TenantId};
@@ -35,25 +48,32 @@ use pierre_memory::training_plans::{PlanWeek, PlannedDay};
 use serde::Serialize;
 use uuid::Uuid;
 
-use crate::medical_flag::{nutrition_figures_gate, FiguresWithheld};
+use crate::medical_flag::{medical_flag_on_file, nutrition_figures_gate, FiguresWithheld};
 
 /// What a plan surface prints where a withheld protocol's rates would be:
 /// the prompt block's `fuel:` clause and the calendar note's fuelling line.
 pub const FUELING_WITHHELD_CLAUSE: &str = "fuelling amounts withheld — a medical/PAR-Q flag is \
      on file, so a clinician sets carbohydrate, fluid and sodium";
 
+/// [`FUELING_WITHHELD_CLAUSE`] outside Dravr's own surfaces, the same for
+/// every athlete.
+const EXTERNAL_FUELING_WITHHELD_CLAUSE: &str =
+    "fuelling amounts withheld — not given outside Dravr's own apps and channels";
+
 /// Whether this athlete's stored fuelling rates may be shown.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FuelingDisclosure {
-    /// No medical flag on file: stored rates render as written.
+    /// No medical flag on file, on Dravr's own surfaces: stored rates render
+    /// as written.
     Shown,
-    /// A medical flag is on file: every stored rate is replaced by this
-    /// statement, and a save carrying rates is refused.
+    /// A medical flag is on file, or the read is served outside Dravr's own
+    /// surfaces: every stored rate is replaced by this statement, and a save
+    /// carrying rates is refused.
     Withheld(FiguresWithheld),
 }
 
-/// What `get_training_plan` states when a medical flag withholds the plan's
-/// fuelling rates.
+/// What `get_training_plan` states when the plan's fuelling rates are
+/// withheld.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 pub struct WithheldFueling {
     /// Why the rates are absent and who sets them.
@@ -81,6 +101,29 @@ impl FuelingDisclosure {
         ))
     }
 
+    /// The disclosure for what Dravr writes to the athlete's own calendar, and
+    /// for the preview that counts against it: the athlete's medical flag
+    /// under `tenant`, on every transport.
+    ///
+    /// Unlike [`Self::for_athlete`], an external caller does not withhold the
+    /// rates here: the note lands on the athlete's calendar, not in the
+    /// caller's answer, which carries only counts and session names.
+    ///
+    /// # Errors
+    ///
+    /// Returns the repository error when the flag cannot be read.
+    pub async fn for_athletes_calendar(
+        repos: &RepositoryRegistry,
+        tenant: TenantId,
+        user_id: Uuid,
+    ) -> AppResult<Self> {
+        Ok(Self::from_gate(
+            medical_flag_on_file(repos, &[tenant], user_id)
+                .await?
+                .then(FiguresWithheld::medical_flag),
+        ))
+    }
+
     /// The disclosure a nutrition-figures gate answer implies.
     #[must_use]
     pub fn from_gate(gate: Option<FiguresWithheld>) -> Self {
@@ -96,13 +139,17 @@ impl FuelingDisclosure {
         }
     }
 
-    /// The one-line fuelling clause for a stored protocol: its rates, or
-    /// [`FUELING_WITHHELD_CLAUSE`].
+    /// The one-line fuelling clause for a stored protocol: its rates,
+    /// [`FUELING_WITHHELD_CLAUSE`], or outside Dravr's own surfaces
+    /// `EXTERNAL_FUELING_WITHHELD_CLAUSE`.
     #[must_use]
     pub fn clause(&self, protocol: &FuelingProtocol) -> String {
         match self {
             Self::Shown => protocol.summary(),
-            Self::Withheld(_) => FUELING_WITHHELD_CLAUSE.to_owned(),
+            Self::Withheld(statement) if statement.names_clinician() => {
+                FUELING_WITHHELD_CLAUSE.to_owned()
+            }
+            Self::Withheld(_) => EXTERNAL_FUELING_WITHHELD_CLAUSE.to_owned(),
         }
     }
 
@@ -142,7 +189,7 @@ impl FuelingDisclosure {
     }
 
     /// Refuse a save whose days carry fuelling rates this athlete's clinician
-    /// sets.
+    /// sets, or any save carrying rates outside Dravr's own surfaces.
     ///
     /// # Errors
     ///
@@ -152,9 +199,9 @@ impl FuelingDisclosure {
         &self,
         days: impl IntoIterator<Item = &'a PlannedDay>,
     ) -> AppResult<()> {
-        if matches!(self, Self::Shown) {
+        let Self::Withheld(statement) = self else {
             return Ok(());
-        }
+        };
         let dates: Vec<&str> = days
             .into_iter()
             .filter(|day| day.fueling.is_some())
@@ -163,12 +210,79 @@ impl FuelingDisclosure {
         if dates.is_empty() {
             return Ok(());
         }
+        let why = if statement.names_clinician() {
+            "a medical/PAR-Q flag is on file for this athlete, so their clinician sets \
+             carbohydrate, fluid and sodium amounts and no plan day may carry them"
+        } else {
+            "carbohydrate, fluid and sodium amounts are not set outside Dravr's own apps and \
+             channels, for any athlete"
+        };
         Err(AppError::invalid_input(format!(
-            "fueling on {} refused: a medical/PAR-Q flag is on file for this athlete, so their \
-             clinician sets carbohydrate, fluid and sodium amounts and no plan day may carry \
-             them. Remove `fueling` from those days and describe fuelling in the day's \
-             `workout` in words — what to take and when, with no amounts — then save again.",
+            "fueling on {} refused: {why}. Remove `fueling` from those days and describe \
+             fuelling in the day's `workout` in words — what to take and when, with no amounts \
+             — then save again.",
             dates.join(", ")
         )))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fuelled_day() -> PlannedDay {
+        serde_json::from_value(serde_json::json!({
+            "date": "2026-07-14", "sport": "ride", "workout": "3 h endurance",
+            "fueling": { "carbs_g_per_h": 60.0, "fluid_ml_per_h": 500.0 }
+        }))
+        .expect("a stored day")
+    }
+
+    #[test]
+    fn outside_dravr_the_clause_and_the_refusal_name_no_flag() {
+        let day = fuelled_day();
+        let protocol = day.fueling.clone().expect("the day stores a protocol");
+        let external = FuelingDisclosure::from_gate(Some(FiguresWithheld::external_transport()));
+
+        assert_eq!(
+            external.clause(&protocol),
+            EXTERNAL_FUELING_WITHHELD_CLAUSE,
+            "bug: outside Dravr the clause is not the one shared by every athlete"
+        );
+        let refusal = external
+            .refuse_figures([&day])
+            .expect_err("a save carrying rates is refused for every athlete")
+            .message;
+        for word in ["clinician", "medical", "PAR-Q"] {
+            assert!(
+                !refusal.contains(word) && !EXTERNAL_FUELING_WITHHELD_CLAUSE.contains(word),
+                "{word} would only be true of a flagged athlete: {refusal}"
+            );
+        }
+        assert!(refusal.contains("2026-07-14"), "{refusal}");
+    }
+
+    #[test]
+    fn on_dravrs_own_surfaces_a_flag_still_names_the_clinician() {
+        let day = fuelled_day();
+        let protocol = day.fueling.clone().expect("the day stores a protocol");
+        let flagged = FuelingDisclosure::from_gate(Some(FiguresWithheld::medical_flag()));
+
+        assert_eq!(
+            flagged.clause(&protocol),
+            FUELING_WITHHELD_CLAUSE,
+            "bug: on Dravr's own surfaces a flagged athlete's clause does not name the flag"
+        );
+        let refusal = flagged
+            .refuse_figures([&day])
+            .expect_err("a flagged athlete's save carrying rates is refused")
+            .message;
+        assert!(refusal.contains("clinician"), "{refusal}");
+        assert!(
+            FuelingDisclosure::from_gate(None)
+                .refuse_figures([&day])
+                .is_ok(),
+            "bug: an unflagged athlete's save carrying rates is refused in the app"
+        );
     }
 }

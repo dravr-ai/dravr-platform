@@ -2045,201 +2045,6 @@
       }
     },
     {
-      "name": "calculate_daily_nutrition",
-      "description": "Calculate daily calorie and macronutrient needs from biometrics and goals. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount: their clinician sets those.",
-      "inputSchema": {
-        "properties": {
-          "activity_level": {
-            "description": "sedentary, lightly_active, moderately_active, very_active or extra_active",
-            "type": "string"
-          },
-          "age": {
-            "description": "Age in years",
-            "type": "integer"
-          },
-          "athlete": {
-            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
-            "type": "string"
-          },
-          "gender": {
-            "description": "male or female",
-            "type": "string"
-          },
-          "height_cm": {
-            "description": "Height in centimeters",
-            "type": "number"
-          },
-          "training_goal": {
-            "description": "maintenance, weight_loss, muscle_gain or endurance_performance",
-            "type": "string"
-          },
-          "weight_kg": {
-            "description": "Body weight in kilograms",
-            "type": "number"
-          }
-        },
-        "required": [
-          "weight_kg",
-          "height_cm",
-          "age",
-          "gender",
-          "activity_level",
-          "training_goal"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "DailyNutritionResult": {
-            "description": "What `calculate_daily_nutrition` answers with.",
-            "properties": {
-              "bmr": {
-                "description": "Basal metabolic rate, kcal/day.",
-                "format": "double",
-                "type": "number"
-              },
-              "carbs_g": {
-                "description": "Daily carbohydrate target, grams.",
-                "format": "double",
-                "type": "number"
-              },
-              "carbs_percent": {
-                "description": "Carbohydrate share of energy, percent.",
-                "format": "double",
-                "type": "number"
-              },
-              "fat_g": {
-                "description": "Daily fat target, grams.",
-                "format": "double",
-                "type": "number"
-              },
-              "fat_percent": {
-                "description": "Fat share of energy, percent.",
-                "format": "double",
-                "type": "number"
-              },
-              "goal": {
-                "description": "The training goal the split was computed for.",
-                "type": "string"
-              },
-              "protein_g": {
-                "description": "Daily protein target, grams.",
-                "format": "double",
-                "type": "number"
-              },
-              "protein_percent": {
-                "description": "Protein share of energy, percent.",
-                "format": "double",
-                "type": "number"
-              },
-              "tdee": {
-                "description": "Total daily energy expenditure, kcal/day.",
-                "format": "double",
-                "type": "number"
-              }
-            },
-            "required": [
-              "bmr",
-              "tdee",
-              "protein_g",
-              "carbs_g",
-              "fat_g",
-              "protein_percent",
-              "carbs_percent",
-              "fat_percent",
-              "goal"
-            ],
-            "type": "object"
-          },
-          "FigureAuthority": {
-            "description": "Who sets the withheld figures instead of the platform.",
-            "oneOf": [
-              {
-                "const": "clinician",
-                "description": "The athlete's clinician.",
-                "type": "string"
-              }
-            ]
-          },
-          "FiguresWithheld": {
-            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the athlete has a medical flag on file and the answer carries\nno amount to eat or drink: no energy, macronutrient, fluid, sodium or\ncaffeine intake. What a finished session cost (its calories burned) still\ndescribes the session and is not an intake. Relay `note` rather than\nsupplying a number of your own.",
-            "properties": {
-              "note": {
-                "description": "What to tell the athlete, in plain words.",
-                "type": "string"
-              },
-              "reason": {
-                "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file."
-              },
-              "set_by": {
-                "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts for this athlete."
-              }
-            },
-            "required": [
-              "reason",
-              "set_by",
-              "note"
-            ],
-            "type": "object"
-          },
-          "WithheldFigures": {
-            "description": "A prescriptive nutrition answer without its figures.",
-            "properties": {
-              "figures_withheld": {
-                "$ref": "#/$defs/FiguresWithheld",
-                "description": "Why the amounts are absent and who sets them."
-              },
-              "guidance": {
-                "description": "What to do instead, qualitatively — foods and timing, no amounts.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "figures_withheld",
-              "guidance"
-            ],
-            "type": "object"
-          },
-          "WithheldReason": {
-            "description": "Why an answer came back without its nutrition figures.",
-            "oneOf": [
-              {
-                "const": "medical_flag",
-                "description": "A medical / PAR-Q flag is on the athlete's dossier.",
-                "type": "string"
-              }
-            ]
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/DailyNutritionResult",
-            "description": "The figures, for an athlete with no medical flag on file."
-          },
-          {
-            "$ref": "#/$defs/WithheldFigures",
-            "description": "Qualitative guidance only: a clinician sets this athlete's amounts."
-          }
-        ],
-        "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
-        "title": "NutritionAnswer",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Calculate daily nutrition",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "calculate_fitness_score",
       "description": "Calculate a fitness score (0-100): chronic training load 40% (sessions scored against the FTP and threshold heart rate saved with set_physiology, as analyze_training_load does), consistency 30% (share of weeks with 3+ activities) and pace improvement 30%, over the `timeframe` period.",
       "inputSchema": {
@@ -8106,7 +7911,7 @@
     },
     {
       "name": "export_routes",
-      "description": "Export the Endurance 'routes.json' shape for one activity — GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss and climb segments with Strava-style category. Requires lat/lon and altitude in the activity stream.",
+      "description": "Export the Endurance 'routes.json' shape for one activity — GPX-derived terrain mix (flat/rolling/climb/steep), elevation gain/loss and climb segments with a climb category. Requires lat/lon and altitude in the activity stream.",
       "inputSchema": {
         "properties": {
           "activity_id": {
@@ -8598,7 +8403,7 @@
     },
     {
       "name": "generate_recommendations",
-      "description": "Generate personalized training recommendations. `training_plan`, `recovery` and `all` advise on CTL, ATL and TSB as analyze_training_load reports them. In `nutrition` mode an athlete with a medical/PAR-Q flag on file gets foods and timing with no amounts, plus `figures_withheld` (their clinician sets those); the session is still described. Calories burned: the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex, else null with `calories_unavailable` saying why.",
+      "description": "Generate personalized training recommendations. `training_plan`, `recovery` and `all` advise on CTL, ATL and TSB as analyze_training_load reports them. In `nutrition` mode a medical/PAR-Q flag, or a call from outside Dravr's apps, gets foods and timing with no amounts, plus `figures_withheld`; the session is still described. Calories burned: the device's figure, else Keytel's heart-rate estimate from the saved weight, age and sex, else null with `calories_unavailable` saying why.",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -8716,11 +8521,16 @@
                 "const": "clinician",
                 "description": "The athlete's clinician.",
                 "type": "string"
+              },
+              {
+                "const": "not_stated",
+                "description": "Not stated: outside Dravr's own apps and channels the answer says\nnothing about who sets this athlete's amounts.",
+                "type": "string"
               }
             ]
           },
           "FiguresWithheld": {
-            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the athlete has a medical flag on file and the answer carries\nno amount to eat or drink: no energy, macronutrient, fluid, sodium or\ncaffeine intake. What a finished session cost (its calories burned) still\ndescribes the session and is not an intake. Relay `note` rather than\nsupplying a number of your own.",
+            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the answer carries no amount to eat or drink: no energy,\nmacronutrient, fluid, sodium or caffeine intake. What a finished session\ncost (its calories burned) still describes the session and is not an\nintake. Relay `note` rather than supplying a number of your own.",
             "properties": {
               "note": {
                 "description": "What to tell the athlete, in plain words.",
@@ -8728,11 +8538,11 @@
               },
               "reason": {
                 "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file."
+                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
               },
               "set_by": {
                 "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts for this athlete."
+                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
               }
             },
             "required": [
@@ -8983,7 +8793,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Present when the athlete has a medical flag on file: the `nutrition`\nmode then answers without `macronutrient_targets`, `meal_suggestions`\nor any amount in `recommendations`, because their clinician sets those."
+                "description": "Present when amounts are withheld (`reason` says why): the `nutrition`\nmode then answers without `macronutrient_targets`, `meal_suggestions`\nor any amount in `recommendations`."
               },
               "hr_zones_unavailable": {
                 "description": "Why heart rate did not decide which sessions were hard (`recovery`,\n`intensity`, `all`) or how hard the last session was (`nutrition`):\nthe athlete's heart-rate zones are unknown, so duration and speed\ndecided instead. Absent when the sessions were read against their\nzones, and in the modes that do not read heart rate.",
@@ -9233,6 +9043,11 @@
                 "const": "medical_flag",
                 "description": "A medical / PAR-Q flag is on the athlete's dossier.",
                 "type": "string"
+              },
+              {
+                "const": "external_transport",
+                "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
+                "type": "string"
               }
             ]
           }
@@ -9352,162 +9167,6 @@
       },
       "execution": {
         "taskSupport": "optional"
-      }
-    },
-    {
-      "name": "get_active_agent",
-      "description": "Get the currently active agent",
-      "inputSchema": {
-        "properties": {
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "ActiveAgentDetail": {
-            "description": "The active agent in full, as `get_active_agent` reports it.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What it is for; absent when none was given.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier.",
-                "type": "string"
-              },
-              "system_prompt": {
-                "description": "The instructions it runs on.",
-                "type": "string"
-              },
-              "tags": {
-                "description": "Free-form labels.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name.",
-                "type": "string"
-              },
-              "token_count": {
-                "description": "Estimated size of the system prompt, in tokens.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "system_prompt",
-              "category",
-              "tags",
-              "token_count"
-            ],
-            "type": "object"
-          },
-          "GetActiveAgentResult": {
-            "description": "What `get_active_agent` answers with.\n\nOne shape for both answers rather than two: the tool sends the same key set\nwhether an agent is active or not, so `active` false pairs with `agent`\nabsent. A client reads one field to branch instead of probing for a key.",
-            "properties": {
-              "active": {
-                "description": "Whether any agent is active for this athlete.",
-                "type": "boolean"
-              },
-              "agent": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/ActiveAgentDetail"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "The active agent; absent when `active` is false."
-              }
-            },
-            "required": [
-              "active",
-              "agent"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/GetActiveAgentResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/GetActiveAgentResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get active agent",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
       }
     },
     {
@@ -10475,154 +10134,6 @@
       }
     },
     {
-      "name": "get_agent",
-      "description": "Get detailed information about a specific agent",
-      "inputSchema": {
-        "properties": {
-          "agent_id": {
-            "description": "ID of the agent to retrieve",
-            "type": "string"
-          },
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          }
-        },
-        "required": [
-          "agent_id"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "GetAgentResult": {
-            "description": "What `get_agent` answers with.\n\nCarries `system_prompt`, which the list projection omits — reading one\nagent in full is what this tool is for.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "created_at": {
-                "description": "RFC 3339 creation timestamp.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What it is for; absent when none was given.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier.",
-                "type": "string"
-              },
-              "system_prompt": {
-                "description": "The instructions the agent runs on.",
-                "type": "string"
-              },
-              "tags": {
-                "description": "Free-form labels.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name.",
-                "type": "string"
-              },
-              "token_count": {
-                "description": "Estimated size of the system prompt, in tokens.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "updated_at": {
-                "description": "RFC 3339 timestamp of the last edit.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "system_prompt",
-              "category",
-              "tags",
-              "token_count",
-              "created_at",
-              "updated_at"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/GetAgentResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/GetAgentResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get agent",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "get_athlete",
       "description": "Get the athlete profile a connected provider reports: the provider's athlete ID, username, first and last name where public, and profile picture.",
       "inputSchema": {
@@ -10843,616 +10354,6 @@
       },
       "execution": {
         "taskSupport": "optional"
-      }
-    },
-    {
-      "name": "get_configuration_catalog",
-      "description": "Get the complete catalog of available configuration options",
-      "inputSchema": {
-        "properties": {},
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "ConfigCatalog": {
-            "description": "Complete configuration catalog",
-            "properties": {
-              "categories": {
-                "description": "Configuration categories",
-                "items": {
-                  "$ref": "#/$defs/ConfigCategory"
-                },
-                "type": "array"
-              },
-              "total_parameters": {
-                "description": "Total number of configurable parameters",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "version": {
-                "description": "Catalog version",
-                "type": "string"
-              }
-            },
-            "required": [
-              "categories",
-              "total_parameters",
-              "version"
-            ],
-            "type": "object"
-          },
-          "ConfigCategory": {
-            "description": "Configuration category",
-            "properties": {
-              "description": {
-                "description": "Category description",
-                "type": "string"
-              },
-              "modules": {
-                "description": "Modules in this category",
-                "items": {
-                  "$ref": "#/$defs/ConfigModule"
-                },
-                "type": "array"
-              },
-              "name": {
-                "description": "Category name",
-                "type": "string"
-              }
-            },
-            "required": [
-              "name",
-              "description",
-              "modules"
-            ],
-            "type": "object"
-          },
-          "ConfigModule": {
-            "description": "Configuration module",
-            "properties": {
-              "description": {
-                "description": "Module description",
-                "type": "string"
-              },
-              "name": {
-                "description": "Module name",
-                "type": "string"
-              },
-              "parameters": {
-                "description": "Parameters in this module",
-                "items": {
-                  "$ref": "#/$defs/ConfigParameter"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "name",
-              "description",
-              "parameters"
-            ],
-            "type": "object"
-          },
-          "ConfigParameter": {
-            "description": "Configuration parameter definition",
-            "properties": {
-              "data_type": {
-                "$ref": "#/$defs/ParameterType",
-                "description": "Data type"
-              },
-              "default_value": {
-                "$ref": "#/$defs/ConfigValue",
-                "description": "Default value"
-              },
-              "description": {
-                "description": "Human-readable description",
-                "type": "string"
-              },
-              "key": {
-                "description": "Parameter key (e.g., `lactate.threshold_percentage`)",
-                "type": "string"
-              },
-              "requires_vo2_max": {
-                "description": "Whether this parameter requires VO2 max data",
-                "type": "boolean"
-              },
-              "scientific_basis": {
-                "description": "Scientific basis or reference",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "units": {
-                "description": "Units (e.g., \"percentage\", \"bpm\", \"seconds\")",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "valid_range": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/ConfigValue"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Valid range (if applicable)"
-              }
-            },
-            "required": [
-              "key",
-              "description",
-              "data_type",
-              "default_value",
-              "valid_range",
-              "units",
-              "scientific_basis",
-              "requires_vo2_max"
-            ],
-            "type": "object"
-          },
-          "ConfigValue": {
-            "description": "Configuration value types",
-            "oneOf": [
-              {
-                "description": "Floating point number value",
-                "properties": {
-                  "type": {
-                    "const": "Float",
-                    "type": "string"
-                  },
-                  "value": {
-                    "format": "double",
-                    "type": "number"
-                  }
-                },
-                "required": [
-                  "type",
-                  "value"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Integer number value",
-                "properties": {
-                  "type": {
-                    "const": "Integer",
-                    "type": "string"
-                  },
-                  "value": {
-                    "format": "int64",
-                    "type": "integer"
-                  }
-                },
-                "required": [
-                  "type",
-                  "value"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Boolean flag value",
-                "properties": {
-                  "type": {
-                    "const": "Boolean",
-                    "type": "string"
-                  },
-                  "value": {
-                    "type": "boolean"
-                  }
-                },
-                "required": [
-                  "type",
-                  "value"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "String value",
-                "properties": {
-                  "type": {
-                    "const": "String",
-                    "type": "string"
-                  },
-                  "value": {
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "value"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Floating point range with min and max bounds",
-                "properties": {
-                  "type": {
-                    "const": "FloatRange",
-                    "type": "string"
-                  },
-                  "value": {
-                    "properties": {
-                      "max": {
-                        "description": "Maximum value",
-                        "format": "double",
-                        "type": "number"
-                      },
-                      "min": {
-                        "description": "Minimum value",
-                        "format": "double",
-                        "type": "number"
-                      }
-                    },
-                    "required": [
-                      "min",
-                      "max"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "type",
-                  "value"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Integer range with min and max bounds",
-                "properties": {
-                  "type": {
-                    "const": "IntegerRange",
-                    "type": "string"
-                  },
-                  "value": {
-                    "properties": {
-                      "max": {
-                        "description": "Maximum value",
-                        "format": "int64",
-                        "type": "integer"
-                      },
-                      "min": {
-                        "description": "Minimum value",
-                        "format": "int64",
-                        "type": "integer"
-                      }
-                    },
-                    "required": [
-                      "min",
-                      "max"
-                    ],
-                    "type": "object"
-                  }
-                },
-                "required": [
-                  "type",
-                  "value"
-                ],
-                "type": "object"
-              }
-            ]
-          },
-          "ParameterType": {
-            "description": "Parameter data types",
-            "oneOf": [
-              {
-                "const": "float",
-                "description": "Floating-point numeric value",
-                "type": "string"
-              },
-              {
-                "const": "integer",
-                "description": "Integer numeric value",
-                "type": "string"
-              },
-              {
-                "const": "boolean",
-                "description": "Boolean true/false value",
-                "type": "string"
-              },
-              {
-                "const": "string",
-                "description": "Text string value",
-                "type": "string"
-              }
-            ]
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_configuration_catalog` answers with.",
-        "properties": {
-          "catalog": {
-            "$ref": "#/$defs/ConfigCatalog",
-            "description": "Every configurable parameter, by category and module, with its type,\ndefault and valid range."
-          }
-        },
-        "required": [
-          "catalog"
-        ],
-        "title": "ConfigurationCatalogResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get configuration catalog",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "get_configuration_profiles",
-      "description": "Get available configuration profile templates",
-      "inputSchema": {
-        "properties": {},
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "ConfigProfile": {
-            "description": "Predefined configuration profiles",
-            "oneOf": [
-              {
-                "description": "Default configuration with standard thresholds",
-                "properties": {
-                  "type": {
-                    "const": "Default",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Research-grade detailed analysis",
-                "properties": {
-                  "sensitivity_multiplier": {
-                    "description": "Multiplier for sensitivity in analysis (1.0 = normal, >1.0 = more sensitive)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "statistical_confidence": {
-                    "description": "Statistical confidence level for analysis",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Research",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "sensitivity_multiplier",
-                  "statistical_confidence"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Elite athlete with strict thresholds",
-                "properties": {
-                  "performance_factor": {
-                    "description": "Performance adjustment factor (>1.0 for higher standards)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "recovery_sensitivity": {
-                    "description": "Recovery sensitivity multiplier",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Elite",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "performance_factor",
-                  "recovery_sensitivity"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Recreational athlete with forgiving analysis",
-                "properties": {
-                  "motivation_bias": {
-                    "description": "Positive bias in performance assessment (0.0-1.0)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "threshold_tolerance": {
-                    "description": "Threshold tolerance multiplier (>1.0 for more forgiving)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Recreational",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "motivation_bias",
-                  "threshold_tolerance"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Beginner with educational focus",
-                "properties": {
-                  "simplified_metrics": {
-                    "description": "Simplify metrics for easier understanding",
-                    "type": "boolean"
-                  },
-                  "threshold_reduction": {
-                    "description": "Reduce thresholds by this factor",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Beginner",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "threshold_reduction",
-                  "simplified_metrics"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Medical/rehabilitation context",
-                "properties": {
-                  "conservative_thresholds": {
-                    "description": "Use conservative thresholds",
-                    "type": "boolean"
-                  },
-                  "max_intensity": {
-                    "description": "Maximum allowed intensity (0.0-1.0)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "safety_margin": {
-                    "description": "Additional safety margin",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Medical",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "max_intensity",
-                  "conservative_thresholds",
-                  "safety_margin"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Sport-specific optimization",
-                "properties": {
-                  "specialization_factors": {
-                    "additionalProperties": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "description": "Sport-specific parameter overrides",
-                    "type": "object"
-                  },
-                  "sport": {
-                    "description": "Primary sport",
-                    "type": "string"
-                  },
-                  "type": {
-                    "const": "SportSpecific",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "sport",
-                  "specialization_factors"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Custom configuration",
-                "properties": {
-                  "description": {
-                    "description": "Profile description",
-                    "type": "string"
-                  },
-                  "name": {
-                    "description": "Profile name",
-                    "type": "string"
-                  },
-                  "overrides": {
-                    "additionalProperties": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "description": "Custom parameter overrides",
-                    "type": "object"
-                  },
-                  "type": {
-                    "const": "Custom",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "name",
-                  "description",
-                  "overrides"
-                ],
-                "type": "object"
-              }
-            ]
-          },
-          "ConfigurationProfileEntry": {
-            "description": "One named configuration profile.",
-            "properties": {
-              "description": {
-                "description": "A one-line description, composed from the name.",
-                "type": "string"
-              },
-              "name": {
-                "description": "The name the profile is listed under. `update_user_configuration`\ntakes it, or the profile's own name (`elite`, `sport_cycling`).",
-                "type": "string"
-              },
-              "profile": {
-                "$ref": "#/$defs/ConfigProfile",
-                "description": "The profile itself."
-              }
-            },
-            "required": [
-              "name",
-              "profile",
-              "description"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_configuration_profiles` answers with.",
-        "properties": {
-          "profiles": {
-            "description": "The profiles on offer.",
-            "items": {
-              "$ref": "#/$defs/ConfigurationProfileEntry"
-            },
-            "type": "array"
-          },
-          "total_count": {
-            "description": "How many there are.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          }
-        },
-        "required": [
-          "profiles",
-          "total_count"
-        ],
-        "title": "ConfigurationProfilesResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get configuration profiles",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
       }
     },
     {
@@ -11871,259 +10772,6 @@
       }
     },
     {
-      "name": "get_fitness_config",
-      "description": "Get fitness configuration for the current user (falls back to tenant default)",
-      "inputSchema": {
-        "properties": {
-          "configuration_name": {
-            "description": "Name of the configuration to retrieve (default: 'default')",
-            "type": "string"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "EffortThresholds": {
-            "description": "Effort level thresholds for categorizing workout intensity",
-            "properties": {
-              "hard_max": {
-                "description": "Maximum heart rate percentage for hard effort (0-1.0, above this is very high)",
-                "format": "float",
-                "type": "number"
-              },
-              "light_max": {
-                "description": "Maximum heart rate percentage for light effort (0-1.0)",
-                "format": "float",
-                "type": "number"
-              },
-              "moderate_max": {
-                "description": "Maximum heart rate percentage for moderate effort (0-1.0)",
-                "format": "float",
-                "type": "number"
-              }
-            },
-            "required": [
-              "light_max",
-              "moderate_max",
-              "hard_max"
-            ],
-            "type": "object"
-          },
-          "FitnessConfig": {
-            "description": "Main fitness configuration structure",
-            "properties": {
-              "intelligence": {
-                "$ref": "#/$defs/IntelligenceConfig",
-                "description": "Intelligence analysis configuration"
-              },
-              "sport_types": {
-                "additionalProperties": {
-                  "type": "string"
-                },
-                "description": "Map of sport type IDs to display names",
-                "type": "object"
-              },
-              "weather_api": {
-                "anyOf": [
-                  {
-                    "$ref": "#/$defs/WeatherApiConfig"
-                  },
-                  {
-                    "type": "null"
-                  }
-                ],
-                "description": "Optional weather API configuration"
-              }
-            },
-            "required": [
-              "sport_types",
-              "intelligence",
-              "weather_api"
-            ],
-            "type": "object"
-          },
-          "IntelligenceConfig": {
-            "description": "Intelligence analysis configuration",
-            "properties": {
-              "effort_thresholds": {
-                "$ref": "#/$defs/EffortThresholds",
-                "description": "Effort level threshold values"
-              },
-              "personal_records": {
-                "$ref": "#/$defs/PersonalRecordConfig",
-                "description": "Personal record detection settings"
-              },
-              "weather_mapping": {
-                "$ref": "#/$defs/WeatherMapping",
-                "description": "Weather detection keyword mappings"
-              }
-            },
-            "required": [
-              "effort_thresholds",
-              "weather_mapping",
-              "personal_records"
-            ],
-            "type": "object"
-          },
-          "PersonalRecordConfig": {
-            "description": "Personal record detection configuration",
-            "properties": {
-              "distance_pr_types": {
-                "description": "Distance-based PR types to track (e.g., \"5k\", \"10k\", \"`half_marathon`\")",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "pace_improvement_threshold": {
-                "description": "Minimum pace improvement percentage to count as PR (0-1.0)",
-                "format": "float",
-                "type": "number"
-              },
-              "time_pr_types": {
-                "description": "Time-based PR types to track (e.g., \"1h\", \"2h\")",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "pace_improvement_threshold",
-              "distance_pr_types",
-              "time_pr_types"
-            ],
-            "type": "object"
-          },
-          "WeatherApiConfig": {
-            "description": "Weather API configuration",
-            "properties": {
-              "base_url": {
-                "description": "Base URL for the weather API",
-                "type": "string"
-              },
-              "cache_duration_hours": {
-                "description": "How long to cache weather data (hours)",
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "enabled": {
-                "description": "Whether weather API integration is enabled",
-                "type": "boolean"
-              },
-              "provider": {
-                "description": "Weather provider name (e.g., \"openweathermap\")",
-                "type": "string"
-              },
-              "rate_limit_requests_per_minute": {
-                "description": "Rate limit for API requests (requests per minute)",
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "request_timeout_seconds": {
-                "description": "Request timeout (seconds)",
-                "format": "uint64",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "provider",
-              "base_url",
-              "enabled",
-              "cache_duration_hours",
-              "request_timeout_seconds",
-              "rate_limit_requests_per_minute"
-            ],
-            "type": "object"
-          },
-          "WeatherMapping": {
-            "description": "Weather detection and mapping configuration",
-            "properties": {
-              "rain_keywords": {
-                "description": "Keywords for detecting rain in weather descriptions",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "snow_keywords": {
-                "description": "Keywords for detecting snow in weather descriptions",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "wind_threshold": {
-                "description": "Wind speed threshold for flagging windy conditions (m/s)",
-                "format": "float",
-                "type": "number"
-              }
-            },
-            "required": [
-              "rain_keywords",
-              "snow_keywords",
-              "wind_threshold"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_fitness_config` answers with.\n\nOne shape for both answers: a missing configuration is a fact about the\ntenant, not a fault, so it reports `config: null` with `source` saying\nwhere the answer came from rather than erroring.",
-        "properties": {
-          "config": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/FitnessConfig"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The configuration; null when none is stored under that name."
-          },
-          "configuration_name": {
-            "description": "The configuration asked for, echoed back.",
-            "type": "string"
-          },
-          "message": {
-            "description": "Why there is no configuration. Absent when there is one.",
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "retrieved_at": {
-            "description": "RFC 3339 timestamp of the read, so a cached answer is recognisable.",
-            "type": "string"
-          },
-          "source": {
-            "description": "Where the answer came from: `database`, or `not_found`.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "configuration_name",
-          "config",
-          "source",
-          "retrieved_at"
-        ],
-        "title": "GetFitnessConfigResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get fitness configuration",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "get_food_details",
       "description": "Get detailed nutritional information for a specific food item",
       "inputSchema": {
@@ -12233,7 +10881,7 @@
     },
     {
       "name": "get_health_snapshots",
-      "description": "Get stored health snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
+      "description": "Get stored wellness snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -12705,7 +11353,7 @@
         "type": "object"
       },
       "annotations": {
-        "title": "Get health snapshots",
+        "title": "Get wellness snapshots",
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
@@ -13037,242 +11685,6 @@
       },
       "annotations": {
         "title": "Get heart rate series",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "get_nutrient_timing",
-      "description": "Get nutrient timing recommendations around workouts. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` and `figures_withheld` instead of any amount: their clinician sets those.",
-      "inputSchema": {
-        "properties": {
-          "athlete": {
-            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
-            "type": "string"
-          },
-          "daily_protein_g": {
-            "description": "Daily protein target in grams",
-            "type": "number"
-          },
-          "weight_kg": {
-            "description": "Body weight in kilograms",
-            "type": "number"
-          },
-          "workout_intensity": {
-            "description": "low, moderate or high",
-            "type": "string"
-          }
-        },
-        "required": [
-          "workout_intensity",
-          "weight_kg",
-          "daily_protein_g"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "FigureAuthority": {
-            "description": "Who sets the withheld figures instead of the platform.",
-            "oneOf": [
-              {
-                "const": "clinician",
-                "description": "The athlete's clinician.",
-                "type": "string"
-              }
-            ]
-          },
-          "FiguresWithheld": {
-            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the athlete has a medical flag on file and the answer carries\nno amount to eat or drink: no energy, macronutrient, fluid, sodium or\ncaffeine intake. What a finished session cost (its calories burned) still\ndescribes the session and is not an intake. Relay `note` rather than\nsupplying a number of your own.",
-            "properties": {
-              "note": {
-                "description": "What to tell the athlete, in plain words.",
-                "type": "string"
-              },
-              "reason": {
-                "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file."
-              },
-              "set_by": {
-                "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts for this athlete."
-              }
-            },
-            "required": [
-              "reason",
-              "set_by",
-              "note"
-            ],
-            "type": "object"
-          },
-          "NutrientTimingResult": {
-            "description": "What `get_nutrient_timing` answers with.",
-            "properties": {
-              "daily_protein_distribution": {
-                "$ref": "#/$defs/ProteinDistribution",
-                "description": "How to spread protein across the day."
-              },
-              "intensity_source": {
-                "description": "Where the workout intensity came from — stated so the athlete can tell\na figure they gave from one the server inferred.",
-                "type": "string"
-              },
-              "post_workout": {
-                "$ref": "#/$defs/PostWorkoutTiming",
-                "description": "What to take after it."
-              },
-              "pre_workout": {
-                "$ref": "#/$defs/PreWorkoutTiming",
-                "description": "What to take before the session."
-              }
-            },
-            "required": [
-              "pre_workout",
-              "post_workout",
-              "daily_protein_distribution",
-              "intensity_source"
-            ],
-            "type": "object"
-          },
-          "PostWorkoutTiming": {
-            "description": "The post-workout half of a nutrient-timing plan.",
-            "properties": {
-              "carbs_g": {
-                "description": "Carbohydrate to take, grams.",
-                "format": "double",
-                "type": "number"
-              },
-              "protein_g": {
-                "description": "Protein to take, grams.",
-                "format": "double",
-                "type": "number"
-              },
-              "recommendations": {
-                "description": "What to eat, in the athlete's terms.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "timing_hours_after": {
-                "description": "How long after the session to eat, hours.",
-                "format": "double",
-                "type": "number"
-              }
-            },
-            "required": [
-              "timing_hours_after",
-              "protein_g",
-              "carbs_g",
-              "recommendations"
-            ],
-            "type": "object"
-          },
-          "PreWorkoutTiming": {
-            "description": "The pre-workout half of a nutrient-timing plan.",
-            "properties": {
-              "carbs_g": {
-                "description": "Carbohydrate to take, grams.",
-                "format": "double",
-                "type": "number"
-              },
-              "recommendations": {
-                "description": "What to eat, in the athlete's terms.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "timing_hours_before": {
-                "description": "How long before the session to eat, hours.",
-                "format": "double",
-                "type": "number"
-              }
-            },
-            "required": [
-              "timing_hours_before",
-              "carbs_g",
-              "recommendations"
-            ],
-            "type": "object"
-          },
-          "ProteinDistribution": {
-            "description": "How the day's protein is spread across meals.",
-            "properties": {
-              "meals_per_day": {
-                "description": "Meals the target is split across.",
-                "format": "uint8",
-                "maximum": 255,
-                "minimum": 0,
-                "type": "integer"
-              },
-              "protein_per_meal_g": {
-                "description": "Protein per meal, grams.",
-                "format": "double",
-                "type": "number"
-              },
-              "strategy": {
-                "description": "The strategy behind the split.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "meals_per_day",
-              "protein_per_meal_g",
-              "strategy"
-            ],
-            "type": "object"
-          },
-          "WithheldFigures": {
-            "description": "A prescriptive nutrition answer without its figures.",
-            "properties": {
-              "figures_withheld": {
-                "$ref": "#/$defs/FiguresWithheld",
-                "description": "Why the amounts are absent and who sets them."
-              },
-              "guidance": {
-                "description": "What to do instead, qualitatively — foods and timing, no amounts.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              }
-            },
-            "required": [
-              "figures_withheld",
-              "guidance"
-            ],
-            "type": "object"
-          },
-          "WithheldReason": {
-            "description": "Why an answer came back without its nutrition figures.",
-            "oneOf": [
-              {
-                "const": "medical_flag",
-                "description": "A medical / PAR-Q flag is on the athlete's dossier.",
-                "type": "string"
-              }
-            ]
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/NutrientTimingResult",
-            "description": "The figures, for an athlete with no medical flag on file."
-          },
-          {
-            "$ref": "#/$defs/WithheldFigures",
-            "description": "Qualitative guidance only: a clinician sets this athlete's amounts."
-          }
-        ],
-        "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
-        "title": "NutritionAnswer",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get nutrient timing",
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
@@ -14109,7 +12521,7 @@
     },
     {
       "name": "get_recipe_constraints",
-      "description": "Get macro targets and constraints for generating a recipe. For an athlete with a medical/PAR-Q flag on file it returns qualitative `guidance` (meal purpose, restrictions, time limits) and `figures_withheld` instead of any kcal or gram target: their clinician sets those.",
+      "description": "Get macro targets and constraints for generating a recipe. Under a medical/PAR-Q flag, or from outside Dravr's apps, it returns qualitative `guidance` (meal purpose, restrictions, time limits) and `figures_withheld`, not kcal or grams.",
       "inputSchema": {
         "properties": {
           "calories": {
@@ -14152,11 +12564,16 @@
                 "const": "clinician",
                 "description": "The athlete's clinician.",
                 "type": "string"
+              },
+              {
+                "const": "not_stated",
+                "description": "Not stated: outside Dravr's own apps and channels the answer says\nnothing about who sets this athlete's amounts.",
+                "type": "string"
               }
             ]
           },
           "FiguresWithheld": {
-            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the athlete has a medical flag on file and the answer carries\nno amount to eat or drink: no energy, macronutrient, fluid, sodium or\ncaffeine intake. What a finished session cost (its calories burned) still\ndescribes the session and is not an intake. Relay `note` rather than\nsupplying a number of your own.",
+            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the answer carries no amount to eat or drink: no energy,\nmacronutrient, fluid, sodium or caffeine intake. What a finished session\ncost (its calories burned) still describes the session and is not an\nintake. Relay `note` rather than supplying a number of your own.",
             "properties": {
               "note": {
                 "description": "What to tell the athlete, in plain words.",
@@ -14164,11 +12581,11 @@
               },
               "reason": {
                 "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file."
+                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
               },
               "set_by": {
                 "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts for this athlete."
+                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
               }
             },
             "required": [
@@ -14305,6 +12722,11 @@
                 "const": "medical_flag",
                 "description": "A medical / PAR-Q flag is on the athlete's dossier.",
                 "type": "string"
+              },
+              {
+                "const": "external_transport",
+                "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
+                "type": "string"
               }
             ]
           }
@@ -14313,11 +12735,11 @@
         "anyOf": [
           {
             "$ref": "#/$defs/RecipeConstraintsResult",
-            "description": "The figures, for an athlete with no medical flag on file."
+            "description": "The figures, when the gate withholds none."
           },
           {
             "$ref": "#/$defs/WithheldFigures",
-            "description": "Qualitative guidance only: a clinician sets this athlete's amounts."
+            "description": "Qualitative guidance only; `figures_withheld` says why."
           }
         ],
         "description": "What a gated tool answers with: its figures, or guidance without them.\n\nUntagged, so an athlete without a flag gets the tool's own shape byte for\nbyte. A client tells the arms apart by `figures_withheld`, which only the\nwithheld arm carries.",
@@ -16376,7 +14798,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Present when a medical/PAR-Q flag is on file: fuelling rates are\nwithheld from `weeks` as they are from the live ones."
+                "description": "Present when fuelling amounts are withheld: rates are withheld from\n`weeks` as they are from the live ones."
               },
               "plan": {
                 "$ref": "#/$defs/TrainingPlan",
@@ -16701,11 +15123,16 @@
                 "const": "clinician",
                 "description": "The athlete's clinician.",
                 "type": "string"
+              },
+              {
+                "const": "not_stated",
+                "description": "Not stated: outside Dravr's own apps and channels the answer says\nnothing about who sets this athlete's amounts.",
+                "type": "string"
               }
             ]
           },
           "FiguresWithheld": {
-            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the athlete has a medical flag on file and the answer carries\nno amount to eat or drink: no energy, macronutrient, fluid, sodium or\ncaffeine intake. What a finished session cost (its calories burned) still\ndescribes the session and is not an intake. Relay `note` rather than\nsupplying a number of your own.",
+            "description": "The machine-readable statement that figures were withheld, and why.\n\nPresent means the answer carries no amount to eat or drink: no energy,\nmacronutrient, fluid, sodium or caffeine intake. What a finished session\ncost (its calories burned) still describes the session and is not an\nintake. Relay `note` rather than supplying a number of your own.",
             "properties": {
               "note": {
                 "description": "What to tell the athlete, in plain words.",
@@ -16713,11 +15140,11 @@
               },
               "reason": {
                 "$ref": "#/$defs/WithheldReason",
-                "description": "`medical_flag`: a medical / PAR-Q flag is on file."
+                "description": "`medical_flag`: a medical / PAR-Q flag is on file.\n`external_transport`: withheld for every athlete outside Dravr's apps."
               },
               "set_by": {
                 "$ref": "#/$defs/FigureAuthority",
-                "description": "`clinician`: who sets these amounts for this athlete."
+                "description": "`clinician`: who sets these amounts; `not_stated` outside Dravr's apps."
               }
             },
             "required": [
@@ -18776,7 +17203,7 @@
             ]
           },
           "WithheldFueling": {
-            "description": "What `get_training_plan` states when a medical flag withholds the plan's\nfuelling rates.",
+            "description": "What `get_training_plan` states when the plan's fuelling rates are\nwithheld.",
             "properties": {
               "dates": {
                 "description": "The days whose stored protocol was withheld from `weeks`, `YYYY-MM-DD`.\nEmpty when no returned day carries one — the statement still stands,\nbecause a save carrying rates for this athlete is refused.",
@@ -18802,6 +17229,11 @@
               {
                 "const": "medical_flag",
                 "description": "A medical / PAR-Q flag is on the athlete's dossier.",
+                "type": "string"
+              },
+              {
+                "const": "external_transport",
+                "description": "Served outside Dravr's own apps and channels, where amounts are\nwithheld for every athlete.",
                 "type": "string"
               }
             ]
@@ -19015,7 +17447,7 @@
                 "type": "null"
               }
             ],
-            "description": "Present when a medical/PAR-Q flag is on file: the athlete's clinician\nsets their fuelling amounts, so no day in `weeks` carries `fueling`\nrates, `dates` names the days whose stored rates were withheld, and a\nsave carrying `fueling` is refused. Describe fuelling in words."
+            "description": "Present when fuelling amounts are withheld (`figures_withheld` says\nwhy): no day in `weeks` carries `fueling` rates, `dates` names the days\nwhose stored rates were withheld, and a save carrying `fueling` is\nrefused. Describe fuelling in words."
           },
           "goal_stale": {
             "description": "Whether the goal the plan snapshotted has since expired, so the agent\nre-confirms it rather than planning toward a race that moved. Absent\nwhen there is no plan.",
@@ -19083,305 +17515,6 @@
       },
       "annotations": {
         "title": "Get training plan",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "get_user_configuration",
-      "description": "Get your current training configuration settings",
-      "inputSchema": {
-        "properties": {
-          "athlete": {
-            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "ConfigProfile": {
-            "description": "Predefined configuration profiles",
-            "oneOf": [
-              {
-                "description": "Default configuration with standard thresholds",
-                "properties": {
-                  "type": {
-                    "const": "Default",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Research-grade detailed analysis",
-                "properties": {
-                  "sensitivity_multiplier": {
-                    "description": "Multiplier for sensitivity in analysis (1.0 = normal, >1.0 = more sensitive)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "statistical_confidence": {
-                    "description": "Statistical confidence level for analysis",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Research",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "sensitivity_multiplier",
-                  "statistical_confidence"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Elite athlete with strict thresholds",
-                "properties": {
-                  "performance_factor": {
-                    "description": "Performance adjustment factor (>1.0 for higher standards)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "recovery_sensitivity": {
-                    "description": "Recovery sensitivity multiplier",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Elite",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "performance_factor",
-                  "recovery_sensitivity"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Recreational athlete with forgiving analysis",
-                "properties": {
-                  "motivation_bias": {
-                    "description": "Positive bias in performance assessment (0.0-1.0)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "threshold_tolerance": {
-                    "description": "Threshold tolerance multiplier (>1.0 for more forgiving)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Recreational",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "motivation_bias",
-                  "threshold_tolerance"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Beginner with educational focus",
-                "properties": {
-                  "simplified_metrics": {
-                    "description": "Simplify metrics for easier understanding",
-                    "type": "boolean"
-                  },
-                  "threshold_reduction": {
-                    "description": "Reduce thresholds by this factor",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Beginner",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "threshold_reduction",
-                  "simplified_metrics"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Medical/rehabilitation context",
-                "properties": {
-                  "conservative_thresholds": {
-                    "description": "Use conservative thresholds",
-                    "type": "boolean"
-                  },
-                  "max_intensity": {
-                    "description": "Maximum allowed intensity (0.0-1.0)",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "safety_margin": {
-                    "description": "Additional safety margin",
-                    "format": "double",
-                    "type": "number"
-                  },
-                  "type": {
-                    "const": "Medical",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "max_intensity",
-                  "conservative_thresholds",
-                  "safety_margin"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Sport-specific optimization",
-                "properties": {
-                  "specialization_factors": {
-                    "additionalProperties": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "description": "Sport-specific parameter overrides",
-                    "type": "object"
-                  },
-                  "sport": {
-                    "description": "Primary sport",
-                    "type": "string"
-                  },
-                  "type": {
-                    "const": "SportSpecific",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "sport",
-                  "specialization_factors"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Custom configuration",
-                "properties": {
-                  "description": {
-                    "description": "Profile description",
-                    "type": "string"
-                  },
-                  "name": {
-                    "description": "Profile name",
-                    "type": "string"
-                  },
-                  "overrides": {
-                    "additionalProperties": {
-                      "format": "double",
-                      "type": "number"
-                    },
-                    "description": "Custom parameter overrides",
-                    "type": "object"
-                  },
-                  "type": {
-                    "const": "Custom",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "type",
-                  "name",
-                  "description",
-                  "overrides"
-                ],
-                "type": "object"
-              }
-            ]
-          },
-          "ConfigurationDocument": {
-            "description": "A saved training configuration: the profile template applied, the\nathlete's own overrides on top, and what the two amount to.",
-            "properties": {
-              "effective_parameters": {
-                "additionalProperties": true,
-                "description": "The template's values with the overrides on top — what the\nconfiguration amounts to.",
-                "type": "object"
-              },
-              "last_modified": {
-                "description": "When the configuration was last written, RFC 3339.",
-                "type": "string"
-              },
-              "profile": {
-                "$ref": "#/$defs/ConfigProfile",
-                "description": "The profile template in effect, with its values."
-              },
-              "profile_parameters": {
-                "additionalProperties": {
-                  "format": "double",
-                  "type": "number"
-                },
-                "description": "The parameter values the template applies, by name.",
-                "type": "object"
-              },
-              "session_overrides": {
-                "additionalProperties": true,
-                "description": "The athlete's own overrides, by catalogue key. Open-ended: the keys\nare the catalogue's, not a fixed set this type could name.",
-                "type": "object"
-              }
-            },
-            "required": [
-              "profile",
-              "profile_parameters",
-              "session_overrides",
-              "effective_parameters",
-              "last_modified"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_user_configuration` answers with.",
-        "properties": {
-          "active_profile": {
-            "description": "The profile name of the template in effect: the one last applied with\n`update_user_configuration`, `default` when none was.",
-            "type": "string"
-          },
-          "available_parameters": {
-            "description": "How many parameters the catalogue offers, so a client can show\n\"3 of 47 overridden\" without a second call.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "configuration": {
-            "$ref": "#/$defs/ConfigurationDocument",
-            "description": "The template's values, the athlete's overrides and what they amount\nto."
-          },
-          "user_id": {
-            "description": "The athlete this belongs to.",
-            "type": "string"
-          }
-        },
-        "required": [
-          "user_id",
-          "active_profile",
-          "configuration",
-          "available_parameters"
-        ],
-        "title": "UserConfigurationResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Get user configuration",
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
@@ -21543,393 +19676,6 @@
       }
     },
     {
-      "name": "list_agents",
-      "description": "List available AI agents for personalized training guidance",
-      "inputSchema": {
-        "properties": {
-          "category": {
-            "description": "Only agents in this category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
-            "type": "string"
-          },
-          "favorites_only": {
-            "description": "Only show favorites. Default: false",
-            "type": "boolean"
-          },
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          },
-          "include_hidden": {
-            "description": "Include agents you hid. Default: false",
-            "type": "boolean"
-          },
-          "include_system": {
-            "description": "Include system agents. Default: true",
-            "type": "boolean"
-          },
-          "limit": {
-            "description": "Max results. Default: 50, max: 100",
-            "type": "integer"
-          },
-          "offset": {
-            "description": "Pagination offset. Default: 0",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "AgentListEntry": {
-            "description": "One agent as `list_agents` reports it.\n\nA projection of the enriched list row, not the stored agent: it carries the\nusage signals (`is_favorite`, `use_count`, `last_used_at`) that only the\nlist query joins in, and leaves out `system_prompt`, which is long and is\nwhat `get_agent` is for.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on: training, nutrition, recovery, recipes,\nmobility, analysis or custom.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What the agent is for; absent when none was given.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier the other agent tools take.",
-                "type": "string"
-              },
-              "is_assigned": {
-                "description": "Whether it is on this athlete's team (installed, assigned, activated,\nfavourited or their own) — an agent they only used is not.",
-                "type": "boolean"
-              },
-              "is_favorite": {
-                "description": "Whether the athlete has starred it.",
-                "type": "boolean"
-              },
-              "is_system": {
-                "description": "Whether it ships with the platform rather than being athlete-authored.",
-                "type": "boolean"
-              },
-              "last_used_at": {
-                "description": "RFC 3339 timestamp of the last use; absent if never used.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "tags": {
-                "description": "Free-form labels for filtering and search.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name.",
-                "type": "string"
-              },
-              "token_count": {
-                "description": "Estimated size of the agent's system prompt, in tokens.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "updated_at": {
-                "description": "RFC 3339 timestamp of the last edit.",
-                "type": "string"
-              },
-              "use_count": {
-                "description": "How many times it has been used.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "category",
-              "tags",
-              "token_count",
-              "is_favorite",
-              "is_system",
-              "is_assigned",
-              "use_count",
-              "last_used_at",
-              "updated_at"
-            ],
-            "type": "object"
-          },
-          "ListAgentsResult": {
-            "description": "What `list_agents` answers with.",
-            "properties": {
-              "agents": {
-                "description": "The agents on this page.",
-                "items": {
-                  "$ref": "#/$defs/AgentListEntry"
-                },
-                "type": "array"
-              },
-              "count": {
-                "description": "How many came back on this page.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "has_more": {
-                "description": "Whether another page follows. Always false when the caller set no\nlimit, because there is then nothing to compare the count against.",
-                "type": "boolean"
-              },
-              "limit": {
-                "description": "The page size in force, 50 when the caller named none.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "offset": {
-                "description": "The paging offset these start at.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "total": {
-                "description": "How many the athlete has in total, ignoring paging.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "agents",
-              "count",
-              "total",
-              "offset",
-              "limit",
-              "has_more"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/ListAgentsResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/ListAgentsResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "List agents",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "list_coaching_playbooks",
-      "description": "List the coaching playbooks learned for this athlete — trigger→intervention patterns with their success/failure counts and confidence. Use this to tell the athlete what you have learned works for them.",
-      "inputSchema": {
-        "properties": {
-          "limit": {
-            "description": "Max playbooks to return (1-50, default 12).",
-            "type": "integer"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "InterventionEntry": {
-            "description": "The intervention half of a [`PlaybookEntry`].",
-            "properties": {
-              "kind": {
-                "description": "Which action the playbook prescribes.",
-                "type": "string"
-              },
-              "magnitude": {
-                "description": "Its size where one applies; absent for interventions that carry none.",
-                "format": "int32",
-                "type": [
-                  "integer",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "kind",
-              "magnitude"
-            ],
-            "type": "object"
-          },
-          "PlaybookEntry": {
-            "description": "One learned playbook, as `list_coaching_playbooks` reports it.\n\nDistinct from `pierre_memory::playbooks::Playbook`: that is the stored row,\ncarrying tenant, user and agent identifiers the athlete's own client has no\nbusiness reading. This is the projection the tool actually sends.",
-            "properties": {
-              "confidence": {
-                "description": "Wilson lower bound on the success rate, so a 1/1 never outranks an 18/20.",
-                "format": "float",
-                "type": "number"
-              },
-              "failure_count": {
-                "description": "Times it did not.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "id": {
-                "description": "Stable identifier, and what `forget_playbook` takes.",
-                "type": "string"
-              },
-              "intervention": {
-                "$ref": "#/$defs/InterventionEntry",
-                "description": "The action it prescribes."
-              },
-              "last_outcome_at": {
-                "description": "RFC 3339 timestamp of the most recent outcome; absent if never labeled.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "neutral_count": {
-                "description": "Times the outcome carried no clear signal.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "success_count": {
-                "description": "Times the intervention worked.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "trigger": {
-                "$ref": "#/$defs/TriggerEntry",
-                "description": "The situation the playbook responds to."
-              }
-            },
-            "required": [
-              "id",
-              "trigger",
-              "intervention",
-              "success_count",
-              "failure_count",
-              "neutral_count",
-              "confidence",
-              "last_outcome_at"
-            ],
-            "type": "object"
-          },
-          "TriggerEntry": {
-            "description": "The trigger half of a [`PlaybookEntry`].",
-            "properties": {
-              "kind": {
-                "description": "Which pattern fired.",
-                "type": "string"
-              },
-              "magnitude": {
-                "description": "How pronounced the trigger was, as a band rather than a raw figure.",
-                "type": "string"
-              },
-              "sport": {
-                "description": "Sport it is scoped to, or absent when it applies across sports.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              }
-            },
-            "required": [
-              "kind",
-              "sport",
-              "magnitude"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `list_coaching_playbooks` answers with.",
-        "properties": {
-          "count": {
-            "description": "How many were returned.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "playbooks": {
-            "description": "The playbooks learned for this athlete, ranked by confidence.",
-            "items": {
-              "$ref": "#/$defs/PlaybookEntry"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "playbooks",
-          "count"
-        ],
-        "title": "ListCoachingPlaybooksResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "List coaching playbooks",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "list_data_sources",
       "description": "List connected data sources (devices and providers)",
       "inputSchema": {
@@ -22125,212 +19871,6 @@
       },
       "annotations": {
         "title": "List data sources",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "list_fitness_configs",
-      "description": "List all available fitness configuration names for the user and tenant",
-      "inputSchema": {
-        "properties": {
-          "include_tenant": {
-            "description": "Include tenant-level configurations (default: true)",
-            "type": "boolean"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `list_fitness_configs` answers with.",
-        "properties": {
-          "configurations": {
-            "description": "Every name visible to this athlete, user-level and tenant-level\nmerged and sorted, with no duplicates.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "retrieved_at": {
-            "description": "RFC 3339 timestamp of the read.",
-            "type": "string"
-          },
-          "tenant_level": {
-            "description": "The names stored for the whole tenant. A name in both lists is\noverridden per athlete, which is why both are reported.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          },
-          "total_count": {
-            "description": "How many distinct names `configurations` holds.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "user_specific": {
-            "description": "The names stored for this athlete specifically.",
-            "items": {
-              "type": "string"
-            },
-            "type": "array"
-          }
-        },
-        "required": [
-          "configurations",
-          "user_specific",
-          "tenant_level",
-          "total_count",
-          "retrieved_at"
-        ],
-        "title": "ListFitnessConfigsResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "List fitness configurations",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
-      "name": "list_hidden_agents",
-      "description": "List all hidden agents",
-      "inputSchema": {
-        "properties": {
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          }
-        },
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "HiddenAgentEntry": {
-            "description": "One agent as `list_hidden_agents` reports it.\n\nThe narrowest projection of the four: enough to recognise an agent and\nun-hide it, and nothing else.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What it is for; absent when none was given.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier `show_agent` takes.",
-                "type": "string"
-              },
-              "is_system": {
-                "description": "Whether it ships with the platform rather than being athlete-authored.",
-                "type": "boolean"
-              },
-              "title": {
-                "description": "Display name.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "category",
-              "is_system"
-            ],
-            "type": "object"
-          },
-          "ListHiddenAgentsResult": {
-            "description": "What `list_hidden_agents` answers with.",
-            "properties": {
-              "agents": {
-                "description": "The hidden agents.",
-                "items": {
-                  "$ref": "#/$defs/HiddenAgentEntry"
-                },
-                "type": "array"
-              },
-              "count": {
-                "description": "How many there are.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "agents",
-              "count"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/ListHiddenAgentsResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/ListHiddenAgentsResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "List hidden agents",
         "readOnlyHint": true,
         "destructiveHint": false,
         "idempotentHint": true,
@@ -22673,7 +20213,7 @@
     },
     {
       "name": "list_workout_templates",
-      "description": "List the workout template bank by what a session is for. Each template has a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep), the phases it fits, the readiness level it needs, its sports, evidence tier, and parameter ranges with defaults you fill in for the athlete. The athlete's own saved sessions follow the bank. detail = full returns the steps and target zones prescribe_workout pushes.",
+      "description": "List the workout template bank by what a session is for. Each template has a purpose (recovery, endurance, endurance_long, tempo, sweet_spot, threshold, vo2max_long, vo2max_short, sprint, neuromuscular, race_specific, brick, strength_aa, strength_max, strength_maint, plyometric, mobility, uphill, downhill, anaerobic_capacity, race_prep), the phases it fits, the readiness level it needs, its sports, evidence tier, and parameter ranges with defaults you fill in for the athlete. The athlete's own saved sessions follow the bank. detail = full returns the steps and target zones.",
       "inputSchema": {
         "properties": {
           "detail": {
@@ -31500,198 +29040,6 @@
       }
     },
     {
-      "name": "search_agents",
-      "description": "Search the agents you created by title, description or tags, optionally within one category. Returns up to 20 results by default. Check the `has_more` field before requesting additional results with offset.",
-      "inputSchema": {
-        "properties": {
-          "category": {
-            "description": "Only matches in this category. One of: training, nutrition, recovery, recipes, mobility, analysis, custom; any other name reads as custom.",
-            "type": "string"
-          },
-          "format": {
-            "description": "'json' (default) or 'toon' (compact).",
-            "type": "string"
-          },
-          "limit": {
-            "description": "Maximum results per request. Default: 20, max: 100",
-            "type": "integer"
-          },
-          "offset": {
-            "description": "Pagination offset. Default: 0. Only use if previous response had has_more=true",
-            "type": "integer"
-          },
-          "query": {
-            "description": "Search query",
-            "type": "string"
-          }
-        },
-        "required": [
-          "query"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$defs": {
-          "AgentSearchEntry": {
-            "description": "One agent as `search_agents` reports it.\n\nNarrower than the list entry: a search result is for picking, so it omits\nthe usage signals and timestamps.",
-            "properties": {
-              "category": {
-                "description": "Which shelf it sits on.",
-                "type": "string"
-              },
-              "description": {
-                "description": "What it is for; absent when none was given.",
-                "type": [
-                  "string",
-                  "null"
-                ]
-              },
-              "id": {
-                "description": "Identifier.",
-                "type": "string"
-              },
-              "tags": {
-                "description": "Free-form labels.",
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              "title": {
-                "description": "Display name.",
-                "type": "string"
-              },
-              "token_count": {
-                "description": "Estimated size of the system prompt, in tokens.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "id",
-              "title",
-              "description",
-              "category",
-              "tags",
-              "token_count"
-            ],
-            "type": "object"
-          },
-          "SearchAgentsResult": {
-            "description": "What `search_agents` answers with.",
-            "properties": {
-              "has_more": {
-                "description": "Whether another page follows.",
-                "type": "boolean"
-              },
-              "limit": {
-                "description": "The page size in force, 20 when the caller named none.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "offset": {
-                "description": "The paging offset these start at.",
-                "format": "uint32",
-                "minimum": 0,
-                "type": "integer"
-              },
-              "query": {
-                "description": "The query, echoed back.",
-                "type": "string"
-              },
-              "results": {
-                "description": "The matches on this page.",
-                "items": {
-                  "$ref": "#/$defs/AgentSearchEntry"
-                },
-                "type": "array"
-              },
-              "returned_count": {
-                "description": "How many came back. Named `returned_count` rather than `count` here,\nunlike `list_agents` — kept as-is because renaming it would change a\nwire shape for no gain.",
-                "format": "uint",
-                "minimum": 0,
-                "type": "integer"
-              }
-            },
-            "required": [
-              "query",
-              "results",
-              "returned_count",
-              "offset",
-              "limit",
-              "has_more"
-            ],
-            "type": "object"
-          }
-        },
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "anyOf": [
-          {
-            "$ref": "#/$defs/SearchAgentsResult",
-            "description": "`format=json`, the default: the tool's own shape, unchanged."
-          },
-          {
-            "description": "`format=toon`: the payload rendered as one compact TOON string.",
-            "properties": {
-              "format": {
-                "description": "Always `toon`.",
-                "type": "string"
-              },
-              "toon": {
-                "description": "The rendered payload.",
-                "type": "string"
-              }
-            },
-            "required": [
-              "toon",
-              "format"
-            ],
-            "type": "object"
-          },
-          {
-            "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
-            "properties": {
-              "format": {
-                "description": "Always `json`.",
-                "type": "string"
-              },
-              "format_error": {
-                "description": "Why TOON rendering failed.",
-                "type": "string"
-              },
-              "format_fallback": {
-                "description": "Always true; present so the fallback is detectable on its own.",
-                "type": "boolean"
-              },
-              "result": {
-                "$ref": "#/$defs/SearchAgentsResult",
-                "description": "The payload, unformatted."
-              }
-            },
-            "required": [
-              "result",
-              "format",
-              "format_fallback",
-              "format_error"
-            ],
-            "type": "object"
-          }
-        ],
-        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
-        "title": "Formatted",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Search agents",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "search_food",
       "description": "Search USDA FoodData Central for foods.",
       "inputSchema": {
@@ -34938,67 +32286,6 @@
       }
     },
     {
-      "name": "validate_configuration",
-      "description": "Validate configuration parameters for physiological correctness",
-      "inputSchema": {
-        "properties": {
-          "parameters": {
-            "description": "Configuration parameters to validate",
-            "type": "object"
-          }
-        },
-        "required": [
-          "parameters"
-        ],
-        "type": "object"
-      },
-      "outputSchema": {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `validate_configuration` answers with.\n\nA validation failure is a reported outcome, not an error: the athlete\nasked whether their parameters are sound and \"no, and here is why\" is the\nanswer to that question.",
-        "properties": {
-          "errors": {
-            "description": "What failed, one entry per problem. Null rather than an empty list\nwhen everything passed — the two are different answers and the wire\nhas always distinguished them.",
-            "items": {
-              "type": "string"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
-          "message": {
-            "description": "The verdict in plain language.",
-            "type": "string"
-          },
-          "parameters_validated": {
-            "description": "How many were checked.",
-            "format": "uint",
-            "minimum": 0,
-            "type": "integer"
-          },
-          "validation_passed": {
-            "description": "Whether every parameter passed.",
-            "type": "boolean"
-          }
-        },
-        "required": [
-          "validation_passed",
-          "parameters_validated",
-          "message",
-          "errors"
-        ],
-        "title": "ValidateConfigurationResult",
-        "type": "object"
-      },
-      "annotations": {
-        "title": "Validate configuration",
-        "readOnlyHint": true,
-        "destructiveHint": false,
-        "idempotentHint": true,
-        "openWorldHint": false
-      }
-    },
-    {
       "name": "validate_recipe",
       "description": "Validate recipe nutrition using USDA FoodData Central",
       "inputSchema": {
@@ -35217,7 +32504,7 @@
     },
     {
       "name": "verify_claim",
-      "description": "Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → the athlete's own physiology → the athlete's own activity record → evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply an MCP client or agent writes from this server's data is checked only through this tool. Call it on every figure about the athlete (category athlete_data) before stating it, and on any physiological, nutrition, training, or supplement claim you are not certain about.",
+      "description": "Check a factual claim against the claim-verification pipeline (rhetoric, deterministic bounds, the athlete's own physiology and activity record, evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply written elsewhere from this server's data is checked only through this tool, and a call from outside Dravr's apps stores nothing.",
       "inputSchema": {
         "properties": {
           "agent_id": {
@@ -35280,12 +32567,14 @@
             "type": "string"
           },
           "verdict_id": {
-            "description": "Stable identifier of the persisted verdict.",
-            "type": "string"
+            "description": "Stable identifier of the persisted verdict. Absent when the call came\nfrom outside Dravr's own apps, where nothing is stored.",
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
-          "verdict_id",
           "status",
           "evidence_strength",
           "layer_fired",

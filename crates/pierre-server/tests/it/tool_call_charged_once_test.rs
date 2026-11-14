@@ -137,7 +137,8 @@ async fn one_dispatch_over_mcp_charges_exactly_once() {
         "fixture precondition: nothing charged yet"
     );
 
-    let status = call_tool_over_mcp(&resources, &jwt, "list_fitness_configs").await;
+    // A read every grant lists over `/mcp`.
+    let status = call_tool_over_mcp(&resources, &jwt, "get_connection_status").await;
     assert_eq!(status, 200, "an authenticated tools/call is served in-band");
 
     assert_eq!(

@@ -614,7 +614,7 @@ async fn read_plan(
         // — and plan entries of a plan since abandoned, which the
         // block's `pending.remove` counts. A coach may hold a draft of
         // the athlete's first season.
-        let calendar = calendar_block(context, scope, &[], today, &fueling).await?;
+        let calendar = calendar_block(context, scope, &[], today).await?;
         let draft = draft_section(repos, scope, &[], &fueling).await?;
         let message = if draft.is_some() {
             "no live training plan yet — your draft below is not published; the \
@@ -656,7 +656,7 @@ async fn read_plan(
         .filter(|week| week.status == WeekStatus::Active)
         .cloned()
         .collect();
-    let calendar = calendar_block(context, scope, &active_weeks, today, &fueling).await?;
+    let calendar = calendar_block(context, scope, &active_weeks, today).await?;
 
     // Both rails have measured every save since they shipped and
     // reported into a log line no agent reads. Asked for, the same
@@ -1094,7 +1094,6 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 &scope,
                 &bundle.plan.id,
                 rails.today,
-                &fueling,
             ))
             .await;
 

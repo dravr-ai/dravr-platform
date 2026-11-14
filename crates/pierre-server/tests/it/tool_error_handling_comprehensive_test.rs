@@ -18,6 +18,7 @@
 
 use anyhow::Result;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_tool_runtime::protocols::ProtocolError;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use serde_json::json;
@@ -37,6 +38,14 @@ async fn create_error_test_executor() -> Result<UniversalToolExecutor> {
 
     let resources = common::create_test_server_resources().await?;
     Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
+}
+
+/// [`create_error_test_executor`] as Dravr's own app: the configuration reads
+/// and the prescriptive nutrition tools run only there (carnet#1565).
+async fn create_in_app_error_test_executor() -> Result<UniversalToolExecutor> {
+    Ok(create_error_test_executor()
+        .await?
+        .with_transport(Transport::WebApp))
 }
 
 /// Create a test request with given parameters
@@ -355,7 +364,7 @@ async fn test_update_user_configuration_invalid_key() -> Result<()> {
 
 #[tokio::test]
 async fn test_validate_configuration_missing_config() -> Result<()> {
-    let executor = create_error_test_executor().await?;
+    let executor = create_in_app_error_test_executor().await?;
 
     let request = create_request("validate_configuration", json!({}));
 
@@ -507,7 +516,7 @@ async fn test_track_sleep_trends_empty_history() -> Result<()> {
 
 #[tokio::test]
 async fn test_calculate_daily_nutrition_all_missing() -> Result<()> {
-    let executor = create_error_test_executor().await?;
+    let executor = create_in_app_error_test_executor().await?;
 
     let request = create_request("calculate_daily_nutrition", json!({}));
 
@@ -521,7 +530,7 @@ async fn test_calculate_daily_nutrition_all_missing() -> Result<()> {
 
 #[tokio::test]
 async fn test_calculate_daily_nutrition_extreme_weight() -> Result<()> {
-    let executor = create_error_test_executor().await?;
+    let executor = create_in_app_error_test_executor().await?;
 
     let request = create_request(
         "calculate_daily_nutrition",

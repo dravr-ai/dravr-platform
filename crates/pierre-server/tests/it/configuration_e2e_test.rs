@@ -18,6 +18,7 @@ use pierre_cache::{Cache, CacheConfig};
 use pierre_config::environment::{AppBehaviorConfig, BackupConfig, DatabaseConfig, ServerConfig};
 use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
@@ -99,7 +100,11 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
     );
     (
         Arc::new(
-            UniversalToolExecutor::new(server_resources).with_scopes(OAuthScope::self_grant()),
+            // Dravr's own app: the configuration reads run only there
+            // (carnet#1565).
+            UniversalToolExecutor::new(server_resources)
+                .with_scopes(OAuthScope::self_grant())
+                .with_transport(Transport::WebApp),
         ),
         user_id.to_string(),
     )

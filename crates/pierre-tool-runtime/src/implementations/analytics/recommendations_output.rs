@@ -90,9 +90,9 @@ pub struct RecommendationsResult {
     /// The session the nutrition advice is about.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub activity_summary: Option<ActivitySummary>,
-    /// Present when the athlete has a medical flag on file: the `nutrition`
+    /// Present when amounts are withheld (`reason` says why): the `nutrition`
     /// mode then answers without `macronutrient_targets`, `meal_suggestions`
-    /// or any amount in `recommendations`, because their clinician sets those.
+    /// or any amount in `recommendations`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub figures_withheld: Option<FiguresWithheld>,
 

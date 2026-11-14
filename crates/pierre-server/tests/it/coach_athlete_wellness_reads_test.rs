@@ -110,6 +110,16 @@ fn wellness_reads() -> Vec<(&'static str, Value)> {
     ]
 }
 
+/// The wellness reads an MCP or A2A caller is offered: all but the
+/// prescriptive nutrition tools, which run only on Dravr's own surfaces
+/// (carnet#1565).
+fn external_wellness_reads() -> Vec<(&'static str, Value)> {
+    wellness_reads()
+        .into_iter()
+        .filter(|(tool, _)| !matches!(*tool, "calculate_daily_nutrition" | "get_nutrient_timing"))
+        .collect()
+}
+
 /// `who`'s physiology: training numbers with their wellness anchors.
 fn physiology(who: Person, wellness: Wellness, ftp: u32) -> UserPhysiologicalProfile {
     let mut profile = UserPhysiologicalProfile::new(who.id, SportType::Run);
@@ -619,7 +629,7 @@ async fn a_wellness_read_naming_an_athlete_over_mcp_reads_them_under_their_grant
     let stranger = person(&f.res, "stranger", "Sam Stranger").await;
 
     // Without the grant: refused, in the one wording, on this transport too.
-    for (tool, params) in wellness_reads() {
+    for (tool, params) in external_wellness_reads() {
         let refused = f
             .call(&f.mcp_executor(), f.coach, tool, naming_mira(params))
             .await;
@@ -646,7 +656,7 @@ async fn a_wellness_read_naming_an_athlete_over_mcp_reads_them_under_their_grant
 
     // Under the grant: the athlete's wellness, never the coach's.
     f.share_wellness(true).await;
-    for (tool, params) in wellness_reads() {
+    for (tool, params) in external_wellness_reads() {
         let read = ok(
             f.call(
                 &f.mcp_executor(),
@@ -692,7 +702,7 @@ async fn a_wellness_read_naming_an_athlete_over_mcp_reads_them_under_their_grant
         );
     }
     // A derived read answers over MCP exactly as the athlete's own read there.
-    for (tool, params) in wellness_reads().into_iter().skip(4) {
+    for (tool, params) in external_wellness_reads().into_iter().skip(4) {
         let coachs = ok(
             f.call(
                 &f.mcp_executor(),
@@ -896,7 +906,7 @@ async fn every_wellness_read_is_listed_with_athlete_over_mcp_and_offered_in_the_
         .filter(|tool| tool["inputSchema"]["properties"].get("athlete").is_some())
         .filter_map(|tool| tool["name"].as_str())
         .collect();
-    for (tool, _) in wellness_reads() {
+    for (tool, _) in external_wellness_reads() {
         assert!(
             over_http.contains(&tool),
             "bug: tools/list shows athlete on {tool}: {over_http:?}"

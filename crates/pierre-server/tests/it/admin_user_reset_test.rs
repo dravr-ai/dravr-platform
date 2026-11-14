@@ -831,8 +831,9 @@ async fn post_reply(
         .id
 }
 
-/// A claim verdict said to `user`, outside any conversation: what an MCP
-/// client's `verify_claim` call writes when it names no thread.
+/// A claim verdict said to `user`, outside any conversation: what an in-app
+/// `verify_claim` call writes when it names no thread (an MCP client's call
+/// writes none, carnet#1565).
 async fn verdict_without_a_thread(
     repos: &pierre_database::RepositoryRegistry,
     tenant_id: TenantId,

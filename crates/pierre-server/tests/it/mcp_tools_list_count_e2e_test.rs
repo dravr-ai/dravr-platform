@@ -591,13 +591,16 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
 
     // Uncatalogued-merge sanity check: specific feature-flag tool categories
     // must be present (these come from the uncatalogued branch).
-    for expected in &["list_agents", "get_connection_status"] {
-        assert!(
-            returned.contains(*expected),
-            "Tenant member missing uncatalogued feature-flag tool '{expected}'. \
-             Returned: {returned:?}"
-        );
-    }
+    assert!(
+        returned.contains("get_connection_status"),
+        "Tenant member missing uncatalogued feature-flag tool 'get_connection_status'. \
+         Returned: {returned:?}"
+    );
+    // The agent reads are kept to Dravr's own surfaces (carnet#1565).
+    assert!(
+        !returned.contains("list_agents"),
+        "list_agents is offered over /mcp: {returned:?}"
+    );
 
     assert_every_tool_has_valid_schema(&body);
 

@@ -24,6 +24,7 @@ use pierre_chat_pipeline::stages::memory::{inject_training_plan, PlanPromptSourc
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::PlannedDay;
 use pierre_services::medical_flag::FiguresWithheld;
@@ -61,9 +62,14 @@ async fn resources() -> Result<Arc<ServerContext>> {
     common::create_test_server_resources().await
 }
 
+/// A call from Dravr's own app, where the medical flag decides. A tool call
+/// that declares no transport is served as an external one, where the rates
+/// are withheld for every athlete (carnet#1565).
 fn executor(resources: &Arc<ServerContext>) -> UniversalToolExecutor {
     let shared: Arc<ServerContext> = Arc::clone(resources);
-    UniversalToolExecutor::new(shared).with_scopes(OAuthScope::self_grant())
+    UniversalToolExecutor::new(shared)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
 }
 
 async fn athlete(resources: &ServerContext) -> Result<Athlete> {

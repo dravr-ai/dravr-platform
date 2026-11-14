@@ -1132,8 +1132,8 @@ pub fn create_configuration_tools() -> Vec<Box<dyn RuntimeTool>> {
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(CalculatePersonalizedZonesTool => empty);
-crate::declare_security!(GetConfigurationCatalogTool => empty);
-crate::declare_security!(GetConfigurationProfilesTool => empty);
-crate::declare_security!(GetUserConfigurationTool => empty);
+crate::declare_security!(GetConfigurationCatalogTool => empty; first_party_only);
+crate::declare_security!(GetConfigurationProfilesTool => empty; first_party_only);
+crate::declare_security!(GetUserConfigurationTool => empty; first_party_only);
 crate::declare_security!(UpdateUserConfigurationTool => empty);
-crate::declare_security!(ValidateConfigurationTool => empty);
+crate::declare_security!(ValidateConfigurationTool => empty; first_party_only);

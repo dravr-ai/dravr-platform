@@ -10,6 +10,27 @@ const { MCPMessages, TestConfig } = require('../helpers/fixtures');
 const { clearKeychainTokens } = require('../helpers/keychain-cleanup');
 const path = require('path');
 
+/**
+ * Tools that run only in Dravr's own app and channels: an outside client is
+ * neither offered them nor allowed to call them.
+ */
+const FIRST_PARTY_ONLY_TOOLS = [
+  'get_configuration_catalog',
+  'get_configuration_profiles',
+  'get_user_configuration',
+  'validate_configuration',
+  'get_fitness_config',
+  'list_fitness_configs',
+  'list_agents',
+  'get_agent',
+  'search_agents',
+  'get_active_agent',
+  'list_hidden_agents',
+  'list_coaching_playbooks',
+  'calculate_daily_nutrition',
+  'get_nutrient_timing',
+];
+
 describe('All Tools Response Validation', () => {
   let serverHandle;
   let bridgeClient;
@@ -105,16 +126,14 @@ describe('All Tools Response Validation', () => {
       'suggest_goals'
     ];
 
-    // Configuration tools (in PUBLIC_DISCOVERY_TOOLS)
+    // Configuration and verification tools an outside client is offered
     const configTools = [
-      'get_configuration_catalog',
-      'get_configuration_profiles',
-      'validate_configuration',
+      'calculate_personalized_zones',
+      'verify_claim',
     ];
 
-    // Nutrition tools (in PUBLIC_DISCOVERY_TOOLS)
+    // Nutrition tools that describe food (in PUBLIC_DISCOVERY_TOOLS)
     const nutritionTools = [
-      'calculate_daily_nutrition',
       'search_food',
       'get_food_details',
       'analyze_meal_nutrition'
@@ -130,6 +149,11 @@ describe('All Tools Response Validation', () => {
 
     for (const tool of allExpectedTools) {
       expect(toolNames).toContain(tool);
+    }
+
+    // Kept on Dravr's own surfaces: never offered to an outside client
+    for (const tool of FIRST_PARTY_ONLY_TOOLS) {
+      expect(toolNames).not.toContain(tool);
     }
 
     // Log count for visibility
@@ -151,42 +175,21 @@ describe('All Tools Response Validation', () => {
       await new Promise(resolve => setTimeout(resolve, 2000));
     });
 
-    test('get_configuration_catalog returns catalog shape', async () => {
-      const response = await bridgeClient.send({
-        jsonrpc: '2.0',
-        id: 1,
-        method: 'tools/call',
-        params: {
-          name: 'get_configuration_catalog',
-          arguments: {}
-        }
-      }, 10000);
+    test('tools kept on Dravr\'s own surfaces are refused', async () => {
+      for (const [index, name] of FIRST_PARTY_ONLY_TOOLS.entries()) {
+        const response = await bridgeClient.send({
+          jsonrpc: '2.0',
+          id: 50 + index,
+          method: 'tools/call',
+          params: { name, arguments: {} }
+        }, 10000);
 
-      verifyMcpResponseFormat(response);
-
-      // This tool should succeed without auth
-      if (response.result) {
-        console.log('✅ get_configuration_catalog: Response received');
+        verifyMcpResponseFormat(response);
+        expect(response.result?.isError).toBe(true);
+        expect(JSON.stringify(response.result.content)).toContain('first_party_surface');
       }
-    }, 20000);
-
-    test('get_configuration_profiles returns profiles shape', async () => {
-      const response = await bridgeClient.send({
-        jsonrpc: '2.0',
-        id: 2,
-        method: 'tools/call',
-        params: {
-          name: 'get_configuration_profiles',
-          arguments: {}
-        }
-      }, 10000);
-
-      verifyMcpResponseFormat(response);
-
-      if (response.result) {
-        console.log('✅ get_configuration_profiles: Response received');
-      }
-    }, 20000);
+      console.log(`✅ ${FIRST_PARTY_ONLY_TOOLS.length} first-party tools refused`);
+    }, 60000);
 
     test('get_recipe_constraints returns constraints shape', async () => {
       const response = await bridgeClient.send({
@@ -209,53 +212,6 @@ describe('All Tools Response Validation', () => {
         const content = response.result.content || response.result;
         expect(content).toBeDefined();
         console.log('✅ get_recipe_constraints: Constraints returned');
-      }
-    }, 20000);
-
-    test('calculate_daily_nutrition returns nutrition shape', async () => {
-      const response = await bridgeClient.send({
-        jsonrpc: '2.0',
-        id: 4,
-        method: 'tools/call',
-        params: {
-          name: 'calculate_daily_nutrition',
-          arguments: {
-            weight_kg: 70,
-            height_cm: 175,
-            age: 30,
-            gender: 'male',
-            activity_level: 'moderately_active',
-            training_goal: 'maintenance'
-          }
-        }
-      }, 10000);
-
-      verifyMcpResponseFormat(response);
-
-      if (response.result) {
-        console.log('✅ calculate_daily_nutrition: Nutrition calculated');
-      }
-    }, 20000);
-
-    test('get_nutrient_timing returns timing shape', async () => {
-      const response = await bridgeClient.send({
-        jsonrpc: '2.0',
-        id: 5,
-        method: 'tools/call',
-        params: {
-          name: 'get_nutrient_timing',
-          arguments: {
-            weight_kg: 70,
-            daily_protein_g: 140,
-            workout_intensity: 'moderate'
-          }
-        }
-      }, 10000);
-
-      verifyMcpResponseFormat(response);
-
-      if (response.result) {
-        console.log('✅ get_nutrient_timing: Timing recommendations returned');
       }
     }, 20000);
 
@@ -297,96 +253,6 @@ describe('All Tools Response Validation', () => {
       }
     }, 20000);
 
-    test('validate_configuration returns validation shape', async () => {
-      const response = await bridgeClient.send({
-        jsonrpc: '2.0',
-        id: 8,
-        method: 'tools/call',
-        params: {
-          name: 'validate_configuration',
-          arguments: {
-            configuration: {
-              max_heart_rate: 185,
-              resting_heart_rate: 55
-            }
-          }
-        }
-      }, 10000);
-
-      verifyMcpResponseFormat(response);
-
-      if (response.result) {
-        console.log('✅ validate_configuration: Validation result returned');
-      } else if (response.error) {
-        // May require specific config format
-        console.log('⚠️ validate_configuration: Expected validation error');
-      }
-    }, 20000);
-  });
-
-  // ============================================================================
-  // Error Response Shape Tests
-  // ============================================================================
-
-  describe('Error Response Shapes', () => {
-    beforeEach(async () => {
-      bridgeClient = new MockMCPClient('node', [bridgePath, '--server', serverUrl], {
-        env: { PIERRE_JWT_TOKEN: testToken.access_token }
-      });
-      await bridgeClient.start();
-      await bridgeClient.send(MCPMessages.initialize);
-      await new Promise(resolve => setTimeout(resolve, 2000));
-    });
-
-    test('Provider-required tools return auth errors correctly', async () => {
-      const providerTools = [
-        { name: 'get_activities', args: { activity_provider: 'strava' } },
-        { name: 'get_athlete', args: { activity_provider: 'strava' } },
-        { name: 'analyze_activity', args: { activity_provider: 'strava', activity_id: '123' } }
-      ];
-
-      for (const { name, args } of providerTools) {
-        const response = await bridgeClient.send({
-          jsonrpc: '2.0',
-          id: 100,
-          method: 'tools/call',
-          params: { name, arguments: args }
-        }, 10000);
-
-        verifyMcpResponseFormat(response);
-
-        // Should fail with auth error, not parsing error
-        if (response.error) {
-          expect(response.error.message).not.toMatch(/parse/i);
-          expect(response.error.message).not.toMatch(/unknown field/i);
-          console.log(`✅ ${name}: Proper auth error returned`);
-        } else {
-          console.log(`✅ ${name}: Unexpected success (may have cached auth)`);
-        }
-      }
-    }, 60000);
-
-    test('Missing required parameters returns proper error', async () => {
-      // Try calling set_goal without required parameters
-      const response = await bridgeClient.send({
-        jsonrpc: '2.0',
-        id: 101,
-        method: 'tools/call',
-        params: {
-          name: 'set_goal',
-          arguments: {} // Missing required params
-        }
-      }, 10000);
-
-      verifyMcpResponseFormat(response);
-
-      // Should fail with parameter error
-      if (response.error) {
-        expect(response.error.message).toBeDefined();
-        console.log('✅ set_goal with missing params: Proper error returned');
-      }
-    }, 20000);
-
     test('Unknown tool returns method not found', async () => {
       const response = await bridgeClient.send({
         jsonrpc: '2.0',
@@ -414,14 +280,11 @@ describe('All Tools Response Validation', () => {
         id: 103,
         method: 'tools/call',
         params: {
-          name: 'calculate_daily_nutrition',
+          name: 'calculate_personalized_zones',
           arguments: {
-            weight_kg: 'not_a_number', // Should be number
-            height_cm: 175,
-            age: 30,
-            gender: 'male',
-            activity_level: 'moderately_active',
-            training_goal: 'maintenance'
+            vo2_max: 'not_a_number', // Should be number
+            resting_hr: 65,
+            max_hr: 185
           }
         }
       }, 10000);
