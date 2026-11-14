@@ -34,9 +34,10 @@
 //! When fewer were read, the window says why ([`coverage_of`]): a detail
 //! walk is asked to read the rest and is reading them, a walk that ended
 //! lately could not read some, or no backend the athlete holds reads
-//! segment efforts. A window that starts before the stored history reaches
-//! says the history walk is still copying it in, first. Rows the transport
-//! withheld ask no walk.
+//! segment efforts. A window that starts before the stored Strava history
+//! reaches, while a walk of that history is owed, says the walk is still
+//! copying it in, first; the tool starts no history walk of its own. Rows
+//! the transport withheld ask no walk.
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -76,7 +77,7 @@ use crate::activity_backfill::detail_walk::{
     DetailWalkAsk,
 };
 use crate::activity_backfill::provider_tenant_id_str;
-use crate::activity_fetch::history_depth_covered;
+use crate::activity_fetch::{history_depth_covered, history_walk_owed};
 use crate::annotations::{annotations, Effect, Reach};
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
@@ -87,7 +88,7 @@ use crate::implementations::data_helpers::segments_read_coverage;
 use crate::implementations::fitness_support::filter_activities_by_sport_type;
 use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
-use crate::training_history_compute::history_walk_pending;
+use crate::training_history_compute::owed_history_walk_pending;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 
@@ -579,8 +580,13 @@ fn settle(
     segments
 }
 
-/// The history walk still copying in a window deeper than the stored
-/// history reaches, or `None` when the history stands behind it.
+/// The Strava history walk still copying in a window deeper than the stored
+/// Strava history reaches, or `None` when the history stands behind it or no
+/// walk of it is owed.
+///
+/// Read as `get_activities` reads it ([`history_walk_owed`]), for Strava's
+/// history keys alone and without asking a walk: another provider's walk
+/// says nothing of a segment's window, and a segment's ask starts no walk.
 async fn history_owed(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
@@ -597,13 +603,8 @@ async fn history_owed(
     {
         return None;
     }
-    match history_walk_pending(runtime, athlete.tenant_id, athlete.user_id).await {
-        Ok(pending) => pending,
-        Err(e) => {
-            warn!(user_id = %athlete.user_id, error = %e, "Segment history: the history walk could not be read; the window reads as stored");
-            None
-        }
-    }
+    let key = history_walk_owed(runtime, STRAVA, athlete.user_id, athlete.tenant_id).await?;
+    Some(owed_history_walk_pending(runtime, athlete.tenant_id, athlete.user_id, &key).await)
 }
 
 /// The segment reason of a window with unread activities, asking the walk

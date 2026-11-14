@@ -32,6 +32,7 @@
 use crate::coach_athlete_reads_test::{fixture, ok};
 use crate::common;
 use crate::detail_walk_test::{alter_walk_row, walk_ended};
+use crate::garmin_sign_in_test::{hold_session as hold_garmin_session, LIVE_SESSION};
 use crate::history_walk_api_test::{server, strava_athlete};
 
 use std::future::pending;
@@ -50,7 +51,10 @@ use pierre_core::models::{
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
-use pierre_database::repositories::{BackfillCoverage, BackfillJobState, DetailWalkRow};
+use pierre_database::repositories::{
+    ActivityBackfillJobRow, BackfillCoverage, BackfillJobKind, BackfillJobState, DetailWalkRow,
+    JobProgress,
+};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::activity_detail_store::store_detail;
 use pierre_tool_runtime::incomplete_window::incomplete_window_in_payload;
@@ -535,13 +539,84 @@ async fn a_session_copy_listed_at_its_day_is_the_grant_copy_it_stands_for() {
     );
 }
 
-/// A window deeper than the stored history reaches says the history walk is
-/// still copying it in, before anything about its segments.
+/// Record a history walk of `key`'s history owed for the athlete, `done` of
+/// `total` months walked.
+async fn owe_history_walk(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    key: &str,
+    (done, total): (i64, i64),
+) {
+    let row = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: tenant,
+        user_id,
+        provider: key.to_owned(),
+        after_ts: Some(946_684_800),
+        before_ts: None,
+        fetch_limit: Some(2_000),
+        conversation_id: None,
+        created_at_ms: Utc::now().timestamp_millis(),
+        leased_until_ms: 0,
+        attempts: 1,
+        lease_token: None,
+        kind: BackfillJobKind::HistoryWalk,
+        progress: JobProgress {
+            units_total: Some(total),
+            units_done: done,
+            rows_landed: 0,
+            secs_per_unit: Some(60.0),
+        },
+        turn_id: None,
+        asked_message_id: None,
+        walk_backend: None,
+        walk_sport: None,
+    };
+    assert!(
+        resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .record_backfill_job(&row)
+            .await
+            .unwrap(),
+        "the fixture's history walk was not recorded"
+    );
+}
+
+/// Whether a history walk of `key`'s history is recorded for the athlete.
+async fn history_walk_under(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    key: &str,
+) -> bool {
+    resources
+        .common
+        .repos
+        .activity_backfill_jobs
+        .history_walk_row(user_id, tenant, key)
+        .await
+        .unwrap()
+        .is_some()
+}
+
+/// A window deeper than the stored history reaches, while the Strava history
+/// walk is copying it in, says so, before anything about its segments.
 #[tokio::test]
 async fn a_window_deeper_than_the_stored_history_reports_the_history_walk_first() {
     let (base, _mock) = mock_strava(Listing::Status(402)).await;
     let resources = server(&base, 1_000).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
+    owe_history_walk(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        (3, 40),
+    )
+    .await;
     store_rides(
         &resources,
         user_id,
@@ -563,12 +638,103 @@ async fn a_window_deeper_than_the_stored_history_reports_the_history_walk_first(
         coverage["incomplete_reason"], "history_walk_running",
         "bug: a window the stored history does not reach reads as only short of segments: {coverage}"
     );
-    assert!(
-        coverage["pending"]["kind"]
-            .as_str()
-            .is_some_and(|kind| kind.starts_with("history_")),
-        "bug: the history walk owed is reported: {coverage}"
+    assert_eq!(
+        coverage["pending"]["kind"], "history_walk_running",
+        "bug: the Strava history walk owed is reported: {coverage}"
     );
+    assert_eq!(
+        coverage["pending"]["months_done"], 3,
+        "bug: the walk's own progress is reported: {coverage}"
+    );
+}
+
+/// The Strava history is short of the window and no walk of it is owed: the
+/// tool only reads, so it starts none, and the window reads as its segments
+/// stand. A history walk is started where a read finds the depth missing
+/// (`get_activities`), never by a segment's ask.
+#[tokio::test]
+async fn a_window_deeper_than_the_history_with_no_walk_owed_starts_none() {
+    let (base, _mock) = mock_strava(Listing::Status(402)).await;
+    let resources = server(&base, 1_000).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(5))],
+    )
+    .await;
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+
+    let coverage = &payload["coverage"];
+    assert_eq!(
+        coverage["incomplete_reason"], "segment_detail_walking",
+        "bug: with no history walk owed the window reads as its segments stand: {coverage}"
+    );
+    for key in [oauth_providers::STRAVA, SESSION] {
+        assert!(
+            !history_walk_under(&resources, user_id, tenant, key).await,
+            "bug: a segment's ask started a history walk under {key}"
+        );
+    }
+}
+
+/// An athlete with no Strava, holding a Garmin session: a segment's ask starts
+/// no Garmin history walk, and a Garmin walk under way is not this window's,
+/// which holds nothing of Strava's, so the window reads complete and empty.
+#[tokio::test]
+async fn a_garmin_history_walk_is_never_a_segments_history_walk() {
+    let (base, _mock) = mock_strava(Listing::Status(402)).await;
+    let resources = server(&base, 1_000).await;
+    let (user_id, _user, tenant) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        &format!("segments-{}@example.com", Uuid::new_v4()),
+        "starter",
+    )
+    .await
+    .unwrap();
+    hold_garmin_session(&resources, user_id, tenant, LIVE_SESSION).await;
+    let ask = json!({ "segment_name": LA_BETE });
+
+    call(&resources, (user_id, tenant), ask.clone()).await;
+    for key in [
+        oauth_providers::SCIOTTE_GARMIN,
+        oauth_providers::GARMIN,
+        oauth_providers::STRAVA,
+        SESSION,
+    ] {
+        assert!(
+            !history_walk_under(&resources, user_id, tenant, key).await,
+            "bug: a segment's ask started a history walk under {key}"
+        );
+    }
+
+    owe_history_walk(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::SCIOTTE_GARMIN,
+        (2, 30),
+    )
+    .await;
+    let payload = call(&resources, (user_id, tenant), ask).await;
+    let coverage = &payload["coverage"];
+    assert_ne!(
+        coverage["incomplete_reason"], "history_walk_running",
+        "bug: a Garmin history walk is reported as this segment's: {coverage}"
+    );
+    assert_eq!(
+        coverage["complete"], true,
+        "bug: a window with nothing of Strava's and no Strava connection reads complete: {coverage}"
+    );
+    assert_eq!(coverage["window"]["total"], 0, "{coverage}");
 }
 
 /// A model may pass the id as the number it read from `segment_efforts`.
