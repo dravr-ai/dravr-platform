@@ -232,3 +232,60 @@ async fn a_read_copy_past_a_thousand_rows_still_stops_its_ride_being_read() {
         "bug: the walk counted a ride read already"
     );
 }
+
+/// A step a spent day stops part-way through a second records only the
+/// rides of it the next step will not read again: a ride it stored is read,
+/// but one it walked past (`404`) is read again with the rest of that second,
+/// and is counted once, when the second is finished.
+#[tokio::test]
+async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
+    let (api_base, mock) = mock_strava().await;
+    // 20 a day: a background share of 5, half of it, 2, for the walk.
+    let resources = server(&api_base, 20).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let day_start = (now - 5 * DAY) - (now - 5 * DAY).rem_euclid(DAY);
+    // Read newest id first within the second: the unreadable one, then one
+    // that stores, then the one the spent day refuses.
+    let (unreadable, stored, refused) = (
+        day_start + 3 * 3_600,
+        day_start + 2 * 3_600,
+        day_start + 3_600,
+    );
+    mock.missing.lock().unwrap().insert(unreadable);
+    let listed: Vec<_> = [unreadable, stored, refused]
+        .iter()
+        .map(|id| ride_listed_at(SESSION, *id, day_start))
+        .collect();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    runtime
+        .live_activities()
+        .ingest(user_id, tenant, SESSION, &listed, Utc::now())
+        .await
+        .unwrap();
+    open_window(&resources).await;
+
+    assert_eq!(
+        ask_detail_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            since(now - 10 * DAY),
+        )
+        .await,
+        DetailWalkAsked::Started { units_total: 3 },
+        "the three rides of the one second are owed"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        mock.detail_reads(),
+        vec![unreadable, stored, unreadable, refused],
+        "the cut-short second is read again, the ride it stored excepted"
+    );
+    assert_eq!(
+        (ended.progress.units_done, ended.progress.rows_landed),
+        (3, 2),
+        "bug: the ride walked past in a second the spent day cut short is counted twice"
+    );
+}

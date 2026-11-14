@@ -77,11 +77,19 @@ pub(in crate::activity_backfill) async fn run_detail_walk(
 
 /// Where a step stands while it reads: the cursor it started from, the
 /// oldest second it finished, and what it counted.
+///
+/// A ride walked past (the backend could not read it) counts as done only
+/// once its whole second is finished: a step stopped part-way through a
+/// second leaves the cursor above it, so the next step reads that second
+/// again, and with it every ride walked past there. A ride stored there
+/// counts at once: it holds its efforts now, and is never read again.
 #[derive(Debug, Clone, Copy)]
 struct Progress {
     walked_to: i64,
     units_done: i64,
     rows_landed: i64,
+    /// Rides walked past in the second being read, not yet finished.
+    walked_past: i64,
     started: Instant,
 }
 
@@ -113,6 +121,7 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
         walked_to: cursor,
         units_done: 0,
         rows_landed: 0,
+        walked_past: 0,
         started: Instant::now(),
     };
     if cursor <= floor {
@@ -175,7 +184,7 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
                     progress.units_done += 1;
                     progress.rows_landed += 1;
                 }
-                Read::Skipped => progress.units_done += 1,
+                Read::Skipped => progress.walked_past += 1,
                 Read::Paused(until_ms) => {
                     return Step::Paused {
                         step: progress.step(),
@@ -192,6 +201,8 @@ async fn walk_step(job: &ActivityBackfillJob, lease: &JobLease) -> Step {
             }
         }
         progress.walked_to = second.at;
+        progress.units_done += progress.walked_past;
+        progress.walked_past = 0;
     }
     if taken.reached_floor {
         progress.walked_to = floor;
