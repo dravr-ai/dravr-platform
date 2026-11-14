@@ -54,9 +54,12 @@ resource "google_storage_bucket" "barrage" {
   # writer set it can match.
   #
   # dravr-barrage's open_session sets `customTime` in the metadata of a session
-  # opened for a client, and on nothing else. Fourteen days clears the six an
-  # upload may wait, and leaves a long import time to finish before its spool
-  # could go.
+  # opened for a client, and of an athlete's originals bundle
+  # (t/{tenant}/u/{user}/export_bundle/{id}, written with
+  # BlobMeta::expiring), and on nothing else. Fourteen days clears the six an
+  # upload may wait, leaves a long import time to finish before its spool
+  # could go, and backs up the hourly sweep that deletes a bundle at seven
+  # (`pierre-services/src/originals_bundle.rs`) if it ever stops.
   lifecycle_rule {
     condition {
       days_since_custom_time = 14
@@ -128,4 +131,17 @@ resource "google_cloud_tasks_queue_iam_member" "archive_import_reader" {
   name     = google_cloud_tasks_queue.archive_import.name
   role     = "roles/cloudtasks.viewer"
   member   = "serviceAccount:${module.service_accounts.app_service_account_email}"
+}
+
+# An athlete downloads their originals bundle (carnet#1541) from a 15-minute
+# V4 signed URL. dravr-barrage signs it as the app's own service account
+# through IAM's signBlob (iamcredentials, enabled in modules/project), which
+# needs iam.serviceAccounts.signBlob on that account: serviceAccountTokenCreator
+# on itself. The serviceAccountUser self-binding in turn_queue.tf (actAs) does
+# not include it. Two-way: removing the binding makes every download answer
+# 503, never a broken boot.
+resource "google_service_account_iam_member" "app_signs_as_itself" {
+  service_account_id = module.service_accounts.app_service_account_name
+  role               = "roles/iam.serviceAccountTokenCreator"
+  member             = "serviceAccount:${module.service_accounts.app_service_account_email}"
 }
