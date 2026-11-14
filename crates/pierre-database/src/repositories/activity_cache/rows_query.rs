@@ -14,7 +14,7 @@ use super::CachedActivityRow;
 /// reads: the user's rows in the tenant whose start lies in `[start, end]`,
 /// newest first, at most `limit` of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CachedRowsQuery<'a> {
+pub struct CachedRowsQuery<'keys> {
     /// The window's oldest start.
     pub start: DateTime<Utc>,
     /// The window's newest start.
@@ -23,12 +23,12 @@ pub struct CachedRowsQuery<'a> {
     pub limit: i64,
     /// Only rows filed under these provider keys; `None` reads every key,
     /// and an empty set reads none.
-    pub keys: Option<&'a [&'a str]>,
+    pub keys: Option<&'keys [&'keys str]>,
     /// Only rows that come after this one in the read's order: the next page.
     pub below: Option<CachedRowCursor>,
 }
 
-impl<'a> CachedRowsQuery<'a> {
+impl<'keys> CachedRowsQuery<'keys> {
     /// Every key's rows in `[start, end]`, from the newest, at most `limit`.
     #[must_use]
     pub const fn window(start: DateTime<Utc>, end: DateTime<Utc>, limit: i64) -> Self {
@@ -43,7 +43,7 @@ impl<'a> CachedRowsQuery<'a> {
 
     /// The same read over the rows filed under `keys` only.
     #[must_use]
-    pub const fn under_keys(mut self, keys: &'a [&'a str]) -> Self {
+    pub const fn under_keys(mut self, keys: &'keys [&'keys str]) -> Self {
         self.keys = Some(keys);
         self
     }

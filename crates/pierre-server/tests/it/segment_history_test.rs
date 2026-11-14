@@ -492,9 +492,19 @@ async fn an_id_reads_its_efforts_once_across_the_session_and_grant_copies() {
         1,
         "bug: the one effort on the segment, counted once across both copies: {payload}"
     );
-    assert_eq!(found[0]["segment_id"], LA_BETE_ID);
-    assert_eq!(found[0]["activity_id"], both.to_string());
-    assert_eq!(found[0]["elapsed_time"], 412);
+    assert_eq!(
+        found[0]["segment_id"], LA_BETE_ID,
+        "bug: the effort listed is not on the segment asked: {payload}"
+    );
+    assert_eq!(
+        found[0]["activity_id"],
+        both.to_string(),
+        "bug: the effort is not named by the ride both copies share: {payload}"
+    );
+    assert_eq!(
+        found[0]["elapsed_time"], 412,
+        "bug: the effort's time is not the stored detail's: {payload}"
+    );
     assert_every_item_names_strava(&payload);
 
     let coverage = &payload["coverage"];
@@ -525,7 +535,11 @@ async fn an_id_reads_its_efforts_once_across_the_session_and_grant_copies() {
     let row = walk_row(&resources, user_id, tenant)
         .await
         .expect("bug: no detail walk was asked for the unread ride");
-    assert_eq!(row.state, BackfillJobState::Owed);
+    assert_eq!(
+        row.state,
+        BackfillJobState::Owed,
+        "bug: the walk asked for the unread ride is not owed"
+    );
 
     // A non-subscriber spends one listing a day, not one a call.
     call(
@@ -1808,7 +1822,11 @@ async fn a_wider_ask_widens_the_walk_owed() {
     let widened = walk_row(&resources, user_id, tenant)
         .await
         .expect("the walk is kept");
-    assert_eq!(widened.state, BackfillJobState::Owed);
+    assert_eq!(
+        widened.state,
+        BackfillJobState::Owed,
+        "bug: the walk a wider ask widened is no longer owed"
+    );
     assert!(
         widened.after_ts.unwrap() < asked.after_ts.unwrap() && widened.after_ts.unwrap() <= older,
         "bug: the wider ask lowered the walk's floor past the older ride: {asked:?} -> {widened:?}"

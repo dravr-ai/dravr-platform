@@ -1189,7 +1189,11 @@ async fn a_walk_that_ended_over_a_week_ago_is_walked_afresh() {
         DetailWalkAsked::Started { units_total: 1 },
         "bug: a walk that ended over a week ago still stands for its window"
     );
-    assert_eq!(walked.state().await, Some(BackfillJobState::Owed));
+    assert_eq!(
+        walked.state().await,
+        Some(BackfillJobState::Owed),
+        "bug: the fresh walk recorded over the stale one is not owed"
+    );
 }
 
 /// A window reaching below the walked one's floor, where no ride is stored,
@@ -1382,7 +1386,11 @@ async fn a_walk_of_one_sport_does_not_stand_for_every_sport() {
 async fn a_walk_that_ended_incomplete_does_not_stand_for_its_window() {
     let walked = walked_once(None).await;
     alter_walk_row(&walked.resources, walked.user_id, "outcome = 'incomplete'").await;
-    assert_eq!(walked.state().await, Some(BackfillJobState::Incomplete));
+    assert_eq!(
+        walked.state().await,
+        Some(BackfillJobState::Incomplete),
+        "bug: the fixture's walk does not read as ended incomplete"
+    );
 
     assert_eq!(
         walked.ask(walked.ask).await,

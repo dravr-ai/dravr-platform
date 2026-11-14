@@ -7,7 +7,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use chrono::{DateTime, Duration, TimeZone, Utc};
+use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
@@ -88,6 +88,8 @@ impl Athlete<'_> {
         limit: i64,
         below: Option<CachedRowCursor>,
     ) -> AppResult<Vec<CachedActivityRow>> {
+        use chrono::TimeZone;
+
         let (Some(start), Some(end)) = (
             Utc.timestamp_opt(floor, 0).single(),
             Utc.timestamp_opt(top, 0).single(),

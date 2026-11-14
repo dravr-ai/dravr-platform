@@ -847,7 +847,10 @@ async fn a_paused_claim_waits_for_its_instant_and_keeps_its_attempts() {
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
     let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
-    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
     let claim_at = |now_ms: i64| BackfillJobClaim {
         now_ms,
         ..claim_now()
@@ -930,10 +933,13 @@ async fn owed_detail_walk(db: &Database) -> ActivityBackfillJobRow {
         id: row.id.clone(),
         token: row.lease_token.clone().unwrap(),
     };
-    assert!(ledger
-        .release_backfill_job_claim(&lease, None)
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .release_backfill_job_claim(&lease, None)
+            .await
+            .unwrap(),
+        "bug: the claim just taken on the owed detail walk is not given back"
+    );
     row
 }
 
@@ -952,26 +958,32 @@ async fn a_detail_walk_asked_again_widens_its_floor_only() {
         ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
     };
     walk.progress.units_total = Some(10);
-    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
     // A step: four activities read, the cursor moved down.
     let row = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
     let held = JobLease {
         id: row[0].id.clone(),
         token: row[0].lease_token.clone().unwrap(),
     };
-    assert!(ledger
-        .record_job_progress(
-            &held,
-            JobProgressStep {
-                before_ts: 1_705_000_000,
-                units_done: 4,
-                rows_landed: 3,
-                secs_per_unit: None,
-                floor: None,
-            },
-        )
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .record_job_progress(
+                &held,
+                JobProgressStep {
+                    before_ts: 1_705_000_000,
+                    units_done: 4,
+                    rows_landed: 3,
+                    secs_per_unit: None,
+                    floor: None,
+                },
+            )
+            .await
+            .unwrap(),
+        "bug: the step holding the lease cannot record its progress"
+    );
 
     let widen = |after_ts: i64, sport: Option<&str>, units_left: i64| WalkWiden {
         after_ts,
@@ -1016,15 +1028,18 @@ async fn a_detail_walk_asked_again_widens_its_floor_only() {
         "bug: the same sport stays"
     );
 
-    assert!(ledger
-        .widen_detail_walk(
-            user,
-            tenant,
-            PROVIDER,
-            &widen(1_650_000_000, Some("Run"), 5)
-        )
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &widen(1_650_000_000, Some("Run"), 5)
+            )
+            .await
+            .unwrap(),
+        "bug: an owed walk asked again for another sport is not widened"
+    );
     let narrower = owed_detail_walk(&db).await;
     assert_eq!(
         narrower.after_ts,
@@ -1035,15 +1050,18 @@ async fn a_detail_walk_asked_again_widens_its_floor_only() {
         narrower.walk_sport, None,
         "bug: two different sports asked read every sport"
     );
-    assert!(ledger
-        .widen_detail_walk(
-            user,
-            tenant,
-            PROVIDER,
-            &widen(1_500_000_000, Some("Ride"), 5)
-        )
-        .await
-        .unwrap());
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &widen(1_500_000_000, Some("Ride"), 5)
+            )
+            .await
+            .unwrap(),
+        "bug: an owed walk asked again with a lower floor is not widened"
+    );
     assert_eq!(
         owed_detail_walk(&db).await.walk_sport,
         None,
@@ -1069,7 +1087,10 @@ async fn a_detail_walk_asked_again_widens_its_floor_only() {
             token: row[0].lease_token.clone().unwrap(),
         }
     };
-    assert!(ledger.end_backfill_job_incomplete(&held).await.unwrap());
+    assert!(
+        ledger.end_backfill_job_incomplete(&held).await.unwrap(),
+        "bug: the step holding the lease cannot end the walk"
+    );
     assert!(
         !ledger
             .widen_detail_walk(user, tenant, PROVIDER, &widen(1_000_000_000, None, 5))
@@ -1088,7 +1109,10 @@ async fn a_detail_walk_reads_back_the_row_its_lease_was_taken_on() {
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
     let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
-    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
     let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
     let lease = JobLease {
         id: claimed[0].id.clone(),
@@ -1158,7 +1182,10 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
     walk.progress.units_total = Some(10);
     walk.progress.units_done = 7;
     walk.progress.rows_landed = 5;
-    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
     let (row, lease) = claimed_detail_walk(&db).await;
 
     let ended = ledger
@@ -1261,7 +1288,10 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
     // window, and has not ended.
     let mut fresh = owed_row(tenant, user, BackfillJobKind::DetailWalk);
     fresh.before_ts = Some(1_720_000_000);
-    assert!(ledger.record_backfill_job(&fresh).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&fresh).await.unwrap(),
+        "bug: a fresh walk is not recorded over the ended one"
+    );
     let fresh_row = ledger
         .detail_walk_row(user, tenant, PROVIDER)
         .await
@@ -1390,7 +1420,10 @@ async fn a_floor_widened_under_the_last_step_keeps_the_walk_owed() {
     let tenant = TenantId::generate();
     let user = Uuid::new_v4();
     let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
-    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
     let (row, lease) = claimed_detail_walk(&db).await;
 
     let widen = WalkWiden {
@@ -1462,7 +1495,10 @@ async fn a_detail_walk_with_no_floor_ends_only_under_its_lease() {
         after_ts: None,
         ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
     };
-    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    assert!(
+        ledger.record_backfill_job(&walk).await.unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
     let (_, lease) = claimed_detail_walk(&db).await;
 
     let stale = JobLease {

@@ -847,16 +847,23 @@ async fn the_detail_walk_app_window_refuses_across_two_athletes() {
         ),
         "the app window of 60 is spent"
     );
-    assert_eq!(walk_spent(&repos, APP, second).await, (60, 10));
+    assert_eq!(
+        walk_spent(&repos, APP, second).await,
+        (60, 10),
+        "bug: the app window does not hold both athletes' 60 calls, or the second athlete's window not their 10"
+    );
     assert_eq!(
         spent(&repos, &budget_counter_key("strava", APP), ONE_DAY).await,
         60,
         "the app's day kept background room: the walk window refused"
     );
-    assert!(matches!(
-        walk_call(&limiter, walker(), APP, None).await,
-        RateLimitStatus::Exceeded { .. }
-    ));
+    assert!(
+        matches!(
+            walk_call(&limiter, walker(), APP, None).await,
+            RateLimitStatus::Exceeded { .. }
+        ),
+        "bug: a third athlete with an untouched window is admitted past the spent app window"
+    );
 }
 
 /// The walk windows are sized from the day the signing app actually has,
@@ -876,11 +883,18 @@ async fn a_registered_daily_limit_sizes_the_detail_walk_windows() {
             "call {call} is within the tenant app's walk window"
         );
     }
-    assert!(matches!(
-        walk_call(&limiter, athlete, "tenant-app", Some(80)).await,
-        RateLimitStatus::Exceeded { .. }
-    ));
-    assert_eq!(walk_spent(&repos, "tenant-app", athlete).await, (10, 10));
+    assert!(
+        matches!(
+            walk_call(&limiter, athlete, "tenant-app", Some(80)).await,
+            RateLimitStatus::Exceeded { .. }
+        ),
+        "bug: an app registered at 80 a day admits an 11th walk call"
+    );
+    assert_eq!(
+        walk_spent(&repos, "tenant-app", athlete).await,
+        (10, 10),
+        "bug: the tenant app's walk windows are not sized from its registered 80 a day"
+    );
     assert_eq!(
         walk_call(&limiter, athlete, APP, None).await,
         RateLimitStatus::Allowed,
@@ -939,19 +953,34 @@ async fn a_refused_detail_walk_call_gives_back_the_slots_it_took() {
         panic!("the 15-minute background share is spent");
     };
     assert!(retry_after <= FIFTEEN_MINUTES, "{retry_after:?}");
-    assert_eq!(walk_spent(&repos, APP, athlete).await, (0, 0));
-    assert_eq!(spent(&repos, &holder, ONE_DAY).await, 0);
+    assert_eq!(
+        walk_spent(&repos, APP, athlete).await,
+        (0, 0),
+        "bug: a call the 15-minute share refused kept its walk window slots"
+    );
+    assert_eq!(
+        spent(&repos, &holder, ONE_DAY).await,
+        0,
+        "bug: a call the 15-minute share refused kept its slot in the app's day"
+    );
 
     // A second app, whose 15-minute share is untouched: its walk window of
     // 125 (half the background share of 1,000) is what refuses.
     let pool = budget_counter_key("strava", "pool-app");
     let other = walker();
     spend(&repos, &detail_walk_counter_key(&pool), ONE_DAY, 125).await;
-    assert!(matches!(
-        walk_call(&limiter, other, "pool-app", None).await,
-        RateLimitStatus::Exceeded { .. }
-    ));
-    assert_eq!(walk_spent(&repos, "pool-app", other).await, (125, 0));
+    assert!(
+        matches!(
+            walk_call(&limiter, other, "pool-app", None).await,
+            RateLimitStatus::Exceeded { .. }
+        ),
+        "bug: a spent app walk window of 125 admits a call"
+    );
+    assert_eq!(
+        walk_spent(&repos, "pool-app", other).await,
+        (125, 0),
+        "bug: a call the app walk window refused kept the athlete's slot"
+    );
     assert_eq!(
         spent(&repos, &pool, FIFTEEN_MINUTES).await,
         0,
@@ -967,20 +996,34 @@ async fn the_background_share_still_applies_inside_a_detail_walk() {
     let repos = database().await;
     let limiter = limiter_over(&repos);
     let athlete = walker();
-    assert!(in_detail_walk(athlete, async { is_background() }).await);
+    assert!(
+        in_detail_walk(athlete, async { is_background() }).await,
+        "bug: a detail walk's scope does not read as background work"
+    );
     spend(&repos, &budget_counter_key("strava", APP), ONE_DAY, 250).await;
 
-    assert!(matches!(
-        walk_call(&limiter, athlete, APP, None).await,
-        RateLimitStatus::Exceeded { .. }
-    ));
-    assert_eq!(walk_spent(&repos, APP, athlete).await, (0, 0));
+    assert!(
+        matches!(
+            walk_call(&limiter, athlete, APP, None).await,
+            RateLimitStatus::Exceeded { .. }
+        ),
+        "bug: a walk call is admitted past the app's spent background share"
+    );
+    assert_eq!(
+        walk_spent(&repos, APP, athlete).await,
+        (0, 0),
+        "bug: a walk call the background share refused kept its walk window slots"
+    );
     assert_eq!(
         limiter.acquire("strava", APP, None).await.unwrap(),
         RateLimitStatus::Allowed,
         "a live read keeps the rest of the day, and counts in no walk window"
     );
-    assert_eq!(walk_spent(&repos, APP, athlete).await, (0, 0));
+    assert_eq!(
+        walk_spent(&repos, APP, athlete).await,
+        (0, 0),
+        "bug: a live read outside a walk counted in a walk window"
+    );
 }
 
 /// Only a provider with detail-walk windows has them: a Garmin read inside
@@ -1004,7 +1047,8 @@ async fn a_provider_without_detail_walk_windows_takes_only_its_background_share(
     let holder = budget_counter_key("garmin", APP);
     assert_eq!(
         spent(&repos, &detail_walk_counter_key(&holder), ONE_DAY).await,
-        0
+        0,
+        "bug: a Garmin read counted in an app walk window Garmin does not have"
     );
     assert_eq!(
         spent(
@@ -1013,7 +1057,8 @@ async fn a_provider_without_detail_walk_windows_takes_only_its_background_share(
             ONE_DAY
         )
         .await,
-        0
+        0,
+        "bug: a Garmin read counted in an athlete walk window Garmin does not have"
     );
 }
 
@@ -1039,7 +1084,11 @@ async fn a_detail_walk_refusal_waits_until_the_athletes_day_ends() {
         .await
         .unwrap_err();
 
-    assert_eq!(refused.code, ErrorCode::ExternalRateLimited);
+    assert_eq!(
+        refused.code,
+        ErrorCode::ExternalRateLimited,
+        "bug: a walk call past the athlete's day is not the limiter's own refusal"
+    );
     assert!(refused_before_send(&refused), "nothing was sent");
     let now = Utc::now().timestamp();
     let to_midnight = i64::try_from(ONE_DAY.as_secs()).unwrap() - now.rem_euclid(86_400);
@@ -1053,5 +1102,9 @@ async fn a_detail_walk_refusal_waits_until_the_athletes_day_ends() {
         (to_midnight - wait).abs() <= 5,
         "the wait {wait}s is the athlete's day, ending in {to_midnight}s"
     );
-    assert_eq!(spent(&repos, &holder, FIFTEEN_MINUTES).await, 0);
+    assert_eq!(
+        spent(&repos, &holder, FIFTEEN_MINUTES).await,
+        0,
+        "bug: a walk call the athlete's window refused kept the app's 15-minute slot"
+    );
 }

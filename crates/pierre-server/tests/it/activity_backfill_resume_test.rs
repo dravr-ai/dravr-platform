@@ -600,13 +600,15 @@ async fn a_resumed_detail_walk_with_nothing_to_read_ends_walked() {
             1,
         )
     };
-    assert!(fx
-        .runtime
-        .repos()
-        .activity_backfill_jobs
-        .record_backfill_job(&walk)
-        .await
-        .unwrap());
+    assert!(
+        fx.runtime
+            .repos()
+            .activity_backfill_jobs
+            .record_backfill_job(&walk)
+            .await
+            .unwrap(),
+        "bug: the owed detail walk's row is not recorded"
+    );
 
     let resumed = resume_backfill_jobs(Arc::clone(&fx.runtime)).await.unwrap();
     assert_eq!(

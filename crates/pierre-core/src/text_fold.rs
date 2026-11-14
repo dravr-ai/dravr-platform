@@ -57,7 +57,11 @@ mod tests {
             fold_for_match("cafe\u{301}"),
             "bug: one accented letter typed two ways folds two ways"
         );
-        assert_eq!(fold_for_match("caf\u{e9}"), "cafe");
+        assert_eq!(
+            fold_for_match("caf\u{e9}"),
+            "cafe",
+            "bug: an accented letter keeps its accent"
+        );
     }
 
     #[test]

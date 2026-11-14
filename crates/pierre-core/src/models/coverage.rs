@@ -24,7 +24,6 @@
 //! a model reads ([`Coverage::note`]).
 
 use std::borrow::Cow;
-use std::fmt::Write as _;
 use std::time::Duration;
 
 use chrono::NaiveDate;
@@ -466,6 +465,8 @@ impl Coverage {
     /// stopped at its cap counts only the newest activities it reached, and
     /// says the window holds at least that many.
     fn segments_read_note(&self) -> Option<String> {
+        use std::fmt::Write as _;
+
         let total = self.window.total?;
         let read = self.window.returned;
         let span_phrase = match (self.window.asked_from, self.window.asked_to) {

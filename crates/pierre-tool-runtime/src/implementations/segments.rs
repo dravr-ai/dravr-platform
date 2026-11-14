@@ -46,7 +46,7 @@ use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration as StdDuration, Instant};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Months, NaiveDate, TimeZone, Utc};
+use chrono::{DateTime, Duration, Months, NaiveDate, Utc};
 use chrono_tz::Tz;
 use lru::LruCache;
 use pierre_core::civil_time::{clock_date, resolve_zone};
@@ -226,6 +226,8 @@ fn parse_ask(args: &Value, today: NaiveDate) -> AppResult<SegmentAsk> {
 /// The window `[from 00:00, to + 1 00:00)` on the athlete's clock, as UTC
 /// instants.
 fn window_instants(ask: &SegmentAsk, zone: Tz) -> (DateTime<Utc>, DateTime<Utc>) {
+    use chrono::TimeZone;
+
     let midnight = |day: NaiveDate| {
         day.and_hms_opt(0, 0, 0).map_or_else(Utc::now, |naive| {
             zone.from_local_datetime(&naive).earliest().map_or_else(
@@ -920,6 +922,7 @@ crate::declare_security!(GetSegmentHistoryTool => empty);
 
 #[cfg(test)]
 mod tests {
+    use chrono::TimeZone;
     use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_providers::core::segment_listing_refused;
     use pierre_providers::delegation::athlete_off_roster;
@@ -999,14 +1002,22 @@ mod tests {
             NaiveDate::from_ymd_opt(2016, 11, 14).unwrap_or(NaiveDate::MIN),
             "bug: the window starts ten years back"
         );
-        assert_eq!(ask.segment, SegmentMatch::Id("611413".to_owned()));
+        assert_eq!(
+            ask.segment,
+            SegmentMatch::Id("611413".to_owned()),
+            "bug: a bare id is not asked as that id"
+        );
     }
 
     #[test]
     fn a_name_is_matched_folded() {
         let ask = parse_ask(&json!({ "segment_name": "  LA Bête " }), today());
         let ask = ask.unwrap_or_else(|e| panic!("bug: a name is a whole ask: {e}"));
-        assert_eq!(ask.segment, SegmentMatch::Name("la bete".to_owned()));
+        assert_eq!(
+            ask.segment,
+            SegmentMatch::Name("la bete".to_owned()),
+            "bug: a name is not trimmed and folded of its case and accents"
+        );
     }
 
     #[test]
@@ -1077,12 +1088,18 @@ mod tests {
 
     #[test]
     fn only_an_uncapped_window_of_read_activities_is_complete_without_a_walk() {
-        assert!(complete_without_walk(shape(12, 12, false, false)));
+        assert!(
+            complete_without_walk(shape(12, 12, false, false)),
+            "bug: an uncapped window with every activity read asks a walk"
+        );
         assert!(
             !complete_without_walk(shape(20_000, 20_000, false, true)),
             "bug: a capped window whose newest rows are read asks no walk"
         );
-        assert!(!complete_without_walk(shape(12, 3, false, false)));
+        assert!(
+            !complete_without_walk(shape(12, 3, false, false)),
+            "bug: a window with unread activities asks no walk"
+        );
     }
 
     #[test]

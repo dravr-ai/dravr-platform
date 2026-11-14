@@ -424,7 +424,11 @@ mod tests {
             ),
             Tz::UTC,
         );
-        assert_eq!(short.efforts.len(), 3);
+        assert_eq!(
+            short.efforts.len(),
+            3,
+            "bug: a list under the cap is trimmed"
+        );
         assert_eq!(
             short.efforts_total, None,
             "bug: an untrimmed list names a total"
