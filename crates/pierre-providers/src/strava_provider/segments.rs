@@ -123,11 +123,8 @@ fn convert_hit(raw: &StravaSegmentEffort) -> Option<SegmentEffortHit> {
 /// `elevation_gain` stays unset; a negative climb category is none.
 pub(super) fn convert_segment_effort(raw: &StravaSegmentEffort) -> Option<SegmentEffort> {
     let segment = raw.segment.as_ref();
-    let name = raw
-        .name
-        .clone()
-        .or_else(|| segment.and_then(|s| s.name.clone()))
-        .filter(|name| !name.trim().is_empty())?;
+    let named = |name: &Option<String>| name.clone().filter(|name| !name.trim().is_empty());
+    let name = named(&raw.name).or_else(|| segment.and_then(|s| named(&s.name)))?;
     let distance = raw
         .distance
         .map(f64::from)
@@ -255,9 +252,9 @@ mod tests {
     }
 
     #[test]
-    fn a_name_or_distance_missing_on_the_effort_comes_from_its_segment() {
+    fn a_blank_name_or_missing_distance_on_the_effort_comes_from_its_segment() {
         let mut bare = effort(9_003, Some("2026-11-07T13:20:00Z"));
-        bare["name"] = Value::Null;
+        bare["name"] = json!("  ");
         bare.as_object_mut().unwrap().remove("distance");
         bare["segment"]["name"] = json!("Remembrance");
         bare["segment"]["distance"] = json!(2_400.0);
