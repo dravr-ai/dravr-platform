@@ -33,8 +33,8 @@ pub(crate) use walk_statements::{
 
 /// A detail walk asked again while one is owed
 mod detail_walk;
-pub use detail_walk::{DetailWalkEnd, WalkWiden};
-pub(crate) use detail_walk::{END_DETAIL_WALK_SQL, WIDEN_DETAIL_WALK_SQL};
+pub use detail_walk::{DetailWalkEnd, DetailWalkEnded, DetailWalkRow, WalkWiden};
+pub(crate) use detail_walk::{DETAIL_WALK_ROW_SQL, END_DETAIL_WALK_SQL, WIDEN_DETAIL_WALK_SQL};
 /// The statements of a row's life past its record
 mod job_statements;
 pub(crate) use job_statements::{
@@ -446,17 +446,27 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// A [`BackfillJobKind::DetailWalk`]'s last step passed the floor it
     /// walked to: add `end` to the row's progress and keep the row, released,
     /// as [`BackfillJobState::Walked`], with its floor, what it read and what
-    /// it stored. Returns the progress the row ended on, or `None` when the
-    /// row was not ended: this lease no longer holds it, or an ask widened
-    /// its floor below `end.walked_floor` meanwhile
-    /// ([`Self::widen_detail_walk`]). In the second case the lease still
-    /// holds the owed row, so the step writes its progress
-    /// ([`Self::record_job_progress`]) and the next step walks on down.
+    /// it stored. Returns the progress the row ended on and when its walk
+    /// was asked ([`DetailWalkEnded`]), or `None` when the row was not
+    /// ended: this lease no longer holds it, or an ask widened its floor
+    /// below `end.walked_floor` meanwhile ([`Self::widen_detail_walk`]). In
+    /// the second case the lease still holds the owed row, so the step
+    /// writes its progress ([`Self::record_job_progress`]) and the next step
+    /// walks on down.
     async fn end_detail_walk(
         &self,
         lease: &JobLease,
         end: &DetailWalkEnd,
-    ) -> AppResult<Option<JobProgress>>;
+    ) -> AppResult<Option<DetailWalkEnded>>;
+
+    /// The [`BackfillJobKind::DetailWalk`] filed under `(user_id, provider)`
+    /// in `tenant_id`, owed or ended, or `None` when the ledger holds none.
+    async fn detail_walk_row(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+    ) -> AppResult<Option<DetailWalkRow>>;
 
     /// A history walk's last step landed: add `step` to the row's progress
     /// and keep the row, released, as [`BackfillJobState::Walked`] — never
@@ -990,7 +1000,10 @@ macro_rules! impl_activity_backfill_job_repository {
                 &self,
                 lease: &JobLease,
                 end: &$crate::repositories::activity_backfill_jobs::DetailWalkEnd,
-            ) -> AppResult<Option<JobProgress>> {
+            ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::DetailWalkEnded>>
+            {
+                let failed =
+                    |e: sqlx::Error| AppError::database(format!("Failed to end a detail walk: {e}"));
                 let row =
                     sqlx::query($crate::repositories::activity_backfill_jobs::END_DETAIL_WALK_SQL)
                         .bind(&lease.id)
@@ -1003,10 +1016,47 @@ macro_rules! impl_activity_backfill_job_repository {
                         .bind(walked_outcome())
                         .fetch_optional(self.pool())
                         .await
-                        .map_err(|e| {
-                            AppError::database(format!("Failed to end a detail walk: {e}"))
-                        })?;
-                row.as_ref().map(job_progress_from_row).transpose()
+                        .map_err(failed)?;
+                row.map(|row| {
+                    Ok($crate::repositories::activity_backfill_jobs::DetailWalkEnded {
+                        progress: job_progress_from_row(&row)?,
+                        created_at_ms: row.try_get("created_at_ms").map_err(failed)?,
+                    })
+                })
+                .transpose()
+            }
+
+            async fn detail_walk_row(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+            ) -> AppResult<Option<$crate::repositories::activity_backfill_jobs::DetailWalkRow>>
+            {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to read a detail walk row: {e}"))
+                };
+                let row =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::DETAIL_WALK_ROW_SQL)
+                        .bind(user_id.to_string())
+                        .bind(tenant_id)
+                        .bind(provider)
+                        .bind(BackfillJobKind::DetailWalk.as_str())
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(failed)?;
+                row.map(|row| {
+                    let outcome: Option<String> = row.try_get("outcome").map_err(failed)?;
+                    Ok($crate::repositories::activity_backfill_jobs::DetailWalkRow {
+                        state: backfill_job_state_of(outcome.as_deref())?,
+                        after_ts: row.try_get("after_ts").map_err(failed)?,
+                        before_ts: row.try_get("before_ts").map_err(failed)?,
+                        walk_sport: row.try_get("walk_sport").map_err(failed)?,
+                        created_at_ms: row.try_get("created_at_ms").map_err(failed)?,
+                        progress: job_progress_from_row(&row)?,
+                    })
+                })
+                .transpose()
             }
 
             async fn end_history_walk(

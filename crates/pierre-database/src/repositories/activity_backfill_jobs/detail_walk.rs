@@ -4,6 +4,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use super::{BackfillJobState, JobProgress};
+
 /// What a newer ask widens an owed detail walk to
 /// ([`super::ActivityBackfillJobRepository::widen_detail_walk`]).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,4 +78,40 @@ pub(crate) const END_DETAIL_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
          leased_until_ms = 0, lease_token = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL \
        AND (after_ts = $7 OR (after_ts IS NULL AND $7 IS NULL)) \
-     RETURNING months_total, months_done, rows_landed, secs_per_unit";
+     RETURNING months_total, months_done, rows_landed, secs_per_unit, created_at_ms";
+
+/// How a detail walk ended ([`super::ActivityBackfillJobRepository::end_detail_walk`]).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DetailWalkEnded {
+    /// The progress the row ended on, its last step included.
+    pub progress: JobProgress,
+    /// When the ask that recorded the walk was made (unix ms): what keys the
+    /// walk's one completion post, so a later walk posts again.
+    pub created_at_ms: i64,
+}
+
+/// The detail walk filed under a pair, owed or ended, as it stands
+/// ([`super::ActivityBackfillJobRepository::detail_walk_row`]).
+#[derive(Debug, Clone, PartialEq)]
+pub struct DetailWalkRow {
+    /// Owed, or how it ended.
+    pub state: BackfillJobState,
+    /// The window's floor (unix seconds); `None` for no lower bound.
+    pub after_ts: Option<i64>,
+    /// The walk's cursor (unix seconds): every activity started at or after
+    /// it was walked. An ended walk's sits at its floor.
+    pub before_ts: Option<i64>,
+    /// The sport the walk reads; `None` for every sport.
+    pub walk_sport: Option<String>,
+    /// When the ask that recorded it was made (unix ms).
+    pub created_at_ms: i64,
+    /// How far it got.
+    pub progress: JobProgress,
+}
+
+/// The detail walk (`$4`) filed under the pair in the tenant, whatever its
+/// state.
+pub(crate) const DETAIL_WALK_ROW_SQL: &str = "SELECT outcome, after_ts, before_ts, walk_sport, \
+            created_at_ms, months_total, months_done, rows_landed, secs_per_unit \
+     FROM activity_backfill_jobs \
+     WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";

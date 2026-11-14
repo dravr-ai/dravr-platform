@@ -19,7 +19,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, DetailWalkEnd,
-    JobLease, JobLeaseState, JobProgress, JobProgressStep, WalkWiden,
+    DetailWalkRow, JobLease, JobLeaseState, JobProgress, JobProgressStep, WalkWiden,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -1151,6 +1151,11 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
         .unwrap()
         .expect("bug: a walk whose floor stood still ends under its lease");
     assert_eq!(
+        ended.created_at_ms, walk.created_at_ms,
+        "bug: the end names when its walk was asked, which keys the walk's one post"
+    );
+    let ended = ended.progress;
+    assert_eq!(
         ended,
         JobProgress {
             units_total: Some(10),
@@ -1175,6 +1180,29 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
             .unwrap(),
         Some(ended),
         "bug: the ended row keeps what the walk read"
+    );
+    assert_eq!(
+        ledger
+            .detail_walk_row(user, tenant, PROVIDER)
+            .await
+            .unwrap(),
+        Some(DetailWalkRow {
+            state: BackfillJobState::Walked,
+            after_ts: row.after_ts,
+            before_ts: row.after_ts,
+            walk_sport: None,
+            created_at_ms: walk.created_at_ms,
+            progress: ended,
+        }),
+        "bug: the ended row reads back with its window, its cursor at the floor, and its counts"
+    );
+    assert_eq!(
+        ledger
+            .detail_walk_row(user, TenantId::generate(), PROVIDER)
+            .await
+            .unwrap(),
+        None,
+        "bug: another tenant reads this tenant's detail walk"
     );
     assert!(
         ledger
