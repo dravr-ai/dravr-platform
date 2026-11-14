@@ -833,3 +833,74 @@ async fn a_detail_walk_is_its_own_row_and_keeps_its_sport() {
         "bug: the reaped row names its sport"
     );
 }
+
+/// A claim handed back to wait for a spent budget's window gives its attempt
+/// back and is not claimed again before the instant it names; one handed back
+/// with no instant is due at once, as before.
+#[tokio::test]
+async fn a_paused_claim_waits_for_its_instant_and_keeps_its_attempts() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    let claim_at = |now_ms: i64| BackfillJobClaim {
+        now_ms,
+        ..claim_now()
+    };
+    let lease_of = |row: &ActivityBackfillJobRow| JobLease {
+        id: row.id.clone(),
+        token: row.lease_token.clone().unwrap(),
+    };
+
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    assert_eq!(claimed.len(), 1, "the walk is claimed");
+    assert_eq!(claimed[0].attempts, 2, "the claim counts an attempt");
+    let until = now_ms() + 60 * 60_000;
+    assert!(
+        ledger
+            .release_backfill_job_claim(&lease_of(&claimed[0]), Some(until))
+            .await
+            .unwrap(),
+        "bug: the claim's own lease hands it back"
+    );
+    assert!(
+        ledger
+            .claim_stale_backfill_jobs(claim_at(until - 1))
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a paused claim is taken again before the instant it waits for"
+    );
+    let resumed = ledger
+        .claim_stale_backfill_jobs(claim_at(until))
+        .await
+        .unwrap();
+    assert_eq!(
+        resumed.len(),
+        1,
+        "bug: a paused claim is due at its instant"
+    );
+    assert_eq!(
+        resumed[0].attempts, 2,
+        "bug: a pause spends no attempt: the claim's own was given back"
+    );
+
+    assert!(
+        ledger
+            .release_backfill_job_claim(&lease_of(&resumed[0]), None)
+            .await
+            .unwrap(),
+        "the claim is handed back with no instant"
+    );
+    assert_eq!(
+        ledger
+            .claim_stale_backfill_jobs(claim_at(until))
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "bug: a claim handed back with no instant keeps the retry it had"
+    );
+}

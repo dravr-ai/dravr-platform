@@ -30,7 +30,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::history_walk_test::age_job_rows;
+use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashMap;
 use std::mem;
@@ -44,6 +44,7 @@ use axum::{Json, Router};
 use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
     BackfillJobClaim, BackfillJobKind, BackfillJobState, JobProgress,
 };
@@ -57,6 +58,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::runtime::WalkTrigger;
 use secrecy::SecretString;
 use serde_json::{json, Value};
+use sqlx::Row;
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout};
@@ -365,6 +367,41 @@ async fn progress(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantI
         .expect("the walk's row is kept")
 }
 
+/// The walk's row as a step that released it left it.
+struct ReleasedRow {
+    attempts: i64,
+    before_ts: Option<i64>,
+    next_attempt_ms: i64,
+}
+
+const DAY_MS: i64 = DAY * 1_000;
+
+/// The athlete's walk row once no step holds its lease; `None` while one
+/// does.
+async fn released_row(resources: &Arc<ServerContext>, user_id: Uuid) -> Option<ReleasedRow> {
+    let sql = "SELECT attempts, before_ts, next_attempt_ms FROM activity_backfill_jobs \
+               WHERE user_id = $1 AND leased_until_ms = 0";
+    macro_rules! read {
+        ($pool:expr) => {{
+            let row = sqlx::query(sql)
+                .bind(user_id.to_string())
+                .fetch_optional($pool)
+                .await
+                .unwrap()?;
+            Some(ReleasedRow {
+                attempts: row.get("attempts"),
+                before_ts: row.get("before_ts"),
+                next_attempt_ms: row.get("next_attempt_ms"),
+            })
+        }};
+    }
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => read!(sqlite.pool()),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => read!(pg.pool()),
+    }
+}
+
 /// Run the walk the sweep's way, one step a pass, in a fresh window each
 /// pass, until its row ends.
 async fn walk_ended(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
@@ -382,6 +419,7 @@ async fn walk_ended(resources: &Arc<ServerContext>, user_id: Uuid, tenant: Tenan
             "the walk did not end within {WALK_DEADLINE:?} (row: {state:?})"
         );
         open_window(resources).await;
+        paused_retries_due(resources, user_id).await;
         age_job_rows(resources, user_id).await;
         let runtime: Arc<dyn ToolRuntime> = resources.clone();
         resume_backfill_jobs(runtime).await.unwrap();
@@ -531,8 +569,36 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
     );
     let paused_at = mock.listings.lock().unwrap().len();
     let deadline = Instant::now() + WALK_DEADLINE;
-    loop {
-        let claimed = resources
+    let paused = loop {
+        if let Some(paused) = released_row(&resources, user_id).await {
+            break paused;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the paused step never released its row"
+        );
+        sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(
+        paused.attempts, 0,
+        "bug: a paused step hands its attempt back"
+    );
+    assert!(
+        paused
+            .before_ts
+            .is_some_and(|before| before < now - 300 * DAY),
+        "bug: the paused walk keeps the cursor its first step reached: {:?}",
+        paused.before_ts
+    );
+    let window_end = (Utc::now().timestamp_millis() / DAY_MS + 1) * DAY_MS;
+    assert!(
+        (window_end - 2_000..=window_end).contains(&paused.next_attempt_ms),
+        "bug: a spent day's walk waits for the window's end ({window_end}), \
+         not a lease: {}",
+        paused.next_attempt_ms
+    );
+    assert!(
+        resources
             .common
             .repos
             .activity_backfill_jobs
@@ -544,27 +610,10 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
                 limit: 10,
             })
             .await
-            .unwrap();
-        if let Some(paused) = claimed.into_iter().next() {
-            assert_eq!(
-                paused.attempts, 1,
-                "bug: a paused step hands its attempt back"
-            );
-            assert!(
-                paused
-                    .before_ts
-                    .is_some_and(|before| before < now - 300 * DAY),
-                "bug: the paused walk keeps the cursor its first step reached: {:?}",
-                paused.before_ts
-            );
-            break;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "the paused step never released its row"
-        );
-        sleep(Duration::from_millis(50)).await;
-    }
+            .unwrap()
+            .is_empty(),
+        "bug: a walk paused on a spent day is claimed again before the day ends"
+    );
     assert_eq!(
         paused_at, 1,
         "bug: a spent budget sends no listing: only the first step's went out"

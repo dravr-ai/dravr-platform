@@ -424,8 +424,9 @@ enum Step {
     /// The walk reached the end of the history with this last step.
     Ended(JobProgressStep),
     /// A request budget refused the step: the walk resumes later, from the
-    /// same cursor.
-    Paused,
+    /// same cursor, once the refusing window ends (unix ms) when the refusal
+    /// named its end, or as soon as the sweep comes back when it did not.
+    Paused(Option<i64>),
     /// The source's credential is dead.
     AuthRequired,
     /// A transient failure: nothing of the step is recorded.
@@ -558,9 +559,9 @@ async fn settle_step(
                 ),
             }
         }
-        Step::Paused => log_write(
+        Step::Paused(until_ms) => log_write(
             "a request budget refused the step; it resumes in a later window",
-            ledger.release_backfill_job_claim(lease).await,
+            ledger.release_backfill_job_claim(lease, until_ms).await,
             job,
         ),
         Step::AuthRequired => {
@@ -930,7 +931,7 @@ async fn api_step(
     let learned = if cursor.learn_floor {
         match account_floor(job, provider).await {
             Ok(learned) => learned,
-            Err(()) => return Step::Paused,
+            Err(until_ms) => return Step::Paused(until_ms),
         }
     } else {
         None
@@ -955,7 +956,9 @@ async fn api_step(
         let activities =
             match ai_scope::unfiltered(provider.get_activities_with_params(&read)).await {
                 Ok(activities) => activities,
-                Err(e) if e.code == ErrorCode::ExternalRateLimited => return Step::Paused,
+                Err(e) if e.code == ErrorCode::ExternalRateLimited => {
+                    return Step::Paused(retry_at_ms(&e));
+                }
                 Err(e) => return failed_read(job, &e),
             };
         if !activities.is_empty() {
@@ -1003,11 +1006,12 @@ fn with_floor(step: Step, learned: Option<JobFloor>) -> Step {
 /// the months from now down to it; [`WHOLE_ACCOUNT_AFTER`] with no length
 /// when it names none, so the walk ends on its empty years and the profile
 /// is not read again. `Ok(None)` when the profile cannot be read for any
-/// reason but a spent budget, which is `Err`.
+/// reason but a spent budget, which is `Err` with the instant the refusing
+/// window ends ([`retry_at_ms`]).
 async fn account_floor(
     job: &ActivityBackfillJob,
     provider: &dyn CoreFitnessProvider,
-) -> Result<Option<JobFloor>, ()> {
+) -> Result<Option<JobFloor>, Option<i64>> {
     match ai_scope::unfiltered(provider.get_athlete()).await {
         Ok(athlete) => {
             let created = athlete
@@ -1019,12 +1023,24 @@ async fn account_floor(
                     .map(|after_ts| months_between(Utc::now().timestamp(), after_ts)),
             }))
         }
-        Err(e) if e.code == ErrorCode::ExternalRateLimited => Err(()),
+        Err(e) if e.code == ErrorCode::ExternalRateLimited => Err(retry_at_ms(&e)),
         Err(e) => {
             warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "History walk: the athlete's profile could not be read; walking to the empty years");
             Ok(None)
         }
     }
+}
+
+/// When a rate-limit refusal lets the walk try again (unix ms): the end of
+/// the refusing window, which a budget refusal names; `None` when it names
+/// none, and the sweep's next pass may try.
+fn retry_at_ms(refusal: &AppError) -> Option<i64> {
+    refusal.retry_after_secs().map(|secs| {
+        let wait_ms = i64::try_from(secs)
+            .unwrap_or(i64::MAX)
+            .saturating_mul(1_000);
+        Utc::now().timestamp_millis().saturating_add(wait_ms)
+    })
 }
 
 /// A read that failed: a dead credential, or a transient failure.

@@ -35,10 +35,12 @@ pub(crate) const END_BACKFILL_JOB_SQL: &str = "UPDATE activity_backfill_jobs \
      SET outcome = $3, leased_until_ms = 0, lease_token = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
 
-/// Hands a claim back unrun, with the attempt it counted.
+/// Hands a claim back unrun, with the attempt it counted; its next claim
+/// waits until `$3` when one is named, in the same statement, so the attempt
+/// and the pause land together.
 pub(crate) const RELEASE_BACKFILL_JOB_CLAIM_SQL: &str = "UPDATE activity_backfill_jobs \
      SET leased_until_ms = 0, attempts = CASE WHEN attempts > 0 THEN attempts - 1 ELSE 0 END, \
-         lease_token = NULL \
+         lease_token = NULL, next_attempt_ms = COALESCE($3, next_attempt_ms) \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL";
 
 /// Gives a failed attempt's lease back, keeping its attempt; the sweep's next is due at `$3`.

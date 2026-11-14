@@ -340,11 +340,18 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// took it.
     async fn end_backfill_job_incomplete(&self, lease: &JobLease) -> AppResult<bool>;
 
-    /// Give back a claim the sweep could not run (a run for the pair is
-    /// already in flight on this instance): the row is released and the
-    /// attempt the claim counted is returned, so waiting on that run never
-    /// spends the job's attempts. `false` when this lease no longer holds it.
-    async fn release_backfill_job_claim(&self, lease: &JobLease) -> AppResult<bool>;
+    /// Give back a claim that could not run: a run for the pair is already
+    /// in flight on this instance, or a request budget refused the step. The
+    /// row is released and the attempt the claim counted is returned, so
+    /// waiting never spends the job's attempts. `pause_until_ms` makes the
+    /// sweep's next claim wait until that instant (unix ms), the end of the
+    /// refusing window; `None` keeps the retry the row had. `false` when this
+    /// lease no longer holds it.
+    async fn release_backfill_job_claim(
+        &self,
+        lease: &JobLease,
+        pause_until_ms: Option<i64>,
+    ) -> AppResult<bool>;
 
     /// A failed attempt gives its lease back and keeps the attempt it
     /// counted: the row reads [`JobLeaseState::Idle`] at once, for an ask to
@@ -723,10 +730,15 @@ macro_rules! impl_activity_backfill_job_repository {
                 Ok(ended.rows_affected() == 1)
             }
 
-            async fn release_backfill_job_claim(&self, lease: &JobLease) -> AppResult<bool> {
+            async fn release_backfill_job_claim(
+                &self,
+                lease: &JobLease,
+                pause_until_ms: Option<i64>,
+            ) -> AppResult<bool> {
                 let released = sqlx::query(RELEASE_BACKFILL_JOB_CLAIM_SQL)
                     .bind(&lease.id)
                     .bind(&lease.token)
+                    .bind(pause_until_ms)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

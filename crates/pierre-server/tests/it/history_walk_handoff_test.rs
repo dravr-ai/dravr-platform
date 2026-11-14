@@ -37,7 +37,7 @@ use crate::history_walk_api_test::{
     hold_strava_grant, mock_strava, open_window, rows_under, strava_athlete, with_window,
     MockStrava,
 };
-use crate::history_walk_test::age_job_rows;
+use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
@@ -333,6 +333,7 @@ impl Fixture {
     async fn sweep(&self, fresh: bool) {
         if fresh {
             open_window(&self.resources).await;
+            paused_retries_due(&self.resources, self.user_id).await;
         }
         age_job_rows(&self.resources, self.user_id).await;
         resume_backfill_jobs(self.runtime()).await.unwrap();

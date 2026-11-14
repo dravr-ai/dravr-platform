@@ -442,7 +442,7 @@ async fn hand_back_unrun(job: &ActivityBackfillJob, recorded: Option<&(JobLease,
         return;
     };
     let ledger = &job.resources.repos().activity_backfill_jobs;
-    if let Err(e) = ledger.release_backfill_job_claim(lease).await {
+    if let Err(e) = ledger.release_backfill_job_claim(lease, None).await {
         warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Activity job: a detail walk could not be handed back unrun");
     }
 }

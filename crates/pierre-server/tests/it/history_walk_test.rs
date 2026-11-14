@@ -328,6 +328,29 @@ pub(crate) async fn age_job_rows(resources: &Arc<ServerContext>, user_id: Uuid) 
     }
 }
 
+/// Make every retry the athlete's rows wait for due now, as the window a
+/// spent budget paused them until has opened: a fresh window is that instant.
+pub(crate) async fn paused_retries_due(resources: &Arc<ServerContext>, user_id: Uuid) {
+    let sql = "UPDATE activity_backfill_jobs SET next_attempt_ms = 0 WHERE user_id = $1";
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .execute(pg.pool())
+                .await
+                .unwrap();
+        }
+    }
+}
+
 /// Run the athlete's walk the way the resume sweep does, one step a pass,
 /// until its row ends — walked, or incomplete — and return how it ended.
 pub(crate) async fn walk_ended(

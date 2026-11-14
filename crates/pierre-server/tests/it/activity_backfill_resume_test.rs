@@ -556,11 +556,17 @@ async fn a_released_claim_returns_its_attempt() {
         token: claimed[0].lease_token.clone().unwrap(),
     };
     assert!(
-        ledger.release_backfill_job_claim(&lease).await.unwrap(),
+        ledger
+            .release_backfill_job_claim(&lease, None)
+            .await
+            .unwrap(),
         "bug: the lease holder hands its claim back"
     );
     assert!(
-        !ledger.release_backfill_job_claim(&lease).await.unwrap(),
+        !ledger
+            .release_backfill_job_claim(&lease, None)
+            .await
+            .unwrap(),
         "a released claim holds the row no more"
     );
     let again: Vec<ActivityBackfillJobRow> = ledger
