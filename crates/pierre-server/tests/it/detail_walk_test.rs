@@ -237,7 +237,7 @@ async fn walk_row(
 
 /// Run the walk the sweep's way, one step a pass, in a fresh window each
 /// pass, until its row ends.
-async fn walk_ended(
+pub(crate) async fn walk_ended(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
@@ -936,7 +936,11 @@ async fn a_re_ask_within_a_week_of_a_walk_that_ended_reads_nothing_again() {
 }
 
 /// Set `assignment` on the athlete's detail walk row.
-async fn alter_walk_row(resources: &Arc<ServerContext>, user_id: Uuid, assignment: &str) {
+pub(crate) async fn alter_walk_row(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    assignment: &str,
+) {
     let sql = format!(
         "UPDATE activity_backfill_jobs SET {assignment} \
          WHERE user_id = $1 AND kind = 'detail_walk'"
@@ -995,19 +999,65 @@ async fn a_window_below_the_walked_floor_is_walked_afresh() {
     );
 }
 
-/// A window reaching above the walked one's top holds rides no walk tried:
-/// it is walked afresh.
-#[tokio::test]
-async fn a_window_above_the_walked_top_is_walked_afresh() {
+/// The walk was asked a day ago, so its window's top is a day short of the
+/// ask's: a default window ends at the athlete's next midnight, which moves
+/// up a day every day.
+async fn walked_a_day_ago() -> WalkedOnce {
     let walked = walked_once(None).await;
-    let higher = DetailWalkAsk {
-        before_ts: walked.now + 1,
-        ..walked.ask
-    };
+    alter_walk_row(
+        &walked.resources,
+        walked.user_id,
+        &format!("window_top_ts = window_top_ts - {DAY}"),
+    )
+    .await;
+    walked
+}
+
+/// A window reaching above the walked one's top, where no ride is unread,
+/// holds nothing the walk did not try: the walk still stands for it, and
+/// the ride it could not read is not read again.
+#[tokio::test]
+async fn a_window_above_the_walked_top_with_nothing_unread_there_stands_walked() {
+    let walked = walked_a_day_ago().await;
+
     assert_eq!(
-        walked.ask(higher).await,
-        DetailWalkAsked::Started { units_total: 1 },
-        "bug: a window above the walked top reads as walked"
+        walked.ask(walked.ask).await,
+        DetailWalkAsked::RecentlyWalked { unreadable: 1 },
+        "bug: a window whose top moved a day records a fresh walk"
+    );
+    assert_eq!(
+        walked.state().await,
+        Some(BackfillJobState::Walked),
+        "bug: the ended walk was replaced by an owed one"
+    );
+    let runtime: Arc<dyn ToolRuntime> = walked.resources.clone();
+    resume_backfill_jobs(runtime).await.unwrap();
+    sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        walked.mock.detail_reads().len(),
+        3,
+        "bug: the ride the backend could not read was read again"
+    );
+}
+
+/// A ride unread above the walked one's top is one no walk tried: the
+/// window is walked afresh.
+#[tokio::test]
+async fn a_ride_unread_above_the_walked_top_is_walked_afresh() {
+    let walked = walked_a_day_ago().await;
+    store_rides(
+        &walked.resources,
+        walked.user_id,
+        walked.tenant,
+        SESSION,
+        &[walked.now - DAY / 2],
+    )
+    .await;
+
+    assert_eq!(
+        walked.ask(walked.ask).await,
+        DetailWalkAsked::Started { units_total: 2 },
+        "bug: a ride above the walked top reads as walked"
     );
 }
 

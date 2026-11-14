@@ -211,9 +211,10 @@ impl DetailWalkAsked {
 /// recorded over the window, counted at the activities in it whose efforts
 /// no copy holds, unless there are none, or unless a walk that ended walked
 /// within [`DETAIL_WALK_STANDS_MS`] covers the window
-/// ([`DetailWalkAsked::RecentlyWalked`]): an older one, one over a narrower
-/// window or another sport, or one that ended any other way is walked
-/// afresh.
+/// ([`DetailWalkAsked::RecentlyWalked`]): after an older one, one over
+/// another sport, one whose floor sits above the ask's or whose top sits
+/// below an unread activity of the ask, or one that ended any other way, the
+/// window is walked afresh.
 pub async fn ask_detail_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -236,18 +237,19 @@ pub async fn ask_detail_walk(
         return widen(&athlete, backend, row, ask).await;
     }
     let keys = walk_keys(backend);
-    let Ok(units_total) = athlete
+    let Ok(unread) = athlete
         .unread_between(&keys, ask.after_ts, ask.before_ts, ask.sport)
         .await
     else {
         return DetailWalkAsked::NotRecorded;
     };
+    let units_total = i64::try_from(unread.len()).unwrap_or(i64::MAX);
     if units_total == 0 {
         return DetailWalkAsked::NothingUnread;
     }
     if row
         .as_ref()
-        .is_some_and(|row| stands_for(row, ask, now_ms()))
+        .is_some_and(|row| stands_for(row, ask, &unread, now_ms()))
     {
         info!(user_id = %user_id, backend, unreadable = units_total, "Detail walk: a walk over the window ended lately; nothing is read again");
         return DetailWalkAsked::RecentlyWalked {
@@ -292,15 +294,20 @@ pub async fn ask_detail_walk(
 
 /// Whether the walk `row` records, which ended walked within
 /// [`DETAIL_WALK_STANDS_MS`] of `now_ms`, covers `ask`: its window reaches
-/// from at or below the ask's floor to at or above its top, over the ask's
-/// sport or every sport.
-fn stands_for(row: &DetailWalkRow, ask: DetailWalkAsk<'_>, now_ms: i64) -> bool {
+/// from at or below the ask's floor, over the ask's sport or every sport, and
+/// up to the ask's top or past every activity of the ask left `unread` (the
+/// newest start of each). A default window ends at the athlete's next
+/// midnight, a day later each day: the walk still stands for it while every
+/// unread activity sits in the window it walked.
+fn stands_for(row: &DetailWalkRow, ask: DetailWalkAsk<'_>, unread: &[i64], now_ms: i64) -> bool {
     row.state == BackfillJobState::Walked
         && row
             .ended_at_ms
             .is_some_and(|ended| now_ms.saturating_sub(ended) < DETAIL_WALK_STANDS_MS)
         && row.after_ts.is_none_or(|floor| floor <= ask.after_ts)
-        && row.window_top_ts.is_some_and(|top| top >= ask.before_ts)
+        && row
+            .window_top_ts
+            .is_some_and(|top| top >= ask.before_ts || unread.iter().all(|newest| *newest < top))
         && (row.walk_sport.is_none() || row.walk_sport.as_deref() == ask.sport)
 }
 
@@ -349,9 +356,10 @@ async fn widen(
         None
     };
     let keys = walk_keys(backend);
-    let Ok(units_left) = athlete.unread_between(&keys, floor, cursor, sport).await else {
+    let Ok(unread) = athlete.unread_between(&keys, floor, cursor, sport).await else {
         return DetailWalkAsked::NotRecorded;
     };
+    let units_left = i64::try_from(unread.len()).unwrap_or(i64::MAX);
     let widen = WalkWiden {
         after_ts: ask.after_ts,
         walk_sport: ask.sport.map(str::to_owned),
@@ -521,32 +529,39 @@ impl Athlete<'_> {
         })
     }
 
-    /// How many activities started in `[floor, top)` under `keys`, of
-    /// `sport`, no copy of which holds its efforts: the copies of one
-    /// activity are one ([`identity`]) wherever in the window each starts.
+    /// The activities started in `[floor, top)` under `keys`, of `sport`, no
+    /// copy of which holds its efforts, as the newest start (unix seconds)
+    /// among each one's copies: the copies of one activity are one
+    /// ([`identity`]) wherever in the window each starts.
     async fn unread_between(
         &self,
         keys: &[&str],
         floor: i64,
         top: i64,
         sport: Option<&str>,
-    ) -> Result<i64, ()> {
-        let mut read: HashMap<NativeKey, bool> = HashMap::new();
+    ) -> Result<Vec<i64>, ()> {
+        let mut read: HashMap<NativeKey, (bool, i64)> = HashMap::new();
         let mut top = top;
         loop {
             let page = self.page(keys, floor, top, sport).await.map_err(|e| {
                 warn!(user_id = %self.user_id, error = %e, "Detail walk: the store could not be read to count the window");
             })?;
-            for row in page.seconds.iter().flat_map(|(_, rows)| rows) {
-                *read.entry(identity(row)).or_insert(false) |= row.segment_read;
+            for (at, rows) in &page.seconds {
+                for row in rows {
+                    let (was_read, newest) = read.entry(identity(row)).or_insert((false, *at));
+                    *was_read |= row.segment_read;
+                    *newest = (*newest).max(*at);
+                }
             }
             match page.seconds.last() {
                 Some((oldest, _)) if !page.reached_floor => top = *oldest,
                 _ => break,
             }
         }
-        let unread = read.values().filter(|read| !**read).count();
-        Ok(i64::try_from(unread).unwrap_or(i64::MAX))
+        Ok(read
+            .into_values()
+            .filter_map(|(read, newest)| (!read).then_some(newest))
+            .collect())
     }
 }
 

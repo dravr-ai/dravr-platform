@@ -31,6 +31,7 @@
 
 use crate::coach_athlete_reads_test::{fixture, ok};
 use crate::common;
+use crate::detail_walk_test::{alter_walk_row, walk_ended};
 use crate::history_walk_api_test::{server, strava_athlete};
 
 use std::future::pending;
@@ -87,11 +88,19 @@ struct MockStrava {
     listing: Mutex<Listing>,
     /// How many `GET /segment_efforts` calls reached it.
     listings: Mutex<u32>,
+    /// Whether a detail read answers `404` rather than being held.
+    details_gone: Mutex<bool>,
+    /// How many detail reads reached it.
+    detail_reads: Mutex<u32>,
 }
 
 impl MockStrava {
     fn listings(&self) -> u32 {
         *self.listings.lock().unwrap()
+    }
+
+    fn detail_reads(&self) -> u32 {
+        *self.detail_reads.lock().unwrap()
     }
 }
 
@@ -105,16 +114,26 @@ async fn segment_efforts(State(mock): State<Arc<MockStrava>>) -> Result<Json<Val
 }
 
 /// A detail read the walk makes: held until the test ends, so the walk the
-/// tool asked for stays owed while the test reads its row.
-async fn held_detail(Path(_id): Path<i64>) -> Json<Value> {
+/// tool asked for stays owed while the test reads its row; or, once the test
+/// says the rides are gone, answered `404`, so the walk walks past them.
+async fn held_detail(
+    State(mock): State<Arc<MockStrava>>,
+    Path(_id): Path<i64>,
+) -> Result<Json<Value>, StatusCode> {
+    *mock.detail_reads.lock().unwrap() += 1;
+    if *mock.details_gone.lock().unwrap() {
+        return Err(StatusCode::NOT_FOUND);
+    }
     pending::<()>().await;
-    Json(json!({}))
+    Ok(Json(json!({})))
 }
 
 async fn mock_strava(listing: Listing) -> (String, Arc<MockStrava>) {
     let mock = Arc::new(MockStrava {
         listing: Mutex::new(listing),
         listings: Mutex::new(0),
+        details_gone: Mutex::new(false),
+        detail_reads: Mutex::new(0),
     });
     let app = Router::new()
         .route("/segment_efforts", get(segment_efforts))
@@ -1006,6 +1025,69 @@ async fn a_wider_ask_widens_the_walk_owed() {
     assert!(
         widened.after_ts.unwrap() < asked.after_ts.unwrap() && widened.after_ts.unwrap() <= older,
         "bug: the wider ask lowered the walk's floor past the older ride: {asked:?} -> {widened:?}"
+    );
+}
+
+/// A walk asked yesterday over the default window ended having tried every
+/// ride: today's default window ends a day later, at the athlete's next
+/// midnight, and holds no ride the walk did not try. The ended walk stands:
+/// the window is short by the rides it could not read, and no fresh walk
+/// re-reads them out of the athlete's day.
+#[tokio::test]
+async fn a_default_window_asked_the_next_day_stands_on_the_walk_that_ended() {
+    let (resources, mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
+    *mock.details_gone.lock().unwrap() = true;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(5))],
+    )
+    .await;
+    let first = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    assert_eq!(
+        first["coverage"]["incomplete_reason"], "segment_detail_walking",
+        "{first}"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "the walk ended walked"
+    );
+    let reads = mock.detail_reads();
+    assert_eq!(reads, 1, "the walk tried the ride once");
+    // The walk was asked a day ago: its window ends a day short of today's.
+    alter_walk_row(&resources, user_id, "window_top_ts = window_top_ts - 86400").await;
+
+    let next_day = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    assert_eq!(
+        next_day["coverage"]["incomplete_reason"],
+        json!({ "segment_detail_partial": { "unreadable": 1 } }),
+        "bug: a default window asked the next day records a fresh walk: {next_day}"
+    );
+    assert_eq!(
+        walk_row(&resources, user_id, tenant)
+            .await
+            .map(|row| row.state),
+        Some(BackfillJobState::Walked),
+        "bug: the walk that ended was replaced by a fresh one"
+    );
+    assert_eq!(
+        mock.detail_reads(),
+        reads,
+        "bug: the ride the walk could not read was read again"
     );
 }
 
