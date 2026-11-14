@@ -2975,6 +2975,9 @@
     "history_walk": {
       "complete": "✅ Ton historique depuis {0} est là : {1} activités."
     },
+    "detail_walk": {
+      "complete": "✅ Tes efforts sur segments sont là : {0} activités lues."
+    },
     "live_read": {
       "overtaken": "✅ Les données de ta question précédente sont arrivées."
     },
