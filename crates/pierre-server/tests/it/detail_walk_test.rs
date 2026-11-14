@@ -519,6 +519,62 @@ async fn a_ride_strava_fails_on_is_read_again_not_walked_past() {
     );
 }
 
+/// Strava failing on a ride for every attempt the walk has ends it
+/// incomplete, never walked: the athlete is told nothing, and the next ask
+/// walks the window afresh, never reporting the ride unreadable.
+#[tokio::test]
+async fn a_walk_strava_keeps_failing_ends_incomplete_untold() {
+    let (api_base, mock) = mock_strava().await;
+    let told = Arc::new(Told::default());
+    let resources = telling(&server(&api_base, 400).await, &told);
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let starts = [now - 5 * DAY, now - 6 * DAY];
+    mock.failing.lock().unwrap().insert(starts[1]);
+    store_rides(&resources, user_id, tenant, SESSION, &starts).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        since(now - 10 * DAY),
+    )
+    .await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 2 },
+        "the two rides are owed"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Incomplete,
+        "bug: a walk Strava kept failing ended as if it walked its window: {ended:?}"
+    );
+    assert!(
+        told.walks.lock().unwrap().is_empty(),
+        "bug: the athlete was told a walk Strava kept failing is done: {:?}",
+        told.walks.lock().unwrap()
+    );
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        since(now - 10 * DAY),
+    )
+    .await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: the ride Strava failed on reads as unreadable, not walked again"
+    );
+}
+
 /// The walk's next retry once a spent budget released its row.
 async fn next_attempt_ms(resources: &Arc<ServerContext>, user_id: Uuid) -> Option<i64> {
     let sql = "SELECT next_attempt_ms FROM activity_backfill_jobs \
