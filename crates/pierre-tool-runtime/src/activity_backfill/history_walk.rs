@@ -1032,7 +1032,7 @@ async fn account_floor(
 /// When a rate-limit refusal lets the walk try again (unix ms): the end of
 /// the refusing window, which a budget refusal names; `None` when it names
 /// none, and the sweep's next pass may try.
-fn retry_at_ms(refusal: &AppError) -> Option<i64> {
+pub(super) fn retry_at_ms(refusal: &AppError) -> Option<i64> {
     refusal.retry_after_secs().map(|secs| {
         let wait_ms = i64::try_from(secs)
             .unwrap_or(i64::MAX)

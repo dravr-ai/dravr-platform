@@ -194,6 +194,10 @@ async fn job_from_row(
         row.walk_backend
             .clone()
             .unwrap_or_else(|| row.provider.clone())
+    } else if row.kind == BackfillJobKind::DetailWalk {
+        // Filed under the backend that reads it, which it reads exactly as
+        // named: never resolved to the session first.
+        row.provider.clone()
     } else {
         backend_resolver::resolve_backend(
             resources.repos(),

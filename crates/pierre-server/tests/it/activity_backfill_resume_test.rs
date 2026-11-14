@@ -29,7 +29,8 @@ use chrono::Utc;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
-    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, JobLease, JobProgress,
+    ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
+    JobProgress,
 };
 use pierre_providers::core::ActivityQueryParams;
 use pierre_tool_runtime::activity_backfill::{
@@ -583,11 +584,11 @@ async fn a_released_claim_returns_its_attempt() {
     );
 }
 
-/// The dispatch has no step for a detail walk: the claim it gives back keeps
-/// the attempt it counted and waits a lease, as a failed step's does, so the
-/// next sweep does not take it again at once and the attempt cap ends it.
+/// A detail walk the sweep claims runs its step, not a hand-back: one whose
+/// window holds nothing left to read ends walked on that step, and the next
+/// sweep takes nothing.
 #[tokio::test]
-async fn a_detail_walk_claim_given_back_unrun_spends_its_attempt() {
+async fn a_resumed_detail_walk_with_nothing_to_read_ends_walked() {
     let fx = fixture().await;
     let walk = ActivityBackfillJobRow {
         kind: BackfillJobKind::DetailWalk,
@@ -612,27 +613,30 @@ async fn a_detail_walk_claim_given_back_unrun_spends_its_attempt() {
         resumed, 1,
         "the lapsed detail walk is claimed and dispatched"
     );
+    let ledger = &fx.runtime.repos().activity_backfill_jobs;
     let deadline = Instant::now() + RUN_BUDGET;
-    let row = loop {
-        let row = stored_job(&fx, TOKENLESS_PROVIDER)
+    loop {
+        let state = ledger
+            .backfill_job_state(
+                fx.user_id,
+                fx.tenant,
+                TOKENLESS_PROVIDER,
+                BackfillJobKind::DetailWalk,
+            )
             .await
-            .expect("bug: a detail walk given back unrun stays on file");
-        if row.leased_until_ms == 0 {
-            break row;
+            .unwrap();
+        if state == Some(BackfillJobState::Walked) {
+            break;
         }
         assert!(
             Instant::now() < deadline,
-            "the dispatch did not give the claim back within {RUN_BUDGET:?}"
+            "bug: the claimed detail walk did not run its step within {RUN_BUDGET:?} (row: {state:?})"
         );
         sleep(Duration::from_millis(20)).await;
-    };
-    assert_eq!(
-        row.attempts, 2,
-        "bug: a claim given back unrun keeps the attempt it counted"
-    );
+    }
     assert_eq!(
         resume_backfill_jobs(Arc::clone(&fx.runtime)).await.unwrap(),
         0,
-        "bug: a detail walk given back unrun is claimed again by the next sweep"
+        "bug: a detail walk that ended is claimed again by the next sweep"
     );
 }

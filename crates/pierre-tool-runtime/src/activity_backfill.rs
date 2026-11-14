@@ -68,6 +68,8 @@ use crate::training_history_compute::{
 };
 use pierre_providers::ai_scope;
 
+/// A detail walk: the segment efforts of a window's stored activities read in
+pub mod detail_walk;
 /// A history walk: the athlete's whole history paged into the store
 pub mod history_walk;
 /// Which run holds a job's in-flight key in this process
@@ -249,7 +251,10 @@ pub async fn spawn_activity_backfill(job: ActivityBackfillJob) -> bool {
         );
         return false;
     }
-    matches!(enqueue(job, None).await, Enqueued::Started)
+    matches!(
+        enqueue(job, None, JobProgress::default()).await,
+        Enqueued::Started
+    )
 }
 
 /// What asking for a job came to.
@@ -279,9 +284,13 @@ enum Enqueued {
 /// ([`live_read::take_over_idle`]), and one that landed here over a window
 /// narrower than this ask's is succeeded by it
 /// ([`live_read::succeeds`]): neither holds a provider read to wait on.
+///
+/// The row starts at `progress`: nothing done, and the units to do when the
+/// ask counted them (a detail walk's activities to read).
 async fn enqueue(
     job: ActivityBackfillJob,
     handoff: Option<live_read::LiveReadHandoff>,
+    progress: JobProgress,
 ) -> Enqueued {
     let key = in_flight_key(job.tenant_id, job.user_id, &job.provider_name, job.kind);
     let claim = match claim(&key, |run| live_read::succeeds(&job, run)) {
@@ -297,7 +306,10 @@ async fn enqueue(
         }
     };
 
-    let row = job_row(&job);
+    let row = ActivityBackfillJobRow {
+        progress,
+        ..job_row(&job)
+    };
     let recorded = match record_backfill_job(&job, &row).await {
         Recorded::Inserted(row_id) => Some((row_id, 1)),
         Recorded::AlreadyOwed => {
@@ -394,17 +406,19 @@ pub(crate) fn answer_reaped_live_read(job: ActivityBackfillJob) -> bool {
 
 /// The task every job runs in: holds the in-flight key for the life of the
 /// run and, when the job is on file, its row. What runs is the job's kind:
-/// a live read ([`live_read`]), a history walk ([`history_walk`]), or a
-/// backfill. A job neither a conversation nor a turn waits on runs [`in_background`],
-/// leaving the head reads athletes wait on the rest of each window
-/// (carnet#1478).
+/// a live read ([`live_read`]), a history walk ([`history_walk`]), a detail
+/// walk ([`detail_walk`]), or a backfill. A job neither a conversation nor a
+/// turn waits on runs [`in_background`], leaving the head reads athletes
+/// wait on the rest of each window (carnet#1478); so does every detail walk,
+/// whatever asked it: nobody waits on it.
 fn spawn_backfill_run(
     job: ActivityBackfillJob,
     claim: InFlightClaim,
     recorded: Option<(JobLease, i64)>,
     handoff: Option<live_read::LiveReadHandoff>,
 ) {
-    let awaited = job.pierre_conversation_id.is_some() || handoff.is_some();
+    let awaited = job.kind != BackfillJobKind::DetailWalk
+        && (job.pierre_conversation_id.is_some() || handoff.is_some());
     let (user_id, provider, kind) = (job.user_id, job.provider_name.clone(), job.kind);
     let run = async move {
         let after = match job.kind {
@@ -418,7 +432,7 @@ fn spawn_backfill_run(
                 history_walk::AfterStep::Settled
             }
             BackfillJobKind::DetailWalk => {
-                hand_back_unrun(&job, recorded.as_ref()).await;
+                detail_walk::run_detail_walk(&job, recorded).await;
                 history_walk::AfterStep::Settled
             }
         };
@@ -435,21 +449,6 @@ fn spawn_backfill_run(
         tokio::spawn(in_background(run))
     };
     observe_job_task(task, user_id, provider, kind);
-}
-
-/// The dispatch has no step for a detail walk: its claim is given back
-/// keeping the attempt it counted, its retry a lease away, as a failed
-/// step's is. The sweep's attempt cap and its reap end a row no step reads,
-/// rather than the sweep taking it again every pass.
-async fn hand_back_unrun(job: &ActivityBackfillJob, recorded: Option<&(JobLease, i64)>) {
-    let Some((lease, _)) = recorded else {
-        return;
-    };
-    let ledger = &job.resources.repos().activity_backfill_jobs;
-    let retry_at_ms = now_ms().saturating_add(lease_ms());
-    if let Err(e) = ledger.release_backfill_job_lease(lease, retry_at_ms).await {
-        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Activity job: a detail walk's claim could not be given back");
-    }
 }
 
 /// Watch a job's task, so a panic in it is logged rather than lost with its
