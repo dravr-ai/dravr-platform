@@ -442,3 +442,84 @@ async fn fetch_mark_advances_freshness_without_rows() {
         .unwrap();
     assert_eq!(re_marked.timestamp(), much_later.timestamp());
 }
+
+/// A row's segments read only when its stored detail carries the
+/// `segment_efforts` key: an empty list is a read of a ride over no segment,
+/// a detail without the key read none, and a list copy that carries efforts
+/// of its own is not a detail read at all.
+#[tokio::test]
+async fn a_row_reads_as_segment_read_only_from_its_stored_detail() {
+    use pierre_database::repositories::ActivityDetail;
+
+    common::init_server_config();
+    let database = common::create_test_database().await.unwrap();
+    let (user_id, _user) = common::create_test_user(&database).await.unwrap();
+    let tenant_id = TenantId::generate();
+    let repo = &database.repositories().activity_cache;
+    let with_list_efforts = ActivityBuilder::new(
+        "listed-efforts",
+        "Listed",
+        SportType::Ride,
+        Utc::now() - Duration::days(4),
+        3_600,
+        "strava",
+    )
+    .segment_efforts_opt(Some(vec![]))
+    .build();
+    let rows = vec![
+        activity("stamped", "strava", 1),
+        activity("splits-only", "strava", 2),
+        activity("unread", "strava", 3),
+        with_list_efforts,
+    ];
+    repo.upsert_activities(user_id, &tenant_id, "strava", &rows)
+        .await
+        .unwrap();
+    let stamped = ActivityDetail {
+        segment_efforts: Some(vec![]),
+        ..ActivityDetail::default()
+    };
+    let splits_only = ActivityDetail {
+        description: Some("a description, no efforts".to_owned()),
+        ..ActivityDetail::default()
+    };
+    for (id, detail) in [("stamped", &stamped), ("splits-only", &splits_only)] {
+        assert!(repo
+            .store_activity_detail(user_id, &tenant_id, "strava", id, detail, None)
+            .await
+            .unwrap());
+    }
+
+    let read = repo
+        .get_cached_activity_rows(
+            user_id,
+            &tenant_id,
+            Utc::now() - Duration::days(10),
+            Utc::now(),
+            10,
+        )
+        .await
+        .unwrap();
+    let segment_read = |id: &str| {
+        read.iter()
+            .find(|row| row.activity.id() == id)
+            .unwrap_or_else(|| panic!("{id} is read"))
+            .segment_read
+    };
+    assert!(
+        segment_read("stamped"),
+        "bug: a stored detail with an empty efforts list reads as segment-read"
+    );
+    assert!(
+        !segment_read("splits-only"),
+        "bug: a stored detail without the efforts key reads as segment-read"
+    );
+    assert!(
+        !segment_read("unread"),
+        "bug: a row with no stored detail reads as segment-read"
+    );
+    assert!(
+        !segment_read("listed-efforts"),
+        "bug: a list copy's own efforts read as a detail read of its segments"
+    );
+}

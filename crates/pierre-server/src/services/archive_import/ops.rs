@@ -570,6 +570,7 @@ async fn live_twins(
             activity: record.activity.clone(),
             route: None,
             detail_read: false,
+            segment_read: false,
         });
     }
     // A cached id the store cannot name is left as the window's discard

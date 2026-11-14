@@ -122,6 +122,11 @@ pub struct CachedActivityRow {
     /// splits or laps always does, one that carried neither until its recheck
     /// instant.
     pub detail_read: bool,
+    /// Whether a stored detail read of the activity read its segment
+    /// efforts: its stored detail carries the efforts key, an empty list
+    /// included. A recheck instant does not end it, as it ends
+    /// [`Self::detail_read`]: a read that found no segment found none.
+    pub segment_read: bool,
 }
 
 /// How many cached activities one user holds under one key in a tenant.
