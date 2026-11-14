@@ -4391,12 +4391,12 @@
               },
               {
                 "additionalProperties": false,
-                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the walk tried them\nand the backend answered nothing for them. Any other activity of the\nwindow whose efforts were not read is held only in the athlete's own\nexport, which no walk reads.",
                 "properties": {
                   "segment_detail_partial": {
                     "properties": {
                       "unreadable": {
-                        "description": "Activities of the window whose segment efforts were not read.",
+                        "description": "Activities of the window a walk tried whose segment efforts the\nbackend could not read.",
                         "format": "uint64",
                         "minimum": 0,
                         "type": "integer"
@@ -4412,6 +4412,11 @@
                   "segment_detail_partial"
                 ],
                 "type": "object"
+              },
+              {
+                "const": "segment_detail_unread",
+                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "type": "string"
               },
               {
                 "const": "segment_detail_unavailable",
@@ -10239,12 +10244,12 @@
               },
               {
                 "additionalProperties": false,
-                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the walk tried them\nand the backend answered nothing for them. Any other activity of the\nwindow whose efforts were not read is held only in the athlete's own\nexport, which no walk reads.",
                 "properties": {
                   "segment_detail_partial": {
                     "properties": {
                       "unreadable": {
-                        "description": "Activities of the window whose segment efforts were not read.",
+                        "description": "Activities of the window a walk tried whose segment efforts the\nbackend could not read.",
                         "format": "uint64",
                         "minimum": 0,
                         "type": "integer"
@@ -10260,6 +10265,11 @@
                   "segment_detail_partial"
                 ],
                 "type": "object"
+              },
+              {
+                "const": "segment_detail_unread",
+                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "type": "string"
               },
               {
                 "const": "segment_detail_unavailable",
@@ -14206,12 +14216,12 @@
               },
               {
                 "additionalProperties": false,
-                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the walk tried them\nand the backend answered nothing for them. Any other activity of the\nwindow whose efforts were not read is held only in the athlete's own\nexport, which no walk reads.",
                 "properties": {
                   "segment_detail_partial": {
                     "properties": {
                       "unreadable": {
-                        "description": "Activities of the window whose segment efforts were not read.",
+                        "description": "Activities of the window a walk tried whose segment efforts the\nbackend could not read.",
                         "format": "uint64",
                         "minimum": 0,
                         "type": "integer"
@@ -14227,6 +14237,11 @@
                   "segment_detail_partial"
                 ],
                 "type": "object"
+              },
+              {
+                "const": "segment_detail_unread",
+                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "type": "string"
               },
               {
                 "const": "segment_detail_unavailable",
@@ -15412,12 +15427,12 @@
               },
               {
                 "additionalProperties": false,
-                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the walk tried them\nand the backend answered nothing for them. Any other activity of the\nwindow whose efforts were not read is held only in the athlete's own\nexport, which no walk reads.",
                 "properties": {
                   "segment_detail_partial": {
                     "properties": {
                       "unreadable": {
-                        "description": "Activities of the window whose segment efforts were not read.",
+                        "description": "Activities of the window a walk tried whose segment efforts the\nbackend could not read.",
                         "format": "uint64",
                         "minimum": 0,
                         "type": "integer"
@@ -15433,6 +15448,11 @@
                   "segment_detail_partial"
                 ],
                 "type": "object"
+              },
+              {
+                "const": "segment_detail_unread",
+                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "type": "string"
               },
               {
                 "const": "segment_detail_unavailable",
@@ -16320,12 +16340,12 @@
               },
               {
                 "additionalProperties": false,
-                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the walk tried them\nand the backend answered nothing for them. Any other activity of the\nwindow whose efforts were not read is held only in the athlete's own\nexport, which no walk reads.",
                 "properties": {
                   "segment_detail_partial": {
                     "properties": {
                       "unreadable": {
-                        "description": "Activities of the window whose segment efforts were not read.",
+                        "description": "Activities of the window a walk tried whose segment efforts the\nbackend could not read.",
                         "format": "uint64",
                         "minimum": 0,
                         "type": "integer"
@@ -16341,6 +16361,11 @@
                   "segment_detail_partial"
                 ],
                 "type": "object"
+              },
+              {
+                "const": "segment_detail_unread",
+                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "type": "string"
               },
               {
                 "const": "segment_detail_unavailable",

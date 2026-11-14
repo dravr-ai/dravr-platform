@@ -42,7 +42,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::coverage::{IncompleteReason, Pending};
+use pierre_core::models::coverage::Pending;
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
@@ -1118,11 +1118,6 @@ async fn a_re_ask_within_a_week_of_a_walk_that_ended_reads_nothing_again() {
         asked,
         DetailWalkAsked::RecentlyWalked { unreadable: 1 },
         "bug: a re-ask over a window walked a moment ago records a fresh walk"
-    );
-    assert_eq!(
-        asked.segment_reason(),
-        Some(IncompleteReason::SegmentDetailPartial { unreadable: 1 }),
-        "bug: the ride the walk could not read is not reported as unread"
     );
     let narrower = DetailWalkAsk {
         after_ts: walked.now - 9 * DAY,

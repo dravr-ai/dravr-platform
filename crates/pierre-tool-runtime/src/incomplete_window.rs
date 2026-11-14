@@ -88,7 +88,8 @@ const fn counted_short(reason: IncompleteReason) -> bool {
         | IncompleteReason::ReadCapped
         | IncompleteReason::HistoryWalkRunning
         | IncompleteReason::SegmentDetailWalking
-        | IncompleteReason::SegmentDetailPartial { .. } => true,
+        | IncompleteReason::SegmentDetailPartial { .. }
+        | IncompleteReason::SegmentDetailUnread => true,
         IncompleteReason::ProviderUnavailable
         | IncompleteReason::ShallowHistory
         | IncompleteReason::NoStoredActivities

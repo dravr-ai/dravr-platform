@@ -62,7 +62,7 @@ use std::sync::Arc;
 
 use pierre_core::constants::oauth::providers::STRAVA_ARCHIVE;
 use pierre_core::errors::AppResult;
-use pierre_core::models::coverage::{IncompleteReason, Pending};
+use pierre_core::models::coverage::Pending;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
     BackfillJobKind, BackfillJobState, DetailWalkRow, JobProgress, WalkTried, WalkWiden,
@@ -238,7 +238,8 @@ pub enum DetailWalkAsked {
     /// A walk was already owed: its floor was lowered to the ask's, and its
     /// total recounted.
     Widened,
-    /// Every activity of the window has its efforts read: nothing to walk.
+    /// Every activity of the window a walk reads has its efforts read:
+    /// nothing to walk. One held only in the athlete's own export may not.
     NothingUnread,
     /// Every unread activity of the window is one a walk that ended walked
     /// within `DETAIL_WALK_STANDS_MS` tried, so none is read again. These
@@ -247,35 +248,15 @@ pub enum DetailWalkAsked {
         /// Activities of the window whose efforts no copy holds.
         unreadable: i64,
     },
-    /// The store or the ledger could not be read or written (logged).
+    /// The store or the ledger could not be read or written (logged), or
+    /// the owed walk this ask would widen ended under it twice running.
+    /// Nothing was asked: a walk may still be owed and reading the window.
     NotRecorded,
     /// The backend's budget leaves the athlete's walk no call a day (an app
     /// registered at under 8 a day): no walk is recorded, which would only
     /// pause until each day's end, forever. The backend is connected, and
     /// cannot read the window's efforts within its budget.
     NoBudget,
-}
-
-impl DetailWalkAsked {
-    /// Why a segments window the ask answers is short of its efforts: a
-    /// walk recorded or widened is still reading them
-    /// ([`IncompleteReason::SegmentDetailWalking`]); one that ended lately
-    /// left some unread ([`IncompleteReason::SegmentDetailPartial`]); a
-    /// budget with no call a day for a walk reads none: the backend the
-    /// athlete connected cannot be read ([`IncompleteReason::ProviderUnavailable`]).
-    /// `None` when nothing is left to read, or when nothing could be
-    /// recorded: the caller's own count says whether the window is short.
-    #[must_use]
-    pub fn segment_reason(self) -> Option<IncompleteReason> {
-        match self {
-            Self::Started { .. } | Self::Widened => Some(IncompleteReason::SegmentDetailWalking),
-            Self::RecentlyWalked { unreadable } => Some(IncompleteReason::SegmentDetailPartial {
-                unreadable: u64::try_from(unreadable).unwrap_or(0),
-            }),
-            Self::NoBudget => Some(IncompleteReason::ProviderUnavailable),
-            Self::NothingUnread | Self::NotRecorded => None,
-        }
-    }
 }
 
 /// Ask for a detail walk of `ask`'s window through `backend` for the
@@ -294,6 +275,9 @@ impl DetailWalkAsked {
 /// (started outside that range, or stored after it was asked), and when
 /// there are none, none is recorded
 /// ([`DetailWalkAsked::RecentlyWalked`]).
+///
+/// An owed walk that ends between this ask's read of it and its widen is
+/// asked again once: the walk that ended then stands, or is replaced.
 pub async fn ask_detail_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -310,24 +294,41 @@ pub async fn ask_detail_walk(
         info!(user_id = %user_id, backend, "Detail walk: the backend's budget leaves a walk no call a day; none is recorded");
         return DetailWalkAsked::NoBudget;
     }
-    let Ok(row) = walk_row(&athlete, backend).await else {
-        return DetailWalkAsked::NotRecorded;
+    for _ in 0..2 {
+        if let Some(asked) = ask_once(&athlete, backend, ask).await {
+            return asked;
+        }
+    }
+    info!(user_id = %user_id, backend, "Detail walk: the owed walk ended under the ask twice running; nothing is asked");
+    DetailWalkAsked::NotRecorded
+}
+
+/// One go at [`ask_detail_walk`]; `None` when the owed walk it would widen
+/// ended under it, and the ask goes again.
+async fn ask_once(
+    athlete: &Athlete<'_>,
+    backend: &str,
+    ask: DetailWalkAsk<'_>,
+) -> Option<DetailWalkAsked> {
+    let user_id = athlete.user_id;
+    let Ok(row) = walk_row(athlete, backend).await else {
+        return Some(DetailWalkAsked::NotRecorded);
     };
     if let Some(row) = row
         .as_ref()
         .filter(|row| row.state == BackfillJobState::Owed)
     {
-        return widen(&athlete, backend, row, ask).await;
+        return widen(athlete, backend, row, ask).await;
     }
     let keys = walk_keys(backend);
     let Ok(unread) = athlete
         .unread_between(&keys, ask.after_ts, ask.before_ts, ask.sport)
         .await
     else {
-        return DetailWalkAsked::NotRecorded;
+        return Some(DetailWalkAsked::NotRecorded);
     };
     if unread.is_empty() {
-        return DetailWalkAsked::NothingUnread;
+        return Some(DetailWalkAsked::NothingUnread);
     }
     let tried = row
         .as_ref()
@@ -336,7 +337,7 @@ pub async fn ask_detail_walk(
     if units_total == 0 {
         let unreadable = count(unread.len());
         info!(user_id = %user_id, backend, unreadable, "Detail walk: a walk that ended lately tried every unread activity of the window; nothing is read again");
-        return DetailWalkAsked::RecentlyWalked { unreadable };
+        return Some(DetailWalkAsked::RecentlyWalked { unreadable });
     }
     let fresh = Fresh {
         ask,
@@ -344,7 +345,7 @@ pub async fn ask_detail_walk(
         replaces: row.is_some(),
         tried,
     };
-    record_walk(&athlete, backend, fresh).await
+    record_walk(athlete, backend, fresh).await
 }
 
 /// `n`, as a count of activities.
@@ -405,12 +406,16 @@ struct Fresh<'ask> {
 
 /// Record and start the `fresh` walk through `backend`; when another ask
 /// recorded one between this one's read and its record, widen that one
-/// instead.
+/// instead (`None` when it ended meanwhile: the ask goes again).
 ///
 /// The range it reads nothing of again is written on the ended row first:
 /// the record that replaces that row keeps it, and with none it is cleared,
 /// so a range the ended walk carried is never carried on unchecked.
-async fn record_walk(athlete: &Athlete<'_>, backend: &str, fresh: Fresh<'_>) -> DetailWalkAsked {
+async fn record_walk(
+    athlete: &Athlete<'_>,
+    backend: &str,
+    fresh: Fresh<'_>,
+) -> Option<DetailWalkAsked> {
     let (user_id, tenant_id) = (athlete.user_id, athlete.tenant_id);
     let Fresh {
         ask, units_total, ..
@@ -424,7 +429,7 @@ async fn record_walk(athlete: &Athlete<'_>, backend: &str, fresh: Fresh<'_>) -> 
             .await
         {
             warn!(user_id = %user_id, backend, error = %e, "Detail walk: the range the ended walk tried could not be written");
-            return DetailWalkAsked::NotRecorded;
+            return Some(DetailWalkAsked::NotRecorded);
         }
     }
     let job = ActivityBackfillJob {
@@ -454,16 +459,17 @@ async fn record_walk(athlete: &Athlete<'_>, backend: &str, fresh: Fresh<'_>) -> 
     match enqueue(job, None, progress).await {
         Enqueued::Started => {
             info!(user_id = %user_id, backend, units_total, "Detail walk: asked");
-            return DetailWalkAsked::Started { units_total };
+            return Some(DetailWalkAsked::Started { units_total });
         }
-        Enqueued::Unrecorded => return DetailWalkAsked::NotRecorded,
+        Enqueued::Unrecorded => return Some(DetailWalkAsked::NotRecorded),
         Enqueued::InFlightHere(..) | Enqueued::Owed(..) => {}
     }
     // Recorded by another ask between the read and the record: this one
     // widens it.
     match owed_walk(athlete, backend).await {
         Ok(Some(row)) => widen(athlete, backend, &row, ask).await,
-        _ => DetailWalkAsked::NotRecorded,
+        Ok(None) => None,
+        Err(()) => Some(DetailWalkAsked::NotRecorded),
     }
 }
 
@@ -495,13 +501,13 @@ async fn walk_row(athlete: &Athlete<'_>, backend: &str) -> Result<Option<DetailW
 
 /// Widen the walk owed for `backend` (`row`) to `ask`'s floor, its total
 /// recounted at what it has read plus what is unread below its cursor in
-/// the widened window.
+/// the widened window; `None` when it ended before the widen landed.
 async fn widen(
     athlete: &Athlete<'_>,
     backend: &str,
     row: &DetailWalkRow,
     ask: DetailWalkAsk<'_>,
-) -> DetailWalkAsked {
+) -> Option<DetailWalkAsked> {
     let floor = row
         .after_ts
         .map_or(ask.after_ts, |after| after.min(ask.after_ts));
@@ -520,7 +526,7 @@ async fn widen(
     };
     let keys = walk_keys(backend);
     let Ok(unread) = athlete.unread_between(&keys, floor, cursor, sport).await else {
-        return DetailWalkAsked::NotRecorded;
+        return Some(DetailWalkAsked::NotRecorded);
     };
     let units_left = untried(&unread, tried.as_ref());
     let widen = WalkWiden {
@@ -535,14 +541,14 @@ async fn widen(
         .widen_detail_walk(athlete.user_id, athlete.tenant_id, backend, &widen)
         .await
     {
-        Ok(true) => DetailWalkAsked::Widened,
+        Ok(true) => Some(DetailWalkAsked::Widened),
         Ok(false) => {
-            info!(user_id = %athlete.user_id, backend, "Detail walk: the owed walk ended before the ask could widen it");
-            DetailWalkAsked::NotRecorded
+            info!(user_id = %athlete.user_id, backend, "Detail walk: the owed walk ended before the ask could widen it; asking again");
+            None
         }
         Err(e) => {
             warn!(user_id = %athlete.user_id, backend, error = %e, "Detail walk: the owed walk could not be widened");
-            DetailWalkAsked::NotRecorded
+            Some(DetailWalkAsked::NotRecorded)
         }
     }
 }
@@ -625,10 +631,10 @@ fn walk_keys(backend: &str) -> Vec<&str> {
 
 #[cfg(test)]
 mod tests {
-    use pierre_core::models::coverage::{IncompleteReason, Pending};
+    use pierre_core::models::coverage::Pending;
     use pierre_database::repositories::JobProgress;
 
-    use super::{detail_walk_running, DetailWalkAsked};
+    use super::detail_walk_running;
 
     #[test]
     fn a_walk_goes_no_faster_than_its_budget_allows() {
@@ -665,29 +671,5 @@ mod tests {
             },
             "bug: a walk held to 10 a day is paced as if it had 50"
         );
-    }
-
-    #[test]
-    fn an_ask_names_why_its_segments_window_is_short() {
-        assert_eq!(
-            DetailWalkAsked::Started { units_total: 4 }.segment_reason(),
-            Some(IncompleteReason::SegmentDetailWalking)
-        );
-        assert_eq!(
-            DetailWalkAsked::Widened.segment_reason(),
-            Some(IncompleteReason::SegmentDetailWalking)
-        );
-        assert_eq!(
-            DetailWalkAsked::RecentlyWalked { unreadable: 3 }.segment_reason(),
-            Some(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
-            "bug: a walk that ended lately reads as still walking"
-        );
-        assert_eq!(
-            DetailWalkAsked::NoBudget.segment_reason(),
-            Some(IncompleteReason::ProviderUnavailable),
-            "bug: a window no walk has a call to read reads as complete, or as Strava not connected"
-        );
-        assert_eq!(DetailWalkAsked::NothingUnread.segment_reason(), None);
-        assert_eq!(DetailWalkAsked::NotRecorded.segment_reason(), None);
     }
 }

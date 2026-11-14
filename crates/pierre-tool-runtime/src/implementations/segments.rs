@@ -50,7 +50,7 @@ use chrono::{DateTime, Duration, Months, NaiveDate, TimeZone, Utc};
 use chrono_tz::Tz;
 use lru::LruCache;
 use pierre_core::civil_time::{clock_date, resolve_zone};
-use pierre_core::constants::oauth::providers::{companion_keys, STRAVA};
+use pierre_core::constants::oauth::providers::{companion_keys, STRAVA, STRAVA_ARCHIVE};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{Completeness, IncompleteReason, Pending};
 use pierre_core::models::{Activity, SegmentEffort, TenantId};
@@ -75,7 +75,7 @@ use answer::{answer, effort_row, AnsweredBy, SegmentHistoryResult};
 
 use crate::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, live_backend_serving, segment_detail_serving,
-    DetailWalkAsk, Serving,
+    DetailWalkAsk, DetailWalkAsked, Serving,
 };
 use crate::activity_backfill::history_walk::start_history_walk;
 use crate::activity_backfill::provider_tenant_id_str;
@@ -428,6 +428,9 @@ struct StoredWindow {
     withheld: bool,
     /// Whether the read stopped at [`MAX_WINDOW_ACTIVITIES`].
     capped: bool,
+    /// Its activities whose efforts were not read and that only the
+    /// athlete's own export holds, which no walk reads.
+    export_only: usize,
 }
 
 /// Read the stored window: every row under [`segment_keys`], newest first,
@@ -472,11 +475,24 @@ async fn stored_window(
         withheld.dropped > 0 || withheld.off_interface > 0 || ai_scope::serving_external();
     ai_scope::record_withheld(withheld);
     let of_sport = filter_activities_by_sport_type(kept, sport);
+    // The activities a copy of which a walk reads: any copy not the export.
+    let walkable: HashSet<(String, String)> = of_sport
+        .iter()
+        .filter(|row| row.provider() != STRAVA_ARCHIVE)
+        .map(one_activity_key)
+        .collect();
     let (activities, _) = merge_duplicates(of_sport, &DedupConfig::from_env());
+    let export_only = activities
+        .iter()
+        .filter(|activity| {
+            activity.segment_efforts().is_none() && !walkable.contains(&one_activity_key(activity))
+        })
+        .count();
     Ok(StoredWindow {
         activities,
         withheld: withheld_rows,
         capped,
+        export_only,
     })
 }
 
@@ -515,6 +531,7 @@ async fn stored_details(
     let shape = WindowShape {
         total,
         read,
+        export_only: window.export_only,
         withheld: window.withheld,
         capped: window.capped,
         floor_ts: instants.0.timestamp(),
@@ -536,6 +553,9 @@ struct WindowShape {
     total: usize,
     /// Those whose segments were read.
     read: usize,
+    /// Those whose segments were not read that only the athlete's own export
+    /// holds, which no walk reads.
+    export_only: usize,
     /// Whether a gate withheld any stored row from this call, or the call is
     /// served over an external transport, which withholds every Strava row.
     withheld: bool,
@@ -554,15 +574,29 @@ impl WindowShape {
     }
 
     /// Complete when every activity was read; else short by the ones that
-    /// were not, which nothing is reading.
-    fn short_by_unread(self) -> Completeness {
+    /// were not, which nothing tried or is reading
+    /// ([`IncompleteReason::SegmentDetailUnread`]).
+    fn short_untried(self) -> Completeness {
         if self.unread() == 0 {
             Completeness::Complete
         } else {
-            Completeness::Incomplete(IncompleteReason::SegmentDetailPartial {
-                unreadable: self.unread(),
-            })
+            Completeness::Incomplete(IncompleteReason::SegmentDetailUnread)
         }
+    }
+
+    /// Short by the activities a walk that ended lately tried and could not
+    /// read: every unread one but those only the export holds, counted over
+    /// the activities `total` counts, so the note's figures add up
+    /// ([`IncompleteReason::SegmentDetailPartial`]). With none, short by the
+    /// export's alone ([`Self::short_untried`]).
+    fn short_after_walk(self) -> Completeness {
+        let tried = self.total.saturating_sub(self.read + self.export_only);
+        if tried == 0 {
+            return self.short_untried();
+        }
+        Completeness::Incomplete(IncompleteReason::SegmentDetailPartial {
+            unreadable: u64::try_from(tried).unwrap_or(u64::MAX),
+        })
     }
 }
 
@@ -598,7 +632,7 @@ fn settled_before_walk(shape: WindowShape) -> Option<(Completeness, Option<Pendi
     if shape.capped {
         return Some((Completeness::Incomplete(IncompleteReason::ReadCapped), None));
     }
-    Some((shape.short_by_unread(), None))
+    Some((shape.short_untried(), None))
 }
 
 /// Weigh the reasons a window that asked its walk is short, in order:
@@ -678,8 +712,12 @@ async fn history_owed(
 /// The segment reason of a window with unread activities, asking the walk
 /// that reads them: with a live backend that reads segment efforts, a detail
 /// walk of the window is asked, which is reading them
-/// ([`IncompleteReason::SegmentDetailWalking`]) or ended lately leaving some
-/// unread ([`IncompleteReason::SegmentDetailPartial`]); one connected but
+/// ([`IncompleteReason::SegmentDetailWalking`]), or ended lately leaving some
+/// it tried unreadable ([`IncompleteReason::SegmentDetailPartial`], counted
+/// apart from those only the export holds); what no walk tried or is
+/// reading, those only the export holds or a window whose walk could not be
+/// asked, is unread and never called unreadable
+/// ([`IncompleteReason::SegmentDetailUnread`]); one connected but
 /// unable to read them now (a credential to re-authorize, an app with no
 /// call a day for a walk) is [`IncompleteReason::ProviderUnavailable`]; with
 /// none connected, [`IncompleteReason::SegmentDetailUnavailable`]. An
@@ -731,25 +769,47 @@ async fn segments_owed(
         },
     )
     .await;
-    match asked.segment_reason() {
-        Some(IncompleteReason::SegmentDetailWalking) => {
-            let pending =
-                detail_walk_pending(runtime, athlete.user_id, athlete.tenant_id, &backend)
-                    .await
-                    .unwrap_or_else(|e| {
-                        warn!(user_id = %athlete.user_id, backend, error = %e, "Segment history: the detail walk's progress could not be read");
-                        None
-                    });
-            (
-                Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
-                pending,
-            )
+    match asked {
+        DetailWalkAsked::Started { .. } | DetailWalkAsked::Widened => {
+            walking(runtime, athlete, &backend).await
         }
-        Some(reason) => (Completeness::Incomplete(reason), None),
-        // Nothing the walk can read is unread: the rest are held only in the
-        // athlete's export, or the walk could not be recorded.
-        None => (shape.short_by_unread(), None),
+        // Nothing was asked: a walk may still be owed and reading the window.
+        DetailWalkAsked::NotRecorded => {
+            let (completeness, pending) = walking(runtime, athlete, &backend).await;
+            if pending.is_some() {
+                (completeness, pending)
+            } else {
+                (shape.short_untried(), None)
+            }
+        }
+        DetailWalkAsked::RecentlyWalked { .. } => (shape.short_after_walk(), None),
+        // Nothing a walk reads is unread: the rest only the export holds.
+        DetailWalkAsked::NothingUnread => (shape.short_untried(), None),
+        // The backend the athlete connected cannot be read within its budget.
+        DetailWalkAsked::NoBudget => (
+            Completeness::Incomplete(IncompleteReason::ProviderUnavailable),
+            None,
+        ),
     }
+}
+
+/// A detail walk through `backend` reading the window, with its progress
+/// when one is owed ([`detail_walk_pending`]).
+async fn walking(
+    runtime: &Arc<dyn ToolRuntime>,
+    athlete: Athlete,
+    backend: &str,
+) -> (Completeness, Option<Pending>) {
+    let pending = detail_walk_pending(runtime, athlete.user_id, athlete.tenant_id, backend)
+        .await
+        .unwrap_or_else(|e| {
+            warn!(user_id = %athlete.user_id, backend, error = %e, "Segment history: the detail walk's progress could not be read");
+            None
+        });
+    (
+        Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
+        pending,
+    )
 }
 
 /// Whether the window is complete with no walk asked: every activity it read
@@ -962,11 +1022,35 @@ mod tests {
         WindowShape {
             total,
             read,
+            export_only: 0,
             withheld,
             capped,
             floor_ts: 0,
             top_ts: 86_400,
         }
+    }
+
+    #[test]
+    fn a_walked_window_counts_unreadable_only_what_a_walk_tried() {
+        let walked = |export_only| WindowShape {
+            export_only,
+            ..shape(10, 4, false, false)
+        };
+        assert_eq!(
+            walked(2).short_after_walk(),
+            Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 4 }),
+            "bug: the export-only activities are counted among those a walk could not read"
+        );
+        assert_eq!(
+            walked(6).short_after_walk(),
+            Completeness::Incomplete(IncompleteReason::SegmentDetailUnread),
+            "bug: a window short only by its export reads as one a walk could not read"
+        );
+        assert_eq!(
+            shape(10, 10, false, false).short_after_walk(),
+            Completeness::Complete,
+            "bug: a window of read activities reads short"
+        );
     }
 
     #[test]
@@ -984,10 +1068,10 @@ mod tests {
         assert_eq!(
             settled_before_walk(shape(10, 4, true, false)),
             Some((
-                Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 6 }),
+                Completeness::Incomplete(IncompleteReason::SegmentDetailUnread),
                 None
             )),
-            "bug: withheld rows ask a walk"
+            "bug: withheld rows ask a walk, or read as could not be read"
         );
     }
 

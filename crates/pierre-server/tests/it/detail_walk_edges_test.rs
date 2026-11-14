@@ -33,7 +33,7 @@ use std::time::{Duration, Instant};
 use chrono::{TimeZone, Utc};
 use pierre_contremaitre::messaging_strings::KEY_DETAIL_WALK_COMPLETE;
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::coverage::{IncompleteReason, Pending};
+use pierre_core::models::coverage::Pending;
 use pierre_core::models::{Activity, ActivityBuilder, ConnectionStatus, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::BackfillJobState;
@@ -54,10 +54,16 @@ const REFUSE_WALK_ROWS: &str = "refuse_detail_walk_rows";
 
 /// Make the ledger refuse to record any detail walk row from now on.
 async fn refuse_walk_rows(resources: &Arc<ServerContext>) {
+    refuse_walk_rows_on(resources, "INSERT").await;
+}
+
+/// Make the ledger refuse every `event` (`INSERT` or `UPDATE`) of a detail
+/// walk row from now on, until [`accept_walk_rows`].
+pub(crate) async fn refuse_walk_rows_on(resources: &Arc<ServerContext>, event: &str) {
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(&format!(
-                "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE INSERT ON activity_backfill_jobs \
+                "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE {event} ON activity_backfill_jobs \
                  WHEN NEW.kind = 'detail_walk' \
                  BEGIN SELECT RAISE(ABORT, 'detail walk row refused by the test'); END"
             ))
@@ -75,7 +81,7 @@ async fn refuse_walk_rows(resources: &Arc<ServerContext>) {
             .await
             .unwrap();
             sqlx::query(&format!(
-                "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE INSERT ON activity_backfill_jobs \
+                "CREATE TRIGGER {REFUSE_WALK_ROWS} BEFORE {event} ON activity_backfill_jobs \
                  FOR EACH ROW WHEN (NEW.kind = 'detail_walk') \
                  EXECUTE FUNCTION {REFUSE_WALK_ROWS}()"
             ))
@@ -87,7 +93,7 @@ async fn refuse_walk_rows(resources: &Arc<ServerContext>) {
 }
 
 /// Let the ledger record detail walk rows again.
-async fn accept_walk_rows(resources: &Arc<ServerContext>) {
+pub(crate) async fn accept_walk_rows(resources: &Arc<ServerContext>) {
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(db) => {
             sqlx::query(&format!("DROP TRIGGER {REFUSE_WALK_ROWS}"))
@@ -370,11 +376,6 @@ async fn an_app_with_no_room_for_a_walk_records_none() {
         asked,
         DetailWalkAsked::NoBudget,
         "bug: a walk with no call a day was asked"
-    );
-    assert_eq!(
-        asked.segment_reason(),
-        Some(IncompleteReason::ProviderUnavailable),
-        "bug: a window no walk can read reads as being read, or as Strava not connected"
     );
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),

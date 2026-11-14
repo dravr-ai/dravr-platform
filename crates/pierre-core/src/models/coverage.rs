@@ -55,13 +55,21 @@ pub enum IncompleteReason {
     /// ([`Pending::DetailWalkRunning`]).
     SegmentDetailWalking,
     /// A detail walk ended over the window, and the segment efforts of
-    /// `unreadable` of its activities could not be read: the backend
-    /// answered nothing for them, or they are held only in the athlete's
-    /// own export, which no walk reads.
+    /// `unreadable` of its activities could not be read: the walk tried them
+    /// and the backend answered nothing for them. Any other activity of the
+    /// window whose efforts were not read is held only in the athlete's own
+    /// export, which no walk reads.
     SegmentDetailPartial {
-        /// Activities of the window whose segment efforts were not read.
+        /// Activities of the window a walk tried whose segment efforts the
+        /// backend could not read.
         unreadable: u64,
     },
+    /// The segment efforts of some of the window's activities were not read,
+    /// and nothing is reading them: no walk was asked for them (they are held
+    /// only in the athlete's own export, which no walk reads, or the walk
+    /// could not be recorded, or this transport asks none). Nothing tried
+    /// them, so none is said to be unreadable.
+    SegmentDetailUnread,
     /// No backend the athlete holds reads segment efforts: they come from
     /// Strava's API, which this athlete has not connected.
     SegmentDetailUnavailable,
@@ -93,6 +101,9 @@ impl IncompleteReason {
             ),
             Self::SegmentDetailPartial { .. } => Some(
                 "the segment efforts of some of its activities could not be read, so the efforts here are not all the athlete's",
+            ),
+            Self::SegmentDetailUnread => Some(
+                "the segment efforts of some of its activities have not been read, and nothing is reading them now, so the efforts here are not all the athlete's",
             ),
             Self::SegmentDetailUnavailable => Some(
                 "segment efforts can't be read for this athlete yet; they come from Strava's API, which this athlete hasn't connected",
@@ -487,6 +498,14 @@ impl Coverage {
                 note,
                 " {unreadable} of its activities could not have their segment efforts read."
             );
+            let export_only = (total.saturating_sub(read)).saturating_sub(unreadable);
+            if export_only > 0 {
+                let is = if export_only == 1 { "is" } else { "are" };
+                let _ = write!(
+                    note,
+                    " The other {export_only} {is} held only in the athlete's own Strava export, which no walk reads."
+                );
+            }
         }
         note.push_str(" Do not state an effort count, a best time or that the athlete never rode a segment in the period as fact: say how many activities were read and that the rest were not.");
         Some(note)
@@ -974,6 +993,55 @@ mod tests {
         assert!(
             note.contains("3 of its activities could not have their segment efforts read"),
             "bug: the note names the unreadable count: {note}"
+        );
+        let back: Coverage = serde_json::from_value(wire)?;
+        assert_eq!(back, coverage, "bug: the wire shape reads back as written");
+        Ok(())
+    }
+
+    #[test]
+    fn a_partial_segments_window_counts_the_export_only_apart() -> TestResult {
+        let coverage = Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::SegmentDetailPartial {
+                unreadable: 2,
+            }),
+            window: segments(40, 37)?,
+            trustworthy_from: None,
+            pending: None,
+        };
+        let note = coverage.note().ok_or("no note")?;
+        assert!(
+            note.contains("2 of its activities could not have their segment efforts read"),
+            "bug: the note names the unreadable count: {note}"
+        );
+        assert!(
+            note.contains("The other 1 is held only in the athlete's own Strava export"),
+            "bug: the note leaves the export-only activity unaccounted for: {note}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_unread_segments_window_says_no_read_failed() -> TestResult {
+        let coverage = Coverage {
+            completeness: Completeness::Incomplete(IncompleteReason::SegmentDetailUnread),
+            window: segments(40, 37)?,
+            trustworthy_from: None,
+            pending: None,
+        };
+        let wire = serde_json::to_value(&coverage)?;
+        assert_eq!(
+            wire["incomplete_reason"], "segment_detail_unread",
+            "bug: the unread reason is not its own on the wire"
+        );
+        let note = wire["note"].as_str().ok_or("no note")?;
+        assert!(
+            note.contains("have not been read, and nothing is reading them now"),
+            "bug: the note does not say the rest are unread and unread by anything: {note}"
+        );
+        assert!(
+            !note.contains("could not"),
+            "bug: the note says a read failed that nothing tried: {note}"
         );
         let back: Coverage = serde_json::from_value(wire)?;
         assert_eq!(back, coverage, "bug: the wire shape reads back as written");

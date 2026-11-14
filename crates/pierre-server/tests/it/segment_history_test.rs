@@ -31,6 +31,7 @@
 
 use crate::coach_athlete_reads_test::{fixture_on, ok};
 use crate::common;
+use crate::detail_walk_edges_test::{accept_walk_rows, refuse_walk_rows_on};
 use crate::detail_walk_test::{alter_walk_row, walk_ended};
 use crate::garmin_sign_in_test::{hold_session as hold_garmin_session, LIVE_SESSION};
 use crate::history_walk_api_test::{hold_strava_grant, server, strava_athlete};
@@ -996,7 +997,8 @@ async fn exactly_one_segment_argument_is_taken() {
 
 /// A ride held only in the athlete's own Strava export counts in the window,
 /// but no walk reads an export: the window says that one was not read,
-/// rather than reading complete or asking a walk that has nothing to do.
+/// rather than reading complete or asking a walk that has nothing to do,
+/// and never that it could not be read: nothing tried.
 #[tokio::test]
 async fn a_ride_only_the_export_holds_is_counted_unread_and_walks_nothing() {
     let (resources, _mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
@@ -1045,13 +1047,181 @@ async fn a_ride_only_the_export_holds_is_counted_unread_and_walks_nothing() {
     );
     assert_eq!(coverage["window"]["returned"], 1, "{coverage}");
     assert_eq!(
-        coverage["incomplete_reason"],
-        json!({ "segment_detail_partial": { "unreadable": 1 } }),
-        "bug: the exported ride reads as not read, never as complete: {coverage}"
+        coverage["incomplete_reason"], "segment_detail_unread",
+        "bug: the exported ride reads as could not be read, or as complete: {coverage}"
     );
+    assert_says_nothing_failed(coverage);
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),
         "bug: a walk was asked that has no ride it can read"
+    );
+}
+
+/// A window short of rides nothing tried to read never says a read of them
+/// failed.
+fn assert_says_nothing_failed(coverage: &Value) {
+    let note = coverage["note"]
+        .as_str()
+        .expect("an incomplete window's note");
+    assert!(
+        !note.contains("could not"),
+        "bug: the note says a read failed that nothing tried: {note}"
+    );
+    assert!(
+        note.contains("have not been read"),
+        "bug: the note does not say the rest were not read: {note}"
+    );
+}
+
+/// A walk that ended over the window walked past a ride Strava no longer
+/// has; a ride held only in the export is beside it. Asked again, the window
+/// counts the first as could not be read, and the second apart, as held only
+/// in the export: the two counts add up to what is unread.
+#[tokio::test]
+async fn a_walked_window_tells_the_unreadable_apart_from_the_export_only() {
+    let (resources, mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
+    *mock.details_gone.lock().unwrap() = true;
+    let (gone, exported) = (start(5), start(40));
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, gone)],
+    )
+    .await;
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            user_id,
+            &tenant,
+            oauth_providers::STRAVA_ARCHIVE,
+            &[ride(oauth_providers::STRAVA_ARCHIVE, exported)],
+        )
+        .await
+        .unwrap();
+    // A walk tried what was stored before the second it was asked in.
+    sleep(StdDuration::from_millis(1_100)).await;
+    let first = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    assert_eq!(
+        first["coverage"]["incomplete_reason"], "segment_detail_walking",
+        "{first}"
+    );
+    walk_ended(&resources, user_id, tenant).await;
+
+    let again = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    let coverage = &again["coverage"];
+    assert_eq!(
+        (
+            &coverage["window"]["total"],
+            &coverage["window"]["returned"]
+        ),
+        (&json!(2), &json!(0)),
+        "{coverage}"
+    );
+    assert_eq!(
+        coverage["incomplete_reason"],
+        json!({ "segment_detail_partial": { "unreadable": 1 } }),
+        "bug: the export-only ride is counted among those that could not be read: {coverage}"
+    );
+    let note = coverage["note"].as_str().expect("a note");
+    assert!(
+        note.contains("1 of its activities could not have their segment efforts read"),
+        "bug: the note does not name the ride Strava could not answer for: {note}"
+    );
+    assert!(
+        note.contains("The other 1 is held only in the athlete's own Strava export"),
+        "bug: the note leaves the export-only ride unaccounted for: {note}"
+    );
+}
+
+/// The ledger cannot record the walk the window asks: nothing tried its
+/// rides, so the window says they were not read, never that they could not
+/// be.
+#[tokio::test]
+async fn a_walk_the_ledger_cannot_record_never_reads_as_unreadable() {
+    let (resources, mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(5))],
+    )
+    .await;
+    refuse_walk_rows_on(&resources, "INSERT").await;
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    accept_walk_rows(&resources).await;
+
+    let coverage = &payload["coverage"];
+    assert_eq!(
+        coverage["incomplete_reason"], "segment_detail_unread",
+        "bug: a ride no walk was recorded for reads as could not be read: {coverage}"
+    );
+    assert_says_nothing_failed(coverage);
+    assert_eq!(mock.detail_reads(), 0, "nothing read the ride");
+}
+
+/// A walk is owed and reading the window, and the ask over it cannot widen
+/// it (the ledger refuses the write): the walk that is reading the window
+/// still is, and the window says so with its progress.
+#[tokio::test]
+async fn an_ask_that_cannot_widen_the_owed_walk_reads_it_walking() {
+    let (resources, _mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(5))],
+    )
+    .await;
+    let first = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    assert_eq!(
+        first["coverage"]["incomplete_reason"], "segment_detail_walking",
+        "{first}"
+    );
+    refuse_walk_rows_on(&resources, "UPDATE").await;
+
+    let again = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    accept_walk_rows(&resources).await;
+
+    let coverage = &again["coverage"];
+    assert_eq!(
+        coverage["incomplete_reason"], "segment_detail_walking",
+        "bug: an owed walk the ask could not widen reads as could not be read: {coverage}"
+    );
+    assert_eq!(
+        coverage["pending"]["kind"], "detail_walk_running",
+        "bug: the owed walk's progress is not carried: {coverage}"
     );
 }
 
