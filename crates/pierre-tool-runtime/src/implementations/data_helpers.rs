@@ -231,7 +231,7 @@ pub fn activity_coverage(
 /// [`activity_coverage`]: a segment's efforts are never more than the
 /// activities read, so a model must always see how many those were.
 #[must_use]
-pub fn segments_read_coverage(
+pub(crate) fn segments_read_coverage(
     activities: Option<usize>,
     read: usize,
     asked: (NaiveDate, NaiveDate),

@@ -71,7 +71,8 @@ pub mod answer;
 use answer::{answer, effort_row, AnsweredBy, SegmentHistoryResult};
 
 use crate::activity_backfill::detail_walk::{
-    ask_detail_walk, detail_walk_pending, segment_detail_backend, DetailWalkAsk,
+    ask_detail_walk, detail_walk_pending, live_backend_serving, segment_detail_backend,
+    DetailWalkAsk,
 };
 use crate::activity_backfill::provider_tenant_id_str;
 use crate::activity_fetch::history_depth_covered;
@@ -267,19 +268,14 @@ fn provider_refused(error: &AppError) -> bool {
 /// The live backend the athlete holds that lists a segment's efforts, among
 /// those holding their Strava history.
 async fn listing_backend(runtime: &Arc<dyn ToolRuntime>, athlete: Athlete) -> Option<String> {
-    let registry = runtime.provider_registry();
-    history_source_order(runtime.repos(), athlete.user_id, athlete.tenant_id, STRAVA)
-        .await
-        .into_iter()
-        .filter(|source| source.live)
-        .find(|source| {
-            registry
-                .get_descriptor(&source.backend)
-                .is_some_and(|descriptor| {
-                    descriptor.capabilities().supports_segment_effort_history()
-                })
-        })
-        .map(|source| source.backend)
+    live_backend_serving(
+        runtime,
+        athlete.user_id,
+        athlete.tenant_id,
+        STRAVA,
+        |descriptor| descriptor.capabilities().supports_segment_effort_history(),
+    )
+    .await
 }
 
 /// The live listing's answer, or `None` when it cannot answer and the stored

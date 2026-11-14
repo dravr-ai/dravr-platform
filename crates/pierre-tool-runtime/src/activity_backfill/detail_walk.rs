@@ -70,6 +70,7 @@ use pierre_database::repositories::{
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::field_support::ActivityFields;
 use pierre_providers::request_budget::DETAIL_WALK_DAILY_CALLS;
+use pierre_providers::ProviderDescriptor;
 use pierre_services::training_history_read::{history_source_order, history_store_keys};
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -105,6 +106,27 @@ pub async fn segment_detail_backend(
     tenant_id: TenantId,
     provider: &str,
 ) -> Option<String> {
+    live_backend_serving(runtime, user_id, tenant_id, provider, |descriptor| {
+        descriptor
+            .activity_fields()
+            .detail_only
+            .contains(ActivityFields::SEGMENT_EFFORTS)
+    })
+    .await
+}
+
+/// The first live backend, in the athlete's order among those holding
+/// `provider`'s history, whose descriptor `serves`: the one resolution of
+/// "which backend the athlete holds reads this" for segment efforts, whether
+/// on a detail read ([`segment_detail_backend`]) or listed per segment.
+/// `None` when the athlete holds none.
+pub(crate) async fn live_backend_serving(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    serves: impl Fn(&dyn ProviderDescriptor) -> bool + Send,
+) -> Option<String> {
     let registry = runtime.provider_registry();
     history_source_order(runtime.repos(), user_id, tenant_id, provider)
         .await
@@ -113,12 +135,7 @@ pub async fn segment_detail_backend(
         .find(|source| {
             registry
                 .get_descriptor(&source.backend)
-                .is_some_and(|descriptor| {
-                    descriptor
-                        .activity_fields()
-                        .detail_only
-                        .contains(ActivityFields::SEGMENT_EFFORTS)
-                })
+                .is_some_and(&serves)
         })
         .map(|source| source.backend)
 }
