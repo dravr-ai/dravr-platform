@@ -16,7 +16,7 @@
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
-use pierre_database::backends::factory::Database;
+use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
     JobLeaseState, JobProgress, JobProgressStep,
@@ -716,16 +716,23 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
 async fn mark_kind_from_a_newer_build(db: &Database, id: &str) {
     const SQL: &str = "UPDATE activity_backfill_jobs SET kind = 'a_kind_from_a_newer_build' \
                        WHERE id = $1";
-    if let Some(pool) = db.sqlite_pool() {
-        sqlx::query(SQL).bind(id).execute(pool).await.unwrap();
-        return;
+    match db.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            sqlx::query(SQL)
+                .bind(id)
+                .execute(sqlite.pool())
+                .await
+                .unwrap();
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(postgres) => {
+            sqlx::query(SQL)
+                .bind(id)
+                .execute(postgres.pool())
+                .await
+                .unwrap();
+        }
     }
-    #[cfg(feature = "postgresql")]
-    if let Some(pool) = db.postgres_pool() {
-        sqlx::query(SQL).bind(id).execute(pool).await.unwrap();
-        return;
-    }
-    panic!("bug: the test database is neither SQLite nor PostgreSQL");
 }
 
 /// A kind written by a newer build is left for that build: an older replica
