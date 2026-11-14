@@ -777,6 +777,35 @@ async fn a_window_deeper_than_the_history_with_no_walk_owed_asks_the_strava_walk
     );
 }
 
+/// Over MCP, which never sees Strava's rows, an athlete with nothing stored
+/// yet asks no Strava history walk either: nothing this transport may read
+/// would come of it.
+#[tokio::test]
+async fn an_ask_over_mcp_with_nothing_stored_asks_no_strava_walk() {
+    let (base, _mock) = mock_strava(Listing::Status(402)).await;
+    let resources = server(&base, 1_000).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+
+    let payload = call_over(
+        &resources,
+        Transport::McpHttp,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+
+    for key in [oauth_providers::STRAVA, SESSION] {
+        assert!(
+            !history_walk_under(&resources, user_id, tenant, key).await,
+            "bug: an ask over MCP started a Strava history walk under {key}: {payload}"
+        );
+    }
+    assert!(
+        walk_row(&resources, user_id, tenant).await.is_none(),
+        "bug: an ask over MCP started a detail walk: {payload}"
+    );
+}
+
 /// An athlete with no Strava, holding a Garmin session: a segment's ask starts
 /// no Garmin history walk, and a Garmin walk under way is not this window's,
 /// which holds nothing of Strava's, so the window reads complete and empty.

@@ -37,7 +37,8 @@
 //! segment efforts. A window that starts before the stored Strava history
 //! reaches says, first, that the Strava history walk is still copying it
 //! in: the one owed, or the one the ask starts when none is ([`history_owed`]).
-//! Rows the transport withheld ask no walk of either kind.
+//! Rows the transport withheld, and any call over an external transport,
+//! ask no walk of either kind.
 
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
@@ -426,7 +427,8 @@ impl WindowRows {
 struct StoredWindow {
     /// Its activities, one per workout, of the sport asked.
     activities: Vec<Activity>,
-    /// Whether a gate withheld any stored row from this call.
+    /// Whether a gate withheld any stored row from this call, or the call is
+    /// served over an external transport, which withholds every Strava row.
     withheld: bool,
     /// Whether the read stopped at [`MAX_WINDOW_ACTIVITIES`].
     capped: bool,
@@ -468,7 +470,10 @@ async fn stored_window(
     let rows = rows.rows;
     let (kept, withheld) =
         ai_scope::tallied(async { ai_scope::filter_activities(registry.as_ref(), rows) }).await;
-    let withheld_rows = withheld.dropped > 0 || withheld.off_interface > 0;
+    // An external transport never sees Strava's rows, stored yet or not:
+    // a walk it asked would land only what it may not read.
+    let withheld_rows =
+        withheld.dropped > 0 || withheld.off_interface > 0 || ai_scope::serving_external();
     ai_scope::record_withheld(withheld);
     let of_sport = filter_activities_by_sport_type(kept, sport);
     let (activities, _) = merge_duplicates(of_sport, &DedupConfig::from_env());
@@ -535,7 +540,8 @@ struct WindowShape {
     total: usize,
     /// Those whose segments were read.
     read: usize,
-    /// Whether a gate withheld any stored row from this call.
+    /// Whether a gate withheld any stored row from this call, or the call is
+    /// served over an external transport, which withholds every Strava row.
     withheld: bool,
     /// Whether the read stopped at its cap ([`MAX_WINDOW_ACTIVITIES`]).
     capped: bool,
