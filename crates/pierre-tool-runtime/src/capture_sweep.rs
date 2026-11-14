@@ -60,20 +60,23 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ReauthMark, TenantId};
 use pierre_database::repositories::{ActivityFetchFailure, CaptureFreshness};
 use pierre_providers::backend_resolver::grant_beside_session;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::registry::ProviderRegistry;
-use pierre_providers::request_budget::in_background;
+use pierre_providers::request_budget::{in_background, refused_before_send};
+use pierre_providers::sciotte_error::is_coach_account_refusal;
 use serde::Serialize;
 use tokio::time::timeout;
 use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::activity_fetch::fetch_provider_head;
-use crate::activity_fetch::sync_verdict::{covers_list_head, record_sync_failure};
+use crate::activity_fetch::sync_verdict::{
+    covers_list_head, held_to_background_share, record_sync_failure,
+};
 use crate::protocol::reauth_notice::flag_needs_reauth;
 use crate::reauth_retry::{claim_scrape_session_retry, SCRAPE_SESSION_RETRY_INTERVAL_HOURS};
 use crate::runtime::ToolRuntime;
@@ -256,6 +259,24 @@ pub enum RefreshOutcome {
         /// Error text, for the operator reading the report.
         error: String,
     },
+    /// The sweep's background share of the provider's request budget was
+    /// spent, so the request limiter held the read back before anything was
+    /// sent (carnet#1488). That is the share doing its job (carnet#1491), not a
+    /// failed read: the athlete's own read still has the rest of the budget,
+    /// and a later sweep tries again. Whether the capture still goes stale is
+    /// the staleness monitor's to judge. A `429` the provider itself answered
+    /// was sent, and is [`RefreshOutcome::Failed`].
+    Deferred {
+        /// The refusal, for the operator reading the report.
+        error: String,
+    },
+    /// The scraper refused the read because the account is a coach's, which
+    /// keeps no calendar of its own (a TrainingPeaks coach account): the
+    /// account's standing state, not a failed read, so it is never flagged.
+    /// The head read still records it, so the backoff spaces the reads it
+    /// would otherwise repeat. Its athletes are read through the groups it
+    /// coaches.
+    CoachAccount,
     /// The sweep ran out of its time budget before reaching this connection.
     SkippedBudgetExhausted,
     /// A push-only grant the daily sweep walked through the token path
@@ -293,6 +314,12 @@ pub struct RefreshReport {
     pub flagged: usize,
     /// Attempts that failed transiently.
     pub failed: usize,
+    /// Attempts held back by the sweep's background share of the provider's
+    /// request budget ([`RefreshOutcome::Deferred`]), never counted as failed.
+    pub deferred: usize,
+    /// Attempts the scraper refused because the account is a coach's
+    /// ([`RefreshOutcome::CoachAccount`]), never counted as failed.
+    pub coach_accounts: usize,
     /// Connections the time budget left unreached.
     pub skipped: usize,
     /// Flagged scrape sessions the sweep retried, each also counted in
@@ -421,6 +448,8 @@ async fn sweep(
         refreshed = tally.refreshed,
         flagged = tally.flagged,
         failed = tally.failed,
+        deferred = tally.deferred,
+        coach_accounts = tally.coach_accounts,
         skipped = tally.skipped,
         retried,
         grants_checked,
@@ -436,6 +465,8 @@ async fn sweep(
         refreshed: tally.refreshed,
         flagged: tally.flagged,
         failed: tally.failed,
+        deferred: tally.deferred,
+        coach_accounts: tally.coach_accounts,
         skipped: tally.skipped,
         retried,
         grants_checked,
@@ -466,6 +497,8 @@ struct Tally {
     refreshed: usize,
     flagged: usize,
     failed: usize,
+    deferred: usize,
+    coach_accounts: usize,
     skipped: usize,
 }
 
@@ -506,6 +539,8 @@ impl Walk<'_> {
             match outcome {
                 RefreshOutcome::Refreshed { .. } => self.tally.refreshed += 1,
                 RefreshOutcome::Flagged { .. } => self.tally.flagged += 1,
+                RefreshOutcome::Deferred { .. } => self.tally.deferred += 1,
+                RefreshOutcome::CoachAccount => self.tally.coach_accounts += 1,
                 _ => self.tally.failed += 1,
             }
             outcome
@@ -630,17 +665,43 @@ async fn refresh_one(
             )
             .await
         }
-        Err(e) => {
-            warn!(
-                user_id = %user_id,
-                provider = %provider,
-                error = %e,
-                "Capture sweep: fetch failed transiently"
-            );
-            RefreshOutcome::Failed {
-                error: e.to_string(),
-            }
-        }
+        Err(e) => unflagged_outcome(&e, user_id, provider),
+    }
+}
+
+/// What the sweep reports for a fetch error that leaves the connection
+/// unflagged: a coach account's refusal and a read the limiter held to the
+/// background share before sending it ([`refused_before_send`]) are not
+/// failures (carnet#1488), and anything else, a provider's own `429`
+/// included, failed transiently.
+fn unflagged_outcome(error: &AppError, user_id: &str, provider: &str) -> RefreshOutcome {
+    if is_coach_account_refusal(error) {
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            "Capture sweep: a coach account keeps no calendar of its own"
+        );
+        return RefreshOutcome::CoachAccount;
+    }
+    if held_to_background_share(error) && refused_before_send(error) {
+        info!(
+            user_id = %user_id,
+            provider = %provider,
+            error = %error,
+            "Capture sweep: read held to the background share of the request budget"
+        );
+        return RefreshOutcome::Deferred {
+            error: error.to_string(),
+        };
+    }
+    warn!(
+        user_id = %user_id,
+        provider = %provider,
+        error = %error,
+        "Capture sweep: fetch failed transiently"
+    );
+    RefreshOutcome::Failed {
+        error: error.to_string(),
     }
 }
 
@@ -777,9 +838,13 @@ mod tests {
     use std::slice;
 
     use chrono::{DateTime, Duration, Utc};
+    use pierre_core::errors::{AppError, ErrorCode};
     use pierre_database::repositories::CaptureFreshness;
+    use pierre_providers::request_budget::in_background;
+    use pierre_providers::sciotte_error::coach_account_error;
+    use serde_json::json;
 
-    use super::SweepSelection;
+    use super::{unflagged_outcome, RefreshOutcome, SweepSelection};
 
     fn connection(
         last_used_at: Option<DateTime<Utc>>,
@@ -903,6 +968,54 @@ mod tests {
         assert!(
             !ACTIVE_ONLY.selects(&other_tenant, now, &active),
             "bug: a serve in another tenant must not make this athlete active"
+        );
+    }
+
+    /// carnet#1488: a refusal by the sweep's own background share and a coach
+    /// account's refusal are not failed reads, and the lane gates on `failed`.
+    #[tokio::test]
+    async fn a_share_refusal_and_a_coach_account_are_never_failed() {
+        let coach = coach_account_error("a coach account keeps no calendar");
+        assert!(
+            matches!(
+                unflagged_outcome(&coach, "u", "sciotte_trainingpeaks"),
+                RefreshOutcome::CoachAccount
+            ),
+            "bug: a coach account's refusal must not count as a failed read"
+        );
+
+        // The limiter's refusal, as `RequestBudget::admit` marks it.
+        let mut spent = AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "strava request budget is spent for now",
+        );
+        spent.details = Some(Box::new(json!({ "refused_before_send": true })));
+        let in_share = in_background(async { unflagged_outcome(&spent, "u", "strava") }).await;
+        assert!(
+            matches!(in_share, RefreshOutcome::Deferred { .. }),
+            "bug: a read the background share held back must be deferred, not failed: {in_share:?}"
+        );
+
+        let outside = unflagged_outcome(&spent, "u", "strava");
+        assert!(
+            matches!(outside, RefreshOutcome::Failed { .. }),
+            "bug: a rate limit outside the background share is a failed read: {outside:?}"
+        );
+    }
+
+    /// A `429` the provider itself answered was sent, so it is a failed read
+    /// even inside the sweep's background share: the lane is the one place a
+    /// throttling provider during a sweep is seen.
+    #[tokio::test]
+    async fn a_provider_429_in_the_sweep_is_a_failed_read() {
+        let throttled = AppError::new(
+            ErrorCode::ExternalRateLimited,
+            "Rate limit exceeded for strava",
+        );
+        let outcome = in_background(async { unflagged_outcome(&throttled, "u", "strava") }).await;
+        assert!(
+            matches!(outcome, RefreshOutcome::Failed { .. }),
+            "bug: a provider's own 429 was sent and must count as failed, not deferred: {outcome:?}"
         );
     }
 }

@@ -466,7 +466,7 @@ pub(crate) fn error_falls_back(error: &AppError) -> bool {
 
 /// Whether `error` is a rate-limit refusal of work nobody waits on
 /// ([`is_background`]).
-fn held_to_background_share(error: &AppError) -> bool {
+pub(crate) fn held_to_background_share(error: &AppError) -> bool {
     error.code == ErrorCode::ExternalRateLimited && is_background()
 }
 

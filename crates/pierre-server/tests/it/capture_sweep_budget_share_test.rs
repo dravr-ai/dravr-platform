@@ -69,7 +69,8 @@ async fn mock_strava() -> (String, Arc<AtomicUsize>) {
 
 /// The sweep spends only the background share of the app's day: with that
 /// share already counted it sends Strava nothing and reports the fetch
-/// failed, while a read an athlete waits on still goes through.
+/// deferred, never failed (carnet#1488), while a read an athlete waits on
+/// still goes through.
 #[tokio::test]
 async fn the_sweep_takes_only_the_background_share_of_the_app() {
     let (base, reads) = mock_strava().await;
@@ -146,9 +147,16 @@ async fn the_sweep_takes_only_the_background_share_of_the_app() {
         .find(|c| c.user_id == user_id.to_string() && c.provider == "strava")
         .expect("the connection was walked");
     assert!(
-        matches!(line.outcome, RefreshOutcome::Failed { .. }),
-        "the sweep's read is refused past the background share: {:?}",
+        matches!(line.outcome, RefreshOutcome::Deferred { .. }),
+        "bug: a read held to the sweep's background share must be reported deferred, not failed: {:?}",
         line.outcome
+    );
+    // carnet#1488: the lane gates on `failed`, so a share refusal counted
+    // there paged every sweep the share held back, as if the read had failed.
+    assert_eq!(
+        (report.failed, report.deferred),
+        (0, 1),
+        "bug: the share refusal must count as deferred, never as failed"
     );
     assert_eq!(
         reads.load(Ordering::SeqCst),
