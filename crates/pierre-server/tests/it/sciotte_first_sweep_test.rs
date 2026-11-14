@@ -398,7 +398,11 @@ async fn a_strava_webhook_reads_the_grant_and_never_starts_a_scrape() {
         )
         .await
         .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "bug: the Strava webhook was refused"
+    );
     let deadline = Instant::now() + StdDuration::from_secs(15);
     while w.strava.reads() == 0 || !w.resources.common.turns.is_empty() {
         assert!(
@@ -453,7 +457,11 @@ async fn a_group_snapshot_scrapes_the_session_once_and_never_writes_it_under_the
 
     let snapshots = fetch_member_snapshots(&runtime, &[user_id], tenant).await;
 
-    assert_eq!(snapshots.len(), 1);
+    assert_eq!(
+        snapshots.len(),
+        1,
+        "bug: the group read did not snapshot the one member"
+    );
     assert_eq!(
         snapshots[0].recent_activities.len(),
         1,

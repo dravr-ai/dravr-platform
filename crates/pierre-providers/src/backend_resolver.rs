@@ -46,6 +46,7 @@ use std::iter;
 
 use chrono::{DateTime, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
+use pierre_core::constants::oauth::providers::MIRROR_PAIRS;
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
 
@@ -60,20 +61,6 @@ pub use writes::{
     grant_owed, grant_owed_refusal, grant_writes_beside_mirror,
     grant_writes_beside_serving_session, write_backend, GRANT_OWED_REASON,
 };
-
-/// Every mirror pair: the user-facing provider and the sciotte backend that
-/// scrapes it. The single table the name mappings below read, so a provider
-/// added here is known to routing, status, the hosted login and the reconnect
-/// copy at once.
-const MIRROR_PAIRS: [(&str, &str); 4] = [
-    (oauth_providers::STRAVA, oauth_providers::SCIOTTE),
-    (oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN),
-    (
-        oauth_providers::TRAININGPEAKS,
-        oauth_providers::SCIOTTE_TRAININGPEAKS,
-    ),
-    (oauth_providers::COROS, oauth_providers::SCIOTTE_COROS),
-];
 
 /// Return the mirror-backend provider name for a user-facing provider, if any.
 ///
@@ -874,7 +861,6 @@ pub async fn coalesced_status(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_auth::connect_order::CONNECT_ORDER_PROVIDERS;
     use pierre_core::models::ConnectionType;
 
     /// A held row's half reads its connection's status; a row with no
@@ -902,15 +888,18 @@ mod tests {
         ];
         assert_eq!(
             half(true, &connections, oauth_providers::SCIOTTE),
-            Half::Flagged
+            Half::Flagged,
+            "bug: a session whose connection needs a reconnect does not read as flagged"
         );
         assert_eq!(
             half(true, &connections, oauth_providers::STRAVA),
-            Half::Revoked
+            Half::Revoked,
+            "bug: a grant whose connection was revoked does not read as revoked"
         );
         assert_eq!(
             half(true, &connections, oauth_providers::GARMIN),
-            Half::Live
+            Half::Live,
+            "bug: a grant whose connection is active does not read as live"
         );
         assert_eq!(
             half(true, &connections, oauth_providers::SCIOTTE_GARMIN),
@@ -922,8 +911,14 @@ mod tests {
             Half::Absent,
             "bug: a connection with no token row reads as a credential"
         );
-        assert!(Half::Flagged.signed_in() && Half::Live.signed_in());
-        assert!(!Half::Revoked.signed_in() && !Half::Absent.signed_in());
+        assert!(
+            Half::Flagged.signed_in() && Half::Live.signed_in(),
+            "bug: a held session that is not revoked is not the athlete's way in"
+        );
+        assert!(
+            !Half::Revoked.signed_in() && !Half::Absent.signed_in(),
+            "bug: a revoked or absent session reads as the athlete's way in"
+        );
     }
 
     /// Only Strava's own API reads on request; the health sync keeps pulling
@@ -931,8 +926,14 @@ mod tests {
     /// through nothing.
     #[test]
     fn only_stravas_api_reads_on_request() {
-        assert!(api_reads_on_request(oauth_providers::STRAVA));
-        assert!(api_reads_on_request(oauth_providers::SCIOTTE));
+        assert!(
+            api_reads_on_request(oauth_providers::STRAVA),
+            "bug: Strava's API does not read on request"
+        );
+        assert!(
+            api_reads_on_request(oauth_providers::SCIOTTE),
+            "bug: Strava's mirror does not answer for its pair's API"
+        );
         for provider in [
             oauth_providers::GARMIN,
             oauth_providers::COROS,
@@ -946,15 +947,18 @@ mod tests {
         }
         assert_eq!(
             sync_backend(oauth_providers::STRAVA),
-            oauth_providers::STRAVA
+            oauth_providers::STRAVA,
+            "bug: the health sync pulls Strava through its session"
         );
         assert_eq!(
             sync_backend(oauth_providers::SCIOTTE),
-            oauth_providers::STRAVA
+            oauth_providers::STRAVA,
+            "bug: Strava's mirror does not sync under Strava's own name"
         );
         assert_eq!(
             sync_backend(oauth_providers::GARMIN),
-            oauth_providers::SCIOTTE_GARMIN
+            oauth_providers::SCIOTTE_GARMIN,
+            "bug: the health sync does not pull Garmin through its session"
         );
     }
 
@@ -1025,17 +1029,6 @@ mod tests {
             reconnect_target(oauth_providers::WHOOP),
             None,
             "bug: a provider with no mirror is sent to a sign-in it has none of"
-        );
-    }
-
-    /// The connect order is set for every provider with an account sign-in
-    /// (directive 5), and for nothing else: the two lists are one table.
-    #[test]
-    fn every_hosted_sign_in_carries_a_connect_order() {
-        assert_eq!(
-            hosted_login_targets(),
-            CONNECT_ORDER_PROVIDERS,
-            "bug: a provider with a sign-in carries no connect order, or one without carries one"
         );
     }
 }

@@ -1,42 +1,44 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for OnboardingMessagingConfigure — the QR/deep-link + poll-to-complete configure step
-// ABOUTME: Verifies the QR renders for deep-link channels and the poll auto-advances via onLinked
+// ABOUTME: Unit tests for ChatAppConnect — the chat-app sheet's QR/deep-link + poll-to-complete link view
+// ABOUTME: Verifies the QR renders for deep-link channels (never on a phone), the poll reports via onLinked, and Use another app
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { CHANNEL_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
-import OnboardingMessagingConfigure from '../OnboardingMessagingConfigure';
+import ChatAppConnect from '../ChatAppConnect';
 
 const { initLinkMock, listLinksMock } = vi.hoisted(() => ({
   initLinkMock: vi.fn(),
   listLinksMock: vi.fn(),
 }));
 
-vi.mock('../../services/api', () => ({
+vi.mock('../../../services/api', () => ({
   messagingLinkApi: { initLink: initLinkMock, listLinks: listLinksMock },
 }));
 
-function renderConfigure() {
+function renderConfigure({ showQr = true, withOthers = false }: { showQr?: boolean; withOthers?: boolean } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onLinked = vi.fn();
-  const onSkip = vi.fn();
+  const onUseAnother = vi.fn();
   render(
     <QueryClientProvider client={client}>
-      <OnboardingMessagingConfigure
+      <ChatAppConnect
         channel="telegram"
         displayName="Telegram"
+        showQr={showQr}
         onLinked={onLinked}
-        onSkip={onSkip}
+        onUseAnother={withOthers ? onUseAnother : undefined}
       />
     </QueryClientProvider>,
   );
-  return { onLinked, onSkip };
+  return { onLinked, onUseAnother };
 }
 
-describe('OnboardingMessagingConfigure', () => {
+describe('ChatAppConnect', () => {
   beforeEach(() => {
     initLinkMock.mockReset();
     listLinksMock.mockReset();
@@ -57,6 +59,25 @@ describe('OnboardingMessagingConfigure', () => {
       await screen.findByRole('img', { name: /QR code to connect Telegram/i }),
     ).toBeInTheDocument();
     expect(screen.getByText('Open Telegram')).toBeInTheDocument();
+  });
+
+  // No QR to scan from the same phone (carnet#1525): the tap is the only path.
+  it('shows no QR on a phone, only the open button', async () => {
+    renderConfigure({ showQr: false });
+    expect(await screen.findByText('Open Telegram')).toBeInTheDocument();
+    expect(screen.queryByRole('img', { name: /QR code/i })).not.toBeInTheDocument();
+  });
+
+  it('offers Use another app only when the workspace has another app', async () => {
+    const { onUseAnother } = renderConfigure({ withOthers: true });
+    await userEvent.click(await screen.findByTestId('chat-app-use-another'));
+    expect(onUseAnother).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves Use another app out when this is the only app', async () => {
+    renderConfigure();
+    await screen.findByText('Open Telegram');
+    expect(screen.queryByTestId('chat-app-use-another')).not.toBeInTheDocument();
   });
 
   it('tells a Telegram athlete to press Start', async () => {

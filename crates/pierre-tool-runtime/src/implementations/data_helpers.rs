@@ -307,7 +307,7 @@ pub fn provider_stale_note(display_name: &str) -> Value {
 /// treats the window as partial nor asks for a reconnect; the session's own
 /// sign-in, when it died, is asked for by the reconnect notice, not here.
 #[must_use]
-pub fn provider_served_by_grant_note(display_name: &str) -> Value {
+fn provider_served_by_grant_note(display_name: &str) -> Value {
     json!({
         "provider": display_name,
         "note": format!(

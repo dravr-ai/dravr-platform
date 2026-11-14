@@ -882,6 +882,15 @@ pub(crate) fn handle_generate_recommendations(
                 &withheld,
             ));
         }
+        // Under the grant, the nutrition mode's read of their wellness is on
+        // the athlete's record before it is made (carnet#1445).
+        if recommendation_type == "nutrition" {
+            read_subject::record_analytics_wellness_read(
+                executor.resources.repos(),
+                "generate_recommendations",
+            )
+            .await?;
+        }
         let provider_name = match resolve_provider_for_request(
             &request.parameters,
             executor,

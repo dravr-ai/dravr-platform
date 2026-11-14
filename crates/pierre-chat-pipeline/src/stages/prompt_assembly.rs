@@ -672,6 +672,7 @@ pub(crate) async fn assemble_prompt_and_messages(
             ctx,
             conv.group_id.as_deref(),
             input.tool_tenant_id,
+            user_uuid,
             (!sender_is_subject).then_some(user_uuid),
         )
         .await?;

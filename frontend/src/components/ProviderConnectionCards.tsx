@@ -138,17 +138,25 @@ interface ProviderConnectionCardsProps {
   onSkip?: () => void;
   isSkipPending?: boolean;
   /**
-   * Shows only these providers (by `provider` name), in the server's order.
-   * The connect step of a coach who does not train passes the coaching
-   * platforms; every other caller shows the full served list.
+   * Shows only these providers (by `provider` name), in this order.
+   * The coach-seat step passes the coaching platforms; every other
+   * caller shows the full served list, in the server's order.
    */
   onlyProviders?: readonly string[];
+  /**
+   * Each row is the glyph, the name and its action, nothing else: no
+   * description, no export link, and no import-your-own-data link under the
+   * list. Where a coaching platform is one route to the coach seat, beside
+   * another, every route reads the same.
+   */
+  plain?: boolean;
 }
 
 export default function ProviderConnectionCards({
   onSkip,
   isSkipPending,
   onlyProviders,
+  plain = false,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
@@ -344,7 +352,7 @@ export default function ProviderConnectionCards({
   if (isLoading) {
     return (
       <div className="w-full">
-        {[1, 2, 3, 4, 5].map((i) => (
+        {Array.from({ length: onlyProviders?.length ?? 5 }, (_, i) => i).map((i) => (
           <div key={i} className="flex animate-pulse items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0">
             <div className="h-6 w-6 flex-shrink-0 rounded bg-surface-container-high" />
             <div className="h-3 w-40 rounded bg-surface-container-high" />
@@ -361,7 +369,9 @@ export default function ProviderConnectionCards({
   // one narrowing here is by audience (`onlyProviders`), never by backend.
   const served = providersData?.providers ?? [];
   const providers = onlyProviders
-    ? served.filter((p) => onlyProviders.includes(p.provider))
+    ? served
+        .filter((p) => onlyProviders.includes(p.provider))
+        .sort((a, b) => onlyProviders.indexOf(a.provider) - onlyProviders.indexOf(b.provider))
     : served;
 
   return (
@@ -418,7 +428,7 @@ export default function ProviderConnectionCards({
               </span>
               <span className={`flex min-w-[60%] flex-1 flex-wrap items-baseline gap-x-2 sm:min-w-0 ${isNonOAuth ? 'opacity-60' : ''}`}>
                 <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
-                <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>
+                {!plain && <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>}
               </span>
               <RowStatus status={status} provider={provider.provider} displayName={provider.display_name} refused={refused} />
               {isNonOAuth && !provider.connected && (
@@ -439,15 +449,17 @@ export default function ProviderConnectionCards({
                 </span>
               )}
             </button>
-            <div className="pb-2 pl-9 empty:hidden">
-              <ProviderExportLink provider={provider} />
-            </div>
+            {!plain && (
+              <div className="pb-2 pl-9 empty:hidden">
+                <ProviderExportLink provider={provider} />
+              </div>
+            )}
           </div>
         );
       })}
 
       {/* Import your own data (Apple Health has no card): below the providers, never one of them */}
-      <ImportOwnDataLink />
+      {!plain && <ImportOwnDataLink />}
 
       {/* Skip and start chatting - last row */}
       {onSkip && (

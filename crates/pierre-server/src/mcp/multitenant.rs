@@ -767,10 +767,11 @@ impl ProviderToolRouter {
         #[cfg(feature = "client-groups")]
         let app = {
             use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
-            use pierre_routes_groups::{DelegatedConnectionRoutes, GroupRoutes};
+            use pierre_routes_groups::{CoachReadRoutes, DelegatedConnectionRoutes, GroupRoutes};
             app.merge(GroupRoutes::routes(Arc::clone(resources)))
                 .merge(GroupAnalyticsRoutes::routes(Arc::clone(resources)))
                 .merge(DelegatedConnectionRoutes::routes(Arc::clone(resources)))
+                .merge(CoachReadRoutes::routes(Arc::clone(resources)))
         };
 
         // ═══════════════════════════════════════════════════════════════

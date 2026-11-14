@@ -148,7 +148,11 @@ mod tests {
         }));
         let series = time_series(&activity).unwrap_or_else(|| panic!("bug: no series"));
         assert_eq!(series.timestamps, [0, 1], "bug: the time axis was dropped");
-        assert_eq!(series.heart_rate, Some(vec![Some(120), None]));
+        assert_eq!(
+            series.heart_rate,
+            Some(vec![Some(120), None]),
+            "bug: a heart-rate sample moved off its time axis"
+        );
         assert_eq!(
             series.gps_coordinates,
             Some(vec![Some((45.5, -73.6)), None]),
@@ -167,7 +171,11 @@ mod tests {
             "streams": { "timestamps": [0, 1], "heart_rate": [120, 122] }
         }));
         let series = time_series(&activity).unwrap_or_else(|| panic!("bug: no series"));
-        assert_eq!(series.heart_rate, Some(vec![Some(120), Some(122)]));
+        assert_eq!(
+            series.heart_rate,
+            Some(vec![Some(120), Some(122)]),
+            "bug: an indoor ride lost its heart-rate stream"
+        );
         assert!(
             series.gps_coordinates.is_none(),
             "a stream set without a fix is the provider's word that none was recorded"
@@ -195,7 +203,11 @@ mod tests {
         }));
         let series = time_series(&activity).unwrap_or_else(|| panic!("bug: no series"));
         assert!(series.timestamps.is_empty(), "a track has no time axis");
-        assert_eq!(series.gps_coordinates, Some(vec![Some((45.5, -73.6))]));
+        assert_eq!(
+            series.gps_coordinates,
+            Some(vec![Some((45.5, -73.6))]),
+            "bug: a detail without streams lost its route"
+        );
         assert!(
             time_series(&scraped(&json!({}))).is_none(),
             "no read, no series"

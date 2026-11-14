@@ -59,6 +59,8 @@ pub mod chat;
 /// A conversation archived by `/reset` and reactivated: its statements and the bodies behind them.
 pub(crate) mod chat_archive;
 pub(crate) mod chat_backend;
+/// A conversation its owner deletes, outright or only while empty: its statements and the bodies behind them.
+pub(crate) mod chat_delete;
 /// A participant's thumbs on one reply: its statements and the bodies behind them.
 pub(crate) mod chat_feedback;
 /// A thread's rows about a group member: the prompt read that keeps only the readable ones.
@@ -81,6 +83,8 @@ pub mod claim_verdicts;
 pub mod coach_access_requests;
 /// Repository trait and shared body for a coach's "Traité" on Coach Home attention reasons (carnet#1252).
 pub mod coach_attention_dismissals;
+/// The athlete's record of their human coach's reads of their data (carnet#1445).
+pub mod coach_data_reads;
 /// Repository trait and shared body for a coach's review of the agent's group replies (carnet#847).
 pub mod coach_reply_reviews;
 /// Shared statements, row decoders and body for coaching groups, members, invites and the transcript.
@@ -310,6 +314,9 @@ pub use claim_verdicts::*;
 pub use coach_access_requests::CoachAccessRequestRepository;
 pub use coach_attention_dismissals::{
     AttentionDismissal, AttentionDismissalKey, CoachAttentionDismissalRepository,
+};
+pub use coach_data_reads::{
+    CoachDataRead, CoachDataReadRepository, CoachReadClass, CoachReadSurface, NewCoachDataRead,
 };
 pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;

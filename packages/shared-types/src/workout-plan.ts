@@ -103,6 +103,24 @@ export interface PlanDay {
    * reply that saved it carried the notice saying why.
    */
   outside_evidence?: boolean;
+  /**
+   * Where the session's evidence sits when it is weaker than a trial in this
+   * sport without a qualifier: one chip, resolved by the server in the
+   * reader's language. Absent otherwise.
+   */
+  evidence?: PlanDayEvidence;
+  /** "Counts as <purpose>", resolved by the server, when an edit relabelled the session. */
+  counts_as?: string;
+}
+
+/** The evidence chip of a plan day. */
+export interface PlanDayEvidence {
+  /** The chip, in the reader's language. */
+  label: string;
+  /** The studies the evidence rests on, as cited; absent when the badge cites none. */
+  basis?: string;
+  /** What the chip opens on when it cites no study: why none is, resolved by the server. */
+  note?: string;
 }
 
 export interface PlanWeek {

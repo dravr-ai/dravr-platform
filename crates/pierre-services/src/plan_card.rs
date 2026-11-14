@@ -33,6 +33,7 @@
 //! the draft stands — so a client can offer Publish and Discard on it.
 
 use chrono::{Days, NaiveDate};
+use pierre_contremaitre::evidence_strings;
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::periodization::{PhaseKind, WorkoutStep};
@@ -196,13 +197,38 @@ pub struct DayCard {
     /// saved it carried the notice saying why (carnet#1495). Absent when not.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub outside_evidence: bool,
+    /// Where the day's evidence sits when it is weaker than a trial in this
+    /// sport without a qualifier: one chip, the weakest evidence winning
+    /// (carnet#1495). Absent otherwise, and on a day no family measured.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<DayEvidence>,
+    /// "Counts as <purpose>" in the reader's words, when an edit relabelled
+    /// the session. Absent when none did.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub counts_as: Option<String>,
+}
+
+/// The evidence chip a day carries, resolved in the reader's language.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DayEvidence {
+    /// The chip (`messaging.evidence.*`).
+    pub label: String,
+    /// The studies the badge rests on, as cited ("Rønnestad 2015 [RCT]"):
+    /// what the chip opens. Absent when the badge cites none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub basis: Option<String>,
+    /// What the chip opens on in place of `basis` when the badge cites no
+    /// study: why none is, for its status (convention, or a trial run in
+    /// another sport). Absent when `basis` is present.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
 }
 
 impl PlanCard {
     /// Project a stored plan and its weeks for `today`.
     ///
-    /// `registry` and `locale` name the plan's flavour in the athlete's own
-    /// words; they are read only when the plan carries a flavour. `fueling`
+    /// `registry` and `locale` name the plan's flavour, and each family day's
+    /// evidence chip and relabel line, in the athlete's own words. `fueling`
     /// decides whether a day's stored rates are shown or withheld.
     #[must_use]
     pub fn build(
@@ -253,7 +279,7 @@ impl PlanCard {
             weeks: selection
                 .weeks
                 .iter()
-                .map(|w| week_card(w.week, w.is_current, fueling))
+                .map(|w| week_card(w.week, w.is_current, fueling, registry, locale))
                 .collect(),
             weeks_deferred: selection.deferred,
         }
@@ -389,18 +415,50 @@ pub async fn try_load_subject_plan_card(
     }))
 }
 
-fn week_card(week: &PlanWeek, current: bool, fueling: &FuelingDisclosure) -> WeekCard {
+fn week_card(
+    week: &PlanWeek,
+    current: bool,
+    fueling: &FuelingDisclosure,
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+) -> WeekCard {
     WeekCard {
         week_start: week.week_start.clone(),
         focus: week.focus.clone(),
         phase_index: week.phase_index,
         current,
-        days: week.days.iter().map(|d| day_card(d, fueling)).collect(),
+        days: week
+            .days
+            .iter()
+            .map(|d| day_card(d, fueling, registry, locale))
+            .collect(),
     }
 }
 
-fn day_card(day: &PlannedDay, fueling: &FuelingDisclosure) -> DayCard {
+/// One stored day as the card shows it, its evidence chip and relabel line in
+/// `locale`'s words from the badge and purpose the save stored.
+fn day_card(
+    day: &PlannedDay,
+    fueling: &FuelingDisclosure,
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+) -> DayCard {
     let (fueling, fueling_withheld) = fueling.day_fueling(day);
+    let envelope = day.envelope.as_ref();
+    let evidence = envelope
+        .and_then(|envelope| envelope.badge.as_ref())
+        .and_then(|badge| {
+            evidence_strings::evidence_chip_label(registry, locale, badge).map(|label| {
+                DayEvidence {
+                    label,
+                    basis: badge.basis.clone(),
+                    note: evidence_strings::evidence_note(registry, locale, badge),
+                }
+            })
+        });
+    let counts_as = envelope
+        .and_then(|envelope| envelope.relabelled_purpose)
+        .and_then(|purpose| evidence_strings::counts_as_line(registry, locale, purpose));
     DayCard {
         date: day.date.clone(),
         sport: day.sport.clone(),
@@ -413,10 +471,9 @@ fn day_card(day: &PlannedDay, fueling: &FuelingDisclosure) -> DayCard {
         fueling_withheld,
         template_slug: day.template_slug.clone(),
         template_source: day.template_source,
-        outside_evidence: day
-            .envelope
-            .as_ref()
-            .is_some_and(|envelope| !envelope.findings.is_empty()),
+        outside_evidence: envelope.is_some_and(|envelope| !envelope.findings.is_empty()),
+        evidence,
+        counts_as,
     }
 }
 
@@ -519,18 +576,30 @@ pub async fn try_load_plan_weeks_between(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-    today: NaiveDate,
-    from: NaiveDate,
-    to: NaiveDate,
+    span: PlanSpan,
+    registry: &MessagingStringsRegistry,
+    locale: &str,
 ) -> AppResult<Option<Vec<WeekCard>>> {
     let Some(active) = load_active_plan(repos, tenant, user_id).await? else {
         return Ok(None);
     };
     Ok(Some(
-        weeks_between(&active.weeks, today, from, to)
-            .map(|(week, current)| week_card(week, current, &active.fueling))
+        weeks_between(&active.weeks, span.today, span.from, span.to)
+            .map(|(week, current)| week_card(week, current, &active.fueling, registry, locale))
             .collect(),
     ))
+}
+
+/// The days a calendar asks the plan about: `from..=to`, on the athlete's
+/// `today`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PlanSpan {
+    /// The athlete's civil today, which flags the current week.
+    pub today: NaiveDate,
+    /// The first day asked about.
+    pub from: NaiveDate,
+    /// The last day asked about, included.
+    pub to: NaiveDate,
 }
 
 /// The stored weeks that overlap `from..=to`, each with whether `today`
@@ -738,11 +807,17 @@ mod tests {
             .expect("a stored day")
         };
         let fueling = FuelingDisclosure::from_gate(None);
+        let strings = MessagingStringsRegistry::new();
         let finding = serde_json::json!({
             "code": "cycle_mean_floor", "action": "warn", "message": "English, for the model."
         });
 
-        let outside = day_card(&day(serde_json::json!({ "findings": [finding] })), &fueling);
+        let outside = day_card(
+            &day(serde_json::json!({ "findings": [finding] })),
+            &fueling,
+            &strings,
+            "en",
+        );
         assert!(
             outside.outside_evidence,
             "bug: a stored finding marks the day"
@@ -757,7 +832,7 @@ mod tests {
             serde_json::json!({ "findings": [] }),
             serde_json::Value::Null,
         ] {
-            let card = day_card(&day(clean), &fueling);
+            let card = day_card(&day(clean), &fueling, &strings, "en");
             assert!(
                 !card.outside_evidence,
                 "bug: a day with no finding is not marked"
@@ -770,6 +845,98 @@ mod tests {
                 "bug: an unmarked day carries no key"
             );
         }
+    }
+
+    /// The card names where a family day's evidence sits from the badge the
+    /// save stored, in the reader's language, with the citation it opens on or,
+    /// when the badge cites none, why by its status, and what a relabel now
+    /// counts it as; an unqualified trial and an unmeasured day carry neither
+    /// key (carnet#1495, step 3).
+    #[test]
+    fn a_day_carries_its_evidence_chip_and_relabel_line_from_what_the_save_stored(
+    ) -> Result<(), &'static str> {
+        let day = |envelope: serde_json::Value| -> PlannedDay {
+            serde_json::from_value(serde_json::json!({
+                "date": "2026-07-14", "sport": "run", "workout": "30/15",
+                "template_slug": "vo2max_short", "envelope": envelope
+            }))
+            .expect("a stored day")
+        };
+        let fueling = FuelingDisclosure::from_gate(None);
+        let strings = MessagingStringsRegistry::new();
+
+        let transposed = day_card(
+            &day(serde_json::json!({
+                "findings": [], "relabelled_purpose": "threshold",
+                "badge": { "status": "transposed", "basis": "Rønnestad 2015 [RCT]" }
+            })),
+            &fueling,
+            &strings,
+            "en",
+        );
+        assert_eq!(
+            transposed.evidence,
+            Some(DayEvidence {
+                label: "Transposed from another sport".to_owned(),
+                basis: Some("Rønnestad 2015 [RCT]".to_owned()),
+                note: None,
+            }),
+            "bug: a transposed preset that cites its study opens on the citation, with no note"
+        );
+        assert_eq!(
+            transposed.counts_as.as_deref(),
+            Some("Counts as threshold work"),
+            "bug: a relabelled day names what it now counts as"
+        );
+
+        let french = day_card(
+            &day(serde_json::json!({ "findings": [], "badge": { "status": "convention" } })),
+            &fueling,
+            &strings,
+            "fr",
+        );
+        assert_eq!(
+            french.evidence.as_ref().map(|chip| chip.label.as_str()),
+            Some("Convention d'entraînement"),
+            "bug: the chip reads in the reader's language"
+        );
+        let chip = french
+            .evidence
+            .ok_or("bug: a convention day carries its chip")?;
+        assert_eq!(
+            chip.basis, None,
+            "bug: a session no study covers cites none"
+        );
+        assert_eq!(
+            chip.note.as_deref(),
+            Some("Aucun essai ne couvre cette séance ; elle suit la pratique courante de l'entraînement."),
+            "bug: it opens on why no study covers it, in the reader's language"
+        );
+
+        let uncited = day_card(
+            &day(serde_json::json!({ "findings": [], "badge": { "status": "transposed" } })),
+            &fueling,
+            &strings,
+            "en",
+        );
+        assert_eq!(
+            uncited.evidence.and_then(|chip| chip.note).as_deref(),
+            Some("Its trials ran in another sport; it reaches this one through the transposition rules."),
+            "bug: a transposed chip with no citation opens on where its trial ran, never on 'no trial covers this'"
+        );
+
+        for quiet in [
+            serde_json::json!({ "findings": [], "badge": { "status": "trialled" } }),
+            serde_json::Value::Null,
+        ] {
+            let wire =
+                serde_json::to_value(day_card(&day(quiet), &fueling, &strings, "en")).unwrap();
+            assert!(
+                wire.get("evidence").is_none() && wire.get("counts_as").is_none(),
+                "bug: an unqualified trial or an unmeasured day carries no chip and no relabel: {wire}"
+            );
+        }
+        Ok(())
     }
 
     #[test]

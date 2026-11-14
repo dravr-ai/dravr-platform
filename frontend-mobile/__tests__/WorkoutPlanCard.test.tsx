@@ -5,7 +5,7 @@
 // ABOUTME: Red if a field name reaches the screen, if no phase carries the now badge, or if a day's steps go missing
 
 import React from 'react';
-import { act, render, within } from '@testing-library/react-native';
+import { act, fireEvent, render, within } from '@testing-library/react-native';
 import { i18n } from '@pierre/i18n';
 
 import type { WorkoutPlan } from '@pierre/shared-types';
@@ -206,6 +206,49 @@ describe('WorkoutPlanCard', () => {
   it('marks no day when the envelope check found nothing', () => {
     const { queryByText } = render(<WorkoutPlanCard plan={plan()} />);
     expect(queryByText('Outside the evidence')).toBeNull();
+  });
+
+  // carnet#1495 step 3: the chip and the relabel line come resolved from the
+  // server; a press on the chip opens the studies behind the session.
+  it('shows a day’s evidence chip, opening on its studies, and its relabel line', () => {
+    const marked = plan();
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      evidence: { label: 'Transposed from another sport', basis: 'Rønnestad 2015 [RCT]' },
+      counts_as: 'Counts as threshold work',
+    };
+    const { getByTestId, getAllByTestId, getByText, queryByText } = render(
+      <WorkoutPlanCard plan={marked} />,
+    );
+
+    const day = within(getByTestId('workout-plan-day-2026-09-15'));
+    expect(day.getByText('Transposed from another sport')).toBeTruthy();
+    expect(day.getByText('Counts as threshold work')).toBeTruthy();
+    expect(getAllByTestId('plan-day-evidence')).toHaveLength(1);
+    expect(queryByText('Rønnestad 2015 [RCT]')).toBeNull();
+
+    fireEvent.press(getByTestId('plan-day-evidence'));
+    expect(getByText('The evidence behind this session')).toBeTruthy();
+    expect(getByText('Rønnestad 2015 [RCT]')).toBeTruthy();
+  });
+
+  it('opens on the server’s note when a chip cites no study', () => {
+    const note = 'Its trials ran in another sport; it reaches this one through the transposition rules.';
+    const marked = plan();
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      evidence: { label: 'Transposed from another sport', note },
+    };
+    const { getByTestId, getByText } = render(<WorkoutPlanCard plan={marked} />);
+
+    fireEvent.press(getByTestId('plan-day-evidence'));
+    expect(getByText(note)).toBeTruthy();
+  });
+
+  it('carries no chip and no relabel line on a day the server sent none for', () => {
+    const { queryByTestId } = render(<WorkoutPlanCard plan={plan()} />);
+    expect(queryByTestId('plan-day-evidence')).toBeNull();
+    expect(queryByTestId('plan-day-counts-as')).toBeNull();
   });
 
   it('shows the other races the athlete named', () => {

@@ -15,6 +15,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { userApi } from '../../services/api';
 import { useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useRecordOnboardingStep } from '../../hooks/useRecordOnboardingStep';
 import { useThemeColors } from '../../constants/theme';
 import { useTranslation } from '@pierre/i18n';
 
@@ -34,6 +35,7 @@ export function OnboardingParqScreen() {
   const { user } = useAuth();
   const { mark } = useOnboardingFlag(STORAGE_PREFIX, user?.id);
   const progress = useOnboardingProgress('parq');
+  const recordStep = useRecordOnboardingStep();
   const [answers, setAnswers] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
 
@@ -56,7 +58,7 @@ export function OnboardingParqScreen() {
         // Non-fatal: this screen is explicitly not a gate.
       }
     }
-    userApi.setOnboardingStep('parq', status).catch(() => {});
+    recordStep('parq', status);
     await mark();
   };
 

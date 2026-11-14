@@ -232,8 +232,14 @@ fn the_health_sync_keeps_pulling_garmin_through_its_mirror() {
 /// every mirror-backed provider's hosted sign-in, Strava's included.
 #[test]
 fn every_mirror_pair_sends_an_unconnected_user_to_its_mirror() {
-    assert!(backend_resolver::mirror_is_default("strava"));
-    assert!(backend_resolver::mirror_is_default("sciotte"));
+    assert!(
+        backend_resolver::mirror_is_default("strava"),
+        "bug: an unconnected Strava athlete is not sent to the hosted sign-in"
+    );
+    assert!(
+        backend_resolver::mirror_is_default("sciotte"),
+        "bug: Strava's mirror is not its own default"
+    );
     assert!(backend_resolver::mirror_is_default("garmin"));
     assert!(backend_resolver::mirror_is_default("sciotte_garmin"));
     assert!(backend_resolver::mirror_is_default("trainingpeaks"));
@@ -347,7 +353,11 @@ async fn resolve_backend_strava_prefers_the_session_when_both_rows_exist() {
         oauth_providers::STRAVA,
     )
     .await;
-    assert_eq!(resolved, oauth_providers::SCIOTTE);
+    assert_eq!(
+        resolved,
+        oauth_providers::SCIOTTE,
+        "bug: a Strava session beside its grant does not serve first"
+    );
 }
 
 #[tokio::test]
@@ -375,7 +385,11 @@ async fn resolve_backend_garmin_prefers_the_session_when_both_rows_exist() {
         oauth_providers::GARMIN,
     )
     .await;
-    assert_eq!(resolved, oauth_providers::SCIOTTE_GARMIN);
+    assert_eq!(
+        resolved,
+        oauth_providers::SCIOTTE_GARMIN,
+        "bug: a Garmin session beside its grant does not serve first"
+    );
 }
 
 /// carnet#352's coupling, restated for carnet#1155: the backend routing picks
@@ -1945,7 +1959,11 @@ async fn a_dead_session_beside_a_working_strava_grant_is_the_reconnect() {
         Some("needs_reauth"),
         "bug: the dead session that serves first must read as the reconnect: {data:?}"
     );
-    assert_eq!(data.get("backend").and_then(Value::as_str), Some("mirror"));
+    assert_eq!(
+        data.get("backend").and_then(Value::as_str),
+        Some("mirror"),
+        "bug: the connection status named a backend other than the mirror serving"
+    );
 }
 
 #[tokio::test]
@@ -2512,23 +2530,28 @@ async fn only_a_grant_beside_a_session_stands_aside() {
 fn history_store_keys_serve_both_halves_of_a_pair_from_the_session() {
     assert_eq!(
         history_store_keys(oauth_providers::SCIOTTE),
-        vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA]
+        vec![oauth_providers::SCIOTTE, oauth_providers::STRAVA],
+        "bug: Strava's session window lost its grant's rows"
     );
     assert_eq!(
         history_store_keys(oauth_providers::SCIOTTE_GARMIN),
-        vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN]
+        vec![oauth_providers::SCIOTTE_GARMIN, oauth_providers::GARMIN],
+        "bug: Garmin's session window lost its grant's pushes"
     );
     assert_eq!(
         history_store_keys(oauth_providers::GARMIN),
-        vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN]
+        vec![oauth_providers::GARMIN, oauth_providers::SCIOTTE_GARMIN],
+        "bug: Garmin's grant window lost the history its session imported"
     );
     assert_eq!(
         history_store_keys(oauth_providers::STRAVA),
-        vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE]
+        vec![oauth_providers::STRAVA, oauth_providers::SCIOTTE],
+        "bug: Strava's grant window lost the history its session walked"
     );
     assert_eq!(
         history_store_keys(oauth_providers::SCIOTTE_COROS),
-        vec![oauth_providers::SCIOTTE_COROS]
+        vec![oauth_providers::SCIOTTE_COROS],
+        "bug: COROS's session window serves a key other than its own"
     );
 }
 
@@ -2557,7 +2580,11 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
     let owed = |refused: AppError| {
         assert_eq!(refused.code, ErrorCode::NoProviderConnected, "{refused:?}");
         let details = refused.details.expect("the refusal names the grant");
-        assert_eq!(details["reason"], backend_resolver::GRANT_OWED_REASON);
+        assert_eq!(
+            details["reason"],
+            backend_resolver::GRANT_OWED_REASON,
+            "bug: the refusal does not say the grant is owed"
+        );
         details["provider"].as_str().unwrap().to_owned()
     };
     let calendar = ProviderCapabilities::CALENDAR_WRITE;
@@ -2614,7 +2641,11 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
     let refused = write(both, both_tenant, oauth_providers::GARMIN, calendar)
         .await
         .expect_err("bug: a workout for a dead Garmin grant went to the session");
-    assert_eq!(owed(refused), oauth_providers::GARMIN);
+    assert_eq!(
+        owed(refused),
+        oauth_providers::GARMIN,
+        "bug: the refusal names a grant other than Garmin's"
+    );
     assert_eq!(
         backend_resolver::grant_owed(repos, &registry, both, both_tenant, oauth_providers::GARMIN)
             .await,
@@ -2633,7 +2664,11 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
     let refused = write(session, session_tenant, oauth_providers::GARMIN, calendar)
         .await
         .expect_err("bug: a workout for a session-only Garmin went to the session");
-    assert_eq!(owed(refused), oauth_providers::GARMIN);
+    assert_eq!(
+        owed(refused),
+        oauth_providers::GARMIN,
+        "bug: the refusal names a grant other than Garmin's"
+    );
 
     let (grant, grant_tenant) = athlete(&resources, "write-grant@example.com").await;
     hold(&resources, grant, grant_tenant, oauth_providers::GARMIN).await;
@@ -2641,7 +2676,8 @@ async fn a_write_goes_to_the_plans_backend_that_carries_its_capability() {
         write(grant, grant_tenant, oauth_providers::GARMIN, calendar)
             .await
             .unwrap(),
-        oauth_providers::GARMIN
+        oauth_providers::GARMIN,
+        "bug: a workout for a live Garmin grant did not go to the grant"
     );
     assert_eq!(
         write(

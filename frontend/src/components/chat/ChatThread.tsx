@@ -36,6 +36,11 @@ export interface ChatThreadProps {
   /** Drawn under the usage banner, above the transcript — the host's connect nudge. */
   banner?: ReactNode;
   /**
+   * Drawn at the end of the transcript, in the agent's voice — the host's
+   * one-time offer, such as a coach's chat-app card in their group.
+   */
+  offer?: ReactNode;
+  /**
    * Whether the transcript scrolls to its latest message when a thread
    * opens. An embedded thread leaves the page where the athlete put it.
    */
@@ -73,6 +78,7 @@ export default function ChatThread({
   thread,
   conversationTitle,
   banner,
+  offer,
   followOnOpen,
   focusComposerOnOpen,
   onTranscriptScroll,
@@ -325,7 +331,16 @@ export default function ChatThread({
             privateLane={transcriptLane}
             liveAudience={thread.liveAudience}
             opening={opening}
-            tail={draftCard}
+            tail={
+              offer ? (
+                <>
+                  {draftCard}
+                  {offer}
+                </>
+              ) : (
+                draftCard
+              )
+            }
           />
         </div>
       </div>

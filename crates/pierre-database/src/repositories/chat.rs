@@ -282,6 +282,20 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<bool>;
+    /// [`Self::delete_conversation`], only while no message is in the
+    /// conversation: a thread opened for a write that then failed goes, and
+    /// one somebody wrote into meanwhile stays, with what they wrote.
+    ///
+    /// The check and the delete are one decision: a message insert racing
+    /// it either commits first and keeps the conversation, or waits and
+    /// then finds it gone. Returns `false`, deleting nothing, when a message
+    /// is in it or when `user_id` does not own it in `tenant_id`.
+    async fn delete_conversation_if_empty(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
     /// Add a message to a conversation (verifies the user is a participant)
     async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord>;
     /// Get all messages for a conversation (verifies the user is a participant)
@@ -969,18 +983,6 @@ pub(crate) const SET_CHANNEL_SQL: &str = r"
         SELECT 1 FROM conversation_participants p
         WHERE p.conversation_id = chat_conversations.id AND p.user_id = $3 AND p.tenant_id = $4
       )";
-
-/// Delete a conversation; owner-only, the messages cascade.
-pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
-    DELETE FROM chat_conversations
-    WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
-
-/// The A2A tasks a deleted conversation's owner ran in it. `a2a_tasks` has no
-/// tenant, and a tool task may name any `contextId`, so the owner's task key
-/// (`user_task_key`) is what holds this to their rows.
-pub(crate) const DELETE_CONVERSATION_TASKS_SQL: &str = r"
-    DELETE FROM a2a_tasks
-    WHERE context_id = $1 AND session_token = $2";
 
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.

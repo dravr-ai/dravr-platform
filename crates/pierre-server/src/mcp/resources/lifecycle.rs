@@ -56,6 +56,7 @@ use pierre_commands::{
     group_consent::GroupConsentHandler,
     group_invite::GroupInviteHandler,
     group_membership::{GroupCreateHandler, GroupJoinHandler},
+    group_reads::GroupReadsHandler,
     help::HelpHandler,
     language::LanguageHandler,
     onboarding::PillarsHandler,
@@ -120,6 +121,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
 use pierre_providers::sciotte_provider::startup_client;
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
+use pierre_services::coach_read_retention::start_coach_read_retention_task;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
 #[cfg(feature = "client-messaging")]
@@ -373,6 +375,13 @@ impl ServerContext {
 
         // Hourly sweep of expired API keys, on the shared worker ledger.
         start_api_key_cleanup_task(Arc::clone(&repos.api_keys), Arc::clone(&repos.worker_runs));
+
+        // Hourly purge of the athletes' records of their human coach's reads
+        // past their 12 months, on the shared worker ledger (carnet#1445).
+        start_coach_read_retention_task(
+            Arc::clone(&repos.coach_data_reads),
+            Arc::clone(&repos.worker_runs),
+        );
 
         // Create tool selection service for per-tenant tool filtering
         let tool_selection = Arc::new(ToolSelectionService::new(&repos));
@@ -802,6 +811,7 @@ impl ServerContext {
             ("group-digest", Arc::new(GroupDigestHandler)),
             ("group-leave", Arc::new(GroupLeaveHandler)),
             ("group-consent", Arc::new(GroupConsentHandler)),
+            ("group-reads", Arc::new(GroupReadsHandler)),
             ("group-create", Arc::new(GroupCreateHandler)),
             ("group-join", Arc::new(GroupJoinHandler)),
             ("discover", Arc::new(DiscoverHandler)),

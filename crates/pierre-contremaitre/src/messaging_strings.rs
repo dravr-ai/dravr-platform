@@ -1142,6 +1142,57 @@ pub const KEY_GROUP_COACH_CONSENT_UPDATED_ALL: &str = "commands.group.coach_cons
 /// several groups, which changes nothing and asks which group. `{0}` = the
 /// group names, comma-separated.
 pub const KEY_GROUP_CONSENT_PICK_GROUP: &str = "commands.group.consent_pick_group";
+/// Key: `/group reads` header above one group's list of the human coach's
+/// reads of the member's data, newest first. `{0}` = group name.
+pub const KEY_GROUP_READS_HEADER: &str = "commands.group.reads_header";
+/// Key: one line of `/group reads`.
+///
+/// `{0}` = when (UTC), `{1}` = the coach, `{2}` = the kind of data
+/// ([`KEY_GROUP_READS_TRAINING`] or [`KEY_GROUP_READS_WELLNESS`]), `{3}` = the
+/// tool read through, or the words of a read made outside a tool call
+/// (`KEY_GROUP_READS_SOURCE_*`).
+pub const KEY_GROUP_READS_LINE: &str = "commands.group.reads_line";
+/// Key: `/group reads` for a group whose human coach read nothing of the
+/// member's within the retention. `{0}` = group name, `{1}` = the months
+/// a read is kept.
+pub const KEY_GROUP_READS_NONE: &str = "commands.group.reads_none";
+/// Key: `/group reads` word for a read of the member's training. No
+/// placeholder.
+pub const KEY_GROUP_READS_TRAINING: &str = "commands.group.reads_training";
+/// Key: `/group reads` word for a read of the member's wellness. No
+/// placeholder.
+pub const KEY_GROUP_READS_WELLNESS: &str = "commands.group.reads_wellness";
+/// Key: `/group reads` name for a coach whose account is gone. No
+/// placeholder.
+pub const KEY_GROUP_READS_FORMER_COACH: &str = "commands.group.reads_former_coach";
+/// Key: `/group reads` words, in place of a tool, for a read made from Group
+/// info's view of the member's plan. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_PLAN_VIEW: &str = "commands.group.reads_source_plan_view";
+/// Key: `/group reads` words, in place of a tool, for a read the coach made
+/// with `/plan <member>`. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_PLAN_COMMAND: &str = "commands.group.reads_source_plan_command";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// coach's roster (Coach Home). No placeholder.
+pub const KEY_GROUP_READS_SOURCE_ROSTER: &str = "commands.group.reads_source_roster";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// coach's thread about the member, on one of its turns. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_COACH_THREAD: &str = "commands.group.reads_source_coach_thread";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// member cards the agent reads on a turn in the group's room. No
+/// placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_ROOM: &str = "commands.group.reads_source_group_room";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// group's stats. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_STATS: &str = "commands.group.reads_source_group_stats";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// group's weekly report. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_REPORT: &str = "commands.group.reads_source_group_report";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// group's health flags. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_HEALTH: &str = "commands.group.reads_source_group_health";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// human coach's copy of the group's weekly digest. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST: &str = "commands.group.reads_source_weekly_digest";
 /// Key: the `/group join` reply's sharing line when the group has a human
 /// coach. `{0}` = the coach's name.
 pub const KEY_GROUP_COACH_SHARING_NAMED: &str = "commands.group.coach_sharing_named";

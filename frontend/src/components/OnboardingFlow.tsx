@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import type { ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import OnboardingAnalyticsConsent from './OnboardingAnalyticsConsent';
 import OnboardingProfileType from './OnboardingProfileType';
 import OnboardingAboutYou from './OnboardingAboutYou';
@@ -12,12 +12,16 @@ import OnboardingParq from './OnboardingParq';
 import OnboardingCheckIn from './OnboardingCheckIn';
 import OnboardingConnectProvider from './OnboardingConnectProvider';
 import OnboardingCoachProposal from './OnboardingCoachProposal';
-import OnboardingCoachGroup from './OnboardingCoachGroup';
-import OnboardingMessagingChannel from './OnboardingMessagingChannel';
-import OnboardingMessagingConfigure from './OnboardingMessagingConfigure';
 import OnboardingProgress from './OnboardingProgress';
+import OnboardingShell from './OnboardingShell';
 import { currentOnboardingStep, onboardingProgress, type OnboardingStepId } from '../onboarding/steps';
 import type { OnboardingState } from '../hooks/useOnboardingState';
+
+// The coach-only steps load when a coach reaches them: every sign-up meets
+// this flow before first paint, and an athlete never needs the seat, group
+// and invite screens (or the coach-access request they carry).
+const OnboardingCoachSeat = lazy(() => import('./OnboardingCoachSeat'));
+const OnboardingCoachGroup = lazy(() => import('./OnboardingCoachGroup'));
 
 /**
  * Renders the current onboarding step — the first applicable step not yet
@@ -44,7 +48,20 @@ export default function OnboardingFlow({
   return (
     <div className="relative" data-testid="onboarding-flow">
       {step.hiddenFromProgress ? null : <OnboardingProgress steps={onboardingProgress(state.ctx)} />}
-      {renderStep(step.id, state, userDisplayName)}
+      {/* While a coach step's chunk arrives, the screen draws what every step
+          draws while it loads — the shell and its spinner — not a blank page
+          under the progress bar. */}
+      <Suspense
+        fallback={
+          <OnboardingShell>
+            <div className="flex flex-col items-center gap-4 py-8">
+              <div className="pierre-spinner w-10 h-10 border-on-surface border-t-transparent" />
+            </div>
+          </OnboardingShell>
+        }
+      >
+        {renderStep(step.id, state, userDisplayName)}
+      </Suspense>
     </div>
   );
 }
@@ -86,7 +103,6 @@ function renderStep(
           onContinue={
             state.ctx.needsProviderConnection === false ? state.completeConnectProvider : undefined
           }
-          coachOnly={state.ctx.athleteStepsWaived}
         />
       );
     case 'coach_proposal':
@@ -98,34 +114,17 @@ function renderStep(
           onComplete={state.completeCoachProposal}
         />
       );
+    case 'coach_seat':
+      return <OnboardingCoachSeat onComplete={state.completeCoachSeat} />;
+    // One screen component for both segments, at one place in the tree, so the
+    // group just made and its invite link survive the step changing under it.
     case 'coach_group':
+    case 'coach_invite':
       return (
         <OnboardingCoachGroup
-          userDisplayName={userDisplayName}
+          onCreated={state.markCoachGroupCreated}
           onComplete={state.completeCoachGroup}
         />
       );
-    case 'messaging_channel':
-      return (
-        <OnboardingMessagingChannel
-          userDisplayName={userDisplayName}
-          channels={state.availableChannels}
-          onSelect={state.chooseChannel}
-          onSkip={state.skipMessaging}
-        />
-      );
-    case 'messaging_configure': {
-      const chosen = state.availableChannels.find((c) => c.channel === state.chosenChannel);
-      const channel = state.chosenChannel ?? '';
-      return (
-        <OnboardingMessagingConfigure
-          userDisplayName={userDisplayName}
-          channel={channel}
-          displayName={chosen?.display_name ?? channel}
-          onLinked={state.completeMessagingConfigure}
-          onSkip={state.skipMessaging}
-        />
-      );
-    }
   }
 }

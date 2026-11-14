@@ -38,8 +38,8 @@ pub(super) fn string_prop(description: &str) -> PropertySchema {
 pub(super) fn athlete_prop() -> PropertySchema {
     string_prop(
         "Roster display name of a consenting athlete whose plan this is. Only a human coach of \
-         their group may set it, from a direct chat — never in a room. Defaults to the athlete \
-         of the coach's one-athlete thread.",
+         their group may set it, from a direct chat in Dravr — never in a room. Defaults to the \
+         athlete of the coach's one-athlete thread.",
     )
 }
 

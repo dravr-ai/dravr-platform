@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::{AgentRuntimeContext, CoachingPersona};
+use pierre_core::models::{AgentRuntimeContext, CoachingPersona, UnitSystem};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
 use tracing::warn;
@@ -27,7 +27,7 @@ use pierre_llm::provider_stop::ProviderStop;
 use super::provider_stop;
 
 use super::acronym_expansion::expand_acronyms_first_use;
-use super::envelope_notice::{envelope_notice_block, notice_only_blocks, NoticeReader};
+use super::envelope_notice::{envelope_notice_block, notice_only_blocks, notice_reader};
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
     apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
@@ -113,6 +113,9 @@ pub(crate) struct PostProcessInputs<'a> {
     /// family's evidence envelope are the platform-written notice the reply
     /// carries; a plan day stored clean shows nothing.
     pub envelope_days: &'a [NoticeDay],
+    /// The units the reply's reader reads, which the notice writes a pace in
+    /// (`stages::units::reader_units`).
+    pub notice_units: UnitSystem,
     /// Whether this turn stands on evidence gathered for it — a tool ran, or
     /// the prefetch injected an activity block.
     ///
@@ -376,6 +379,7 @@ pub(crate) async fn post_process_assistant_reply(
         profile,
         tools_called,
         envelope_days,
+        notice_units,
         turn_was_grounded,
         roster_data_read,
         active_model,
@@ -402,7 +406,8 @@ pub(crate) async fn post_process_assistant_reply(
         notice_only_blocks(
             &ctx.messaging_strings_registry,
             locale,
-            NoticeReader::of(conv),
+            notice_reader(conv),
+            notice_units,
             envelope_days,
         )
     };
@@ -574,7 +579,8 @@ pub(crate) async fn post_process_assistant_reply(
     let content_blocks = match envelope_notice_block(
         &ctx.messaging_strings_registry,
         locale,
-        NoticeReader::of(conv),
+        notice_reader(conv),
+        notice_units,
         envelope_days,
     ) {
         Some(block) => append_block(content_blocks, block),

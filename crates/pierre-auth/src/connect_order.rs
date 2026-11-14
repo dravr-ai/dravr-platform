@@ -67,14 +67,9 @@ impl ConnectOrder {
 /// The providers whose connect order the operator sets.
 ///
 /// Every provider with an account sign-in, by the name the athlete knows it
-/// under: the hosted sign-in targets
-/// (`pierre_providers::backend_resolver::hosted_login_targets`).
-pub const CONNECT_ORDER_PROVIDERS: [&str; 4] = [
-    oauth_providers::STRAVA,
-    oauth_providers::GARMIN,
-    oauth_providers::TRAININGPEAKS,
-    oauth_providers::COROS,
-];
+/// under: the user-facing half of the one mirror table
+/// ([`oauth_providers::MIRROR_PAIRS`]).
+pub const CONNECT_ORDER_PROVIDERS: [&str; 4] = oauth_providers::MIRRORED_PROVIDERS;
 
 /// The order in force when the operator stored none, or none that reads.
 const DEFAULT_ORDER: ConnectOrder = ConnectOrder::SignInFirst;

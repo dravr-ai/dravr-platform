@@ -58,6 +58,7 @@ use std::time::Duration as StdDuration;
 use chrono::{DateTime, Duration, Utc};
 use jsonwebtoken::{decode, encode, Algorithm, DecodingKey, EncodingKey, Header, Validation};
 use pierre_cache::{CacheKey, CacheProvider, CacheResource};
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::TenantId;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -216,7 +217,7 @@ pub fn mint_hosted_signin_url(
         &MintProviderLinkTokenArgs {
             user_id,
             tenant_id,
-            provider: "sciotte",
+            provider: oauth_providers::SCIOTTE,
             target,
             channel,
             channel_thread: None,

@@ -41,6 +41,8 @@ pub mod coach_access;
 pub mod coach_access_evidence;
 /// Coach Home's attention reasons and season state, from one roster row's signals (carnet#1252, #1250)
 pub mod coach_attention;
+/// Hourly purge of the athletes' records of their human coach's reads past 12 months (carnet#1445)
+pub mod coach_read_retention;
 /// A coach's after-the-fact review of the agent's group replies: flags, corrections, the weekly count (carnet#847)
 pub mod coach_replies;
 /// The human coach's roster from the database: access, members, consent, order (carnet#1251)

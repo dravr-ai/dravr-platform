@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, it, expect } from 'vitest';
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { i18n } from '@pierre/i18n';
 import type { WorkoutPlan } from '@pierre/shared-types';
 import WorkoutPlanCard from '../WorkoutPlanCard';
@@ -192,6 +192,46 @@ describe('WorkoutPlanCard', () => {
   it('marks no day when the envelope check found nothing', () => {
     render(<WorkoutPlanCard plan={plan()} />);
     expect(screen.queryByText('Outside the evidence')).not.toBeInTheDocument();
+  });
+
+  // carnet#1495 step 3: the chip and the relabel line come resolved from the
+  // server; the chip opens on the studies behind the session.
+  it('shows a day’s evidence chip, opening on its studies, and its relabel line', () => {
+    const marked = plan();
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      evidence: { label: 'Transposed from another sport', basis: 'Rønnestad 2015 [RCT]' },
+      counts_as: 'Counts as threshold work',
+    };
+    render(<WorkoutPlanCard plan={marked} />);
+
+    expect(screen.getAllByTestId('plan-day-evidence')).toHaveLength(1);
+    expect(screen.getByTestId('plan-day-counts-as')).toHaveTextContent('Counts as threshold work');
+    expect(screen.queryByTestId('plan-day-evidence-sheet')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Transposed from another sport' }));
+    const sheet = screen.getByRole('dialog', { name: 'The evidence behind this session' });
+    expect(sheet).toHaveAttribute('data-testid', 'plan-day-evidence-sheet');
+    expect(within(sheet).getByText('Rønnestad 2015 [RCT]')).toBeInTheDocument();
+  });
+
+  it('opens on the server’s note when a chip cites no study', () => {
+    const note = 'Its trials ran in another sport; it reaches this one through the transposition rules.';
+    const marked = plan();
+    marked.weeks[0].days[0] = {
+      ...marked.weeks[0].days[0],
+      evidence: { label: 'Transposed from another sport', note },
+    };
+    render(<WorkoutPlanCard plan={marked} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Transposed from another sport' }));
+    expect(within(screen.getByTestId('plan-day-evidence-sheet')).getByText(note)).toBeInTheDocument();
+  });
+
+  it('carries no chip and no relabel line on a day the server sent none for', () => {
+    render(<WorkoutPlanCard plan={plan()} />);
+    expect(screen.queryByTestId('plan-day-evidence')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('plan-day-counts-as')).not.toBeInTheDocument();
   });
 
   it('shows the other races the athlete named', () => {

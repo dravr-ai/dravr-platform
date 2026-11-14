@@ -1265,7 +1265,11 @@ async fn each_session_read_that_falls_back_is_served_by_the_grant_and_recorded_w
             !pair.failure_recorded("strava").await,
             "{label}: nothing failed on the grant"
         );
-        assert_eq!(pair.status("strava").await, ConnectionStatus::Active);
+        assert_eq!(
+            pair.status("strava").await,
+            ConnectionStatus::Active,
+            "bug: a session's failure flagged the grant that served"
+        );
         assert!(
             named(&events, HEAD_READ_FAILED).is_empty(),
             "{label}: bug: a read the grant served must not page"
@@ -1297,17 +1301,35 @@ async fn a_session_and_its_grant_both_failing_page_once() {
     .await;
 
     assert!(read.is_err(), "nothing served: {read:?}");
-    assert_eq!(pair.strava.list_reads.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        pair.strava.list_reads.load(Ordering::SeqCst),
+        1,
+        "bug: the grant was not asked once for the read its session failed"
+    );
     let paged = named(&events, HEAD_READ_FAILED);
     assert_eq!(
         paged.len(),
         1,
         "bug: one read nothing served pages exactly once"
     );
-    assert_eq!(paged[0].level, Level::ERROR);
-    assert_eq!(paged[0].field("provider"), "sciotte");
-    assert!(pair.failure_recorded("sciotte").await);
-    assert!(pair.failure_recorded("strava").await);
+    assert_eq!(
+        paged[0].level,
+        Level::ERROR,
+        "bug: a read nothing served did not page at error"
+    );
+    assert_eq!(
+        paged[0].field("provider"),
+        "sciotte",
+        "bug: the page did not name the session that failed first"
+    );
+    assert!(
+        pair.failure_recorded("sciotte").await,
+        "bug: the session's failure was not recorded under the session"
+    );
+    assert!(
+        pair.failure_recorded("strava").await,
+        "bug: the grant's failure was not recorded under the grant"
+    );
 }
 
 /// A dead session is flagged on the read that finds it dead and the grant
@@ -1322,20 +1344,40 @@ async fn a_dead_session_is_flagged_and_its_grant_keeps_serving_without_reading_i
     let first = fetch_provider_activities(&runtime, "strava", pair.user_id, &tenant, &Pair::head())
         .await
         .expect("the grant serves the read that found the session dead");
-    assert_eq!(ids(&first), [GRANT_RIDE]);
-    assert_eq!(pair.status("sciotte").await, ConnectionStatus::NeedsReauth);
-    assert_eq!(pair.scraper.reads.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        ids(&first),
+        [GRANT_RIDE],
+        "bug: the grant did not serve the read that found the session dead"
+    );
+    assert_eq!(
+        pair.status("sciotte").await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the dead session was not flagged for its sign-in"
+    );
+    assert_eq!(
+        pair.scraper.reads.load(Ordering::SeqCst),
+        1,
+        "bug: the dead session was not read exactly once"
+    );
 
     let again = fetch_provider_activities(&runtime, "strava", pair.user_id, &tenant, &Pair::head())
         .await
         .expect("the flagged session's grant serves");
-    assert_eq!(ids(&again), [GRANT_RIDE]);
+    assert_eq!(
+        ids(&again),
+        [GRANT_RIDE],
+        "bug: the grant did not keep serving beside the flagged session"
+    );
     assert_eq!(
         pair.scraper.reads.load(Ordering::SeqCst),
         1,
         "bug: a flagged session was signed in to again"
     );
-    assert_eq!(pair.strava.list_reads.load(Ordering::SeqCst), 2);
+    assert_eq!(
+        pair.strava.list_reads.load(Ordering::SeqCst),
+        2,
+        "bug: the grant did not serve each of the two reads"
+    );
 }
 
 /// A flagged session whose grant is flagged too serves its own cache: only
@@ -1357,8 +1399,16 @@ async fn a_flagged_session_without_a_live_grant_serves_its_cache() {
     )
     .await
     .expect("the session's cache serves");
-    assert_eq!(ids(&served), [SESSION_RIDE]);
-    assert_eq!(pair.scraper.reads.load(Ordering::SeqCst), 0);
+    assert_eq!(
+        ids(&served),
+        [SESSION_RIDE],
+        "bug: the flagged session's cache did not serve"
+    );
+    assert_eq!(
+        pair.scraper.reads.load(Ordering::SeqCst),
+        0,
+        "bug: a flagged session was signed in to again"
+    );
     assert_eq!(
         pair.strava.list_reads.load(Ordering::SeqCst),
         0,
@@ -1418,8 +1468,16 @@ async fn a_failed_by_id_read_of_the_session_is_read_through_its_grant() {
         .get_activity(GRANT_RIDE)
         .await
         .expect("the grant reads the activity the session could not");
-    assert_eq!(detail.id(), GRANT_RIDE);
-    assert_eq!(detail.provider(), "strava");
+    assert_eq!(
+        detail.id(),
+        GRANT_RIDE,
+        "bug: the grant answered for another activity"
+    );
+    assert_eq!(
+        detail.provider(),
+        "strava",
+        "bug: the grant's answer is not stamped as the grant's"
+    );
     assert_eq!(
         pair.status("sciotte").await,
         ConnectionStatus::Active,
@@ -1443,7 +1501,11 @@ async fn a_by_id_read_that_finds_the_session_dead_flags_it_while_its_grant_answe
         .get_activity(GRANT_RIDE)
         .await
         .expect("the grant reads the activity the dead session refused");
-    assert_eq!(detail.id(), GRANT_RIDE);
+    assert_eq!(
+        detail.id(),
+        GRANT_RIDE,
+        "bug: the grant answered for another activity"
+    );
     assert_eq!(
         pair.status("sciotte").await,
         ConnectionStatus::NeedsReauth,
@@ -1610,7 +1672,11 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
     let BudgetedRead::Cached(rows) = outcome else {
         panic!("a read past the budget answers from the cached window");
     };
-    assert_eq!(ids(&rows), [SESSION_RIDE]);
+    assert_eq!(
+        ids(&rows),
+        [SESSION_RIDE],
+        "bug: the turn past its budget did not answer from the cached window"
+    );
     assert_eq!(
         pair.strava.list_reads.load(Ordering::SeqCst),
         0,
@@ -1628,8 +1694,15 @@ async fn a_turn_past_its_budget_reads_only_one_backend_inline() {
         landed.is_ok(),
         "the detached read falls back to the grant once the session fails"
     );
-    assert_eq!(pair.strava.list_reads.load(Ordering::SeqCst), 1);
-    assert!(pair.failure_recorded("sciotte").await);
+    assert_eq!(
+        pair.strava.list_reads.load(Ordering::SeqCst),
+        1,
+        "bug: the detached read did not fall back to the grant exactly once"
+    );
+    assert!(
+        pair.failure_recorded("sciotte").await,
+        "bug: the session's failure was not recorded under the session"
+    );
 }
 
 /// A follow-up that re-asks the question while the session's read, answered

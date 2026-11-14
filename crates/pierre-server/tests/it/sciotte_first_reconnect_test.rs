@@ -348,7 +348,10 @@ async fn a_reclaim_or_a_revocation_keeps_the_session_and_the_athletes_disconnect
         vec![],
         "bug: the athlete's disconnect left half the card connected"
     );
-    assert!(!session_token_held(&resources, user_id, tenant).await);
+    assert!(
+        !session_token_held(&resources, user_id, tenant).await,
+        "bug: the athlete's disconnect kept the session's token"
+    );
 }
 
 /// A grant-only athlete whose grant the provider revoked is told once to sign
@@ -446,7 +449,11 @@ async fn a_withdrawal_retried_after_its_token_delete_still_tells_the_athlete_onc
         1,
         "bug: the retry of a withdrawal that lost its token row told the athlete other than once"
     );
-    assert_eq!(connections(&resources, user_id, tenant).await, vec![]);
+    assert_eq!(
+        connections(&resources, user_id, tenant).await,
+        vec![],
+        "bug: the withdrawal left a connection row behind"
+    );
 }
 
 /// Two deliveries of one revocation racing each other tell a grant-only

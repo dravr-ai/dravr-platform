@@ -36,7 +36,8 @@ export interface SignInModal extends SignInModalState {
   /**
    * Open the sign-in to `target` for `card`, whose notice it owes while the
    * card says so. A card connected through its provider's authorization
-   * passes `historyMode`: the sign-in then copies the history once. A sign-in
+   * passes `historyMode`: the sign-in then serves the card and reads its
+   * history in (carnet#1494). A sign-in
    * the card's own plan opens passes `fromPlan`, so one that cannot complete
    * falls back to the card's OAuth when it offers one.
    */

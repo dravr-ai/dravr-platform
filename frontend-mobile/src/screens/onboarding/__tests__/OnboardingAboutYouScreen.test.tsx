@@ -5,8 +5,10 @@
 // ABOUTME: Asserts the answers actually reach the API, since a step that silently persists nothing is the bug this replaced
 
 import React from 'react';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react-native';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { OnboardingAboutYouScreen } from '../OnboardingAboutYouScreen';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { userApi } from '../../../services/api';
 import { useOnboardingFlag } from '../../../hooks/useOnboardingFlag';
 
@@ -29,6 +31,11 @@ jest.mock('../../../services/api', () => ({
 const mockMark = jest.fn();
 const saveAboutYou = userApi.saveAboutYou as jest.Mock;
 const setOnboardingStep = userApi.setOnboardingStep as jest.Mock;
+
+/** The screen writes into the cached onboarding status, so it renders under a query client. */
+function render(ui: React.ReactElement, client = new QueryClient()) {
+  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+}
 
 describe('OnboardingAboutYouScreen', () => {
   beforeEach(() => {
@@ -98,5 +105,17 @@ describe('OnboardingAboutYouScreen', () => {
     fireEvent.press(screen.getByText('Continue'));
 
     await waitFor(() => expect(mockMark).toHaveBeenCalled());
+  });
+
+  it('a skip lands in the cached onboarding status at once, for the next screen\'s bar', async () => {
+    const client = new QueryClient();
+    client.setQueryData(QUERY_KEYS.user.onboardingStatus(), { steps: [] });
+    render(<OnboardingAboutYouScreen />, client);
+    fireEvent.press(screen.getByText('Skip for now'));
+    await waitFor(() => expect(mockMark).toHaveBeenCalled());
+    expect(client.getQueryData(QUERY_KEYS.user.onboardingStatus())).toMatchObject({
+      steps: [{ step_id: 'about_you', status: 'skipped' }],
+    });
+    expect(setOnboardingStep).toHaveBeenCalledWith('about_you', 'skipped');
   });
 });

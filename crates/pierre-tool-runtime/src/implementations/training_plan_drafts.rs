@@ -424,7 +424,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             "Publish or discard a group's human coach's draft of a coached athlete's training \
              plan (their save_training_plan for an athlete writes that unseen draft). publish \
              makes it the live plan in one step; weeks not drafted keep the athlete's version. \
-             Call it only when the coach asks. If the athlete's own agent changed a drafted \
+             Call it only when the coach asks, in Dravr's app. If the athlete's own agent changed a drafted \
              week or re-laid the season since, publish is refused with status `conflict` and \
              nothing changes: tell the coach which weeks, and publish again with \
              overwrite_athlete_changes only if they choose. publish also puts the plan on the \
@@ -491,12 +491,7 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let PlanSubject::Coached {
-                athlete: name,
-                group_id,
-                ..
-            } = &scope.subject
-            else {
+            let PlanSubject::Coached { access } = &scope.subject else {
                 return Ok(refusal(
                     "own_plan",
                     "Your own saves are already live — there is no draft of your own plan to \
@@ -506,19 +501,24 @@ impl McpTool<dyn ToolRuntime> for PublishTrainingPlanTool {
             };
             let target = CoachDraftTarget::new(scope.tenant, scope.user_id, scope.writer.user_id);
             match action {
-                DraftAction::Discard => discard(repos, &target, name.clone()).await,
+                DraftAction::Discard => discard(repos, &target, access.display_name.clone()).await,
                 // The rails a publish runs read the athlete's load to report
                 // back to the coach, under the athlete's own AI consents
                 // (carnet#1419).
                 DraftAction::Publish => {
                     let request = DraftPublish {
                         target: &target,
-                        group_id: *group_id,
+                        group_id: access.group.id,
                         overwrite,
                         athlete,
                         trigger: PUBLISH_TOOL,
                     };
-                    let publishing = Box::pin(publish(&context, &scope, &request, name.clone()));
+                    let publishing = Box::pin(publish(
+                        &context,
+                        &scope,
+                        &request,
+                        access.display_name.clone(),
+                    ));
                     scope.read_as_athlete(repos, publishing).await
                 }
             }

@@ -95,6 +95,10 @@ const VO2MAX_METHODS: [&str; 6] = [
     "race_result",
 ];
 
+/// The methods whose equation takes a body weight (`Self::weight_kg`), which
+/// the athlete's own defaults in when the call gives none.
+const WEIGHT_METHODS: [&str; 2] = ["rockport_walk", "astrand_ryhming"];
+
 impl EstimateVo2maxTool {
     fn properties() -> BTreeMap<String, PropertySchema> {
         let mut properties = BTreeMap::new();
@@ -219,6 +223,17 @@ impl EstimateVo2maxTool {
                 ),
             ),
         ))
+    }
+
+    /// Whether the call reads the athlete's body weight: a method that needs
+    /// one, with no `weight_kg` given.
+    fn defaults_weight(args: &Value) -> bool {
+        let needs_weight = args
+            .get("method")
+            .and_then(Value::as_str)
+            .map(str::to_ascii_lowercase)
+            .is_some_and(|method| WEIGHT_METHODS.contains(&method.as_str()));
+        needs_weight && args.get("weight_kg").is_none_or(Value::is_null)
     }
 
     /// Age in years from the call, else from the profile, recording the source.
@@ -369,6 +384,13 @@ impl McpTool<dyn ToolRuntime> for EstimateVo2maxTool {
         let result: AppResult<ToolResult> = async move {
             let tenant_id = TenantId::from_uuid(context.require_tenant()?);
             let user_id = context.user_id;
+
+            // A method that needs a body weight the call did not give reads the
+            // athlete's: their wellness, which on a coach's read is on the
+            // athlete's record before it is read (carnet#1445).
+            if Self::defaults_weight(&args) {
+                read_subject::record_wellness_read(context.resources.repos()).await?;
+            }
 
             // The stored profile (withheld from an external caller when it was
             // written from first-party-only data, carnet#769) and the latest

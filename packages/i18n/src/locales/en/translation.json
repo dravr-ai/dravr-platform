@@ -512,8 +512,6 @@
     "oauthAllFieldsRequired": "Client ID, Client Secret, and Redirect URI are all required.",
     "oauthCredentials": "OAuth Credentials",
     "oauthCredsBlurb": "Configure custom OAuth app credentials to use your own developer applications instead of the server defaults.",
-    "obAlmostThereGreeting": "Almost there, {{name}}",
-    "obConnectGreeting": "Connect {{channel}}, {{name}}",
     "obMostlySport": ", mostly {{sport}}.",
     "obParqGreeting": "A quick health check, {{name}}",
     "obStartingLineup": "Here's your starting lineup, {{name}}",
@@ -1473,6 +1471,15 @@
     },
     "phase": {
       "draft": "Draft"
+    },
+    "pendingInvite": {
+      "status": "Invited · hasn’t joined yet",
+      "why": "Nobody has joined the group with this link yet. It works until {{date}}.",
+      "whyNoExpiry": "Nobody has joined the group with this link yet.",
+      "copyAgain": "Copy the link again",
+      "copied": "Link copied",
+      "copyFailed": "Couldn’t copy the link.",
+      "after": "Once an athlete joins and shares their data, they show up here on the mornings something needs your attention."
     }
   },
   "coachReview": {
@@ -1791,7 +1798,8 @@
       "athlete_ambiguous": "“{0}” matches several of your athletes: {1}. Use a more specific name.",
       "athlete_not_sharing": "{0} stopped sharing their data with you, so their plan isn't shown. They can share it again with `/group consent coach yes`.",
       "athlete_several_tenants": "{0} belongs to several workspaces, so their plan can't be shown reliably.",
-      "athlete_plans_disabled": "Training plans are turned off in {0}'s workspace."
+      "athlete_plans_disabled": "Training plans are turned off in {0}'s workspace.",
+      "session_notes": "{0} ({1})"
     },
     "plan-share": {
       "description": "Post your training plan into the room you type it in — goal countdown plus today and tomorrow, the full week, or today alone"
@@ -2441,7 +2449,8 @@
       "routeDistanceDraft": "Suggest a {{distance}} route close to where I am for my session on {{date}}: {{workout}}",
       "loadFailed": "Your plan couldn't be loaded.",
       "hideSuggestion": "Hide",
-      "hideSuggestionAria": "Hide the plan suggestion"
+      "hideSuggestionAria": "Hide the plan suggestion",
+      "emptyBodyHealthFirst": "The health check first, then your agent lays out your season, week by week."
     },
     "activities": {
       "heading": "Recent activities",
@@ -2601,7 +2610,8 @@
           "hintThreePerWeek": "Three mornings a week at {{time}}",
           "hintWeekly": "Once a week at {{time}}",
           "needsData": "Starts once your first data arrives",
-          "title": "Your daily check-in"
+          "title": "Your daily check-in",
+          "hint": "How often your morning note comes"
         },
         "connect": {
           "doneHint": "{{provider}} connected",
@@ -2619,6 +2629,18 @@
         "profile": {
           "hint": "<num>{{covered}}</num> of <num>{{total}}</num> topics",
           "title": "Finish your profile"
+        },
+        "chatApp": {
+          "title": "Message me elsewhere too",
+          "doneHint": "{{app}} set up"
+        },
+        "healthCheck": {
+          "title": "Health check",
+          "hint": "1 min · before your first plan"
+        },
+        "goalWhy": {
+          "title": "Your goal and your why",
+          "hint": "3 questions · your agent comes back to them"
         }
       },
       "title": "Getting started"
@@ -2638,6 +2660,9 @@
       "planSuggestionHint": "Shown on Home while you have no plan.",
       "gettingStarted": "Getting started",
       "gettingStartedHint": "Shown at the top of Today until your first steps are done."
+    },
+    "firstSteps": {
+      "saveFailed": "That couldn't be saved. Try again."
     }
   },
   "hosted": {
@@ -2751,17 +2776,15 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Your group is ready, but you aren't its coach yet. Coach access comes with a TrainingPeaks coach account, or the Dravr team turns it on for you. Connecting an intervals.icu account that coaches athletes asks the team for you.",
-    "accessPendingHeading": "Coach access pending",
     "attached": "Human coach attached",
     "attachedBadge": "Coach attached",
     "calendarWriteStep": "On {{platform}}, {{coach}} must also be your human coach there: open intervals.icu/athletes, click {{coach}} and pick the Coach role, not Follower.",
-    "cardDescription": "Build plans for the athletes you coach, with the coach-facing plan builders. No questions about your own training.",
+    "cardDescription": "Dravr reads your athletes' training, drafts plans you publish, and answers with you in their group.",
     "coach": "Coach",
-    "coachAndTrainCardDescription": "The coach-facing plan builders, plus an agent that follows your own training too.",
+    "coachAndTrainCardDescription": "Everything Dravr does for a coach, plus an agent that follows your own training too.",
     "detachQ": "Detach the human coach from this group? Their athlete links in this group end, and they lose access to the group's roster.",
     "detached": "The human coach has been detached from this group.",
-    "groupStepIntro": "Each athlete gets their own group: you as their coach, your athlete, and your agent answering in the thread alongside you. Start with your first athlete.",
+    "groupStepIntro": "One group per athlete: you, your athlete, and the agent that answers with you in the thread.",
     "group_detached": "{0} no longer has an attached human coach.",
     "group_role": "coach",
     "iCoachAndTrain": "I coach and I train",
@@ -2873,7 +2896,87 @@
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. Applies to this group only.",
     "shareTrainingPendingHint": "No coach yet. The coach who joins this group will see your training, your plan and your messages in its chat.",
     "sharingOnNotice": "Your coach sees your training in this group again.",
-    "sharingOffNotice": "Your coach no longer sees your training, your plan or your messages in this group."
+    "sharingOffNotice": "Your coach no longer sees your training, your plan or your messages in this group.",
+    "seat": {
+      "title": "You're not this group's coach yet",
+      "stripBody": "To see your athletes' training and build their plans, you need coach access. The Dravr team turns it on.",
+      "blockBody": "Until the Dravr team turns on your coach access, you can write in the room, but you can't build your athletes' plans, work privately with the agent or open your coach Home.",
+      "linkAccount": "Link a coach account",
+      "routesLabel": "Or link your coach account",
+      "pendingTitle": "Coach access requested on {{date}}",
+      "pendingBody": "The Dravr team is reviewing your request, usually within 24 hours.",
+      "pendingBlockTitle": "Coach access requested",
+      "timelineLabel": "Where your request stands",
+      "stepSent": "Request sent",
+      "stepSentWhen": "On {{date}} at {{time}}.",
+      "stepReview": "The Dravr team reviews it",
+      "stepReviewWhen": "Usually within 24 hours. A person turns on every coach access, never automatically.",
+      "stepSeat": "You're this group's coach",
+      "stepSeatWhat": "You'll see the training your athletes share with you, build their plans with the agent, and your coach Home will open.",
+      "stepDone": "done",
+      "stepNow": "in progress",
+      "declinedTitle": "Your coach access request was declined",
+      "declinedBody": "Declined on {{date}}. You can ask again.",
+      "askAgain": "Ask again",
+      "rosterNotYet": "You · not the coach yet",
+      "rosterPending": "You · coach access pending",
+      "subtitleToRequest": "coach access to request",
+      "subtitlePending": "coach access pending",
+      "subtitleDeclined": "coach access declined",
+      "cancel": "Cancel request",
+      "cancelling": "Cancelling…",
+      "cancelled": "Request cancelled. You can ask again whenever you like.",
+      "cancelFailed": "We couldn't cancel your request. Please try again.",
+      "declinedReason": "Reason: {{reason}}",
+      "panelTitle": "Get your coach access",
+      "panelBody": "Without it, you can't see your athletes' training or build their plans. The Dravr team turns it on.",
+      "settingsTitle": "Coach access",
+      "listPending": "Coach access pending · requested {{date}}",
+      "listCoach": "You're the coach · since {{time}}",
+      "pendingSentBody": "Request sent {{date}}. We'll let you know here and by email.",
+      "stepReviewNotice": "A person turns on every coach access, never automatically. We'll let you know here and by email."
+    },
+    "stepSeat": "Coach seat",
+    "seatHeading": "Get your coach seat",
+    "seatIntro": "Link your coach account, or ask the team for it.",
+    "seatNeither": "I use neither →",
+    "seatSkip": "Skip for now",
+    "seatCoach": "You're the coach of your groups",
+    "seatRequestSent": "Request sent · usually within 24 h",
+    "seatRequestSentOn": "Sent {{date}}",
+    "seatChecking": "Checking your account…",
+    "seatNothing": "{{provider}} is connected, but it gave you no coach seat.",
+    "seatAskTeam": "Ask the Dravr team",
+    "inviteSeatCoach": "You're this group's coach",
+    "inviteSeatCoachBody": "You'll see their training as soon as they join.",
+    "inviteSeatPending": "You're not this group's coach yet",
+    "inviteSeatRequested": "Request sent {{date}}. The Dravr team usually answers within 24 h.",
+    "inviteSeatNotRequested": "You haven't asked for your seat yet.",
+    "inviteSeatMeanwhile": "Meanwhile, your athlete can already join the group and talk to the agent.",
+    "access": {
+      "grantedTitle": "Your coach access is on",
+      "grantedBody": "Your coach Home is ready: your athletes, their plans and what needs your attention.",
+      "declinedTitle": "Your coach access request was declined",
+      "declinedBody": "The Dravr team declined your request. You can ask again whenever you like.",
+      "declinedReasonBody": "The Dravr team declined your request, and you can ask again whenever you like. Reason: {0}",
+      "openHome": "Open my coach Home",
+      "roomLineCoach": "{0} is now this group's coach. Your athletes see this message and choose what they share with you.",
+      "roomLineAthlete": "{0} is now this group's coach and sees the training, plan and messages you share here. You choose what you share in the group's info."
+    },
+    "seatInvite": {
+      "title": "Create your coach account",
+      "subtitle": "An invitation from the Dravr team: your coach seat is included.",
+      "emailLocked": "Your account is created with the address your invitation was sent to, and no other.",
+      "doneTitle": "Your coach account is ready",
+      "doneBody": "Sign in with this address and your password: your coach seat is already active.",
+      "expiredTitle": "This invitation link no longer works",
+      "expiredBody": "It expired, was already used, or was withdrawn. Ask the Dravr team to send you a new one: your coach seat is waiting.",
+      "seatActive": "Your coach seat is active: granted by the Dravr team.",
+      "openCoachHome": "Open my coach Home"
+    },
+    "seatRequestDone": "Request sent",
+    "seatRequestSentNotice": "{{date}}. We'll let you know here and by email.",
+    "inviteSeatRequestedNotice": "Request sent {{date}}. We'll let you know here and by email."
   },
   "messaging": {
     "account": {
@@ -3008,6 +3111,17 @@
       "source_athlete": "the athlete's own value",
       "source_from": "from {0}",
       "source_own": "your own value"
+    },
+    "evidence": {
+      "convention": "Coaching convention",
+      "transposed": "Transposed from another sport",
+      "acute_only": "Short-term data only",
+      "uncontrolled_only": "Uncontrolled trials only",
+      "acute_uncontrolled": "Single-session, uncontrolled studies only",
+      "counts_as": "Counts as {0}",
+      "outside": "Outside the evidence",
+      "no_basis_convention": "No trial covers this session; it follows coaching practice.",
+      "no_basis_transposed": "Its trials ran in another sport; it reaches this one through the transposition rules."
     },
     "flavour": {
       "hvlit_foundation": "all easy, lots of it, one long session a week",
@@ -3477,7 +3591,6 @@
     "agentProposalNoActivities": "We didn't find recent activities yet — here are some agents to start with. Your picks will sharpen as your provider syncs more data.",
     "agentProposalNoProvider": "No provider connected yet — here are some agents to start with. Connect one and your picks will follow your real training.",
     "agentSuggestionsFailed": "We couldn't build your agent suggestions just now.",
-    "almostThere": "Almost there",
     "analyzingTrainingData": "Analyzing your training data…",
     "preparingTeam": "Putting your starting team together…",
     "athleteCardDescription": "Track your own training and get coaching tuned to how you actually train.",
@@ -3489,8 +3602,6 @@
     "connectAnytimeHint": "You can connect anytime — your agent needs a provider to read your activity.",
     "connectAnotherOrContinue": "You can connect another service now, or continue.",
     "continueAfterConnect": "Continue",
-    "connectCoachPlatformIntro": "Coaching on TrainingPeaks or Intervals.icu? Connect it now, or skip this step — Dravr does not read your own training.",
-    "connectCoachPlatformLaterHint": "Your group comes next. You can connect a coaching platform later in Settings.",
     "connectPreviewSample": "Your load is up 24% on last week and you slept under six hours twice — heavy legs are the expected result, not a warning sign. Keep Saturday, drop it to easy pace and cut the last 5k. That protects the long-run habit without adding to a week that is already the biggest of your block.",
     "connectPreviewSampleShort": "Your load is up 24% on last week and you slept under six hours twice — heavy legs are the expected result, not a warning sign. Keep Saturday, drop it to easy pace and cut the last 5k.",
     "connectProviderIntro": "Connect a fitness service to get started. Dravr coaches you on the activities your provider already tracks — without one, there's nothing for the model to read.",
@@ -3500,8 +3611,6 @@
     "credentialsEncryptedHint": "Your credentials are encrypted at rest and used only to fetch your activity data.",
     "goalLabel": "What are you working toward?",
     "goalPlaceholder": "A first half-marathon in the spring, say",
-    "groupAgentHeading": "Choose your group's agent",
-    "groupAgentIntro": "Your athlete talks to this agent in the group's thread. Pick the one that fits their sport.",
     "groupCopyLink": "Copy link",
     "groupCreate": "Create the group",
     "groupCreateFailed": "We couldn't create the group. Try again.",
@@ -3509,13 +3618,11 @@
     "groupDone": "Go to my group",
     "groupHeading": "Set up your group",
     "groupInviteHeading": "Invite your athlete",
-    "groupInviteIntro": "Send this link to your athlete, or let them scan the code. It works for 30 days. For your next athlete, create another group from the chat.",
     "groupInviteQrAlt": "QR code for the group invite link",
     "groupLater": "Later",
     "groupLinkCopied": "Link copied",
     "groupNameLabel": "Group name",
     "groupNamePlaceholder": "e.g. Marie's training",
-    "groupShare": "Share",
     "imAnAthlete": "I'm an athlete",
     "messagingChannelIntro": "Where do you want to chat with your agent? Pick the app you already use — you can add more later in Settings.",
     "messagingScanPrefix": "Scan the QR with your phone, or tap below to open {{app}}. Then press",
@@ -3541,14 +3648,11 @@
     "skipForNow": "Skip for now",
     "startButton": "Start",
     "starting": "Starting…",
-    "stepAboutTraining": "About your training",
-    "stepAboutYou": "About you",
+    "stepAboutTraining": "Training",
     "stepAgent": "Your team",
-    "stepChatApp": "Chat app",
-    "stepConnect": "Connect",
+    "stepConnect": "Your data",
     "stepGroup": "Your group",
-    "stepHealthCheck": "Health check",
-    "stepLink": "Link",
+    "stepHealthCheck": "Health",
     "stepOfLabel": "Step {{current}} of {{total}}: {{label}}",
     "team": {
       "browseAll": "Browse all agents",
@@ -3578,7 +3682,8 @@
       "summary": "Last {{days}} days · <num>{{count}}</num> activities, mostly {{sport}}.",
       "summaryNoSport": "Last {{days}} days · <num>{{count}}</num> activities.",
       "summaryOne": "Last {{days}} days · <num>1</num> activity.",
-      "whatWeReadAria": "What we read"
+      "whatWeReadAria": "What we read",
+      "sublineTraining": "Picked from your training."
     },
     "tellMeAboutTraining": "Tell me about your training",
     "welcomeNamed": "Welcome, {{name}}",
@@ -3590,7 +3695,44 @@
     "analyticsConsentBody": "With your consent, PostHog records which features you use, tied to your account email, so we can see what helps and fix what doesn't. It stays off unless you say yes, and you can change your answer anytime in Settings.",
     "analyticsConsentAccept": "Yes, share usage analytics",
     "analyticsConsentDecline": "No thanks",
-    "analyticsConsentSaveFailed": "Your answer wasn't saved. Try again."
+    "analyticsConsentSaveFailed": "Your answer wasn't saved. Try again.",
+    "stepProfile": "Profile",
+    "stepInvite": "Invite",
+    "stepOf": "Step {{current}} of {{total}}",
+    "groupAthleteLabel": "Your athlete",
+    "groupAthletePlaceholder": "Their first name, e.g. Léa",
+    "groupGoalLabel": "Their goal (optional)",
+    "groupGoalPlaceholder": "e.g. Montréal Marathon",
+    "groupNameHint": "Filled in from your athlete. You can change it.",
+    "groupNameFromAthleteGoal": "{{athlete}} · {{goal}}",
+    "groupAgentLabel": "Group agent",
+    "groupAgentChange": "Change",
+    "groupAgentChangeAria": "Choose another agent for the group",
+    "groupInviteHeadingNamed": "Invite {{name}}",
+    "groupInviteIntroNamed": "Send this link to {{name}}: one tap joins “{{group}}”. It works for {{days}} days.",
+    "groupShareLink": "Share link",
+    "groupShowQr": "Show QR code",
+    "groupHideQr": "Hide QR code",
+    "groupDoneNamed": "Go to {{name}}'s group",
+    "groupInviteLinkIntro": "Send this link to your athlete: one tap joins “{{group}}”. It works for {{days}} days.",
+    "connect": {
+      "heading": "Connect your training",
+      "intro": "Your agent reads what your watch or app already records. Without a service, it has nothing to read.",
+      "continueWithout": "Continue without connecting",
+      "moreServices": "More services",
+      "moreServicesFile": "file"
+    },
+    "parq": {
+      "intro": "Seven standard questions (PAR-Q+). A yes blocks nothing: it tells your agent where to take extra care.",
+      "noneApply": "None of these apply",
+      "someApply": "Some apply",
+      "answerEach": "Answer each one. The ones that don't concern you are a \"No\".",
+      "backToNone": "Back to \"None of these apply\"",
+      "yesNote": "Noted: your agent will take it into account. Nothing stops you from training, and it's worth a word with your doctor before you push hard.",
+      "saveFailed": "Your answers couldn't be saved. Try again.",
+      "loadFailed": "The questions couldn't be loaded."
+    },
+    "settledByInvite": "{{steps}} settled by your invitation"
   },
   "password": {
     "change": "Change Password",
@@ -3634,6 +3776,30 @@
       "casual": "Friendly, encouraging, no jargon.",
       "enthusiast": "Prose, plus the numbers that matter.",
       "power_athlete": "Line-by-line rigor, with framework citations."
+    }
+  },
+  "physiology": {
+    "title": "Thresholds per sport",
+    "blurb": "The values your workouts are set on, as Dravr holds them. A low-confidence value shows as a range or an estimate. To change one, tell your agent in the chat.",
+    "empty": "No thresholds yet. Tell your agent your FTP, threshold pace or max heart rate in the chat, or ask it to bring them in from a connected service.",
+    "loadFailed": "Your thresholds couldn't be loaded.",
+    "asOf": "As of {{date}}",
+    "noDate": "Date not recorded",
+    "range": "Range {{range}}",
+    "confidence": {
+      "low": "Low confidence",
+      "medium": "Medium confidence",
+      "high": "High confidence"
+    },
+    "anchor": {
+      "ftp": "FTP",
+      "critical_power": "Critical power",
+      "map": "MAP",
+      "critical_speed": "Critical speed",
+      "vvo2max": "vVO2max",
+      "threshold_speed": "Threshold pace",
+      "max_heart_rate": "Max heart rate",
+      "threshold_heart_rate": "Threshold heart rate"
     }
   },
   "plan": {
@@ -3680,6 +3846,9 @@
       "alsoRacing": "Also racing",
       "envelope": {
         "badge": "Outside the evidence"
+      },
+      "evidence": {
+        "sheetTitle": "The evidence behind this session"
       }
     },
     "limits": {
@@ -3767,10 +3936,10 @@
       "incomplete": "Your {{provider}} history didn't finish copying",
       "needed": "Your past {{provider}} activities aren't here yet",
       "retry": "Try again",
-      "explainer": "Sign in once with your {{provider}} account: we copy your past activities and a year of wellness, then forget that sign-in.",
+      "explainer": "Sign in with your {{provider}} account to bring in your past activities and a year of wellness. Your sign-in then keeps them up to date.",
       "add": "Add history",
-      "modalIntro": "Sign in once to copy your history; {{provider}} keeps your new workouts coming.",
-      "modalCopying": "Copying your history — this runs once."
+      "modalIntro": "Sign in to bring in your {{provider}} history. Your sign-in keeps new workouts coming too.",
+      "modalCopying": "Bringing in your history — this can take a few minutes."
     },
     "migration": {
       "oauthRequired": "Move to {{provider}}'s official connection"
@@ -4112,6 +4281,8 @@
     "privacyHint": "Analytics consent and your data",
     "profile": "Profile",
     "profileHint": "Name, display name, coaching persona",
+    "physiology": "Physiology",
+    "physiologyHint": "Your thresholds per sport, with source and date",
     "tokens": "MCP tokens",
     "tokensHint": "Tokens for Claude Desktop, Cursor and other MCP clients"
   },
@@ -4503,5 +4674,17 @@
     "titleNoSpeech": "No Speech Detected",
     "titleTimeout": "Voice Input Timeout",
     "unknown": "Voice input failed."
+  },
+  "chatApp": {
+    "pickTitle": "Pick your app",
+    "useAnother": "Use another app",
+    "linkedToast": "{{app}} is set up",
+    "offer": {
+      "title": "Write to me from {{app}} too?",
+      "body": "You’ll be able to write to me from {{app}}, and your notifications will follow you there.",
+      "configure": "Set up {{app}}",
+      "notNow": "Not now",
+      "notNowFailed": "Your choice wasn’t saved. Try again."
+    }
   }
 }

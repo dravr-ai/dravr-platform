@@ -101,7 +101,7 @@ pub struct ServedFields {
 }
 
 /// The note the `get_activities` header carries for the model.
-pub const NOT_SUPPLIED_NOTE: &str = "A field listed under not_supplied is never provided by \
+const NOT_SUPPLIED_NOTE: &str = "A field listed under not_supplied is never provided by \
     that connection: its absence means the value is unknown, not zero, and is no evidence the \
     athlete did not record it. Fields under detail_only appear once the activity is read in \
     detail.";

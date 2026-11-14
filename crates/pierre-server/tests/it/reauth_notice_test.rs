@@ -609,7 +609,10 @@ async fn a_session_beside_a_live_grant_is_told_once_that_its_provider_still_sync
         "bug: the copy says the provider still syncs, with the sign-in: {body}"
     );
     let (target, _) = signed_in_target(&f, body).await;
-    assert_eq!(target, "garmin");
+    assert_eq!(
+        target, "garmin",
+        "bug: the link signs in to a provider other than Garmin"
+    );
     assert_eq!(f.app_notices().await.len(), 1, "one notice in the app");
     // The app's copy asks for the reconnect "to keep your data coming",
     // which holds while the grant syncs: no outage is claimed there.
@@ -678,7 +681,11 @@ async fn a_grant_beside_a_signed_in_session_is_flagged_but_never_told() {
     .await
     .unwrap();
     assert_eq!(mark, ReauthMark::Flagged, "the flag itself lands");
-    assert_eq!(f.status("strava").await, ConnectionStatus::NeedsReauth);
+    assert_eq!(
+        f.status("strava").await,
+        ConnectionStatus::NeedsReauth,
+        "bug: the dead Strava grant was not flagged"
+    );
     assert!(
         !notice.claimed,
         "bug: a grant the session stands in front of is surfaced"
@@ -802,11 +809,17 @@ async fn a_dead_garmin_grant_beside_a_serving_session_is_told_once_with_its_auth
         notice.claimed,
         "bug: a dead Garmin grant beside a serving session is never told its writes stopped"
     );
-    assert_eq!(notice.chat_channels, 1);
+    assert_eq!(
+        notice.chat_channels, 1,
+        "bug: the notice did not reach the athlete's one linked chat"
+    );
     let chat = f.chat();
     assert_eq!(chat.len(), 1, "{chat:?}");
     let (recipient, body) = &chat[0];
-    assert_eq!(recipient, "15145550130");
+    assert_eq!(
+        recipient, "15145550130",
+        "bug: the notice reached another number"
+    );
     assert!(
         body.starts_with("grant-writes Garmin https://app.test/r/"),
         "bug: the copy is not the grant-writes one, with a link: {body}"
@@ -1013,7 +1026,11 @@ async fn a_dead_grant_beside_a_session_that_died_after_it_tells_nothing_more() {
     )
     .await
     .unwrap();
-    assert_eq!(mark, ReauthMark::AlreadyFlagged);
+    assert_eq!(
+        mark,
+        ReauthMark::AlreadyFlagged,
+        "bug: the second refusal flagged the grant again"
+    );
     assert!(
         !again.claimed,
         "bug: the athlete already told to sign in again is told a second time"
@@ -1047,13 +1064,22 @@ async fn a_withdrawn_garmin_grant_beside_a_serving_session_is_told_once_while_a_
     );
     assert_eq!(
         authorization_target(&f, &chat[0].1, &ChannelType::WhatsApp.to_string()).await,
-        "garmin"
+        "garmin",
+        "bug: the link authorizes a provider other than Garmin"
     );
-    assert_eq!(f.app_titles().await, ["grant-writes-title"]);
+    assert_eq!(
+        f.app_titles().await,
+        ["grant-writes-title"],
+        "bug: the app notice is not the grant-writes one"
+    );
 
     let repeat = notify_grant_withdrawn(&f.runtime, f.user_id, f.tenant, "garmin").await;
     assert!(!repeat.claimed, "bug: a redelivery tells the athlete again");
-    assert_eq!(f.chat().len(), 1);
+    assert_eq!(
+        f.chat().len(),
+        1,
+        "bug: a redelivery sent a second chat message"
+    );
 }
 
 /// With no seat free on Garmin's client, a withdrawn grant beside a serving
@@ -1105,7 +1131,11 @@ async fn a_withdrawn_garmin_grant_with_no_seat_free_tells_nothing() {
         "bug: an athlete is sent to a Garmin authorization with no seat free"
     );
     assert!(f.chat().is_empty(), "bug: {:?}", f.chat());
-    assert_eq!(f.app_titles().await, Vec::<String>::new());
+    assert_eq!(
+        f.app_titles().await,
+        Vec::<String>::new(),
+        "bug: an athlete is sent to a Garmin authorization with no seat free"
+    );
 }
 
 /// A Strava grant withdrawn beside a session that is itself flagged leaves

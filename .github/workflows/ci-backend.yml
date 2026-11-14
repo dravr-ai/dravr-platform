@@ -1634,10 +1634,16 @@ jobs:
           # the binary as measured (116 to 117 MiB) rather than a one-MB
           # ratchet that the next change of any size would red.
           #
+          # carnet#1425/#1445 (the athlete's log of a coach's reads: a table,
+          # its repository, a route, a command and a purge job) added about
+          # 1MB with no new dependency: the thin build read 146MB against its
+          # 145 ceiling (run 43336029155) while main sat exactly on it.
+          # ChefFamille chose to raise both ceilings by one MB (2026-11-12).
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (145), so a branch push that skips this job
+          # scaled to that build (146), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=118
+          MAX_SIZE_MB=119
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

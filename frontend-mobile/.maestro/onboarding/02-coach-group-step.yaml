@@ -1,4 +1,4 @@
-# ABOUTME: A connected coach who answered "I coach others" lands on the Your group step, creates the group, gets its invite and asks for coach access
+# ABOUTME: A connected coach who answered "I coach others" passes the coach seat, creates the group on one screen, gets its invite and asks for coach access
 # ABOUTME: Then a second coach puts the step off with Later; each is a fresh account from the control process (frontend/e2e-real/home-sync-control.ts)
 
 # The phone half of frontend/e2e/onboarding-coach-group.spec.ts, against the
@@ -10,9 +10,11 @@
 # per attempt matters: the app keeps the step's done flag on the device per
 # user, and the iOS lane resets only the keychain between attempts.
 #
-# A fresh coach has no coach access (`manages_roster`, ADR-018), so the server
-# makes the group coachless and the step offers the one-tap request
-# (carnet#738); the flow asks, and reads the request back from the server.
+# A fresh coach has no coach access (`manages_roster`, ADR-018). The coach
+# seat comes first; the flow passes it with « Passer pour l'instant » so the
+# request is asked from the invite, where the server makes the group coachless
+# and the seat card offers the one-tap request (carnet#738); the flow asks,
+# and reads the request back from the server.
 #
 # "Go to my group" finishes onboarding and lands straight in the group's
 # thread, the one the step made with its agent (carnet#843), as the web step
@@ -36,33 +38,37 @@ appId: ai.dravr.app
     env:
       EMAIL: ${output.coach.email}
 
-# Signed in, the route guard lands the coach on Your group, never Home.
+# Signed in, the route guard lands the coach on the coach seat, never Home.
 - extendedWaitUntil:
     visible:
-      id: "onboarding-group-name"
+      id: "coach-seat-skip"
     timeout: 60000
 - assertNotVisible:
     id: "home-screen"
+- takeScreenshot: "onboarding-coach-seat"
+- tapOn:
+    id: "coach-seat-skip"
+
+# Your group, one screen: the name and a defaulted agent.
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-group-name"
+    timeout: 30000
 - takeScreenshot: "onboarding-group-step"
 
 # Name the group. Enter blurs the single-line field, so the keyboard is gone
-# before Next, which it would otherwise cover on a short screen.
+# before Create, which it would otherwise cover on a short screen.
 - tapOn:
     id: "onboarding-group-name"
 - inputText: ${output.coach.groupName}
 - pressKey: Enter
-- tapOn:
-    id: "onboarding-group-next"
 
-# Pick the agent the group's athletes talk to: Create stays disabled until
-# one is picked, so its enabling is the proof the pick registered.
+# The agent is defaulted: Create enables once the name is in and the
+# catalogue has loaded.
 - extendedWaitUntil:
     visible:
-      id: "onboarding-group-agents"
+      id: "onboarding-group-agent"
     timeout: 20000
-- tapOn:
-    id: "onboarding-group-agent-.*"
-    index: 0
 - scrollUntilVisible:
     element:
       id: "onboarding-group-create"
@@ -76,30 +82,35 @@ appId: ai.dravr.app
 - tapOn:
     id: "onboarding-group-create"
 
-# The invite: its link and its QR code.
+# The invite: its link, Share first, the QR behind a link.
 - extendedWaitUntil:
     visible:
-      id: "onboarding-group-qr"
+      id: "onboarding-group-link"
     timeout: 30000
 - assertVisible:
     id: "onboarding-group-link"
     text: "https://app\\.dravr\\.ai/groups/join/.+"
+- assertVisible:
+    id: "onboarding-group-share"
+- assertNotVisible:
+    id: "onboarding-group-qr"
 - takeScreenshot: "onboarding-group-invite"
 
-# No coach access yet: the group is coachless, the step says so and asks in
-# one tap, and the request is then pending on the server, naming the group.
+# No coach access yet: the group is coachless, the seat card says so — never
+# "pending" before a request exists — and asks in one tap; the request is
+# then pending on the server, naming the group.
 - scrollUntilVisible:
     element:
       id: "coach-access-request"
     direction: DOWN
     timeout: 15000
 - assertVisible:
-    id: "onboarding-group-access-pending"
+    id: "onboarding-group-seat-none"
 - tapOn:
     id: "coach-access-request"
 - extendedWaitUntil:
     visible:
-      id: "coach-access-pending"
+      id: "onboarding-group-seat-requested"
     timeout: 15000
 - assertNotVisible:
     id: "coach-access-failed"
@@ -167,8 +178,14 @@ appId: ai.dravr.app
       EMAIL: ${output.coach.email}
 - extendedWaitUntil:
     visible:
-      id: "onboarding-group-later"
+      id: "coach-seat-skip"
     timeout: 60000
+- tapOn:
+    id: "coach-seat-skip"
+- extendedWaitUntil:
+    visible:
+      id: "onboarding-group-later"
+    timeout: 30000
 - tapOn:
     id: "onboarding-group-later"
 - extendedWaitUntil:

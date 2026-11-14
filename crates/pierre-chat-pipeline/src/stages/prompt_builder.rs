@@ -47,9 +47,15 @@ use pierre_core::models::groups::MemberFitnessSnapshot;
 #[cfg(feature = "tools-groups")]
 use pierre_core::models::TenantId;
 #[cfg(feature = "tools-groups")]
-use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
+use pierre_database::repositories::CoachReadSurface;
+#[cfg(feature = "tools-groups")]
+use pierre_tool_runtime::coach_group_view::gate_group_view;
+#[cfg(feature = "tools-groups")]
+use pierre_tool_runtime::group_fitness::fetch_member_snapshots_in;
 #[cfg(feature = "tools-groups")]
 use std::collections::BTreeSet;
+#[cfg(feature = "tools-groups")]
+use tracing::warn;
 
 #[cfg(feature = "tools-groups")]
 use super::peer_grounding::mentioned_peers;
@@ -72,40 +78,67 @@ use super::peer_grounding::mentioned_peers;
 /// coach on their seat, whose own training is not the group's. Their data is
 /// never read, so nothing it owes reaches the reply (carnet#1464).
 ///
+/// When `viewer`, the turn's sender, is the group's human coach, the cards
+/// are the coach's view of the group ([`gate_group_view`]): each member who
+/// shares with the coach is asked the coach-read gate, and each read it lets
+/// through goes on the member's record as a `group_room` read, once a day,
+/// before their snapshot is fetched under their home tenant (carnet#1445). A
+/// member it refuses gets no card and nothing of theirs is read. Any other
+/// sender's turn reads every member, as the group context's own visibility
+/// rule then filters (`GroupService::inject_group_context`).
+///
 /// # Errors
 ///
-/// Database errors from the group-member lookup are swallowed (the
-/// function degrades to an empty member list); this function itself
-/// currently only propagates `AppError` for signature symmetry with
-/// the rest of the pipeline stages — no variants are produced today.
+/// Returns the repository error from the coach's gate or from a read's
+/// record: the coach's turn is refused rather than read with a read left off
+/// a member's record. A failed member or group lookup reads nobody, and is
+/// otherwise swallowed (the context degrades to no card).
 #[cfg(feature = "tools-groups")]
 pub async fn resolve_group_context(
     ctx: &ChatPipelineContext,
     conversation_group_id: Option<&str>,
     tool_tenant_id: TenantId,
+    viewer: Uuid,
     left_out: Option<Uuid>,
 ) -> AppResult<(Option<String>, Vec<MemberFitnessSnapshot>)> {
     let Some(gid) = conversation_group_id else {
         return Ok((None, Vec::new()));
     };
 
-    let member_ids: Vec<Uuid> = ctx
-        .repos
-        .groups
-        .list_members(gid)
-        .await
-        .unwrap_or_default()
+    let members = ctx.repos.groups.list_members(gid).await.unwrap_or_default();
+    // Whether the sender is the group's human coach decides whose cards the
+    // turn may read, so a group that cannot be read reads no one.
+    let group = match ctx.repos.groups.get_group(gid, tool_tenant_id).await {
+        Ok(Some(group)) => group,
+        Ok(None) => return Ok((Some(gid.to_owned()), Vec::new())),
+        Err(e) => {
+            warn!(group_id = %gid, error = %e, "group context: the group is unreadable; no member card is read");
+            return Ok((Some(gid.to_owned()), Vec::new()));
+        }
+    };
+    let readers: Vec<(Uuid, TenantId)> = if group.coach_user_id == Some(viewer) {
+        gate_group_view(
+            &ctx.repos,
+            &group,
+            &members,
+            viewer,
+            tool_tenant_id,
+            CoachReadSurface::GroupRoom,
+        )
+        .await?
+        .readable
+    } else {
+        members
+            .iter()
+            .map(|m| (m.user_id, tool_tenant_id))
+            .collect()
+    };
+    let readers: Vec<(Uuid, TenantId)> = readers
         .into_iter()
-        .map(|m| m.user_id)
-        .filter(|member| Some(*member) != left_out)
+        .filter(|&(member, _)| Some(member) != left_out)
         .collect();
 
-    let snapshots = if member_ids.is_empty() {
-        Vec::new()
-    } else {
-        fetch_member_snapshots(&ctx.tool_runtime, &member_ids, tool_tenant_id).await
-    };
-
+    let snapshots = fetch_member_snapshots_in(&ctx.tool_runtime, &readers).await;
     Ok((Some(gid.to_owned()), snapshots))
 }
 

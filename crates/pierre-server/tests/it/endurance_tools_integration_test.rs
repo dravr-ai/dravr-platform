@@ -412,7 +412,10 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
         .await
         .expect_err("provider auth still required");
     match err {
-        ProtocolError::ProviderAuthRequired { provider } => assert_eq!(provider, "sciotte"),
+        ProtocolError::ProviderAuthRequired { provider } => assert_eq!(
+            provider, "sciotte",
+            "bug: the refusal names a backend other than Strava's session"
+        ),
         other => panic!("export_latest_snapshot: expected ProviderAuthRequired, got {other:?}"),
     }
     Ok(())

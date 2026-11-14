@@ -12,14 +12,18 @@ import type { CalendarResponse, GarminContribution, HomeActivity, TrainingPlanRe
 import {
   ACTIVITIES,
   NO_PLAN_RESPONSE,
+  PLAN,
   PLAN_RESPONSE,
+  TODAY,
   calendarAnswer,
 } from '../integration/app/helpers/homeFixtures';
 
-const mockGetCalendar = jest.fn<Promise<CalendarResponse>, [string, string]>();
+const mockGetCalendar = jest.fn<Promise<CalendarResponse>, [string, string, string | undefined]>();
 
 jest.mock('../src/services/api', () => ({
-  athleteApi: { getCalendar: (from: string, to: string) => mockGetCalendar(from, to) },
+  athleteApi: {
+    getCalendar: (from: string, to: string, locale?: string) => mockGetCalendar(from, to, locale),
+  },
 }));
 
 import { HomeWeek } from '../src/screens/home/HomeWeek';
@@ -70,10 +74,61 @@ describe('the week strip', () => {
     const { screen } = renderWeek();
 
     await weekOf(screen, '2026-09-21');
-    expect(mockGetCalendar).toHaveBeenCalledWith('2026-09-21', '2026-09-27');
+    expect(mockGetCalendar).toHaveBeenCalledWith('2026-09-21', '2026-09-27', 'en');
     expect(screen.getByTestId('home-section-week')).toHaveTextContent(/^This week/);
     expect(screen.getByTestId('home-week-day-2026-09-24').props.accessibilityState).toEqual({ selected: true });
     expect(screen.getByTestId('home-week-previous').props.accessibilityState).toEqual({ disabled: false });
+  });
+
+  // carnet#1495 step 3: the chip is its own press target inside a row that
+  // drafts a chat, and a screen reader, which reads the row as one element,
+  // reaches the same sheet from the row's actions.
+  describe("a planned day's evidence chip", () => {
+    const evidence = { label: 'Transposed from another sport', basis: 'Rønnestad 2015 [RCT]' };
+    const withEvidence: TrainingPlanResponse = {
+      ...PLAN_RESPONSE,
+      plan: {
+        ...PLAN,
+        weeks: PLAN.weeks.map((week) => ({
+          ...week,
+          days: week.days.map((day) => (day.date === TODAY ? { ...day, evidence } : day)),
+        })),
+      },
+    };
+
+    it('opens its studies on a press without drafting a chat', async () => {
+      const { screen, openDraft } = renderWeek(withEvidence);
+      await weekOf(screen, '2026-09-21');
+
+      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}`);
+      expect(screen.queryByText('Rønnestad 2015 [RCT]')).toBeNull();
+      fireEvent.press(within(row).getByTestId('plan-day-evidence'));
+      expect(screen.getByText('The evidence behind this session')).toBeTruthy();
+      expect(screen.getByText('Rønnestad 2015 [RCT]')).toBeTruthy();
+      expect(openDraft).not.toHaveBeenCalled();
+    });
+
+    it("opens the same sheet from the row's accessibility action", async () => {
+      const { screen, openDraft } = renderWeek(withEvidence);
+      await weekOf(screen, '2026-09-21');
+
+      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}`);
+      expect(row.props.accessibilityActions).toEqual([
+        { name: 'evidence', label: 'The evidence behind this session' },
+      ]);
+      fireEvent(row, 'accessibilityAction', { nativeEvent: { actionName: 'evidence' } });
+      expect(screen.getByText('Rønnestad 2015 [RCT]')).toBeTruthy();
+      expect(openDraft).not.toHaveBeenCalled();
+    });
+
+    it('offers no such action on a day without a chip', async () => {
+      const { screen } = renderWeek();
+      await weekOf(screen, '2026-09-21');
+
+      const row = within(screen.getByTestId('home-week-detail')).getByTestId(`home-plan-day-${TODAY}`);
+      expect(row.props.accessibilityActions).toBeUndefined();
+      expect(within(row).queryByTestId('plan-day-evidence')).toBeNull();
+    });
   });
 
   it.each(GARMIN_LINES)(
@@ -103,7 +158,7 @@ describe('the week strip', () => {
 
     fireEvent.press(screen.getByTestId('home-week-previous'));
     await weekOf(screen, '2026-09-14');
-    expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-09-14', '2026-09-20');
+    expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-09-14', '2026-09-20', 'en');
     expect(screen.getByTestId('home-section-week')).toHaveTextContent(/^Week of September 14/);
 
     const sunday = screen.getByTestId('home-week-day-2026-09-20');
@@ -147,7 +202,7 @@ describe('the week strip', () => {
       fireEvent.press(screen.getByTestId('home-week-next'));
       await weekOf(screen, monday);
     }
-    expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-10-12', '2026-10-18');
+    expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-10-12', '2026-10-18', 'en');
     expect(screen.getByTestId('home-week-next').props.accessibilityState).toEqual({ disabled: true });
   });
 
@@ -181,7 +236,7 @@ describe('the month sheet', () => {
 
     fireEvent.press(screen.getByTestId('home-week-month'));
     expect(await screen.findByTestId('home-month-title')).toHaveTextContent('September 2026');
-    await waitFor(() => expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-08-31', '2026-10-04'));
+    await waitFor(() => expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-08-31', '2026-10-04', 'en'));
     await waitFor(() =>
       expect(within(screen.getByTestId('home-month-day-2026-09-20')).getByTestId('home-week-mark-done')).toBeTruthy(),
     );
@@ -258,6 +313,6 @@ describe('the month sheet', () => {
     await screen.findByTestId('home-month-title');
     fireEvent.press(screen.getByTestId('home-month-next'));
     expect(screen.getByTestId('home-month-title')).toHaveTextContent('October 2026');
-    await waitFor(() => expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-09-28', '2026-11-01'));
+    await waitFor(() => expect(mockGetCalendar).toHaveBeenLastCalledWith('2026-09-28', '2026-11-01', 'en'));
   });
 });

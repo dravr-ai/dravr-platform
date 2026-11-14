@@ -24,12 +24,13 @@
 //!
 //! 1. **A direct chat.** A room turn's reply is posted to the whole room, so
 //!    acting on an athlete's plan there would publish it. `athlete=` is
-//!    allowed only when the call carries no conversation (MCP-direct) or the
-//!    conversation resolves under the requester's own tenant with no group
-//!    bound, on a turn marked a direct message; a conversation id that does
-//!    not resolve there IS a shared room (it lives under the bot tenant), and
-//!    a messaging group chat whose binding failed keeps no group either
-//!    (carnet#1422). The room classifier (`call_room::CallRoom::of`) decides.
+//!    allowed only when the call carries no conversation (MCP-direct, which
+//!    reads but never writes — see below) or the conversation resolves under
+//!    the requester's own tenant with no group bound, on a turn marked a
+//!    direct message; a conversation id that does not resolve there IS a
+//!    shared room (it lives under the bot tenant), and a messaging group chat
+//!    whose binding failed keeps no group either (carnet#1422). The room
+//!    classifier (`call_room::CallRoom::of`) decides.
 //! 2. **The agent attachment.** The athlete must be an active member of a
 //!    group the requester is `coach_user_id` of. Owner and admin roles do not
 //!    qualify — on a channel-bound group the owner is whoever spoke first.
@@ -68,22 +69,47 @@
 //! tenant's tool-disable configuration, which the dispatch chokepoint checked
 //! against the requester's tenant only.
 //!
+//! ## The athlete's record
+//!
+//! Once every gate let a call act for a coached athlete, the call is recorded
+//! on the athlete's own record, naming the tool, before it reads or writes
+//! anything of theirs (carnet#1445): a training read, since every plan tool
+//! reads the plan and the training it is laid against.
+//! `get_training_plan` asked for the plan's state also reads their recovery,
+//! and records a wellness read too ([`PlanScope::record_wellness_read`]). A
+//! refused call records nothing.
+//!
+//! ## Writes stay on Dravr's own surfaces
+//!
+//! A coach writes a coached athlete's plan — a draft save, a publish, a
+//! discard — from Dravr's app or channels only. The athlete's consent was
+//! given inside Dravr; an MCP, A2A or API-key client acting for the coach is
+//! outside it, so a tool that declares a write ([`ToolRegistry::may_change_data`])
+//! naming an athlete, or run in a thread bound to one, is refused over an
+//! external transport before anything about the athlete is read
+//! (`external_write_refusal`, the calendar's refusal too, carnet#1533).
+//! Reads through `athlete=` are unchanged, gate 1 included: a direct MCP call
+//! carries no conversation and reads as a direct chat.
+//!
+//! [`ToolRegistry::may_change_data`]: crate::registry::ToolRegistry::may_change_data
+//!
 //! ## A coach reading a published plan
 //!
 //! Outside the plan tools a coach reads an athlete's live plan read-only —
 //! Group info's view, `/plan <athlete>` answered to them alone, and the plan
 //! status the coach's room may see (carnet#1244). None of those is a tool
 //! call the chokepoint checked, so [`coached_plan_read_access`] runs gates 2
-//! to 4 and the athlete's tenant allowing `get_training_plan`. Gate 1 is each
+//! to 4 and the athlete's tenant allowing `get_training_plan`, then records
+//! the read on the athlete's record under the surface's name. Gate 1 is each
 //! surface's own: the view and the private reply reach the coach alone, and
 //! the room's status carries no week of the plan.
 
 use std::future::Future;
 use std::sync::Arc;
 
-use pierre_core::errors::AppResult;
-use pierre_core::models::groups::CoachConsents;
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{ConversationRecord, ConversationSubject, TenantId};
+use pierre_database::repositories::CoachReadClass;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_services::coached_athlete::{
@@ -98,13 +124,14 @@ use uuid::Uuid;
 use super::call_room::CallRoom;
 use super::training_plan_authorship::resolve_turn_agent;
 use crate::context::ToolExecutionContext;
+use crate::first_party_tools::EXTERNAL_TRANSPORT_REASON;
 use crate::guardian::{
     tenant_disabled_message, tenant_tool_enabled, TENANT_DISABLED_ERROR_CODE,
     TENANT_DISABLED_REASON,
 };
 use crate::read_subject::{
-    gate_message, match_coached_member, names_subject, other_name, thread_unreached, GateObject,
-    MemberMiss, OtherName, WellnessWithheld,
+    gate_message, match_coached_member, names_subject, other_name, record_coach_read,
+    thread_unreached, GateObject, MemberMiss, OtherName, WellnessWithheld,
 };
 use crate::runtime::ToolRuntime;
 
@@ -132,15 +159,13 @@ pub(crate) enum PlanSubject {
     Own,
     /// A coached athlete's plan, which the requester acts on as their coach.
     Coached {
-        /// The athlete's roster display name.
-        athlete: String,
-        /// The group whose coaching gates let the requester act for the
-        /// athlete — the room a publish of their plan is said in
-        /// (carnet#1249).
-        group_id: Uuid,
-        /// What the athlete lets the requester do beyond reading their
-        /// training ([`CoachedAthleteAccess::consents`]).
-        consents: CoachConsents,
+        /// What the coaching gates answered for this call: the athlete's
+        /// roster name, the group whose gates let the requester act for them
+        /// — the room a publish of their plan is said in (carnet#1249) — and
+        /// what they let the requester do beyond reading their training
+        /// ([`CoachedAthleteAccess::consents`]). Boxed: the own scope
+        /// carries nothing.
+        access: Box<CoachedAthleteAccess>,
     },
 }
 
@@ -151,7 +176,7 @@ impl PlanScope {
     pub(crate) fn acting_for(&self) -> Option<&str> {
         match &self.subject {
             PlanSubject::Own => None,
-            PlanSubject::Coached { athlete, .. } => Some(athlete),
+            PlanSubject::Coached { access } => Some(&access.display_name),
         }
     }
 
@@ -166,11 +191,45 @@ impl PlanScope {
     pub(crate) fn wellness_withheld(&self) -> Option<WellnessWithheld> {
         match &self.subject {
             PlanSubject::Own => None,
-            PlanSubject::Coached {
-                athlete, consents, ..
-            } => (!consents.wellness_read).then(|| WellnessWithheld {
-                athlete: athlete.clone(),
-            }),
+            PlanSubject::Coached { access } => {
+                (!access.consents.wellness_read).then(|| WellnessWithheld {
+                    athlete: access.display_name.clone(),
+                })
+            }
+        }
+    }
+
+    /// Record, on the coached athlete's own record, that `tool` reads their
+    /// wellness for the requester (carnet#1445): only a coach's read under
+    /// the athlete's wellness grant does — the athlete's own read records
+    /// nothing, and without the grant nothing of it is read
+    /// ([`Self::wellness_withheld`]).
+    ///
+    /// Called once the read is decided and before anything of their wellness
+    /// is read. The training read of the same call was recorded when the
+    /// scope resolved.
+    ///
+    /// # Errors
+    ///
+    /// Returns the repository error from the insert: the read is refused
+    /// rather than left unrecorded.
+    pub(crate) async fn record_wellness_read(
+        &self,
+        repos: &RepositoryRegistry,
+        tool: &str,
+    ) -> AppResult<()> {
+        match &self.subject {
+            PlanSubject::Coached { access } if access.consents.wellness_read => {
+                record_coach_read(
+                    repos,
+                    access,
+                    self.writer.user_id,
+                    tool,
+                    CoachReadClass::Wellness,
+                )
+                .await
+            }
+            PlanSubject::Coached { .. } | PlanSubject::Own => Ok(()),
         }
     }
 
@@ -251,17 +310,26 @@ pub enum CoachedPlanRefusal {
 /// `group_id`: the coaching gates ([`coached_athlete_access`]), then the
 /// athlete's tenant allowing `get_training_plan`.
 ///
-/// The outer `Err` is a repository failure; the inner `Err` is the refusal,
-/// which each surface words its own way.
+/// Once both let the read through, it is recorded on the athlete's own
+/// record under `source` — the tool that reads, or the surface's
+/// [`CoachReadSurface`](pierre_database::repositories::CoachReadSurface)
+/// label — before anything of the plan is read
+/// (carnet#1445). Every caller reads the plan on an `Ok`.
+///
+/// The outer `Err` is a repository failure, the record's included: the read
+/// is refused rather than left unrecorded. The inner `Err` is the refusal,
+/// which each surface words its own way, and records nothing.
 ///
 /// # Errors
 ///
-/// Returns the repository error from the group, member or tenant lookups.
+/// Returns the repository error from the group, member or tenant lookups, or
+/// from the record's insert.
 pub async fn coached_plan_read_access(
     resources: &Arc<dyn ToolRuntime>,
     coach: Uuid,
     athlete: Uuid,
     group_id: Uuid,
+    source: &str,
 ) -> AppResult<Result<CoachedAthleteAccess, CoachedPlanRefusal>> {
     let access = match coached_athlete_access(resources.repos(), coach, athlete, group_id).await? {
         Ok(access) => access,
@@ -272,6 +340,14 @@ pub async fn coached_plan_read_access(
             athlete: access.display_name,
         }));
     }
+    record_coach_read(
+        resources.repos(),
+        &access,
+        coach,
+        source,
+        CoachReadClass::Training,
+    )
+    .await?;
     // What the caller derives from here on carries the athlete's plan
     // (carnet#1174).
     ai_scope::note_member_read(access.athlete_user_id);
@@ -281,6 +357,43 @@ pub async fn coached_plan_read_access(
 /// An honest refusal in the tool's own error shape.
 fn refusal(message: &str) -> ToolResult {
     ToolResult::error(json!({ "error": message }))
+}
+
+/// The refusal of a coach's write to a coached athlete's `object` (their
+/// "plan", their "calendar") made over an external transport, carrying the
+/// `details.reason` a client branches on.
+///
+/// The one sentence for that refusal: the plan and calendar tools relay it
+/// (`external_write_refusal`), and the plan card's REST publish and discard
+/// return it, since they write the draft without going through a tool.
+#[must_use]
+pub fn external_write_error(object: &str) -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        format!(
+            "A coach writes an athlete's {object} from Dravr's own app or channels, not over \
+             this interface."
+        ),
+    );
+    error.details = Some(Box::new(json!({ "reason": EXTERNAL_TRANSPORT_REASON })));
+    error
+}
+
+/// The tool's refusal of a coach's write to a coached athlete's `object`
+/// served over an external transport ([`external_write_error`]), or `None` on
+/// Dravr's own surfaces.
+///
+/// The athlete consented to their coach inside Dravr. An MCP, A2A or API-key
+/// client acting for the coach is outside that agreement, so it writes
+/// nothing of the athlete's; what it reads through `athlete=` is not this
+/// gate's (carnet#1533).
+pub(super) fn external_write_refusal(object: &str) -> Option<ToolResult> {
+    ai_scope::serving_external().then(|| {
+        ToolResult::error(json!({
+            "reason": EXTERNAL_TRANSPORT_REASON,
+            "error": external_write_error(object).message,
+        }))
+    })
 }
 
 /// Resolve whose plan the call acts on.
@@ -304,6 +417,27 @@ pub async fn resolve_plan_scope(
         user_id: request.context.user_id,
     };
     let query = request.athlete.map(str::trim).filter(|q| !q.is_empty());
+
+    // Another athlete's plan is written only from Dravr's own surfaces:
+    // refused before anything about the athlete is read. A thread bound to
+    // one athlete counts exactly as `athlete=` does. Whether the tool writes
+    // is what it declares, so a plan tool added later is held here too.
+    let for_athlete = query.is_some()
+        || request
+            .conversation
+            .and_then(ConversationRecord::subject)
+            .is_some();
+    if for_athlete
+        && request
+            .context
+            .resources
+            .tool_registry()
+            .may_change_data(request.tool_name)
+    {
+        if let Some(refused) = external_write_refusal("plan") {
+            return Ok(Err(refused));
+        }
+    }
 
     // A thread bound to one athlete works on that athlete's plan whether or
     // not the call names them, and never on the coach's own.
@@ -448,6 +582,19 @@ async fn acting_for(
         subject_thread = request.conversation.and_then(ConversationRecord::subject).is_some(),
         "coach acting on a coached athlete's training plan"
     );
+    // Every gate passed: the athlete's record names this call before it
+    // reads or writes anything of theirs (carnet#1445). A plan tool reads the
+    // athlete's plan and the training it is laid against, so the class is
+    // their training; `get_training_plan` adds a wellness row when it reads
+    // their recovery ([`PlanScope::record_wellness_read`]).
+    record_coach_read(
+        request.context.resources.repos(),
+        &access,
+        request.context.user_id,
+        request.tool_name,
+        CoachReadClass::Training,
+    )
+    .await?;
     // What the call reads and writes from here on is the athlete's
     // (carnet#1174).
     ai_scope::note_member_read(access.athlete_user_id);
@@ -456,9 +603,7 @@ async fn acting_for(
         user_id: access.athlete_user_id,
         writer,
         subject: PlanSubject::Coached {
-            athlete: access.display_name,
-            group_id: access.group.id,
-            consents: access.consents,
+            access: Box::new(access),
         },
     }))
 }

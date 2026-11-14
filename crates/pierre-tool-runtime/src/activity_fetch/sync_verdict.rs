@@ -816,11 +816,18 @@ mod tests {
     /// Every read the session did not vouch for goes to its grant.
     #[test]
     fn a_read_the_session_did_not_vouch_for_falls_back() {
-        assert!(!falls_back(&Ok(head(HeadVerdict::Complete))));
-        assert!(falls_back(&Ok(head(HeadVerdict::Incomplete))));
-        assert!(falls_back(&Ok(head(HeadVerdict::EmptyOverCached {
-            cached: 3
-        }))));
+        assert!(
+            !falls_back(&Ok(head(HeadVerdict::Complete))),
+            "bug: a complete head read went to the grant"
+        );
+        assert!(
+            falls_back(&Ok(head(HeadVerdict::Incomplete))),
+            "bug: an incomplete head read stayed on the session"
+        );
+        assert!(
+            falls_back(&Ok(head(HeadVerdict::EmptyOverCached { cached: 3 }))),
+            "bug: an empty answer the cache contradicts stayed on the session"
+        );
         for error in [
             AppError::external_service("sciotte", "500 from the scraper"),
             AppError::new(ErrorCode::ExternalServiceUnavailable, "the browser wedged"),
@@ -829,18 +836,36 @@ mod tests {
             AppError::internal("unexpected answer"),
             AppError::new(ErrorCode::ExternalRateLimited, "429 from Strava"),
         ] {
-            assert!(error_falls_back(&error), "{error}");
-            assert!(falls_back(&Err(error)));
+            assert!(
+                error_falls_back(&error),
+                "bug: the error {error} did not fall back"
+            );
+            assert!(
+                falls_back(&Err(error)),
+                "bug: a failed head read did not fall back"
+            );
         }
     }
 
     /// The three refusals the grant cannot answer differently stay where they are.
     #[tokio::test]
     async fn a_coach_refusal_a_background_deferral_and_a_spent_budget_never_fall_back() {
-        assert!(!error_falls_back(&coach_account_error("a coach account")));
-        assert!(!error_falls_back(&budget_refusal()));
+        assert!(
+            !error_falls_back(&coach_account_error("a coach account")),
+            "bug: a coach account's refusal fell back to the grant"
+        );
+        assert!(
+            !error_falls_back(&budget_refusal()),
+            "bug: the limiter's own refusal fell back to the grant"
+        );
         let provider_429 = AppError::new(ErrorCode::ExternalRateLimited, "429 from Strava");
-        assert!(error_falls_back(&provider_429));
-        assert!(!in_background(async { error_falls_back(&provider_429) }).await);
+        assert!(
+            error_falls_back(&provider_429),
+            "bug: a 429 the provider answered did not fall back"
+        );
+        assert!(
+            !in_background(async { error_falls_back(&provider_429) }).await,
+            "bug: a background read fell back instead of deferring"
+        );
     }
 }

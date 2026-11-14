@@ -116,6 +116,7 @@ export type {
   MemoryFactListResponse,
   ApproveMemoryFactResponse,
   ForgetMemoryFactResponse,
+  OnboardingStatusResponse,
 } from './domains/user';
 
 export { createMessagingApi } from './domains/messaging';
@@ -157,6 +158,7 @@ export { createAthleteApi } from './domains/athlete';
 export type {
   AthleteApi,
   HomeActivity,
+  PhysiologyResponse,
   RecentActivitiesResponse,
   ActivityRouteResponse,
   ActivityRouteUnavailableReason,

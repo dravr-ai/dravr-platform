@@ -335,13 +335,12 @@ async fn coach_account(repos: &RepositoryRegistry, email: &str) -> AppResult<Acc
 /// profile question, the coach's group, and the athlete steps put off. The
 /// agent proposal is answered by the provider connection the setup script
 /// seeds next (`seed synthetic-activities`).
-const RETURNING_COACH_STEPS: [(&str, &str); 6] = [
+const RETURNING_COACH_STEPS: [(&str, &str); 5] = [
     ("profile_type", "complete"),
     ("about_you", "skipped"),
     ("parq", "skipped"),
     ("check_in", "skipped"),
     ("coach_group", "complete"),
-    ("messaging_channel", "skipped"),
 ];
 
 /// Make the coach a returning one, so a sign-in lands on Coach Home rather

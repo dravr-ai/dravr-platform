@@ -19,7 +19,10 @@
 
 use std::mem;
 
-use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot, OnboardingState};
+use pierre_core::models::{
+    AgentRuntimeContext, MemberFitnessSnapshot, OnboardingState, UnitSystem,
+};
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::ConversationRecord;
 use pierre_llm::provider_stop::ProviderStop;
 use pierre_llm::ChatMessage;
@@ -34,7 +37,7 @@ use crate::recorders::{
     turn_call_recorder, CAPABILITY_REASK_CALL_TYPE, PEER_CLAIM_VERIFIER_CALL_TYPE,
 };
 use crate::stages;
-use crate::stages::envelope_notice::NoticeReader;
+use crate::stages::envelope_notice::notice_reader;
 use crate::stages::peer_grounding::PeerGroundingBlock;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
@@ -121,6 +124,22 @@ pub(crate) async fn run_recovery_and_post_process(
         streamed_to,
     } = inputs;
     let mut draft = StreamedDraft { sink: streamed_to };
+    // The notice writes a pace in the units the reply's reader reads, by the
+    // rule the prompt's units section follows; read only when a day warns.
+    let notice_units = if result
+        .envelope_days
+        .iter()
+        .any(|day| !day.findings.is_empty())
+    {
+        stages::units::reader_units(
+            &ctx.repos,
+            parse_uuid(&input.user_id).unwrap_or_default(),
+            conv.group_id.is_some(),
+        )
+        .await
+    } else {
+        UnitSystem::Metric
+    };
     // The two returns below carry platform text in the model's place; this
     // turn's writes still went through, so each carries the envelope notice
     // (D3: every edit earns its warning).
@@ -128,7 +147,8 @@ pub(crate) async fn run_recovery_and_post_process(
         stages::envelope_notice::notice_only_blocks(
             &ctx.messaging_strings_registry,
             &profile.locale,
-            NoticeReader::of(conv),
+            notice_reader(conv),
+            notice_units,
             days,
         )
     };
@@ -260,6 +280,7 @@ pub(crate) async fn run_recovery_and_post_process(
             profile,
             tools_called: &tools_called,
             envelope_days: &envelope_days,
+            notice_units,
             // A tool ran, or the prefetch put an activity block in the prompt.
             // Either way the reply has evidence behind it and may cite it.
             turn_was_grounded: !tools_called.is_empty()

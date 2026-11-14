@@ -215,6 +215,8 @@ export {
   createUnitPreferencesHook,
   useDistanceUnit,
 } from './unitsHook';
+// Settings › Physiology: the read of the athlete's anchors and the facts under each one (carnet#1516).
+export { type PhysiologyPlatform, createPhysiologyHook, physiologyAnchorFacts } from './physiology';
 export {
   type ActivityUploadFailure,
   type ActivityUploadOutcome,

@@ -214,19 +214,31 @@ pub async fn fetch_member_snapshots(
     user_ids: &[Uuid],
     tenant_id: TenantId,
 ) -> Vec<MemberFitnessSnapshot> {
-    if user_ids.is_empty() {
+    let members: Vec<(Uuid, TenantId)> = user_ids.iter().map(|&id| (id, tenant_id)).collect();
+    fetch_member_snapshots_in(runtime, &members).await
+}
+
+/// [`fetch_member_snapshots`] with each member's own fallback tenant.
+///
+/// For a view where a coach's read of a member resolved their one home
+/// tenant ([`crate::coach_group_view`]), which their data is read under, as
+/// the coach's other reads of them are. In `members`' order.
+pub async fn fetch_member_snapshots_in(
+    runtime: &Arc<dyn ToolRuntime>,
+    members: &[(Uuid, TenantId)],
+) -> Vec<MemberFitnessSnapshot> {
+    if members.is_empty() {
         return Vec::new();
     }
 
-    let futures: Vec<_> = user_ids
+    let futures: Vec<_> = members
         .iter()
-        .map(|&user_id| {
+        .map(|&(user_id, tenant_id)| {
             let runtime = Arc::clone(runtime);
-            let tid = tenant_id;
             async move {
                 ai_scope::reading_about(
                     user_id,
-                    fetch_single_member_snapshot(&runtime, user_id, tid),
+                    fetch_single_member_snapshot(&runtime, user_id, tenant_id),
                 )
                 .await
             }

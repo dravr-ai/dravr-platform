@@ -8,6 +8,7 @@
 
 use std::sync::Arc;
 
+use dravr_barrage::blob::BlobStore;
 use dravr_barrage::store::ActivityRecordStore;
 use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::retention_sweep::{start_retention_sweeper, RetentionSweeper};
@@ -20,12 +21,15 @@ use crate::services::archive_import::sink::CachedActivitiesSink;
 /// The retention sweep, or `None` without the admin config service.
 ///
 /// It sweeps `records`, the activity record store the server keeps live
-/// reads in, and `resources`' wellness tables, under the policy the admin
-/// configuration holds, which is why it needs that service.
+/// reads in, with the originals they keep in `blobs` (`None` when the
+/// deployment has no blob store, and so no original), and `resources`'
+/// wellness tables, under the policy the admin configuration holds, which is
+/// why it needs that service.
 #[must_use]
 pub fn retention_sweeper(
     resources: &Arc<ServerContext>,
     records: Arc<dyn ActivityRecordStore>,
+    blobs: Option<Arc<dyn BlobStore>>,
 ) -> Option<RetentionSweeper> {
     let admin_config = resources.agent.admin_config.as_ref()?;
     let config: Arc<dyn AdminConfigLookup> = Arc::<AdminConfigService>::clone(admin_config);
@@ -38,6 +42,7 @@ pub fn retention_sweeper(
         .collect();
     Some(RetentionSweeper::new(
         records,
+        blobs,
         Arc::new(CachedActivitiesSink::new(Arc::clone(resources))),
         Arc::clone(&resources.common.repos.provider_data),
         config,
@@ -53,11 +58,12 @@ pub fn retention_sweeper(
 pub fn start_retention_sweep_worker(
     resources: &Arc<ServerContext>,
     records: Arc<dyn ActivityRecordStore>,
+    blobs: Option<Arc<dyn BlobStore>>,
 ) {
     if resources.common.config.database.url.is_memory() {
         return;
     }
-    let Some(sweeper) = retention_sweeper(resources, records) else {
+    let Some(sweeper) = retention_sweeper(resources, records, blobs) else {
         warn!("admin config service unavailable: the retention sweep is not started, since its policy lives there");
         return;
     };

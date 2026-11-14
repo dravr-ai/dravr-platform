@@ -19,7 +19,8 @@ import { distanceSymbol } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
 import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
-import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
+import { useCoachSeat } from '../../hooks/useCoachSeat';
+import { CoachAccessRequest } from '../../components/CoachAccessRequest';
 import {
   useCreateInvite,
   useDeactivateInvite,
@@ -49,6 +50,7 @@ import { MemberRow } from './MemberRow';
 import { AthletePlanView } from './AthletePlanView';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
 import { CoachConsentsSection } from './CoachConsentsSection';
+import { CoachReadLog } from './CoachReadLog';
 import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
 import type { GroupDigestMode, GroupMember, GroupRole, UpdateGroupRequest } from '../../types';
 import { useTranslation } from '@pierre/i18n';
@@ -161,9 +163,13 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const { deactivateInvite } = useDeactivateInvite(groupId);
   const { updateGroup, isPending: isUpdatingGroup } = useUpdateGroup(groupId);
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
+  // The owner offered this group's coach seat (carnet#1520): the seat block
+  // leads the sheet, and nothing below tells them someone else will coach.
+  const seat = useCoachSeat(groupId);
   // Whether the group's human coach sees the member's training: granted at
   // join, so the member's own switch sits beside peer sharing (carnet#1168).
-  const showsCoachSharing = !!myMembership && !isGroupCoach;
+  // The owner about to be the coach is never asked to share with a coach.
+  const showsCoachSharing = !!myMembership && !isGroupCoach && !seat.offered;
   const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
   const { setSharing: setCoachSharing, isPending: isSavingCoachSharing } =
     useSetCoachSharing(groupId);
@@ -187,14 +193,6 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   const mayApproveSignups = user?.manages_roster === true;
 
   const isOwner = myMembership?.role === 'owner';
-  // The owner of a coachless group who coaches others but holds no coach
-  // access may ask for it here, as on the onboarding group step (carnet#738).
-  // Whether they coach others is the onboarding role answer, read from the
-  // same status query the onboarding gate keeps.
-  const mayAskForCoachAccess =
-    isOwner && !!group && !group.coach_user_id && user?.manages_roster !== true;
-  const { data: onboardingStatus } = useOnboardingStatus(mayAskForCoachAccess);
-  const canRequestCoachAccess = mayAskForCoachAccess && onboardingStatus?.coaches_others === true;
   // The group's attached human coach may change where the weekly digest goes,
   // and nothing else; the digest rows show only where the tier sends one.
   const canSetDigest = weeklyDigest && (isAdmin || isGroupCoach);
@@ -275,12 +273,18 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
       void createInviteOfKind('signup');
       return;
     }
+    // The owner offered the coach seat invites members only: a coach invite
+    // would make someone else the coach they are asking to become.
+    if (seat.offered) {
+      void createInviteOfKind('member');
+      return;
+    }
     Alert.alert(t('app.createInvite'), t('app.whoIsInviteFor'), [
       { text: t('app.inviteKindMember'), onPress: () => void createInviteOfKind('member') },
       { text: t('humanCoach.coach'), onPress: () => void createInviteOfKind('coach') },
       { text: t('common.cancel'), style: 'cancel' },
     ]);
-  }, [approvesSignup, createInviteOfKind, mayApproveSignups, t]);
+  }, [approvesSignup, createInviteOfKind, mayApproveSignups, seat.offered, t]);
 
   const handleDeactivateInvite = useCallback(
     (inviteId: string, code: string) => {
@@ -469,6 +473,13 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
         </Text>
       ) : null}
 
+      {/* The coach seat leads the sheet for the owner it is offered to: what
+          is blocked, the one filled request, the coaching platforms; once
+          asked, the dated timeline (carnet#1520). */}
+      {seat.offered && (
+        <CoachAccessRequest groupId={groupId} variant="block" onOpenConnections={openConnections} />
+      )}
+
       <View className="mt-4">
         <CollapsibleSection
           title={t('app.membersCount', { count: members.length })}
@@ -485,7 +496,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               onRemoveCoach={handleRemoveCoach}
               isRemovingCoach={isRemovingCoach}
               last={!isLoadingMembers && members.length === 0}
-              canRequestCoachAccess={canRequestCoachAccess}
+              seatState={seat.state}
             />
           )}
           {isLoadingMembers ? (
@@ -649,6 +660,8 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               />
               <Button
                 title={t('common.save')}
+                // The seat's request is the sheet's one filled button while it is offered.
+                variant={seat.offered ? 'secondary' : 'primary'}
                 onPress={() => void saveIdentity()}
                 disabled={isUpdatingGroup || (nameDraft === null && descriptionDraft === null)}
                 fullWidth
@@ -763,6 +776,9 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
               )}
             </View>
           )}
+          {/* What the coach's agent read of the member, beside the sharing
+              that lets it (carnet#1445): only once a human coach is attached. */}
+          {showsCoachSharing && group?.coach_user_id && <CoachReadLog groupId={groupId} />}
         </CollapsibleSection>
         )}
 

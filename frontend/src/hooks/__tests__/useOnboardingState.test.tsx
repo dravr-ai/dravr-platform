@@ -8,7 +8,7 @@ import type { ReactNode } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { currentOnboardingStep } from '../../onboarding/steps';
+import { currentOnboardingStep, onboardingProgress } from '../../onboarding/steps';
 
 const getOnboardingStatus = vi.fn();
 const setOnboardingStep = vi.fn();
@@ -183,6 +183,49 @@ describe('useOnboardingState — the team step writes the team and waits for it 
   });
 });
 
+describe('useOnboardingState — a step put off reads skipped on the bar at once', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setOnboardingStep.mockResolvedValue(undefined);
+    localStorage.clear();
+    client.clear();
+  });
+
+  it('skipping about-you lands in the cached status, so the next step draws it skipped', async () => {
+    localStorage.setItem('dravr.profile_type_chosen.u1', '1');
+    getOnboardingStatus.mockResolvedValue({
+      needs_provider_connection: true,
+      coaches_others: false,
+      chosen_channel: null,
+      steps: [{ step_id: 'profile_type', status: 'complete' }],
+    });
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('about_you'));
+
+    act(() => result.current.completeAboutYou('skipped'));
+
+    expect(currentOnboardingStep(result.current.ctx)?.id).toBe('parq');
+    expect(result.current.ctx.skippedSteps).toEqual(['about_you']);
+    expect(onboardingProgress(result.current.ctx).map((s) => s.status).slice(0, 3)).toEqual([
+      'done',
+      'skipped',
+      'current',
+    ]);
+    expect(setOnboardingStep).toHaveBeenCalledWith('about_you', 'skipped');
+  });
+
+  it('a skipped team is cached once its write lands', async () => {
+    getOnboardingStatus.mockResolvedValue(connectedStatus([]));
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
+
+    await act(() => result.current.persistCoachProposal({ status: 'skipped', leadAgentId: 'agent-endurance' }));
+
+    // The cache notifies its readers on the next tick.
+    await waitFor(() => expect(result.current.ctx.skippedSteps).toEqual(['coach_proposal']));
+  });
+});
+
 describe('useOnboardingState — the usage-analytics question (carnet#1366)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -235,5 +278,61 @@ describe('useOnboardingState — the usage-analytics question (carnet#1366)', ()
 
     await expect(result.current.answerAnalyticsConsent(false)).rejects.toThrow('503');
     expect(updateUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('useOnboardingState — the coach path: seat, group, invite', () => {
+  /** A coach who does not train, past profile_type, with nothing connected. */
+  const coachStatus = {
+    needs_provider_connection: true,
+    coaches_others: true,
+    chosen_channel: null,
+    steps: [
+      { step_id: 'profile_type', status: 'complete' },
+      { step_id: 'about_you', status: 'not_applicable' },
+      { step_id: 'parq', status: 'not_applicable' },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionUser = SESSION_USER;
+    setOnboardingStep.mockResolvedValue(undefined);
+    getOnboardingStatus.mockResolvedValue(coachStatus);
+    localStorage.clear();
+    client.clear();
+  });
+
+  it('opens on the seat, moves to the group once past it, and remembers it on this device', async () => {
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_seat'));
+
+    act(() => result.current.completeCoachSeat());
+
+    expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_group');
+    expect(localStorage.getItem('dravr.coach_seat_done.u1')).toBe('1');
+    // The seat itself is server state: no step row is written for it.
+    expect(setOnboardingStep).not.toHaveBeenCalled();
+  });
+
+  it('a seat passed on this device is not shown again, not even for a frame', async () => {
+    localStorage.setItem('dravr.coach_seat_done.u1', '1');
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    expect(result.current.ctx.coachSeatDone).toBe(true);
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_group'));
+  });
+
+  it('the group made moves to the invite; the step is recorded only once the invite is behind', async () => {
+    localStorage.setItem('dravr.coach_seat_done.u1', '1');
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_group'));
+
+    act(() => result.current.markCoachGroupCreated());
+    expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_invite');
+    expect(setOnboardingStep).not.toHaveBeenCalled();
+
+    act(() => result.current.completeCoachGroup('complete'));
+    expect(currentOnboardingStep(result.current.ctx)).toBeNull();
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_group', 'complete');
   });
 });

@@ -23,7 +23,12 @@ import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButt
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
 import { useThemeColors } from '../../constants/theme';
 import { trackMobile } from '../../services/analytics';
-import { MOBILE_THREAD_INFO_GROUP, MOBILE_THREAD_INFO_PARAM, providerStatusLine } from '@pierre/shared-constants';
+import {
+  COACH_SEAT_SUBTITLE_KEY,
+  MOBILE_THREAD_INFO_GROUP,
+  MOBILE_THREAD_INFO_PARAM,
+  providerStatusLine,
+} from '@pierre/shared-constants';
 import type { TurnSendOptions } from '@pierre/shared-types';
 
 import { ChatHeaderTitle, threadTitle } from './ChatHeaderTitle';
@@ -33,6 +38,8 @@ import { CHAT_LIST_ROUTE, NEW_CONVERSATION_ID, threadHref } from '../../navigati
 import { ChatThread } from './ChatThread';
 import { ConversationInfoSheet } from './ConversationInfoSheet';
 import { ReconnectBanner } from '../../components/ReconnectBanner';
+import { CoachAccessRequest } from '../../components/CoachAccessRequest';
+import { useCoachSeat } from '../../hooks/useCoachSeat';
 import { useProviderConnected } from '../../hooks/useHome';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useGroup } from '../../hooks/useGroups';
@@ -46,6 +53,8 @@ import { useMessages } from './useMessages';
 import { useProviderStatus } from './useProviderStatus';
 import { useUsageStatus } from './useUsageStatus';
 import { useTranslation } from '@pierre/i18n';
+import { GroupChatAppOffer, useGroupChatAppOffer } from '../../components/chatApp/GroupChatAppOffer';
+import { ChatAppSheet } from '../../components/chatApp/ChatAppSheet';
 
 export function ChatScreen() {
   const { t, language } = useTranslation();
@@ -91,6 +100,13 @@ export function ChatScreen() {
     conversations: conversations.conversations,
   });
   const roomAgentName = roomGroup?.agent_title ?? t('app.aiAgent');
+  // The owner of a coachless room offered its coach seat (carnet#1520): the
+  // strip under the header and the header's group line carry the request.
+  const seat = useCoachSeat(roomGroupId);
+  // A coach's own group offers its chat app once, in the agent's voice at the
+  // end of the thread (carnet#1525); the sheet it opens sits over the screen.
+  const chatAppOffer = useGroupChatAppOffer(roomGroup);
+  const [chatAppSheet, setChatAppSheet] = useState<{ channel: string } | null>(null);
   // The group's human coach in its room writes to every member and the
   // agent: the room's empty state and composer are theirs, not an athlete's.
   const coachRoom = coachRoomName(roomGroup, user?.id ?? null, conversations.currentConversation?.group_name ?? null);
@@ -433,6 +449,15 @@ export function ChatScreen() {
                 agentTitle={agentTitle}
                 providerStatus={headerProviderStatus}
                 onTitlePress={openInfoSheet}
+                status={
+                  seat.state
+                    ? {
+                        label: t(COACH_SEAT_SUBTITLE_KEY[seat.state]),
+                        tone: seat.state === 'pending' ? 'pending' : 'action',
+                        state: seat.state,
+                      }
+                    : null
+                }
               />
             ),
             headerRight: () => (
@@ -464,6 +489,12 @@ export function ChatScreen() {
         */}
         <ReconnectBanner insetTop={false} />
 
+        {/* Where the coach is blocked, the request is: the seat strip opens
+            the room for the owner it is offered to. */}
+        {seat.offered && roomGroupId ? (
+          <CoachAccessRequest groupId={roomGroupId} variant="strip" onOpenInfo={openInfoSheet} />
+        ) : null}
+
         {messagesHook.roomUnavailable ? (
           <Text
             testID="room-load-failed"
@@ -494,7 +525,22 @@ export function ChatScreen() {
           composerPending={composerPending}
           planDraftRead={planDraftRead}
           privateLane={{ lane: privateLane, agentName: roomAgentName }}
+          offer={
+            chatAppOffer ? (
+              <GroupChatAppOffer
+                offer={chatAppOffer}
+                agentLabel={roomAgentName}
+                // Under the agent's own last words the card continues its run.
+                continuesRun={messagesHook.messages[messagesHook.messages.length - 1]?.role === 'assistant'}
+                onConfigure={(channel) => setChatAppSheet({ channel })}
+              />
+            ) : null
+          }
         />
+
+        {chatAppSheet ? (
+          <ChatAppSheet visible initialChannel={chatAppSheet.channel} onClose={() => setChatAppSheet(null)} />
+        ) : null}
 
         <PromptDialog
           visible={renamePromptVisible}

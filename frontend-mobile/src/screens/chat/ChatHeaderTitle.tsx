@@ -34,6 +34,12 @@ interface ChatHeaderTitleProps {
    * their language. `null` while that list loads or with no agent bound.
    */
   agentTitle?: string | null;
+  /**
+   * A state the viewer acts on, after the group line — the coach seat's
+   * "coach access to request" or "coach access pending" (carnet#1520). The
+   * title it sits under opens the Group info that resolves it.
+   */
+  status?: { label: string; tone: 'action' | 'pending'; state: string } | null;
 }
 
 /**
@@ -55,6 +61,7 @@ export function ChatHeaderTitle({
   providerStatus,
   onTitlePress,
   agentTitle = null,
+  status = null,
 }: ChatHeaderTitleProps) {
   const { t } = useTranslation();
   // Before a thread exists the header names what the athlete is about to start.
@@ -96,6 +103,14 @@ export function ChatHeaderTitle({
           <Text className="text-xs text-text-tertiary" numberOfLines={1} testID="chat-header-group">
             {/* A room is called after its group: the line says what it is instead of the name twice. */}
             {title === currentConversation.group_name ? t(GROUP_ROOM_KEYS.kindLabel) : currentConversation.group_name}
+            {status ? (
+              <Text
+                className={`font-medium ${status.tone === 'pending' ? 'text-on-warning-container' : 'text-primary'}`}
+                testID="chat-header-status"
+              >
+                {` · ${status.label}`}
+              </Text>
+            ) : null}
           </Text>
         )}
         {subtitle?.kind === 'handle' && (

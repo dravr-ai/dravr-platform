@@ -719,6 +719,7 @@ impl FitnessProvider for GarminProvider {
             .unwrap_or_default();
         let workout: StoredWorkout = decode("workoutportal/workout/v2", &created)?;
         workout.log_stamps("created");
+        workout.warn_if_steps_dropped("created", training::sent_step_count(&body));
         match self.schedule(workout.workout_id, session.date).await {
             Ok(schedule_id) => Ok(EventId {
                 workout_id: workout.workout_id,
@@ -761,7 +762,7 @@ impl FitnessProvider for GarminProvider {
         let stored = self.stored_workout(id.workout_id).await?;
         let body = training::updated_workout_body(session, &stored)?;
         let answer = self.training_call(Method::PUT, &path, Some(&body)).await?;
-        StoredWorkout::log_update_answer(answer.as_deref());
+        StoredWorkout::log_update_answer(answer.as_deref(), training::sent_step_count(&body));
         let schedule = training::schedule_body(id.workout_id, session.date, Some(id.schedule_id));
         self.training_call(
             Method::PUT,

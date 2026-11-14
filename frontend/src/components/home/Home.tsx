@@ -27,6 +27,8 @@ interface HomeBriefingProps {
   actions: TodayActions;
   /** Open the team picker over the page, for an athlete with no team. */
   onPickTeam: () => void;
+  /** Open the chat-app sheet over the page, from Getting started. */
+  onOpenChatApp: () => void;
   /** Laid out for the docked side panel: the latest activity's map in its shorter frame. */
   compact?: boolean;
 }
@@ -125,12 +127,12 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
  * on a narrower one — which therefore opens on the same two sections. The
  * sport picked on the volume card filters the activities under it.
  */
-export function HomeBriefing({ onNavigate, actions, onPickTeam, compact = false }: HomeBriefingProps) {
+export function HomeBriefing({ onNavigate, actions, onPickTeam, onOpenChatApp, compact = false }: HomeBriefingProps) {
   const onOpenChatDraft = actions.draft;
   const sportFilter = useVolumeSportFilter(useTrainingVolume().data?.weeks);
   return (
     <div data-testid="home-briefing" className={clsx('space-y-8 px-4', compact ? 'py-2' : 'py-4')}>
-      <GettingStarted actions={actions} onNavigate={onNavigate} />
+      <GettingStarted actions={actions} onNavigate={onNavigate} onOpenChatApp={onOpenChatApp} />
       <YourTeam actions={actions} onNavigate={onNavigate} onPickTeam={onPickTeam} />
       <HomePlan onOpenChatDraft={onOpenChatDraft} />
       <HomeWeek onOpenChatDraft={onOpenChatDraft} onNavigate={onNavigate} />

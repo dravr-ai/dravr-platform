@@ -739,7 +739,11 @@ async fn a_withdrawn_grants_refused_chat_is_retried_after_its_rows_are_deleted()
         notice.chat_channels, 0,
         "the only chat refused the first send"
     );
-    assert_eq!(f.app_notice_count().await, 1);
+    assert_eq!(
+        f.app_notice_count().await,
+        1,
+        "bug: the withdrawn grant's app notice was not sent exactly once"
+    );
     let queued = f.pending().await;
     assert_eq!(queued.len(), 1, "the refused chat is queued: {queued:?}");
     let send_by = chrono::DateTime::parse_from_rfc3339(queued[0]["expires_at"].as_str().unwrap())
@@ -771,7 +775,10 @@ async fn a_withdrawn_grants_refused_chat_is_retried_after_its_rows_are_deleted()
         "bug: the withdrawn grant's notice died with its rows: {:?}",
         f.queue().await
     );
-    assert_eq!(delivered[0]["to"], "15145550660");
+    assert_eq!(
+        delivered[0]["to"], "15145550660",
+        "bug: the retried notice reached another number"
+    );
     let body = delivered[0]["text"].as_str().unwrap();
     let target = f
         .runtime

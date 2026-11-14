@@ -34,6 +34,7 @@ import type {
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
   CoachSharing,
+  CoachReads,
 } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
@@ -67,6 +68,7 @@ export type {
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
   CoachSharing,
+  CoachReads,
 };
 
 /**
@@ -185,6 +187,12 @@ export function createGroupsApi(axios: AxiosInstance) {
         ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId),
         request,
       );
+      return response.data;
+    },
+
+    /** The caller's own record of the group's human coach reading their data */
+    async getCoachReads(groupId: string): Promise<CoachReads> {
+      const response = await axios.get<CoachReads>(ENDPOINTS.GROUPS.MY_COACH_READS(groupId));
       return response.data;
     },
 

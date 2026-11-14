@@ -92,7 +92,10 @@ fn every_activity_backend_the_registry_builds_declares_its_fields() {
 fn strava_is_read_two_ways_and_both_carry_the_athletes_words_and_flags() {
     let registry = ProviderRegistry::new();
     let support = field_support(&registry, "strava", Some(FieldMode::Mirror)).unwrap();
-    assert_eq!(support.provider, "strava");
+    assert_eq!(
+        support.provider, "strava",
+        "bug: Strava's dictionary is filed under another provider"
+    );
     let api = support.oauth.expect("Strava's API serves activities");
     let scrape = support.mirror.expect("Strava's mirror serves activities");
     assert!(
@@ -274,8 +277,14 @@ fn the_activities_header_names_what_each_serving_connection_never_supplies() {
 
 #[test]
 fn rows_from_no_declared_connection_carry_no_header() {
-    assert!(served_header(&[]).is_none());
-    assert!(served_header(&[row("u1", "upload", "upload")]).is_none());
+    assert!(
+        served_header(&[]).is_none(),
+        "bug: an empty answer carries a field header"
+    );
+    assert!(
+        served_header(&[row("u1", "upload", "upload")]).is_none(),
+        "bug: the athlete's own uploads carry a field header"
+    );
 }
 
 async fn status(

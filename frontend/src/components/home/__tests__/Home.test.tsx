@@ -32,6 +32,8 @@ const api = vi.hoisted(() => ({
   createConversation: vi.fn(),
   getConversations: vi.fn(),
   getOnboardingStatus: vi.fn(),
+  getAvailableChannels: vi.fn(),
+  listLinks: vi.fn(),
 }));
 
 type Prefs = { plan_suggestion_hidden: boolean; getting_started_hidden?: boolean };
@@ -58,6 +60,7 @@ vi.mock('../../../services/api', () => ({
     getConversations: api.getConversations,
   },
   userApi: { getOnboardingStatus: api.getOnboardingStatus },
+  messagingLinkApi: { getAvailableChannels: api.getAvailableChannels, listLinks: api.listLinks },
   // The route-marker beta is off: these suites pin the map without its markers.
   featureFlagsApi: { getMyFeatures: async () => ({ flags: {}, known: [] }) },
 }));
@@ -87,16 +90,22 @@ vi.mock('maplibre-gl', () => ({
 function renderHome() {
   const onNavigate = vi.fn();
   const onPickTeam = vi.fn();
+  const onOpenChatApp = vi.fn();
   const actions = { draft: vi.fn(), send: vi.fn(), openTopic: vi.fn(), dismiss: vi.fn() };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <HomeBriefing onNavigate={onNavigate} actions={actions} onPickTeam={onPickTeam} />
+        <HomeBriefing
+          onNavigate={onNavigate}
+          actions={actions}
+          onPickTeam={onPickTeam}
+          onOpenChatApp={onOpenChatApp}
+        />
       </ThemeProvider>
     </QueryClientProvider>,
   );
-  return { ...view, onNavigate, onPickTeam, actions, onOpenChatDraft: actions.draft };
+  return { ...view, onNavigate, onPickTeam, onOpenChatApp, actions, onOpenChatDraft: actions.draft };
 }
 
 /** A new athlete's Getting started: connected, meeting the team, nothing else yet, no check-in data. */
@@ -148,6 +157,8 @@ beforeEach(() => {
   });
   api.getHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false, getting_started_hidden: false });
   api.getGettingStarted.mockResolvedValue(gettingStarted());
+  api.getAvailableChannels.mockResolvedValue([]);
+  api.listLinks.mockResolvedValue([]);
   api.getCheckIn.mockResolvedValue({ cadence: 'daily', local_hour: 7 });
   api.getOnboardingStatus.mockResolvedValue({ pillars_covered: 2, pillars_total: 7 });
   api.listAgents.mockResolvedValue({ agents: [RECOVERY, NOT_ON_TEAM, FUELLING, ENDURANCE] });
@@ -387,6 +398,61 @@ describe('Home — Getting started', () => {
     await userEvent.click(within(screen.getByTestId('home-getting-started-row-meet_team')).getByRole('button'));
     expect(actions.send).toHaveBeenCalledExactlyOnceWith('gs:2:meet_team', 'Meet your team');
     expect(actions.draft).not.toHaveBeenCalled();
+  });
+
+  // carnet#1525: the chat app left the wizard for a row of its own, listed by
+  // the server only when the workspace offers an app.
+  it('offers the chat apps on its own row, and opens their sheet instead of sending anything', async () => {
+    api.getAvailableChannels.mockResolvedValue([
+      { channel: 'telegram', display_name: 'Telegram', method: 'deep_link', recommended: true },
+      { channel: 'whatsapp', display_name: 'WhatsApp', method: 'deep_link', recommended: false },
+    ]);
+    const base = gettingStarted();
+    api.getGettingStarted.mockResolvedValue(
+      gettingStarted({
+        rows: [
+          ...base.rows,
+          { id: 'chat_app', order: 6, eligible: true, done: false, current: false, postback: null },
+        ],
+        total: 6,
+      }),
+    );
+    const { actions, onOpenChatApp } = renderHome();
+
+    const row = await screen.findByTestId('home-getting-started-row-chat_app');
+    expect(row).toHaveTextContent('Message me elsewhere too');
+    await within(row).findByText('Telegram or WhatsApp');
+    expect(screen.getByTestId('home-getting-started-count')).toHaveTextContent('1 of 6');
+
+    await userEvent.click(within(row).getByRole('button'));
+    expect(onOpenChatApp).toHaveBeenCalledTimes(1);
+    expect(actions.send).not.toHaveBeenCalled();
+  });
+
+  it('ticks the chat-app row once an app is linked, naming it', async () => {
+    api.getAvailableChannels.mockResolvedValue([
+      { channel: 'telegram', display_name: 'Telegram', method: 'deep_link', recommended: true },
+    ]);
+    api.listLinks.mockResolvedValue([
+      { channel: 'telegram', channel_user_id: 'tg-1', display_name: null, linked_at: '2026-11-12T10:00:00Z' },
+    ]);
+    const base = gettingStarted();
+    api.getGettingStarted.mockResolvedValue(
+      gettingStarted({
+        rows: [
+          ...base.rows,
+          { id: 'chat_app', order: 6, eligible: true, done: true, current: false, postback: null },
+        ],
+        done_count: 2,
+        total: 6,
+      }),
+    );
+    renderHome();
+
+    const row = await screen.findByTestId('home-getting-started-row-chat_app');
+    expect(row).toHaveAttribute('data-state', 'done');
+    await within(row).findByText('Telegram set up');
+    expect(within(row).queryByRole('button')).toBeNull();
   });
 
   it('hides on the server, keeping the plan choice, and leaves the page at once', async () => {

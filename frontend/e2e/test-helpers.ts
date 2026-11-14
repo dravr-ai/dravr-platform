@@ -52,6 +52,64 @@ export const ONBOARDED_STATUS = {
 };
 
 /**
+ * `GET /api/me/physiology` for an athlete who stated an FTP, measured a bike
+ * MAP and holds an estimated run critical speed: a low-confidence point, a
+ * measured value with its stated range, and a low-confidence range, worded in
+ * `language` as the server words them — the estimate, range and source
+ * phrases are the shared corpus's `messaging.envelope` strings (carnet#1516).
+ * Read from disk rather than imported, as `mockStarters` reads it; a language
+ * the corpus has no bundle for answers in English, as the server does.
+ */
+export function physiologyFixture(language = 'en') {
+  const locales = path.resolve(process.cwd(), '../packages/i18n/src/locales');
+  const lang = fs.existsSync(path.join(locales, language, 'translation.json')) ? language : 'en';
+  const corpus = JSON.parse(
+    fs.readFileSync(path.join(locales, lang, 'translation.json'), 'utf-8'),
+  ) as { messaging: { envelope: Record<string, string> } };
+  const phrase = (key: string, ...args: string[]): string =>
+    args.reduce((text, arg, slot) => text.replace(`{${slot}}`, arg), corpus.messaging.envelope[key]);
+  const own = phrase('source_own');
+  return {
+    sports: [
+      {
+        sport: 'ride',
+        anchors: [
+          {
+            anchor: 'ftp', unit: 'watts', value: 285, low: null, high: null, origin: 'athlete',
+            as_of: '2026-10-20', method: null, confidence: 'low',
+            value_text: phrase('anchor_estimate', '285 W'), range_text: null, source_text: own,
+          },
+          {
+            anchor: 'map', unit: 'watts', value: 380, low: 365, high: 395, origin: 'lab',
+            as_of: '2026-11-02', method: 'ramp peak', confidence: 'high',
+            value_text: '380 W', range_text: '365–395 W', source_text: phrase('source_from', 'lab'),
+          },
+          {
+            anchor: 'max_heart_rate', unit: 'beats_per_minute', value: 188, low: null, high: null,
+            origin: 'athlete', as_of: null, method: null, confidence: 'low',
+            value_text: phrase('anchor_estimate', '188 bpm'), range_text: null, source_text: own,
+          },
+        ],
+      },
+      {
+        sport: 'run',
+        anchors: [
+          {
+            anchor: 'critical_speed', unit: 'metres_per_second', value: 4, low: 3.92, high: 4.08,
+            origin: 'intervals.icu', as_of: '2026-10-28', method: null, confidence: 'low',
+            value_text: phrase('anchor_range', '4:05', '4:15/km'), range_text: null,
+            source_text: phrase('source_from', 'intervals.icu'),
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** The anchors an English-speaking athlete is shown. */
+export const PHYSIOLOGY_FIXTURE = physiologyFixture('en');
+
+/**
  * Stubs that EVERY E2E test needs but many spec-local login helpers
  * never added — pin the theme to light + return sane defaults for the
  * feature-flag endpoints introduced in e25417e6. Call from any spec-local
@@ -190,6 +248,18 @@ export async function applyTestStubs(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ gear_id: null, source: null }),
+    });
+  });
+  // The athlete's anchors (carnet#1516): a profile-row FTP at low confidence,
+  // a measured bike MAP with its range, and an estimated run critical speed,
+  // so Settings › Physiology shows every row shape in the design sweep. The
+  // server words them in the locale the request names, so the mock does too.
+  await page.route('**/api/me/physiology**', async (route) => {
+    const locale = new URL(route.request().url()).searchParams.get('locale') ?? 'en';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(physiologyFixture(locale)),
     });
   });
 

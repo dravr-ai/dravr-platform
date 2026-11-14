@@ -9,7 +9,10 @@
 //! Hosts the three analytics endpoints that compute aggregate stats,
 //! weekly reports, and health flags from per-member fitness snapshots —
 //! only ever the snapshots of the members whose training the caller may see
-//! ([`GroupService::visible_member_ids`]), whatever their role.
+//! ([`GroupService::visible_member_ids`]), whatever their role. For the
+//! group's human coach each member is also asked the coach-read gate and the
+//! read goes on their record, once a day per endpoint, before their training
+//! is read ([`gate_group_view`], carnet#1445).
 //! Routes are generic over `C: ToolRuntime + MiddlewareCtx + GroupsCtx`
 //! so the snapshot builder can be handed an `Arc<dyn ToolRuntime>` upcast
 //! from the same `Arc<C>` that satisfies the social trait bounds.
@@ -27,10 +30,12 @@ use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{GroupMember, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
+use pierre_database::repositories::CoachReadSurface;
 use pierre_groups::GroupService;
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
-use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
+use pierre_tool_runtime::coach_group_view::gate_group_view;
+use pierre_tool_runtime::group_fitness::fetch_member_snapshots_in;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::Deserialize;
 use uuid::Uuid;
@@ -143,8 +148,15 @@ impl GroupAnalyticsRoutes {
     /// anyone who subtracts the sharers' figures the weekly digest posts into
     /// the group's chat.
     ///
+    /// For the group's human coach, each member that rule lets through is
+    /// asked the coach-read gate too, and each read it lets through goes on
+    /// the member's record as `surface`, once a day, before anything of
+    /// theirs is read ([`gate_group_view`], carnet#1445). A member it refuses
+    /// is left out like one who does not share; a read that cannot be
+    /// recorded refuses the request.
+    ///
     /// Delegates to the canonical
-    /// [`fetch_member_snapshots`](pierre_tool_runtime::group_fitness::fetch_member_snapshots)
+    /// [`fetch_member_snapshots_in`](pierre_tool_runtime::group_fitness::fetch_member_snapshots_in)
     /// builder so the REST analytics endpoints see the exact same
     /// all-providers + deduplicated snapshots the chat agent sees, and reads
     /// no other member's training.
@@ -153,6 +165,7 @@ impl GroupAnalyticsRoutes {
         group_id: &str,
         tenant_id: TenantId,
         viewer: Uuid,
+        surface: CoachReadSurface,
     ) -> Result<(Vec<MemberFitnessSnapshot>, AnalyticsScope), AppError> {
         let repos = MiddlewareCtx::repos(resources.as_ref());
         // A group id with no row is a 404 before any snapshot is fetched.
@@ -162,18 +175,13 @@ impl GroupAnalyticsRoutes {
             .await?
             .ok_or_else(|| AppError::not_found(format!("Group {group_id}")))?;
         let members = repos.groups.list_members(group_id).await?;
-        let visible = GroupService::visible_member_ids(&group, &members, viewer);
-        let user_ids: Vec<Uuid> = members
-            .iter()
-            .map(|m| m.user_id)
-            .filter(|id| visible.contains(id))
-            .collect();
+        let view = gate_group_view(repos, &group, &members, viewer, tenant_id, surface).await?;
         let scope = AnalyticsScope {
-            visible_members: user_ids.len(),
+            visible_members: view.readable.len(),
             roster_members: members.len(),
         };
         let runtime = Self::as_runtime(resources);
-        let snapshots = fetch_member_snapshots(&runtime, &user_ids, tenant_id).await;
+        let snapshots = fetch_member_snapshots_in(&runtime, &view.readable).await;
         Ok((snapshots, scope))
     }
 
@@ -189,8 +197,14 @@ impl GroupAnalyticsRoutes {
 
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
-        let (member_snapshots, scope) =
-            Self::visible_snapshots(&resources, &group_id, tenant_id, auth.user_id).await?;
+        let (member_snapshots, scope) = Self::visible_snapshots(
+            &resources,
+            &group_id,
+            tenant_id,
+            auth.user_id,
+            CoachReadSurface::GroupStats,
+        )
+        .await?;
 
         let stats = resources
             .group_service()
@@ -217,8 +231,14 @@ impl GroupAnalyticsRoutes {
 
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        let (member_snapshots, scope) =
-            Self::visible_snapshots(&resources, &group_id, tenant_id, auth.user_id).await?;
+        let (member_snapshots, scope) = Self::visible_snapshots(
+            &resources,
+            &group_id,
+            tenant_id,
+            auth.user_id,
+            CoachReadSurface::GroupReport,
+        )
+        .await?;
 
         let report = resources
             .group_service()
@@ -244,8 +264,14 @@ impl GroupAnalyticsRoutes {
 
         Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
-        let (member_snapshots, scope) =
-            Self::visible_snapshots(&resources, &group_id, tenant_id, auth.user_id).await?;
+        let (member_snapshots, scope) = Self::visible_snapshots(
+            &resources,
+            &group_id,
+            tenant_id,
+            auth.user_id,
+            CoachReadSurface::GroupHealth,
+        )
+        .await?;
 
         let flags = GroupService::compute_health_flags(&member_snapshots);
 

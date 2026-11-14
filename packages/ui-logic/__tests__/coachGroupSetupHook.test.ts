@@ -45,6 +45,23 @@ describe('createCoachGroupSetupHook', () => {
     createConversation.mockResolvedValue({ id: 'thread-1' } as Conversation);
   });
 
+  it("carries the athlete's goal as the group's description, trimmed, and drops a blank one", async () => {
+    createInvite.mockResolvedValue({ code: 'JOIN-1' } as GroupInvite);
+    const { wrapper } = setup();
+    const first = renderHook(() => useCoachGroupSetup(), { wrapper });
+    await act(() => first.result.current.create('Léa', 'agent-7', '  Marathon de Montréal '));
+    expect(createGroup).toHaveBeenLastCalledWith({
+      name: 'Léa',
+      agent_id: 'agent-7',
+      coach_is_me: true,
+      description: 'Marathon de Montréal',
+    });
+
+    const second = renderHook(() => useCoachGroupSetup(), { wrapper });
+    await act(() => second.result.current.create('Léa', 'agent-7', '   '));
+    expect(createGroup.mock.lastCall?.[0]).not.toHaveProperty('description');
+  });
+
   it('makes the group as its coach, opens its thread with its agent, and issues a 30-day invite', async () => {
     createInvite.mockResolvedValue({ code: 'JOIN-1' } as GroupInvite);
     const { invalidate, wrapper } = setup();
@@ -53,6 +70,8 @@ describe('createCoachGroupSetupHook', () => {
     await act(() => result.current.create('  Morning Crew  ', 'agent-7'));
 
     expect(createGroup).toHaveBeenCalledWith({ name: 'Morning Crew', agent_id: 'agent-7', coach_is_me: true });
+    // No goal given: no description sent, so the group carries none.
+    expect(createGroup.mock.calls[0][0]).not.toHaveProperty('description');
     expect(createConversation).toHaveBeenCalledWith({ group_id: 'group-1', agent_id: 'agent-7' });
     expect(createInvite).toHaveBeenCalledWith('group-1', { expires_in_days: 30 });
     expect(invalidate.mock.calls.map(([filters]) => filters?.queryKey)).toEqual([['chat-conversations']]);

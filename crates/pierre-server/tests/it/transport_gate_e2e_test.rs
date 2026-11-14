@@ -853,6 +853,45 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
     assert!(external["form"].is_null(), "{external}");
 }
 
+#[tokio::test]
+async fn physiology_written_from_a_first_party_only_relay_is_withheld_over_an_api_key() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    // A profile written from the relay's data carries its stamp (carnet#769):
+    // the one anchors reader reads it only on Dravr's own surfaces.
+    let mut profile = UserPhysiologicalProfile::new(rider.user_id, SportType::Ride);
+    profile.ftp_watts = Some(280);
+    profile.transport_policy = TransportPolicy::FirstPartyOnly;
+    resources
+        .common
+        .repos
+        .user_physiological_profile
+        .upsert_user_physiological_profile(rider.tenant, rider.user_id, &profile)
+        .await
+        .unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+
+    let (status, own_app) = get(&app, "/api/me/physiology", &session).await;
+    assert_eq!(status, StatusCode::OK, "{own_app}");
+    assert_eq!(
+        own_app["sports"][0]["anchors"][0]["anchor"], "ftp",
+        "the athlete's app reads the anchors: {own_app}"
+    );
+
+    let (status, external) = get(&app, "/api/me/physiology", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    assert_eq!(
+        external["sports"].as_array().map(Vec::len),
+        Some(0),
+        "over an API key a first-party-only profile yields no anchor: {external}"
+    );
+}
+
 // ── Derived content: transcripts, facts, plans, a chat turn ──────────────
 
 async fn send_json(

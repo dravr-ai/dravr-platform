@@ -531,6 +531,12 @@ interface MessageListProps {
    */
   planDraft?: React.ReactNode;
   /**
+   * The host's one-time offer, in the agent's voice at the end of the thread
+   * — a coach's chat-app card in their group (carnet#1525). Drawn after the
+   * rows, or under the empty thread's line.
+   */
+  offer?: React.ReactNode;
+  /**
    * The empty plan thread's one-tap start — "Draft <name>'s plan" — when the
    * coach holds no draft: its label, what a press does, and whether a turn
    * is already running.
@@ -579,6 +585,7 @@ export function MessageList({
   planSubjectName = null,
   coachRoomName = null,
   planDraft = null,
+  offer = null,
   planStarter = null,
   onStarter,
   hasEarlier = false,
@@ -1380,6 +1387,7 @@ export function MessageList({
             : null}
         </>
       )}
+      {offer !== null ? <View className="w-full">{offer}</View> : null}
     </ScrollView>
   );
 
@@ -1430,6 +1438,7 @@ export function MessageList({
   const renderFooter = () => (
     <>
       {planDraft}
+      {offer}
       {renderTurnFooter()}
     </>
   );
@@ -1468,7 +1477,9 @@ export function MessageList({
             header
           )
         }
-        ListFooterComponent={planDraft !== null || isSending || isLoading ? renderFooter : null}
+        ListFooterComponent={
+          planDraft !== null || offer !== null || isSending || isLoading ? renderFooter : null
+        }
       />
     </View>
   );

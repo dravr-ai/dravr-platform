@@ -30,7 +30,7 @@ use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
 use crate::implementations::configuration_document::{
-    configuration_payload, readable_configuration, updated_document,
+    carries_wellness, configuration_payload, readable_configuration, updated_document,
 };
 use crate::implementations::configuration_output::{
     ConfigurationCatalogResult, ConfigurationProfileEntry, ConfigurationProfilesResult,
@@ -647,10 +647,13 @@ impl McpTool<dyn ToolRuntime> for GetUserConfigurationTool {
                         json!({})
                     })
                 });
-            ok_typed(
-                "get_user_configuration",
-                readable_configuration(configuration_payload(&user_uuid, stored.as_ref())),
-            )
+            let payload = configuration_payload(&user_uuid, stored.as_ref());
+            // Its wellness overrides, shown under the grant, are on the
+            // athlete's record before they leave (carnet#1445).
+            if carries_wellness(&payload) {
+                read_subject::record_wellness_read(ctx.resources.repos()).await?;
+            }
+            ok_typed("get_user_configuration", readable_configuration(payload))
         }
         .await;
         tool_result_to_response(result)
@@ -904,8 +907,14 @@ impl McpTool<dyn ToolRuntime> for CalculatePersonalizedZonesTool {
             // the zone bounds give it back was accepted with the decision.
             let mut user_profile = create_user_profile(&params);
             if params.sources.get("resting_hr") == Some(&json!("profile")) {
-                user_profile.resting_hr =
+                let resting_hr =
                     read_subject::readable_physiology(stored).and_then(|profile| profile.resting_hr);
+                // Echoed under the grant, it is on the athlete's record before
+                // it leaves (carnet#1445).
+                if resting_hr.is_some() {
+                    read_subject::record_wellness_read(ctx.resources.repos()).await?;
+                }
+                user_profile.resting_hr = resting_hr;
             }
             let zones_config = &ctx.resources.config().training_zones;
 

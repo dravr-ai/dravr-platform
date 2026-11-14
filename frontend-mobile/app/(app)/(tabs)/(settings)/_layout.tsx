@@ -22,6 +22,7 @@ export default function SettingsLayout() {
       <Stack.Screen name="gear" options={{ title: t(settingsPane('gear').nameKey) }} />
       <Stack.Screen name="messaging" options={{ title: t(settingsPane('messaging').nameKey) }} />
       <Stack.Screen name="notification-preferences" options={{ title: t('notifPrefs.title') }} />
+      <Stack.Screen name="physiology" options={{ title: t(settingsPane('physiology').nameKey) }} />
       <Stack.Screen name="privacy" options={{ title: t(settingsPane('privacy').nameKey) }} />
       <Stack.Screen name="profile" options={{ title: t(settingsPane('profile').nameKey) }} />
       <Stack.Screen name="tokens" options={{ title: t(settingsPane('tokens').nameKey) }} />

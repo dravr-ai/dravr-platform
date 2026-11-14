@@ -18,7 +18,7 @@ use pierre_core::models::{Activity, TimeSeriesData};
 /// Whether `activity` carries the field the dictionary calls `name`; `None`
 /// for a name the dictionary does not define.
 #[must_use]
-pub fn carries_field(activity: &Activity, name: &str) -> Option<bool> {
+fn carries_field(activity: &Activity, name: &str) -> Option<bool> {
     let carried = match name {
         "description" => activity.description().is_some(),
         "private_note" => activity.private_note().is_some(),
@@ -49,7 +49,7 @@ pub fn carries_field(activity: &Activity, name: &str) -> Option<bool> {
 /// Whether `activity`'s streams carry the channel the dictionary calls
 /// `name`; `None` for a name the dictionary does not define.
 #[must_use]
-pub fn carries_channel(activity: &Activity, name: &str) -> Option<bool> {
+fn carries_channel(activity: &Activity, name: &str) -> Option<bool> {
     activity.time_series_data().map_or_else(
         || CHANNELS.contains(&name).then_some(false),
         |series| channel(series, name),

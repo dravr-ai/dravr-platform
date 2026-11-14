@@ -1440,7 +1440,11 @@ async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
         .await
         .expect("the grant's pushes answer the failed session read");
     let ids: Vec<&str> = served.iter().map(Activity::id).collect();
-    assert_eq!(ids, ["20123456789", "18000000001"]);
+    assert_eq!(
+        ids,
+        ["20123456789", "18000000001"],
+        "bug: the grant's pushes did not answer the failed session read, newest first"
+    );
     assert!(
         resources
             .common
@@ -1500,7 +1504,7 @@ async fn a_live_garmin_grant_answers_a_failed_session_read_with_its_pushes() {
 
 /// A grant holder whose Garmin grant is flagged, with the pool full, is
 /// recommended the usr/pwd sign-in: a dead grant alone reads through the
-/// mirror (carnet#1494), so the grant no longer pins the card to its OAuth.
+/// mirror (carnet#1494), so the grant does not pin the card to its OAuth.
 #[tokio::test]
 async fn a_flagged_garmin_grant_alone_is_recommended_the_sign_in_with_the_pool_full() {
     let resources = common::create_test_server_resources_with_config(config_with_garmin_cap(1))

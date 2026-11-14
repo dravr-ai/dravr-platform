@@ -86,6 +86,7 @@ describe('useOnboardingContext', () => {
       needsProviderConnection: true,
       connectProviderRecorded: false,
       skippedProvider: false,
+      skippedSteps: [],
       justOnboarded: false,
       connectProviderDone: false,
       profileTypeChosen: true,
@@ -95,17 +96,40 @@ describe('useOnboardingContext', () => {
       athleteStepsWaived: false,
       coachesOthers: false,
       coachGroupDone: false,
+      coachSeatDone: false,
+      coachGroupCreated: false,
       coachProposalDone: false,
-      messagingAvailableCount: 0,
-      messagingChannelChosen: false,
-      messagingChannelDone: false,
-      messagingConfigureDone: false,
       // The session user does not say, which counts as answered.
       analyticsConsentAnswered: true,
     });
     expect(currentOnboardingStep(result.current.context)?.id).toBe('about_you');
-    // Messaging is post-connect; nothing asks for the channel list before it.
+    // The chat app left the wizard (carnet#1525): the gate never asks which
+    // apps the workspace offers, before the provider gate or after it.
     expect(mockGetAvailableChannels).not.toHaveBeenCalled();
+  });
+
+  it('reads the steps put off from the server rows, and keeps them on the bar as skipped', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({
+      ...status(true),
+      steps: [
+        { step_id: 'profile_type', status: 'complete' },
+        { step_id: 'about_you', status: 'skipped' },
+      ],
+    });
+    await markDone('dravr.profile_type_chosen.', 'dravr.about_you_done.');
+    const { wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingProgress('parq'), { wrapper });
+
+    await waitFor(() => expect(result.current.find((s) => s.id === 'parq')?.status).toBe('current'));
+    expect(result.current.map((s) => s.status)).toEqual([
+      'done',
+      'skipped',
+      'current',
+      'upcoming',
+      'upcoming',
+      'upcoming',
+    ]);
   });
 
   it('asks the usage-analytics question first of a user the server says was never asked (carnet#1366)', async () => {
@@ -137,7 +161,7 @@ describe('useOnboardingContext', () => {
     expect(result.current.context.athleteStepsWaived).toBe(false);
   });
 
-  it('a coach who does not train (local flag) goes from profile type straight to connect', async () => {
+  it('a coach who does not train (local flag) goes from profile type straight to the coach seat', async () => {
     mockGetOnboardingStatus.mockResolvedValue(status(true));
     await markDone('dravr.profile_type_chosen.', 'dravr.athlete_steps_waived.');
     const { wrapper } = setup();
@@ -149,7 +173,7 @@ describe('useOnboardingContext', () => {
       expect(result.current.settled).toBe(true);
     });
     expect(result.current.context.athleteStepsWaived).toBe(true);
-    expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_seat');
   });
 
   it('a coach who does not train (server not_applicable rows, e.g. from chat) skips the athlete steps on a new device', async () => {
@@ -166,7 +190,8 @@ describe('useOnboardingContext', () => {
     const { result } = renderHook(() => useOnboardingContext(), { wrapper });
 
     await waitFor(() => expect(result.current.context.athleteStepsWaived).toBe(true));
-    expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_seat');
   });
 
   it('asks the check-in cadence after the PAR-Q, unless the server says it was answered', async () => {
@@ -386,9 +411,33 @@ describe('useOnboardingProgress', () => {
     );
   });
 
-  it('a coach who has connected is routed to the group step, until they finish or put it off', async () => {
+  it('a coach who has connected is routed to the seat, then the group, then its invite', async () => {
     mockGetOnboardingStatus.mockResolvedValue({ ...status(false), coaches_others: true });
     await markDone('dravr.coach_proposal_done.');
+    const { client, wrapper } = setup();
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => {
+      expect(result.current.context.coachesOthers).toBe(true);
+      expect(result.current.settled).toBe(true);
+    });
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_seat');
+
+    act(() => {
+      client.setQueryData(['onboarding-flag', 'dravr.coach_seat_done.', 'u1'], true);
+    });
+    await waitFor(() => expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_group'));
+
+    act(() => {
+      client.setQueryData(['coach-group-created', 'u1'], true);
+    });
+    await waitFor(() => expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_invite'));
+  });
+
+  it('a seat passed on this device stays passed', async () => {
+    mockGetOnboardingStatus.mockResolvedValue({ ...status(false), coaches_others: true });
+    await markDone('dravr.coach_proposal_done.', 'dravr.coach_seat_done.');
     const { wrapper } = setup();
 
     const { result } = renderHook(() => useOnboardingContext(), { wrapper });
@@ -397,10 +446,11 @@ describe('useOnboardingProgress', () => {
       expect(result.current.context.coachesOthers).toBe(true);
       expect(result.current.settled).toBe(true);
     });
+    expect(result.current.context.coachSeatDone).toBe(true);
     expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_group');
   });
 
-  it('a coach who does not train is offered connect first, and skipping it routes to the group', async () => {
+  it('a coach who does not train is never offered connect: the seat comes first, then the group', async () => {
     mockGetOnboardingStatus.mockResolvedValue({
       ...status(true),
       coaches_others: true,
@@ -415,16 +465,16 @@ describe('useOnboardingProgress', () => {
       expect(result.current.context.athleteStepsWaived).toBe(true);
       expect(result.current.settled).toBe(true);
     });
-    // The group flag loaded rather than failing open, so the group is still ahead.
+    // The group and seat flags loaded rather than failing open, so both are still ahead.
     expect(result.current.context.coachGroupDone).toBe(false);
-    expect(currentOnboardingStep(result.current.context)?.id).toBe('connect_provider');
+    expect(result.current.context.coachSeatDone).toBe(false);
+    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_seat');
 
     act(() => {
-      client.setQueryData(['provider-skipped', 'u1'], true);
+      client.setQueryData(['onboarding-flag', 'dravr.coach_seat_done.', 'u1'], true);
     });
 
-    await waitFor(() => expect(result.current.context.skippedProvider).toBe(true));
-    expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_group');
+    await waitFor(() => expect(currentOnboardingStep(result.current.context)?.id).toBe('coach_group'));
   });
 
   it('a group step recorded on the server is done on a new device', async () => {

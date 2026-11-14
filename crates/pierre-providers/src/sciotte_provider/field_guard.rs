@@ -147,8 +147,16 @@ mod tests {
             &scraped(SciotteTarget::Strava.scraper_provider_name(), &words),
             SciotteTarget::Strava,
         );
-        assert_eq!(strava.description(), Some("Texte test"));
-        assert_eq!(strava.private_note(), Some("Note test"));
+        assert_eq!(
+            strava.description(),
+            Some("Texte test"),
+            "bug: a Strava capture lost the athlete's description"
+        );
+        assert_eq!(
+            strava.private_note(),
+            Some("Note test"),
+            "bug: a Strava capture lost the athlete's private note"
+        );
         for target in [
             SciotteTarget::Garmin,
             SciotteTarget::TrainingPeaks,
