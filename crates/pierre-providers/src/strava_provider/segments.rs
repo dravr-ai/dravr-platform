@@ -15,7 +15,7 @@ use chrono::{DateTime, Utc};
 
 use super::{f32_to_u32, StravaProvider};
 use crate::constants::oauth_providers;
-use crate::core::{SegmentEffortHit, SegmentEffortWindow};
+use crate::core::{segment_listing_refused, SegmentEffortHit, SegmentEffortWindow};
 use crate::errors::{AppError, AppResult};
 use crate::models::{resolve_sport_type, SegmentEffort, SportType};
 use crate::strava_types::StravaSegmentEffort;
@@ -48,9 +48,10 @@ impl StravaProvider {
     ///
     /// # Errors
     /// `InvalidInput` for a segment id that is not a number or a window that
-    /// ends before it starts, before any request; the request's own error
-    /// otherwise; and an external-service error for a segment with more
-    /// efforts in the window than [`MAX_PAGES`] pages hold.
+    /// ends before it starts, before any request; Strava refusing the athlete
+    /// the listing ([`listing_refusal`]); the request's own error otherwise;
+    /// and an external-service error for a segment with more efforts in the
+    /// window than [`MAX_PAGES`] pages hold.
     pub(super) async fn list_segment_efforts(
         &self,
         segment_id: &str,
@@ -68,7 +69,10 @@ impl StravaProvider {
         let mut hits = Vec::new();
         for page in 1..=MAX_PAGES {
             let rows: Vec<StravaSegmentEffort> = self
-                .api_request(&segment_efforts_endpoint(segment, window, page))
+                .api_request_reading(
+                    &segment_efforts_endpoint(segment, window, page),
+                    listing_refusal,
+                )
                 .await?;
             hits.extend(rows.iter().filter_map(convert_hit));
             if rows.len() < EFFORTS_PER_PAGE {
@@ -82,6 +86,17 @@ impl StravaProvider {
                 EFFORTS_PER_PAGE * MAX_PAGES as usize
             ),
         ))
+    }
+}
+
+/// Strava's reading of a non-success answer to the listing: a `402` or a
+/// `403` is Strava refusing this athlete the listing, which needs a
+/// subscription ([`segment_listing_refused`]); anything else reads as any
+/// other request's answer does ([`StravaProvider::missing_resource`]).
+fn listing_refusal(status: reqwest::StatusCode, text: &str, url: &str) -> Option<AppError> {
+    match status.as_u16() {
+        code @ (402 | 403) => Some(segment_listing_refused(oauth_providers::STRAVA, code)),
+        _ => StravaProvider::missing_resource(status, text, url),
     }
 }
 

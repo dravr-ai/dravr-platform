@@ -16,9 +16,10 @@
 //! Any failure falls through to the stored details: a transport the
 //! provider's terms keep its data off (the governed provider refuses before
 //! any request), a dead grant, a spent budget, Strava refusing the listing to
-//! a non-subscriber. An external-service failure of the listing is
-//! remembered for the athlete for a day ([`REFUSAL_MEMO`], [`provider_refused`]),
-//! so a non-subscriber spends one listing a day, not one a call.
+//! a non-subscriber. Only that last refusal is remembered, for the athlete
+//! and the backend, for a day ([`REFUSAL_MEMO`], [`provider_refused`]), so a
+//! non-subscriber spends one listing a day, not one a call; a mistyped
+//! segment id or a failing Strava never keeps the athlete off it.
 //!
 //! **The stored details.** Every stored copy of the athlete's Strava
 //! activities in the window, under the keys their history is held under and
@@ -48,7 +49,7 @@ use chrono_tz::Tz;
 use lru::LruCache;
 use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::constants::oauth::providers::{companion_keys, STRAVA};
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::coverage::{Completeness, IncompleteReason, Pending};
 use pierre_core::models::{Activity, SegmentEffort, TenantId};
 use pierre_core::text_fold::fold_for_match;
@@ -56,7 +57,7 @@ use pierre_database::repositories::{CachedRowCursor, CachedRowsQuery};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::activity_origin;
-use pierre_providers::core::{SegmentEffortHit, SegmentEffortWindow};
+use pierre_providers::core::{is_segment_listing_refused, SegmentEffortHit, SegmentEffortWindow};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::training_history_read::{
     history_source_order, history_store_keys, user_timezone,
@@ -114,7 +115,8 @@ const REFUSAL_MEMO_ATHLETES: NonZeroUsize = match NonZeroUsize::new(10_000) {
     None => NonZeroUsize::MIN,
 };
 
-/// When each athlete's live listing through a backend was last refused, by
+/// When each athlete's live listing through a backend was last refused by
+/// the provider ([`provider_refused`]), by
 /// `(athlete, backend)`: in process, bounded, read against
 /// [`REFUSAL_MEMO_TTL`].
 static REFUSAL_MEMO: LazyLock<Mutex<LruCache<(Uuid, String), Instant>>> =
@@ -252,17 +254,19 @@ fn remember_refusal(key: (Uuid, String), now: Instant) {
     }
 }
 
-/// Whether `error` keeps the athlete off the listing for a day: an external
-/// service error, which is how every non-`401` refusal Strava answers
-/// reaches here (a `402` or `403` to a non-subscriber, a `5xx`, a `404`),
-/// and also a request that could not be sent and an open circuit breaker.
-/// The error carries no status to tell those apart, so all of them are
-/// remembered: the stored details still answer. A gate that refused before
-/// any request (this transport, the athlete's consent), a spent budget or
-/// rate limit, a dead grant and an id that is not a number are not
-/// remembered: none says the athlete cannot list.
+/// Whether `error` keeps the athlete off the listing for a day: only the
+/// provider refusing this athlete the listing, which needs a subscription
+/// (Strava's `402` or `403`, [`is_segment_listing_refused`]). It stands for
+/// every segment, so it is worth a day's wait.
+///
+/// Nothing else is: a `404` names a segment id the caller mistyped, a `5xx`,
+/// a request that could not be sent and an open circuit breaker are this
+/// request's, a gate that refused before any request (this transport, the
+/// athlete's consent), a spent budget or rate limit and a dead grant are
+/// read again on their own terms, and an id that is not a number is the
+/// call's. None says the athlete cannot list.
 fn provider_refused(error: &AppError) -> bool {
-    error.code == ErrorCode::ExternalServiceError
+    is_segment_listing_refused(error)
 }
 
 /// The live backend the athlete holds that lists a segment's efforts, among
@@ -771,6 +775,8 @@ crate::declare_security!(GetSegmentHistoryTool => empty);
 
 #[cfg(test)]
 mod tests {
+    use pierre_core::errors::ErrorCode;
+    use pierre_providers::core::segment_listing_refused;
     use serde_json::json;
 
     use super::*;
@@ -907,20 +913,42 @@ mod tests {
     }
 
     #[test]
-    fn only_an_answer_strava_gave_is_remembered() {
-        assert!(provider_refused(&AppError::external_service(
-            STRAVA,
-            "strava API request failed with status 402 Payment Required"
-        )));
-        for gate in [
+    fn only_strava_refusing_the_athlete_the_listing_is_remembered() {
+        for status in [402, 403] {
+            let refused = segment_listing_refused(STRAVA, status);
+            assert!(
+                provider_refused(&refused),
+                "bug: Strava refusing a non-subscriber ({status}) is not remembered"
+            );
+        }
+        for passing in [
+            // What the request itself answered, as `api_error` words it: a
+            // mistyped id, a failing Strava; a request never sent; an open
+            // breaker.
+            AppError::external_service(
+                STRAVA,
+                "Provider strava API error: 404 - strava API request failed with status 404 Not Found",
+            ),
+            AppError::external_service(
+                STRAVA,
+                "Provider strava API error: 500 - strava API request failed with status 500 Internal Server Error",
+            ),
+            AppError::external_service(STRAVA, "Failed to send request: connection refused"),
+            AppError::external_service(
+                "Strava",
+                "Circuit breaker open for provider strava, retry after 30s",
+            ),
+            // Gates that refused before any request, and the call's own.
             AppError::unavailable_over_transport("this data is not available over this interface"),
             AppError::not_found("strava data is withheld from AI"),
             AppError::provider_auth_required(STRAVA),
             AppError::invalid_input("a Strava segment id is a number"),
+            // A plain permission refusal that is not the listing's.
+            AppError::new(ErrorCode::PermissionDenied, "not on the roster"),
         ] {
             assert!(
-                !provider_refused(&gate),
-                "bug: a refusal no listing answered keeps the athlete off it: {gate}"
+                !provider_refused(&passing),
+                "bug: an error that says nothing of the athlete keeps them off the listing: {passing:?}"
             );
         }
     }

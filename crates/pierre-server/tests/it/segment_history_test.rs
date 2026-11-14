@@ -976,6 +976,67 @@ async fn the_live_listing_is_kept_off_mcp_and_answers_the_athletes_own_app() {
     );
 }
 
+/// Strava's `404` to the listing is a segment id the caller mistyped, not the
+/// athlete being refused the listing: the next ask lists live again, and a
+/// `403`, which is the athlete's, is remembered like a `402`.
+#[tokio::test]
+async fn only_strava_refusing_the_athlete_keeps_them_off_the_listing() {
+    let (resources, mock, user_id, tenant) = walked_athlete(Listing::Status(404)).await;
+    let mistyped = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_id": "999999" }),
+    )
+    .await;
+    assert_eq!(
+        mistyped["answered_by"], "stored_details",
+        "bug: a listing Strava answered 404 to answered live: {mistyped}"
+    );
+    assert_eq!(mock.listings(), 1, "the mistyped id was listed once");
+
+    *mock.listing.lock().unwrap() = Listing::Efforts(listed_efforts());
+    let live = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_id": LA_BETE_ID }),
+    )
+    .await;
+    assert_eq!(
+        mock.listings(),
+        2,
+        "bug: a 404 for a mistyped segment id kept the athlete off the listing"
+    );
+    assert_eq!(
+        live["answered_by"], "live_segment_history",
+        "bug: a 404 for another segment kept this one off the listing: {live}"
+    );
+
+    *mock.listing.lock().unwrap() = Listing::Status(403);
+    call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_id": OTHER_ID }),
+    )
+    .await;
+    assert_eq!(mock.listings(), 3, "the 403 was asked once");
+    *mock.listing.lock().unwrap() = Listing::Efforts(listed_efforts());
+    let after_refusal = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_id": LA_BETE_ID }),
+    )
+    .await;
+    assert_eq!(
+        mock.listings(),
+        3,
+        "bug: Strava refusing the athlete the listing (403) is asked again within the day"
+    );
+    assert_eq!(
+        after_refusal["answered_by"], "stored_details",
+        "{after_refusal}"
+    );
+}
+
 /// A segment's name is written by whoever created it on Strava: it reaches
 /// the model as one defanged line.
 #[tokio::test]

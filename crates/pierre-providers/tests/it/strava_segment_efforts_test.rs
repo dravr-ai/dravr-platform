@@ -12,7 +12,9 @@
 //! the request the provider sends is the one asserted, query string and all.
 
 use chrono::{Duration, NaiveDate, Utc};
-use pierre_providers::core::{FitnessProvider, OAuth2Credentials, SegmentEffortWindow};
+use pierre_providers::core::{
+    is_segment_listing_refused, FitnessProvider, OAuth2Credentials, SegmentEffortWindow,
+};
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::models::SportType;
 use pierre_providers::strava_provider::StravaProvider;
@@ -276,4 +278,32 @@ async fn a_segment_id_that_is_not_a_number_is_refused_before_any_request() {
         err.message.contains("segment id is a number"),
         "bug: the refusal is the id's, not the provider's: {err}"
     );
+}
+
+/// Strava answers a non-subscriber's listing `402` (or `403`): that refusal
+/// is the athlete's, and stands for every segment, so it is told apart from
+/// a failure of this one request. Anything else Strava answers is not it.
+#[tokio::test]
+async fn only_strava_refusing_the_athlete_the_listing_reads_as_that_refusal() {
+    for (status, refused) in [
+        ("402 Payment Required", true),
+        ("403 Forbidden", true),
+        ("404 Not Found", false),
+        ("500 Internal Server Error", false),
+        ("503 Service Unavailable", false),
+    ] {
+        let (base_url, served) = stub(vec![(status, r#"{"message":"no"}"#.to_owned())]).await;
+        let err = provider(base_url)
+            .await
+            .segment_effort_history("611413", window())
+            .await
+            .expect_err("a non-success status is a failure");
+        served.await.unwrap();
+        assert_eq!(
+            is_segment_listing_refused(&err),
+            refused,
+            "bug: Strava's {status} to the listing read as refused={}: {err:?}",
+            !refused
+        );
+    }
 }

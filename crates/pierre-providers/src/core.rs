@@ -125,7 +125,7 @@
 
 use crate::backend_resolver::user_facing_name;
 use crate::delegation::{CoachRoster, DelegatedReads};
-use crate::errors::{AppError, AppResult};
+use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
     SegmentEffort, SportType, Stats, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
@@ -787,6 +787,49 @@ pub fn segment_effort_history_unsupported(provider: &str) -> AppError {
         "{} does not list a segment's efforts",
         user_facing_name(provider)
     ))
+}
+
+/// The details key marking [`segment_listing_refused`], holding the status
+/// the provider answered.
+const SEGMENT_LISTING_REFUSED: &str = "segment_listing_refused";
+
+/// The provider's refusal to list this athlete a segment's efforts at all:
+/// Strava answers a `402` (or a `403`) to an athlete whose subscription does
+/// not cover the listing.
+///
+/// It is the athlete's, whatever segment was asked, so a caller may remember
+/// it and stop asking for a while ([`is_segment_listing_refused`]). It is
+/// deliberately not the generic external-service error every other status
+/// maps to: a `404` for a segment id the caller mistyped, a `5xx`, a request
+/// that could not be sent or an open circuit breaker says nothing of the
+/// athlete, and must not keep them off the listing.
+#[must_use]
+pub fn segment_listing_refused(provider: &str, status: u16) -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        format!(
+            "{} refused to list this athlete's segment efforts (status {status})",
+            user_facing_name(provider)
+        ),
+    );
+    let mut details = serde_json::Map::new();
+    details.insert(
+        SEGMENT_LISTING_REFUSED.to_owned(),
+        serde_json::Value::from(status),
+    );
+    error.details = Some(Box::new(serde_json::Value::Object(details)));
+    error
+}
+
+/// Whether `error` is the provider refusing the athlete the segment-effort
+/// listing ([`segment_listing_refused`]), never any other failure of it.
+#[must_use]
+pub fn is_segment_listing_refused(error: &AppError) -> bool {
+    error.code == ErrorCode::PermissionDenied
+        && error
+            .details
+            .as_ref()
+            .is_some_and(|details| details.get(SEGMENT_LISTING_REFUSED).is_some())
 }
 
 /// The calendar days a segment's efforts are listed over, both included, in
