@@ -33,8 +33,8 @@ pub(crate) use walk_statements::{
 
 /// A detail walk asked again while one is owed
 mod detail_walk;
-pub use detail_walk::WalkWiden;
-pub(crate) use detail_walk::WIDEN_DETAIL_WALK_SQL;
+pub use detail_walk::{DetailWalkEnd, WalkWiden};
+pub(crate) use detail_walk::{END_DETAIL_WALK_SQL, WIDEN_DETAIL_WALK_SQL};
 /// The statements of a row's life past its record
 mod job_statements;
 pub(crate) use job_statements::{
@@ -230,8 +230,10 @@ pub enum BackfillJobState {
     /// kept to say so ([`ActivityBackfillJobRepository::end_backfill_job_incomplete`]):
     /// a history walk whose session expired mid-copy.
     Incomplete,
-    /// A history walk reached the end of the athlete's history, and its row
-    /// was kept to say so ([`ActivityBackfillJobRepository::end_history_walk`]).
+    /// A walk reached the end of what it walks, and its row was kept to say
+    /// so: a history walk the end of the athlete's history
+    /// ([`ActivityBackfillJobRepository::end_history_walk`]), a detail walk
+    /// its window's floor ([`ActivityBackfillJobRepository::end_detail_walk`]).
     Walked,
     /// A purge of the grant a history walk's API phase was paging took that
     /// phase while it was owed. The row is still the walk of the pair: a step
@@ -440,6 +442,21 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
         provider: &str,
         widen: &WalkWiden,
     ) -> AppResult<bool>;
+
+    /// A [`BackfillJobKind::DetailWalk`]'s last step passed the floor it
+    /// walked to: add `end` to the row's progress and keep the row, released,
+    /// as [`BackfillJobState::Walked`], with its floor, what it read and what
+    /// it stored. Returns the progress the row ended on, or `None` when the
+    /// row was not ended: this lease no longer holds it, or an ask widened
+    /// its floor below `end.walked_floor` meanwhile
+    /// ([`Self::widen_detail_walk`]). In the second case the lease still
+    /// holds the owed row, so the step writes its progress
+    /// ([`Self::record_job_progress`]) and the next step walks on down.
+    async fn end_detail_walk(
+        &self,
+        lease: &JobLease,
+        end: &DetailWalkEnd,
+    ) -> AppResult<Option<JobProgress>>;
 
     /// A history walk's last step landed: add `step` to the row's progress
     /// and keep the row, released, as [`BackfillJobState::Walked`] — never
@@ -967,6 +984,29 @@ macro_rules! impl_activity_backfill_job_repository {
                             AppError::database(format!("Failed to widen a detail walk: {e}"))
                         })?;
                 Ok(widened.rows_affected() == 1)
+            }
+
+            async fn end_detail_walk(
+                &self,
+                lease: &JobLease,
+                end: &$crate::repositories::activity_backfill_jobs::DetailWalkEnd,
+            ) -> AppResult<Option<JobProgress>> {
+                let row =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::END_DETAIL_WALK_SQL)
+                        .bind(&lease.id)
+                        .bind(&lease.token)
+                        .bind(end.before_ts)
+                        .bind(end.units_done)
+                        .bind(end.rows_landed)
+                        .bind(end.secs_per_unit)
+                        .bind(end.walked_floor)
+                        .bind(walked_outcome())
+                        .fetch_optional(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to end a detail walk: {e}"))
+                        })?;
+                row.as_ref().map(job_progress_from_row).transpose()
             }
 
             async fn end_history_walk(
