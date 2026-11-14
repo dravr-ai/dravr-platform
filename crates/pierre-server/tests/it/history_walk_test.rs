@@ -882,6 +882,7 @@ pub(crate) fn job_row(
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     }
 }
 

@@ -190,6 +190,7 @@ fn job(fx: &Fixture, provider: &str, conversation_id: Option<&str>) -> ActivityB
         kind: BackfillJobKind::Backfill,
         turn_id: None,
         asked_message_id: None,
+        walk_sport: None,
     }
 }
 
@@ -223,6 +224,7 @@ fn seeded_row(
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     }
 }
 

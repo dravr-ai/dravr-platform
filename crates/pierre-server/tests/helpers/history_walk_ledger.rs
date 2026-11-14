@@ -48,6 +48,7 @@ pub(crate) async fn owe_history_walk(
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         repos

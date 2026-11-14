@@ -636,6 +636,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         kind: BackfillJobKind::Backfill,
                         turn_id: None,
                         asked_message_id: None,
+                    walk_sport: None,
                     };
                     match backfill_inline_and_serve(job, &coverage_params, before).await {
                         InlineHistoricalServe::AuthRequired => {
@@ -674,6 +675,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         kind: BackfillJobKind::Backfill,
                         turn_id: None,
                         asked_message_id: None,
+                    walk_sport: None,
                     })
                     .await;
                     // `started == false` means a backfill for this window is

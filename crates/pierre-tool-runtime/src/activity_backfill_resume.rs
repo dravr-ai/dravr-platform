@@ -229,6 +229,7 @@ async fn job_from_row(
         kind: row.kind,
         turn_id: row.turn_id,
         asked_message_id: row.asked_message_id,
+        walk_sport: row.walk_sport,
     }
 }
 

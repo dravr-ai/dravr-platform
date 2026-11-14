@@ -208,6 +208,7 @@ pub async fn start_history_walk(
         kind: BackfillJobKind::HistoryWalk,
         turn_id: None,
         asked_message_id: None,
+        walk_sport: None,
     })
     .await;
     info!(
@@ -755,6 +756,7 @@ fn phase_reading(
         kind: BackfillJobKind::HistoryWalk,
         turn_id: None,
         asked_message_id: None,
+        walk_sport: None,
     }
 }
 

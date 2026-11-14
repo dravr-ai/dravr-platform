@@ -52,6 +52,7 @@ fn owed_row(tenant: TenantId, user: Uuid, kind: BackfillJobKind) -> ActivityBack
         turn_id: Some("turn-1".to_owned()),
         asked_message_id: Some("message-1".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     }
 }
 
@@ -775,5 +776,60 @@ async fn a_kind_from_a_newer_build_is_left_to_it() {
     assert!(
         reaped.iter().all(|row| row.id != newer.id),
         "bug: a reap deletes a row of a kind only a newer build can run"
+    );
+}
+
+/// A detail walk is a fourth kind beside the others, and it keeps the sport
+/// it was asked for through the claim and the reap: the step that reads its
+/// window filters on it.
+#[tokio::test]
+async fn a_detail_walk_is_its_own_row_and_keeps_its_sport() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let walk = owed_row(tenant, user, BackfillJobKind::HistoryWalk);
+    let detail = ActivityBackfillJobRow {
+        walk_sport: Some("Ride".to_owned()),
+        ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
+    };
+    for row in [&walk, &detail] {
+        assert!(
+            ledger.record_backfill_job(row).await.unwrap(),
+            "bug: the {} row is recorded beside the other kinds",
+            row.kind
+        );
+    }
+
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let taken = claimed
+        .iter()
+        .find(|row| row.id == detail.id)
+        .expect("bug: a detail walk is a kind this build claims");
+    assert_eq!(
+        taken.kind,
+        BackfillJobKind::DetailWalk,
+        "bug: the kind round-trips"
+    );
+    assert_eq!(
+        taken.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the claim returns the sport the walk was asked for"
+    );
+    let other = claimed.iter().find(|row| row.id == walk.id).unwrap();
+    assert_eq!(other.walk_sport, None, "bug: a history walk has no sport");
+
+    let reaped = ledger
+        .reap_exhausted_backfill_jobs(now_ms() + 60 * 60_000, 0)
+        .await
+        .unwrap();
+    let gone = reaped
+        .iter()
+        .find(|row| row.id == detail.id)
+        .expect("bug: an exhausted detail walk is reaped");
+    assert_eq!(
+        gone.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the reaped row names its sport"
     );
 }

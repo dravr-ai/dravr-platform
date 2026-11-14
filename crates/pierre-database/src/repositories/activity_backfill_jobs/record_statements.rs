@@ -9,13 +9,15 @@
 /// `rows_affected` tells the caller so. A row that only records an ended job
 /// is replaced whole by the new one, but only by an ask in the row's own
 /// tenant: an ask from another tenant never overwrites what this tenant's
-/// card reads. A history walk a purge left owed a reopen (`$20`) is not an
+/// card reads. A history walk a purge left owed a reopen (`$21`) is not an
 /// ended job: a step may still hold it, and it is never replaced.
 pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_jobs \
      (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
-      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
+      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id, \
+      walk_sport) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, \
+             $20) \
      ON CONFLICT (user_id, provider, kind) DO UPDATE SET \
        id = excluded.id, tenant_id = excluded.tenant_id, after_ts = excluded.after_ts, \
        before_ts = excluded.before_ts, fetch_limit = excluded.fetch_limit, \
@@ -25,9 +27,9 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
        months_done = excluded.months_done, rows_landed = excluded.rows_landed, \
        secs_per_unit = excluded.secs_per_unit, turn_id = excluded.turn_id, \
        asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL, \
-       next_attempt_ms = 0 \
+       next_attempt_ms = 0, walk_sport = excluded.walk_sport \
      WHERE activity_backfill_jobs.outcome IS NOT NULL \
-       AND activity_backfill_jobs.outcome <> $20 \
+       AND activity_backfill_jobs.outcome <> $21 \
        AND activity_backfill_jobs.tenant_id = excluded.tenant_id";
 
 /// A live read asked again while one is owed answers the newest ask: the
@@ -45,8 +47,10 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
 pub(crate) const RECORD_LIVE_READ_SQL: &str = "INSERT INTO activity_backfill_jobs \
      (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
-      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id) \
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19) \
+      months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id, \
+      walk_sport) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, \
+             $20) \
      ON CONFLICT (user_id, provider, kind) DO UPDATE SET \
        conversation_id = excluded.conversation_id, turn_id = excluded.turn_id, \
        asked_message_id = excluded.asked_message_id \

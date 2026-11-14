@@ -577,6 +577,7 @@ async fn other_tenants_read(runtime: &Arc<dyn ToolRuntime>, user_id: Uuid) {
         turn_id: Some("turn-other".to_owned()),
         asked_message_id: Some("msg-other".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         runtime
@@ -1176,6 +1177,7 @@ async fn a_reaped_read_still_follows_up_its_ask_once() {
         turn_id: conversation.map(|_| "turn-9".to_owned()),
         asked_message_id: conversation.map(|_| "msg-9".to_owned()),
         walk_backend: None,
+        walk_sport: None,
     };
     let ledger = &runtime.repos().activity_backfill_jobs;
     assert!(

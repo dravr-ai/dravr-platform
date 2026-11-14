@@ -200,6 +200,9 @@ pub struct ActivityBackfillJob {
     /// follow-up answers it only while it is the conversation's newest.
     /// `None` for every other kind, and for a read no stored message asked.
     pub asked_message_id: Option<String>,
+    /// The sport type a [`BackfillJobKind::DetailWalk`] reads, kept on its
+    /// row; `None` for every sport, and for every other kind.
+    pub walk_sport: Option<String>,
 }
 
 impl fmt::Debug for ActivityBackfillJob {
@@ -214,6 +217,7 @@ impl fmt::Debug for ActivityBackfillJob {
             .field("kind", &self.kind)
             .field("turn_id", &self.turn_id)
             .field("asked_message_id", &self.asked_message_id)
+            .field("walk_sport", &self.walk_sport)
             .finish_non_exhaustive()
     }
 }
@@ -411,6 +415,10 @@ fn spawn_backfill_run(
                 run_backfill(&job, recorded).await;
                 history_walk::AfterStep::Settled
             }
+            BackfillJobKind::DetailWalk => {
+                hand_back_unrun(&job, recorded.as_ref()).await;
+                history_walk::AfterStep::Settled
+            }
         };
         release_in_flight(&claim);
         // Asked once the key is free: a walk a purge of its grant left owed
@@ -425,6 +433,18 @@ fn spawn_backfill_run(
         tokio::spawn(in_background(run))
     };
     observe_job_task(task, user_id, provider, kind);
+}
+
+/// A detail walk has no runner in this build yet: its row goes back unrun,
+/// with the attempt its claim counted, for the build that runs it.
+async fn hand_back_unrun(job: &ActivityBackfillJob, recorded: Option<&(JobLease, i64)>) {
+    let Some((lease, _)) = recorded else {
+        return;
+    };
+    let ledger = &job.resources.repos().activity_backfill_jobs;
+    if let Err(e) = ledger.release_backfill_job_claim(lease).await {
+        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Activity job: a detail walk could not be handed back unrun");
+    }
 }
 
 /// Watch a job's task, so a panic in it is logged rather than lost with its
@@ -525,6 +545,7 @@ fn job_row(job: &ActivityBackfillJob) -> ActivityBackfillJobRow {
         turn_id: job.turn_id.clone(),
         asked_message_id: job.asked_message_id.clone(),
         walk_backend: None,
+        walk_sport: job.walk_sport.clone(),
     }
 }
 

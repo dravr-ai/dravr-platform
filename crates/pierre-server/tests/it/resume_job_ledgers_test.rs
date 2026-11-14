@@ -221,6 +221,7 @@ async fn backfill_jobs_are_one_per_user_and_provider_and_resume_after_a_lapsed_l
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         ledger.record_backfill_job(&row).await.unwrap(),

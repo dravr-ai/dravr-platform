@@ -23,11 +23,20 @@ pub enum BackfillJobKind {
     /// A chat read that outran its turn budget. A newer ask while it is owed
     /// rebinds the turn it answers instead of being refused.
     LiveRead,
+    /// The walk that reads, newest first, the stored activities of a window
+    /// whose segment efforts were never read, through a backend that reads
+    /// them. Its unit is an activity, its cursor the row's `before_ts`.
+    DetailWalk,
 }
 
 impl BackfillJobKind {
     /// Every kind this build runs.
-    pub const ALL: [Self; 3] = [Self::Backfill, Self::HistoryWalk, Self::LiveRead];
+    pub const ALL: [Self; 4] = [
+        Self::Backfill,
+        Self::HistoryWalk,
+        Self::LiveRead,
+        Self::DetailWalk,
+    ];
 
     /// The `kind` column value.
     #[must_use]
@@ -36,6 +45,7 @@ impl BackfillJobKind {
             Self::Backfill => "backfill",
             Self::HistoryWalk => "history_walk",
             Self::LiveRead => "live_read",
+            Self::DetailWalk => "detail_walk",
         }
     }
 
@@ -49,6 +59,7 @@ impl BackfillJobKind {
             "backfill" => Ok(Self::Backfill),
             "history_walk" => Ok(Self::HistoryWalk),
             "live_read" => Ok(Self::LiveRead),
+            "detail_walk" => Ok(Self::DetailWalk),
             other => Err(AppError::database(format!(
                 "activity_backfill_jobs kind is not one this build knows: {other}"
             ))),
@@ -62,7 +73,7 @@ impl BackfillJobKind {
 /// with. [`BackfillJobKind::ALL`] and the test beside it keep the two in step.
 macro_rules! known_backfill_job_kinds {
     () => {
-        "('backfill', 'history_walk', 'live_read')"
+        "('backfill', 'history_walk', 'live_read', 'detail_walk')"
     };
 }
 pub(crate) use known_backfill_job_kinds;
@@ -102,7 +113,8 @@ mod tests {
                 // A new variant fails this match until ALL and the list name it.
                 BackfillJobKind::Backfill
                 | BackfillJobKind::HistoryWalk
-                | BackfillJobKind::LiveRead => {}
+                | BackfillJobKind::LiveRead
+                | BackfillJobKind::DetailWalk => {}
             }
         }
     }

@@ -546,6 +546,7 @@ async fn seed_provider_rows(
                 turn_id: None,
                 asked_message_id: None,
                 walk_backend: None,
+                walk_sport: None,
             })
             .await
             .unwrap();
@@ -1573,6 +1574,7 @@ async fn walk_reading_grant(repos: &RepositoryRegistry, user: Uuid, tenant: Tena
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         repos
@@ -2117,6 +2119,7 @@ async fn a_new_walk_ask_never_replaces_a_purged_walk() {
         turn_id: None,
         asked_message_id: None,
         walk_backend: None,
+        walk_sport: None,
     };
     assert!(
         !repos

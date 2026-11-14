@@ -101,5 +101,8 @@ where
         walk_backend: row
             .try_get("walk_backend")
             .map_err(|e| column_error("walk_backend", &e))?,
+        walk_sport: row
+            .try_get("walk_sport")
+            .map_err(|e| column_error("walk_sport", &e))?,
     })
 }
