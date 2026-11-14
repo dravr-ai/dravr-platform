@@ -465,7 +465,14 @@ async fn released_row(resources: &Arc<ServerContext>, user_id: Uuid) -> Option<R
 async fn walk_ended(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
     let deadline = Instant::now() + WALK_DEADLINE;
     loop {
-        steps_settled(resources, user_id, tenant, BackfillJobKind::HistoryWalk, deadline).await;
+        steps_settled(
+            resources,
+            user_id,
+            tenant,
+            BackfillJobKind::HistoryWalk,
+            deadline,
+        )
+        .await;
         let state = walk_state(resources, user_id, tenant, oauth_providers::STRAVA).await;
         if matches!(
             state,
