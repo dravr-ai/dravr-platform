@@ -29,15 +29,17 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::coach_athlete_reads_test::{fixture, ok};
+use crate::coach_athlete_reads_test::{fixture_on, ok};
 use crate::common;
 use crate::detail_walk_test::{alter_walk_row, walk_ended};
 use crate::garmin_sign_in_test::{hold_session as hold_garmin_session, LIVE_SESSION};
-use crate::history_walk_api_test::{server, strava_athlete};
+use crate::history_walk_api_test::{hold_strava_grant, server, strava_athlete};
 
 use std::future::pending;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
+use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
@@ -56,10 +58,16 @@ use pierre_database::repositories::{
     JobProgress,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::request_budget::{
+    budget_counter_key, budget_period, detail_walk_athlete_counter_key, ONE_DAY, PLATFORM_SCOPE,
+};
 use pierre_tool_runtime::activity_detail_store::store_detail;
 use pierre_tool_runtime::incomplete_window::incomplete_window_in_payload;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
-use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::runtime::{
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
+    ToolRuntime,
+};
 use secrecy::SecretString;
 use serde_json::{json, Value};
 use std::time::Duration as StdDuration;
@@ -96,6 +104,9 @@ struct MockStrava {
     listings: Mutex<u32>,
     /// Whether a detail read answers `404` rather than being held.
     details_gone: Mutex<bool>,
+    /// Whether a detail read answers the ride, carrying one effort on the
+    /// climb, rather than being held.
+    details_read: Mutex<bool>,
     /// How many detail reads reached it.
     detail_reads: Mutex<u32>,
 }
@@ -124,14 +135,47 @@ async fn segment_efforts(State(mock): State<Arc<MockStrava>>) -> Result<Json<Val
 /// says the rides are gone, answered `404`, so the walk walks past them.
 async fn held_detail(
     State(mock): State<Arc<MockStrava>>,
-    Path(_id): Path<i64>,
+    Path(id): Path<i64>,
 ) -> Result<Json<Value>, StatusCode> {
     *mock.detail_reads.lock().unwrap() += 1;
     if *mock.details_gone.lock().unwrap() {
         return Err(StatusCode::NOT_FOUND);
     }
+    if *mock.details_read.lock().unwrap() {
+        return Ok(Json(detailed_ride(id)));
+    }
     pending::<()>().await;
     Ok(Json(json!({})))
+}
+
+/// The ride whose Strava id is its start `at`, as Strava's detail read
+/// answers it: one effort on the climb.
+fn detailed_ride(at: i64) -> Value {
+    let stamp = |secs: i64| {
+        Utc.timestamp_opt(secs, 0)
+            .unwrap()
+            .format("%Y-%m-%dT%H:%M:%SZ")
+            .to_string()
+    };
+    json!({
+        "id": at,
+        "name": "Morning ride",
+        "type": "Ride",
+        "sport_type": "Ride",
+        "start_date": stamp(at),
+        "elapsed_time": 3_600,
+        "distance": 30_000.0,
+        "segment_efforts": [{
+            "id": at + 1,
+            "name": LA_BETE,
+            "elapsed_time": 420,
+            "moving_time": 418,
+            "distance": 1_820.5,
+            "start_date": stamp(at + 600),
+            "activity": { "id": at },
+            "segment": { "id": 611_413, "name": LA_BETE, "distance": 1_820.5, "activity_type": "Ride" }
+        }]
+    })
 }
 
 async fn mock_strava(listing: Listing) -> (String, Arc<MockStrava>) {
@@ -139,6 +183,7 @@ async fn mock_strava(listing: Listing) -> (String, Arc<MockStrava>) {
         listing: Mutex::new(listing),
         listings: Mutex::new(0),
         details_gone: Mutex::new(false),
+        details_read: Mutex::new(false),
         detail_reads: Mutex::new(0),
     });
     let app = Router::new()
@@ -201,10 +246,15 @@ fn start(days: i64) -> i64 {
 /// The ride started at `at` as `key` lists it, to build on: the session's
 /// capture names Strava as its source.
 fn ride_builder(key: &str, at: i64) -> ActivityBuilder {
+    sport_builder(key, at, SportType::Ride)
+}
+
+/// The workout of `sport` started at `at` as `key` lists it, to build on.
+fn sport_builder(key: &str, at: i64, sport: SportType) -> ActivityBuilder {
     let built = ActivityBuilder::new(
         at.to_string(),
         "Morning ride",
-        SportType::Ride,
+        sport,
         Utc.timestamp_opt(at, 0).unwrap(),
         3_600,
         key,
@@ -269,10 +319,20 @@ async fn read_segments(
     at: i64,
     efforts: Vec<SegmentEffort>,
 ) {
-    let runtime: Arc<dyn ToolRuntime> = resources.clone();
     let detailed = ride_builder(oauth_providers::STRAVA, at)
         .segment_efforts(efforts)
         .build();
+    store_read(resources, (user_id, tenant), key, &detailed).await;
+}
+
+/// Store `detailed`, a detail read the athlete's `key` listed.
+async fn store_read(
+    resources: &Arc<ServerContext>,
+    (user_id, tenant): (Uuid, TenantId),
+    key: &str,
+    detailed: &Activity,
+) {
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
     assert!(
         store_detail(
             runtime.repos(),
@@ -280,7 +340,7 @@ async fn read_segments(
             tenant,
             user_id,
             key,
-            &detailed,
+            detailed,
         )
         .await,
         "the fixture's detail read was not stored"
@@ -983,6 +1043,10 @@ async fn a_session_only_athlete_reads_segments_unavailable() {
             .is_none(),
         "bug: a walk was asked through a session that reads no efforts"
     );
+    assert!(
+        walk_row(&resources, user_id, tenant).await.is_none(),
+        "bug: a walk was filed under the Strava grant the athlete does not hold"
+    );
 }
 
 /// An athlete whose grant's app is registered at 7 calls a day: its
@@ -1078,39 +1142,51 @@ fn listed_efforts() -> Value {
 }
 
 /// Over MCP the governed provider refuses the listing before any request,
-/// and the stored Strava rows are withheld, so nothing is walked either. The
-/// same athlete's own app then reads the listing live.
+/// and the stored Strava rows are withheld, so no stored effort reaches the
+/// caller and nothing is walked. The same athlete's own app then reads the
+/// listing live, and their stored effort from the stored details.
 #[tokio::test]
 async fn the_live_listing_is_kept_off_mcp_and_answers_the_athletes_own_app() {
     let (resources, mock, user_id, tenant) =
         walked_athlete(Listing::Efforts(listed_efforts())).await;
-    let unread = start(6);
+    let (read, unread) = (start(2), start(6));
     store_rides(
         &resources,
         user_id,
         tenant,
         oauth_providers::STRAVA,
-        &[ride(oauth_providers::STRAVA, unread)],
+        &[
+            ride(oauth_providers::STRAVA, read),
+            ride(oauth_providers::STRAVA, unread),
+        ],
+    )
+    .await;
+    read_segments(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        read,
+        vec![effort(read, LA_BETE_ID, LA_BETE, 412)],
     )
     .await;
 
-    let over_mcp = call_over(
-        &resources,
-        Transport::McpHttp,
-        (user_id, tenant),
+    for ask in [
         json!({ "segment_id": LA_BETE_ID }),
-    )
-    .await;
+        json!({ "segment_name": LA_BETE }),
+    ] {
+        let over_mcp = call_over(&resources, Transport::McpHttp, (user_id, tenant), ask).await;
+        assert!(
+            efforts(&over_mcp).is_empty(),
+            "bug: a stored Strava effort reached an external caller: {over_mcp}"
+        );
+        assert_eq!(over_mcp["answered_by"], "stored_details", "{over_mcp}");
+    }
     assert_eq!(
         mock.listings(),
         0,
         "bug: Strava was asked for its listing over MCP"
     );
-    assert!(
-        efforts(&over_mcp).is_empty(),
-        "bug: a Strava effort reached an external caller: {over_mcp}"
-    );
-    assert_eq!(over_mcp["answered_by"], "stored_details", "{over_mcp}");
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),
         "bug: a walk was asked for rows the transport withheld"
@@ -1139,6 +1215,152 @@ async fn the_live_listing_is_kept_off_mcp_and_answers_the_athletes_own_app() {
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),
         "bug: a complete live answer asks no walk"
+    );
+
+    // Last: the stored details asks a walk of the unread ride.
+    let stored = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+    assert_eq!(stored["answered_by"], "stored_details", "{stored}");
+    let found = efforts(&stored);
+    assert_eq!(
+        found.len(),
+        1,
+        "bug: the athlete's own app does not get their stored effort: {stored}"
+    );
+    assert_eq!(found[0]["activity_id"], read.to_string(), "{stored}");
+}
+
+// ── A sport asked ────────────────────────────────────────────────────────
+
+/// A road ride, a mountain-bike ride and a run, each read and each over the
+/// climb.
+async fn read_three_sports(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> (i64, i64, i64) {
+    let (road, mtb, run) = (start(2), start(4), start(6));
+    for (at, sport) in [
+        (road, SportType::Ride),
+        (mtb, SportType::MountainBike),
+        (run, SportType::Run),
+    ] {
+        let listed = sport_builder(oauth_providers::STRAVA, at, sport.clone()).build();
+        store_rides(
+            resources,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            &[listed],
+        )
+        .await;
+        let detailed = sport_builder(oauth_providers::STRAVA, at, sport)
+            .segment_efforts(vec![effort(at, LA_BETE_ID, LA_BETE, 412)])
+            .build();
+        store_read(
+            resources,
+            (user_id, tenant),
+            oauth_providers::STRAVA,
+            &detailed,
+        )
+        .await;
+    }
+    (road, mtb, run)
+}
+
+/// The ids of the activities the payload's efforts were made in, sorted.
+fn effort_activities(payload: &Value) -> Vec<String> {
+    let mut ids: Vec<String> = efforts(payload)
+        .iter()
+        .map(|e| e["activity_id"].as_str().unwrap_or_default().to_owned())
+        .collect();
+    ids.sort_unstable();
+    ids
+}
+
+/// A sport asked skips the live listing, which cannot filter by sport, and
+/// the stored details keep that sport's family: a ride ask holds the
+/// mountain-bike ride, a mountain-bike ask holds only it, and neither holds
+/// the run.
+#[tokio::test]
+async fn a_sport_asked_reads_its_family_from_the_stored_details() {
+    let (resources, mock, user_id, tenant) =
+        walked_athlete(Listing::Efforts(listed_efforts())).await;
+    let (road, mtb, _run) = read_three_sports(&resources, user_id, tenant).await;
+
+    let rides = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_id": LA_BETE_ID, "sport_type": "Ride" }),
+    )
+    .await;
+    assert_eq!(
+        mock.listings(),
+        0,
+        "bug: a sport asked was answered by the listing, which cannot filter by sport"
+    );
+    assert_eq!(rides["answered_by"], "stored_details", "{rides}");
+    let mut both = vec![road.to_string(), mtb.to_string()];
+    both.sort_unstable();
+    assert_eq!(
+        effort_activities(&rides),
+        both,
+        "bug: a ride ask holds the road and mountain-bike rides, never the run: {rides}"
+    );
+    assert_eq!(
+        rides["coverage"]["window"]["total"], 2,
+        "bug: the window counts only the sport asked: {rides}"
+    );
+
+    let mtb_only = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE, "sport_type": "MountainBikeRide" }),
+    )
+    .await;
+    assert_eq!(
+        effort_activities(&mtb_only),
+        vec![mtb.to_string()],
+        "bug: a mountain-bike ask holds only the mountain-bike ride: {mtb_only}"
+    );
+    assert_eq!(mtb_only["coverage"]["window"]["total"], 1, "{mtb_only}");
+}
+
+/// The walk a sport's ask records reads that sport.
+#[tokio::test]
+async fn the_walk_a_sport_asks_reads_that_sport() {
+    let (resources, _mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(5))],
+    )
+    .await;
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE, "sport_type": "Ride" }),
+    )
+    .await;
+
+    assert_eq!(
+        payload["coverage"]["incomplete_reason"], "segment_detail_walking",
+        "{payload}"
+    );
+    let row = walk_row(&resources, user_id, tenant)
+        .await
+        .expect("bug: no walk was asked for the unread ride");
+    assert_eq!(
+        row.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the walk a ride ask records reads every sport: {row:?}"
     );
 }
 
@@ -1366,52 +1588,127 @@ async fn a_default_window_asked_the_next_day_stands_on_the_walk_that_ended() {
 
 // ── A coach's read ───────────────────────────────────────────────────────
 
+/// Every detail walk's end the athlete was told: who, through which backend,
+/// and how many activities.
+#[derive(Default)]
+struct Told {
+    walks: Mutex<Vec<(Uuid, String, usize)>>,
+}
+
+#[async_trait]
+impl BackfillNotifier for Told {
+    async fn push_backfill_complete(&self, _: BackfillCompletion<'_>) {}
+
+    async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, completion: DetailWalkCompletion<'_>) {
+        self.walks.lock().unwrap().push((
+            completion.user_id,
+            completion.provider.to_owned(),
+            completion.activity_count,
+        ));
+    }
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
+        0
+    }
+}
+
+/// `resources` telling the athlete through `told`.
+fn telling(resources: &Arc<ServerContext>, told: &Arc<Told>) -> Arc<ServerContext> {
+    let mut context = (**resources).clone();
+    let notifier: Arc<dyn BackfillNotifier> = told.clone();
+    context.mcp.backfill_notifier = Some(notifier);
+    Arc::new(context)
+}
+
+/// The athlete's detail walk once it ended, its own run left to end it.
+async fn walk_ran_out(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> DetailWalkRow {
+    let deadline = Instant::now() + StdDuration::from_secs(20);
+    loop {
+        let row = walk_row(resources, user_id, tenant).await;
+        if let Some(row) = row.filter(|row| row.state != BackfillJobState::Owed) {
+            return row;
+        }
+        assert!(Instant::now() < deadline, "the athlete's walk did not end");
+        sleep(StdDuration::from_millis(50)).await;
+    }
+}
+
+/// The calls the athlete's detail walk took today from its own day window.
+async fn walk_calls_today(resources: &Arc<ServerContext>, user_id: Uuid) -> i64 {
+    resources
+        .common
+        .repos
+        .usage_counters
+        .get_counter(
+            PLATFORM_SCOPE,
+            PLATFORM_SCOPE,
+            &detail_walk_athlete_counter_key(
+                &budget_counter_key(oauth_providers::STRAVA, "walk_client"),
+                user_id,
+            ),
+            &budget_period(Utc::now(), ONE_DAY),
+        )
+        .await
+        .unwrap()
+        .value
+}
+
 /// In the coach's thread about an athlete, the tool reads the athlete's
-/// stored rides and none of the coach's.
+/// stored rides and none of the coach's, and what it asks is the athlete's:
+/// the walk of their unread ride, its calls out of their day window, and
+/// the one post when it ends. The coach, who holds a grant and an unread
+/// ride of their own, gets none of it.
 #[tokio::test]
 async fn a_coach_reads_the_athletes_segment_history_in_their_thread() {
-    let f = fixture().await;
-    let at = start(3);
-    let repos = f.repos();
-    repos
-        .activity_cache
-        .upsert_activities(
-            f.athlete.id,
-            &f.athlete.tenant,
+    let (base, mock) = mock_strava(Listing::Status(402)).await;
+    *mock.details_read.lock().unwrap() = true;
+    let told = Arc::new(Told::default());
+    let f = fixture_on(telling(&server(&base, 1_000).await, &told)).await;
+    let athlete = (f.athlete.id, f.athlete.tenant);
+    let coach = (f.coach.id, f.coach.tenant);
+    let (at, unread) = (start(3), start(8));
+    let (coach_at, coach_unread) = (start(4), start(9));
+    for ((user_id, tenant), read, unread, elapsed) in [
+        (athlete, at, unread, 412),
+        (coach, coach_at, coach_unread, 999),
+    ] {
+        hold_strava_grant(&f.res, user_id, tenant).await;
+        stored_to_its_end(&f.res, user_id, tenant, oauth_providers::STRAVA).await;
+        store_rides(
+            &f.res,
+            user_id,
+            tenant,
             oauth_providers::STRAVA,
-            &[ride(oauth_providers::STRAVA, at)],
+            &[
+                ride(oauth_providers::STRAVA, read),
+                ride(oauth_providers::STRAVA, unread),
+            ],
         )
-        .await
-        .unwrap();
-    read_segments(
-        &f.res,
-        f.athlete.id,
-        f.athlete.tenant,
-        oauth_providers::STRAVA,
-        at,
-        vec![effort(at, LA_BETE_ID, LA_BETE, 412)],
-    )
-    .await;
-    let coach_at = start(4);
-    repos
-        .activity_cache
-        .upsert_activities(
-            f.coach.id,
-            &f.coach.tenant,
+        .await;
+        read_segments(
+            &f.res,
+            user_id,
+            tenant,
             oauth_providers::STRAVA,
-            &[ride(oauth_providers::STRAVA, coach_at)],
+            read,
+            vec![effort(read, LA_BETE_ID, LA_BETE, elapsed)],
         )
-        .await
-        .unwrap();
-    read_segments(
-        &f.res,
-        f.coach.id,
-        f.coach.tenant,
-        oauth_providers::STRAVA,
-        coach_at,
-        vec![effort(coach_at, LA_BETE_ID, LA_BETE, 999)],
-    )
-    .await;
+        .await;
+    }
 
     let payload = ok(
         f.in_thread(TOOL, json!({ "segment_name": LA_BETE })).await,
@@ -1424,5 +1721,37 @@ async fn a_coach_reads_the_athletes_segment_history_in_their_thread() {
         found[0]["activity_id"],
         at.to_string(),
         "bug: the coach's own ride was read in their thread about the athlete: {payload}"
+    );
+    assert_eq!(
+        payload["coverage"]["window"]["total"], 2,
+        "bug: the window counts the athlete's two rides: {payload}"
+    );
+    assert!(
+        walk_row(&f.res, coach.0, coach.1).await.is_none(),
+        "bug: the walk of the athlete's ride was filed under the coach"
+    );
+    let ended = walk_ran_out(&f.res, athlete.0, athlete.1).await;
+    assert_eq!(
+        ended.progress.rows_landed, 1,
+        "bug: the walk did not read the athlete's unread ride: {ended:?}"
+    );
+    assert!(
+        walk_row(&f.res, coach.0, coach.1).await.is_none(),
+        "bug: a walk was filed under the coach"
+    );
+    assert_eq!(
+        walk_calls_today(&f.res, athlete.0).await,
+        1,
+        "bug: the walk's call was not taken from the athlete's day window"
+    );
+    assert_eq!(
+        walk_calls_today(&f.res, coach.0).await,
+        0,
+        "bug: the walk's call was taken from the coach's day window"
+    );
+    assert_eq!(
+        *told.walks.lock().unwrap(),
+        vec![(athlete.0, oauth_providers::STRAVA.to_owned(), 1)],
+        "bug: the walk's end was told to someone other than the athlete, or not once"
     );
 }
