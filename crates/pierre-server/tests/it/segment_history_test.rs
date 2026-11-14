@@ -709,41 +709,72 @@ async fn a_window_deeper_than_the_stored_history_reports_the_history_walk_first(
 }
 
 /// The Strava history is short of the window and no walk of it is owed: the
-/// tool only reads, so it starts none, and the window reads as its segments
-/// stand. A history walk is started where a read finds the depth missing
-/// (`get_activities`), never by a segment's ask.
+/// window is not the athlete's whole history, however complete its segments
+/// read, so the tool asks the Strava history walk a read finding the depth
+/// missing asks, and says so before anything about its segments. Over MCP,
+/// where the transport withholds the rows, it asks none.
 #[tokio::test]
-async fn a_window_deeper_than_the_history_with_no_walk_owed_starts_none() {
+async fn a_window_deeper_than_the_history_with_no_walk_owed_asks_the_strava_walk() {
     let (base, _mock) = mock_strava(Listing::Status(402)).await;
     let resources = server(&base, 1_000).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
+    let at = start(5);
     store_rides(
         &resources,
         user_id,
         tenant,
         oauth_providers::STRAVA,
-        &[ride(oauth_providers::STRAVA, start(5))],
+        &[ride(oauth_providers::STRAVA, at)],
     )
     .await;
-
-    let payload = call(
+    read_segments(
         &resources,
-        (user_id, tenant),
-        json!({ "segment_name": LA_BETE }),
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        at,
+        vec![effort(at, LA_BETE_ID, LA_BETE, 412)],
     )
     .await;
+    let ask = json!({ "segment_name": LA_BETE });
 
-    let coverage = &payload["coverage"];
-    assert_eq!(
-        coverage["incomplete_reason"], "segment_detail_walking",
-        "bug: with no history walk owed the window reads as its segments stand: {coverage}"
-    );
+    call_over(
+        &resources,
+        Transport::McpHttp,
+        (user_id, tenant),
+        ask.clone(),
+    )
+    .await;
     for key in [oauth_providers::STRAVA, SESSION] {
         assert!(
             !history_walk_under(&resources, user_id, tenant, key).await,
-            "bug: a segment's ask started a history walk under {key}"
+            "bug: an ask over MCP, whose rows the transport withholds, started a history walk under {key}"
         );
     }
+
+    let payload = call(&resources, (user_id, tenant), ask).await;
+
+    let coverage = &payload["coverage"];
+    assert_eq!(
+        coverage["complete"], false,
+        "bug: five days of stored history read as a whole ten-year window: {coverage}"
+    );
+    assert_eq!(
+        coverage["incomplete_reason"], "history_walk_running",
+        "bug: a window the stored history does not reach reads as its segments stand: {coverage}"
+    );
+    assert_eq!(
+        coverage["pending"]["kind"], "history_not_walked",
+        "bug: the Strava history walk the ask started is not reported: {coverage}"
+    );
+    assert!(
+        history_walk_under(&resources, user_id, tenant, oauth_providers::STRAVA).await,
+        "bug: no Strava history walk was asked for the missing depth"
+    );
+    assert!(
+        !history_walk_under(&resources, user_id, tenant, SESSION).await,
+        "bug: a history walk was filed under the session the athlete does not hold"
+    );
 }
 
 /// An athlete with no Strava, holding a Garmin session: a segment's ask starts
