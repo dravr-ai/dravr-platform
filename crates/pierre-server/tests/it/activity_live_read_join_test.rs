@@ -39,7 +39,8 @@ use pierre_tool_runtime::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry, ToolRuntime,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
+    ToolRuntime,
 };
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout, Instant};
@@ -234,6 +235,8 @@ impl BackfillNotifier for HeldNotifier {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
@@ -433,6 +436,8 @@ impl BackfillNotifier for WideningNotifier {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
@@ -694,6 +699,8 @@ impl BackfillNotifier for HeldOnceNotifier {
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
 
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
+
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 
     async fn push_reauth_to_linked_channels(
@@ -924,6 +931,8 @@ impl BackfillNotifier for UnavailableReAsk {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 

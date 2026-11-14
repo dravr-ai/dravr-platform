@@ -45,7 +45,7 @@ use pierre_tool_runtime::context::TurnAsk;
 use pierre_tool_runtime::runtime::ToolRuntime;
 #[cfg(feature = "client-messaging")]
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
 };
 use tokio::sync::Notify;
 use tokio::time::{sleep, timeout};
@@ -439,6 +439,8 @@ impl BackfillNotifier for RecordingNotifier {
     // No live read ends a walk: nothing here reaches it.
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
 
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
+
     async fn push_provider_reauth(
         &self,
         _: Uuid,
@@ -827,6 +829,8 @@ impl BackfillNotifier for ReaskingNotifier {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 

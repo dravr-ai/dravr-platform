@@ -383,6 +383,13 @@ pub const KEY_LIVE_READ_OVERTAKEN: &str = "messaging.live_read.overtaken";
 /// activities it brought in.
 pub const KEY_HISTORY_WALK_COMPLETE: &str = "messaging.history_walk.complete";
 
+/// Key: a detail walk read the segment efforts of the athlete's activities.
+///
+/// The one message a detail walk posts in the athlete's personal thread when
+/// it ends having stored any. `{0}` is the activities whose segment efforts
+/// it read. Counts only: no segment's name.
+pub const KEY_DETAIL_WALK_COMPLETE: &str = "messaging.detail_walk.complete";
+
 /// Key: header line for the backfill completion notice that pushes the list.
 ///
 /// Sits above the actual activity list (not just a nudge). `{0}` = count of

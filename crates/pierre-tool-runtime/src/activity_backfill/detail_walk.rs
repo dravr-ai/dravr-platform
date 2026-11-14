@@ -45,7 +45,8 @@
 //! **Where it ends.** When its cursor passes the window's floor (`after_ts`).
 //! The row is kept as walked with its window and counts, and the athlete is
 //! told once, in their personal thread, how many activities had their
-//! efforts read, when that is any.
+//! efforts read, when that is any
+//! ([`BackfillNotifier::push_detail_walk_complete`](crate::runtime::BackfillNotifier::push_detail_walk_complete)).
 
 use std::slice;
 use std::sync::Arc;
@@ -82,7 +83,7 @@ use crate::activity_fetch::write_through::WriteThrough;
 use crate::implementations::fitness_support::filter_activities_by_sport_type;
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
-use crate::runtime::ToolRuntime;
+use crate::runtime::{DetailWalkCompletion, ToolRuntime};
 
 /// Activities whose efforts one step reads, at most: the whole seconds it
 /// takes stop once they hold this many.
@@ -926,6 +927,7 @@ async fn end_walk(job: &ActivityBackfillJob, lease: &JobLease, step: JobProgress
                 stored = ended.progress.rows_landed,
                 "Detail walk: reached its floor"
             );
+            announce_walked(job, ended.created_at_ms, ended.progress.rows_landed).await;
         }
         Ok(None) => log_write(
             "the floor moved under the last step; the walk goes on below it",
@@ -936,6 +938,28 @@ async fn end_walk(job: &ActivityBackfillJob, lease: &JobLease, step: JobProgress
             warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Detail walk: the walk's end could not be written; the sweep retries the step");
         }
     }
+}
+
+/// Tell the athlete the walk asked at `asked_at_ms` ended having stored the
+/// efforts of `stored` activities. A walk that stored none says nothing.
+async fn announce_walked(job: &ActivityBackfillJob, asked_at_ms: i64, stored: i64) {
+    let Some(notifier) = job.resources.backfill_notifier() else {
+        return;
+    };
+    let activity_count = usize::try_from(stored).unwrap_or(0);
+    if activity_count == 0 {
+        info!(user_id = %job.user_id, provider = %job.provider_name, "Detail walk: ended having stored nothing; nothing to announce");
+        return;
+    }
+    notifier
+        .push_detail_walk_complete(DetailWalkCompletion {
+            user_id: job.user_id,
+            tenant_id: job.tenant_id,
+            provider: &job.provider_name,
+            asked_at_ms,
+            activity_count,
+        })
+        .await;
 }
 
 /// Log how writing a step's settlement to the row went.

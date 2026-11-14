@@ -1,16 +1,16 @@
-// ABOUTME: The one message a history walk no conversation asked for posts when it reaches the end of the history
-// ABOUTME: In the athlete's personal thread, once per walked key and oldest activity, naming the year and the count
+// ABOUTME: The one message a walk no conversation asked for posts when it ends: a history walk's year and count
+// ABOUTME: Or a detail walk's count of activities whose segments it read; in the personal thread, each sent once
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use chrono::Datelike;
-use pierre_contremaitre::messaging_strings::KEY_HISTORY_WALK_COMPLETE;
+use pierre_contremaitre::messaging_strings::{KEY_DETAIL_WALK_COMPLETE, KEY_HISTORY_WALK_COMPLETE};
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::MessagingRepository;
 use pierre_services::personal_thread::find_personal_thread;
-use pierre_tool_runtime::runtime::HistoryWalkCompletion;
+use pierre_tool_runtime::runtime::{DetailWalkCompletion, HistoryWalkCompletion};
 use tracing::{info, warn};
 
 use super::ServerBackfillNotifier;
@@ -75,6 +75,70 @@ impl ServerBackfillNotifier {
         );
     }
 
+    /// Post a detail walk's end in the athlete's personal thread: one short
+    /// line, how many of their activities had their segment efforts read.
+    /// Counts only, never a segment's name: those were written by other
+    /// athletes.
+    ///
+    /// The thread is found as a history walk's is
+    /// ([`Self::post_history_walk_complete`]). The send is claimed once per
+    /// walk, `(user, "<backend>:detail_walk", asked_at_ms)`, across replicas:
+    /// a walk ended on two instances posts once, and a later walk, asked
+    /// later, posts its own end. A catalogue that holds no line for the key
+    /// posts nothing and claims nothing, rather than an empty message.
+    pub(super) async fn post_detail_walk_complete(&self, completion: DetailWalkCompletion<'_>) {
+        let DetailWalkCompletion {
+            user_id,
+            tenant_id,
+            provider,
+            asked_at_ms,
+            activity_count,
+        } = completion;
+        let owner = user_id.to_string();
+        let Some(thread_id) = self.walk_post_thread(&owner, tenant_id, provider).await else {
+            return;
+        };
+        let locale = self.resolve_locale(user_id, tenant_id, None).await;
+        let count = activity_count.to_string();
+        let body = self
+            .strings
+            .render(KEY_DETAIL_WALK_COMPLETE, &locale, &[&count]);
+        if body.trim().is_empty() {
+            warn!(
+                provider,
+                locale, "Detail walk post: the catalogue holds no line for it; nothing posted"
+            );
+            return;
+        }
+        let walk = format!("{provider}:detail_walk");
+        if !self
+            .claim_walk_post(&owner, tenant_id, &walk, asked_at_ms)
+            .await
+        {
+            return;
+        }
+        InAppDelivery {
+            repos: &self.repos,
+            strings: &self.strings,
+            #[cfg(feature = "client-notifications")]
+            notifications: self.notifications.as_ref(),
+            transport_policy: TransportPolicy::AnyTransport,
+        }
+        .deliver(
+            user_id,
+            tenant_id,
+            &thread_id,
+            &locale,
+            body,
+            activity_count,
+        )
+        .await;
+        info!(
+            provider,
+            activity_count, "Detail walk post: delivered in the personal thread"
+        );
+    }
+
     /// The athlete's personal thread a walk post lands in, or `None` (logged)
     /// when they hold none yet or it cannot be read.
     async fn walk_post_thread(
@@ -99,28 +163,20 @@ impl ServerBackfillNotifier {
         }
     }
 
-    /// Claim the one send of a walk post for `(owner, provider, oldest)`
-    /// across replicas; `false` (logged) when it was sent already or the
-    /// claim failed.
-    async fn claim_walk_post(
-        &self,
-        owner: &str,
-        tenant_id: TenantId,
-        provider: &str,
-        oldest_ts: i64,
-    ) -> bool {
+    /// Claim the one send of a walk post for `(owner, walk, at)` across
+    /// replicas: a history walk's key and oldest activity, or a detail walk's
+    /// key and ask. `false` (logged) when it was sent already or the claim
+    /// failed.
+    async fn claim_walk_post(&self, owner: &str, tenant_id: TenantId, walk: &str, at: i64) -> bool {
         let db: &dyn MessagingRepository = self.repos.messaging.as_ref();
-        match db
-            .claim_backfill_push(tenant_id, owner, provider, oldest_ts)
-            .await
-        {
+        match db.claim_backfill_push(tenant_id, owner, walk, at).await {
             Ok(true) => true,
             Ok(false) => {
-                info!(provider, "History walk post: already sent for this depth");
+                info!(walk, "Walk post: already sent for this walk");
                 false
             }
             Err(e) => {
-                warn!(provider, error = %e, "History walk post: the dedup claim failed");
+                warn!(walk, error = %e, "Walk post: the dedup claim failed");
                 false
             }
         }

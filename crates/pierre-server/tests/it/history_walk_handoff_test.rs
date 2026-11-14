@@ -68,8 +68,8 @@ use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill::{BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS};
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry, ToolRuntime,
-    WalkTrigger,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
+    ToolRuntime, WalkTrigger,
 };
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -193,6 +193,8 @@ impl BackfillNotifier for Told {
             completion.activity_count,
         ));
     }
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 

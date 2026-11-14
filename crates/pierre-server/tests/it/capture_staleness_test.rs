@@ -69,7 +69,7 @@ use pierre_tool_runtime::protocol::auth::AuthService;
 use pierre_tool_runtime::runtime::ToolRuntime;
 #[cfg(feature = "client-messaging")]
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
 };
 use secrecy::SecretString;
 use serde_json::{json, Value};
@@ -1751,6 +1751,8 @@ impl BackfillNotifier for GrantReask {
     }
 
     async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, _: DetailWalkCompletion<'_>) {}
 
     async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
 

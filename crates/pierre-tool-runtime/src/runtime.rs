@@ -152,6 +152,26 @@ pub struct HistoryWalkCompletion<'job> {
     pub activity_count: usize,
 }
 
+/// A detail walk that ended having stored segment efforts
+/// ([`BackfillNotifier::push_detail_walk_complete`]).
+///
+/// No conversation waits on it: the ask that recorded it was answered with
+/// what was read then.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetailWalkCompletion<'job> {
+    /// The athlete.
+    pub user_id: Uuid,
+    /// The tenant that owns the rows.
+    pub tenant_id: TenantId,
+    /// The backend the walk read through.
+    pub provider: &'job str,
+    /// When the ask that recorded the walk was made (unix ms): the walk's
+    /// identity, which its one post is claimed under.
+    pub asked_at_ms: i64,
+    /// The activities whose segment efforts the whole walk stored.
+    pub activity_count: usize,
+}
+
 /// Best-effort sink that pushes a "your historical backfill finished" notice
 /// back to the messaging channel that triggered it.
 ///
@@ -189,6 +209,14 @@ pub trait BackfillNotifier: Send + Sync {
     /// activity)` across replicas. Best-effort — implementations swallow and
     /// log their own failures.
     async fn push_history_walk_complete(&self, completion: HistoryWalkCompletion<'_>);
+
+    /// Tell the athlete a detail walk ended having stored the segment efforts
+    /// of `activity_count` of their activities ([`DetailWalkCompletion`]):
+    /// one short line in their personal thread, counts only, never a
+    /// segment's name. Sent once per walk, `(user, provider, asked_at_ms)`,
+    /// across replicas, so a later walk tells its own end. Best-effort —
+    /// implementations swallow and log their own failures.
+    async fn push_detail_walk_complete(&self, completion: DetailWalkCompletion<'_>);
 
     /// Answer the conversation behind `pierre_conversation_id` that
     /// `provider`'s session expired and must be reconnected — a localized

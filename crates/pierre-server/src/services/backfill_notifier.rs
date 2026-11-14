@@ -69,7 +69,7 @@ use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::personal_thread::athlete_last_wrote_in_app;
 use pierre_tool_runtime::runtime::{
-    BackfillCompletion, BackfillNotifier, HistoryWalkCompletion, ReauthRetry,
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
 };
 use serde_json::Value;
 use tracing::{error, info, warn};
@@ -820,6 +820,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
     async fn push_history_walk_complete(&self, completion: HistoryWalkCompletion<'_>) {
         self.post_history_walk_complete(completion).await;
+    }
+
+    async fn push_detail_walk_complete(&self, completion: DetailWalkCompletion<'_>) {
+        self.post_detail_walk_complete(completion).await;
     }
 
     async fn push_provider_reauth(

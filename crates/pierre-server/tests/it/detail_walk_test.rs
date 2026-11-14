@@ -35,6 +35,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::get;
@@ -52,7 +53,10 @@ use pierre_tool_runtime::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, segment_detail_backend, DetailWalkAsk, DetailWalkAsked,
 };
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
-use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::runtime::{
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
+    ToolRuntime,
+};
 use serde_json::{json, Value};
 use sqlx::Row;
 use tokio::net::TcpListener;
@@ -614,5 +618,108 @@ async fn a_window_read_already_records_no_walk() {
             .unwrap()
             .is_none(),
         "bug: an empty window left a ledger row"
+    );
+}
+
+/// Every detail walk's end the athlete was told: its backend and count.
+#[derive(Default)]
+struct Told {
+    walks: Mutex<Vec<(String, usize)>>,
+}
+
+#[async_trait]
+impl BackfillNotifier for Told {
+    // A detail walk is asked by no conversation: nothing here reaches it.
+    async fn push_backfill_complete(&self, _: BackfillCompletion<'_>) {}
+
+    async fn push_history_walk_complete(&self, _: HistoryWalkCompletion<'_>) {}
+
+    async fn push_detail_walk_complete(&self, completion: DetailWalkCompletion<'_>) {
+        self.walks
+            .lock()
+            .unwrap()
+            .push((completion.provider.to_owned(), completion.activity_count));
+    }
+
+    async fn push_provider_reauth(&self, _: Uuid, _: TenantId, _: &str, _: &str) {}
+
+    async fn push_reauth_to_linked_channels(
+        &self,
+        _: Uuid,
+        _: TenantId,
+        _: &str,
+        _: ReauthRetry,
+    ) -> usize {
+        0
+    }
+}
+
+/// `resources` telling the athlete through `told`.
+fn telling(resources: &Arc<ServerContext>, told: &Arc<Told>) -> Arc<ServerContext> {
+    let mut context = (**resources).clone();
+    let notifier: Arc<dyn BackfillNotifier> = told.clone();
+    context.mcp.backfill_notifier = Some(notifier);
+    Arc::new(context)
+}
+
+/// A walk that stored efforts tells the athlete once, when it ends, how many
+/// activities it read them for, over however many steps it took; a walk
+/// that stored none tells nothing.
+#[tokio::test]
+async fn a_walk_that_stored_efforts_tells_its_end_once() {
+    let (api_base, mock) = mock_strava().await;
+    let told = Arc::new(Told::default());
+    let resources = telling(&server(&api_base, 400).await, &told);
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    // Twelve rides: two steps of the walk.
+    let starts: Vec<i64> = (1..=12).map(|day| now - day * DAY).collect();
+    store_rides(&resources, user_id, tenant, SESSION, &starts).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let asked = ask_detail_walk(
+        &runtime,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        since(now - 20 * DAY),
+    )
+    .await;
+    assert_eq!(asked, DetailWalkAsked::Started { units_total: 12 });
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.progress.rows_landed, 12,
+        "the walk stored every ride's efforts"
+    );
+    assert_eq!(
+        *told.walks.lock().unwrap(),
+        vec![(oauth_providers::STRAVA.to_owned(), 12)],
+        "bug: the walk's end is told once, counting what every step stored"
+    );
+
+    // A walk over rides the API cannot read stores nothing, and says nothing.
+    let (other, other_tenant) = strava_athlete(&resources).await;
+    let unreadable = [now - 3 * DAY];
+    mock.missing.lock().unwrap().insert(unreadable[0]);
+    store_rides(&resources, other, other_tenant, SESSION, &unreadable).await;
+    let asked = ask_detail_walk(
+        &runtime,
+        other,
+        other_tenant,
+        oauth_providers::STRAVA,
+        since(now - 20 * DAY),
+    )
+    .await;
+    assert_eq!(asked, DetailWalkAsked::Started { units_total: 1 });
+    let ended = walk_ended(&resources, other, other_tenant).await;
+    assert_eq!(
+        ended.progress.rows_landed, 0,
+        "the unreadable ride is not stored"
+    );
+    assert_eq!(
+        told.walks.lock().unwrap().len(),
+        1,
+        "bug: a walk that stored nothing told the athlete it ended"
     );
 }
