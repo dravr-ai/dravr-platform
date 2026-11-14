@@ -78,7 +78,9 @@ impl ServerBackfillNotifier {
     /// Post a detail walk's end in the athlete's personal thread: one short
     /// line, how many of their activities had their segment efforts read.
     /// Counts only, never a segment's name: those were written by other
-    /// athletes.
+    /// athletes. No app push: the one a loaded history raises says "N
+    /// activities loaded", and a detail walk loads none, it reads the
+    /// efforts of activities already stored.
     ///
     /// The thread is found as a history walk's is
     /// ([`Self::post_history_walk_complete`]). The send is claimed once per
@@ -117,26 +119,24 @@ impl ServerBackfillNotifier {
         {
             return;
         }
-        InAppDelivery {
+        // Stored without the app push a loaded history raises: its "N
+        // activities loaded" would misstate a walk that loaded none. The
+        // turn's unread badge is the ping.
+        let delivered = InAppDelivery {
             repos: &self.repos,
             strings: &self.strings,
             #[cfg(feature = "client-notifications")]
             notifications: self.notifications.as_ref(),
             transport_policy: TransportPolicy::AnyTransport,
         }
-        .deliver(
-            user_id,
-            tenant_id,
-            &thread_id,
-            &locale,
-            body,
-            activity_count,
-        )
+        .persist(user_id, tenant_id, &thread_id, body, activity_count)
         .await;
-        info!(
-            provider,
-            activity_count, "Detail walk post: delivered in the personal thread"
-        );
+        if delivered {
+            info!(
+                provider,
+                activity_count, "Detail walk post: delivered in the personal thread"
+            );
+        }
     }
 
     /// The athlete's personal thread a walk post lands in, or `None` (logged)
