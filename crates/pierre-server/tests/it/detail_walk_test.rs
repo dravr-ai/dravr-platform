@@ -1061,6 +1061,35 @@ async fn a_ride_unread_above_the_walked_top_is_walked_afresh() {
     );
 }
 
+/// A ride that started after the walk ended, below the top its window was
+/// asked with (a default window's top is the athlete's next midnight), is
+/// one the walk never saw: the window is walked afresh.
+#[tokio::test]
+async fn a_ride_started_after_the_walk_ended_is_walked_afresh() {
+    let walked = walked_once(None).await;
+    let two_days_ms = 2 * DAY * 1_000;
+    alter_walk_row(
+        &walked.resources,
+        walked.user_id,
+        &format!("ended_at_ms = ended_at_ms - {two_days_ms}"),
+    )
+    .await;
+    store_rides(
+        &walked.resources,
+        walked.user_id,
+        walked.tenant,
+        SESSION,
+        &[walked.now - DAY],
+    )
+    .await;
+
+    assert_eq!(
+        walked.ask(walked.ask).await,
+        DetailWalkAsked::Started { units_total: 2 },
+        "bug: a ride started after the walk ended reads as walked"
+    );
+}
+
 /// A walk of one sport never tried the others: an ask for every sport is
 /// walked afresh.
 #[tokio::test]

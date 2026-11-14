@@ -212,9 +212,9 @@ impl DetailWalkAsked {
 /// no copy holds, unless there are none, or unless a walk that ended walked
 /// within [`DETAIL_WALK_STANDS_MS`] covers the window
 /// ([`DetailWalkAsked::RecentlyWalked`]): after an older one, one over
-/// another sport, one whose floor sits above the ask's or whose top sits
-/// below an unread activity of the ask, or one that ended any other way, the
-/// window is walked afresh.
+/// another sport, one whose floor sits above the ask's, one an unread
+/// activity of the ask started above the top of or after the end of, or one
+/// that ended any other way, the window is walked afresh.
 pub async fn ask_detail_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -294,20 +294,20 @@ pub async fn ask_detail_walk(
 
 /// Whether the walk `row` records, which ended walked within
 /// [`DETAIL_WALK_STANDS_MS`] of `now_ms`, covers `ask`: its window reaches
-/// from at or below the ask's floor, over the ask's sport or every sport, and
-/// up to the ask's top or past every activity of the ask left `unread` (the
-/// newest start of each). A default window ends at the athlete's next
-/// midnight, a day later each day: the walk still stands for it while every
-/// unread activity sits in the window it walked.
+/// from at or below the ask's floor, over the ask's sport or every sport,
+/// and every activity of the ask left `unread` (the newest start of each)
+/// started below its top and before it ended. A default window ends at the
+/// athlete's next midnight, a day later each day: the walk stands for it
+/// while nothing unread is newer than what the walk could have tried.
 fn stands_for(row: &DetailWalkRow, ask: DetailWalkAsk<'_>, unread: &[i64], now_ms: i64) -> bool {
+    let (Some(ended_ms), Some(top)) = (row.ended_at_ms, row.window_top_ts) else {
+        return false;
+    };
+    let tried_below = top.min(ended_ms.div_euclid(1_000));
     row.state == BackfillJobState::Walked
-        && row
-            .ended_at_ms
-            .is_some_and(|ended| now_ms.saturating_sub(ended) < DETAIL_WALK_STANDS_MS)
+        && now_ms.saturating_sub(ended_ms) < DETAIL_WALK_STANDS_MS
         && row.after_ts.is_none_or(|floor| floor <= ask.after_ts)
-        && row
-            .window_top_ts
-            .is_some_and(|top| top >= ask.before_ts || unread.iter().all(|newest| *newest < top))
+        && unread.iter().all(|newest| *newest < tried_below)
         && (row.walk_sport.is_none() || row.walk_sport.as_deref() == ask.sport)
 }
 
