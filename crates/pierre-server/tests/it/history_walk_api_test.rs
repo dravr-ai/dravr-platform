@@ -376,6 +376,18 @@ struct ReleasedRow {
 
 const DAY_MS: i64 = DAY * 1_000;
 
+/// A paused step's retry is the end of the day window that refused it. The
+/// refusal floors the wait to whole seconds, and the step adds it to its own
+/// later clock, so the instant lands within a few seconds of the end.
+fn assert_waits_for_the_window_end(next_attempt_ms: i64) {
+    let window_end = (Utc::now().timestamp_millis() / DAY_MS + 1) * DAY_MS;
+    assert!(
+        (window_end - 2_000..=window_end + 5_000).contains(&next_attempt_ms),
+        "bug: a spent day's walk waits for the window's end ({window_end}), \
+         not a lease: {next_attempt_ms}"
+    );
+}
+
 /// The athlete's walk row once no step holds its lease; `None` while one
 /// does.
 async fn released_row(resources: &Arc<ServerContext>, user_id: Uuid) -> Option<ReleasedRow> {
@@ -590,13 +602,7 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
         "bug: the paused walk keeps the cursor its first step reached: {:?}",
         paused.before_ts
     );
-    let window_end = (Utc::now().timestamp_millis() / DAY_MS + 1) * DAY_MS;
-    assert!(
-        (window_end - 2_000..=window_end).contains(&paused.next_attempt_ms),
-        "bug: a spent day's walk waits for the window's end ({window_end}), \
-         not a lease: {}",
-        paused.next_attempt_ms
-    );
+    assert_waits_for_the_window_end(paused.next_attempt_ms);
     assert!(
         resources
             .common
@@ -634,6 +640,68 @@ async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
         rows_under(&resources, user_id, tenant, oauth_providers::STRAVA).await,
         2,
         "bug: the resumed walk lands the rest of the history"
+    );
+}
+
+/// A budget spent before the walk's first read, its profile's, pauses the
+/// walk until the window ends as a spent listing does: nothing is sent, the
+/// attempt is handed back, and a window with room resumes it from the top.
+#[tokio::test]
+async fn a_spent_budget_on_the_profile_read_pauses_the_walk_until_the_window_ends() {
+    let (api_base, mock) = mock_strava().await;
+    // Three requests a window leave the background share none at all.
+    let resources = server(&api_base, 3).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    *mock.starts.lock().unwrap() = vec![now - 10 * DAY];
+    *mock.created_at.lock().unwrap() = Some(now - 100 * DAY);
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert!(
+        start_history_walk(
+            &runtime,
+            user_id,
+            tenant,
+            oauth_providers::STRAVA,
+            WalkTrigger::DepthMissing
+        )
+        .await,
+        "bug: a live grant is walked"
+    );
+    let deadline = Instant::now() + WALK_DEADLINE;
+    let paused = loop {
+        if let Some(paused) = released_row(&resources, user_id).await {
+            break paused;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the paused step never released its row"
+        );
+        sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(
+        *mock.profiles.lock().unwrap(),
+        0,
+        "bug: a spent budget sends the profile read"
+    );
+    assert_eq!(
+        paused.attempts, 0,
+        "bug: a paused step hands its attempt back"
+    );
+    assert_waits_for_the_window_end(paused.next_attempt_ms);
+
+    let roomy = with_window(&resources, 400);
+    walk_ended(&roomy, user_id, tenant).await;
+    assert_eq!(
+        walk_state(&roomy, user_id, tenant, oauth_providers::STRAVA).await,
+        Some(BackfillJobState::Walked),
+        "bug: a window with room resumes the paused walk to its end"
+    );
+    assert_eq!(
+        *mock.profiles.lock().unwrap(),
+        1,
+        "bug: the resumed walk reads the profile it was refused"
     );
 }
 
