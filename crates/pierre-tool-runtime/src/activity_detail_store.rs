@@ -121,7 +121,7 @@ pub async fn store_detail(
 /// What keeping a detail read came to
 /// ([`store_detail_from_live_grant`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DetailKept {
+pub(crate) enum DetailKept {
     /// The detail is stored beside its row.
     Stored,
     /// No row stands to store it beside: the row left the cache, or the
@@ -143,7 +143,7 @@ pub enum DetailKept {
 /// read and its write takes the copy back (`activity_backfill::detail_walk`).
 /// `copy` runs only when the grant answered for a row it holds no copy of;
 /// what the grant answered for a row it holds is stored beside that row.
-pub async fn store_detail_from_live_grant(
+pub(crate) async fn store_detail_from_live_grant(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,

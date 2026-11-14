@@ -623,7 +623,7 @@ pub trait FitnessProvider: Send + Sync {
     /// A provider overrides this when its descriptor declares
     /// [`ProviderCapabilities::SEGMENT_EFFORT_HISTORY`](crate::spi::ProviderCapabilities::SEGMENT_EFFORT_HISTORY).
     /// Every other provider inherits the refusal from
-    /// [`segment_effort_history_unsupported`]: an empty list would read as a
+    /// `segment_effort_history_unsupported`: an empty list would read as a
     /// segment the athlete never rode.
     async fn segment_effort_history(
         &self,
@@ -782,7 +782,7 @@ pub fn planned_workouts_unsupported(provider: &str) -> AppError {
 /// [`planned_workouts_unsupported`] does. A caller reads it as "ask the
 /// stored details instead", never as a segment with no efforts.
 #[must_use]
-pub fn segment_effort_history_unsupported(provider: &str) -> AppError {
+pub(crate) fn segment_effort_history_unsupported(provider: &str) -> AppError {
     AppError::invalid_input(format!(
         "{} does not list a segment's efforts",
         user_facing_name(provider)

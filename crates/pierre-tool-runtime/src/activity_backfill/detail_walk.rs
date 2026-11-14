@@ -26,9 +26,9 @@
 //! never split by a page's edge: a full page's oldest second is left to the
 //! next read. It matches the walk's sport ([`filter_activities_by_sport_type`](crate::implementations::fitness_support::filter_activities_by_sport_type)),
 //! counts the copies of one activity as one ([`native_activity_key`](pierre_providers::deduplication::native_activity_key)), and
-//! reads up to [`DETAIL_WALK_STEP_ACTIVITIES`] whose efforts no copy holds,
+//! reads up to `DETAIL_WALK_STEP_ACTIVITIES` whose efforts no copy holds,
 //! each through the backend in the walk's own day budget ([`in_detail_walk`](pierre_providers::request_budget::in_detail_walk)).
-//! What it read is stored beside its row ([`store_detail_from_live_grant`](crate::activity_detail_store::store_detail_from_live_grant)):
+//! What it read is stored beside its row (`store_detail_from_live_grant`):
 //! the grant's answer under the grant's key, its copy written first, through
 //! the walk's owed-write guard ([`owed_write`](super::owed_write)), when only the session listed
 //! the activity. The cursor then moves to the oldest second it finished, and
@@ -46,7 +46,7 @@
 //!
 //! **Where it ends.** When its cursor passes the window's floor (`after_ts`).
 //! The row is kept as walked with its window, when it ended and its counts.
-//! A walk asked within [`DETAIL_WALK_STANDS_MS`] after it reads nothing it
+//! A walk asked within `DETAIL_WALK_STANDS_MS` after it reads nothing it
 //! tried again: only what lies outside its window or reached the store after
 //! it was asked, and when that is nothing, none is recorded
 //! ([`DetailWalkAsked::RecentlyWalked`]): the activities it could not read
@@ -85,14 +85,14 @@ pub(super) use step::run_detail_walk;
 
 /// Activities whose efforts one step reads, at most: the whole seconds it
 /// takes stop once they hold this many.
-pub const DETAIL_WALK_STEP_ACTIVITIES: usize = 10;
+pub(crate) const DETAIL_WALK_STEP_ACTIVITIES: usize = 10;
 
 /// How long what a detail walk that ended walked tried stands (ms).
 ///
 /// A walk asked within it reads none of that again, which would only spend
 /// the athlete's day re-reading the activities the backend could not read.
 /// A week: a ride deleted or made private since is read again soon enough.
-pub const DETAIL_WALK_STANDS_MS: i64 = 7 * 86_400_000;
+pub(crate) const DETAIL_WALK_STANDS_MS: i64 = 7 * 86_400_000;
 
 /// Seconds in a day.
 const SECS_PER_DAY: f64 = 86_400.0;
@@ -241,7 +241,7 @@ pub enum DetailWalkAsked {
     /// Every activity of the window has its efforts read: nothing to walk.
     NothingUnread,
     /// Every unread activity of the window is one a walk that ended walked
-    /// within [`DETAIL_WALK_STANDS_MS`] tried, so none is read again. These
+    /// within `DETAIL_WALK_STANDS_MS` tried, so none is read again. These
     /// are the window's activities whose efforts it could not read.
     RecentlyWalked {
         /// Activities of the window whose efforts no copy holds.
@@ -287,7 +287,7 @@ impl DetailWalkAsked {
 /// recorded over the window, counted at the activities in it whose efforts
 /// no copy holds, unless there are none.
 ///
-/// A walk that ended walked within [`DETAIL_WALK_STANDS_MS`] tried part of
+/// A walk that ended walked within `DETAIL_WALK_STANDS_MS` tried part of
 /// the window ([`carried_from`]): its window's range, up to when it ended,
 /// over its sport or every sport. What it tried is never read again: a walk
 /// recorded after it reads only the activities it never had in reach
@@ -370,7 +370,7 @@ fn untried(unread: &[UnreadActivity], tried: Option<&WalkTried>) -> i64 {
 /// to when it ended, whichever is lower, as stored when it was asked.
 ///
 /// `None` unless it ended walked over `sport` or every sport, and within
-/// [`DETAIL_WALK_STANDS_MS`] of `now_ms`, counted from the oldest end among
+/// `DETAIL_WALK_STANDS_MS` of `now_ms`, counted from the oldest end among
 /// the walks whose tries it carries: a range carried on from walk to walk
 /// stands a week from the first, no longer, so an activity the backend
 /// could not read is tried again weekly however often the athlete asks.
@@ -599,7 +599,7 @@ async fn walk_daily_calls(athlete: &Athlete<'_>, backend: &str) -> Option<u32> {
 /// ([`Pending::detail_walk_running`]), at `daily_calls` a day, or
 /// [`DETAIL_WALK_DAILY_CALLS`] when no budget sizes the walk's day.
 #[must_use]
-pub fn detail_walk_running(progress: &JobProgress, daily_calls: Option<u32>) -> Pending {
+pub(crate) fn detail_walk_running(progress: &JobProgress, daily_calls: Option<u32>) -> Pending {
     let units = |n: i64| u32::try_from(n.max(0)).unwrap_or(u32::MAX);
     let day = daily_calls.unwrap_or(DETAIL_WALK_DAILY_CALLS).max(1);
     let budget_pace = SECS_PER_DAY / f64::from(day);
