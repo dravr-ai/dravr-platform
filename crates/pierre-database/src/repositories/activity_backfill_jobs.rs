@@ -31,6 +31,10 @@ pub(crate) use walk_statements::{
     SETTLE_PURGED_HISTORY_WALK_SQL,
 };
 
+/// A detail walk asked again while one is owed
+mod detail_walk;
+pub use detail_walk::WalkWiden;
+pub(crate) use detail_walk::WIDEN_DETAIL_WALK_SQL;
 /// The statements of a row's life past its record
 mod job_statements;
 pub(crate) use job_statements::{
@@ -415,6 +419,20 @@ pub trait ActivityBackfillJobRepository: Send + Sync {
     /// holds the row.
     async fn record_job_progress(&self, lease: &JobLease, step: JobProgressStep)
         -> AppResult<bool>;
+
+    /// A [`BackfillJobKind::DetailWalk`] asked again while one is owed for
+    /// `(user_id, provider)` in `tenant_id`: widen its floor down to
+    /// `widen.after_ts`, recount its total, and read every sport when the two
+    /// asks name different ones ([`WalkWiden`]). Its cursor is left where its
+    /// steps moved it. `false` when no such walk is owed in the tenant: it
+    /// ended meanwhile, and the ask records a fresh one.
+    async fn widen_detail_walk(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        widen: &WalkWiden,
+    ) -> AppResult<bool>;
 
     /// A history walk's last step landed: add `step` to the row's progress
     /// and keep the row, released, as [`BackfillJobState::Walked`] — never
@@ -917,6 +935,30 @@ macro_rules! impl_activity_backfill_job_repository {
                         AppError::database(format!("Failed to record backfill job progress: {e}"))
                     })?;
                 Ok(recorded.rows_affected() == 1)
+            }
+
+            async fn widen_detail_walk(
+                &self,
+                user_id: Uuid,
+                tenant_id: TenantId,
+                provider: &str,
+                widen: &$crate::repositories::activity_backfill_jobs::WalkWiden,
+            ) -> AppResult<bool> {
+                let widened =
+                    sqlx::query($crate::repositories::activity_backfill_jobs::WIDEN_DETAIL_WALK_SQL)
+                        .bind(user_id.to_string())
+                        .bind(tenant_id)
+                        .bind(provider)
+                        .bind(BackfillJobKind::DetailWalk.as_str())
+                        .bind(widen.after_ts)
+                        .bind(widen.units_left)
+                        .bind(&widen.walk_sport)
+                        .execute(self.pool())
+                        .await
+                        .map_err(|e| {
+                            AppError::database(format!("Failed to widen a detail walk: {e}"))
+                        })?;
+                Ok(widened.rows_affected() == 1)
             }
 
             async fn end_history_walk(

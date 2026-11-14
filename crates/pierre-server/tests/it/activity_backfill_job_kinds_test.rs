@@ -19,7 +19,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
-    JobLeaseState, JobProgress, JobProgressStep,
+    JobLeaseState, JobProgress, JobProgressStep, WalkWiden,
 };
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
@@ -902,5 +902,167 @@ async fn a_paused_claim_waits_for_its_instant_and_keeps_its_attempts() {
             .len(),
         1,
         "bug: a claim handed back with no instant keeps the retry it had"
+    );
+}
+
+/// The detail walk owed for the pair, as a claim made now reads it, handed
+/// straight back.
+async fn owed_detail_walk(db: &Database) -> ActivityBackfillJobRow {
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let claimed = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let row = claimed
+        .into_iter()
+        .find(|row| row.kind == BackfillJobKind::DetailWalk)
+        .expect("the detail walk is owed and claimable");
+    let lease = JobLease {
+        id: row.id.clone(),
+        token: row.lease_token.clone().unwrap(),
+    };
+    assert!(ledger
+        .release_backfill_job_claim(&lease, None)
+        .await
+        .unwrap());
+    row
+}
+
+/// A detail walk asked again while one is owed widens only its floor: the
+/// cursor a step moved stays where it is, the total becomes what is done plus
+/// what the new ask left unread, and a different sport reads every sport.
+/// Never another tenant's row, and never an ended one.
+#[tokio::test]
+async fn a_detail_walk_asked_again_widens_its_floor_only() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let mut walk = ActivityBackfillJobRow {
+        walk_sport: Some("Ride".to_owned()),
+        ..owed_row(tenant, user, BackfillJobKind::DetailWalk)
+    };
+    walk.progress.units_total = Some(10);
+    assert!(ledger.record_backfill_job(&walk).await.unwrap());
+    // A step: four activities read, the cursor moved down.
+    let row = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+    let held = JobLease {
+        id: row[0].id.clone(),
+        token: row[0].lease_token.clone().unwrap(),
+    };
+    assert!(ledger
+        .record_job_progress(
+            &held,
+            JobProgressStep {
+                before_ts: 1_705_000_000,
+                units_done: 4,
+                rows_landed: 3,
+                secs_per_unit: None,
+                floor: None,
+            },
+        )
+        .await
+        .unwrap());
+
+    let widen = |after_ts: i64, sport: Option<&str>, units_left: i64| WalkWiden {
+        after_ts,
+        walk_sport: sport.map(str::to_owned),
+        units_left,
+    };
+    assert!(
+        ledger
+            .widen_detail_walk(
+                user,
+                tenant,
+                PROVIDER,
+                &widen(1_600_000_000, Some("Ride"), 20)
+            )
+            .await
+            .unwrap(),
+        "bug: the owed walk is widened"
+    );
+    let widened = owed_detail_walk(&db).await;
+    assert_eq!(
+        widened.after_ts,
+        Some(1_600_000_000),
+        "bug: the floor moves down"
+    );
+    assert_eq!(
+        widened.before_ts,
+        Some(1_705_000_000),
+        "bug: a widen never moves the cursor a step left"
+    );
+    assert_eq!(
+        widened.progress.units_total,
+        Some(24),
+        "bug: the total is what is done plus what the new window leaves unread"
+    );
+    assert_eq!(
+        widened.progress.units_done, 4,
+        "bug: a widen keeps the progress"
+    );
+    assert_eq!(
+        widened.walk_sport.as_deref(),
+        Some("Ride"),
+        "bug: the same sport stays"
+    );
+
+    assert!(ledger
+        .widen_detail_walk(
+            user,
+            tenant,
+            PROVIDER,
+            &widen(1_650_000_000, Some("Run"), 5)
+        )
+        .await
+        .unwrap());
+    let narrower = owed_detail_walk(&db).await;
+    assert_eq!(
+        narrower.after_ts,
+        Some(1_600_000_000),
+        "bug: an ask with a higher floor never narrows the walk"
+    );
+    assert_eq!(
+        narrower.walk_sport, None,
+        "bug: two different sports asked read every sport"
+    );
+    assert!(ledger
+        .widen_detail_walk(
+            user,
+            tenant,
+            PROVIDER,
+            &widen(1_500_000_000, Some("Ride"), 5)
+        )
+        .await
+        .unwrap());
+    assert_eq!(
+        owed_detail_walk(&db).await.walk_sport,
+        None,
+        "bug: a walk that reads every sport never narrows back to one"
+    );
+
+    assert!(
+        !ledger
+            .widen_detail_walk(
+                user,
+                TenantId::generate(),
+                PROVIDER,
+                &widen(1_000_000_000, None, 5)
+            )
+            .await
+            .unwrap(),
+        "bug: an ask from another tenant widens this tenant's walk"
+    );
+    let held = {
+        let row = ledger.claim_stale_backfill_jobs(claim_now()).await.unwrap();
+        JobLease {
+            id: row[0].id.clone(),
+            token: row[0].lease_token.clone().unwrap(),
+        }
+    };
+    assert!(ledger.end_backfill_job_incomplete(&held).await.unwrap());
+    assert!(
+        !ledger
+            .widen_detail_walk(user, tenant, PROVIDER, &widen(1_000_000_000, None, 5))
+            .await
+            .unwrap(),
+        "bug: an ended walk is widened instead of recorded afresh"
     );
 }
