@@ -40,6 +40,7 @@ use crate::history_walk_api_test::{
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashSet;
+use std::future::Future;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -340,6 +341,50 @@ impl Fixture {
         age_job_rows(&self.resources, self.user_id).await;
         resume_backfill_jobs(self.runtime()).await.unwrap();
         sleep(Duration::from_millis(50)).await;
+    }
+
+    /// Run the walk one step at a time, each sweep in a fresh Strava window
+    /// when `fresh`, until `reached` holds while no step holds its row: the
+    /// walk stopped between two steps, `what` true of it.
+    ///
+    /// A pass sweeps only a row it found idle, and reads `reached` only
+    /// then. A sweep run while a step holds the row claims the next step the
+    /// moment that step releases it, before the test ever saw the row
+    /// between the two: on a slow database the walk then runs past the step
+    /// the test stops at, and the state it waits for never comes.
+    async fn step_until<F, Fut>(&self, fresh: bool, what: &str, reached: F)
+    where
+        F: Fn() -> Fut,
+        Fut: Future<Output = bool>,
+    {
+        let deadline = Instant::now() + WALK_DEADLINE;
+        loop {
+            // Idle first: a step writes its rows before it releases the row,
+            // and nothing takes an idle row but this test's own sweep, so
+            // `reached` reads the walk settled between two steps.
+            let idle = self.idle().await;
+            if idle && reached().await {
+                return;
+            }
+            // Read only once late: on a slow database every extra read a
+            // pass makes slows the walk it waits on.
+            let late = if Instant::now() >= deadline {
+                Some((self.state().await, self.rows(oauth_providers::STRAVA).await))
+            } else {
+                None
+            };
+            assert!(
+                late.is_none(),
+                "the walk never stopped with {what} within {WALK_DEADLINE:?} \
+                 (idle: {idle}, row and grant rows: {late:?}, listings: {:?})",
+                self.strava.listings()
+            );
+            if idle {
+                self.sweep(fresh).await;
+            } else {
+                sleep(Duration::from_millis(50)).await;
+            }
+        }
     }
 
     /// Sweep the walk, a fresh window each pass, until its row ends.
@@ -1044,14 +1089,10 @@ async fn hold_the_second_api_year(fx: &Fixture, session_oldest: i64) -> Arc<Noti
         .await,
         "the walk of the session starts"
     );
-    let deadline = Instant::now() + WALK_DEADLINE;
-    while !(fx.rows(oauth_providers::STRAVA).await == 1 && fx.idle().await) {
-        assert!(
-            Instant::now() < deadline,
-            "the grant's first year never landed"
-        );
-        fx.sweep(true).await;
-    }
+    fx.step_until(true, "the grant's first year landed", move || async move {
+        fx.rows(oauth_providers::STRAVA).await == 1
+    })
+    .await;
     let gate = fx.strava.hold_next_listing();
     fx.sweep(true).await;
     fx.strava.listing_held().await;
@@ -1322,23 +1363,21 @@ impl Fixture {
     /// Sweep the walk until its session handed off to the grant and no step
     /// holds the row: the API phase is owed, its next step not yet taken.
     async fn reach_the_api_phase(&self) {
-        let deadline = Instant::now() + WALK_DEADLINE;
-        loop {
-            let row = self
-                .resources
+        let fx = self;
+        self.step_until(true, "the session handed off", move || async move {
+            fx.resources
                 .common
                 .repos
                 .activity_backfill_jobs
-                .history_walk_row(self.user_id, self.tenant, oauth_providers::SCIOTTE)
+                .history_walk_row(fx.user_id, fx.tenant, oauth_providers::SCIOTTE)
                 .await
                 .unwrap()
-                .expect("the walk's row is kept");
-            if row.walk_backend.as_deref() == Some(oauth_providers::STRAVA) && self.idle().await {
-                return;
-            }
-            assert!(Instant::now() < deadline, "the session never handed off");
-            self.sweep(true).await;
-        }
+                .expect("the walk's row is kept")
+                .walk_backend
+                .as_deref()
+                == Some(oauth_providers::STRAVA)
+        })
+        .await;
     }
 
     /// Claim the walk's row the way another instance's sweep does, leased
@@ -2716,14 +2755,13 @@ async fn a_ledger_unread_after_a_steps_write_takes_nothing_back_and_fails() {
     let failed_listing = fx.strava.listings().last().copied();
     let listed = fx.strava.listing_count();
     fx.retry_due_now().await;
-    let deadline = Instant::now() + WALK_DEADLINE;
-    while !(fx.strava.listing_count() > listed && fx.idle().await) {
-        assert!(
-            Instant::now() < deadline,
-            "bug: the step's retry never read the page again"
-        );
-        fx.sweep(false).await;
-    }
+    let fx = &fx;
+    fx.step_until(
+        false,
+        "the step's retry read the page again",
+        move || async move { fx.strava.listing_count() > listed },
+    )
+    .await;
     assert_eq!(
         fx.strava.listings().last().copied(),
         failed_listing,
