@@ -671,7 +671,12 @@ pub fn live_store(
 ) -> Arc<dyn LiveActivityStore> {
     let records = records.unwrap_or_else(|| Arc::new(MemoryActivityRecordStore::new()));
     let sink = Arc::new(LiveCacheSink::new(Arc::clone(repos)));
-    Arc::new(BarrageLiveStore::new(records, blobs, sink, Arc::clone(repos)))
+    Arc::new(BarrageLiveStore::new(
+        records,
+        blobs,
+        sink,
+        Arc::clone(repos),
+    ))
 }
 
 /// The SQLite database a local run keeps barrage's records and jobs in: a
