@@ -399,7 +399,8 @@ mod tests {
             listed
                 .expect_err("bug: Strava efforts reached an MCP caller")
                 .code,
-            ErrorCode::UnavailableOverTransport
+            ErrorCode::UnavailableOverTransport,
+            "bug: the refusal is the transport's, not the provider's"
         );
         assert_eq!(
             calls.load(Ordering::SeqCst),
@@ -424,6 +425,10 @@ mod tests {
             vec![hit()],
             "bug: the wrapper must forward to the provider, not answer for it"
         );
-        assert_eq!(calls.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "bug: the wrapper asks the provider exactly once"
+        );
     }
 }

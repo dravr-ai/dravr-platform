@@ -610,7 +610,14 @@ mod tests {
     fn a_short_effort_list_travels_whole_and_uncounted() {
         let efforts: Vec<serde_json::Value> = (0..3).map(|i| effort(i, i, None)).collect();
         let row = projected_efforts(&efforts);
-        assert_eq!(row["segment_efforts"].as_array().unwrap().len(), 3);
+        assert_eq!(
+            row["segment_efforts"]
+                .as_array()
+                .expect("bug: the projection carries the efforts as a list")
+                .len(),
+            3,
+            "bug: a list of ten or fewer travels whole"
+        );
         assert!(
             row.get("segment_efforts_total").is_none(),
             "bug: an untrimmed list carries no total"

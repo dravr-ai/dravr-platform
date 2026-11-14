@@ -1163,9 +1163,21 @@ mod tests {
             Some(oauth_providers::STRAVA),
         );
         let export = row("16101", oauth_providers::STRAVA_ARCHIVE, None);
-        assert_eq!(native_activity_key(&api), Some(("strava", "16101")));
-        assert_eq!(native_activity_key(&session), native_activity_key(&api));
-        assert_eq!(native_activity_key(&export), native_activity_key(&api));
+        assert_eq!(
+            native_activity_key(&api),
+            Some(("strava", "16101")),
+            "bug: an API row is keyed by Strava's own activity id"
+        );
+        assert_eq!(
+            native_activity_key(&session),
+            native_activity_key(&api),
+            "bug: a session row shares its API copy's key"
+        );
+        assert_eq!(
+            native_activity_key(&export),
+            native_activity_key(&api),
+            "bug: an export row shares its API copy's key"
+        );
         assert_eq!(
             native_activity_key(&row("w1", oauth_providers::WHOOP, None)),
             None,

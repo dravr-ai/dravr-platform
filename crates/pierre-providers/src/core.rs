@@ -913,7 +913,11 @@ mod tests {
     #[test]
     fn the_listing_refusal_names_the_service_the_athlete_connected() {
         let refusal = segment_effort_history_unsupported("sciotte");
-        assert_eq!(refusal.code, ErrorCode::InvalidInput);
+        assert_eq!(
+            refusal.code,
+            ErrorCode::InvalidInput,
+            "bug: asking a provider that lists no efforts is the caller's misuse: {refusal}"
+        );
         assert!(
             refusal
                 .message

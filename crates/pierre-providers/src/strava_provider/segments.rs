@@ -230,21 +230,64 @@ mod tests {
             "bug: an effort with no start is skipped: {efforts:?}"
         );
         let one = &efforts[0];
-        assert_eq!(one.id, "9001");
-        assert_eq!(one.segment_id.as_deref(), Some("611413"));
-        assert_eq!(one.name, "Camillien-Houde");
-        assert_eq!(one.elapsed_time, 412);
-        assert_eq!(one.moving_time, Some(410));
-        assert_eq!(one.start_date.to_rfc3339(), "2026-11-07T13:10:00+00:00");
-        assert!((one.distance - 1_820.5).abs() < 0.01);
-        assert_eq!(one.average_heart_rate, Some(168));
-        assert_eq!(one.max_heart_rate, Some(181));
-        assert_eq!(one.average_cadence, Some(78));
-        assert_eq!(one.average_watts, Some(301));
-        assert_eq!(one.pr_rank, Some(2));
-        assert_eq!(one.kom_rank, None);
-        assert_eq!(one.climb_category, Some(1));
-        assert!(one.average_grade.is_some_and(|g| (g - 7.1).abs() < 0.01));
+        assert_eq!(one.id, "9001", "bug: the effort keeps Strava's id");
+        assert_eq!(
+            one.segment_id.as_deref(),
+            Some("611413"),
+            "bug: the effort keeps the segment it was ridden on"
+        );
+        assert_eq!(
+            one.name, "Camillien-Houde",
+            "bug: the effort keeps its own name"
+        );
+        assert_eq!(one.elapsed_time, 412, "bug: elapsed time is mapped as sent");
+        assert_eq!(
+            one.moving_time,
+            Some(410),
+            "bug: moving time is mapped as sent"
+        );
+        assert_eq!(
+            one.start_date.to_rfc3339(),
+            "2026-11-07T13:10:00+00:00",
+            "bug: the start is read as UTC"
+        );
+        assert!(
+            (one.distance - 1_820.5).abs() < 0.01,
+            "bug: the effort keeps its own distance: {}",
+            one.distance
+        );
+        assert_eq!(
+            one.average_heart_rate,
+            Some(168),
+            "bug: average heart rate is truncated to whole beats"
+        );
+        assert_eq!(
+            one.max_heart_rate,
+            Some(181),
+            "bug: max heart rate is mapped as sent"
+        );
+        assert_eq!(
+            one.average_cadence,
+            Some(78),
+            "bug: cadence is mapped as sent"
+        );
+        assert_eq!(
+            one.average_watts,
+            Some(301),
+            "bug: average watts are truncated to whole watts"
+        );
+        assert_eq!(one.pr_rank, Some(2), "bug: the PR rank is mapped as sent");
+        assert_eq!(one.kom_rank, None, "bug: a null KOM rank stays unset");
+        assert_eq!(
+            one.climb_category,
+            Some(1),
+            "bug: the segment's climb category reaches the effort"
+        );
+        assert!(
+            one.average_grade.is_some_and(|g| (g - 7.1).abs() < 0.01),
+            "bug: the segment's grade reaches the effort: {:?}",
+            one.average_grade
+        );
         assert_eq!(
             one.elevation_gain, None,
             "bug: the segment's elevation is the segment's, never this effort's"
@@ -259,8 +302,15 @@ mod tests {
         bare["segment"]["name"] = json!("Remembrance");
         bare["segment"]["distance"] = json!(2_400.0);
         let efforts = mapped(&json!({ "segment_efforts": [bare] })).unwrap();
-        assert_eq!(efforts[0].name, "Remembrance");
-        assert!((efforts[0].distance - 2_400.0).abs() < 0.01);
+        assert_eq!(
+            efforts[0].name, "Remembrance",
+            "bug: a blank effort name falls back to its segment's"
+        );
+        assert!(
+            (efforts[0].distance - 2_400.0).abs() < 0.01,
+            "bug: a missing effort distance falls back to its segment's: {}",
+            efforts[0].distance
+        );
     }
 
     #[test]
@@ -268,7 +318,10 @@ mod tests {
         let mut flat = effort(9_004, Some("2026-11-07T13:30:00Z"));
         flat["segment"]["climb_category"] = json!(-1);
         let efforts = mapped(&json!({ "segment_efforts": [flat] })).unwrap();
-        assert_eq!(efforts[0].climb_category, None);
+        assert_eq!(
+            efforts[0].climb_category, None,
+            "bug: Strava's -1 means uncategorized, never a category"
+        );
     }
 
     /// The detail read asks for every effort, so an answer with none is
