@@ -23,11 +23,15 @@ use crate::implementations::activity_summary::SEGMENT_NAME_MAX_CHARS;
 ///
 /// A commute segment ridden most days holds thousands of efforts over the
 /// default window, and the list is re-paid on every later turn. The answer
-/// keeps each matched segment's best, then the efforts the athlete ranked on
-/// (a personal record or a leaderboard place), then the newest; `summary`
-/// counts and times every effort, and `efforts_total` says how many there
-/// are when the list holds fewer.
+/// keeps each matched segment's best, then the newest efforts the athlete
+/// ranked on (a personal record or a leaderboard place) up to half the list,
+/// then the newest; `summary` counts and times every effort, and
+/// `efforts_total` says how many there are when the list holds fewer.
 const MAX_LISTED_EFFORTS: usize = 50;
+
+/// Most of [`MAX_LISTED_EFFORTS`] the ranked efforts take ahead of the
+/// newest: half, so the latest rides are always listed.
+const MAX_RANKED_SHARE: usize = MAX_LISTED_EFFORTS / 2;
 
 /// Which of the two places answered.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
@@ -215,8 +219,9 @@ pub(super) fn answer(
 
 /// `efforts` (newest first) trimmed to [`MAX_LISTED_EFFORTS`], newest
 /// first, with how many there were when any was dropped: each segment's best
-/// (`bests`, by provider and start) first, then the ranked efforts, then the
-/// newest.
+/// (`bests`, by provider and start) first, then the newest
+/// [`MAX_RANKED_SHARE`] ranked efforts, then the newest of the rest, so a
+/// long record of ranked efforts never crowds out the latest rides.
 fn listed_efforts(
     efforts: Vec<SegmentHistoryEffort>,
     bests: &HashSet<(String, String)>,
@@ -225,14 +230,17 @@ fn listed_efforts(
     if total <= MAX_LISTED_EFFORTS {
         return (efforts, None);
     }
-    let mut ranked: Vec<(usize, usize, SegmentHistoryEffort)> = efforts
+    let mut ranked_kept = 0;
+    let mut tiered: Vec<(u8, usize, SegmentHistoryEffort)> = efforts
         .into_iter()
         .enumerate()
         .map(|(newest, effort)| {
-            let best = bests.contains(&(effort.provider.clone(), effort.start_date.clone()));
-            let tier = if best {
+            let tier = if bests.contains(&(effort.provider.clone(), effort.start_date.clone())) {
                 0
-            } else if effort.pr_rank.is_some() || effort.kom_rank.is_some() {
+            } else if (effort.pr_rank.is_some() || effort.kom_rank.is_some())
+                && ranked_kept < MAX_RANKED_SHARE
+            {
+                ranked_kept += 1;
                 1
             } else {
                 2
@@ -240,11 +248,11 @@ fn listed_efforts(
             (tier, newest, effort)
         })
         .collect();
-    ranked.sort_by_key(|(tier, newest, _)| (*tier, *newest));
-    ranked.truncate(MAX_LISTED_EFFORTS);
-    ranked.sort_by_key(|(_, newest, _)| *newest);
+    tiered.sort_by_key(|(tier, newest, _)| (*tier, *newest));
+    tiered.truncate(MAX_LISTED_EFFORTS);
+    tiered.sort_by_key(|(_, newest, _)| *newest);
     (
-        ranked.into_iter().map(|(_, _, effort)| effort).collect(),
+        tiered.into_iter().map(|(_, _, effort)| effort).collect(),
         Some(total),
     )
 }
@@ -369,6 +377,39 @@ mod tests {
             summary,
             Some((120, 300)),
             "bug: the summary counts only the listed efforts"
+        );
+
+        // A name over many segments, ridden for years with a record now and
+        // then: the ranked efforts never crowd out the newest.
+        let mut efforts: Vec<_> = (0..80).map(|day| ridden(day, 400, Some(2))).collect();
+        efforts.extend((80..120).map(|day| ridden(day, 400, None)));
+        efforts[0].elapsed_time = 300;
+        let crowded = answer(
+            efforts,
+            AnsweredBy::StoredDetails,
+            segments_read_coverage(
+                None,
+                0,
+                (NaiveDate::MIN, NaiveDate::MIN),
+                Completeness::Complete,
+                None,
+            ),
+            Tz::UTC,
+        );
+        let newest = crowded.efforts.first().map(|e| e.activity_id.as_str());
+        assert_eq!(
+            newest,
+            Some("119"),
+            "bug: ranked efforts crowd out the newest"
+        );
+        let ranked = crowded
+            .efforts
+            .iter()
+            .filter(|e| e.pr_rank.is_some())
+            .count();
+        assert!(
+            ranked >= MAX_LISTED_EFFORTS / 2,
+            "bug: the ranked efforts lost their share: {ranked}"
         );
 
         let short = answer(

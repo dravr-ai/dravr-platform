@@ -631,7 +631,7 @@ async fn segments_owed(
             None,
         );
     };
-    if shape.unread() == 0 && !shape.capped {
+    if complete_without_walk(shape) {
         return (Completeness::Complete, None);
     }
     let asked = ask_detail_walk(
@@ -665,6 +665,13 @@ async fn segments_owed(
         // athlete's export, or the walk could not be recorded.
         None => (shape.short_by_unread(), None),
     }
+}
+
+/// Whether the window is complete with no walk asked: every activity it read
+/// was read, and the read was not capped. A capped window's newest rows say
+/// nothing of the rest, which the walk counts.
+fn complete_without_walk(shape: WindowShape) -> bool {
+    shape.unread() == 0 && !shape.capped
 }
 
 /// Whether the athlete holds any live Strava backend, session or grant.
@@ -836,6 +843,16 @@ mod tests {
             )),
             "bug: withheld rows ask a walk"
         );
+    }
+
+    #[test]
+    fn only_an_uncapped_window_of_read_activities_is_complete_without_a_walk() {
+        assert!(complete_without_walk(shape(12, 12, false, false)));
+        assert!(
+            !complete_without_walk(shape(20_000, 20_000, false, true)),
+            "bug: a capped window whose newest rows are read asks no walk"
+        );
+        assert!(!complete_without_walk(shape(12, 3, false, false)));
     }
 
     #[test]
