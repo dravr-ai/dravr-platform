@@ -4578,11 +4578,45 @@
                 "const": "no_stored_activities",
                 "description": "Nothing stored covers the window, so nothing was computed.",
                 "type": "string"
+              },
+              {
+                "const": "segment_detail_walking",
+                "description": "The window's activities are stored, but the segment efforts of some\nwere never read; the detail walk reading them runs on\n([`Pending::DetailWalkRunning`]).",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "properties": {
+                  "segment_detail_partial": {
+                    "properties": {
+                      "unreadable": {
+                        "description": "Activities of the window whose segment efforts were not read.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "unreadable"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "segment_detail_partial"
+                ],
+                "type": "object"
+              },
+              {
+                "const": "segment_detail_unavailable",
+                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "type": "string"
               }
             ]
           },
           "Pending": {
-            "description": "What is still owed for a window: the history walk that would fill it.",
+            "description": "What is still owed for a window: the history walk that would fill it with\nactivities, or the detail walk that reads the segment efforts of the\nactivities it holds.",
             "oneOf": [
               {
                 "description": "No walk of the athlete's history has run yet; one has been asked for.",
@@ -4632,6 +4666,44 @@
                 "required": [
                   "kind",
                   "months_done"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A detail walk is reading the segment efforts of the window's\nactivities, newest first.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk has read them all at its pace; absent\nuntil it has a total and a pace.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "detail_walk_running",
+                    "type": "string"
+                  },
+                  "units_done": {
+                    "description": "Activities the walk has read so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "units_total": {
+                    "description": "Activities the walk has to read; absent while not counted.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "units_done"
                 ],
                 "type": "object"
               }
@@ -4696,6 +4768,19 @@
                 "required": [
                   "kind",
                   "days"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`, counted in\nsegment reads: `total` is every activity in it, `returned` those whose\nsegment efforts were read (`get_segment_history`).",
+                "properties": {
+                  "kind": {
+                    "const": "segments_read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
                 ],
                 "type": "object"
               }
@@ -10487,11 +10572,45 @@
                 "const": "no_stored_activities",
                 "description": "Nothing stored covers the window, so nothing was computed.",
                 "type": "string"
+              },
+              {
+                "const": "segment_detail_walking",
+                "description": "The window's activities are stored, but the segment efforts of some\nwere never read; the detail walk reading them runs on\n([`Pending::DetailWalkRunning`]).",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "properties": {
+                  "segment_detail_partial": {
+                    "properties": {
+                      "unreadable": {
+                        "description": "Activities of the window whose segment efforts were not read.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "unreadable"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "segment_detail_partial"
+                ],
+                "type": "object"
+              },
+              {
+                "const": "segment_detail_unavailable",
+                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "type": "string"
               }
             ]
           },
           "Pending": {
-            "description": "What is still owed for a window: the history walk that would fill it.",
+            "description": "What is still owed for a window: the history walk that would fill it with\nactivities, or the detail walk that reads the segment efforts of the\nactivities it holds.",
             "oneOf": [
               {
                 "description": "No walk of the athlete's history has run yet; one has been asked for.",
@@ -10541,6 +10660,44 @@
                 "required": [
                   "kind",
                   "months_done"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A detail walk is reading the segment efforts of the window's\nactivities, newest first.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk has read them all at its pace; absent\nuntil it has a total and a pace.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "detail_walk_running",
+                    "type": "string"
+                  },
+                  "units_done": {
+                    "description": "Activities the walk has read so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "units_total": {
+                    "description": "Activities the walk has to read; absent while not counted.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "units_done"
                 ],
                 "type": "object"
               }
@@ -10675,6 +10832,19 @@
                 "required": [
                   "kind",
                   "days"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`, counted in\nsegment reads: `total` is every activity in it, `returned` those whose\nsegment efforts were read (`get_segment_history`).",
+                "properties": {
+                  "kind": {
+                    "const": "segments_read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
                 ],
                 "type": "object"
               }
@@ -16060,11 +16230,45 @@
                 "const": "no_stored_activities",
                 "description": "Nothing stored covers the window, so nothing was computed.",
                 "type": "string"
+              },
+              {
+                "const": "segment_detail_walking",
+                "description": "The window's activities are stored, but the segment efforts of some\nwere never read; the detail walk reading them runs on\n([`Pending::DetailWalkRunning`]).",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "properties": {
+                  "segment_detail_partial": {
+                    "properties": {
+                      "unreadable": {
+                        "description": "Activities of the window whose segment efforts were not read.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "unreadable"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "segment_detail_partial"
+                ],
+                "type": "object"
+              },
+              {
+                "const": "segment_detail_unavailable",
+                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "type": "string"
               }
             ]
           },
           "Pending": {
-            "description": "What is still owed for a window: the history walk that would fill it.",
+            "description": "What is still owed for a window: the history walk that would fill it with\nactivities, or the detail walk that reads the segment efforts of the\nactivities it holds.",
             "oneOf": [
               {
                 "description": "No walk of the athlete's history has run yet; one has been asked for.",
@@ -16114,6 +16318,44 @@
                 "required": [
                   "kind",
                   "months_done"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A detail walk is reading the segment efforts of the window's\nactivities, newest first.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk has read them all at its pace; absent\nuntil it has a total and a pace.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "detail_walk_running",
+                    "type": "string"
+                  },
+                  "units_done": {
+                    "description": "Activities the walk has read so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "units_total": {
+                    "description": "Activities the walk has to read; absent while not counted.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "units_done"
                 ],
                 "type": "object"
               }
@@ -16262,6 +16504,19 @@
                 "required": [
                   "kind",
                   "days"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`, counted in\nsegment reads: `total` is every activity in it, `returned` those whose\nsegment efforts were read (`get_segment_history`).",
+                "properties": {
+                  "kind": {
+                    "const": "segments_read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
                 ],
                 "type": "object"
               }
@@ -16883,11 +17138,45 @@
                 "const": "no_stored_activities",
                 "description": "Nothing stored covers the window, so nothing was computed.",
                 "type": "string"
+              },
+              {
+                "const": "segment_detail_walking",
+                "description": "The window's activities are stored, but the segment efforts of some\nwere never read; the detail walk reading them runs on\n([`Pending::DetailWalkRunning`]).",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "properties": {
+                  "segment_detail_partial": {
+                    "properties": {
+                      "unreadable": {
+                        "description": "Activities of the window whose segment efforts were not read.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "unreadable"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "segment_detail_partial"
+                ],
+                "type": "object"
+              },
+              {
+                "const": "segment_detail_unavailable",
+                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "type": "string"
               }
             ]
           },
           "Pending": {
-            "description": "What is still owed for a window: the history walk that would fill it.",
+            "description": "What is still owed for a window: the history walk that would fill it with\nactivities, or the detail walk that reads the segment efforts of the\nactivities it holds.",
             "oneOf": [
               {
                 "description": "No walk of the athlete's history has run yet; one has been asked for.",
@@ -16937,6 +17226,44 @@
                 "required": [
                   "kind",
                   "months_done"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A detail walk is reading the segment efforts of the window's\nactivities, newest first.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk has read them all at its pace; absent\nuntil it has a total and a pace.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "detail_walk_running",
+                    "type": "string"
+                  },
+                  "units_done": {
+                    "description": "Activities the walk has read so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "units_total": {
+                    "description": "Activities the walk has to read; absent while not counted.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "units_done"
                 ],
                 "type": "object"
               }
@@ -17091,6 +17418,19 @@
                 "required": [
                   "kind",
                   "days"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`, counted in\nsegment reads: `total` is every activity in it, `returned` those whose\nsegment efforts were read (`get_segment_history`).",
+                "properties": {
+                  "kind": {
+                    "const": "segments_read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
                 ],
                 "type": "object"
               }
