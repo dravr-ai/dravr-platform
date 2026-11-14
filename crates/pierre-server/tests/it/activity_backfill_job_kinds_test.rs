@@ -16,6 +16,7 @@
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
+use pierre_database::backends::factory::Database;
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLease,
     JobLeaseState, JobProgress, JobProgressStep,
@@ -707,5 +708,65 @@ async fn an_idle_live_read_is_taken_over_and_a_leased_one_is_not() {
     assert_eq!(
         row.attempts, 3,
         "bug: a released lease gives no attempt back"
+    );
+}
+
+/// Rewrites one row's `kind` to a value this build does not know, as a newer
+/// build sharing the database during a rolling deploy would have written it.
+async fn mark_kind_from_a_newer_build(db: &Database, id: &str) {
+    const SQL: &str = "UPDATE activity_backfill_jobs SET kind = 'a_kind_from_a_newer_build' \
+                       WHERE id = $1";
+    if let Some(pool) = db.sqlite_pool() {
+        sqlx::query(SQL).bind(id).execute(pool).await.unwrap();
+        return;
+    }
+    #[cfg(feature = "postgresql")]
+    if let Some(pool) = db.postgres_pool() {
+        sqlx::query(SQL).bind(id).execute(pool).await.unwrap();
+        return;
+    }
+    panic!("bug: the test database is neither SQLite nor PostgreSQL");
+}
+
+/// A kind written by a newer build is left for that build: an older replica
+/// still running during the deploy claims and reaps only the kinds it knows,
+/// so the rows it shares a batch with keep running instead of failing with it.
+#[tokio::test]
+async fn a_kind_from_a_newer_build_is_left_to_it() {
+    let db = create_test_db().await.unwrap();
+    let ledger = &db.repositories().activity_backfill_jobs;
+    let tenant = TenantId::generate();
+    let user = Uuid::new_v4();
+    let known = owed_row(tenant, user, BackfillJobKind::Backfill);
+    let newer = owed_row(tenant, user, BackfillJobKind::HistoryWalk);
+    for row in [&known, &newer] {
+        assert!(
+            ledger.record_backfill_job(row).await.unwrap(),
+            "bug: the {} row is recorded",
+            row.kind
+        );
+    }
+    mark_kind_from_a_newer_build(&db, &newer.id).await;
+
+    let claimed = ledger
+        .claim_stale_backfill_jobs(claim_now())
+        .await
+        .expect("bug: a row of an unknown kind fails the whole claim it shares");
+    assert_eq!(
+        claimed
+            .iter()
+            .map(|row| row.id.as_str())
+            .collect::<Vec<_>>(),
+        [known.id.as_str()],
+        "bug: the claim takes only the kinds this build knows"
+    );
+
+    let reaped = ledger
+        .reap_exhausted_backfill_jobs(now_ms() + 60 * 60_000, 0)
+        .await
+        .expect("bug: a row of an unknown kind fails the whole reap it shares");
+    assert!(
+        reaped.iter().all(|row| row.id != newer.id),
+        "bug: a reap deletes a row of a kind only a newer build can run"
     );
 }

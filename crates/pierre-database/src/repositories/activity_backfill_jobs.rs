@@ -49,6 +49,9 @@ pub enum BackfillJobKind {
 }
 
 impl BackfillJobKind {
+    /// Every kind this build runs.
+    pub const ALL: [Self; 3] = [Self::Backfill, Self::HistoryWalk, Self::LiveRead];
+
     /// The `kind` column value.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -75,6 +78,17 @@ impl BackfillJobKind {
         }
     }
 }
+
+/// The `kind` values this build runs, as an SQL list. The claim and the reap
+/// take only these, so a row a newer build wrote during a rolling deploy is
+/// left for that build instead of failing the whole batch it was claimed
+/// with. [`BackfillJobKind::ALL`] and the test beside it keep the two in step.
+macro_rules! known_backfill_job_kinds {
+    () => {
+        "('backfill', 'history_walk', 'live_read')"
+    };
+}
+pub(crate) use known_backfill_job_kinds;
 
 impl fmt::Display for BackfillJobKind {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -545,6 +559,9 @@ macro_rules! claim_backfill_jobs_sql {
                    AND j.created_at_ms < $3 \
                    AND j.attempts < $4 \
                    AND j.outcome IS NULL \
+                   AND j.kind IN ",
+            $crate::repositories::activity_backfill_jobs::known_backfill_job_kinds!(),
+            " \
                  ORDER BY j.created_at_ms ASC \
                  LIMIT $5 ",
             $lock,
@@ -570,12 +587,16 @@ pub(crate) const FINISH_LIVE_READ_SQL: &str = "DELETE FROM activity_backfill_job
      WHERE id = $1 AND lease_token = $2 \
      RETURNING conversation_id, turn_id, asked_message_id";
 
-pub(crate) const REAP_EXHAUSTED_BACKFILL_JOBS_SQL: &str = "DELETE FROM activity_backfill_jobs \
+pub(crate) const REAP_EXHAUSTED_BACKFILL_JOBS_SQL: &str = concat!(
+    "DELETE FROM activity_backfill_jobs \
      WHERE attempts >= $1 AND leased_until_ms <= $2 AND outcome IS NULL \
-     RETURNING id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
+       AND kind IN ",
+    known_backfill_job_kinds!(),
+    " RETURNING id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
                conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, \
                kind, months_total, months_done, rows_landed, secs_per_unit, turn_id, \
-               asked_message_id, walk_backend";
+               asked_message_id, walk_backend"
+);
 
 /// Keeps the row, released, with the outcome it ended on — only while it is
 /// owed: a walk a purge already ended keeps the outcome the purge gave it.
@@ -1186,3 +1207,38 @@ macro_rules! impl_activity_backfill_job_repository {
     };
 }
 pub(crate) use impl_activity_backfill_job_repository;
+
+#[cfg(test)]
+mod tests {
+    use super::BackfillJobKind;
+
+    /// The claim and the reap filter on the SQL list, so a kind added to the
+    /// enum without the list would be recorded and never run.
+    #[test]
+    fn the_sql_kind_list_names_every_kind_this_build_runs() {
+        let listed: Vec<&str> = known_backfill_job_kinds!()
+            .trim_matches(|c| c == '(' || c == ')')
+            .split(", ")
+            .map(|quoted| quoted.trim_matches('\''))
+            .collect();
+        let runs: Vec<&str> = BackfillJobKind::ALL
+            .iter()
+            .map(|kind| kind.as_str())
+            .collect();
+        assert_eq!(
+            listed, runs,
+            "bug: the SQL kind list drifted from the kinds this build runs"
+        );
+        for kind in BackfillJobKind::ALL {
+            let parsed = BackfillJobKind::parse(kind.as_str())
+                .expect("bug: a kind this build runs does not parse back");
+            assert_eq!(parsed, kind, "bug: {kind} does not round-trip");
+            match kind {
+                // A new variant fails this match until ALL and the list name it.
+                BackfillJobKind::Backfill
+                | BackfillJobKind::HistoryWalk
+                | BackfillJobKind::LiveRead => {}
+            }
+        }
+    }
+}
