@@ -264,7 +264,7 @@ pub(crate) async fn walk_ended(
         .await
         .map(|row| row.created_at_ms);
     loop {
-        steps_settled(resources, user_id, BackfillJobKind::DetailWalk, deadline).await;
+        steps_settled(resources, user_id, tenant, BackfillJobKind::DetailWalk, deadline).await;
         let row = walk_row(resources, user_id, tenant).await;
         if let Some(row) = row
             .as_ref()

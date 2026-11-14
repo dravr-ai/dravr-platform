@@ -332,7 +332,7 @@ async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
 /// in: the sweep opens the next day only once no step holds the walk, so the
 /// step is refused where its day is spent, never let past it by a day
 /// opened under it. The ask's own step is held on its first read while the
-/// sweep makes passes, as a slow database holds it.
+/// sweep comes round, as a slow database holds it.
 #[tokio::test]
 async fn a_step_the_sweep_meets_mid_read_keeps_its_day() {
     let (api_base, mock) = mock_strava().await;
@@ -350,7 +350,7 @@ async fn a_step_the_sweep_meets_mid_read_keeps_its_day() {
         let resources = Arc::clone(&resources);
         async move { walk_ended(&resources, user_id, tenant).await }
     });
-    // Several of the sweep's passes go by while the step holds its row.
+    // The sweep comes round while the step holds its row.
     sleep(Duration::from_millis(400)).await;
     gate.notify_one();
     let ended = timeout(Duration::from_secs(60), sweep)
@@ -365,7 +365,7 @@ async fn a_step_the_sweep_meets_mid_read_keeps_its_day() {
     assert_eq!(
         (ended.progress.units_done, ended.progress.rows_landed),
         (3, 2),
-        "the walk reads the three rides and stores two"
+        "bug: the walk whose step was held does not read the three rides and store two"
     );
 }
 

@@ -46,7 +46,7 @@ use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
-    BackfillJobClaim, BackfillJobKind, BackfillJobState, JobProgress,
+    BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::registry::ProviderRegistry;
@@ -280,7 +280,7 @@ pub(crate) async fn open_window(resources: &Arc<ServerContext>) {
         .unwrap();
 }
 
-/// Wait until no step holds one of the athlete's `kind` job rows: a row is
+/// Wait until no step holds the athlete's `kind` Strava job row: a row is
 /// leased from its record, and from each claim, until its step settles it.
 ///
 /// A sweep run by a test opens a fresh window ([`open_window`]) only then:
@@ -289,35 +289,30 @@ pub(crate) async fn open_window(resources: &Arc<ServerContext>) {
 pub(crate) async fn steps_settled(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
+    tenant: TenantId,
     kind: BackfillJobKind,
     deadline: Instant,
 ) {
-    let sql = "SELECT COUNT(*) AS held FROM activity_backfill_jobs \
-               WHERE user_id = $1 AND kind = $2 AND leased_until_ms > $3";
-    macro_rules! held {
-        ($pool:expr) => {{
-            sqlx::query(sql)
-                .bind(user_id.to_string())
-                .bind(kind.as_str())
-                .bind(Utc::now().timestamp_millis())
-                .fetch_one($pool)
-                .await
-                .unwrap()
-                .get::<i64, _>("held")
-        }};
-    }
     loop {
-        let held = match resources.agent.database.backend() {
-            DatabaseBackend::SQLite(sqlite) => held!(sqlite.pool()),
-            #[cfg(feature = "postgresql")]
-            DatabaseBackend::PostgreSQL(pg) => held!(pg.pool()),
-        };
-        if held == 0 {
+        let lease = resources
+            .common
+            .repos
+            .activity_backfill_jobs
+            .backfill_job_lease_state(
+                user_id,
+                tenant,
+                oauth_providers::STRAVA,
+                kind,
+                Utc::now().timestamp_millis(),
+            )
+            .await
+            .unwrap();
+        if lease != Some(JobLeaseState::Leased) {
             return;
         }
         assert!(
             Instant::now() < deadline,
-            "a step still held the athlete's {} row at the deadline",
+            "bug: a step still held the athlete's {} row at the deadline",
             kind.as_str()
         );
         sleep(Duration::from_millis(20)).await;
@@ -470,7 +465,7 @@ async fn released_row(resources: &Arc<ServerContext>, user_id: Uuid) -> Option<R
 async fn walk_ended(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
     let deadline = Instant::now() + WALK_DEADLINE;
     loop {
-        steps_settled(resources, user_id, BackfillJobKind::HistoryWalk, deadline).await;
+        steps_settled(resources, user_id, tenant, BackfillJobKind::HistoryWalk, deadline).await;
         let state = walk_state(resources, user_id, tenant, oauth_providers::STRAVA).await;
         if matches!(
             state,
