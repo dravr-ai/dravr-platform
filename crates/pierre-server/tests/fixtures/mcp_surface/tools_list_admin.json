@@ -15561,6 +15561,749 @@
       }
     },
     {
+      "name": "get_segment_history",
+      "description": "Every effort the athlete made on one segment (a named climb or stretch of road) in a window, with each effort's activity, the count per year and the best time. coverage.window.total counts the window's activities, returned those whose segments were read; when incomplete, say how many were read, not a final count or best.",
+      "inputSchema": {
+        "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
+          "from": {
+            "description": "YYYY-MM-DD; default ten years before to.",
+            "type": "string"
+          },
+          "segment_id": {
+            "description": "Segment id, from an activity's segment_efforts. This or segment_name.",
+            "type": "string"
+          },
+          "segment_name": {
+            "description": "Segment name or part of it; case and accents ignored. This or segment_id.",
+            "type": "string"
+          },
+          "sport_type": {
+            "description": "Only this sport (Ride, Run).",
+            "type": "string"
+          },
+          "to": {
+            "description": "YYYY-MM-DD, included; default today.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "AnsweredBy": {
+            "description": "Which of the two places answered.",
+            "oneOf": [
+              {
+                "const": "live_segment_history",
+                "description": "The provider's live listing of the segment's efforts: complete.",
+                "type": "string"
+              },
+              {
+                "const": "stored_details",
+                "description": "The segment efforts stored with the athlete's activities.",
+                "type": "string"
+              }
+            ]
+          },
+          "Coverage": {
+            "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
+            "properties": {
+              "complete": {
+                "description": "Whether every activity of the asked window was read.",
+                "type": "boolean"
+              },
+              "incomplete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/IncompleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why the window is incomplete; absent when it is complete."
+              },
+              "note": {
+                "description": "What may and may not be claimed from the window; absent when nothing\nqualifies it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pending": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pending"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history walk still owed for the window, when one is."
+              },
+              "trustworthy_from": {
+                "description": "The first day the stored history stands behind, `YYYY-MM-DD`, when it\nstarts later than the window asked.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "$ref": "#/$defs/CoverageWindow",
+                "description": "What the window spans."
+              }
+            },
+            "required": [
+              "complete",
+              "window"
+            ],
+            "type": "object"
+          },
+          "CoverageWindow": {
+            "description": "What a served window spans.",
+            "properties": {
+              "asked_from": {
+                "description": "First day asked for, `YYYY-MM-DD`; absent when the ask had no start.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "asked_to": {
+                "description": "Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "newest": {
+                "description": "The newest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "description": "The oldest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "default": 0,
+                "description": "Entries this payload returns: activities, or days of a daily series.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/WindowScope",
+                "default": {
+                  "kind": "asked"
+                },
+                "description": "Which activities the window spans."
+              },
+              "total": {
+                "description": "Activities the window holds, before any display limit; absent when\nthe reader does not count them.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_is_lower_bound": {
+                "description": "Whether `total` is only a lower bound: the read filled its row cap, so\nthe window may hold more.",
+                "type": "boolean"
+              },
+              "totals": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WindowTotals"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The window's totals, when the reader summed them."
+              }
+            },
+            "required": [
+              "scope",
+              "returned"
+            ],
+            "type": "object"
+          },
+          "IncompleteReason": {
+            "description": "Why a served window is not the whole truth for the window asked.",
+            "oneOf": [
+              {
+                "const": "live_read_running",
+                "description": "The live read outlived the turn's budget; the cached window answered\nand the read runs on.",
+                "type": "string"
+              },
+              {
+                "const": "read_capped",
+                "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "provider_unavailable",
+                "description": "The provider could not be read; what it last synced answered.",
+                "type": "string"
+              },
+              {
+                "const": "history_walk_running",
+                "description": "The athlete's history walk has not reached the start of the window\nyet; the store answered with what it holds so far.",
+                "type": "string"
+              },
+              {
+                "const": "shallow_history",
+                "description": "The stored history begins too late to stand behind the whole window:\nonly `[trustworthy_from, asked_to]` is answered.",
+                "type": "string"
+              },
+              {
+                "const": "no_stored_activities",
+                "description": "Nothing stored covers the window, so nothing was computed.",
+                "type": "string"
+              },
+              {
+                "const": "segment_detail_walking",
+                "description": "The window's activities are stored, but the segment efforts of some\nwere never read; the detail walk reading them runs on\n([`Pending::DetailWalkRunning`]).",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the backend\nanswered nothing for them, or they are held only in the athlete's\nown export, which no walk reads.",
+                "properties": {
+                  "segment_detail_partial": {
+                    "properties": {
+                      "unreadable": {
+                        "description": "Activities of the window whose segment efforts were not read.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "unreadable"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "segment_detail_partial"
+                ],
+                "type": "object"
+              },
+              {
+                "const": "segment_detail_unavailable",
+                "description": "No backend the athlete holds reads segment efforts: they come from\nStrava's API, which this athlete has not connected.",
+                "type": "string"
+              }
+            ]
+          },
+          "MatchedSegment": {
+            "description": "One segment the call matched.",
+            "properties": {
+              "id": {
+                "description": "The segment's id, when its efforts carry one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The segment's name, as one line.",
+                "type": "string"
+              },
+              "provider": {
+                "description": "The service the segment is on (`strava`).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "name"
+            ],
+            "type": "object"
+          },
+          "Pending": {
+            "description": "What is still owed for a window: the history walk that would fill it with\nactivities, or the detail walk that reads the segment efforts of the\nactivities it holds.",
+            "oneOf": [
+              {
+                "description": "No walk of the athlete's history has run yet; one has been asked for.",
+                "properties": {
+                  "kind": {
+                    "const": "history_not_walked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A walk of the athlete's history is running.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk reaches its floor at the pace its steps\nmeasured; absent until a step measured one or the floor is known.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "history_walk_running",
+                    "type": "string"
+                  },
+                  "months_done": {
+                    "description": "Months of history walked so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "months_total": {
+                    "description": "Months the walk has to cover; absent while its floor is not known.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "months_done"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A detail walk is reading the segment efforts of the window's\nactivities, newest first.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk has read them all at its pace; absent\nuntil it has a total and a pace.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "detail_walk_running",
+                    "type": "string"
+                  },
+                  "units_done": {
+                    "description": "Activities the walk has read so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "units_total": {
+                    "description": "Activities the walk has to read; absent while not counted.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "units_done"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "SegmentHistoryEffort": {
+            "description": "One effort on a matched segment.",
+            "properties": {
+              "activity_id": {
+                "description": "The provider's id of the activity the effort was made in.",
+                "type": "string"
+              },
+              "activity_name": {
+                "description": "That activity's title, as one line; absent from a live listing, which\nnames only the activity's id.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "average_heart_rate": {
+                "description": "Average heart rate over the effort (bpm).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "average_watts": {
+                "description": "Average power over the effort (watts).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "distance": {
+                "description": "The segment's length, in meters.",
+                "format": "double",
+                "type": "number"
+              },
+              "elapsed_time": {
+                "description": "Seconds from the segment's start to its end.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "kom_rank": {
+                "description": "The effort's rank on the segment's overall leaderboard when it was\nmade.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "moving_time": {
+                "description": "Seconds moving on the segment.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "pr_rank": {
+                "description": "The effort's rank among the athlete's own on the segment when it was\nmade (1 = their best then).",
+                "format": "uint32",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "provider": {
+                "description": "The service the effort came from, as the athlete knows it (`strava`).",
+                "type": "string"
+              },
+              "segment_id": {
+                "description": "The segment's id.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "segment_name": {
+                "description": "The segment's name, as one line: whoever created the segment wrote it.",
+                "type": "string"
+              },
+              "source": {
+                "description": "The service that recorded it, when the provider relays another's.",
+                "type": "string"
+              },
+              "start_date": {
+                "description": "When the effort started (RFC 3339, UTC).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "source",
+              "activity_id",
+              "start_date",
+              "elapsed_time",
+              "distance",
+              "segment_name"
+            ],
+            "type": "object"
+          },
+          "SegmentSummary": {
+            "description": "One segment's efforts on one service, summed.",
+            "properties": {
+              "best_elapsed_time": {
+                "description": "The fastest effort's elapsed time, in seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "best_start_date": {
+                "description": "When the fastest effort started (RFC 3339, UTC).",
+                "type": "string"
+              },
+              "by_year": {
+                "additionalProperties": {
+                  "format": "uint",
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "description": "Efforts listed per calendar year, in the athlete's timezone.",
+                "type": "object"
+              },
+              "count": {
+                "description": "Efforts listed.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "provider": {
+                "description": "The service the efforts came from (`strava`).",
+                "type": "string"
+              },
+              "segment_id": {
+                "description": "The segment's id, when its efforts carry one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "segment_name": {
+                "description": "The segment's name, as one line.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "provider",
+              "segment_name",
+              "count",
+              "by_year",
+              "best_elapsed_time",
+              "best_start_date"
+            ],
+            "type": "object"
+          },
+          "WindowScope": {
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "oneOf": [
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`.",
+                "properties": {
+                  "kind": {
+                    "const": "asked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The athlete's whole history, as the provider's aggregate reports it.",
+                "properties": {
+                  "kind": {
+                    "const": "lifetime",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
+                "properties": {
+                  "kind": {
+                    "const": "recent_activities",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "Only the activities of the last `days` days, ending now.",
+                "properties": {
+                  "days": {
+                    "description": "Length of the window, in days.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "kind": {
+                    "const": "last_days",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "days"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`, counted in\nsegment reads: `total` is every activity in it, `returned` those whose\nsegment efforts were read (`get_segment_history`).",
+                "properties": {
+                  "kind": {
+                    "const": "segments_read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WindowTotals": {
+            "description": "Count, distance, duration and climb summed over a whole window, taken\nbefore a display limit truncates it.\n\nA year-against-year question is answered from these, not from the shown\nslice: with a display limit of 20, a 63-ride 2011 read as its last three\nDecember rides (carnet#874). Serialized with distance and elevation to one\ndecimal and the duration exact, which the agent quotes and derives pace\nfrom (carnet#1015).",
+            "properties": {
+              "count": {
+                "description": "Activities in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "distance_km": {
+                "description": "Summed distance in kilometres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              },
+              "duration_seconds": {
+                "description": "Summed duration in seconds, exact.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Summed elevation gain in metres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "properties": {
+              "answered_by": {
+                "$ref": "#/$defs/AnsweredBy",
+                "description": "Where the efforts were read: the provider's live listing, or the\nstored details of the athlete's activities."
+              },
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "Whether the efforts are all there are in the window: `window.total` is\nthe activities in it, `window.returned` the activities whose segments\nwere read; with `incomplete_reason` and the walk still `pending` when\nsome were not, and the `note` saying what may be claimed."
+              },
+              "efforts": {
+                "description": "Every effort on the matched segments, newest first.",
+                "items": {
+                  "$ref": "#/$defs/SegmentHistoryEffort"
+                },
+                "type": "array"
+              },
+              "segments": {
+                "description": "The distinct segments matched.",
+                "items": {
+                  "$ref": "#/$defs/MatchedSegment"
+                },
+                "type": "array"
+              },
+              "summary": {
+                "description": "The efforts summed per segment and service.",
+                "items": {
+                  "$ref": "#/$defs/SegmentSummary"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "efforts",
+              "segments",
+              "summary",
+              "answered_by",
+              "coverage"
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "connect_url": {
+                "type": "string"
+              },
+              "connected": {
+                "const": false
+              },
+              "message": {
+                "type": "string"
+              },
+              "providers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "readable_here": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "status",
+                    "readable_here"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "connected",
+              "message",
+              "providers"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "What `get_segment_history` answers with.",
+        "title": "SegmentHistoryResult",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Get segment history",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "get_sleep_sessions",
       "description": "Get stored sleep sessions from the database",
       "inputSchema": {
