@@ -230,16 +230,20 @@ fn earliest(a: Option<i64>, b: Option<i64>) -> Option<i64> {
 /// Whether an earlier walk that ended walked tried an activity a walk meets
 /// first at `start` (unix seconds) whose first copy reached the store at
 /// `first_stored_ms`: it started within the range that walk tried
-/// (`tried`), and was in the store when that walk was asked. One the store
-/// got after that, or one whose arrival nothing records, the earlier walk
-/// never had in reach.
+/// (`tried`), and was in the store before the second that walk was asked
+/// in. One the store got after that, or one whose arrival nothing records,
+/// the earlier walk never had in reach. The second, not the instant: `SQLite`
+/// keeps a row's first write to the second, so one stored in the second of
+/// the ask is taken as stored after it, and read rather than reported
+/// unreadable.
 ///
 /// The one test a fresh walk's count ([`super::ask_detail_walk`]) and its
 /// steps ([`take_seconds`]) both apply, so a walk counts what it reads.
 pub(super) fn tried_by(tried: &WalkTried, start: i64, first_stored_ms: Option<i64>) -> bool {
     tried.floor_ts.is_none_or(|floor| floor <= start)
         && start < tried.top_ts
-        && first_stored_ms.is_some_and(|stored| stored <= tried.asked_ms)
+        && first_stored_ms
+            .is_some_and(|stored| stored < tried.asked_ms - tried.asked_ms.rem_euclid(1_000))
 }
 
 /// `rows`, newest first, by the second they started in, each second keeping

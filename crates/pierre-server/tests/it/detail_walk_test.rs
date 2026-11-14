@@ -869,6 +869,8 @@ async fn walked_once(sport: Option<&'static str>) -> WalkedOnce {
     mock.missing.lock().unwrap().insert(starts[1]);
     store_rides(&resources, user_id, tenant, SESSION, &starts).await;
     open_window(&resources).await;
+    // A walk tried what was stored before the second it was asked in.
+    sleep(Duration::from_millis(1_100)).await;
     let ask = DetailWalkAsk {
         after_ts: now - 10 * DAY,
         before_ts: now,

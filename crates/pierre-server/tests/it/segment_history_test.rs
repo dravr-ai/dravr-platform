@@ -58,7 +58,9 @@ use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use secrecy::SecretString;
 use serde_json::{json, Value};
+use std::time::Duration as StdDuration;
 use tokio::net::TcpListener;
+use tokio::time::sleep;
 use uuid::Uuid;
 
 const TOOL: &str = "get_segment_history";
@@ -1087,6 +1089,8 @@ async fn a_default_window_asked_the_next_day_stands_on_the_walk_that_ended() {
         &[ride(oauth_providers::STRAVA, start(5))],
     )
     .await;
+    // A walk tried what was stored before the second it was asked in.
+    sleep(StdDuration::from_millis(1_100)).await;
     let first = call(
         &resources,
         (user_id, tenant),
