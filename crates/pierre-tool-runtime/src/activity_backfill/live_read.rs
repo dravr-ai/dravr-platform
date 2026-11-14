@@ -134,6 +134,10 @@ pub(crate) async fn start_live_read(
         Enqueued::Started => return LiveReadStart::Started(answer),
         Enqueued::InFlightHere(job, handoff, run) => (job, handoff, Some(run)),
         Enqueued::Owed(job, handoff) => (job, handoff, None),
+        // A live read runs unrecorded, so this never comes back for one;
+        // were it to, the handoff's sender is gone and the turn's receiver
+        // closes, as for a read that never started.
+        Enqueued::Unrecorded => return LiveReadStart::Started(answer),
     };
     // A read owed elsewhere answers this ask only when its row is this
     // tenant's: recording the ask rebound that row to it. Another tenant's

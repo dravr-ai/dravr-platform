@@ -65,21 +65,21 @@ use tokio::time::{sleep, timeout};
 use uuid::Uuid;
 
 /// Seconds in a day.
-const DAY: i64 = 86_400;
+pub(crate) const DAY: i64 = 86_400;
 
 /// How long a walk gets to end before the test gives up.
 const WALK_DEADLINE: Duration = Duration::from_secs(30);
 
 /// The key the athlete's session files its rides under.
-const SESSION: &str = "sciotte";
+pub(crate) const SESSION: &str = "sciotte";
 
 /// What the Strava stand-in answers and saw.
 #[derive(Default)]
-struct MockStrava {
+pub(crate) struct MockStrava {
     /// Every detail read's id, in the order they came.
     details: Mutex<Vec<i64>>,
     /// The ids it answers `404` for.
-    missing: Mutex<HashSet<i64>>,
+    pub(crate) missing: Mutex<HashSet<i64>>,
     /// The gate the next detail read waits on once it is counted.
     hold: Mutex<Option<Arc<Notify>>>,
     /// Raised when a detail read reached the gate.
@@ -87,19 +87,19 @@ struct MockStrava {
 }
 
 impl MockStrava {
-    fn detail_reads(&self) -> Vec<i64> {
+    pub(crate) fn detail_reads(&self) -> Vec<i64> {
         self.details.lock().unwrap().clone()
     }
 
     /// Hold the next detail read, once counted, until the returned gate is
     /// notified.
-    fn hold_next_read(&self) -> Arc<Notify> {
+    pub(crate) fn hold_next_read(&self) -> Arc<Notify> {
         let gate = Arc::new(Notify::new());
         *self.hold.lock().unwrap() = Some(Arc::clone(&gate));
         gate
     }
 
-    async fn read_held(&self) {
+    pub(crate) async fn read_held(&self) {
         timeout(Duration::from_secs(10), self.held.notified())
             .await
             .expect("no detail read reached the hold");
@@ -144,7 +144,7 @@ async fn activity_detail(
     })))
 }
 
-async fn mock_strava() -> (String, Arc<MockStrava>) {
+pub(crate) async fn mock_strava() -> (String, Arc<MockStrava>) {
     let mock = Arc::new(MockStrava::default());
     let app = Router::new()
         .route("/activities/{id}", get(activity_detail))
@@ -159,13 +159,13 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
 
 /// A ride started at `start` as `key` lists it, its id its start: the
 /// session's capture names Strava as its source.
-fn ride(key: &str, start: i64) -> Activity {
+pub(crate) fn ride(key: &str, start: i64) -> Activity {
     ride_listed_at(key, start, start)
 }
 
 /// The ride whose Strava id is `id` (its real start), as `key` lists it
 /// started at `start`: a session's list read can carry only the day.
-fn ride_listed_at(key: &str, id: i64, start: i64) -> Activity {
+pub(crate) fn ride_listed_at(key: &str, id: i64, start: i64) -> Activity {
     let built = ActivityBuilder::new(
         id.to_string(),
         "Morning ride",
@@ -182,7 +182,7 @@ fn ride_listed_at(key: &str, id: i64, start: i64) -> Activity {
 }
 
 /// Store `starts` as the rides `key` listed for the athlete.
-async fn store_rides(
+pub(crate) async fn store_rides(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
@@ -199,7 +199,7 @@ async fn store_rides(
 }
 
 /// The athlete's stored rows under `key`, newest first.
-async fn rows_under(
+pub(crate) async fn rows_under(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
@@ -221,7 +221,7 @@ async fn rows_under(
 }
 
 /// The athlete's detail walk row through the grant.
-async fn walk_row(
+pub(crate) async fn walk_row(
     resources: &Arc<ServerContext>,
     user_id: Uuid,
     tenant: TenantId,
@@ -265,7 +265,7 @@ pub(crate) async fn walk_ended(
 }
 
 /// The window `[after, now)` of every sport.
-fn since(after: i64) -> DetailWalkAsk<'static> {
+pub(crate) fn since(after: i64) -> DetailWalkAsk<'static> {
     DetailWalkAsk {
         after_ts: after,
         before_ts: Utc::now().timestamp(),

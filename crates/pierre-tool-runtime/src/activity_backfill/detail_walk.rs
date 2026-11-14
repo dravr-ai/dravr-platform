@@ -252,9 +252,13 @@ pub async fn ask_detail_walk(
         units_total: Some(units_total),
         ..JobProgress::default()
     };
-    if matches!(enqueue(job, None, progress).await, Enqueued::Started) {
-        info!(user_id = %user_id, backend, units_total, "Detail walk: asked");
-        return DetailWalkAsked::Started { units_total };
+    match enqueue(job, None, progress).await {
+        Enqueued::Started => {
+            info!(user_id = %user_id, backend, units_total, "Detail walk: asked");
+            return DetailWalkAsked::Started { units_total };
+        }
+        Enqueued::Unrecorded => return DetailWalkAsked::NotRecorded,
+        Enqueued::InFlightHere(..) | Enqueued::Owed(..) => {}
     }
     // Recorded by another ask between the read and the record: this one
     // widens it.

@@ -300,6 +300,7 @@ mod delegated_link_states_test;
 mod delegated_trainingpeaks_read_test;
 mod delegation_lifecycle_test;
 mod derived_content_provenance_test;
+mod detail_walk_edges_test;
 mod detail_walk_test;
 mod device_auth_test;
 mod device_web_test;

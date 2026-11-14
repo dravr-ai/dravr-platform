@@ -273,6 +273,10 @@ enum Enqueued {
     /// it, so its follow-up answers this ask. The ask comes back with its
     /// handoff.
     Owed(ActivityBackfillJob, Option<live_read::LiveReadHandoff>),
+    /// The ledger could not record a job of a kind that never runs without
+    /// its row ([`BackfillJobKind::DetailWalk`]): nothing was spawned, and the
+    /// in-flight key was given back, so the next ask tries again.
+    Unrecorded,
 }
 
 /// Take the in-flight key, record the row, and spawn the run: the one path
@@ -324,6 +328,13 @@ async fn enqueue(
                 );
                 return Enqueued::Owed(job, handoff);
             }
+        }
+        // A detail walk's step writes nothing without a row to guard its
+        // writes by: a run spawned without one would read nothing, and the
+        // ask would report a walk that is not there.
+        Recorded::Unrecorded if job.kind == BackfillJobKind::DetailWalk => {
+            release_in_flight(&claim);
+            return Enqueued::Unrecorded;
         }
         Recorded::Unrecorded => None,
     };
