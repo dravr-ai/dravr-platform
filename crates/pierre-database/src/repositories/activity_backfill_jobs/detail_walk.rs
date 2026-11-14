@@ -64,11 +64,14 @@ pub struct DetailWalkEnd {
     /// The floor the step walked down to, as its claim read the row's
     /// `after_ts`; `None` when the walk had none.
     pub walked_floor: Option<i64>,
+    /// When the walk ended (unix ms): an ask within a week over the window
+    /// it walked records no fresh walk.
+    pub ended_at_ms: i64,
 }
 
 /// Adds a detail walk's last step to its progress and keeps the row,
-/// released, as walked (`$8`): its window's floor, what it read and what it
-/// stored stay on it. Only while the floor is still the one the step walked
+/// released, as walked (`$8`) at `$9`: its window's floor and top, what it
+/// read and what it stored stay on it. Only while the floor is still the one the step walked
 /// to (`$7`): an ask that widened it meanwhile
 /// ([`WIDEN_DETAIL_WALK_SQL`], which matches the row whatever lease holds it)
 /// left the walk rows below that floor to read, so the row stays owed and
@@ -76,7 +79,7 @@ pub struct DetailWalkEnd {
 /// that is there, so a floor equal to the claimed one never moved.
 pub(crate) const END_DETAIL_WALK_SQL: &str = "UPDATE activity_backfill_jobs \
      SET before_ts = $3, months_done = months_done + $4, rows_landed = rows_landed + $5, \
-         secs_per_unit = COALESCE($6, secs_per_unit), outcome = $8, \
+         secs_per_unit = COALESCE($6, secs_per_unit), outcome = $8, ended_at_ms = $9, \
          leased_until_ms = 0, lease_token = NULL \
      WHERE id = $1 AND lease_token = $2 AND outcome IS NULL \
        AND (after_ts = $7 OR (after_ts IS NULL AND $7 IS NULL)) \
@@ -103,6 +106,13 @@ pub struct DetailWalkRow {
     /// The walk's cursor (unix seconds): every activity started at or after
     /// it was walked. An ended walk's sits at its floor.
     pub before_ts: Option<i64>,
+    /// The window's top (unix seconds), excluded, as the ask that recorded
+    /// the walk named it: a widen never moves it, and it stays once the walk
+    /// ends.
+    pub window_top_ts: Option<i64>,
+    /// When the walk ended walked (unix ms); `None` while it is owed, or
+    /// when it ended any other way.
+    pub ended_at_ms: Option<i64>,
     /// The sport the walk reads; `None` for every sport.
     pub walk_sport: Option<String>,
     /// When the ask that recorded it was made (unix ms).
@@ -114,7 +124,8 @@ pub struct DetailWalkRow {
 /// The detail walk (`$4`) filed under the pair in the tenant, whatever its
 /// state.
 pub(crate) const DETAIL_WALK_ROW_SQL: &str = "SELECT outcome, after_ts, before_ts, walk_sport, \
-            created_at_ms, months_total, months_done, rows_landed, secs_per_unit \
+            window_top_ts, ended_at_ms, created_at_ms, months_total, months_done, rows_landed, \
+            secs_per_unit \
      FROM activity_backfill_jobs \
      WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND kind = $4";
 
@@ -156,6 +167,10 @@ where
         after_ts: row.try_get("after_ts").map_err(column("after_ts"))?,
         before_ts: row.try_get("before_ts").map_err(column("before_ts"))?,
         walk_sport: row.try_get("walk_sport").map_err(column("walk_sport"))?,
+        window_top_ts: row
+            .try_get("window_top_ts")
+            .map_err(column("window_top_ts"))?,
+        ended_at_ms: row.try_get("ended_at_ms").map_err(column("ended_at_ms"))?,
         created_at_ms: row
             .try_get("created_at_ms")
             .map_err(column("created_at_ms"))?,

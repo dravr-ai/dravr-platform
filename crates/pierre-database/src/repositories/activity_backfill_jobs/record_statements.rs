@@ -10,14 +10,18 @@
 /// is replaced whole by the new one, but only by an ask in the row's own
 /// tenant: an ask from another tenant never overwrites what this tenant's
 /// card reads. A history walk a purge left owed a reopen (`$21`) is not an
-/// ended job: a step may still hold it, and it is never replaced.
+/// ended job: a step may still hold it, and it is never replaced. The
+/// window's top (`$6`) is kept twice: as `before_ts`, which a walk's steps
+/// move down as their cursor, and as `window_top_ts`, which stays, so an
+/// ended detail walk still names the window it walked; a replaced row has
+/// not ended (`ended_at_ms`).
 pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_jobs \
      (id, tenant_id, user_id, provider, after_ts, before_ts, fetch_limit, \
       conversation_id, created_at_ms, leased_until_ms, attempts, lease_token, kind, \
       months_total, months_done, rows_landed, secs_per_unit, turn_id, asked_message_id, \
-      walk_sport) \
+      walk_sport, window_top_ts) \
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, \
-             $20) \
+             $20, $6) \
      ON CONFLICT (user_id, provider, kind) DO UPDATE SET \
        id = excluded.id, tenant_id = excluded.tenant_id, after_ts = excluded.after_ts, \
        before_ts = excluded.before_ts, fetch_limit = excluded.fetch_limit, \
@@ -27,7 +31,8 @@ pub(crate) const RECORD_BACKFILL_JOB_SQL: &str = "INSERT INTO activity_backfill_
        months_done = excluded.months_done, rows_landed = excluded.rows_landed, \
        secs_per_unit = excluded.secs_per_unit, turn_id = excluded.turn_id, \
        asked_message_id = excluded.asked_message_id, walk_backend = NULL, outcome = NULL, \
-       next_attempt_ms = 0, walk_sport = excluded.walk_sport \
+       next_attempt_ms = 0, walk_sport = excluded.walk_sport, \
+       window_top_ts = excluded.window_top_ts, ended_at_ms = NULL \
      WHERE activity_backfill_jobs.outcome IS NOT NULL \
        AND activity_backfill_jobs.outcome <> $21 \
        AND activity_backfill_jobs.tenant_id = excluded.tenant_id";

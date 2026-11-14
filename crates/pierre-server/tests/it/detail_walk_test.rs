@@ -42,7 +42,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use chrono::{TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::coverage::Pending;
+use pierre_core::models::coverage::{IncompleteReason, Pending};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
@@ -821,5 +821,223 @@ async fn copies_of_one_ride_listed_at_different_starts_are_read_once() {
         .await,
         DetailWalkAsked::NothingUnread,
         "bug: a ride whose grant copy carries its efforts reads as unread through its session copy"
+    );
+}
+
+/// An athlete whose walk over `[now - 10 days, top)` of `sport` ended
+/// walked, having read two rides and failed on the third (`404`).
+struct WalkedOnce {
+    resources: Arc<ServerContext>,
+    mock: Arc<MockStrava>,
+    user_id: Uuid,
+    tenant: TenantId,
+    now: i64,
+    ask: DetailWalkAsk<'static>,
+}
+
+async fn walked_once(sport: Option<&'static str>) -> WalkedOnce {
+    let (api_base, mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let now = Utc::now().timestamp();
+    let starts = [now - 5 * DAY, now - 6 * DAY, now - 7 * DAY];
+    mock.missing.lock().unwrap().insert(starts[1]);
+    store_rides(&resources, user_id, tenant, SESSION, &starts).await;
+    open_window(&resources).await;
+    let ask = DetailWalkAsk {
+        after_ts: now - 10 * DAY,
+        before_ts: now,
+        sport,
+    };
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        ask_detail_walk(&runtime, user_id, tenant, oauth_providers::STRAVA, ask).await,
+        DetailWalkAsked::Started { units_total: 3 },
+        "the three rides are owed"
+    );
+    let ended = walk_ended(&resources, user_id, tenant).await;
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "the walk ended walked"
+    );
+    assert_eq!(mock.detail_reads().len(), 3, "each ride was read once");
+    WalkedOnce {
+        resources,
+        mock,
+        user_id,
+        tenant,
+        now,
+        ask,
+    }
+}
+
+impl WalkedOnce {
+    async fn ask(&self, ask: DetailWalkAsk<'_>) -> DetailWalkAsked {
+        let runtime: Arc<dyn ToolRuntime> = self.resources.clone();
+        ask_detail_walk(
+            &runtime,
+            self.user_id,
+            self.tenant,
+            oauth_providers::STRAVA,
+            ask,
+        )
+        .await
+    }
+
+    async fn state(&self) -> Option<BackfillJobState> {
+        walk_row(&self.resources, self.user_id, self.tenant)
+            .await
+            .map(|row| row.state)
+    }
+}
+
+/// A walk that ended walked has tried every ride of its window: an ask
+/// over that window within a week records no new walk, which would only
+/// spend the athlete's day re-reading the rides the backend could not read.
+#[tokio::test]
+async fn a_re_ask_within_a_week_of_a_walk_that_ended_reads_nothing_again() {
+    let walked = walked_once(None).await;
+
+    let asked = walked.ask(walked.ask).await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::RecentlyWalked { unreadable: 1 },
+        "bug: a re-ask over a window walked a moment ago records a fresh walk"
+    );
+    assert_eq!(
+        asked.segment_reason(),
+        Some(IncompleteReason::SegmentDetailPartial { unreadable: 1 }),
+        "bug: the ride the walk could not read is not reported as unread"
+    );
+    let narrower = DetailWalkAsk {
+        after_ts: walked.now - 9 * DAY,
+        before_ts: walked.now - DAY,
+        sport: Some("Ride"),
+    };
+    assert_eq!(
+        walked.ask(narrower).await,
+        DetailWalkAsked::RecentlyWalked { unreadable: 1 },
+        "bug: a narrower window of one sport inside the walked one records a fresh walk"
+    );
+    assert_eq!(
+        walked.state().await,
+        Some(BackfillJobState::Walked),
+        "bug: the ended walk was replaced by an owed one"
+    );
+    let runtime: Arc<dyn ToolRuntime> = walked.resources.clone();
+    resume_backfill_jobs(runtime).await.unwrap();
+    sleep(Duration::from_millis(200)).await;
+    assert_eq!(
+        walked.mock.detail_reads().len(),
+        3,
+        "bug: the ride the backend could not read was read again"
+    );
+}
+
+/// Set `assignment` on the athlete's detail walk row.
+async fn alter_walk_row(resources: &Arc<ServerContext>, user_id: Uuid, assignment: &str) {
+    let sql = format!(
+        "UPDATE activity_backfill_jobs SET {assignment} \
+         WHERE user_id = $1 AND kind = 'detail_walk'"
+    );
+    macro_rules! alter {
+        ($pool:expr) => {{
+            let altered = sqlx::query(&sql)
+                .bind(user_id.to_string())
+                .execute($pool)
+                .await
+                .unwrap();
+            assert_eq!(altered.rows_affected(), 1, "the walk row is altered");
+        }};
+    }
+    match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => alter!(sqlite.pool()),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => alter!(pg.pool()),
+    }
+}
+
+/// A walk that ended over a week ago stands no more: a ride deleted or made
+/// private since may read now, so the window is walked afresh.
+#[tokio::test]
+async fn a_walk_that_ended_over_a_week_ago_is_walked_afresh() {
+    let walked = walked_once(None).await;
+    let week_and_a_day_ms = 8 * DAY * 1_000;
+    alter_walk_row(
+        &walked.resources,
+        walked.user_id,
+        &format!("ended_at_ms = ended_at_ms - {week_and_a_day_ms}"),
+    )
+    .await;
+
+    assert_eq!(
+        walked.ask(walked.ask).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: a walk that ended over a week ago still stands for its window"
+    );
+    assert_eq!(walked.state().await, Some(BackfillJobState::Owed));
+}
+
+/// A window reaching below the walked one's floor holds rides no walk tried:
+/// it is walked afresh.
+#[tokio::test]
+async fn a_window_below_the_walked_floor_is_walked_afresh() {
+    let walked = walked_once(None).await;
+    let lower = DetailWalkAsk {
+        after_ts: walked.now - 20 * DAY,
+        ..walked.ask
+    };
+    assert_eq!(
+        walked.ask(lower).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: a window below the walked floor reads as walked"
+    );
+}
+
+/// A window reaching above the walked one's top holds rides no walk tried:
+/// it is walked afresh.
+#[tokio::test]
+async fn a_window_above_the_walked_top_is_walked_afresh() {
+    let walked = walked_once(None).await;
+    let higher = DetailWalkAsk {
+        before_ts: walked.now + 1,
+        ..walked.ask
+    };
+    assert_eq!(
+        walked.ask(higher).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: a window above the walked top reads as walked"
+    );
+}
+
+/// A walk of one sport never tried the others: an ask for every sport is
+/// walked afresh.
+#[tokio::test]
+async fn a_walk_of_one_sport_does_not_stand_for_every_sport() {
+    let walked = walked_once(Some("Ride")).await;
+    let every_sport = DetailWalkAsk {
+        sport: None,
+        ..walked.ask
+    };
+    assert_eq!(
+        walked.ask(every_sport).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: a walk of rides stands for every sport"
+    );
+}
+
+/// Only a walk that reached its floor tried every ride of its window: one
+/// that ended any other way stands for nothing, however lately it ended.
+#[tokio::test]
+async fn a_walk_that_ended_incomplete_does_not_stand_for_its_window() {
+    let walked = walked_once(None).await;
+    alter_walk_row(&walked.resources, walked.user_id, "outcome = 'incomplete'").await;
+    assert_eq!(walked.state().await, Some(BackfillJobState::Incomplete));
+
+    assert_eq!(
+        walked.ask(walked.ask).await,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: a walk that ended incomplete stands for its window"
     );
 }

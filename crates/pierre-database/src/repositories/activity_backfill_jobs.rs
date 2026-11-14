@@ -981,6 +981,7 @@ macro_rules! impl_activity_backfill_job_repository {
                         .bind(end.secs_per_unit)
                         .bind(end.walked_floor)
                         .bind(walked_outcome())
+                        .bind(end.ended_at_ms)
                         .fetch_optional(self.pool())
                         .await
                         .map_err(|e| {

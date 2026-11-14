@@ -1119,6 +1119,9 @@ async fn claimed_detail_walk(db: &Database) -> (ActivityBackfillJobRow, JobLease
     (row, lease)
 }
 
+/// When the last step of a detail walk ends it (unix ms).
+const WALK_ENDED_AT_MS: i64 = 1_763_100_000_000;
+
 /// The last step of a detail walk that reached the floor `walked_floor`.
 fn last_step(walked_floor: Option<i64>) -> DetailWalkEnd {
     DetailWalkEnd {
@@ -1127,6 +1130,7 @@ fn last_step(walked_floor: Option<i64>) -> DetailWalkEnd {
         rows_landed: 2,
         secs_per_unit: Some(1_728.0),
         walked_floor,
+        ended_at_ms: WALK_ENDED_AT_MS,
     }
 }
 
@@ -1190,11 +1194,14 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
             state: BackfillJobState::Walked,
             after_ts: row.after_ts,
             before_ts: row.after_ts,
+            window_top_ts: walk.before_ts,
+            ended_at_ms: Some(WALK_ENDED_AT_MS),
             walk_sport: None,
             created_at_ms: walk.created_at_ms,
             progress: ended,
         }),
-        "bug: the ended row reads back with its window, its cursor at the floor, and its counts"
+        "bug: the ended row reads back with its window's floor and top, its cursor at the floor, \
+         when it ended, and its counts"
     );
     assert_eq!(
         ledger
@@ -1211,6 +1218,26 @@ async fn a_detail_walk_that_reached_its_floor_ends_walked_and_keeps_its_counts()
             .unwrap()
             .is_none(),
         "bug: an ended walk is ended twice"
+    );
+
+    // A fresh walk recorded over the ended one is owed again, over its own
+    // window, and has not ended.
+    let mut fresh = owed_row(tenant, user, BackfillJobKind::DetailWalk);
+    fresh.before_ts = Some(1_720_000_000);
+    assert!(ledger.record_backfill_job(&fresh).await.unwrap());
+    let fresh_row = ledger
+        .detail_walk_row(user, tenant, PROVIDER)
+        .await
+        .unwrap()
+        .expect("the fresh walk is recorded");
+    assert_eq!(
+        (
+            fresh_row.state,
+            fresh_row.window_top_ts,
+            fresh_row.ended_at_ms
+        ),
+        (BackfillJobState::Owed, Some(1_720_000_000), None),
+        "bug: a fresh walk over an ended one kept the old one's top or end"
     );
 }
 

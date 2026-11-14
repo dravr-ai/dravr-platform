@@ -43,7 +43,10 @@
 //! failed store retries the step a lease later, its attempt counted.
 //!
 //! **Where it ends.** When its cursor passes the window's floor (`after_ts`).
-//! The row is kept as walked with its window and counts, and the athlete is
+//! The row is kept as walked with its window, when it ended and its counts:
+//! an ask within [`DETAIL_WALK_STANDS_MS`] over that window reads nothing
+//! again ([`DetailWalkAsked::RecentlyWalked`]), the activities the walk could
+//! not read reported unread, never re-read at the athlete's cost. The athlete is
 //! told once, in their personal thread, how many activities had their
 //! efforts read, when that is any
 //! ([`BackfillNotifier::push_detail_walk_complete`](crate::runtime::BackfillNotifier::push_detail_walk_complete)).
@@ -56,7 +59,7 @@ use std::time::Instant;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::constants::oauth::providers::STRAVA_ARCHIVE;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::coverage::Pending;
+use pierre_core::models::coverage::{IncompleteReason, Pending};
 use pierre_core::models::{Activity, TenantId};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::repositories::{
@@ -96,6 +99,14 @@ const WALK_PAGE_ROWS: i64 = 200;
 /// Reads of the window one step makes looking for activities to read before
 /// it records where it got to.
 const WALK_PAGES_PER_STEP: usize = 20;
+
+/// How long a detail walk that ended walked stands for its window (ms).
+///
+/// An ask within it over that window records no fresh walk, which would
+/// only spend the athlete's day re-reading the activities the backend could
+/// not read. A week: a ride deleted or made private since is read again
+/// soon enough.
+pub const DETAIL_WALK_STANDS_MS: i64 = 7 * 86_400_000;
 
 /// Seconds in a day.
 const SECS_PER_DAY: f64 = 86_400.0;
@@ -160,8 +171,35 @@ pub enum DetailWalkAsked {
     Widened,
     /// Every activity of the window has its efforts read: nothing to walk.
     NothingUnread,
+    /// A walk over the window ended walked within
+    /// [`DETAIL_WALK_STANDS_MS`]: it tried every activity in it, so none is
+    /// read again. These are the window's activities whose efforts it could
+    /// not read.
+    RecentlyWalked {
+        /// Activities of the window whose efforts no copy holds.
+        unreadable: i64,
+    },
     /// The store or the ledger could not be read or written (logged).
     NotRecorded,
+}
+
+impl DetailWalkAsked {
+    /// Why a segments window the ask answers is short of its efforts: a
+    /// walk recorded or widened is still reading them
+    /// ([`IncompleteReason::SegmentDetailWalking`]); one that ended lately
+    /// left some unread ([`IncompleteReason::SegmentDetailPartial`]).
+    /// `None` when nothing is left to read, or when nothing could be
+    /// recorded: the caller's own count says whether the window is short.
+    #[must_use]
+    pub fn segment_reason(self) -> Option<IncompleteReason> {
+        match self {
+            Self::Started { .. } | Self::Widened => Some(IncompleteReason::SegmentDetailWalking),
+            Self::RecentlyWalked { unreadable } => Some(IncompleteReason::SegmentDetailPartial {
+                unreadable: u64::try_from(unreadable).unwrap_or(0),
+            }),
+            Self::NothingUnread | Self::NotRecorded => None,
+        }
+    }
 }
 
 /// Ask for a detail walk of `ask`'s window through `backend` for the
@@ -171,7 +209,11 @@ pub enum DetailWalkAsked {
 /// ([`WalkWiden`]); its cursor stays where its steps moved it, and a newer
 /// top is the next walk's once this one ends. With none owed, a walk is
 /// recorded over the window, counted at the activities in it whose efforts
-/// no copy holds, unless there are none.
+/// no copy holds, unless there are none, or unless a walk that ended walked
+/// within [`DETAIL_WALK_STANDS_MS`] covers the window
+/// ([`DetailWalkAsked::RecentlyWalked`]): an older one, one over a narrower
+/// window or another sport, or one that ended any other way is walked
+/// afresh.
 pub async fn ask_detail_walk(
     runtime: &Arc<dyn ToolRuntime>,
     user_id: Uuid,
@@ -184,10 +226,14 @@ pub async fn ask_detail_walk(
         user_id,
         tenant_id,
     };
-    match owed_walk(&athlete, backend).await {
-        Ok(Some(row)) => return widen(&athlete, backend, &row, ask).await,
-        Ok(None) => {}
-        Err(()) => return DetailWalkAsked::NotRecorded,
+    let Ok(row) = walk_row(&athlete, backend).await else {
+        return DetailWalkAsked::NotRecorded;
+    };
+    if let Some(row) = row
+        .as_ref()
+        .filter(|row| row.state == BackfillJobState::Owed)
+    {
+        return widen(&athlete, backend, row, ask).await;
     }
     let keys = walk_keys(backend);
     let Ok(units_total) = athlete
@@ -198,6 +244,15 @@ pub async fn ask_detail_walk(
     };
     if units_total == 0 {
         return DetailWalkAsked::NothingUnread;
+    }
+    if row
+        .as_ref()
+        .is_some_and(|row| stands_for(row, ask, now_ms()))
+    {
+        info!(user_id = %user_id, backend, unreadable = units_total, "Detail walk: a walk over the window ended lately; nothing is read again");
+        return DetailWalkAsked::RecentlyWalked {
+            unreadable: units_total,
+        };
     }
     let job = ActivityBackfillJob {
         resources: Arc::clone(runtime),
@@ -235,9 +290,31 @@ pub async fn ask_detail_walk(
     }
 }
 
+/// Whether the walk `row` records, which ended walked within
+/// [`DETAIL_WALK_STANDS_MS`] of `now_ms`, covers `ask`: its window reaches
+/// from at or below the ask's floor to at or above its top, over the ask's
+/// sport or every sport.
+fn stands_for(row: &DetailWalkRow, ask: DetailWalkAsk<'_>, now_ms: i64) -> bool {
+    row.state == BackfillJobState::Walked
+        && row
+            .ended_at_ms
+            .is_some_and(|ended| now_ms.saturating_sub(ended) < DETAIL_WALK_STANDS_MS)
+        && row.after_ts.is_none_or(|floor| floor <= ask.after_ts)
+        && row.window_top_ts.is_some_and(|top| top >= ask.before_ts)
+        && (row.walk_sport.is_none() || row.walk_sport.as_deref() == ask.sport)
+}
+
 /// The detail walk owed for `backend`, if one is; `Err` (logged) when the
 /// ledger could not be read.
 async fn owed_walk(athlete: &Athlete<'_>, backend: &str) -> Result<Option<DetailWalkRow>, ()> {
+    Ok(walk_row(athlete, backend)
+        .await?
+        .filter(|row| row.state == BackfillJobState::Owed))
+}
+
+/// The detail walk filed under `backend`, owed or ended, if one is; `Err`
+/// (logged) when the ledger could not be read.
+async fn walk_row(athlete: &Athlete<'_>, backend: &str) -> Result<Option<DetailWalkRow>, ()> {
     match athlete
         .runtime
         .repos()
@@ -245,7 +322,7 @@ async fn owed_walk(athlete: &Athlete<'_>, backend: &str) -> Result<Option<Detail
         .detail_walk_row(athlete.user_id, athlete.tenant_id, backend)
         .await
     {
-        Ok(row) => Ok(row.filter(|row| row.state == BackfillJobState::Owed)),
+        Ok(row) => Ok(row),
         Err(e) => {
             warn!(user_id = %athlete.user_id, backend, error = %e, "Detail walk: the ledger could not be read");
             Err(())
@@ -999,6 +1076,7 @@ async fn end_walk(job: &ActivityBackfillJob, lease: &JobLease, step: JobProgress
         rows_landed: step.rows_landed,
         secs_per_unit: step.secs_per_unit,
         walked_floor: job.query_params.after,
+        ended_at_ms: now_ms(),
     };
     match ledger.end_detail_walk(lease, &end).await {
         Ok(Some(ended)) => {
@@ -1066,10 +1144,10 @@ mod tests {
     use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_database::repositories::CachedActivityRow;
 
-    use pierre_core::models::coverage::Pending;
+    use pierre_core::models::coverage::{IncompleteReason, Pending};
     use pierre_database::repositories::JobProgress;
 
-    use super::{detail_walk_running, rows_by_second, unread_of, Second};
+    use super::{detail_walk_running, rows_by_second, unread_of, DetailWalkAsked, Second};
 
     /// The unread activities of each second, by the first copy's id.
     fn unread_ids(seconds: &[Second]) -> HashMap<i64, Vec<String>> {
@@ -1138,6 +1216,25 @@ mod tests {
             },
             "bug: a measured pace slower than the budget's is the walk's"
         );
+    }
+
+    #[test]
+    fn an_ask_names_why_its_segments_window_is_short() {
+        assert_eq!(
+            DetailWalkAsked::Started { units_total: 4 }.segment_reason(),
+            Some(IncompleteReason::SegmentDetailWalking)
+        );
+        assert_eq!(
+            DetailWalkAsked::Widened.segment_reason(),
+            Some(IncompleteReason::SegmentDetailWalking)
+        );
+        assert_eq!(
+            DetailWalkAsked::RecentlyWalked { unreadable: 3 }.segment_reason(),
+            Some(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
+            "bug: a walk that ended lately reads as still walking"
+        );
+        assert_eq!(DetailWalkAsked::NothingUnread.segment_reason(), None);
+        assert_eq!(DetailWalkAsked::NotRecorded.segment_reason(), None);
     }
 
     #[test]
