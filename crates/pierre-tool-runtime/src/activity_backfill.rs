@@ -435,15 +435,18 @@ fn spawn_backfill_run(
     observe_job_task(task, user_id, provider, kind);
 }
 
-/// A detail walk has no runner in this build yet: its row goes back unrun,
-/// with the attempt its claim counted, for the build that runs it.
+/// The dispatch has no step for a detail walk: its claim is given back
+/// keeping the attempt it counted, its retry a lease away, as a failed
+/// step's is. The sweep's attempt cap and its reap end a row no step reads,
+/// rather than the sweep taking it again every pass.
 async fn hand_back_unrun(job: &ActivityBackfillJob, recorded: Option<&(JobLease, i64)>) {
     let Some((lease, _)) = recorded else {
         return;
     };
     let ledger = &job.resources.repos().activity_backfill_jobs;
-    if let Err(e) = ledger.release_backfill_job_claim(lease, None).await {
-        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Activity job: a detail walk could not be handed back unrun");
+    let retry_at_ms = now_ms().saturating_add(lease_ms());
+    if let Err(e) = ledger.release_backfill_job_lease(lease, retry_at_ms).await {
+        warn!(user_id = %job.user_id, provider = %job.provider_name, error = %e, "Activity job: a detail walk's claim could not be given back");
     }
 }
 

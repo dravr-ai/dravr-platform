@@ -582,3 +582,57 @@ async fn a_released_claim_returns_its_attempt() {
         "bug: the release returned the attempt"
     );
 }
+
+/// The dispatch has no step for a detail walk: the claim it gives back keeps
+/// the attempt it counted and waits a lease, as a failed step's does, so the
+/// next sweep does not take it again at once and the attempt cap ends it.
+#[tokio::test]
+async fn a_detail_walk_claim_given_back_unrun_spends_its_attempt() {
+    let fx = fixture().await;
+    let walk = ActivityBackfillJobRow {
+        kind: BackfillJobKind::DetailWalk,
+        ..seeded_row(
+            &fx,
+            TOKENLESS_PROVIDER,
+            Duration::from_mins(10),
+            Duration::ZERO,
+            1,
+        )
+    };
+    assert!(fx
+        .runtime
+        .repos()
+        .activity_backfill_jobs
+        .record_backfill_job(&walk)
+        .await
+        .unwrap());
+
+    let resumed = resume_backfill_jobs(Arc::clone(&fx.runtime)).await.unwrap();
+    assert_eq!(
+        resumed, 1,
+        "the lapsed detail walk is claimed and dispatched"
+    );
+    let deadline = Instant::now() + RUN_BUDGET;
+    let row = loop {
+        let row = stored_job(&fx, TOKENLESS_PROVIDER)
+            .await
+            .expect("bug: a detail walk given back unrun stays on file");
+        if row.leased_until_ms == 0 {
+            break row;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the dispatch did not give the claim back within {RUN_BUDGET:?}"
+        );
+        sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(
+        row.attempts, 2,
+        "bug: a claim given back unrun keeps the attempt it counted"
+    );
+    assert_eq!(
+        resume_backfill_jobs(Arc::clone(&fx.runtime)).await.unwrap(),
+        0,
+        "bug: a detail walk given back unrun is claimed again by the next sweep"
+    );
+}
