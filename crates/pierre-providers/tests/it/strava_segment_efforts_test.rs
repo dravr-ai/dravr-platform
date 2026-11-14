@@ -197,9 +197,67 @@ async fn one_segments_efforts_are_listed_page_by_page_until_a_short_page() {
         202,
         "bug: every effort naming its activity is a hit, and the one naming none is skipped"
     );
-    assert_eq!(hits[0].activity_id, "1000");
-    assert_eq!(hits[0].effort.segment_id.as_deref(), Some("611413"));
-    assert_eq!(hits[0].activity_type, Some(SportType::Ride));
+    assert_eq!(
+        hits[0].activity_id, "1000",
+        "bug: a hit is addressed by the activity its effort names"
+    );
+    assert_eq!(
+        hits[0].effort.segment_id.as_deref(),
+        Some("611413"),
+        "bug: a listed effort keeps the segment it was ridden on"
+    );
+    assert_eq!(
+        hits[0].activity_type,
+        Some(SportType::Ride),
+        "bug: a hit carries its segment's sport"
+    );
+}
+
+/// Twenty full pages are 4,000 efforts and the listing's ceiling: the
+/// provider refuses rather than answering with a list that silently stops,
+/// and never asks for a twenty-first page.
+#[tokio::test]
+async fn a_segment_with_more_efforts_than_twenty_pages_is_refused_not_listed_short() {
+    let full_page = format!(
+        "[{}]",
+        (0..200)
+            .map(|i| listed_effort(i, Some(1_000 + i)))
+            .collect::<Vec<_>>()
+            .join(",")
+    );
+    let answers: Vec<(&'static str, String)> =
+        (0..20).map(|_| ("200 OK", full_page.clone())).collect();
+    let (base_url, served) = stub(answers).await;
+
+    let err = provider(base_url)
+        .await
+        .segment_effort_history("611413", window())
+        .await
+        .expect_err("bug: a listing that reached its page ceiling answered as if complete");
+    let lines = served.await.unwrap();
+
+    assert_eq!(
+        lines.len(),
+        20,
+        "bug: the listing reads exactly twenty pages before refusing: {lines:?}"
+    );
+    assert_eq!(
+        lines.last().map(String::as_str),
+        Some(
+            "GET /segment_efforts?segment_id=611413&start_date_local=2016-11-13T00:00:00Z&end_date_local=2026-11-13T23:59:59Z&per_page=200&page=20 HTTP/1.1"
+        ),
+        "bug: the last page read is the twentieth"
+    );
+    assert_eq!(
+        err.code,
+        ErrorCode::ExternalServiceError,
+        "bug: a listing past its ceiling is Strava's answer being too long, not the caller's input: {err}"
+    );
+    assert!(
+        err.message
+            .contains("segment 611413 holds more than 4000 efforts in the window"),
+        "bug: the refusal names the segment and the ceiling it passed: {err}"
+    );
 }
 
 #[tokio::test]
@@ -209,7 +267,11 @@ async fn a_segment_id_that_is_not_a_number_is_refused_before_any_request() {
         .segment_effort_history("611413&per_page=1", window())
         .await
         .expect_err("a segment id is a number");
-    assert_eq!(err.code, ErrorCode::InvalidInput, "{err}");
+    assert_eq!(
+        err.code,
+        ErrorCode::InvalidInput,
+        "bug: a segment id that is not a number is the caller's misuse: {err}"
+    );
     assert!(
         err.message.contains("segment id is a number"),
         "bug: the refusal is the id's, not the provider's: {err}"
