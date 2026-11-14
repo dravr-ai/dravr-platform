@@ -59,7 +59,7 @@ use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::activity_origin;
 use pierre_providers::core::{is_segment_listing_refused, SegmentEffortHit, SegmentEffortWindow};
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
+use pierre_providers::deduplication::{merge_duplicates, native_activity_key, DedupConfig};
 use pierre_services::training_history_read::{
     history_source_order, history_store_keys, user_timezone,
 };
@@ -101,9 +101,11 @@ const DEFAULT_YEARS: u32 = 10;
 /// Stored rows one read of the window takes.
 const STORE_PAGE_ROWS: i64 = 500;
 
-/// Stored rows one call reads at most: past it the window is answered from
-/// the newest rows read and says it stopped short ([`IncompleteReason::ReadCapped`]).
-const MAX_WINDOW_ROWS: usize = 20_000;
+/// Activities one call reads at most, each counted once whatever copies of
+/// it are stored ([`WindowRows`]): past it the window is answered from the
+/// newest activities read and says it stopped short
+/// ([`IncompleteReason::ReadCapped`]).
+const MAX_WINDOW_ACTIVITIES: usize = 20_000;
 
 /// How long a failure of the live listing ([`provider_refused`]) keeps the
 /// athlete off it.
@@ -374,13 +376,58 @@ fn segment_keys() -> Vec<&'static str> {
     keys
 }
 
+/// The stored rows one call reads, up to its cap of activities.
+///
+/// The cap counts activities, not rows: the session's, the grant's and the
+/// export's copies of one ride are one ([`native_activity_key`]), so an
+/// athlete whose rides each sit under two or three keys reads as deep a
+/// window as one whose rides sit under one. A row naming no activity its
+/// copies share counts as its own. Memory stays bounded all the same: no
+/// activity is stored under more than one row per key, so the rows read stop
+/// at `cap x keys` ([`Self::row_cap`]) whatever they hold.
+struct WindowRows {
+    rows: Vec<Activity>,
+    /// The activities the rows hold, by the key their copies share.
+    activities: HashSet<(String, String)>,
+    /// Activities the read takes at most.
+    cap: usize,
+    /// Rows the read takes at most: `cap` activities' copies under every key.
+    row_cap: usize,
+}
+
+impl WindowRows {
+    /// A read of at most `cap` activities, each stored under at most
+    /// `copies` keys.
+    fn new(cap: usize, copies: usize) -> Self {
+        Self {
+            rows: Vec::new(),
+            activities: HashSet::new(),
+            cap,
+            row_cap: cap.saturating_mul(copies.max(1)),
+        }
+    }
+
+    /// Take one page of rows; whether the read is full.
+    fn take(&mut self, page: impl IntoIterator<Item = Activity>) -> bool {
+        for row in page {
+            let activity = native_activity_key(&row).map_or_else(
+                || (row.provider().to_owned(), row.id().to_owned()),
+                |(service, id)| (service.to_owned(), id.to_owned()),
+            );
+            self.activities.insert(activity);
+            self.rows.push(row);
+        }
+        self.activities.len() >= self.cap || self.rows.len() >= self.row_cap
+    }
+}
+
 /// The stored window, as this transport may serve it.
 struct StoredWindow {
     /// Its activities, one per workout, of the sport asked.
     activities: Vec<Activity>,
     /// Whether a gate withheld any stored row from this call.
     withheld: bool,
-    /// Whether the read stopped at [`MAX_WINDOW_ROWS`].
+    /// Whether the read stopped at [`MAX_WINDOW_ACTIVITIES`].
     capped: bool,
 }
 
@@ -395,7 +442,7 @@ async fn stored_window(
 ) -> AppResult<StoredWindow> {
     let keys = segment_keys();
     let end = end - Duration::nanoseconds(1);
-    let mut rows = Vec::new();
+    let mut rows = WindowRows::new(MAX_WINDOW_ACTIVITIES, keys.len());
     let mut below: Option<CachedRowCursor> = None;
     let capped = loop {
         let mut query = CachedRowsQuery::window(start, end, STORE_PAGE_ROWS).under_keys(&keys);
@@ -409,8 +456,7 @@ async fn stored_window(
             .await?;
         let last_page = i64::try_from(page.len()).unwrap_or(i64::MAX) < STORE_PAGE_ROWS;
         below = page.last().map(CachedRowCursor::after);
-        rows.extend(page.into_iter().map(|row| row.activity));
-        if rows.len() >= MAX_WINDOW_ROWS {
+        if rows.take(page.into_iter().map(|row| row.activity)) {
             break true;
         }
         if last_page || below.is_none() {
@@ -418,6 +464,7 @@ async fn stored_window(
         }
     };
     let registry = runtime.provider_registry();
+    let rows = rows.rows;
     let (kept, withheld) =
         ai_scope::tallied(async { ai_scope::filter_activities(registry.as_ref(), rows) }).await;
     let withheld_rows = withheld.dropped > 0 || withheld.off_interface > 0;
@@ -489,7 +536,7 @@ struct WindowShape {
     read: usize,
     /// Whether a gate withheld any stored row from this call.
     withheld: bool,
-    /// Whether the read stopped at its row cap.
+    /// Whether the read stopped at its cap ([`MAX_WINDOW_ACTIVITIES`]).
     capped: bool,
     /// The window's floor (unix seconds), included.
     floor_ts: i64,
@@ -553,7 +600,7 @@ fn settled_before_walk(shape: WindowShape) -> Option<(Completeness, Option<Pendi
 
 /// Weigh the reasons a window that asked its walk is short, in order:
 /// 1. A window the read stopped short of is capped: its counts are only the
-///    newest rows', so it says so ([`IncompleteReason::ReadCapped`]), with
+///    newest activities', so it says so ([`IncompleteReason::ReadCapped`]), with
 ///    the history walk still copying, or else the detail walk reading, as
 ///    what is owed for it.
 /// 2. A window deeper than the stored history reaches, while the history
@@ -614,7 +661,7 @@ async fn history_owed(
 /// unread ([`IncompleteReason::SegmentDetailPartial`]); with none,
 /// [`IncompleteReason::SegmentDetailUnavailable`]. An athlete with no Strava
 /// connection and nothing stored reads complete and empty. A capped window
-/// asks whatever its newest rows held: the walk counts the rest.
+/// asks whatever its newest activities held: the walk counts the rest.
 async fn segments_owed(
     runtime: &Arc<dyn ToolRuntime>,
     athlete: Athlete,
@@ -669,7 +716,7 @@ async fn segments_owed(
 }
 
 /// Whether the window is complete with no walk asked: every activity it read
-/// was read, and the read was not capped. A capped window's newest rows say
+/// was read, and the read was not capped. A capped window's newest activities say
 /// nothing of the rest, which the walk counts.
 fn complete_without_walk(shape: WindowShape) -> bool {
     shape.unread() == 0 && !shape.capped
@@ -777,6 +824,7 @@ crate::declare_security!(GetSegmentHistoryTool => empty);
 #[cfg(test)]
 mod tests {
     use pierre_core::errors::ErrorCode;
+    use pierre_core::models::{ActivityBuilder, SportType};
     use pierre_providers::core::segment_listing_refused;
     use serde_json::json;
 
@@ -784,6 +832,64 @@ mod tests {
 
     fn today() -> NaiveDate {
         NaiveDate::from_ymd_opt(2026, 11, 14).unwrap_or(NaiveDate::MIN)
+    }
+
+    /// The ride started at `at` as `key` lists it.
+    fn copy(key: &str, at: i64) -> Activity {
+        let built = ActivityBuilder::new(
+            at.to_string(),
+            "Morning ride",
+            SportType::Ride,
+            Utc.timestamp_opt(at, 0).single().unwrap_or_default(),
+            3_600,
+            key,
+        );
+        if key == "sciotte" {
+            built.source(STRAVA).build()
+        } else {
+            built.build()
+        }
+    }
+
+    #[test]
+    fn the_read_cap_counts_activities_not_their_copies() {
+        // Three activities, each listed by the session and by the grant, as
+        // the newest-first read meets them.
+        let page = |ats: &[i64]| -> Vec<Activity> {
+            ats.iter()
+                .flat_map(|&at| [copy("sciotte", at), copy(STRAVA, at)])
+                .collect()
+        };
+        let mut rows = WindowRows::new(3, 3);
+        assert!(
+            !rows.take(page(&[3_000, 2_000])),
+            "bug: two activities' four copies fill a read capped at three activities"
+        );
+        assert!(
+            rows.take(page(&[1_000])),
+            "bug: the third activity does not fill a read capped at three"
+        );
+        assert_eq!(rows.rows.len(), 6, "bug: a copy read was dropped");
+    }
+
+    #[test]
+    fn the_read_still_stops_at_its_row_bound() {
+        // Rows naming no shared activity count each as its own; and a
+        // window whose copies outnumber its keys stops at cap x keys rows.
+        let mut rows = WindowRows::new(3, 2);
+        assert!(
+            !rows.take([copy("uploaded", 1), copy(STRAVA, 2), copy("sciotte", 2)]),
+            "bug: two activities, one with two copies, fill a read capped at three"
+        );
+        assert!(
+            rows.take([copy("uploaded", 2)]),
+            "bug: a row naming no shared activity is not counted as one"
+        );
+        let mut copies = WindowRows::new(2, 2);
+        assert!(
+            copies.take((0..4).map(|_| copy(STRAVA, 7))),
+            "bug: rows past cap x keys do not stop the read"
+        );
     }
 
     #[test]
