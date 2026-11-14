@@ -14,8 +14,7 @@ import {
 import type { CoachAccessRequest } from '@pierre/shared-types';
 import { userApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
-import { useGroup, useGroupMembers } from './useGroups';
-import { useOnboardingStatus } from './useOnboardingStatus';
+import { useGroup } from './useGroups';
 
 export interface CoachSeat {
   /** The viewer is offered this group's coach seat (`canRequestCoachAccess`). */
@@ -31,27 +30,19 @@ export interface CoachSeat {
 
 /**
  * The coach seat for the group behind `groupId` (`null` for a thread with no
- * group). Each read waits on the one before it — the members only for a
- * coachless group seen without coach access, the onboarding answer only for
- * its owner, the request only once the seat is offered — and shares its query
- * key with Group info.
+ * group). The group says who owns it and whether it has a coach; the request
+ * is read only once the seat is offered. What the viewer answered to "I coach
+ * others" plays no part (carnet#1522): the owner of a coachless group without
+ * coach access is offered the seat whatever they answered. The reads share
+ * their query keys with Group info.
  */
 export function useCoachSeat(groupId: string | null | undefined): CoachSeat {
   const { user } = useAuth();
-  const id = groupId ?? '';
-  const { group } = useGroup(id);
-  const managesRoster = user?.manages_roster === true;
-  // Whether the rule could still offer the seat, before the two reads that
-  // say whether the viewer owns the group and coaches others.
-  const mayOffer = canRequestCoachAccess({ group, isOwner: true, managesRoster, coachesOthers: true });
-  const { members } = useGroupMembers(mayOffer ? id : '');
-  const isOwner = members.some((m) => m.user_id === user?.id && m.role === 'owner');
-  const { data: onboarding } = useOnboardingStatus(mayOffer && isOwner);
+  const { group } = useGroup(groupId ?? '');
   const offered = canRequestCoachAccess({
     group,
-    isOwner,
-    managesRoster,
-    coachesOthers: onboarding?.coaches_others === true,
+    isOwner: !!group && !!user && group.owner_id === user.id,
+    managesRoster: user?.manages_roster === true,
   });
   const latest = useQuery({
     queryKey: QUERY_KEYS.user.coachAccessRequest(),

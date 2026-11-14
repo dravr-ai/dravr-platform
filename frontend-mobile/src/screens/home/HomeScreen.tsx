@@ -29,6 +29,7 @@ import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
 import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
+import { CoachAccessHome } from '../../components/CoachAccessPanel';
 
 interface HomeScreenProps {
   /** The coach's "Mes athlètes / Mon entraînement" switch, drawn first on the page; an athlete's Home has none. */
@@ -154,6 +155,8 @@ export function HomeScreen({ scopeSwitch }: HomeScreenProps = {}) {
         testID="home-scroll"
       >
         {scopeSwitch !== undefined && <View className="px-4">{scopeSwitch}</View>}
+        {/* A coach with no group still has the way to ask for coach access (carnet#1522). */}
+        <CoachAccessHome />
         <HomePlan
           response={plan.data ?? null}
           isError={plan.isError}

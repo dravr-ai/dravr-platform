@@ -1064,6 +1064,6 @@ pub fn create_nutrition_tools() -> Vec<Box<dyn RuntimeTool>> {
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(SearchFoodTool => empty; food_database);
 crate::declare_security!(GetFoodDetailsTool => empty; food_database);
-crate::declare_security!(GetNutrientTimingTool => empty);
+crate::declare_security!(GetNutrientTimingTool => empty; first_party_only);
 crate::declare_security!(AnalyzeMealNutritionTool => empty; food_database);
-crate::declare_security!(CalculateDailyNutritionTool => empty);
+crate::declare_security!(CalculateDailyNutritionTool => empty; first_party_only);

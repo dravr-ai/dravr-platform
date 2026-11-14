@@ -8,7 +8,9 @@ import { describe, it, expect } from 'vitest';
 import {
   athleteStepsWaived,
   currentOnboardingStep,
+  healthCheckOutstanding,
   isConnectProviderRecorded,
+  isConnectProviderSkipped,
   isServerStepComplete,
   onboardingProgress,
   ONBOARDING_STEPS,
@@ -35,11 +37,9 @@ function ctx(overrides: Partial<OnboardingContext> = {}): OnboardingContext {
     connectProviderDone: true,
     profileTypeChosen: true,
     coachProposalDone: true,
-    // The pre-connect questionnaire steps default to done in this baseline, so a
-    // test exercising a later step isn't intercepted by them.
-    aboutYouDone: true,
+    // The PAR-Q defaults to done in this baseline, so a test exercising a
+    // later step isn't intercepted by it.
     parqDone: true,
-    checkInDone: true,
     athleteStepsWaived: false,
     // An athlete unless a test says otherwise: the group step is a coach's.
     coachesOthers: false,
@@ -70,26 +70,25 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
     ).toBe('connect_provider');
   });
 
-  it('profile chosen, about-you outstanding → about_you (before the provider gate)', () => {
+  it('the PAR-Q is never asked before Tes données: profile chosen, PAR-Q open → connect_provider', () => {
     expect(
       currentOnboardingStep(
         ctx({
           needsProviderConnection: true,
           profileTypeChosen: true,
-          aboutYouDone: false,
+          parqDone: false,
           coachProposalDone: false,
         }),
       )?.id,
-    ).toBe('about_you');
+    ).toBe('connect_provider');
   });
 
-  it('about-you done, PAR-Q outstanding → parq (still before the provider gate)', () => {
+  it('connected, Continue pressed, PAR-Q open → parq, the third screen, before the team', () => {
     expect(
       currentOnboardingStep(
         ctx({
-          needsProviderConnection: true,
-          profileTypeChosen: true,
-          aboutYouDone: true,
+          needsProviderConnection: false,
+          connectProviderRecorded: true,
           parqDone: false,
           coachProposalDone: false,
         }),
@@ -97,37 +96,27 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
     ).toBe('parq');
   });
 
-  it('PAR-Q done, the check-in cadence outstanding → check_in (still before the provider gate)', () => {
-    expect(
-      currentOnboardingStep(
-        ctx({
-          needsProviderConnection: true,
-          profileTypeChosen: true,
-          aboutYouDone: true,
-          parqDone: true,
-          checkInDone: false,
-          coachProposalDone: false,
-        }),
-      )?.id,
-    ).toBe('check_in');
+  it('continued without connecting, PAR-Q open → parq, then the team', () => {
+    const skipped = ctx({
+      needsProviderConnection: true,
+      skippedProvider: true,
+      parqDone: false,
+      coachProposalDone: false,
+    });
+    expect(currentOnboardingStep(skipped)?.id).toBe('parq');
+    expect(currentOnboardingStep({ ...skipped, parqDone: true })?.id).toBe('coach_proposal');
   });
 
-  it('a returning user who never chose a cadence is not stopped for it (needs=false)', () => {
-    expect(currentOnboardingStep(ctx({ checkInDone: false }))).toBeNull();
+  it('an athlete past the team step is never sent back for the PAR-Q: Home asks it', () => {
+    expect(currentOnboardingStep(ctx({ parqDone: false }))).toBeNull();
   });
 
-  it('skipping about-you and PAR-Q still lands on connect_provider', () => {
+  it('the PAR-Q waits for the status: nothing is asked while it is loading', () => {
     expect(
       currentOnboardingStep(
-        ctx({
-          needsProviderConnection: true,
-          profileTypeChosen: true,
-          aboutYouDone: true,
-          parqDone: true,
-          coachProposalDone: false,
-        }),
+        ctx({ needsProviderConnection: undefined, skippedProvider: true, parqDone: false, coachProposalDone: false }),
       )?.id,
-    ).toBe('connect_provider');
+    ).not.toBe('parq');
   });
 
   it('just connected this session (needs=false, justOnboarded) → coach_proposal', () => {
@@ -136,6 +125,18 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
         ctx({ needsProviderConnection: false, justOnboarded: true, coachProposalDone: false }),
       )?.id,
     ).toBe('coach_proposal');
+  });
+
+  it('just connected, Continue not pressed, PAR-Q open → still connect_provider, the PAR-Q after it', () => {
+    const waiting = ctx({
+      needsProviderConnection: false,
+      justOnboarded: true,
+      connectProviderDone: false,
+      parqDone: false,
+      coachProposalDone: false,
+    });
+    expect(currentOnboardingStep(waiting)?.id).toBe('connect_provider');
+    expect(currentOnboardingStep({ ...waiting, connectProviderDone: true })?.id).toBe('parq');
   });
 
   it('just connected, Continue not pressed yet → stays on connect_provider to add another', () => {
@@ -164,8 +165,8 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
   it('an onboarded athlete who disconnected every provider stays out of the wizard', () => {
     const disconnected = ctx({ needsProviderConnection: true, connectProviderRecorded: true });
     expect(currentOnboardingStep(disconnected)).toBeNull();
-    // Not even a pre-connect question added after they onboarded.
-    expect(currentOnboardingStep({ ...disconnected, checkInDone: false })).toBeNull();
+    // Not even a PAR-Q they never answered: Home asks it.
+    expect(currentOnboardingStep({ ...disconnected, parqDone: false })).toBeNull();
   });
 
   it('an athlete who disconnects before the agent step still meets it, not the connect step', () => {
@@ -292,10 +293,8 @@ describe('onboardingProgress — the journey the role decides', () => {
     );
     expect(items.map((i) => i.labelKey)).toEqual([
       'onboarding.stepProfile',
-      'onboarding.stepAboutTraining',
-      'onboarding.stepHealthCheck',
-      'onboarding.stepCheckIn',
       'onboarding.stepConnect',
+      'onboarding.stepHealthCheck',
       'onboarding.stepAgent',
     ]);
   });
@@ -316,10 +315,8 @@ describe('onboardingProgress — the journey the role decides', () => {
     const items = onboardingProgress(ctx({ needsProviderConnection: true, coachesOthers: true }));
     expect(items.map((i) => i.labelKey)).toEqual([
       'onboarding.stepProfile',
-      'onboarding.stepAboutTraining',
-      'onboarding.stepHealthCheck',
-      'onboarding.stepCheckIn',
       'onboarding.stepConnect',
+      'onboarding.stepHealthCheck',
       'onboarding.stepAgent',
       'humanCoach.stepSeat',
       'onboarding.stepGroup',
@@ -337,18 +334,17 @@ describe('onboardingProgress — the journey the role decides', () => {
         ...steps,
         needsProviderConnection: true,
         profileTypeChosen: false,
-        aboutYouDone: false,
         parqDone: false,
-        checkInDone: false,
       }),
     );
-    const onConnect = onboardingProgress(ctx({ ...steps, needsProviderConnection: true }));
+    const onConnect = onboardingProgress(ctx({ ...steps, needsProviderConnection: true, parqDone: false }));
+    const onHealth = onboardingProgress(ctx({ ...steps, needsProviderConnection: false, parqDone: false }));
     const onTeam = onboardingProgress(ctx({ ...steps, needsProviderConnection: false }));
     const afterTeam = onboardingProgress(
       ctx({ ...steps, needsProviderConnection: false, coachProposalDone: true }),
     );
-    const totals = [first, onConnect, onTeam, afterTeam].map((items) => items.length);
-    expect(totals, 'the journey length must not change as the athlete advances').toEqual([6, 6, 6, 6]);
+    const totals = [first, onConnect, onHealth, onTeam, afterTeam].map((items) => items.length);
+    expect(totals, 'the journey length must not change as the athlete advances').toEqual([4, 4, 4, 4, 4]);
   });
 
   it('keeps canonical order — the journey is a subset, never a reshuffle', () => {
@@ -366,7 +362,7 @@ describe('onboardingProgress — the journey the role decides', () => {
       const items = onboardingProgress(
         ctx({ ...channels, needsProviderConnection: false, justOnboarded: true, coachProposalDone: false }),
       );
-      expect(items).toHaveLength(6);
+      expect(items).toHaveLength(4);
     }
   });
 
@@ -374,7 +370,7 @@ describe('onboardingProgress — the journey the role decides', () => {
     const items = onboardingProgress(
       ctx({ needsProviderConnection: true, profileTypeChosen: false, coachProposalDone: false }),
     );
-    expect(items).toHaveLength(6);
+    expect(items).toHaveLength(4);
     expect(items[0]).toMatchObject({ id: 'profile_type', status: 'current' });
   });
 
@@ -399,7 +395,6 @@ describe('onboardingProgress — the journey the role decides', () => {
       ctx({
         needsProviderConnection: true,
         profileTypeChosen: false,
-        aboutYouDone: false,
         parqDone: false,
         coachProposalDone: false,
       }),
@@ -408,25 +403,19 @@ describe('onboardingProgress — the journey the role decides', () => {
     expect(items[0].status).toBe('current');
   });
 
-  it('on about_you: profile_type behind it is done', () => {
+  it('on connect_provider: profile_type behind it is done', () => {
     const items = onboardingProgress(
-      ctx({
-        needsProviderConnection: true,
-        profileTypeChosen: true,
-        aboutYouDone: false,
-        parqDone: false,
-        coachProposalDone: false,
-      }),
+      ctx({ needsProviderConnection: true, profileTypeChosen: true, parqDone: false, coachProposalDone: false }),
     );
-    expectPositional(items, 'about_you');
+    expectPositional(items, 'connect_provider');
   });
 
-  it('on parq: the two questionnaire steps behind it are done', () => {
+  it('on parq: Profil and Tes données behind it are done', () => {
     const items = onboardingProgress(
       ctx({
-        needsProviderConnection: true,
+        needsProviderConnection: false,
+        connectProviderRecorded: true,
         profileTypeChosen: true,
-        aboutYouDone: true,
         parqDone: false,
         coachProposalDone: false,
       }),
@@ -434,11 +423,13 @@ describe('onboardingProgress — the journey the role decides', () => {
     expectPositional(items, 'parq');
   });
 
-  it('on connect_provider: every pre-connect step is behind it', () => {
+  it('an invited athlete starts on Tes données with Profil done: the role is recorded, not special-cased', () => {
     const items = onboardingProgress(
-      ctx({ needsProviderConnection: true, profileTypeChosen: true, coachProposalDone: false }),
+      ctx({ needsProviderConnection: true, profileTypeChosen: true, parqDone: false, coachProposalDone: false }),
     );
-    expectPositional(items, 'connect_provider');
+    expect(items).toHaveLength(4);
+    expect(items[0]).toMatchObject({ id: 'profile_type', status: 'done' });
+    expect(items[1]).toMatchObject({ id: 'connect_provider', status: 'current' });
   });
 
   it('on coach_proposal: the provider gate is behind it', () => {
@@ -474,9 +465,7 @@ function freshAccount(overrides: Partial<OnboardingContext> = {}): OnboardingCon
     needsProviderConnection: true,
     connectProviderDone: false,
     profileTypeChosen: false,
-    aboutYouDone: false,
     parqDone: false,
-    checkInDone: false,
     coachProposalDone: false,
     analyticsConsentAnswered: false,
     ...overrides,
@@ -497,14 +486,11 @@ function advance(c: OnboardingContext, step: OnboardingStepId, role: Role, answe
         coachesOthers: role !== 'athlete',
         athleteStepsWaived: role === 'coach',
       };
-    case 'about_you':
-      return putOff({ ...c, aboutYouDone: true });
     case 'parq':
       return putOff({ ...c, parqDone: true });
-    case 'check_in':
-      return putOff({ ...c, checkInDone: true });
     case 'connect_provider':
-      if (answer === 'skip') return { ...c, skippedProvider: true };
+      // The skip is the connect step's skipped row, which the bar reads too.
+      if (answer === 'skip') return putOff({ ...c, skippedProvider: true });
       // The OAuth return keeps the step up for a second service; Continue leaves it.
       return c.needsProviderConnection
         ? { ...c, needsProviderConnection: false, connectProviderRecorded: true, justOnboarded: true }
@@ -558,7 +544,7 @@ const ALWAYS_FINISH = () => 'complete' as const;
 const ALWAYS_SKIP = () => 'skip' as const;
 
 describe('onboardingProgress — one total on every screen of a journey', () => {
-  const TOTALS: Record<Role, number> = { athlete: 6, coach: 4, coach_and_athlete: 9 };
+  const TOTALS: Record<Role, number> = { athlete: 4, coach: 4, coach_and_athlete: 7 };
   const ROLES: Role[] = ['athlete', 'coach', 'coach_and_athlete'];
   const ANSWERS = { finishing: ALWAYS_FINISH, skipping: ALWAYS_SKIP };
 
@@ -578,7 +564,25 @@ describe('onboardingProgress — one total on every screen of a journey', () => 
   it('the role screen draws the athlete journey; the athlete keeps it to the end', () => {
     for (const answer of [ALWAYS_FINISH, ALWAYS_SKIP]) {
       const totals = walk('athlete', answer).flatMap((s) => (s.bar ? [s.bar.length] : []));
-      expect(totals).toEqual(totals.map(() => 6));
+      expect(totals).toEqual(totals.map(() => 4));
+    }
+  });
+
+  it('an athlete reaches Home in four screens after the consent question: Profil, Tes données, Santé, Ton équipe', () => {
+    for (const answer of [ALWAYS_FINISH, ALWAYS_SKIP]) {
+      const steps = walk('athlete', answer).map((s) => s.step);
+      // Connecting keeps Tes données up for a second service until Continue:
+      // one screen, drawn twice.
+      expect([...new Set(steps)]).toEqual(['analytics_consent', 'profile_type', 'connect_provider', 'parq', 'coach_proposal']);
+    }
+  });
+
+  it('an invited athlete, the role recorded for them, taps through three screens with Profil done', () => {
+    const screens = walk('athlete', ALWAYS_FINISH, freshAccount({ profileTypeChosen: true, analyticsConsentAnswered: true }));
+    expect([...new Set(screens.map((s) => s.step))]).toEqual(['connect_provider', 'parq', 'coach_proposal']);
+    for (const { bar } of screens) {
+      expect(bar?.[0]).toMatchObject({ id: 'profile_type', status: 'done' });
+      expect(bar).toHaveLength(4);
     }
   });
 
@@ -595,17 +599,15 @@ describe('onboardingProgress — one total on every screen of a journey', () => 
     const team = walk('athlete', ALWAYS_SKIP).find((s) => s.step === 'coach_proposal');
     expect(team?.bar?.map((s) => [s.id, s.status])).toEqual([
       ['profile_type', 'done'],
-      ['about_you', 'skipped'],
-      ['parq', 'skipped'],
-      ['check_in', 'skipped'],
       ['connect_provider', 'skipped'],
+      ['parq', 'skipped'],
       ['coach_proposal', 'current'],
     ]);
   });
 
   it('an athlete who finishes everything sees each step done', () => {
     const team = walk('athlete', ALWAYS_FINISH).find((s) => s.step === 'coach_proposal');
-    expect(team?.bar?.map((s) => s.status)).toEqual(['done', 'done', 'done', 'done', 'done', 'current']);
+    expect(team?.bar?.map((s) => s.status)).toEqual(['done', 'done', 'done', 'current']);
   });
 
   it('a coach who skips the seat keeps it on the bar, behind them, on the group screen', () => {
@@ -646,14 +648,12 @@ describe('onboardingProgress — one total on every screen of a journey', () => 
       'skipped',
       'done',
       'done',
-      'done',
-      'done',
       'current',
       'upcoming',
     ]);
   });
 
-  it('a coach who trains and skips Connect keeps nine segments to the end of the wizard', () => {
+  it('a coach who trains and skips Connect keeps seven segments to the end of the wizard', () => {
     // Skipping leads on to the coach path rather than past it, so the wizard
     // ends on the invite with Connect behind as skipped — the total does not move.
     const screens = walk('coach_and_athlete', (step) => (step === 'connect_provider' ? 'skip' : 'complete'));
@@ -661,10 +661,8 @@ describe('onboardingProgress — one total on every screen of a journey', () => 
     expect(last?.step).toBe('coach_invite');
     expect(last?.bar.map((s) => s.status)).toEqual([
       'done',
-      'done',
-      'done',
-      'done',
       'skipped',
+      'done',
       'done',
       'done',
       'done',
@@ -675,7 +673,7 @@ describe('onboardingProgress — one total on every screen of a journey', () => 
   it('a skip recorded on another device reads skipped here too', () => {
     const items = onboardingProgress(
       ctx({
-        needsProviderConnection: true,
+        needsProviderConnection: false,
         coachProposalDone: false,
         skippedSteps: skippedStepIds([{ step_id: 'parq', status: 'skipped' }]),
       }),
@@ -688,12 +686,21 @@ describe('skippedStepIds — the server rows the bar reads a skip from', () => {
   it('lists the registry steps recorded skipped, in canonical order', () => {
     expect(
       skippedStepIds([
-        { step_id: 'check_in', status: 'skipped' },
-        { step_id: 'about_you', status: 'skipped' },
-        { step_id: 'parq', status: 'complete' },
-        { step_id: 'about_you', status: 'not_applicable' },
+        { step_id: 'parq', status: 'skipped' },
+        { step_id: 'connect_provider', status: 'skipped' },
+        { step_id: 'coach_proposal', status: 'complete' },
+        { step_id: 'parq', status: 'not_applicable' },
       ]),
-    ).toEqual(['about_you', 'check_in']);
+    ).toEqual(['connect_provider', 'parq']);
+  });
+
+  it('never lists a step Home asks: about_you and check_in are no segment', () => {
+    expect(
+      skippedStepIds([
+        { step_id: 'about_you', status: 'skipped' },
+        { step_id: 'check_in', status: 'skipped' },
+      ]),
+    ).toEqual([]);
   });
 
   it('ignores a step the registry does not know, and no steps at all', () => {
@@ -764,26 +771,59 @@ describe('isConnectProviderRecorded — the connect step is past for good', () =
   });
 });
 
+describe('isConnectProviderSkipped — « Continuer sans connecter » is saved', () => {
+  it('is true for a server "skipped" connect row, and nothing else', () => {
+    expect(isConnectProviderSkipped([{ step_id: 'connect_provider', status: 'skipped' }])).toBe(true);
+    expect(isConnectProviderSkipped([{ step_id: 'connect_provider', status: 'complete' }])).toBe(false);
+    expect(isConnectProviderSkipped([{ step_id: 'parq', status: 'skipped' }])).toBe(false);
+    expect(isConnectProviderSkipped(undefined)).toBe(false);
+  });
+
+  it('keeps Connect out of the wizard at the next sign-in: the PAR-Q, then the team', () => {
+    // A new session: the tab-local tap is gone, the server row is not.
+    const nextSignIn = ctx({
+      needsProviderConnection: true,
+      skippedProvider: isConnectProviderSkipped([{ step_id: 'connect_provider', status: 'skipped' }]),
+      parqDone: false,
+      coachProposalDone: false,
+    });
+    expect(currentOnboardingStep(nextSignIn)?.id).toBe('parq');
+    expect(currentOnboardingStep({ ...nextSignIn, parqDone: true, coachProposalDone: true })).toBeNull();
+  });
+});
+
+describe('healthCheckOutstanding — « Construire mon plan » asks the PAR-Q first', () => {
+  it('holds while the PAR-Q has no complete row: put off, or never asked', () => {
+    expect(healthCheckOutstanding([{ step_id: 'parq', status: 'skipped' }])).toBe(true);
+    expect(healthCheckOutstanding([])).toBe(true);
+    expect(healthCheckOutstanding(undefined)).toBe(true);
+  });
+
+  it('opens once the PAR-Q is answered, and never holds a coach who does not train', () => {
+    expect(healthCheckOutstanding([{ step_id: 'parq', status: 'complete' }])).toBe(false);
+    expect(healthCheckOutstanding([{ step_id: 'parq', status: 'not_applicable' }])).toBe(false);
+    expect(healthCheckOutstanding([{ step_id: 'about_you', status: 'not_applicable' }])).toBe(false);
+  });
+});
+
 describe('coach who does not train — athlete steps leave the journey', () => {
   const coachOnly = (overrides: Partial<OnboardingContext> = {}) =>
     ctx({
       needsProviderConnection: true,
       profileTypeChosen: true,
-      aboutYouDone: false,
       parqDone: false,
-      checkInDone: false,
       coachProposalDone: false,
       athleteStepsWaived: true,
       coachesOthers: true,
       ...overrides,
     });
 
-  it('goes straight from profile_type to the coach seat, never asking about_you, parq or to connect', () => {
+  it('goes straight from profile_type to the coach seat, never asking the PAR-Q or to connect', () => {
     expect(currentOnboardingStep(coachOnly())?.id).toBe('coach_seat');
   });
 
-  it('is never asked how often to be checked in on: a check-in reads their own training', () => {
-    expect(currentOnboardingStep(coachOnly({ checkInDone: false }))?.id).toBe('coach_seat');
+  it('is never screened past the gate either: no load is prescribed to them', () => {
+    expect(currentOnboardingStep(coachOnly({ needsProviderConnection: false }))?.id).toBe('coach_seat');
   });
 
   it('meets four screens on the bar: profile, coach seat, group, invite', () => {
@@ -838,8 +878,10 @@ describe('coach who does not train — athlete steps leave the journey', () => {
     ]);
   });
 
-  it('a coach who trains still gets the athlete steps', () => {
-    expect(currentOnboardingStep(coachOnly({ athleteStepsWaived: false }))?.id).toBe('about_you');
+  it('a coach who trains still gets the athlete steps: Tes données, then the PAR-Q', () => {
+    const trains = coachOnly({ athleteStepsWaived: false });
+    expect(currentOnboardingStep(trains)?.id).toBe('connect_provider');
+    expect(currentOnboardingStep({ ...trains, skippedProvider: true })?.id).toBe('parq');
   });
 
   it('is never offered an agent for their own training — the seat, then the group', () => {
@@ -881,21 +923,10 @@ describe('coach who does not train — athlete steps leave the journey', () => {
     expect(currentOnboardingStep(coachOnly({ needsProviderConnection: undefined }))).toBeNull();
   });
 
-  it('a coach who trains is asked how often to be checked in on, like any athlete', () => {
-    const trains = coachOnly({
-      athleteStepsWaived: false,
-      aboutYouDone: true,
-      parqDone: true,
-    });
-    expect(currentOnboardingStep(trains)?.id).toBe('check_in');
-  });
-
   it('a coach who trains is held at connect_provider for their own data first', () => {
     const trains = coachOnly({
       athleteStepsWaived: false,
-      aboutYouDone: true,
       parqDone: true,
-      checkInDone: true,
     });
     expect(currentOnboardingStep(trains)?.id).toBe('connect_provider');
     expect(currentOnboardingStep({ ...trains, skippedProvider: true })?.id).toBe('coach_proposal');
@@ -904,9 +935,7 @@ describe('coach who does not train — athlete steps leave the journey', () => {
   it('a coach who trains and skips the connect step still reaches the seat and the group', () => {
     const skipped = coachOnly({
       athleteStepsWaived: false,
-      aboutYouDone: true,
       parqDone: true,
-      checkInDone: true,
       skippedProvider: true,
       coachProposalDone: true,
     });
@@ -919,10 +948,8 @@ describe('coach who does not train — athlete steps leave the journey', () => {
     const journey = onboardingProgress(trains).map((s) => s.id);
     expect(journey).toEqual([
       'profile_type',
-      'about_you',
-      'parq',
-      'check_in',
       'connect_provider',
+      'parq',
       'coach_proposal',
       'coach_seat',
       'coach_group',
@@ -930,9 +957,7 @@ describe('coach who does not train — athlete steps leave the journey', () => {
     ]);
     const connected = {
       ...trains,
-      aboutYouDone: true,
       parqDone: true,
-      checkInDone: true,
       needsProviderConnection: false,
       coachProposalDone: true,
     };
@@ -945,9 +970,7 @@ describe('coach who does not train — athlete steps leave the journey', () => {
       needsProviderConnection: false,
       justOnboarded: true,
       athleteStepsWaived: false,
-      aboutYouDone: true,
       parqDone: true,
-      checkInDone: true,
     });
     expect(currentOnboardingStep(connected)?.id).toBe('coach_proposal');
   });

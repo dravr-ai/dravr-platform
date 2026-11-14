@@ -32,10 +32,11 @@ import { useCoachGroupSetup } from '../../hooks/useGroups';
 import { COACH_GROUP_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
 import { useCoachGroupCreated } from '../../hooks/useCoachGroupCreated';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { useRecordOnboardingStep } from '../../hooks/useRecordOnboardingStep';
 import { inviteLink } from '../../constants/inviteLink';
 import { CoachAccessRequest } from '../../components/CoachAccessRequest';
-import { threadHref } from '../../navigation/routes';
+import { HOME_ROUTE, threadHref } from '../../navigation/routes';
 
 /** A QR is not themed: the phone camera needs dark modules on a light ground in both schemes. */
 const QR_GROUND = BOREAL_LIGHT.surfaceContainerLowest;
@@ -49,8 +50,15 @@ const QR_INK = BOREAL_LIGHT.onSurface;
  * "Your group" is one screen: the athlete, their goal if given, the group's
  * name filled in from them, and the agent the athletes talk to — defaulted,
  * with « Changer » opening the catalogue. The server decides whether the
- * coach is set as the group's coach. "Go to …'s group" lands in the group's
- * thread, the one this step creates with its agent.
+ * coach is set as the group's coach.
+ *
+ * Where the invite leaves for follows the seat, as on the web: a coach whose
+ * access is active (the server made them the group's coach — invited by the
+ * team, or a TrainingPeaks coach account) opens their coach Home, where the
+ * athlete they just invited waits as a row; one still without it goes to the
+ * group's thread. A coach the team invited (server truth: `settled_by_invite`)
+ * also reads on the bar that the invitation settled the role and the seat,
+ * and on the group screen that the seat is active.
  */
 export function OnboardingCoachGroupScreen() {
   const { t } = useTranslation();
@@ -59,6 +67,9 @@ export function OnboardingCoachGroupScreen() {
   const { mark } = useOnboardingFlag(COACH_GROUP_DONE_PREFIX, user?.id);
   const { mark: markCreated } = useCoachGroupCreated(user?.id);
   const progress = useOnboardingProgress('coach_group');
+  const colors = useThemeColors();
+  const { data: onboardingStatus } = useOnboardingStatus(true);
+  const settledByInvite = onboardingStatus?.settled_by_invite === true;
   const recordStep = useRecordOnboardingStep();
   const [athlete, setAthlete] = useState('');
   const [goal, setGoal] = useState('');
@@ -100,16 +111,25 @@ export function OnboardingCoachGroupScreen() {
     router.replace(threadHref(conversationId));
   };
 
+  // Any active seat lands on the coach Home: the server made the coach the
+  // group's coach only because they hold coach access.
+  const toCoachHome = created?.coach_user_id != null;
+  const goToCoachHome = async () => {
+    await finish('complete');
+    router.replace(HOME_ROUTE);
+  };
+
   if (created && threadId && link) {
     return (
       <SafeAreaView className="flex-1 bg-surface">
         <ScrollView contentContainerClassName="py-10 px-4">
-          <OnboardingProgressBar steps={progress} />
+          <OnboardingProgressBar steps={progress} settledByInvite={settledByInvite} />
           <InviteShare
             group={created}
             link={link}
             athleteName={athleteName}
-            onDone={() => void goToGroup(threadId)}
+            toCoachHome={toCoachHome}
+            onDone={() => void (toCoachHome ? goToCoachHome() : goToGroup(threadId))}
           />
         </ScrollView>
       </SafeAreaView>
@@ -123,7 +143,16 @@ export function OnboardingCoachGroupScreen() {
     <SafeAreaView className="flex-1 bg-surface">
       <ScrollView contentContainerClassName="py-10" keyboardShouldPersistTaps="handled">
         <View className="px-4">
-          <OnboardingProgressBar steps={progress} />
+          <OnboardingProgressBar steps={progress} settledByInvite={settledByInvite} />
+          {settledByInvite ? (
+            <View
+              className="mt-4 flex-row items-center gap-2 rounded-lg bg-success/10 px-3 py-2"
+              testID="onboarding-group-seat-active"
+            >
+              <Feather name="check" size={16} color={colors.ink.success} />
+              <Text className="flex-1 text-sm text-on-surface">{t('humanCoach.seatInvite.seatActive')}</Text>
+            </View>
+          ) : null}
           <Text className="mt-4 text-3xl font-display text-left text-on-surface">
             {t('onboarding.groupHeading')}
           </Text>
@@ -320,11 +349,13 @@ function InviteShare({
   group,
   link,
   athleteName,
+  toCoachHome,
   onDone,
 }: {
   group: CoachingGroup;
   link: string;
   athleteName: string;
+  toCoachHome: boolean;
   onDone: () => void;
 }) {
   const { t } = useTranslation();
@@ -380,7 +411,13 @@ function InviteShare({
 
       <View className="mt-8">
         <Button
-          title={athleteName ? t('onboarding.groupDoneNamed', { name: athleteName }) : t('onboarding.groupDone')}
+          title={
+            toCoachHome
+              ? t('humanCoach.seatInvite.openCoachHome')
+              : athleteName
+                ? t('onboarding.groupDoneNamed', { name: athleteName })
+                : t('onboarding.groupDone')
+          }
           variant="secondary"
           onPress={onDone}
           fullWidth
@@ -425,12 +462,11 @@ function SeatCard({ group }: { group: CoachingGroup }) {
   const request = latest.data?.request ?? null;
   const pending = request !== null && coachSeatState(request) === 'pending' ? request : null;
   // Who may ask is the room's rule: the coach made this group on the coach
-  // path, so they own it and coach others; coach access leaves nothing to ask.
+  // path, so they own it; coach access leaves nothing to ask.
   const mayAsk = canRequestCoachAccess({
     group,
     isOwner: true,
     managesRoster: user?.manages_roster === true,
-    coachesOthers: true,
   });
   return (
     <View
@@ -440,7 +476,7 @@ function SeatCard({ group }: { group: CoachingGroup }) {
       <Text className="text-base font-semibold text-on-surface">{t('humanCoach.inviteSeatPending')}</Text>
       {pending ? (
         <Text className="mt-1 text-sm text-on-surface-variant">
-          {t('humanCoach.inviteSeatRequested', { date: coachSeatMoment(pending.created_at, language).date })}
+          {t('humanCoach.inviteSeatRequestedNotice', { date: coachSeatMoment(pending.created_at, language).date })}
         </Text>
       ) : latest.isLoading ? null : (
         <Text className="mt-1 text-sm text-on-surface-variant">{t('humanCoach.inviteSeatNotRequested')}</Text>

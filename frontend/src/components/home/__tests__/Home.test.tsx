@@ -91,6 +91,7 @@ function renderHome() {
   const onNavigate = vi.fn();
   const onPickTeam = vi.fn();
   const onOpenChatApp = vi.fn();
+  const onOpenFirstStep = vi.fn();
   const actions = { draft: vi.fn(), send: vi.fn(), openTopic: vi.fn(), dismiss: vi.fn() };
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const view = render(
@@ -101,30 +102,39 @@ function renderHome() {
           actions={actions}
           onPickTeam={onPickTeam}
           onOpenChatApp={onOpenChatApp}
+          onOpenFirstStep={onOpenFirstStep}
         />
       </ThemeProvider>
     </QueryClientProvider>,
   );
-  return { ...view, onNavigate, onPickTeam, onOpenChatApp, actions, onOpenChatDraft: actions.draft };
+  return { ...view, onNavigate, onPickTeam, onOpenChatApp, onOpenFirstStep, actions, onOpenChatDraft: actions.draft };
 }
 
-/** A new athlete's Getting started: connected, meeting the team, nothing else yet, no check-in data. */
+/**
+ * A new athlete's Getting started, as the server orders it (carnet#1530, the
+ * board's order): connect (done), the health check put off at onboarding, the
+ * goal and the why, the cadence, then the flows.
+ */
 function gettingStarted(overrides: Record<string, unknown> = {}) {
   return {
     rows: [
       { id: 'connect', order: 1, eligible: true, done: true, current: false, postback: null },
-      { id: 'meet_team', order: 2, eligible: true, done: false, current: true, postback: 'gs:2:meet_team' },
-      { id: 'last_workout', order: 3, eligible: true, done: false, current: false, postback: 'gs:3:last_workout' },
-      { id: 'about_me_more', order: 4, eligible: true, done: false, current: false, postback: 'gs:4:about_me_more' },
-      { id: 'check_in', order: 5, eligible: false, done: false, current: false, postback: 'gs:5:check_in' },
+      { id: 'health_check', order: 2, eligible: true, done: false, current: true, postback: null },
+      { id: 'about_me_more', order: 3, eligible: true, done: false, current: false, postback: null },
+      { id: 'check_in', order: 4, eligible: true, done: false, current: false, postback: null },
+      { id: 'meet_team', order: 5, eligible: true, done: false, current: false, postback: 'gs:4:meet_team' },
+      { id: 'last_workout', order: 6, eligible: true, done: false, current: false, postback: 'gs:5:last_workout' },
     ],
     done_count: 1,
-    total: 5,
+    total: 6,
     folded_at: null,
     hidden: false,
     ...overrides,
   };
 }
+
+/** An onboarded athlete whose PAR-Q is answered: « Build my plan » drafts at once. */
+const SCREENED = { steps: [{ step_id: 'parq', status: 'complete' }] };
 
 const ENDURANCE = {
   id: 'agent-endurance',
@@ -160,7 +170,7 @@ beforeEach(() => {
   api.getAvailableChannels.mockResolvedValue([]);
   api.listLinks.mockResolvedValue([]);
   api.getCheckIn.mockResolvedValue({ cadence: 'daily', local_hour: 7 });
-  api.getOnboardingStatus.mockResolvedValue({ pillars_covered: 2, pillars_total: 7 });
+  api.getOnboardingStatus.mockResolvedValue(SCREENED);
   api.listAgents.mockResolvedValue({ agents: [RECOVERY, NOT_ON_TEAM, FUELLING, ENDURANCE] });
   api.getPersonalConversation.mockResolvedValue({ id: 'conv-home', title: 'Home', agent_id: ENDURANCE.id });
   api.getConversations.mockResolvedValue({ conversations: [], total: 0 });
@@ -238,8 +248,42 @@ describe('Home — Today', () => {
     // The week still shows what was done, without a plan to read (carnet#708).
     expect(screen.getByTestId('home-week')).toBeInTheDocument();
 
+    await waitFor(() => expect(api.getOnboardingStatus).toHaveBeenCalled());
     await userEvent.click(within(empty).getByRole('button', { name: 'Build my plan' }));
     expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith('Build me a training plan for my goal race.');
+  });
+
+  // carnet#1530: no plan before the health check. Only the button waits on it.
+  it('opens the health check first while the PAR-Q is still to answer, then drafts the request', async () => {
+    api.getTrainingPlan.mockResolvedValue({ plan: null, today: TODAY });
+    api.getOnboardingStatus.mockResolvedValue({ steps: [{ step_id: 'parq', status: 'skipped' }] });
+    const { onOpenChatDraft, onOpenFirstStep } = renderHome();
+
+    const empty = await screen.findByTestId('home-plan-empty');
+    expect(
+      await within(empty).findByText('The health check first, then your agent lays out your season, week by week.'),
+    ).toBeInTheDocument();
+    await userEvent.click(within(empty).getByRole('button', { name: 'Build my plan' }));
+
+    expect(onOpenChatDraft).not.toHaveBeenCalled();
+    expect(onOpenFirstStep).toHaveBeenCalledTimes(1);
+    const [request] = onOpenFirstStep.mock.calls[0] as [{ step: string; onDone?: () => void }];
+    expect(request.step).toBe('health_check');
+    // Answered, the sheet runs what waited: the plan request is drafted.
+    request.onDone?.();
+    expect(onOpenChatDraft).toHaveBeenCalledExactlyOnceWith('Build me a training plan for my goal race.');
+  });
+
+  it('never holds a coach who does not train at the health check', async () => {
+    api.getTrainingPlan.mockResolvedValue({ plan: null, today: TODAY });
+    api.getOnboardingStatus.mockResolvedValue({ steps: [{ step_id: 'parq', status: 'not_applicable' }] });
+    const { onOpenChatDraft, onOpenFirstStep } = renderHome();
+
+    const empty = await screen.findByTestId('home-plan-empty');
+    await waitFor(() => expect(api.getOnboardingStatus).toHaveBeenCalled());
+    await userEvent.click(await within(empty).findByRole('button', { name: 'Build my plan' }));
+    expect(onOpenFirstStep).not.toHaveBeenCalled();
+    expect(onOpenChatDraft).toHaveBeenCalledTimes(1);
   });
 
   it('sets the plan suggestion aside on the server, keeping the one plain sentence', async () => {
@@ -325,19 +369,20 @@ describe('Home — Getting started', () => {
     api.getTrainingPlan.mockResolvedValue({ plan: homePlan(), today: TODAY });
   });
 
-  it('lists the five first steps in order: done plain, the current one tinted, open ones as links', async () => {
+  it('lists the first steps in the server’s order: done plain, the current one tinted, open ones as links', async () => {
     renderHome();
     const section = await screen.findByTestId('home-getting-started');
     expect(within(section).getByRole('heading', { level: 3 })).toHaveTextContent('Getting started');
-    expect(within(section).getByTestId('home-getting-started-count')).toHaveTextContent('1 of 5');
+    expect(within(section).getByTestId('home-getting-started-count')).toHaveTextContent('1 of 6');
 
     const rows = within(section).getAllByRole('listitem');
     expect(rows.map((row) => row.getAttribute('data-testid'))).toEqual([
       'home-getting-started-row-connect',
-      'home-getting-started-row-meet_team',
-      'home-getting-started-row-last_workout',
+      'home-getting-started-row-health_check',
       'home-getting-started-row-about_me_more',
       'home-getting-started-row-check_in',
+      'home-getting-started-row-meet_team',
+      'home-getting-started-row-last_workout',
     ]);
 
     // Done: a check and a spoken "done", never a link.
@@ -348,24 +393,64 @@ describe('Home — Getting started', () => {
     expect(await within(connect).findByText('Garmin connected')).toBeInTheDocument();
     expect(within(connect).queryByRole('button')).toBeNull();
 
-    // Current: the tint and aria-current, its hint naming the lead.
-    const meet = rows[1];
-    expect(meet).toHaveAttribute('aria-current', 'step');
-    expect(within(meet).getByRole('button')).toHaveClass('bg-surface-container-low');
-    expect(await within(meet).findByText('Reply to Endurance in your thread')).toBeInTheDocument();
+    // Current: the health check put off at onboarding, tinted, with aria-current.
+    const health = rows[1];
+    expect(health).toHaveAttribute('aria-current', 'step');
+    expect(health).toHaveTextContent('Health check');
+    expect(health).toHaveTextContent('1 min · before your first plan');
+    expect(within(health).getByRole('button')).toHaveClass('bg-surface-container-low');
 
-    // Open: links, with their hints.
-    expect(within(rows[2]).getByRole('button', { name: /Read your last workout/ })).toBeInTheDocument();
-    expect(rows[2]).not.toHaveAttribute('aria-current');
-    expect(await within(rows[3]).findByText((_, el) => el?.textContent === '2 of 7 topics')).toBeInTheDocument();
+    // The questions the wizard left to Home, as links with their hints.
+    expect(rows[2]).toHaveTextContent('Your goal and your why');
+    expect(rows[2]).toHaveTextContent('3 questions · your agent comes back to them');
+    expect(rows[3]).toHaveTextContent('Your daily check-in');
+    expect(rows[3]).toHaveTextContent('How often your morning note comes');
+    expect(within(rows[3]).getByRole('button')).toBeInTheDocument();
 
-    // A missing prerequisite is the hint, and the row is not a link yet.
-    expect(rows[4]).toHaveTextContent('Your daily check-in');
-    expect(rows[4]).toHaveTextContent('Starts once your first data arrives');
-    expect(within(rows[4]).queryByRole('button')).toBeNull();
+    // Open flows: links, the team's hint naming the lead.
+    expect(await within(rows[4]).findByText('Reply to Endurance in your thread')).toBeInTheDocument();
+    expect(within(rows[5]).getByRole('button', { name: /Read your last workout/ })).toBeInTheDocument();
+    expect(rows[5]).not.toHaveAttribute('aria-current');
 
     // These are offers: nothing on Today is a filled button.
     expect(document.querySelectorAll('.btn-primary')).toHaveLength(0);
+  });
+
+  it('opens a small sheet for each question the wizard left to Home, sending nothing', async () => {
+    const { actions, onOpenFirstStep } = renderHome();
+
+    await userEvent.click(within(await screen.findByTestId('home-getting-started-row-health_check')).getByRole('button'));
+    await userEvent.click(within(screen.getByTestId('home-getting-started-row-about_me_more')).getByRole('button'));
+    await userEvent.click(within(screen.getByTestId('home-getting-started-row-check_in')).getByRole('button'));
+
+    expect(onOpenFirstStep.mock.calls.map(([request]) => request)).toEqual([
+      { step: 'health_check' },
+      { step: 'goal_why' },
+      { step: 'check_in' },
+    ]);
+    expect(actions.send).not.toHaveBeenCalled();
+  });
+
+  it('ticks an answered question plainly, the cadence it set as its hint', async () => {
+    const base = gettingStarted();
+    api.getGettingStarted.mockResolvedValue(
+      gettingStarted({
+        rows: base.rows.map((row) =>
+          row.id === 'check_in' || row.id === 'health_check' ? { ...row, done: true, current: false } : row,
+        ),
+        done_count: 3,
+      }),
+    );
+    renderHome();
+
+    const checkIn = await screen.findByTestId('home-getting-started-row-check_in');
+    expect(checkIn).toHaveAttribute('data-state', 'done');
+    expect(within(checkIn).queryByRole('button')).toBeNull();
+    // The hour is the server's, never a client copy of it.
+    expect(await within(checkIn).findByText(/^Every morning at 7/)).toBeInTheDocument();
+    const health = screen.getByTestId('home-getting-started-row-health_check');
+    expect(health).toHaveAttribute('data-state', 'done');
+    expect(health).not.toHaveTextContent('before your first plan');
   });
 
   it('sends a flow’s starter into the thread, and sends an unconnected athlete to Connections', async () => {
@@ -373,12 +458,13 @@ describe('Home — Getting started', () => {
       gettingStarted({
         rows: [
           { id: 'connect', order: 1, eligible: true, done: false, current: true, postback: null },
-          { id: 'meet_team', order: 2, eligible: true, done: false, current: false, postback: 'gs:2:meet_team' },
-          { id: 'last_workout', order: 3, eligible: false, done: false, current: false, postback: 'gs:3:last_workout' },
-          { id: 'about_me_more', order: 4, eligible: true, done: false, current: false, postback: 'gs:4:about_me_more' },
-          { id: 'check_in', order: 5, eligible: true, done: false, current: false, postback: 'gs:5:check_in' },
+          { id: 'about_me_more', order: 2, eligible: true, done: true, current: false, postback: null },
+          { id: 'check_in', order: 3, eligible: true, done: true, current: false, postback: null },
+          { id: 'meet_team', order: 4, eligible: true, done: false, current: false, postback: 'gs:3:meet_team' },
+          { id: 'last_workout', order: 5, eligible: false, done: false, current: false, postback: null },
         ],
-        done_count: 0,
+        done_count: 2,
+        total: 5,
       }),
     );
     const { actions, onNavigate } = renderHome();
@@ -391,12 +477,9 @@ describe('Home — Getting started', () => {
     expect(screen.getByTestId('home-getting-started-row-last_workout')).toHaveTextContent(
       'Waits for your first activity',
     );
-    const checkIn = screen.getByTestId('home-getting-started-row-check_in');
-    // The hour is the server's, never a client copy of it.
-    expect(await within(checkIn).findByText(/^Every morning at 7/)).toBeInTheDocument();
 
     await userEvent.click(within(screen.getByTestId('home-getting-started-row-meet_team')).getByRole('button'));
-    expect(actions.send).toHaveBeenCalledExactlyOnceWith('gs:2:meet_team', 'Meet your team');
+    expect(actions.send).toHaveBeenCalledExactlyOnceWith('gs:3:meet_team', 'Meet your team');
     expect(actions.draft).not.toHaveBeenCalled();
   });
 
@@ -411,10 +494,10 @@ describe('Home — Getting started', () => {
     api.getGettingStarted.mockResolvedValue(
       gettingStarted({
         rows: [
-          ...base.rows,
-          { id: 'chat_app', order: 6, eligible: true, done: false, current: false, postback: null },
+          ...base.rows.map((row) => (row.order >= 5 ? { ...row, order: row.order + 1 } : row)),
+          { id: 'chat_app', order: 5, eligible: true, done: false, current: false, postback: null },
         ],
-        total: 6,
+        total: 7,
       }),
     );
     const { actions, onOpenChatApp } = renderHome();
@@ -422,7 +505,13 @@ describe('Home — Getting started', () => {
     const row = await screen.findByTestId('home-getting-started-row-chat_app');
     expect(row).toHaveTextContent('Message me elsewhere too');
     await within(row).findByText('Telegram or WhatsApp');
-    expect(screen.getByTestId('home-getting-started-count')).toHaveTextContent('1 of 6');
+    expect(screen.getByTestId('home-getting-started-count')).toHaveTextContent('1 of 7');
+    // The server's order: after the cadence, before the flows.
+    expect(
+      within(screen.getByTestId('home-getting-started'))
+        .getAllByRole('listitem')
+        .map((li) => li.getAttribute('data-testid')?.replace('home-getting-started-row-', '')),
+    ).toEqual(['connect', 'health_check', 'about_me_more', 'check_in', 'chat_app', 'meet_team', 'last_workout']);
 
     await userEvent.click(within(row).getByRole('button'));
     expect(onOpenChatApp).toHaveBeenCalledTimes(1);
@@ -440,11 +529,11 @@ describe('Home — Getting started', () => {
     api.getGettingStarted.mockResolvedValue(
       gettingStarted({
         rows: [
-          ...base.rows,
-          { id: 'chat_app', order: 6, eligible: true, done: true, current: false, postback: null },
+          ...base.rows.map((row) => (row.order >= 5 ? { ...row, order: row.order + 1 } : row)),
+          { id: 'chat_app', order: 5, eligible: true, done: true, current: false, postback: null },
         ],
         done_count: 2,
-        total: 6,
+        total: 7,
       }),
     );
     renderHome();

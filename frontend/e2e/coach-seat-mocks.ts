@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Mocks for the coach seat: the owner of a coachless room who coaches others but holds no coach access
-// ABOUTME: One room, its group, its roster, the coaching platforms and the coach-access request the strip and Group info read
+// ABOUTME: Mocks for the coach seat: the owner of a coachless room who holds no coach access, and what a decision does to it
+// ABOUTME: One room, its group, its roster, the coaching platforms, the coach-access request (ask, withdraw) and a grant that lands
 
 import type { Page } from '@playwright/test';
 import type { CoachAccessRequest } from '@pierre/shared-types';
@@ -43,11 +43,23 @@ export interface SeatMockOptions {
   managesRoster?: boolean;
 }
 
-/** What the coach did against the mocked server. */
+/** What the coach did against the mocked server, and what the team can do to it. */
 export interface SeatRecord {
   /** Every POST to the coach-access request route, with its body. */
   requests: Array<{ group_id?: string }>;
+  /** How many times the coach withdrew the waiting request (DELETE). */
+  cancels: number;
+  /**
+   * A super-admin grants the request now: it reads granted, the room has the
+   * coach attached and the grant's line as its last words, and the session
+   * reads coach access — as the server leaves them after a grant.
+   */
+  grant: () => Promise<void>;
 }
+
+/** The grant's line in the coach's copy of the room, as the server writes it. */
+export const GRANT_ROOM_LINE =
+  'Philippe is now this group’s coach. Your athletes see this message and choose what they share with you.';
 
 const groupConversation = {
   id: SEAT_CONVERSATION_ID,
@@ -180,7 +192,44 @@ function json(body: unknown, status = 200) {
 export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions = {}): Promise<SeatRecord> {
   const { role = 'owner', coachesOthers = true, managesRoster = false } = options;
   let latest: CoachAccessRequest | null = options.request ?? null;
-  const record: SeatRecord = { requests: [] };
+  // A member who does not own the room: the group names someone else as its owner.
+  let group: Record<string, unknown> = { ...groupDetail, owner_id: role === 'owner' ? 'user-123' : 'user-lea' };
+  let conversation: Record<string, unknown> = { ...groupConversation };
+  const record: SeatRecord = {
+    requests: [],
+    cancels: 0,
+    grant: async () => {
+      const decidedAt = new Date().toISOString();
+      latest = { ...(latest ?? PENDING_REQUEST), status: 'granted', decided_at: decidedAt, decided_by: 'admin-1' };
+      group = { ...group, coach_user_id: 'user-123', coach_display_name: 'Philippe' };
+      conversation = {
+        ...conversation,
+        unread_count: 1,
+        updated_at: decidedAt,
+        last_message: { preview: GRANT_ROOM_LINE, role: 'assistant', created_at: decidedAt },
+      };
+      await page.route('**/api/auth/session', (route) =>
+        route.fulfill(
+          json({
+            access_token: 'test-jwt-token',
+            csrf_token: 'test-csrf-token',
+            user: {
+              id: 'user-123',
+              user_id: 'user-123',
+              email: 'test@example.com',
+              display_name: 'Philippe',
+              role: 'user',
+              is_admin: false,
+              user_status: 'active',
+              tier: 'professional',
+              tenant_id: 'user-123',
+              manages_roster: true,
+            },
+          }),
+        ),
+      );
+    },
+  };
 
   await setupDashboardMocks(page, { role: 'user', skipProvidersRoute: true, managesRoster });
 
@@ -196,10 +245,24 @@ export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions =
     ),
   );
   await page.route('**/api/me/coach-access-request', async (route) => {
-    if (route.request().method() === 'POST') {
-      record.requests.push((route.request().postDataJSON() as { group_id?: string }) ?? {});
-      latest = { ...PENDING_REQUEST, created_at: new Date().toISOString() };
+    const method = route.request().method();
+    if (method === 'POST') {
+      const body = (route.request().postDataJSON() as { group_id?: string } | null) ?? {};
+      record.requests.push(body);
+      latest = {
+        ...PENDING_REQUEST,
+        group_id: body.group_id ?? null,
+        group_tenant_id: body.group_id ? 'tenant-1' : null,
+        created_at: new Date().toISOString(),
+      };
       await route.fulfill(json({ request: latest }, 201));
+      return;
+    }
+    if (method === 'DELETE') {
+      // The waiting request is deleted; nothing earlier stood on this account.
+      record.cancels += 1;
+      latest = null;
+      await route.fulfill(json({ request: latest }));
       return;
     }
     await route.fulfill(json({ request: latest }));
@@ -208,7 +271,7 @@ export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions =
   await page.route('**/api/groups/permissions', (route) =>
     route.fulfill(json({ can_create: true, policy: 'everyone', weekly_digest: false })),
   );
-  await page.route(`**/api/groups/${SEAT_GROUP_ID}`, (route) => route.fulfill(json(groupDetail)));
+  await page.route(`**/api/groups/${SEAT_GROUP_ID}`, (route) => route.fulfill(json(group)));
   await page.route(`**/api/groups/${SEAT_GROUP_ID}/members`, (route) => route.fulfill(json(members(role))));
   await page.route(`**/api/groups/${SEAT_GROUP_ID}/invites`, (route) => route.fulfill(json({ invites: [] })));
   await page.route(`**/api/groups/${SEAT_GROUP_ID}/stats`, (route) =>
@@ -249,7 +312,7 @@ export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions =
     route.fulfill(json({ participants: [] })),
   );
   await page.route(/\/api\/chat\/conversations(\?.*)?$/, (route) =>
-    route.fulfill(json({ conversations: [groupConversation], total: 1, limit: 50, offset: 0 })),
+    route.fulfill(json({ conversations: [conversation], total: 1, limit: 50, offset: 0 })),
   );
 
   return record;

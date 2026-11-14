@@ -57,6 +57,12 @@ function capsuleLabel(count: number, mentioned: boolean): string {
 
 export interface ConversationRowProps {
   row: ConversationRowModel;
+  /**
+   * The room's coach-seat line, shown in place of its last words while the
+   * viewer's seat moves: « Accès coach en attente · demandé le … », then
+   * « Tu es le coach · depuis … » (carnet#1521).
+   */
+  seatLine?: string | null;
   onPress: (row: ConversationRowModel) => void;
   onLongPress: (row: ConversationRowModel) => void;
   onMarkUnread: (row: ConversationRowModel) => void;
@@ -74,7 +80,7 @@ export interface ConversationRowProps {
  * The hairline sits on the text column, not the touchable, so the divider
  * is inset to the text and the avatars stand in an unbroken column.
  */
-export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDelete }: ConversationRowProps) {
+export function ConversationRow({ row, seatLine = null, onPress, onLongPress, onMarkUnread, onDelete }: ConversationRowProps) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const unread = row.unreadCount > 0;
@@ -193,13 +199,23 @@ export function ConversationRow({ row, onPress, onLongPress, onMarkUnread, onDel
           </View>
 
           <View className="flex-row items-center mt-0.5">
-            <Text
-              className="flex-1 text-md text-text-secondary"
-              numberOfLines={1}
-              testID={`conversation-preview-${row.id}`}
-            >
-              {row.preview}
-            </Text>
+            {seatLine ? (
+              <Text
+                className="flex-1 text-md text-text-secondary"
+                numberOfLines={1}
+                testID={`conversation-seat-line-${row.id}`}
+              >
+                {seatLine}
+              </Text>
+            ) : (
+              <Text
+                className="flex-1 text-md text-text-secondary"
+                numberOfLines={1}
+                testID={`conversation-preview-${row.id}`}
+              >
+                {row.preview}
+              </Text>
+            )}
             {/*
               The one mark on the row. A mention is only ever badged while
               unread, so the `@` rides the same capsule as the count rather

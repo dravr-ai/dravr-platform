@@ -6,6 +6,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor, within, act } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { CoachAccessRequest as Request } from '@pierre/shared-types';
@@ -15,13 +16,15 @@ import { ThemeProvider } from '../../hooks/useTheme';
 const api = vi.hoisted(() => ({
   getCoachAccessRequest: vi.fn(),
   requestCoachAccess: vi.fn(),
+  cancelCoachAccessRequest: vi.fn(),
   getProvidersStatus: vi.fn(),
 }));
 
 vi.mock('../../services/api', () => ({
   userApi: {
     getCoachAccessRequest: () => api.getCoachAccessRequest(),
-    requestCoachAccess: (groupId: string) => api.requestCoachAccess(groupId),
+    requestCoachAccess: (groupId?: string) => api.requestCoachAccess(groupId),
+    cancelCoachAccessRequest: () => api.cancelCoachAccessRequest(),
   },
   providersApi: { getProvidersStatus: () => api.getProvidersStatus() },
   oauthApi: { sciotteCancel: vi.fn(), authorizeUrl: vi.fn() },
@@ -48,14 +51,17 @@ function platforms(intervalsConnected: boolean) {
   };
 }
 
-function renderRequest(variant: 'inline' | 'block') {
+function renderRequest(
+  variant: 'inline' | 'block' | 'panel',
+  extra: { groupId?: string; managesRoster?: boolean; onOpenHome?: () => void } = { groupId: 'group-1' },
+) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const view = render(
     <QueryClientProvider client={queryClient}>
       <ThemeProvider>
-        <CoachAccessRequest groupId="group-1" variant={variant} />
+        <CoachAccessRequest variant={variant} {...extra} />
       </ThemeProvider>
     </QueryClientProvider>,
   );
@@ -103,5 +109,92 @@ describe('CoachAccessRequest', () => {
     await waitFor(() => expect(api.getProvidersStatus).toHaveBeenCalled());
     await new Promise((resolve) => setTimeout(resolve, 3500));
     expect(api.getCoachAccessRequest).toHaveBeenCalledTimes(1);
+  });
+
+  describe('the group-less panel (Settings and Home)', () => {
+    it('asks with no group, then shows the dated sentence and the way to withdraw it', async () => {
+      api.requestCoachAccess.mockResolvedValue({ request: pending });
+      renderRequest('panel', {});
+
+      const panel = await screen.findByTestId('coach-seat-panel');
+      expect(panel).toHaveAttribute('data-state', 'to_request');
+      expect(within(panel).getByRole('heading', { name: 'Get your coach access' })).toBeInTheDocument(); // humanCoach.seat.panelTitle
+      await userEvent.click(within(panel).getByTestId('coach-access-request'));
+
+      await waitFor(() => expect(api.requestCoachAccess).toHaveBeenCalledWith(undefined));
+      await waitFor(() => expect(panel).toHaveAttribute('data-state', 'pending'));
+      expect(within(panel).getByTestId('coach-access-pending')).toHaveTextContent(
+        /^Request sent .*2026\. We'll let you know here and by email\.$/,
+      );
+      expect(within(panel).getByTestId('coach-access-cancel')).toBeEnabled();
+    });
+
+    it('withdraws the waiting request and offers the request again', async () => {
+      api.getCoachAccessRequest.mockResolvedValue({ request: pending });
+      api.cancelCoachAccessRequest.mockResolvedValue({ request: null });
+      renderRequest('panel', {});
+
+      const panel = await screen.findByTestId('coach-seat-panel');
+      await userEvent.click(within(panel).getByTestId('coach-access-cancel'));
+
+      await waitFor(() => expect(panel).toHaveAttribute('data-state', 'to_request'));
+      expect(within(panel).getByTestId('coach-access-cancelled')).toHaveTextContent('Request cancelled');
+    });
+
+    it('says a failed withdrawal and reads the request again', async () => {
+      api.getCoachAccessRequest.mockResolvedValue({ request: pending });
+      api.cancelCoachAccessRequest.mockRejectedValue(new Error('409'));
+      renderRequest('panel', {});
+
+      const panel = await screen.findByTestId('coach-seat-panel');
+      await userEvent.click(within(panel).getByTestId('coach-access-cancel'));
+
+      expect(await within(panel).findByTestId('coach-access-cancel-failed')).toHaveTextContent(
+        "We couldn't cancel your request. Please try again.",
+      );
+      await waitFor(() => expect(api.getCoachAccessRequest).toHaveBeenCalledTimes(2));
+    });
+
+    it('shows the declined reason beside Ask again', async () => {
+      api.getCoachAccessRequest.mockResolvedValue({
+        request: { ...pending, status: 'declined', decided_at: '2026-11-13T09:00:00Z', decline_reason: 'Not verified.' },
+      });
+      renderRequest('panel', {});
+
+      const panel = await screen.findByTestId('coach-seat-panel');
+      expect(await within(panel).findByTestId('coach-access-decline-reason')).toHaveTextContent('Reason: Not verified.');
+      expect(within(panel).getByTestId('coach-access-request')).toHaveTextContent('Ask again');
+    });
+
+    it('shows the plain ask, not the old decline, after asking again and withdrawing', async () => {
+      // The server's own read skips a decline a newer ask replaced, so the
+      // withdrawal answers with no request at all (carnet#1522).
+      api.getCoachAccessRequest.mockResolvedValue({
+        request: { ...pending, status: 'declined', decided_at: '2026-11-13T09:00:00Z', decline_reason: 'Not verified.' },
+      });
+      api.requestCoachAccess.mockResolvedValue({ request: pending });
+      api.cancelCoachAccessRequest.mockResolvedValue({ request: null });
+      renderRequest('panel', {});
+
+      const panel = await screen.findByTestId('coach-seat-panel');
+      await userEvent.click(await within(panel).findByRole('button', { name: 'Ask again' }));
+      await waitFor(() => expect(panel).toHaveAttribute('data-state', 'pending'));
+      await userEvent.click(within(panel).getByTestId('coach-access-cancel'));
+
+      await waitFor(() => expect(panel).toHaveAttribute('data-state', 'to_request'));
+      expect(within(panel).getByTestId('coach-access-request')).toHaveTextContent('Request coach access');
+      expect(within(panel).queryByTestId('coach-access-decline-reason')).toBeNull();
+    });
+
+    it('says the access is on and opens the coach Home once granted', async () => {
+      const onOpenHome = vi.fn();
+      renderRequest('panel', { managesRoster: true, onOpenHome });
+
+      const panel = await screen.findByTestId('coach-seat-panel');
+      expect(panel).toHaveAttribute('data-state', 'granted');
+      expect(within(panel).getByRole('heading', { name: 'Your coach access is on' })).toBeInTheDocument();
+      await userEvent.click(within(panel).getByTestId('coach-seat-open-home'));
+      expect(onOpenHome).toHaveBeenCalled();
+    });
   });
 });

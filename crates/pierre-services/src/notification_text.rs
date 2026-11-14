@@ -20,11 +20,11 @@
 //! the live string catalogue, one locale, no surface gluing English to data.
 
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_GROUP_DIGEST_ALL_CLEAR, KEY_GROUP_DIGEST_CONCERNS_HEADER,
-    KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE, KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK,
-    KEY_GROUP_DIGEST_CONCERN_INACTIVE, KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK,
-    KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP, KEY_GROUP_DIGEST_FRESH,
-    KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MANAGER_SCOPE,
+    MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY, KEY_GROUP_DIGEST_ALL_CLEAR,
+    KEY_GROUP_DIGEST_CONCERNS_HEADER, KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE,
+    KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK, KEY_GROUP_DIGEST_CONCERN_INACTIVE,
+    KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK, KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP,
+    KEY_GROUP_DIGEST_FRESH, KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MANAGER_SCOPE,
     KEY_GROUP_DIGEST_MEMBERS_HEADER, KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE,
     KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV, KEY_GROUP_DIGEST_ROOM_SCOPE,
     KEY_GROUP_DIGEST_SUMMARY_DISTANCE, KEY_GROUP_DIGEST_TREND_DECLINING,
@@ -33,7 +33,9 @@ use pierre_contremaitre::messaging_strings::{
     KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON, KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
 };
 use pierre_core::models::UnitSystem;
-use pierre_notifications::events::{action_label_key, NotificationEvent};
+use pierre_notifications::events::{
+    action_label_key, NotificationEvent, COACH_ACCESS_DECLINE_REASON_PARAM,
+};
 use serde_json::{Map, Value};
 
 /// Group-digest concern code: form in the deepest fatigue band.
@@ -116,6 +118,7 @@ impl<'a> NotificationTextRenderer<'a> {
         match event {
             NotificationEvent::GroupWeeklyDigest => self.group_digest_body(params),
             NotificationEvent::PersonalRecord => self.personal_record_body(params),
+            NotificationEvent::CoachAccessDeclined => self.coach_access_declined_body(params),
             _ => self.render(event.body_key(), event.body_params(), params),
         }
     }
@@ -179,6 +182,18 @@ impl<'a> NotificationTextRenderer<'a> {
             NotificationEvent::PersonalRecord.body_key(),
             &[&distance, &param_text(params.get("time_display"))],
         )
+    }
+
+    /// The declined coach-access body: with the super-admin's reason when the
+    /// notice carries one, the plain decline otherwise — never a sentence
+    /// with an empty slot where the reason would be.
+    fn coach_access_declined_body(&self, params: &Map<String, Value>) -> String {
+        let reason = param_text(params.get(COACH_ACCESS_DECLINE_REASON_PARAM));
+        if reason.trim().is_empty() {
+            self.line(NotificationEvent::CoachAccessDeclined.body_key(), &[])
+        } else {
+            self.line(KEY_COACH_ACCESS_DECLINED_REASON_BODY, &[reason.trim()])
+        }
     }
 
     /// The group weekly digest, one line per fact: the summary, the trend,

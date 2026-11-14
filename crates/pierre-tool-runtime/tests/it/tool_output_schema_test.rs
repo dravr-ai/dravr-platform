@@ -243,7 +243,7 @@ fn declared_schema() -> serde_json::Value {
 
 fn sample() -> VerifyClaimResult {
     VerifyClaimResult {
-        verdict_id: "verdict-1".to_owned(),
+        verdict_id: Some("verdict-1".to_owned()),
         status: "supported".to_owned(),
         evidence_strength: "strong".to_owned(),
         layer_fired: "corpus".to_owned(),
@@ -270,8 +270,8 @@ fn the_schema_rejects_a_payload_missing_a_required_field() {
     // Without this the first test would pass against an empty schema, which is
     // exactly the failure mode a hand-written schema decays into.
     let validator = jsonschema::validator_for(&declared_schema()).expect("compiles");
-    let missing_verdict_id = json!({
-        "status": "supported",
+    let missing_status = json!({
+        "verdict_id": "verdict-1",
         "evidence_strength": "strong",
         "layer_fired": "corpus",
         "confidence": 0.82,
@@ -280,8 +280,26 @@ fn the_schema_rejects_a_payload_missing_a_required_field() {
     });
 
     assert!(
-        !validator.is_valid(&missing_verdict_id),
-        "a schema that accepts a payload with no verdict_id is not describing anything"
+        !validator.is_valid(&missing_status),
+        "a schema that accepts a payload with no status is not describing anything"
+    );
+}
+
+#[test]
+fn a_verdict_stored_nowhere_is_still_valid() {
+    // Outside Dravr's own surfaces the tool files nothing, so the payload has
+    // no verdict_id (carnet#1565): the schema must accept that shape.
+    let validator = jsonschema::validator_for(&declared_schema()).expect("compiles");
+    let unstored = VerifyClaimResult {
+        verdict_id: None,
+        ..sample()
+    };
+    let payload = serde_json::to_value(unstored).expect("serializes");
+
+    assert!(payload.get("verdict_id").is_none(), "{payload:#}");
+    assert!(
+        validator.is_valid(&payload),
+        "a verdict with no stored row must still conform: {payload:#}"
     );
 }
 

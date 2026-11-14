@@ -1,18 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach-access request for a coachless group the coach owns — inline in onboarding, a strip over the room, a block in Group info
-// ABOUTME: Shows the latest request's state (to ask, pending, declined) from the server; asking grants nothing (ADR-018)
+// ABOUTME: The coach-access request — inline in onboarding, a strip over the room, a block in Group info, a panel in Settings and on Home
+// ABOUTME: Shows the latest request's state (to ask, pending + cancel, declined + reason, granted) from the server; asking grants nothing (ADR-018)
 
 import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Clock, UserCheck } from 'lucide-react';
+import { Check, CheckCircle2, Clock, UserCheck } from 'lucide-react';
 import { clsx } from 'clsx';
 import {
   COACH_PLATFORM_PROVIDERS,
   COACH_SEAT_CHECK_POLL_MS,
   COACH_SEAT_CHECK_WINDOW_MS,
   COACH_SEAT_KEYS,
+  coachSeatDeclineReason,
   coachSeatMoment,
   coachSeatState,
 } from '@pierre/shared-constants';
@@ -33,27 +34,43 @@ import ProviderConnectionCards from './ProviderConnectionCards';
  * - `block`: the first block of Group info: what is blocked, the drawer's one
  *   filled request, then the coaching platforms as plain rows; once asked, the
  *   dated three-step timeline.
+ * - `panel`: Settings and Home, for a coach with no group (carnet#1522): the
+ *   request on its own, and once granted, the way to their coach Home.
  */
-export type CoachAccessRequestVariant = 'inline' | 'strip' | 'block';
+export type CoachAccessRequestVariant = 'inline' | 'strip' | 'block' | 'panel';
 
 interface CoachAccessRequestProps {
-  groupId: string;
+  /** The group the coach asks from; none in Settings or on Home. */
+  groupId?: string;
   variant?: CoachAccessRequestVariant;
   /** `strip` only: open Group info, where the coaching platforms are offered. */
   onOpenInfo?: () => void;
+  /** `panel` only: the viewer holds coach access, so the panel says it is on. */
+  managesRoster?: boolean;
+  /** `panel` only: open the coach's Home, once the access is on. */
+  onOpenHome?: () => void;
 }
 
 /**
- * The one coach-access request for a coachless group (carnet#738), behind
- * every entry point so none can drift: the onboarding group step, the room's
- * top strip and Group info.
+ * The one coach-access request (carnet#738), behind every entry point so none
+ * can drift: the onboarding group step, the room's top strip, Group info, and
+ * the group-less panel in Settings and on Home.
  *
  * Reads where the coach's latest request stands so a return visit shows it.
- * The request names this group, so a grant attaches the coach to it. Asking
- * grants nothing (ADR-018): a super-admin decides, and the pending state says
- * so — it never promises a notification the product does not send.
+ * A request asked from a group names it; either way a grant attaches the
+ * coach to every coachless group they own (carnet#1521). Asking grants
+ * nothing (ADR-018): a super-admin decides, and the pending state says so,
+ * with the date it was sent, that the answer comes here and by email, and the
+ * way to withdraw it (carnet#1522). A declined request shows the reason the
+ * team gave, when it gave one, beside "Ask again".
  */
-export default function CoachAccessRequest({ groupId, variant = 'inline', onOpenInfo }: CoachAccessRequestProps) {
+export default function CoachAccessRequest({
+  groupId,
+  variant = 'inline',
+  onOpenInfo,
+  managesRoster = false,
+  onOpenHome,
+}: CoachAccessRequestProps) {
   const queryClient = useQueryClient();
   // Set when a coaching platform was just linked here: an Intervals.icu roster
   // that coaches an active athlete files the request in the background
@@ -70,8 +87,20 @@ export default function CoachAccessRequest({ groupId, variant = 'inline', onOpen
         ? COACH_SEAT_CHECK_POLL_MS
         : false,
   });
+  const cancel = useMutation({
+    mutationFn: () => userApi.cancelCoachAccessRequest(),
+    onSuccess: (data) => {
+      queryClient.setQueryData(QUERY_KEYS.user.coachAccessRequest(), data);
+    },
+    // A decision that won the race (a 409) or a request already gone (a
+    // 404): the request is read again, so the state shown is the server's.
+    onError: () => {
+      void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.coachAccessRequest() });
+    },
+  });
   const ask = useMutation({
     mutationFn: () => userApi.requestCoachAccess(groupId),
+    onMutate: () => cancel.reset(),
     onSuccess: (data) => {
       queryClient.setQueryData(QUERY_KEYS.user.coachAccessRequest(), data);
     },
@@ -93,10 +122,17 @@ export default function CoachAccessRequest({ groupId, variant = 'inline', onOpen
     request,
     asking: ask.isPending,
     failed: ask.isError,
-    justAsked: ask.isSuccess,
+    justAsked: ask.isSuccess && !cancel.isSuccess,
     onAsk: () => ask.mutate(),
+    cancelling: cancel.isPending,
+    cancelFailed: cancel.isError,
+    justCancelled: cancel.isSuccess,
+    onCancel: () => cancel.mutate(),
   };
 
+  if (variant === 'panel') {
+    return managesRoster ? <SeatGranted onOpenHome={onOpenHome} /> : <SeatPanel {...view} />;
+  }
   return variant === 'strip' ? (
     <SeatStrip {...view} onOpenInfo={onOpenInfo} />
   ) : (
@@ -155,6 +191,13 @@ interface SeatViewProps {
   /** The request was just sent from this view: focus moves to its new state. */
   justAsked: boolean;
   onAsk: () => void;
+  /** The waiting request is being withdrawn. */
+  cancelling: boolean;
+  /** Withdrawing it failed. */
+  cancelFailed: boolean;
+  /** It was just withdrawn from this view: say so where it stood. */
+  justCancelled: boolean;
+  onCancel: () => void;
 }
 
 /** The filled request — "Request coach access", or "Ask again" after a decline. */
@@ -170,6 +213,76 @@ function AskButton({ state, asking, onAsk, fullWidthOnPhone }: Pick<SeatViewProp
     >
       {asking ? t(COACH_SEAT_KEYS.sending) : state === 'declined' ? t(COACH_SEAT_KEYS.askAgain) : t(COACH_SEAT_KEYS.request)}
     </Button>
+  );
+}
+
+/**
+ * Withdraw the waiting request — the quiet action beside the pending state,
+ * never a second filled button. The request is deleted, so the coach may ask
+ * again at once (carnet#1522).
+ */
+function CancelButton({ cancelling, onCancel }: Pick<SeatViewProps, 'cancelling' | 'onCancel'>) {
+  const { t } = useTranslation();
+  return (
+    <button
+      type="button"
+      onClick={onCancel}
+      disabled={cancelling}
+      className="btn-base btn-tertiary touch-target min-h-[32px] px-1.5 disabled:opacity-50"
+      data-testid="coach-access-cancel"
+    >
+      {cancelling ? t(COACH_SEAT_KEYS.cancelling) : t(COACH_SEAT_KEYS.cancel)}
+    </button>
+  );
+}
+
+/** Where a withdrawal left things: done, and asking again is open; or it failed. */
+function CancelOutcome({ justCancelled, cancelFailed }: Pick<SeatViewProps, 'justCancelled' | 'cancelFailed'>) {
+  const { t } = useTranslation();
+  if (cancelFailed) {
+    return (
+      <p className="text-sm text-error" role="alert" data-testid="coach-access-cancel-failed">
+        {t(COACH_SEAT_KEYS.cancelFailed)}
+      </p>
+    );
+  }
+  if (justCancelled) {
+    return (
+      <p className="text-sm text-on-surface-variant" role="status" data-testid="coach-access-cancelled">
+        {t(COACH_SEAT_KEYS.cancelled)}
+      </p>
+    );
+  }
+  return null;
+}
+
+/** The pending sentence: the day it was sent, and that the answer comes here and by email. */
+function PendingSentence({ request }: { request: CoachAccessRequestRecord }) {
+  const { t, language } = useTranslation();
+  const sent = coachSeatMoment(request.created_at, language);
+  return (
+    <p className="text-sm text-on-surface-variant" data-testid="coach-access-pending">
+      {t(COACH_SEAT_KEYS.pendingSentBody, { date: sent.date })}
+    </p>
+  );
+}
+
+/** A declined request: the day, "you can ask again", and the team's reason when it gave one. */
+function DeclinedLines({ request }: { request: CoachAccessRequestRecord }) {
+  const { t, language } = useTranslation();
+  const decided = coachSeatMoment(request.decided_at ?? request.created_at, language);
+  const reason = coachSeatDeclineReason(request);
+  return (
+    <>
+      <p className="text-sm text-on-surface-variant" data-testid="coach-access-declined">
+        {t(COACH_SEAT_KEYS.declinedBody, { date: decided.date })}
+      </p>
+      {reason && (
+        <p className="text-sm text-on-surface" data-testid="coach-access-decline-reason">
+          {t(COACH_SEAT_KEYS.declinedReason, { reason })}
+        </p>
+      )}
+    </>
   );
 }
 
@@ -210,15 +323,26 @@ function useFocusOnAsked(justAsked: boolean, state: SeatViewProps['state']) {
 /**
  * The room's top strip: the coach sees, without opening anything, that they
  * are not this group's coach yet and the one filled way to ask. Once asked it
- * dates the request and says who reviews it and how long that usually takes.
+ * dates the request, says the answer comes here and by email — no wait time
+ * is promised — and offers to withdraw it.
  */
-function SeatStrip({ state, request, asking, failed, justAsked, onAsk, onOpenInfo }: SeatViewProps & { onOpenInfo?: () => void }) {
-  const { t, language } = useTranslation();
+function SeatStrip({
+  state,
+  request,
+  asking,
+  failed,
+  justAsked,
+  onAsk,
+  onOpenInfo,
+  cancelling,
+  cancelFailed,
+  justCancelled,
+  onCancel,
+}: SeatViewProps & { onOpenInfo?: () => void }) {
+  const { t } = useTranslation();
   const titleId = useId();
   const headingRef = useFocusOnAsked(justAsked, state);
   const pending = state === 'pending';
-  const sent = request ? coachSeatMoment(request.created_at, language) : null;
-  const decided = request?.decided_at ? coachSeatMoment(request.decided_at, language) : sent;
 
   return (
     <section
@@ -235,22 +359,23 @@ function SeatStrip({ state, request, asking, failed, justAsked, onAsk, onOpenInf
           tabIndex={-1}
           className="font-display text-base font-semibold text-on-surface focus:outline-none"
         >
-          {pending && sent
-            ? t(COACH_SEAT_KEYS.pendingTitle, { date: sent.date })
+          {pending
+            ? t(COACH_SEAT_KEYS.pendingBlockTitle)
             : state === 'declined'
               ? t(COACH_SEAT_KEYS.declinedTitle)
               : t(COACH_SEAT_KEYS.title)}
         </h2>
-        {pending ? (
-          <p className="text-sm text-on-surface-variant" data-testid="coach-access-pending">
-            {t(COACH_SEAT_KEYS.pendingBody)}
-          </p>
-        ) : state === 'declined' && decided ? (
-          <p className="text-sm text-on-surface-variant" data-testid="coach-access-declined">
-            {t(COACH_SEAT_KEYS.declinedBody, { date: decided.date })}
-          </p>
+        {pending && request ? (
+          <PendingSentence request={request} />
+        ) : state === 'declined' && request ? (
+          <DeclinedLines request={request} />
         ) : (
           <p className="text-sm text-on-surface-variant">{t(COACH_SEAT_KEYS.stripBody)}</p>
+        )}
+        {pending && (
+          <div className="pt-1">
+            <CancelButton cancelling={cancelling} onCancel={onCancel} />
+          </div>
         )}
         {!pending && (
           <div className="flex flex-wrap items-center gap-x-4 gap-y-2 pt-2">
@@ -268,6 +393,7 @@ function SeatStrip({ state, request, asking, failed, justAsked, onAsk, onOpenInf
           </div>
         )}
         {failed && <AskFailed />}
+        <CancelOutcome justCancelled={justCancelled && !pending} cancelFailed={cancelFailed} />
       </div>
     </section>
   );
@@ -279,13 +405,24 @@ function SeatStrip({ state, request, asking, failed, justAsked, onAsk, onOpenInf
  * Intervals.icu as plain identical rows. After a request, the dated three-step
  * timeline in its place; after a decline, the date and "Ask again".
  */
-function SeatBlock({ state, request, asking, failed, justAsked, onAsk, onPlatformLinked }: SeatViewProps & { onPlatformLinked: () => void }) {
-  const { t, language } = useTranslation();
+function SeatBlock({
+  state,
+  request,
+  asking,
+  failed,
+  justAsked,
+  onAsk,
+  onPlatformLinked,
+  cancelling,
+  cancelFailed,
+  justCancelled,
+  onCancel,
+}: SeatViewProps & { onPlatformLinked: () => void }) {
+  const { t } = useTranslation();
   const titleId = useId();
   const headingRef = useFocusOnAsked(justAsked, state);
   usePlatformLinked(state === 'pending' ? null : onPlatformLinked);
   const pending = state === 'pending';
-  const decided = request ? coachSeatMoment(request.decided_at ?? request.created_at, language) : null;
 
   return (
     <section
@@ -308,13 +445,15 @@ function SeatBlock({ state, request, asking, failed, justAsked, onAsk, onPlatfor
       </h3>
 
       {pending && request ? (
-        <SeatTimeline request={request} />
+        <>
+          <SeatTimeline request={request} />
+          <CancelButton cancelling={cancelling} onCancel={onCancel} />
+          <CancelOutcome justCancelled={false} cancelFailed={cancelFailed} />
+        </>
       ) : (
         <>
-          {state === 'declined' && decided ? (
-            <p className="text-sm text-on-surface-variant" data-testid="coach-access-declined">
-              {t(COACH_SEAT_KEYS.declinedBody, { date: decided.date })}
-            </p>
+          {state === 'declined' && request ? (
+            <DeclinedLines request={request} />
           ) : (
             <p className="text-sm text-on-surface-variant">{t(COACH_SEAT_KEYS.blockBody)}</p>
           )}
@@ -322,12 +461,118 @@ function SeatBlock({ state, request, asking, failed, justAsked, onAsk, onPlatfor
             <AskButton state={state} asking={asking} onAsk={onAsk} />
           </div>
           {failed && <AskFailed />}
+          <CancelOutcome justCancelled={justCancelled} cancelFailed={false} />
           <div className="!mt-4 border-t ghost-border pt-3" data-testid="coach-seat-routes">
             <p className="text-xs text-outline">{t(COACH_SEAT_KEYS.routesLabel)}</p>
             <ProviderConnectionCards onlyProviders={COACH_PLATFORM_PROVIDERS} plain />
           </div>
         </>
       )}
+    </section>
+  );
+}
+
+/**
+ * The group-less panel, in Settings and on Home (carnet#1522): what coach
+ * access opens and the one filled request; once asked, the dated sentence and
+ * the way to withdraw it; after a decline, the reason and "Ask again". The
+ * request names no group: a grant attaches the coach to every coachless group
+ * they own, and the groups they make afterwards are coached from the start.
+ */
+function SeatPanel({
+  state,
+  request,
+  asking,
+  failed,
+  justAsked,
+  onAsk,
+  cancelling,
+  cancelFailed,
+  justCancelled,
+  onCancel,
+}: SeatViewProps) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  const headingRef = useFocusOnAsked(justAsked, state);
+  const pending = state === 'pending';
+
+  return (
+    <section
+      aria-labelledby={titleId}
+      data-testid="coach-seat-panel"
+      data-state={state}
+      className="flex items-start gap-3.5 rounded-xl border ghost-border bg-surface-container-lowest p-4"
+    >
+      <SeatGlyph pending={pending} />
+      <div className="min-w-0 flex-1 space-y-1">
+        <h3
+          id={titleId}
+          ref={headingRef}
+          tabIndex={-1}
+          className="font-display text-base font-semibold text-on-surface focus:outline-none"
+        >
+          {pending
+            ? t(COACH_SEAT_KEYS.pendingBlockTitle)
+            : state === 'declined'
+              ? t(COACH_SEAT_KEYS.declinedTitle)
+              : t(COACH_SEAT_KEYS.panelTitle)}
+        </h3>
+        {pending && request ? (
+          <>
+            <PendingSentence request={request} />
+            <div className="pt-1">
+              <CancelButton cancelling={cancelling} onCancel={onCancel} />
+            </div>
+          </>
+        ) : (
+          <>
+            {state === 'declined' && request ? (
+              <DeclinedLines request={request} />
+            ) : (
+              <p className="text-sm text-on-surface-variant">{t(COACH_SEAT_KEYS.panelBody)}</p>
+            )}
+            <div className="pt-2">
+              <AskButton state={state} asking={asking} onAsk={onAsk} fullWidthOnPhone />
+            </div>
+          </>
+        )}
+        {failed && <AskFailed />}
+        <CancelOutcome justCancelled={justCancelled && !pending} cancelFailed={cancelFailed} />
+      </div>
+    </section>
+  );
+}
+
+/** The panel once the access is on: it says so, and opens the coach's Home. */
+function SeatGranted({ onOpenHome }: { onOpenHome?: () => void }) {
+  const { t } = useTranslation();
+  const titleId = useId();
+  return (
+    <section
+      aria-labelledby={titleId}
+      data-testid="coach-seat-panel"
+      data-state="granted"
+      className="flex items-start gap-3.5 rounded-xl border ghost-border bg-surface-container-lowest p-4"
+    >
+      <span
+        aria-hidden="true"
+        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary-container text-on-primary-container"
+      >
+        <CheckCircle2 className="h-[18px] w-[18px]" />
+      </span>
+      <div className="min-w-0 flex-1 space-y-1">
+        <h3 id={titleId} className="font-display text-base font-semibold text-on-surface">
+          {t(COACH_SEAT_KEYS.grantedTitle)}
+        </h3>
+        <p className="text-sm text-on-surface-variant">{t(COACH_SEAT_KEYS.grantedBody)}</p>
+        {onOpenHome && (
+          <div className="pt-2">
+            <Button variant="primary" onClick={onOpenHome} data-testid="coach-seat-open-home">
+              {t(COACH_SEAT_KEYS.openHome)}
+            </Button>
+          </div>
+        )}
+      </div>
     </section>
   );
 }
@@ -360,8 +605,9 @@ function usePlatformLinked(onLinked: (() => void) | null) {
 
 /**
  * The pending request as three steps (P1·C): sent, with its date and time;
- * the Dravr team reviewing, usually within 24 hours; then the seat and what
- * it opens. It promises no notification: a grant reaches the operators today.
+ * the Dravr team reviewing — a person, never automatically, and the answer
+ * comes here and by email, with no wait time promised; then the seat and
+ * what it opens.
  */
 function SeatTimeline({ request }: { request: CoachAccessRequestRecord }) {
   const { t, language } = useTranslation();
@@ -383,7 +629,7 @@ function SeatTimeline({ request }: { request: CoachAccessRequestRecord }) {
         marker="current"
         title={t(COACH_SEAT_KEYS.stepReview)}
         status={t(COACH_SEAT_KEYS.stepNow)}
-        detail={t(COACH_SEAT_KEYS.stepReviewWhen)}
+        detail={t(COACH_SEAT_KEYS.stepReviewNotice)}
         testId="coach-seat-step-review"
       />
       <TimelineStep

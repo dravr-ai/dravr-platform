@@ -497,8 +497,11 @@ fn build_constraints_response(
     }
 }
 
-/// `get_recipe_constraints` for an athlete whose clinician sets their amounts:
-/// the meal's purpose, restrictions and time limits, with no kcal or grams.
+/// `get_recipe_constraints` when the nutrition gate withholds amounts (an
+/// athlete whose clinician sets them, or any athlete outside Dravr's own
+/// surfaces): the meal's purpose, restrictions and time limits, with no kcal
+/// or grams. Only the medical-flag arm names the clinician, so the external
+/// answer reads the same for every athlete (carnet#1565).
 ///
 /// # Errors
 ///
@@ -535,8 +538,12 @@ pub(super) fn withheld_recipe_constraints(
         guidance.push(format!("Keep cooking within {mins} minutes."));
     }
     guidance.push(
-        "Leave portion sizes, energy and macronutrient amounts to the athlete's clinician."
-            .to_owned(),
+        if withheld.names_clinician() {
+            "Leave portion sizes, energy and macronutrient amounts to the athlete's clinician."
+        } else {
+            "Leave out portion sizes, energy and macronutrient amounts."
+        }
+        .to_owned(),
     );
 
     ok_typed(

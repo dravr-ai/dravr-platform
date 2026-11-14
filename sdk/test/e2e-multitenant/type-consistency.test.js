@@ -121,9 +121,8 @@ describe('Multi-Tenant Type Consistency', () => {
             'get_stats',
             'suggest_goals',
             'search_food',
-            'calculate_daily_nutrition',
-            'get_configuration_catalog',
-            'validate_configuration',
+            'calculate_personalized_zones',
+            'verify_claim',
         ];
 
         for (const tool of coreServerTools) {

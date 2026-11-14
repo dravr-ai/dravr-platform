@@ -100,9 +100,25 @@ jest.mock('../src/services/api', () => ({
     getPersonalConversation: () => mockGetPersonalConversation(),
     openPersonalTopic: (options?: unknown) => mockOpenPersonalTopic(options),
   },
+  // The screen reads the signed-in user; under the real AuthProvider with no
+  // stored session it reads none.
+  authApi: { initializeAuth: jest.fn(async () => false) },
+  onAuthFailure: jest.fn(() => jest.fn()),
+  userApi: {
+    getOnboardingStatus: () => mockGetOnboardingStatus(),
+    getParqQuestions: () => mockGetParqQuestions(),
+    submitParq: (answers: unknown) => mockSubmitParq(answers),
+    setOnboardingStep: (step: string, status: string) => mockSetOnboardingStep(step, status),
+  },
 }));
 
+const mockGetOnboardingStatus = jest.fn();
+const mockGetParqQuestions = jest.fn();
+const mockSubmitParq = jest.fn();
+const mockSetOnboardingStep = jest.fn();
+
 import { HomeScreen } from '../src/screens/home/HomeScreen';
+import { AuthProvider } from '../src/contexts/AuthContext';
 import { CONNECTIONS_ROUTE, NEW_CONVERSATION_ID } from '../src/navigation/routes';
 
 function renderHome() {
@@ -111,7 +127,9 @@ function renderHome() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <HomeScreen />
+      <AuthProvider>
+        <HomeScreen />
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -133,6 +151,16 @@ function routeFor(provider: string, id: string): ActivityRouteResponse {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  // An onboarded athlete whose PAR-Q is answered: « Build my plan » drafts at once.
+  mockGetOnboardingStatus.mockResolvedValue({ steps: [{ step_id: 'parq', status: 'complete' }] });
+  mockGetParqQuestions.mockResolvedValue({
+    questions: [
+      { id: 'heart_condition', text: 'Has a doctor ever said that you have a heart condition?' },
+      { id: 'joint_problem', text: 'Do you have a bone, joint, or soft-tissue problem?' },
+    ],
+  });
+  mockSubmitParq.mockResolvedValue({ flags_raised: 0 });
+  mockSetOnboardingStep.mockResolvedValue(undefined);
   mockGetTrainingPlan.mockResolvedValue(PLAN_RESPONSE);
   mockGetRecentActivities.mockResolvedValue(recentResponse());
   mockGetActivityRoute.mockImplementation(async (provider, id) => routeFor(provider, id));
@@ -262,12 +290,41 @@ describe('today and tomorrow', () => {
 
     const empty = await screen.findByTestId('home-plan-empty');
     expect(within(empty).getByText('No training plan yet')).toBeTruthy();
+    await waitFor(() => expect(mockGetOnboardingStatus).toHaveBeenCalled());
     fireEvent.press(await screen.findByTestId('home-plan-build'));
     await waitFor(() =>
       expect(mockPush).toHaveBeenCalledWith(draftHref('Build me a training plan for my goal race.')),
     );
     // The week still renders without a plan, saying so in one line (carnet#708).
     expect(await screen.findByTestId('home-week-no-plan')).toBeTruthy();
+  });
+
+  // carnet#1530: no plan before the health check. Only the link waits on it.
+  it('opens the health check first while the PAR-Q is still to answer, then drafts the plan', async () => {
+    mockGetTrainingPlan.mockResolvedValue(NO_PLAN_RESPONSE);
+    mockGetHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false });
+    mockGetOnboardingStatus.mockResolvedValue({ steps: [{ step_id: 'parq', status: 'skipped' }] });
+    mockGetCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { plan: null, activities: [] }));
+    const screen = renderHome();
+
+    expect(
+      await screen.findByText('The health check first, then your agent lays out your season, week by week.'),
+    ).toBeTruthy();
+    fireEvent.press(await screen.findByTestId('home-plan-build'));
+    expect(mockPush).not.toHaveBeenCalled();
+
+    fireEvent.press(await screen.findByTestId('parq-none-apply'));
+
+    await waitFor(() =>
+      expect(mockSubmitParq).toHaveBeenCalledWith([
+        { id: 'heart_condition', yes: false },
+        { id: 'joint_problem', yes: false },
+      ]),
+    );
+    await waitFor(() => expect(mockSetOnboardingStep).toHaveBeenCalledWith('parq', 'complete'));
+    await waitFor(() =>
+      expect(mockPush).toHaveBeenCalledWith(draftHref('Build me a training plan for my goal race.')),
+    );
   });
 
   it('sets the plan suggestion aside on the server, keeping the one plain sentence', async () => {
@@ -1059,7 +1116,10 @@ describe('coming back to Home', () => {
     const screen = renderHome();
     await waitFor(() => expect(mockGetProvidersStatus).toHaveBeenCalledTimes(1));
     await mockGetProvidersStatus.mock.results[0].value;
-    await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull());
+    // Home now renders its getting-started rows and the signed-in user first,
+    // so on a loaded runner the list can settle after the default second;
+    // wait as long as the last step below does.
+    await waitFor(() => expect(screen.queryByTestId('home-activities-loading')).toBeNull(), { timeout: 5000 });
     expect(screen.queryByTestId('home-activities-empty')).toBeNull();
 
     // The athlete reconnected while away: from here on every read says so,

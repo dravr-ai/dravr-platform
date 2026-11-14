@@ -40,8 +40,9 @@ use uuid::Uuid;
 const REGISTERED_CLIENT: &str = "mcp_client_audit";
 /// What the request's own `clientInfo` claims to be.
 const SPOOFED_CLIENT: &str = "mcp_client_spoofed";
-/// A tool every tenant member may call, cheap enough to dispatch inline.
-const TOOL: &str = "get_configuration_catalog";
+/// A tool every tenant member may call over `/mcp`, cheap enough to dispatch
+/// inline.
+const TOOL: &str = "get_connection_status";
 
 // ── Span capture ─────────────────────────────────────────────────────────────
 

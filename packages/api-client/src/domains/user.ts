@@ -18,6 +18,8 @@ import type {
   MemoryFactStatus,
   OAuthApp,
   OAuthAppCredentials,
+  ParqAnswer,
+  ParqQuestion,
   RedeemSignupCodeResponse,
   ThemePreference,
   User,
@@ -111,6 +113,12 @@ export interface OnboardingStatusResponse {
   chosen_channel: string | null;
   /** The user answered "I coach others" — the group step is part of their journey. */
   coaches_others: boolean;
+  /**
+   * A team-issued coach-seat invitation settled the role question and the
+   * seat before onboarding began: the bar shows both as settled by it.
+   * Absent from an older server, which reads as false.
+   */
+  settled_by_invite?: boolean;
 }
 
 /**
@@ -311,6 +319,18 @@ export function createUserApi(axios: AxiosInstance) {
       return response.data;
     },
 
+    /**
+     * Withdraw the coach-access request waiting (carnet#1522). The request is
+     * deleted, so the coach may ask again at once; the answer is their latest
+     * request left — an earlier decided one, or `null`.
+     */
+    async cancelCoachAccessRequest(): Promise<CoachAccessRequestResponse> {
+      const response = await axios.delete<CoachAccessRequestResponse>(
+        ENDPOINTS.USER.COACH_ACCESS_REQUEST,
+      );
+      return response.data;
+    },
+
     // ==================== MCP TOKENS ====================
 
     /**
@@ -469,10 +489,8 @@ export function createUserApi(axios: AxiosInstance) {
     },
 
     /** The seven PAR-Q+ pre-participation questions. */
-    async getParqQuestions(): Promise<{ questions: Array<{ id: string; text: string }> }> {
-      const response = await axios.get<{ questions: Array<{ id: string; text: string }> }>(
-        ENDPOINTS.USER.PARQ,
-      );
+    async getParqQuestions(): Promise<{ questions: ParqQuestion[] }> {
+      const response = await axios.get<{ questions: ParqQuestion[] }>(ENDPOINTS.USER.PARQ);
       return response.data;
     },
 
@@ -480,9 +498,7 @@ export function createUserApi(axios: AxiosInstance) {
      * Submit PAR-Q answers. Each "yes" raises a coach-visible medical flag with a
      * 12-month freshness horizon; a "yes" never blocks sign-up.
      */
-    async submitParq(
-      answers: Array<{ id: string; yes: boolean }>,
-    ): Promise<{ flags_raised: number }> {
+    async submitParq(answers: ParqAnswer[]): Promise<{ flags_raised: number }> {
       const response = await axios.post<{ flags_raised: number }>(ENDPOINTS.USER.PARQ, {
         answers,
       });

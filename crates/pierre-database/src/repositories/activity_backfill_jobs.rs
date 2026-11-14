@@ -51,8 +51,7 @@ mod outcome;
 pub(crate) use outcome::{
     backfill_job_state_of, incomplete_outcome, phase_purged_outcome, walked_outcome,
 };
-/// What a job row is for.
-///
+/// What a job row is for, and the kinds the claim and the reap take
 mod kind;
 pub(crate) use kind::known_backfill_job_kinds;
 pub use kind::BackfillJobKind;

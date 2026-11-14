@@ -10,14 +10,23 @@ import activitySports from './activity-sports.json' with { type: 'json' };
 export type OnboardingStepId =
   | 'analytics_consent'
   | 'profile_type'
-  | 'about_you'
-  | 'parq'
-  | 'check_in'
   | 'connect_provider'
+  | 'parq'
   | 'coach_proposal'
   | 'coach_seat'
   | 'coach_group'
   | 'coach_invite';
+
+/**
+ * Steps the server still records but the wizard no longer asks: the about-you
+ * answers (goal, why, sport) and the check-in cadence. Each is answered from
+ * its « Pour bien démarrer » row on Home, whose sheet writes the same step row
+ * the wizard screen did (carnet#1530).
+ */
+export type HomeAnsweredStepId = 'about_you' | 'check_in';
+
+/** Every step id the server's step rows carry. */
+export type PersistedStepId = OnboardingStepId | HomeAnsweredStepId;
 
 /**
  * The signals the flow derives "which step is current" from:
@@ -25,7 +34,7 @@ export type OnboardingStepId =
  *     from the whole flow).
  *   - `needsProviderConnection` — server truth; `undefined` while the query is
  *     in flight or disabled (e.g. admins).
- *   - `skippedProvider` — session-only "continue without connecting".
+ *   - `skippedProvider` — "continue without connecting", saved on the server.
  *   - `justOnboarded` — a `needs_provider_connection` true→false transition
  *     observed *this tab*, which keeps the connect step up (connect another
  *     service) until Continue. It gates nothing else: a tab that opens after
@@ -43,11 +52,15 @@ export interface OnboardingContext {
    * The server records the connect step complete: this user has had a real
    * provider connected. `needsProviderConnection` is live, so disconnecting
    * the last provider turns it back to `true`; this flag is what keeps an
-   * onboarded athlete out of the wizard then (carnet#1341). A user who never
-   * connected has no record, so their connect step still comes back at each
-   * login — the skip stays session-only on purpose.
+   * onboarded athlete out of the wizard then (carnet#1341).
    */
   connectProviderRecorded: boolean;
+  /**
+   * The athlete continued without connecting: this tab's tap, or the
+   * server's `skipped` connect row (`isConnectProviderSkipped`), which that
+   * tap writes. Saved, so Connect never comes back at the next sign-in; Home's
+   * "Connect your data" row is the nudge from then on (carnet#1530).
+   */
   skippedProvider: boolean;
   /**
    * The steps the user put off: the server's `skipped` rows
@@ -60,14 +73,6 @@ export interface OnboardingContext {
   profileTypeChosen: boolean;
   coachProposalDone: boolean;
   /**
-   * The about-you answers (North Star / sport / goal) have been given or skipped.
-   *
-   * These are the inputs `build_coach_proposal` already reads and falls back
-   * without, which is why the step sits ahead of the provider gate: provider
-   * sync is not something we control, three answered questions are.
-   */
-  aboutYouDone: boolean;
-  /**
    * The user pressed Continue on the connect step after connecting a first
    * provider this session. Until then the step stays on screen, so a second
    * service is one tap away rather than a trip to Settings.
@@ -76,16 +81,11 @@ export interface OnboardingContext {
   /** The PAR-Q medical screen has been answered or skipped. */
   parqDone: boolean;
   /**
-   * How often the coach checks in on its own has been answered or skipped
-   * (carnet#831). `off` is an answer; a skip stores no cadence, which reads
-   * as off too.
-   */
-  checkInDone: boolean;
-  /**
    * The user coaches others and does not train themselves, so the athlete
-   * steps (`about_you`, `parq`) are not part of their journey — neither asked
-   * nor shown on the progress bar. Durable as `not_applicable` step rows (see
-   * `athleteStepsWaived`), which the chat intake writes too.
+   * steps (the PAR-Q, and the about-you answers Home asks for) are not part
+   * of their journey — neither asked nor shown on the progress bar. Durable
+   * as `not_applicable` step rows (see `athleteStepsWaived`), which the chat
+   * intake writes too.
    */
   athleteStepsWaived: boolean;
   /**
@@ -236,49 +236,6 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     isComplete: (c) => c.profileTypeChosen,
   },
   {
-    // Who the athlete is, in three questions. Deliberately BEFORE the provider
-    // gate: the coach proposal reads these, and on a first-run connection the
-    // provider data it would otherwise infer from has not synced yet — so this
-    // is the only proposal input we can guarantee exists when it runs. It also
-    // means a user who never connects still gets a non-generic proposal.
-    id: 'about_you',
-    labelKey: 'onboarding.stepAboutTraining',
-    isApplicable: (c) =>
-      c.onboardingActive &&
-      beforeProviderGate(c) &&
-      !c.skippedProvider &&
-      !c.athleteStepsWaived,
-    isComplete: (c) => c.aboutYouDone,
-  },
-  {
-    // Pre-participation medical screen. Ahead of the provider gate for the same
-    // reason it exists at all: an agent should not prescribe load before we have
-    // asked. A "yes" raises an agent-visible flag and never blocks sign-up.
-    // A coach who does not train is not screened: no load is prescribed to them.
-    id: 'parq',
-    labelKey: 'onboarding.stepHealthCheck',
-    isApplicable: (c) =>
-      c.onboardingActive &&
-      beforeProviderGate(c) &&
-      !c.skippedProvider &&
-      !c.athleteStepsWaived,
-    isComplete: (c) => c.parqDone,
-  },
-  {
-    // How often the coach writes first: every morning, three a week, weekly or
-    // never. Asked with the other questions about the athlete, ahead of the
-    // provider gate, and changeable in Settings. A coach who does not train is
-    // not asked: a check-in reads the athlete's own training.
-    id: 'check_in',
-    labelKey: 'onboarding.stepCheckIn',
-    isApplicable: (c) =>
-      c.onboardingActive &&
-      beforeProviderGate(c) &&
-      !c.skippedProvider &&
-      !c.athleteStepsWaived,
-    isComplete: (c) => c.checkInDone,
-  },
-  {
     // An athlete's own data. A coach who does not train never meets it:
     // nothing reads their own training, and the coaching platforms are offered
     // on the coach-seat step instead, where they decide coach access.
@@ -303,6 +260,27 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
       (c.connectProviderDone || !c.justOnboarded),
   },
   {
+    // Pre-participation medical screen, the third screen: after Tes données,
+    // and still before the team and Home, for the reason it exists at all: an
+    // agent should not prescribe load before we have asked. A "yes" raises an
+    // agent-visible flag and never blocks sign-up. A coach who does not train
+    // is not screened: no load is prescribed to them.
+    //
+    // Only while the team step is still ahead, so an athlete who onboarded
+    // when the screen came earlier — or before it existed — is never sent back
+    // into the wizard for it. A PAR-Q put off or never answered is Home's
+    // « Bilan de santé » row, and « Construire mon plan » opens that sheet
+    // first (`healthCheckOutstanding`).
+    id: 'parq',
+    labelKey: 'onboarding.stepHealthCheck',
+    isApplicable: (c) =>
+      c.onboardingActive &&
+      !c.athleteStepsWaived &&
+      !c.coachProposalDone &&
+      (pastProviderGate(c) || (c.skippedProvider && c.needsProviderConnection !== undefined)),
+    isComplete: (c) => c.parqDone,
+  },
+  {
     // An agent for the athlete's own training, ranked on their own activities.
     // A coach who does not train has no such agent: their group's agent is
     // chosen while creating the group, in the coach_group step.
@@ -316,6 +294,10 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // who finished it on any surface is not asked again. An athlete who
     // continues without connecting meets it too, offered the agents that need
     // no provider, so nobody reaches Home without a team (carnet#1095).
+    //
+    // The about-you answers it once read left the wizard for Home
+    // (carnet#1530), so nothing has to sit ahead of the provider gate for it:
+    // the team is ranked on the athlete's data alone, and the screen says so.
     id: 'coach_proposal',
     labelKey: 'onboarding.stepAgent',
     isApplicable: (c) =>
@@ -389,7 +371,7 @@ export interface PersistedOnboardingStep {
  */
 export function isServerStepComplete(
   steps: PersistedOnboardingStep[] | undefined,
-  stepId: OnboardingStepId,
+  stepId: PersistedStepId,
 ): boolean {
   return (steps ?? []).some(
     (s) => s.step_id === stepId && (s.status === 'complete' || s.status === 'skipped'),
@@ -399,12 +381,36 @@ export function isServerStepComplete(
 /**
  * Whether the server has recorded the connect step `complete`: this user has
  * had a real provider connected (carnet#1341). Unlike `isServerStepComplete`,
- * a `skipped` row does not count — continuing without connecting stays
- * session-only, so the connect step comes back at the next login.
+ * a `skipped` row does not count: continuing without connecting is
+ * `isConnectProviderSkipped`, never a connection.
  */
 export function isConnectProviderRecorded(steps: PersistedOnboardingStep[] | undefined): boolean {
   return (steps ?? []).some((s) => s.step_id === 'connect_provider' && s.status === 'complete');
 }
+
+/**
+ * Whether the server holds the connect step `skipped`: the athlete continued
+ * without connecting, on any surface (carnet#1530). It keeps Connect out of
+ * the wizard at every later sign-in, as `skippedProvider`. The status read
+ * turns the row `complete` the first time a real provider connects.
+ */
+export function isConnectProviderSkipped(steps: PersistedOnboardingStep[] | undefined): boolean {
+  return (steps ?? []).some((s) => s.step_id === 'connect_provider' && s.status === 'skipped');
+}
+
+/**
+ * The provider cards Tes données leads with, by the ids the providers list
+ * serves them under: Garmin and Strava by their scrape-mirror card or, in a
+ * build without the mirror, their raw one (only one of each pair is served),
+ * then Intervals.icu. Every other card folds behind « Plus de services ».
+ */
+export const ONBOARDING_LEAD_PROVIDERS: readonly string[] = [
+  'sciotte_garmin',
+  'garmin',
+  'sciotte',
+  'strava',
+  'intervals_icu',
+];
 
 /**
  * Step status for a step outside this person's journey. Distinct from
@@ -414,8 +420,11 @@ export function isConnectProviderRecorded(steps: PersistedOnboardingStep[] | und
  */
 export const STEP_NOT_APPLICABLE = 'not_applicable';
 
-/** The steps that ask about the user's own training and body. */
-export const ATHLETE_STEP_IDS: readonly OnboardingStepId[] = ['about_you', 'parq'];
+/**
+ * The steps that ask about the user's own training and body: the PAR-Q, and
+ * the about-you answers Home's « Ton objectif et ton pourquoi » row asks for.
+ */
+export const ATHLETE_STEP_IDS: readonly PersistedStepId[] = ['about_you', 'parq'];
 
 /**
  * Whether the server records the athlete steps as not part of this user's
@@ -424,8 +433,19 @@ export const ATHLETE_STEP_IDS: readonly OnboardingStepId[] = ['about_you', 'parq
  */
 export function athleteStepsWaived(steps: PersistedOnboardingStep[] | undefined): boolean {
   return (steps ?? []).some(
-    (s) => ATHLETE_STEP_IDS.includes(s.step_id as OnboardingStepId) && s.status === STEP_NOT_APPLICABLE,
+    (s) => ATHLETE_STEP_IDS.includes(s.step_id as PersistedStepId) && s.status === STEP_NOT_APPLICABLE,
   );
+}
+
+/**
+ * Whether the PAR-Q is still to answer: no `complete` row — put off at the
+ * third screen, or never asked — and the athlete steps not waived. Home's
+ * « Construire mon plan » opens the health-check sheet first while this holds
+ * (carnet#1530); the agent's plan tools do not read it.
+ */
+export function healthCheckOutstanding(steps: PersistedOnboardingStep[] | undefined): boolean {
+  if (athleteStepsWaived(steps)) return false;
+  return !(steps ?? []).some((s) => s.step_id === 'parq' && s.status === 'complete');
 }
 
 /**
@@ -450,12 +470,15 @@ interface ProgressSegment {
   id: OnboardingStepId;
 }
 
+/**
+ * The athlete's four screens: Profil · Tes données · Santé · Ton équipe
+ * (carnet#1530). The goal, the why and the check-in cadence are Home's
+ * « Pour bien démarrer » rows, never segments here.
+ */
 const ATHLETE_SEGMENTS: readonly ProgressSegment[] = [
   { id: 'profile_type' },
-  { id: 'about_you' },
-  { id: 'parq' },
-  { id: 'check_in' },
   { id: 'connect_provider' },
+  { id: 'parq' },
   { id: 'coach_proposal' },
 ];
 
@@ -474,7 +497,9 @@ const COACH_SEGMENTS: readonly ProgressSegment[] = [
  * screen. The bar used to count only the steps still applicable, so a skipped
  * Connect left it and the late messaging steps joined it: 6→7→8 for an
  * athlete, 7→4→3 for a coach. A step that is no segment (the one-time consent
- * question) is never counted.
+ * question) is never counted. An athlete's bar reads 4 on every screen; one
+ * who arrived by an invite link has the role recorded for them, so Profil is
+ * behind them, done, from the first screen they see.
  *
  * A coach who does not train never meets Connect: their bar is Profil, then
  * the coach path (seat, group, invite). A coach who trains walks the athlete

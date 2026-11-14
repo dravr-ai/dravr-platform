@@ -21,6 +21,7 @@ use pierre_config::admin_types::{ConfigScope, UpdateConfigRequest, UpdateConfigR
 use pierre_config::nutrition_params::PROTEIN_ATHLETE_G_PER_KG_KEY;
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_mcp_server::config::admin::service::{AdminConfigService, UpdateConfigContext};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -92,7 +93,10 @@ async fn protein_g(
     training_goal: &str,
 ) -> Result<f64> {
     let shared: Arc<ServerContext> = Arc::clone(resources);
-    let executor = UniversalToolExecutor::new(shared).with_scopes(OAuthScope::self_grant());
+    // Dravr's own app: `calculate_daily_nutrition` runs only there (carnet#1565).
+    let executor = UniversalToolExecutor::new(shared)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp);
     let response = executor
         .execute_tool(UniversalRequest {
             tool_name: "calculate_daily_nutrition".to_owned(),

@@ -23,6 +23,7 @@ import type { PendingComposerAction } from './chat/types';
 import ConversationList from './dashboard/ConversationList';
 import { useIsDesktop, useIsMobile } from '../hooks/useBreakpoint';
 import { useConversationList } from '../hooks/useConversationList';
+import { useAuth } from '../hooks/useAuth';
 import { useCoachSeat } from '../hooks/useCoachSeat';
 import { useGroup } from '../hooks/useGroups';
 import { Button } from './ui';
@@ -77,6 +78,8 @@ export default function ChatTab({
   // The owner of a coachless room offered its coach seat (carnet#1520): the
   // room's top strip and the header carry the request where they are blocked.
   const seat = useCoachSeat(activeConversation?.group_id);
+  // The rooms the viewer owns say where their coach seat stands in the list.
+  const { user } = useAuth();
   // The empty Groups tab's own way to start a room.
   const [newGroupOpen, setNewGroupOpen] = useState(false);
   // Below the desktop breakpoint the list hides behind the open thread, so
@@ -158,6 +161,7 @@ export default function ChatTab({
   const listColumn = (
     <ConversationList
       scope="groups"
+      seatViewer={user}
       selectedConversation={selectedConversation}
       onSelectConversation={onSelectConversation}
       compose={

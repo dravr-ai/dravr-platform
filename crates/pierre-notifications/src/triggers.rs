@@ -36,8 +36,8 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::events::{
-    NotificationActionSpec, SubjectAthlete, ACTION_RECONNECT, ACTION_REPLY,
-    SUBJECT_ATHLETE_DATA_KEY,
+    NotificationActionSpec, SubjectAthlete, ACTION_OPEN_COACH_HOME, ACTION_RECONNECT, ACTION_REPLY,
+    COACH_ACCESS_DECLINE_REASON_PARAM, SUBJECT_ATHLETE_DATA_KEY,
 };
 use crate::models::{NotificationActionType, NotificationCategory, TenantId};
 use crate::{EventDispatch, NotificationEvent, NotificationService, PushTier};
@@ -640,6 +640,78 @@ pub fn trigger_coach_plan_pushed(
         TransportPolicy::AnyTransport,
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
+}
+
+// ============================================================================
+// Coach-access Triggers (bypass frequency cap)
+// ============================================================================
+//
+// A super-admin decides a coach's request for coach access (ADR-018: asking
+// never grants). The decision is a one-off answer to something the coach
+// asked for and is waiting on, so it bypasses the daily cap like agent
+// traffic, and goes out at P1: it changes what the coach can do in the app.
+
+/// Trigger the notice telling a coach their coach-access request was
+/// granted (carnet#1521).
+///
+/// It opens Home, which is the coach's Home now — the same destination the
+/// published-plan notice opens — and carries the one button that says so.
+/// Its words carry nothing of the request: the groups the grant attached are
+/// said in each group's own room.
+pub fn trigger_coach_access_granted(
+    service: &Arc<NotificationService>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) {
+    let dispatch = EventDispatch {
+        user_id,
+        tenant_id,
+        category: NotificationCategory::System,
+        event: NotificationEvent::CoachAccessGranted,
+        params: json!({}),
+        route: json!({ "screen": NotificationScreen::Activities.as_str() }),
+        actions: Some(vec![NotificationActionSpec {
+            id: ACTION_OPEN_COACH_HOME,
+            action_type: NotificationActionType::OpenScreen,
+        }]),
+        bypass_frequency_cap: true,
+        transport_policy: TransportPolicy::AnyTransport,
+    };
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
+}
+
+/// Trigger the notice telling a coach their coach-access request was
+/// declined, with the super-admin's `reason` when one was given.
+///
+/// It carries no destination: the request's declined state, where the coach
+/// asks again, is wherever they asked from, which no screen token names. The
+/// reason is the operator's own words, stored as a parameter so the feed
+/// renders it inside the sentence of whatever language the coach reads.
+pub fn trigger_coach_access_declined(
+    service: &Arc<NotificationService>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    reason: Option<&str>,
+) {
+    let mut params = Map::new();
+    if let Some(reason) = reason {
+        params.insert(
+            COACH_ACCESS_DECLINE_REASON_PARAM.to_owned(),
+            Value::from(reason),
+        );
+    }
+    let dispatch = EventDispatch {
+        user_id,
+        tenant_id,
+        category: NotificationCategory::System,
+        event: NotificationEvent::CoachAccessDeclined,
+        params: Value::Object(params),
+        route: json!({}),
+        actions: None,
+        bypass_frequency_cap: true,
+        transport_policy: TransportPolicy::AnyTransport,
+    };
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P1);
 }
 
 #[cfg(test)]

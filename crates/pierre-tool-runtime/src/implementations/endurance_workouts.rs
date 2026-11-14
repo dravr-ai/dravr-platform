@@ -451,7 +451,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
              it needs, its sports, evidence tier, and parameter ranges with \
              defaults you fill in for the athlete. The athlete's own saved \
              sessions follow the bank. detail = full returns the steps and target \
-             zones prescribe_workout pushes.",
+             zones.",
             vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
         );
         answers_with::<WorkoutTemplatesResult>(tool_definition(

@@ -34,6 +34,10 @@ jest.mock('../src/services/api', () => ({
     removeParticipant: jest.fn(),
   },
   notificationsApi: { getUnreadCount: jest.fn().mockResolvedValue({ unread_count: 0 }) },
+  // The screen reads the signed-in user; under the real AuthProvider with no
+  // stored session it reads none.
+  authApi: { initializeAuth: jest.fn(async () => false) },
+  onAuthFailure: jest.fn(() => jest.fn()),
 }));
 
 jest.mock('expo-router', () =>
@@ -43,13 +47,18 @@ jest.mock('expo-router', () =>
 );
 
 import { ConversationsScreen } from '../src/screens/conversations/ConversationsScreen';
+import { AuthProvider } from '../src/contexts/AuthContext';
 import { threadHref } from '../src/navigation/routes';
 import { networkFailure } from '../integration/app/helpers/apiRefusal';
 
 /** The list is the chat tab's landing screen; its header bell and its rows read a react-query cache. */
 function render(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
-  return rtlRender(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
+  return rtlRender(
+    <QueryClientProvider client={client}>
+      <AuthProvider>{ui}</AuthProvider>
+    </QueryClientProvider>,
+  );
 }
 
 type Conv = {

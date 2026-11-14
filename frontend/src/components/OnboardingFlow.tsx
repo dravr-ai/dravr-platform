@@ -7,9 +7,7 @@
 import { lazy, Suspense, type ReactNode } from 'react';
 import OnboardingAnalyticsConsent from './OnboardingAnalyticsConsent';
 import OnboardingProfileType from './OnboardingProfileType';
-import OnboardingAboutYou from './OnboardingAboutYou';
 import OnboardingParq from './OnboardingParq';
-import OnboardingCheckIn from './OnboardingCheckIn';
 import OnboardingConnectProvider from './OnboardingConnectProvider';
 import OnboardingCoachProposal from './OnboardingCoachProposal';
 import OnboardingProgress from './OnboardingProgress';
@@ -47,7 +45,9 @@ export default function OnboardingFlow({
   // the flow does, so a strip App mounts above it stacks instead of overlapping.
   return (
     <div className="relative" data-testid="onboarding-flow">
-      {step.hiddenFromProgress ? null : <OnboardingProgress steps={onboardingProgress(state.ctx)} />}
+      {step.hiddenFromProgress ? null : (
+        <OnboardingProgress steps={onboardingProgress(state.ctx)} settledByInvite={state.settledByInvite} />
+      )}
       {/* While a coach step's chunk arrives, the screen draws what every step
           draws while it loads — the shell and its spinner — not a blank page
           under the progress bar. */}
@@ -82,23 +82,13 @@ function renderStep(
           onComplete={state.completeProfileType}
         />
       );
-    case 'about_you':
-      return (
-        <OnboardingAboutYou
-          userDisplayName={userDisplayName}
-          onComplete={state.completeAboutYou}
-        />
-      );
     case 'parq':
       return (
         <OnboardingParq userDisplayName={userDisplayName} onComplete={state.completeParq} />
       );
-    case 'check_in':
-      return <OnboardingCheckIn onComplete={state.completeCheckIn} />;
     case 'connect_provider':
       return (
         <OnboardingConnectProvider
-          userDisplayName={userDisplayName}
           onContinueWithoutProvider={state.skipProvider}
           onContinue={
             state.ctx.needsProviderConnection === false ? state.completeConnectProvider : undefined
@@ -124,6 +114,7 @@ function renderStep(
         <OnboardingCoachGroup
           onCreated={state.markCoachGroupCreated}
           onComplete={state.completeCoachGroup}
+          seatSettledByInvite={state.settledByInvite}
         />
       );
   }

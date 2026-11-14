@@ -534,7 +534,7 @@ async fn a_decided_request_is_never_asked_again() {
     else {
         panic!("a first request opens");
     };
-    decline(repos, asked.id, None).await.unwrap();
+    decline(repos, asked.id, None, None, None).await.unwrap();
 
     // Granted, then revoked by an operator: the revoke stands.
     let revoked = w.person("revoked@coach-access.test", true).await;
@@ -545,7 +545,7 @@ async fn a_decided_request_is_never_asked_again() {
     else {
         panic!("a first request opens");
     };
-    grant(repos, asked_too.id, None).await.unwrap();
+    grant(repos, asked_too.id, None, None).await.unwrap();
     set_user_manages_roster(repos, revoked.id, false, None)
         .await
         .unwrap();
@@ -655,7 +655,7 @@ async fn the_link_probe_reads_nothing_for_a_user_who_could_not_get_a_request() {
     else {
         panic!("a first request opens");
     };
-    decline(repos, request.id, None).await.unwrap();
+    decline(repos, request.id, None, None, None).await.unwrap();
 
     for who in [&earned, &asked] {
         w.connect(who).await;
@@ -719,11 +719,15 @@ async fn the_group_a_coach_then_makes_to_coach_is_the_one_a_grant_attaches() {
     };
     assert_eq!(kept.group_id, Some(onboarding));
 
-    let outcome = grant(repos, filed[0].id, None).await.unwrap();
-    assert_eq!(outcome.attached_group, Some(onboarding));
+    // The named group leads the grant, and one grant covers every coachless
+    // group the coach owns (carnet#1521): the waiting state was one per
+    // account, so each of them showed the same request.
+    let outcome = grant(repos, filed[0].id, None, None).await.unwrap();
+    assert_eq!(outcome.attached_group(), Some(onboarding));
+    assert_eq!(outcome.attached_groups.len(), 3, "{outcome:?}");
     assert_eq!(w.group_coach(&coach, onboarding).await, Some(coach.id));
-    assert_eq!(w.group_coach(&coach, bystander).await, None);
-    assert_eq!(w.group_coach(&coach, other).await, None);
+    assert_eq!(w.group_coach(&coach, bystander).await, Some(coach.id));
+    assert_eq!(w.group_coach(&coach, other).await, Some(coach.id));
 }
 
 #[tokio::test]
@@ -763,7 +767,7 @@ async fn asking_from_a_group_names_it_on_a_request_filed_without_one() {
         "naming the group announces no second request"
     );
 
-    let outcome = grant(repos, waiting.id, None).await.unwrap();
-    assert_eq!(outcome.attached_group, Some(group));
+    let outcome = grant(repos, waiting.id, None, None).await.unwrap();
+    assert_eq!(outcome.attached_group(), Some(group));
     assert_eq!(w.group_coach(&coach, group).await, Some(coach.id));
 }

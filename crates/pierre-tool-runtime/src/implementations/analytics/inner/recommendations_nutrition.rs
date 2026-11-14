@@ -21,7 +21,7 @@ use crate::implementations::analytics::recommendations_output::{
     ActivitySummary, MacronutrientTargets, MealSuggestion, RecommendationsResult,
 };
 use crate::implementations::nutrition_gate::{
-    athlete_tenants, medical_flag_on_file, FiguresWithheld,
+    athlete_tenants, nutrition_figures_gate_over, FiguresWithheld,
 };
 
 use super::recommendations::base_recommendations;
@@ -44,8 +44,9 @@ pub struct NutritionAthlete {
     /// Stored body weight in kilograms, when one is on file. Scales the
     /// per-kilogram doses into grams.
     pub weight_kg: Option<f64>,
-    /// Set when a medical flag is on file: the arm then answers without any
-    /// amount, because the athlete's clinician sets them.
+    /// Set when the nutrition gate withholds amounts (a medical flag on file,
+    /// or any athlete outside Dravr's own surfaces): the arm then answers
+    /// without any amount.
     pub figures_withheld: Option<FiguresWithheld>,
     /// Stored age in years, one of the inputs of the heart-rate energy
     /// estimate.
@@ -71,9 +72,9 @@ pub async fn load_nutrition_athlete(
     user_id: Uuid,
 ) -> AppResult<NutritionAthlete> {
     let tenants = athlete_tenants(repos, tenant_id, user_id).await?;
-    if medical_flag_on_file(repos, &tenants, user_id).await? {
+    if let Some(withheld) = nutrition_figures_gate_over(repos, &tenants, user_id).await? {
         return Ok(NutritionAthlete {
-            figures_withheld: Some(FiguresWithheld::medical_flag()),
+            figures_withheld: Some(withheld),
             ..NutritionAthlete::default()
         });
     }
@@ -330,12 +331,28 @@ fn recovery_recommendations(targets: Option<&MacronutrientTargets>) -> Vec<Strin
     ]
 }
 
+/// The recovery meal's timing, said without an amount on every withheld arm.
+const RECOVERY_MEAL_TIMING: &str = "Within about 2 hours of the session: a meal or snack with a protein source and carbohydrate-rich food";
+
+/// When to start refuelling, said without an amount on every withheld arm.
+const REFUEL_TIMING: &str = "If your next hard or long session is less than 8 hours away, start refuelling with carbohydrate-rich food soon after this one";
+
 /// What a flagged athlete is told instead: foods and timing, no amount.
 const WITHHELD_RECOVERY_GUIDANCE: &[&str] = &[
-    "Within about 2 hours of the session: a meal or snack with a protein source and carbohydrate-rich food",
-    "If your next hard or long session is less than 8 hours away, start refuelling with carbohydrate-rich food soon after this one",
+    RECOVERY_MEAL_TIMING,
+    REFUEL_TIMING,
     "Rehydrate by drinking to thirst, within any fluid limit your clinician has set",
     "Your clinician sets your protein, carbohydrate and fluid amounts; ask what they have advised",
+];
+
+/// What every athlete is told outside Dravr's own surfaces: the same foods and
+/// timing, and no word that would differ for an athlete with a medical flag
+/// (carnet#1565).
+const EXTERNAL_RECOVERY_GUIDANCE: &[&str] = &[
+    RECOVERY_MEAL_TIMING,
+    REFUEL_TIMING,
+    "Rehydrate by drinking to thirst",
+    "Protein, carbohydrate and fluid amounts are not given over this connection",
 ];
 
 /// Build meal suggestions based on workout intensity. Every option sits in
@@ -409,25 +426,30 @@ pub fn generate_nutrition_recommendations(
     ];
 
     let (recommendations, meal_suggestions, macronutrient_targets) =
-        if athlete.figures_withheld.is_some() {
-            (
-                WITHHELD_RECOVERY_GUIDANCE
-                    .iter()
-                    .map(|line| (*line).to_owned())
-                    .collect(),
-                Vec::new(),
-                None,
-            )
-        } else {
-            let targets = athlete.weight_kg.map(macronutrient_targets);
-            let mut recommendations = recovery_recommendations(targets.as_ref());
-            recommendations.push(daily_carbohydrate_line(
-                duration_seconds,
-                intensity,
-                athlete.weight_kg,
-            ));
-            (recommendations, build_meal_suggestions(intensity), targets)
-        };
+        athlete.figures_withheld.as_ref().map_or_else(
+            || {
+                let targets = athlete.weight_kg.map(macronutrient_targets);
+                let mut recommendations = recovery_recommendations(targets.as_ref());
+                recommendations.push(daily_carbohydrate_line(
+                    duration_seconds,
+                    intensity,
+                    athlete.weight_kg,
+                ));
+                (recommendations, build_meal_suggestions(intensity), targets)
+            },
+            |withheld| {
+                let guidance = if withheld.names_clinician() {
+                    WITHHELD_RECOVERY_GUIDANCE
+                } else {
+                    EXTERNAL_RECOVERY_GUIDANCE
+                };
+                (
+                    guidance.iter().map(|line| (*line).to_owned()).collect(),
+                    Vec::new(),
+                    None,
+                )
+            },
+        );
 
     RecommendationsResult {
         recovery_window: Some(

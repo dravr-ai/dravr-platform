@@ -838,8 +838,9 @@ async fn test_list_tools_carries_every_declared_output_schema() {
         })
         .collect();
     declared.sort_unstable();
+    // /mcp leaves out the tools kept to Dravr's own surfaces (carnet#1565).
     assert!(
-        declared.len() > 85,
+        declared.len() > 70,
         "the typed set should be nearly every tool /mcp serves, found {}",
         declared.len()
     );

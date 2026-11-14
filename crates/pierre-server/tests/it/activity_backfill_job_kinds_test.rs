@@ -773,9 +773,11 @@ async fn a_kind_from_a_newer_build_is_left_to_it() {
         .reap_exhausted_backfill_jobs(now_ms() + 60 * 60_000, 0)
         .await
         .expect("bug: a row of an unknown kind fails the whole reap it shares");
-    assert!(
-        reaped.iter().all(|row| row.id != newer.id),
-        "bug: a reap deletes a row of a kind only a newer build can run"
+    assert_eq!(
+        reaped.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+        [known.id.as_str()],
+        "bug: a reap takes only the kinds this build knows, and leaves a row \
+         of a kind only a newer build can run"
     );
 }
 

@@ -38,6 +38,7 @@ use pierre_core::models::TenantId;
 use pierre_middleware::extract_auth_from_headers;
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::intake::{self, INTAKE_TOPICS};
+use pierre_services::invitation::STEP_COACH_SEAT;
 use pierre_services::locale::resolve_user_locale;
 use pierre_services::{about_you, athlete_state, onboarding_gate, parq};
 
@@ -66,6 +67,11 @@ pub struct OnboardingStatusResponse {
     /// The user answered "I coach others" (`users.coaches_others`, which both
     /// coach choices record) — the group step is part of their journey.
     pub coaches_others: bool,
+    /// A coach-seat invitation settled the role question and the seat before
+    /// onboarding began (carnet#1524): the progress bar shows those two
+    /// steps as settled by the invitation. Read from the seat step's server
+    /// row, which only a redeemed coach-seat invitation writes.
+    pub settled_by_invite: bool,
 }
 
 /// A single onboarding step's persisted status, for the client progress model.
@@ -196,6 +202,9 @@ pub async fn handle_self_get(
         }
     }
     let chosen_channel = step_records.iter().find_map(|r| r.chosen_channel.clone());
+    let settled_by_invite = step_records
+        .iter()
+        .any(|r| r.step_id == STEP_COACH_SEAT && r.status == intake::STATUS_COMPLETE);
     let steps = step_records
         .into_iter()
         .map(|r| OnboardingStepState {
@@ -224,6 +233,7 @@ pub async fn handle_self_get(
             steps,
             chosen_channel,
             coaches_others,
+            settled_by_invite,
         }),
     )
         .into_response())

@@ -28,6 +28,7 @@ const api = vi.hoisted(() => ({
   getOnboardingStatus: vi.fn(),
   getCoachAccessRequest: vi.fn(),
   requestCoachAccess: vi.fn(),
+  cancelCoachAccessRequest: vi.fn(),
 }));
 
 // Only the network is stubbed: ChatTab, the seat hook, the strip and the
@@ -58,6 +59,7 @@ vi.mock('../../services/api', () => ({
     getOnboardingStatus: (...a: unknown[]) => api.getOnboardingStatus(...a),
     getCoachAccessRequest: (...a: unknown[]) => api.getCoachAccessRequest(...a),
     requestCoachAccess: (...a: unknown[]) => api.requestCoachAccess(...a),
+    cancelCoachAccessRequest: (...a: unknown[]) => api.cancelCoachAccessRequest(...a),
   },
 }));
 
@@ -200,9 +202,14 @@ describe('the coach seat over a Groups room', () => {
 
     await waitFor(() => expect(api.requestCoachAccess).toHaveBeenCalledWith(GROUP_ID));
     await waitFor(() => expect(strip).toHaveAttribute('data-state', 'pending'));
-    expect(within(strip).getByRole('heading')).toHaveTextContent(/^Coach access requested on .*2026$/);
-    expect(within(strip).getByTestId('coach-access-pending')).toHaveTextContent('usually within 24 hours');
+    expect(within(strip).getByRole('heading')).toHaveTextContent(/^Coach access requested$/);
+    // Dated, no wait time promised: the answer comes here and by email.
+    expect(within(strip).getByTestId('coach-access-pending')).toHaveTextContent(
+      /^Request sent .*2026\. We'll let you know here and by email\.$/,
+    );
+    expect(strip.textContent).not.toMatch(/24/);
     expect(within(strip).queryByTestId('coach-access-request')).toBeNull();
+    expect(within(strip).getByTestId('coach-access-cancel')).toHaveTextContent('Cancel request');
     // Focus follows the request to its new state.
     expect(within(strip).getByRole('heading')).toHaveFocus();
     await waitFor(() => expect(screen.getByTestId('thread-status')).toHaveTextContent('coach access pending'));
@@ -229,12 +236,35 @@ describe('the coach seat over a Groups room', () => {
     expect(within(strip).getByTestId('coach-access-request')).toBeEnabled();
   });
 
+  it('withdraws the request from the strip, which offers it again at once', async () => {
+    api.getCoachAccessRequest.mockResolvedValue({ request: pending });
+    api.cancelCoachAccessRequest.mockResolvedValue({ request: null });
+    renderRoom();
+
+    const strip = await screen.findByTestId('coach-seat-strip');
+    await waitFor(() => expect(strip).toHaveAttribute('data-state', 'pending'));
+    await userEvent.click(within(strip).getByTestId('coach-access-cancel'));
+
+    await waitFor(() => expect(api.cancelCoachAccessRequest).toHaveBeenCalled());
+    await waitFor(() => expect(strip).toHaveAttribute('data-state', 'to_request'));
+    expect(within(strip).getByTestId('coach-access-cancelled')).toHaveTextContent('Request cancelled');
+    await waitFor(() => expect(screen.getByTestId('thread-status')).toHaveTextContent('coach access to request'));
+  });
+
+  it('offers the strip to an owner who never said they coach others (carnet#1522)', async () => {
+    api.getOnboardingStatus.mockResolvedValue(status(false));
+    renderRoom();
+
+    const strip = await screen.findByTestId('coach-seat-strip');
+    expect(strip).toHaveAttribute('data-state', 'to_request');
+  });
+
   it('shows neither strip nor state to a member who does not own the group', async () => {
-    api.listMembers.mockResolvedValue({ members: [membership('member')] });
+    api.getGroup.mockResolvedValue(groupRecord({ owner_id: 'someone-else' }));
     renderRoom();
 
     await screen.findByTestId('thread-header');
-    await waitFor(() => expect(api.listMembers).toHaveBeenCalled());
+    await waitFor(() => expect(api.getGroup).toHaveBeenCalled());
     expect(screen.queryByTestId('coach-seat-strip')).toBeNull();
     expect(screen.queryByTestId('thread-status')).toBeNull();
     expect(api.getCoachAccessRequest).not.toHaveBeenCalled();

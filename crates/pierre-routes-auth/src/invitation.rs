@@ -14,10 +14,20 @@ use tracing::{error, field::Empty, info, warn, Span};
 
 use pierre_auth::dto::auth::AcceptInvitationRequest;
 use pierre_core::errors::AppError;
+use pierre_core::models::InvitationKind;
 use pierre_services::auth::AuthService;
 
 use crate::login;
 use crate::AuthRoutesContext;
+
+/// The `source` a sign-up from an invitation of `kind` is counted under: a
+/// coach the team invited with their seat apart from any other invitee.
+const fn signup_source(kind: InvitationKind) -> &'static str {
+    match kind {
+        InvitationKind::Account => "invite",
+        InvitationKind::CoachSeat => "coach_invite",
+    }
+}
 
 /// `POST /api/auth/accept-invitation` — create the account an invitation was
 /// mailed for.
@@ -25,7 +35,9 @@ use crate::AuthRoutesContext;
 /// Public: the single-use token from the link is the authorization, as a
 /// password-reset token is for `/api/auth/complete-reset`. The account lands
 /// active with `approved_by` set to the inviting operator, and the response is
-/// the registration response, so the web app shows the same next step.
+/// the registration response, so the web app shows the same next step. A
+/// coach-seat invitation's account also holds coach access and the coach role
+/// (carnet#1524).
 ///
 /// # Errors
 ///
@@ -57,13 +69,13 @@ pub(crate) async fn handle_accept_invitation(
         )
         .await
     {
-        Ok(response) => {
+        Ok((response, kind)) => {
             login::record_new_account(&response);
             Span::current().record("success", true);
             info!(
                 target: "notify",
                 event = "user.signed_up",
-                source = "invite",
+                source = signup_source(kind),
                 "user account created"
             );
             Ok((StatusCode::CREATED, Json(response)).into_response())

@@ -39,8 +39,8 @@
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 pub use pierre_services::medical_flag::{
-    athlete_tenants, medical_flag_on_file, nutrition_figures_gate, FigureAuthority,
-    FiguresWithheld, WithheldReason,
+    athlete_tenants, medical_flag_on_file, nutrition_figures_gate, nutrition_figures_gate_over,
+    FigureAuthority, FiguresWithheld, WithheldReason,
 };
 use serde::{Deserialize, Serialize};
 
@@ -63,9 +63,9 @@ pub struct WithheldFigures {
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 #[serde(untagged)]
 pub enum NutritionAnswer<T> {
-    /// The figures, for an athlete with no medical flag on file.
+    /// The figures, when the gate withholds none.
     Figures(T),
-    /// Qualitative guidance only: a clinician sets this athlete's amounts.
+    /// Qualitative guidance only; `figures_withheld` says why.
     Withheld(WithheldFigures),
 }
 

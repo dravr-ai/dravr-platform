@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for the onboarding progress bar — one total per journey, a skipped step kept as skipped, readable labels
-// ABOUTME: Walks an athlete past a skipped question and a coach past a skipped seat, in English and French, light and dark
+// ABOUTME: Walks an athlete past a skipped Connect and a coach past a skipped seat, in English and French, light and dark
 
 import { test, expect, type Page, type Route } from '@playwright/test';
 import { setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
@@ -18,6 +18,16 @@ interface Start {
   theme?: 'light' | 'dark';
 }
 
+const PARQ = [
+  'heart_condition',
+  'chest_pain',
+  'dizziness',
+  'chronic_condition',
+  'medication',
+  'joint_problem',
+  'supervised_only',
+].map((id, i) => ({ id, text: `PAR-Q question ${i + 1}` }));
+
 /** Signs in with the onboarding state given; the step writes answer 204. */
 async function startOnboarding(page: Page, { flags, status, language = 'en', theme = 'light' }: Start) {
   await page.addInitScript(
@@ -31,6 +41,8 @@ async function startOnboarding(page: Page, { flags, status, language = 'en', the
   await setupDashboardMocks(page, { role: 'user', email: 'lea@test.com', displayName: 'Léa', language });
   await page.route('**/api/me/onboarding-status', (route) => json(route, status));
   await page.route('**/api/me/onboarding/steps/**', (route) => route.fulfill({ status: 204, body: '' }));
+  // Santé reads its seven questions; without them the screen puts itself off.
+  await page.route('**/api/me/parq', (route) => json(route, { questions: PARQ }));
   await page.goto('/');
   await signInThroughHostedPage(page);
 }
@@ -51,7 +63,6 @@ const COACH = {
     needs_provider_connection: true,
     steps: [
       { step_id: 'profile_type', status: 'complete' },
-      { step_id: 'about_you', status: 'not_applicable' },
       { step_id: 'parq', status: 'not_applicable' },
     ],
     chosen_channel: null,
@@ -62,16 +73,18 @@ const COACH = {
 /** The progress landmark, found by the name that says where the user is. */
 const bar = (page: Page, name: string | RegExp) => page.getByRole('navigation', { name });
 
-test('an athlete who skips a question keeps six steps, the skipped one drawn as skipped', async ({ page }) => {
+test('an athlete who continues without connecting keeps four steps, Connect drawn as skipped', async ({ page }) => {
   await startOnboarding(page, ATHLETE);
 
-  await expect(bar(page, 'Step 2 of 6: Training')).toBeVisible({ timeout: 15_000 });
-  await page.getByRole('button', { name: 'Skip for now' }).click();
+  await expect(bar(page, 'Step 2 of 4: Your data')).toBeVisible({ timeout: 15_000 });
+  await page.getByRole('button', { name: 'Continue without connecting' }).click();
 
-  const onHealth = bar(page, 'Step 3 of 6: Health');
-  await expect(onHealth).toBeVisible();
-  await expect(onHealth.locator('li')).toHaveCount(6);
-  await expect(onHealth.locator('li[data-status="skipped"]')).toHaveCount(1);
+  const onHealth = bar(page, 'Step 3 of 4: Health');
+  // The skip is written to the server before the health screen draws; on a
+  // loaded runner that outlasts the default 5 s, so wait as the first step does.
+  await expect(onHealth).toBeVisible({ timeout: 15_000 });
+  await expect(onHealth.locator('li')).toHaveCount(4);
+  await expect(onHealth.locator('li').nth(1)).toHaveAttribute('data-status', 'skipped');
   await expect(onHealth.locator('li[data-status="skipped"] .border-dashed')).toHaveCount(1);
 });
 
@@ -119,11 +132,11 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 1440, height: 900 });
     await startOnboarding(page, { ...ATHLETE, theme });
 
-    const onTraining = bar(page, 'Step 2 of 6: Training');
+    const onTraining = bar(page, 'Step 2 of 4: Your data');
     await expect(onTraining).toBeVisible({ timeout: 15_000 });
     const ground = await page.evaluate(() => getComputedStyle(document.body).backgroundColor);
     const labels = onTraining.locator('li span.text-xs');
-    await expect(labels).toHaveCount(6);
+    await expect(labels).toHaveCount(4);
     for (const color of await labels.evaluateAll((els) => els.map((el) => getComputedStyle(el).color))) {
       expect(contrast(color, ground), `${color} on ${ground}`).toBeGreaterThanOrEqual(4.5);
     }

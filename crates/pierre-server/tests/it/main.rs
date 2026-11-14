@@ -227,6 +227,7 @@ mod coach_reply_review_test;
 mod coach_roster_ai_consent_test;
 mod coach_roster_route_test;
 mod coach_roster_scope_test;
+mod coach_seat_invitation_test;
 mod coach_seat_tool_surface_test;
 mod coach_setup_timing_test;
 mod coach_thread_route_map_test;

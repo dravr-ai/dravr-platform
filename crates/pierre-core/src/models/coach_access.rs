@@ -72,6 +72,17 @@ pub struct CoachAccessRequest {
     /// The super-admin who decided; `None` while pending, for a service token,
     /// and once that operator's account is deleted.
     pub decided_by: Option<Uuid>,
+    /// The reason a super-admin gave with a decline, shown to the coach in
+    /// the notice, the email and the declined state (carnet#1521). `None`
+    /// for a decline given without one and for every request not declined.
+    #[serde(default)]
+    pub decline_reason: Option<String>,
+    /// When a newer request from the same coach replaced this decline
+    /// (carnet#1522): asking again replaces an earlier decline, so the request
+    /// the coach reads skips it. `None` for every request not superseded; the
+    /// console's history keeps the row and its reason either way.
+    #[serde(default)]
+    pub superseded_at: Option<DateTime<Utc>>,
 }
 
 impl CoachAccessRequest {
@@ -90,8 +101,22 @@ impl CoachAccessRequest {
             created_at: now,
             decided_at: None,
             decided_by: None,
+            decline_reason: None,
+            superseded_at: None,
         }
     }
+}
+
+/// The longest decline reason a request keeps, in characters: a sentence or
+/// two for the coach, never a document.
+pub const DECLINE_REASON_MAX_CHARS: usize = 500;
+
+/// A super-admin's decline reason as the request stores it: trimmed, `None`
+/// when blank, and cut to [`DECLINE_REASON_MAX_CHARS`] characters.
+#[must_use]
+pub fn normalize_decline_reason(raw: Option<&str>) -> Option<String> {
+    let trimmed = raw?.trim();
+    (!trimmed.is_empty()).then(|| trimmed.chars().take(DECLINE_REASON_MAX_CHARS).collect())
 }
 
 #[cfg(test)]
@@ -122,5 +147,19 @@ mod tests {
         assert_eq!(request.group_id, Some(group));
         assert_eq!(request.group_tenant_id.as_deref(), Some("t1"));
         assert!(request.decided_at.is_none() && request.decided_by.is_none());
+        assert!(request.decline_reason.is_none());
+    }
+
+    #[test]
+    fn a_decline_reason_is_trimmed_bounded_and_blank_means_none() {
+        assert_eq!(normalize_decline_reason(None), None);
+        assert_eq!(normalize_decline_reason(Some("   ")), None);
+        assert_eq!(
+            normalize_decline_reason(Some("  Pas de compte coach vérifié. ")).as_deref(),
+            Some("Pas de compte coach vérifié.")
+        );
+        let long = "é".repeat(DECLINE_REASON_MAX_CHARS + 20);
+        let kept = normalize_decline_reason(Some(&long)).unwrap_or_default();
+        assert_eq!(kept.chars().count(), DECLINE_REASON_MAX_CHARS);
     }
 }

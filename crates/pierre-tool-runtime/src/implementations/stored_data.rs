@@ -484,9 +484,9 @@ impl McpTool<dyn ToolRuntime> for GetHealthSnapshotsTool {
 
         answers_with::<Formatted<HealthSnapshotsResult>>(tool_definition(
             "get_health_snapshots",
-            "Get stored health snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
+            "Get stored wellness snapshots (body composition, vitals) and daily steps, energy, intensity minutes",
             schema,
-            annotations("Get health snapshots", Effect::ReadOnly, Reach::Internal),
+            annotations("Get wellness snapshots", Effect::ReadOnly, Reach::Internal),
         ))
     }
 

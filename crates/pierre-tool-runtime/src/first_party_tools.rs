@@ -11,10 +11,24 @@
 //!
 //! - the coach family reads other athletes' data for the coach who leads their
 //!   group, under consents those athletes gave inside Dravr;
-//! - agent store and agent CRUD manage the personas of Dravr's own chat;
+//! - agent store, agent CRUD and the agent reads (`list_agents`, `get_agent`,
+//!   `search_agents`, `get_active_agent`, `list_hidden_agents`) manage and
+//!   describe the personas of Dravr's own chat, which an outside assistant
+//!   does not run;
 //! - memory and self-steering (`remember_fact`, the commitments,
 //!   `forget_playbook`) write what Dravr's own chat later reads as the
-//!   athlete's record, which an assistant's text does not get to become.
+//!   athlete's record, which an assistant's text does not get to become;
+//!   `list_coaching_playbooks` reads what that chat learned, for that chat;
+//! - the configuration reads (`get_configuration_catalog`,
+//!   `get_configuration_profiles`, `get_user_configuration`,
+//!   `validate_configuration`, `get_fitness_config`, `list_fitness_configs`)
+//!   expose the settings Dravr's own analytics run on, not the athlete's
+//!   training;
+//! - the prescriptive nutrition tools (`calculate_daily_nutrition`,
+//!   `get_nutrient_timing`) would answer an external caller with no figures
+//!   for any athlete (the nutrition gate's external arm,
+//!   `pierre_services::medical_flag`), so they are not offered there at all
+//!   (carnet#1565).
 //!
 //! A tool declares this as a property of itself
 //! ([`RuntimeTool::transport_policy`](crate::security::RuntimeTool::transport_policy)),

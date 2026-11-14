@@ -426,6 +426,7 @@ impl ProviderToolRouter {
             use crate::routes::admin::diagnostics::{
                 routes as diagnostics_routes, DiagnosticsContext,
             };
+            use crate::routes::coach_access::coach_access_notices;
             use crate::services::archive_import::sweeps::ServerArchiveEraser;
             use pierre_routes_admin::tool_selection::{ToolSelectionContext, ToolSelectionRoutes};
             let admin_api_key_limit = resources
@@ -471,6 +472,9 @@ impl ProviderToolRouter {
                 .website_base_url
                 .clone_from(&resources.common.config.website_base_url);
             admin_context.background = resources.common.turns.tracker();
+            // The console's coach-access decisions reach the coach the way the
+            // Slack card's do: the room line, the in-app notice and the email.
+            admin_context.coach_access_notices = Some(Arc::new(coach_access_notices(resources)));
             admin_context.human_check_configured = resources.auth.human_check.is_some();
             #[cfg(feature = "client-messaging")]
             {

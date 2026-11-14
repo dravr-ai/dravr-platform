@@ -42,13 +42,18 @@ interface UserOptions {
 }
 
 /**
- * The onboarding status of a fully onboarded user: a provider connected and the
- * agent step answered. The agent step is derived from server state (carnet#1042),
- * so a status with no step record would route every spec to the proposal.
+ * The onboarding status of a fully onboarded user: a provider connected, the
+ * PAR-Q answered and the agent step answered. The agent step is derived from
+ * server state (carnet#1042), so a status with no step record would route
+ * every spec to the proposal; a PAR-Q with no `complete` row would make Home's
+ * « Build my plan » open the health check first (carnet#1530).
  */
 export const ONBOARDED_STATUS = {
   needs_provider_connection: false,
-  steps: [{ step_id: 'coach_proposal', status: 'complete' }],
+  steps: [
+    { step_id: 'parq', status: 'complete' },
+    { step_id: 'coach_proposal', status: 'complete' },
+  ],
 };
 
 /**
@@ -1071,14 +1076,18 @@ const GETTING_STARTED_DONE = {
   hidden: false,
 };
 
-/** Getting started on a first arrival: data connected, meeting the team next, no check-in data yet. */
+/**
+ * Getting started on a first arrival, in the server's order (carnet#1530, the
+ * board's order): data connected, the goal and the why next, the cadence, then
+ * the flows. The PAR-Q was answered at onboarding, so no health-check row.
+ */
 const GETTING_STARTED_FIRST_ARRIVAL = {
   rows: [
     { id: 'connect', order: 1, eligible: true, done: true, current: false, postback: null },
-    { id: 'meet_team', order: 2, eligible: true, done: false, current: true, postback: 'gs:2:meet_team' },
-    { id: 'last_workout', order: 3, eligible: true, done: false, current: false, postback: 'gs:3:last_workout' },
-    { id: 'about_me_more', order: 4, eligible: true, done: false, current: false, postback: 'gs:4:about_me_more' },
-    { id: 'check_in', order: 5, eligible: true, done: false, current: false, postback: 'gs:5:check_in' },
+    { id: 'about_me_more', order: 2, eligible: true, done: false, current: true, postback: null },
+    { id: 'check_in', order: 3, eligible: true, done: false, current: false, postback: null },
+    { id: 'meet_team', order: 4, eligible: true, done: false, current: false, postback: 'gs:3:meet_team' },
+    { id: 'last_workout', order: 5, eligible: true, done: false, current: false, postback: 'gs:4:last_workout' },
   ],
   done_count: 1,
   total: 5,

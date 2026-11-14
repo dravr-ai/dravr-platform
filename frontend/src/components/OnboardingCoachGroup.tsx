@@ -7,6 +7,7 @@
 import { useEffect, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import QRCode from 'qrcode';
+import { Check } from 'lucide-react';
 import type { Agent, CoachingGroup } from '@pierre/shared-types';
 import {
   ONBOARDING_INVITE_DAYS,
@@ -40,15 +41,23 @@ import { CheckDisc } from './OnboardingCoachSeat';
  * The group is created with the coach as its human coach when they hold coach
  * access (`manages_roster`); the server decides, never this screen. The
  * coach's thread for the group is opened here too, since a group nobody has a
- * thread for is a group the coach cannot find, and "Go to my group" lands in
- * that thread.
+ * thread for is a group the coach cannot find.
+ *
+ * Where the invite leaves for follows the seat: a coach whose access is active
+ * (the server made them the group's coach — invited by the team, or a
+ * TrainingPeaks coach account) opens their coach Home, where the athlete they
+ * just invited waits as a row; a coach still without it goes to the group's
+ * thread. A coach the team invited (`seatSettledByInvite`) is also told on
+ * the group screen that the seat is already active.
  */
 export default function OnboardingCoachGroup({
   onCreated,
   onComplete,
+  seatSettledByInvite = false,
 }: {
   onCreated?: () => void;
   onComplete: (status: 'complete' | 'skipped') => void;
+  seatSettledByInvite?: boolean;
 }) {
   const { t } = useTranslation();
   const [athlete, setAthlete] = useState('');
@@ -73,6 +82,9 @@ export default function OnboardingCoachGroup({
   const agent = agents.list.find((a) => a.id === agentId) ?? null;
 
   const ready = created !== null && conversationId !== null && inviteCode !== null;
+  // Any active seat lands on the coach Home: the server made the coach the
+  // group's coach only because they hold coach access.
+  const toCoachHome = created?.coach_user_id != null;
   useEffect(() => {
     if (ready) onCreated?.();
   }, [ready, onCreated]);
@@ -91,12 +103,14 @@ export default function OnboardingCoachGroup({
           group={created}
           link={link}
           athleteName={athleteName}
+          toCoachHome={toCoachHome}
           onDone={() => {
             // The step is recorded before the hand-off. The dashboard reads
-            // `#chat/<id>` when it mounts, which opens the group's thread in
-            // the Groups tab instead of Home.
+            // the hash when it mounts: `#home` opens the coach Home of a
+            // coach whose seat is active, `#chat/<id>` the group's thread in
+            // the Groups tab for one still without it.
             onComplete('complete');
-            window.location.hash = `#chat/${encodeURIComponent(conversationId)}`;
+            window.location.hash = toCoachHome ? '#home' : `#chat/${encodeURIComponent(conversationId)}`;
           }}
         />
       </OnboardingShell>
@@ -109,6 +123,15 @@ export default function OnboardingCoachGroup({
   return (
     <OnboardingShell heading={t('onboarding.groupHeading')}>
       <div className="mx-auto max-w-md">
+        {seatSettledByInvite ? (
+          <p
+            className="mt-3 flex items-center justify-center gap-2 rounded-lg bg-success/10 px-3 py-2 text-sm text-on-surface"
+            data-testid="onboarding-group-seat-active"
+          >
+            <Check aria-hidden="true" className="h-4 w-4 shrink-0 text-success" strokeWidth={2} />
+            <span>{t('humanCoach.seatInvite.seatActive')}</span>
+          </p>
+        ) : null}
         <p className="mt-3 text-sm text-on-surface-variant text-center">{t('humanCoach.groupStepIntro')}</p>
         <form
           className="mt-8 space-y-6"
@@ -353,11 +376,13 @@ function InviteShare({
   group,
   link,
   athleteName,
+  toCoachHome,
   onDone,
 }: {
   group: CoachingGroup;
   link: string;
   athleteName: string;
+  toCoachHome: boolean;
   onDone: () => void;
 }) {
   const { t } = useTranslation();
@@ -448,7 +473,11 @@ function InviteShare({
         className="mt-8 w-full border ghost-border-strong"
         data-testid="onboarding-group-done"
       >
-        {athleteName ? t('onboarding.groupDoneNamed', { name: athleteName }) : t('onboarding.groupDone')}
+        {toCoachHome
+          ? t('humanCoach.seatInvite.openCoachHome')
+          : athleteName
+            ? t('onboarding.groupDoneNamed', { name: athleteName })
+            : t('onboarding.groupDone')}
       </Button>
     </div>
   );
@@ -488,12 +517,11 @@ function SeatCard({ group }: { group: CoachingGroup }) {
   const request = latest.data?.request ?? null;
   const pending = request !== null && coachSeatState(request) === 'pending' ? request : null;
   // Who may ask is the room's rule: the coach made this group on the coach
-  // path, so they own it and coach others; coach access leaves nothing to ask.
+  // path, so they own it; coach access leaves nothing to ask.
   const mayAsk = canRequestCoachAccess({
     group,
     isOwner: true,
     managesRoster: user?.manages_roster === true,
-    coachesOthers: true,
   });
   return (
     <div
@@ -504,7 +532,7 @@ function SeatCard({ group }: { group: CoachingGroup }) {
       <p className="text-sm font-semibold text-on-surface">{t('humanCoach.inviteSeatPending')}</p>
       {pending ? (
         <p className="mt-1 text-sm text-on-surface-variant">
-          {t('humanCoach.inviteSeatRequested', { date: coachSeatMoment(pending.created_at, i18n.language).date })}
+          {t('humanCoach.inviteSeatRequestedNotice', { date: coachSeatMoment(pending.created_at, i18n.language).date })}
         </p>
       ) : latest.isLoading ? null : (
         <p className="mt-1 text-sm text-on-surface-variant">{t('humanCoach.inviteSeatNotRequested')}</p>

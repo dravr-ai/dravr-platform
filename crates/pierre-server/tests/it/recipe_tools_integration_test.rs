@@ -28,6 +28,7 @@ use anyhow::Result;
 use pierre_config::environment::ServerConfig;
 use pierre_core::models::{Tenant, User};
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::json;
 use uuid::Uuid;
@@ -44,7 +45,11 @@ async fn create_recipe_test_executor() -> Result<UniversalToolExecutor> {
     common::init_test_http_clients();
 
     let resources = common::create_test_server_resources().await?;
-    Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
+    // Dravr's own app: outside it, recipe targets are withheld for every
+    // athlete (carnet#1565), and these cases read the targets.
+    Ok(UniversalToolExecutor::new(resources)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp))
 }
 
 /// Create a recipe executor whose config has no USDA key, whatever the
@@ -59,7 +64,11 @@ async fn create_recipe_test_executor_without_usda_key() -> Result<UniversalToolE
         ..common::test_server_config()
     };
     let resources = common::create_test_server_resources_with_config(config).await?;
-    Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
+    // Dravr's own app: outside it, recipe targets are withheld for every
+    // athlete (carnet#1565), and these cases read the targets.
+    Ok(UniversalToolExecutor::new(resources)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp))
 }
 
 /// Create a test user (with provisioned tenant) in the database.

@@ -1958,6 +1958,92 @@ async fn a_flagged_athletes_calendar_note_loses_its_fuelling_rates_on_the_next_p
     Ok(())
 }
 
+/// A push an outside assistant starts writes the athlete's own note, rates or
+/// the flag's statement, as their app would: the calendar is theirs, not the
+/// caller's. The caller reads the report's counts and the plan's own
+/// withheld statement, which are the same whatever is on file (carnet#1565).
+#[tokio::test]
+async fn a_push_from_outside_dravr_writes_the_athletes_own_note_and_tells_the_caller_no_flag(
+) -> Result<()> {
+    let stub = stub_live(4000).await;
+    let fixture = Box::pin(fixture(&stub.base_url, true)).await?;
+    let user = fixture.user_id;
+    let monday = next_plan_monday();
+    let d = |offset: i64| monday + Duration::days(offset);
+    let mut ride = planned(d(5), "mtb", "Long ride, eat early", Some(150), "Z2");
+    ride.fueling = Some(FuelingProtocol {
+        carbs_g_per_h: 90.0,
+        fluid_ml_per_h: 700.0,
+        sodium_mg_per_h: Some(600.0),
+        carb_source: Some("glucose:fructose 1:0.8".to_owned()),
+    });
+    fixture.save_weeks(true, &[(d(0), "", vec![ride])]).await;
+    let key = CalendarKey::plan_day(user, d(5), 0);
+    let note = |event: FakeEvent| {
+        event.body["description"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let flag_words = |text: &str| {
+        ["clinician", "medical", "PAR-Q", "g/h", "ml/h"]
+            .iter()
+            .any(|word| text.contains(word))
+    };
+
+    let report = fixture
+        .execute_over(Transport::McpHttp, "push_training_plan", json!({}))
+        .await?;
+    assert!(report.success, "an MCP push runs: {:?}", report.error);
+    let report = report.result.expect("a push report");
+    assert_eq!(report["created"].as_u64(), Some(1), "got: {report}");
+    assert!(!flag_words(&report.to_string()), "the report: {report}");
+    let unflagged = note(stub.event_by_key(&key).await.expect("the ride is pushed"));
+    assert!(
+        unflagged.contains("90 g/h carbs · 700 ml/h fluid"),
+        "an unflagged athlete's own calendar keeps their rates: {unflagged}"
+    );
+
+    parq::persist_parq_flags(
+        fixture.executor.resources.repos().memory.as_ref(),
+        fixture.tenant,
+        &user.to_string(),
+        &["heart_condition".to_owned()],
+    )
+    .await?;
+
+    let preview = fixture
+        .execute_over(Transport::McpHttp, "get_training_plan", json!({}))
+        .await?;
+    assert!(preview.success, "{:?}", preview.error);
+    let preview = preview.result.expect("the plan");
+    assert_eq!(
+        preview["calendar"]["pending"]["update"].as_u64(),
+        Some(1),
+        "the preview counts what the push will write: {}",
+        preview["calendar"]
+    );
+    assert_eq!(
+        preview["fueling_withheld"]["figures_withheld"]["reason"], "external_transport",
+        "the plan read names no flag: {}",
+        preview["fueling_withheld"]
+    );
+
+    let again = fixture
+        .execute_over(Transport::McpHttp, "push_training_plan", json!({}))
+        .await?;
+    assert!(again.success, "{:?}", again.error);
+    let again = again.result.expect("a push report");
+    assert_eq!(again["updated"].as_u64(), Some(1), "got: {again}");
+    assert!(!flag_words(&again.to_string()), "the report: {again}");
+    let flagged = note(stub.event_by_key(&key).await.expect("still pushed"));
+    assert!(
+        flagged.contains(FUELING_WITHHELD_CLAUSE) && !flagged.contains("g/h"),
+        "a flagged athlete's own calendar carries the flag's statement: {flagged}"
+    );
+    Ok(())
+}
+
 #[tokio::test]
 async fn a_band_keeps_its_threshold_and_adjacent_sets_keep_their_groups() -> Result<()> {
     // A percent band that names its threshold is stated against that

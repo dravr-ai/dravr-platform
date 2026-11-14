@@ -355,6 +355,9 @@ export {
 export type { CheckInCadence, CheckInPreference } from './check-in.js';
 export { CHECK_IN_CADENCES, isCheckInCadence, parseCheckInPreference } from './check-in.js';
 
+// The PAR-Q+ health check's question and answer (carnet#1530)
+export type { ParqAnswer, ParqQuestion } from './parq.js';
+
 // Home's Getting started list: connect, then the first-run flows (carnet#1099)
 export type { GettingStartedResponse, GettingStartedRow } from './getting-started.js';
 export { parseGettingStartedResponse } from './getting-started.js';

@@ -1,106 +1,95 @@
-// ABOUTME: First-run onboarding screen that forces a provider connection before the user reaches the dashboard
-// ABOUTME: Sits in the shared OnboardingShell like every other step, the welcome as its heading
+// ABOUTME: Onboarding's Tes données — connect your training: Garmin, Strava, Intervals.icu, the rest behind « Plus de services »
+// ABOUTME: « Continuer sans connecter » is saved on the server, so the screen never comes back at sign-in; sign out stays quiet
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+import { ONBOARDING_LEAD_PROVIDERS } from '@pierre/shared-constants';
+import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../hooks/useAuth';
 import { Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
-import ConnectPreview from './ConnectPreview';
-
-// Dravr boreal-palette logo. Same dot-and-line motif as Login and
-// PendingApproval; gradient IDs are suffixed with `-onboarding` so the
-// embedded `<defs>` don't collide when multiple instances of the logo render
-// in the same document tree.
 import OnboardingShell from './OnboardingShell';
-import { useTranslation } from '@pierre/i18n';
 
 /**
- * Hard gate shown right after first login when the user has zero connected
- * providers. The same source of truth — `provider_connections` — drives the
- * backend's `NoProviderConnected` 403 on chat/coach/messaging, so this screen
- * cannot drift from server-side enforcement. Connecting a first provider
- * does not leave the screen: the list stays up with the new card marked
- * connected, so a second service is one tap away, and `onContinue` (offered
- * once a provider is connected) moves on to the next step.
+ * Tes données, the athlete's second screen (carnet#1530).
  *
- * Skip is intentionally absent from the provider list — the agent has
- * nothing to reason about without provider data. Sign Out is offered as a
- * session escape (same convention as `PendingApproval`) so the user is never
- * trapped.
+ * Shown while the user has never had a real provider connected. The same
+ * source of truth — `provider_connections` — drives the backend's
+ * `NoProviderConnected` 403 on chat/coach/messaging, so this screen cannot
+ * drift from server-side enforcement. It leads with the three services most
+ * athletes use and folds the rest, and the file import, behind « Plus de
+ * services ». Connecting a first provider does not leave the screen: the list
+ * stays up with the new card marked connected, so a second service is one tap
+ * away, and `onContinue` (offered once a provider is connected) is the one
+ * filled button.
+ *
+ * Before that, « Continuer sans connecter » is a visible secondary: the agent
+ * reads nothing without a service, which the intro says, but nobody is held
+ * here. The host saves the skip on the server, so the screen never comes back
+ * at sign-in; Home's "Connect your data" row is the nudge from then on. Sign
+ * out sits quiet at the bottom, a session escape and never the loudest thing.
  *
  * A coach who does not train never reaches it: the coaching platforms are
  * offered on the coach-seat step (`OnboardingCoachSeat`).
  */
 export default function OnboardingConnectProvider({
-  userDisplayName,
   onContinueWithoutProvider,
   onContinue,
 }: {
-  userDisplayName?: string | null;
   onContinueWithoutProvider?: () => void;
   /** Leave the step; defined once at least one provider is connected. */
   onContinue?: () => void;
 }) {
   const { t } = useTranslation();
   const { logout } = useAuth();
-  // OnboardingShell's `pt-24` reserves room for the OnboardingProgress bar so
-  // this taller provider-list card clears it; `my-auto` still centers it when
-  // the viewport has room.
   return (
-    <>
-      <OnboardingShell
-        heading={userDisplayName ? t('onboarding.welcomeNamed', { name: userDisplayName }) : t('onboarding.welcomeToDravr')}
-      >
-        <div className="flex flex-col">
-          <p className="mt-3 text-sm text-on-surface-variant text-center mx-auto max-w-md">
-            {t('onboarding.connectProviderIntro')}
-          </p>
+    <OnboardingShell heading={t('onboarding.connect.heading')}>
+      <div className="flex flex-col">
+        <p className="mt-3 text-sm text-on-surface-variant text-center mx-auto max-w-md">
+          {t('onboarding.connect.intro')}
+        </p>
 
-            <div className="mt-8">
-              <ProviderConnectionCards />
-            </div>
+        <div className="mt-8">
+          <ProviderConnectionCards leadProviders={ONBOARDING_LEAD_PROVIDERS} />
+        </div>
 
-            {onContinue && (
-              <div className="mt-6 flex flex-col items-center gap-3" data-testid="onboarding-connect-continue">
-                <p className="text-sm text-on-surface-variant text-center">
-                  {t('onboarding.connectAnotherOrContinue')}
-                </p>
-                <Button variant="primary" onClick={onContinue}>
-                  {t('onboarding.continueAfterConnect')}
-                </Button>
-              </div>
-            )}
-
-            <ConnectPreview />
-
-            <p className="mt-6 text-xs text-on-surface-variant text-center">
-              {t('onboarding.credentialsEncryptedHint')}
-            </p>
-
-            {onContinueWithoutProvider && !onContinue && (
-              <div className="mt-6 text-center">
-                <button
-                  type="button"
-                  onClick={onContinueWithoutProvider}
-                  className="text-sm font-medium text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline transition-colors"
-                >
-                  {t('onboarding.continueWithoutProvider')}
-                </button>
-                <p className="mt-1 text-xs text-on-surface-variant">
-                  {t('onboarding.connectAnytimeHint')}
-                </p>
-              </div>
-            )}
-
-            <div className="mt-8 flex justify-center">
-              <Button variant="tertiary" onClick={logout}>
-                {t('common.logout')}
+        <div className="mx-auto mt-8 flex w-full max-w-md flex-col items-stretch gap-3">
+          {onContinue ? (
+            <div className="flex flex-col items-stretch gap-3" data-testid="onboarding-connect-continue">
+              <p className="text-sm text-on-surface-variant text-center">
+                {t('onboarding.connectAnotherOrContinue')}
+              </p>
+              <Button variant="primary" onClick={onContinue} className="w-full">
+                {t('onboarding.continueAfterConnect')}
               </Button>
             </div>
+          ) : onContinueWithoutProvider ? (
+            <Button
+              variant="secondary"
+              onClick={onContinueWithoutProvider}
+              className="w-full"
+              data-testid="onboarding-connect-skip"
+            >
+              {t('onboarding.connect.continueWithout')}
+            </Button>
+          ) : null}
         </div>
-      </OnboardingShell>
-    </>
+
+        <p className="mt-6 text-xs text-on-surface-variant text-center">
+          {t('onboarding.credentialsEncryptedHint')}
+        </p>
+
+        <div className="mt-6 flex justify-center">
+          <button
+            type="button"
+            onClick={logout}
+            className="touch-target rounded text-xs text-on-surface-variant underline-offset-2 hover:text-on-surface hover:underline focus-ring"
+          >
+            {t('common.logout')}
+          </button>
+        </div>
+      </div>
+    </OnboardingShell>
   );
 }

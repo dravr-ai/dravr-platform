@@ -714,6 +714,7 @@ mod tests {
             step_id: step_id.to_owned(),
             status: status.to_owned(),
             chosen_channel: None,
+            updated_at: None,
         }
     }
 

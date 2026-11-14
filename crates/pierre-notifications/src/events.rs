@@ -93,6 +93,14 @@ pub enum NotificationEvent {
     /// The digest of the pushes a persona floor withheld about one athlete,
     /// sent to the coach they concern — one per athlete.
     PersonaAthleteDigest,
+    /// A super-admin granted the coach-access request the recipient made: they
+    /// hold coach access now and coach every coachless group they own
+    /// (carnet#1521). Sent to the requester.
+    CoachAccessGranted,
+    /// A super-admin declined the coach-access request the recipient made,
+    /// with the reason they gave when they gave one (`reason`). Sent to the
+    /// requester, who may ask again.
+    CoachAccessDeclined,
     /// A coaching group's weekly roll-up, sent to the members who manage it.
     ///
     /// Its body is the summary line [`Self::body_params`] fills, followed by
@@ -128,6 +136,8 @@ impl NotificationEvent {
             Self::PersonaSessionDigest => "persona_session_digest",
             Self::PersonaAthleteDigest => "persona_athlete_digest",
             Self::GroupWeeklyDigest => "group_weekly_digest",
+            Self::CoachAccessGranted => "coach_access_granted",
+            Self::CoachAccessDeclined => "coach_access_declined",
         }
     }
 
@@ -158,6 +168,8 @@ impl NotificationEvent {
             Self::PersonaSessionDigest,
             Self::PersonaAthleteDigest,
             Self::GroupWeeklyDigest,
+            Self::CoachAccessGranted,
+            Self::CoachAccessDeclined,
         ]
         .into_iter()
         .find(|event| event.wire() == wire)
@@ -191,6 +203,10 @@ impl NotificationEvent {
             Self::PersonaSessionDigest => "notifications.digest.session.title",
             Self::PersonaAthleteDigest => "notifications.digest.athlete.title",
             Self::GroupWeeklyDigest => "notifications.group_digest.title",
+            // A human coach's own access: its words live under `humanCoach.*`
+            // with every other sentence about the human coach (ADR-026).
+            Self::CoachAccessGranted => "humanCoach.access.grantedTitle",
+            Self::CoachAccessDeclined => "humanCoach.access.declinedTitle",
         }
     }
 
@@ -222,6 +238,10 @@ impl NotificationEvent {
             Self::PersonaSessionDigest => "notifications.digest.session.body",
             Self::PersonaAthleteDigest => "notifications.digest.athlete.body",
             Self::GroupWeeklyDigest => "notifications.group_digest.summary",
+            Self::CoachAccessGranted => "humanCoach.access.grantedBody",
+            // Without a reason; the renderer reads `reason` and takes
+            // `humanCoach.access.declinedReasonBody` when one was given.
+            Self::CoachAccessDeclined => "humanCoach.access.declinedBody",
         }
     }
 
@@ -251,7 +271,7 @@ impl NotificationEvent {
         match self {
             Self::TrainingLoadAlert => &["atl_value"],
             Self::LowRecoveryScore => &["score"],
-            Self::OvertrainingWarning => &[],
+            Self::OvertrainingWarning | Self::CoachAccessGranted | Self::CoachAccessDeclined => &[],
             Self::PersonalRecord => &["distance", "time_display"],
             Self::FitnessImprovement => &["metric_name", "value_display"],
             Self::AgentMessage | Self::AgentUpdated | Self::AgentAssigned => &["agent_name"],
@@ -308,6 +328,12 @@ pub struct NotificationActionSpec {
 pub const ACTION_REPLY: &str = "reply";
 /// Action id: reopen the provider connection flow.
 pub const ACTION_RECONNECT: &str = "reconnect";
+/// Action id: open the coach's Home, which a coach-access grant just opened.
+pub const ACTION_OPEN_COACH_HOME: &str = "open_coach_home";
+
+/// The parameter a declined coach-access notice carries the super-admin's
+/// reason under, when one was given.
+pub const COACH_ACCESS_DECLINE_REASON_PARAM: &str = "reason";
 
 /// The catalogue key naming an action button, or `None` for an id the
 /// catalogue has no word for — that button keeps the label it was stored
@@ -317,6 +343,7 @@ pub fn action_label_key(id: &str) -> Option<&'static str> {
     match id {
         ACTION_REPLY => Some("notifications.action.reply"),
         ACTION_RECONNECT => Some("notifications.action.reconnect"),
+        ACTION_OPEN_COACH_HOME => Some("humanCoach.access.openHome"),
         _ => None,
     }
 }
@@ -452,6 +479,22 @@ pub struct EventDispatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_coach_access_events_round_trip_through_their_wire_names() {
+        for event in [
+            NotificationEvent::CoachAccessGranted,
+            NotificationEvent::CoachAccessDeclined,
+        ] {
+            assert_eq!(NotificationEvent::from_wire(event.wire()), Some(event));
+            assert!(event.title_key().starts_with("humanCoach.access."));
+            assert!(event.body_key().starts_with("humanCoach.access."));
+        }
+        assert_eq!(
+            action_label_key(ACTION_OPEN_COACH_HOME),
+            Some("humanCoach.access.openHome")
+        );
+    }
 
     #[test]
     fn a_push_restriction_round_trips_between_the_platform_and_commere() {

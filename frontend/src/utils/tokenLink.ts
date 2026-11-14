@@ -37,3 +37,16 @@ export function parseLinkToken(hash: string): string | null {
   const token = new URLSearchParams(hash.replace(/^#/, '')).get('token');
   return token && token.trim() ? token.trim() : null;
 }
+
+/** What an invitation link says it is, for the accept page's wording. */
+export type InvitationLinkKind = 'account' | 'coach_seat';
+
+/**
+ * Read an invitation link's kind from its fragment (`#token=…&kind=coach_seat`).
+ * The server names it (`invitation_url` in `crates/pierre-services/src/invitation.rs`)
+ * for a team-issued coach-seat invitation; any other link is a plain one. A
+ * wording hint only: what the account is granted is the stored invitation's.
+ */
+export function parseInvitationKind(hash: string): InvitationLinkKind {
+  return new URLSearchParams(hash.replace(/^#/, '')).get('kind') === 'coach_seat' ? 'coach_seat' : 'account';
+}

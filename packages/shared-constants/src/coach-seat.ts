@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach seat — who may ask for coach access, where their request stands, what the onboarding seat step says, and its words
-// ABOUTME: The room strip, the thread header, Group info and the seat step read these on web and phone, from server state alone
+// ABOUTME: The coach seat — who may ask for coach access, where their request stands, what the onboarding seat step and the list row say, and its words
+// ABOUTME: The room strip, the thread header, Group info, Settings, Home, the Groups list and the seat step read these on web and phone, from server state alone
 
 import { formatDate, formatMessageTime } from '@pierre/chat-utils';
 import type { CoachAccessRequest, CoachingGroup } from '@pierre/shared-types';
@@ -24,25 +24,46 @@ export type CoachSeatState = 'to_request' | 'pending' | 'declined';
 export interface CoachSeatInputs {
   /** The group the viewer is looking at, once read. */
   group: Pick<CoachingGroup, 'coach_user_id'> | null | undefined;
-  /** The viewer's membership in it is the owner's. */
+  /** The viewer owns the group (`owner_id`): the only one a grant attaches. */
   isOwner: boolean;
   /** The viewer already holds coach access (`manages_roster`). */
   managesRoster: boolean;
-  /** The viewer answered "I coach others" at onboarding. */
-  coachesOthers: boolean;
 }
 
 /**
  * Whether this viewer is offered the coach seat for this group: they own it,
- * it has no human coach, they hold no coach access, and they coach others.
+ * it has no human coach, and they hold no coach access (carnet#1522).
+ *
+ * What they answered to "I coach others" at onboarding plays no part: an
+ * owner who started as an athlete and coaches later is offered it all the
+ * same, and a member who does not own the group never is — a grant attaches
+ * the coach to the coachless groups they own, so nobody else has a seat to
+ * ask for.
  *
  * The one place the rule lives. Every surface that offers the request — the
  * room strip, the thread header, the Group info block, the onboarding invite,
  * on web and phone — calls this, so changing who may ask is a change here and
  * nowhere else.
  */
-export function canRequestCoachAccess({ group, isOwner, managesRoster, coachesOthers }: CoachSeatInputs): boolean {
-  return isOwner && !!group && !group.coach_user_id && !managesRoster && coachesOthers;
+export function canRequestCoachAccess({ group, isOwner, managesRoster }: CoachSeatInputs): boolean {
+  return isOwner && !!group && !group.coach_user_id && !managesRoster;
+}
+
+/**
+ * Whether the request is offered with no group, in Settings and on Home: to
+ * someone who said they coach others and holds no coach access yet. A coach
+ * who taps "Later" on the onboarding group step still has their request
+ * there, and a grant attaches them to every coachless group they make or own
+ * (carnet#1521).
+ */
+export function canRequestCoachAccessWithoutGroup({
+  managesRoster,
+  coachesOthers,
+}: {
+  managesRoster: boolean;
+  coachesOthers: boolean;
+}): boolean {
+  return coachesOthers && !managesRoster;
 }
 
 /**
@@ -63,21 +84,33 @@ export const COACH_SEAT_KEYS = {
   blockBody: 'humanCoach.seat.blockBody',
   linkAccount: 'humanCoach.seat.linkAccount',
   routesLabel: 'humanCoach.seat.routesLabel',
-  pendingTitle: 'humanCoach.seat.pendingTitle',
-  pendingBody: 'humanCoach.seat.pendingBody',
+  pendingSentBody: 'humanCoach.seat.pendingSentBody',
   pendingBlockTitle: 'humanCoach.seat.pendingBlockTitle',
   timelineLabel: 'humanCoach.seat.timelineLabel',
   stepSent: 'humanCoach.seat.stepSent',
   stepSentWhen: 'humanCoach.seat.stepSentWhen',
   stepReview: 'humanCoach.seat.stepReview',
-  stepReviewWhen: 'humanCoach.seat.stepReviewWhen',
+  stepReviewNotice: 'humanCoach.seat.stepReviewNotice',
   stepSeat: 'humanCoach.seat.stepSeat',
   stepSeatWhat: 'humanCoach.seat.stepSeatWhat',
   stepDone: 'humanCoach.seat.stepDone',
   stepNow: 'humanCoach.seat.stepNow',
   declinedTitle: 'humanCoach.seat.declinedTitle',
   declinedBody: 'humanCoach.seat.declinedBody',
+  declinedReason: 'humanCoach.seat.declinedReason',
   askAgain: 'humanCoach.seat.askAgain',
+  cancel: 'humanCoach.seat.cancel',
+  cancelling: 'humanCoach.seat.cancelling',
+  cancelled: 'humanCoach.seat.cancelled',
+  cancelFailed: 'humanCoach.seat.cancelFailed',
+  panelTitle: 'humanCoach.seat.panelTitle',
+  panelBody: 'humanCoach.seat.panelBody',
+  settingsTitle: 'humanCoach.seat.settingsTitle',
+  listPending: 'humanCoach.seat.listPending',
+  listCoach: 'humanCoach.seat.listCoach',
+  grantedTitle: 'humanCoach.access.grantedTitle',
+  grantedBody: 'humanCoach.access.grantedBody',
+  openHome: 'humanCoach.access.openHome',
   rosterNotYet: 'humanCoach.seat.rosterNotYet',
   rosterPending: 'humanCoach.seat.rosterPending',
   request: 'humanCoach.requestAccess',
@@ -91,6 +124,64 @@ export const COACH_SEAT_SUBTITLE_KEY: Record<CoachSeatState, string> = {
   pending: 'humanCoach.seat.subtitlePending',
   declined: 'humanCoach.seat.subtitleDeclined',
 };
+
+/**
+ * The reason a declined request carries, trimmed; `null` when the
+ * super-admin gave none (or the request is not declined).
+ */
+export function coachSeatDeclineReason(request: CoachAccessRequest | null | undefined): string | null {
+  if (request?.status !== 'declined') return null;
+  const reason = request.decline_reason?.trim();
+  return reason ? reason : null;
+}
+
+/**
+ * How long after a grant a room the coach now coaches says so on its list
+ * row, unless something was said in it since: the grant's own line lands in
+ * the room a moment after the decision.
+ */
+export const COACH_SEAT_LIST_GRANT_GRACE_MS = 2 * 60 * 1000;
+
+/**
+ * The second line a Groups list row shows instead of the room's last words,
+ * for a room the viewer owns while their coach seat is moving:
+ *   - `pending` — the room has no coach and the viewer's request waits, sent
+ *     on `sentAt`: « Accès coach en attente · demandé le … ». The request is
+ *     one per account, so every coachless room they own says the same.
+ *   - `coach` — the viewer coaches the room because a grant decided at
+ *     `since` attached them, and nothing was said in the room after the
+ *     grant's own line: « Tu es le coach · depuis … ». Once the room talks
+ *     again, its last words come back.
+ * `null` for every other room, and whenever the request is not read yet.
+ */
+export type CoachSeatListLine = { kind: 'pending'; sentAt: string } | { kind: 'coach'; since: string };
+
+export function coachSeatListLine({
+  group,
+  viewerId,
+  managesRoster,
+  request,
+  lastActivityAt,
+}: {
+  group: Pick<CoachingGroup, 'owner_id' | 'coach_user_id'> | null | undefined;
+  viewerId: string | null | undefined;
+  managesRoster: boolean;
+  request: CoachAccessRequest | null | undefined;
+  lastActivityAt: string;
+}): CoachSeatListLine | null {
+  if (!group || !viewerId || group.owner_id !== viewerId || !request) return null;
+  if (request.status === 'pending' && !group.coach_user_id && !managesRoster) {
+    return { kind: 'pending', sentAt: request.created_at };
+  }
+  if (request.status === 'granted' && request.decided_at && group.coach_user_id === viewerId) {
+    const decided = Date.parse(request.decided_at);
+    const last = Date.parse(lastActivityAt);
+    if (!Number.isNaN(decided) && (Number.isNaN(last) || last <= decided + COACH_SEAT_LIST_GRANT_GRACE_MS)) {
+      return { kind: 'coach', since: request.decided_at };
+    }
+  }
+  return null;
+}
 
 /**
  * The day a request was filed or decided, as the reader's locale spells it
@@ -114,6 +205,12 @@ export const COACH_SEAT_CHECK_WINDOW_MS = 20_000;
 
 /** How often the seat step and the seat block read the server again while they wait. */
 export const COACH_SEAT_CHECK_POLL_MS = 2_500;
+
+/**
+ * How often the signed-in app reads a waiting coach-access request again, so
+ * a grant shows without signing out and in (carnet#1521), on web and phone.
+ */
+export const COACH_ACCESS_WAIT_POLL_MS = 60_000;
 
 /**
  * Where the coach's seat stands, as the onboarding seat step shows it. The

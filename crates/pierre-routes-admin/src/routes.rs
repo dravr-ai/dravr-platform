@@ -28,10 +28,10 @@ use crate::context::AdminApiContext;
 use crate::handlers::contremaitre_admin;
 use crate::handlers::{
     admin_rate_limit_override, admin_scope, api_keys, audit_trail, barrage, claim_verdicts,
-    coach_access, connect_order, deletion_ledger, device_auth, device_web, engagement,
-    feature_flags, guardian_config, harness_config, memory_worker, new_users, provider_clone,
-    provider_data, settings, setup, signup_codes, strava_pool, tokens, user_removal, users,
-    website,
+    coach_access, coach_seat_invitations, connect_order, deletion_ledger, device_auth, device_web,
+    engagement, feature_flags, guardian_config, harness_config, memory_worker, new_users,
+    provider_clone, provider_data, settings, setup, signup_codes, strava_pool, tokens,
+    user_removal, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -354,6 +354,17 @@ impl AdminRoutes {
                 "/admin/coach-access-requests/{request_id}/decline",
                 post(coach_access::handle_decline_coach_access_request),
             )
+            // Coach-seat invitations (carnet#1524): the coach-access decision
+            // taken before sign-up. Super-admin only inside each handler.
+            .route(
+                "/admin/coach-seat-invitations",
+                get(coach_seat_invitations::handle_list_coach_seat_invitations)
+                    .post(coach_seat_invitations::handle_issue_coach_seat_invitation),
+            )
+            .route(
+                "/admin/coach-seat-invitations/{email}",
+                delete(coach_seat_invitations::handle_revoke_coach_seat_invitation),
+            )
             .route(
                 "/admin/pre-approved-emails",
                 get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
@@ -451,6 +462,17 @@ impl AdminRoutes {
             .route(
                 "/api/admin/coach-access-requests/{request_id}/decline",
                 post(coach_access::handle_decline_coach_access_request),
+            )
+            // Coach-seat invitations (carnet#1524): the coach-access decision
+            // taken before sign-up. Super-admin only inside each handler.
+            .route(
+                "/api/admin/coach-seat-invitations",
+                get(coach_seat_invitations::handle_list_coach_seat_invitations)
+                    .post(coach_seat_invitations::handle_issue_coach_seat_invitation),
+            )
+            .route(
+                "/api/admin/coach-seat-invitations/{email}",
+                delete(coach_seat_invitations::handle_revoke_coach_seat_invitation),
             )
             .route(
                 "/api/admin/pre-approved-emails",

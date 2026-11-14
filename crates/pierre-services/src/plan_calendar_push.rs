@@ -539,7 +539,10 @@ pub async fn push_active_plan(
         .training_plans
         .list_plan_weeks(&tenant_str, &user_str, &plan.id, false)
         .await?;
-    let fueling = FuelingDisclosure::for_athlete(repos, params.tenant, params.user_id).await?;
+    // The athlete's own calendar follows their flag whoever starts the push
+    // (carnet#1565): the caller reads the report's counts, never the note.
+    let fueling =
+        FuelingDisclosure::for_athletes_calendar(repos, params.tenant, params.user_id).await?;
     let desired = for_calendar(
         desired_entries(params.user_id, &weeks, params.from, &fueling),
         params.week_notes,

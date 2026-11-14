@@ -217,6 +217,10 @@ interface SentTurn {
 async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Promise<SentTurn[]> {
   const { userGroupRole = 'owner', weeklyDigest = true } = options;
   const mockMembers = buildMockMembers(userGroupRole);
+  // The group's owner follows the viewer's role: ownership is what offers a
+  // coachless group's coach seat (carnet#1522), so a member viewer must not
+  // also be served as the owner.
+  const groupDetail = { ...mockGroupDetail, owner_id: userGroupRole === 'owner' ? 'user-123' : 'user-3' };
   const sent: SentTurn[] = [];
 
   // A hard navigation (the invite link is a real path, not a hash) remounts
@@ -256,14 +260,14 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(mockGroupDetail),
+        body: JSON.stringify(groupDetail),
       });
     } else if (route.request().method() === 'PUT') {
       const body = route.request().postDataJSON();
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...mockGroupDetail, ...body }),
+        body: JSON.stringify({ ...groupDetail, ...body }),
       });
     } else if (route.request().method() === 'DELETE') {
       await route.fulfill({ status: 204 });
@@ -667,7 +671,8 @@ test.describe('Group info — settings and consent', () => {
 
   test('binds the coach-sharing switch to the caller own membership row', async ({ page }) => {
     const sharingBodies: Array<Record<string, unknown>> = [];
-    await openGroupInfo(page, {}, async (p) => {
+    // An athlete's switch: a member, whom the coachless group does not offer its coach seat.
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
       await p.route('**/api/groups/group-*/members/me/coach-sharing', async (route) => {
         if (route.request().method() === 'PUT') {
           const body = route.request().postDataJSON() as Record<string, unknown>;
@@ -1211,6 +1216,8 @@ test.describe('Group info — layout', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     const panel = page.getByTestId('group-info-panel');
     await expect(panel.getByTestId('member-detail-user-2')).toBeVisible({ timeout: 10000 });
+    // The owner's coach-seat block leads the panel, so the list starts below the fold.
+    await panel.getByTestId('member-list').scrollIntoViewIfNeeded();
     await expectNoCollidingText(page, 'member list', '[data-testid="member-list"]', 6);
   });
 });

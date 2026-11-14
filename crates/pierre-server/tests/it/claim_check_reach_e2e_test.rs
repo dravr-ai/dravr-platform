@@ -28,6 +28,7 @@ use pierre_core::models::{
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
+use pierre_database::repositories::VerdictListFilter;
 use pierre_mcp_server::context::ServerContext;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_providers::core::{
@@ -609,6 +610,54 @@ async fn verify_claim_supports_a_figure_the_athlete_recorded() {
         // served none of them: its own result carries no note.
         assert!(verdict.get(NOTE).is_none(), "{verdict}");
     }
+}
+
+#[tokio::test]
+async fn verify_claim_stores_no_verdict_outside_dravrs_own_surfaces() {
+    let resources = server().await;
+    let rider = athlete(&resources).await;
+    connect(&resources, &rider, OPEN).await;
+    hold(&resources, &rider, OPEN, &[long_run()]).await;
+    let claim = "You covered 21 km on your last run.";
+    let repos = resources.agent.database.repositories();
+    let rows = VerdictListFilter {
+        user_id: Some(rider.user_id.to_string()),
+        limit: 10,
+        ..VerdictListFilter::default()
+    };
+
+    // The claim is the outside assistant's own sentence: it is judged and
+    // answered, and Dravr keeps no copy of it (carnet#1565).
+    for transport in [Transport::McpHttp, Transport::A2a, Transport::ApiKey] {
+        let verdict = verify(&resources, &rider, transport, claim).await;
+        assert_eq!(verdict["status"], "supported", "{transport:?}: {verdict}");
+        assert!(
+            verdict.get("verdict_id").is_none(),
+            "{transport:?}: {verdict}"
+        );
+    }
+    let stored = repos
+        .claim_verdicts
+        .list_verdicts_filtered(rider.tenant.into(), &rows)
+        .await
+        .unwrap();
+    assert!(stored.is_empty(), "external calls filed {stored:?}");
+
+    // Dravr's own surfaces still file the verdict in the claim-review log.
+    let verdict = verify(&resources, &rider, Transport::WebApp, claim).await;
+    let id = verdict["verdict_id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("an in-app verdict names its row: {verdict}"));
+    let stored = repos
+        .claim_verdicts
+        .list_verdicts_filtered(rider.tenant.into(), &rows)
+        .await
+        .unwrap();
+    assert_eq!(stored.len(), 1, "{stored:?}");
+    assert_eq!(
+        stored[0].id, id,
+        "bug: the in-app verdict names a row other than the one filed"
+    );
 }
 
 #[tokio::test]

@@ -6,10 +6,12 @@
 
 //! Getting started (carnet#1098, carnet#1099).
 //!
-//! Five rows at the top of Home's Today: connect your data, then the four
-//! first-run flows in the catalogue's `first_run:` order — and a sixth, link
-//! a chat app, when the workspace offers one and the list is still open
-//! (carnet#1525). Each row says
+//! The rows at the top of Home's Today. First connect your data, then the
+//! questions the onboarding wizard left to Home, each answered in a sheet
+//! (carnet#1530): the health check when it was put off, the goal and the why,
+//! the check-in cadence. Then link a chat app, when the workspace offers one
+//! and the list is still open (carnet#1525), and the other first-run flows in
+//! the catalogue's `first_run:` order. Each row says
 //! whether its prerequisites hold, whether it is done, and whether it is the
 //! current one; an open row carries the `gs:<slot>:<id>` postback a tap sends
 //! into the Home thread. The rows offered as links are reported shown
@@ -31,7 +33,7 @@ use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_services::athlete_state::AthleteState;
 use pierre_services::first_run::{
-    getting_started, observe_profile, ChatApp, FirstRun, GettingStartedRow,
+    getting_started, observe_profile, ChatApp, FirstRun, GettingStartedRow, SheetAnswers,
 };
 use serde::Serialize;
 use uuid::Uuid;
@@ -43,7 +45,8 @@ use crate::routes::messaging::connectable_channels;
 /// One row of `GET /api/me/getting-started`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GettingStartedRowResponse {
-    /// `connect`, the first-run flow's catalogue id, or `chat_app`.
+    /// `health_check`, `connect`, the first-run flow's catalogue id, or
+    /// `chat_app`.
     pub id: String,
     /// The row's place in the list, from 1.
     pub order: usize,
@@ -54,8 +57,9 @@ pub struct GettingStartedRowResponse {
     /// The first row neither done nor waiting.
     pub current: bool,
     /// What a tap sends into the Home thread; `null` for a done or waiting
-    /// row, for `connect`, which opens Settings › Connections, and for
-    /// `chat_app`, which opens the chat-app sheet.
+    /// row, for `connect`, which opens Settings › Connections, and for the
+    /// rows that open a sheet: `health_check`, `about_me_more`, `check_in`
+    /// and `chat_app`.
     pub postback: Option<String>,
 }
 
@@ -95,9 +99,9 @@ pub struct GettingStartedResponse {
 ///
 /// Returns the authentication error, a refusal for a caller outside Dravr's
 /// apps when the list was read from first-party-only data, and the
-/// repository error when the athlete's state, first run, chat-app links or
-/// Home preferences cannot be read: a list built on a partial read could
-/// tick a row that is not done.
+/// repository error when the athlete's state, first run, onboarding steps,
+/// chat-app links or Home preferences cannot be read: a list built on a
+/// partial read could tick a row that is not done.
 pub async fn get_getting_started(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -121,7 +125,20 @@ pub async fn get_getting_started(
         first_run = FirstRun::read(repos, tenant_id, auth.user_id).await?;
     }
     let chat_app = chat_app(&resources, tenant_id, auth.user_id).await?;
-    let list = getting_started(UseCaseCatalogue::pinned(), &state, &first_run, chat_app);
+    // The questions the wizard left to Home are read from the step rows the
+    // sheets write, as the wizard's screens did (carnet#1530).
+    let steps = repos
+        .user_onboarding
+        .get_onboarding_steps(&auth.user_id.to_string())
+        .await?;
+    let answers = SheetAnswers::from_steps(&steps);
+    let list = getting_started(
+        UseCaseCatalogue::pinned(),
+        &state,
+        &first_run,
+        &answers,
+        chat_app,
+    );
     let hidden = repos
         .home_preferences
         .get_home_preferences(auth.user_id)

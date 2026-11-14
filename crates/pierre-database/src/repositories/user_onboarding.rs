@@ -7,6 +7,7 @@
 use std::collections::BTreeMap;
 
 use async_trait::async_trait;
+use chrono::{DateTime, NaiveDateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
 
 /// One persisted onboarding step state for a user.
@@ -23,6 +24,29 @@ pub struct OnboardingStepRecord {
     pub status: String,
     /// The messaging channel chosen at the `messaging_channel` step, if any.
     pub chosen_channel: Option<String>,
+    /// When the status was last written, from the engine clock; `None` when
+    /// the stored value does not read as an instant. Home's Getting started
+    /// reads it to tell a health check answered after the wizard from one
+    /// answered in it, and when a row it ticks became done (carnet#1530).
+    pub updated_at: Option<DateTime<Utc>>,
+}
+
+/// Read a step's `updated_at` as the engines render it as text: `SQLite`
+/// stores `YYYY-MM-DD HH:MM:SS` in UTC, Postgres renders `TIMESTAMPTZ` as
+/// `YYYY-MM-DD HH:MM:SS[.ffffff]±HH[:MM]`. Anything else reads as `None`
+/// rather than failing the whole list: the time only orders and dates rows.
+#[must_use]
+pub(crate) fn parse_step_time(text: &str) -> Option<DateTime<Utc>> {
+    let text = text.trim();
+    if let Ok(at) = DateTime::parse_from_rfc3339(text) {
+        return Some(at.with_timezone(&Utc));
+    }
+    if let Ok(at) = DateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f%#z") {
+        return Some(at.with_timezone(&Utc));
+    }
+    NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M:%S%.f")
+        .ok()
+        .map(|at| at.and_utc())
 }
 
 /// Durable onboarding progress, keyed by `(user_id, step_id)`.
@@ -187,9 +211,11 @@ pub(crate) const UPSERT_ONBOARDING_STEP_SQL: &str = r"
             ";
 
 /// Read every recorded step for a user. Scoped by `user_id` alone, which is the
-/// trait's documented isolation boundary.
+/// trait's documented isolation boundary. `updated_at` is `TEXT` on `SQLite`
+/// and `TIMESTAMPTZ` on Postgres, so it is read cast to text on both and
+/// parsed by [`parse_step_time`]: one statement still serves both engines.
 pub(crate) const SELECT_ONBOARDING_STEPS_SQL: &str = r"
-            SELECT step_id, status, chosen_channel
+            SELECT step_id, status, chosen_channel, CAST(updated_at AS TEXT) AS updated_at
             FROM user_onboarding
             WHERE user_id = $1
             ";
@@ -220,6 +246,11 @@ where
         chosen_channel: row
             .try_get::<Option<String>, _>("chosen_channel")
             .map_err(|e| AppError::database(format!("user_onboarding chosen_channel: {e}")))?,
+        updated_at: row
+            .try_get::<Option<String>, _>("updated_at")
+            .map_err(|e| AppError::database(format!("user_onboarding updated_at: {e}")))?
+            .as_deref()
+            .and_then(parse_step_time),
     })
 }
 
@@ -303,3 +334,48 @@ macro_rules! impl_user_onboarding_repository {
     };
 }
 pub(crate) use impl_user_onboarding_repository;
+
+#[cfg(test)]
+mod tests {
+    use super::parse_step_time;
+    use chrono::{TimeZone, Utc};
+
+    #[test]
+    fn a_step_time_reads_as_either_engine_renders_it() {
+        let at = Utc
+            .with_ymd_and_hms(2026, 11, 13, 10, 4, 5)
+            .single()
+            .expect("instant");
+        assert_eq!(
+            parse_step_time("2026-11-13 10:04:05"),
+            Some(at),
+            "SQLite text, UTC"
+        );
+        assert_eq!(
+            parse_step_time("2026-11-13 10:04:05+00"),
+            Some(at),
+            "Postgres, UTC session"
+        );
+        assert_eq!(
+            parse_step_time("2026-11-13 05:04:05-05"),
+            Some(at),
+            "Postgres, another zone"
+        );
+        assert_eq!(
+            parse_step_time("2026-11-13 15:34:05+05:30"),
+            Some(at),
+            "an offset with minutes"
+        );
+        assert_eq!(
+            parse_step_time("2026-11-13 10:04:05.250000+00").map(|t| t.timestamp_millis()),
+            Some(at.timestamp_millis() + 250),
+            "fractional seconds"
+        );
+        assert_eq!(
+            parse_step_time("2026-11-13T10:04:05Z"),
+            Some(at),
+            "RFC 3339"
+        );
+        assert_eq!(parse_step_time("yesterday"), None, "not an instant");
+    }
+}

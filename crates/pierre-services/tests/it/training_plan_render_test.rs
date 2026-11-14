@@ -11,6 +11,7 @@ use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::training_plans::parse_plan_date;
 use pierre_services::agent_package::PackagedCatalogue;
+use pierre_services::medical_flag::FiguresWithheld;
 use pierre_services::plan_fueling::FuelingDisclosure;
 use pierre_services::training_plan_render::render_training_plan_block;
 use std::collections::BTreeMap;
@@ -439,5 +440,41 @@ fn an_elapsed_day_is_marked_and_a_future_day_is_not() {
         !out.contains("[done]"),
         "\"done\" is a claim about the athlete, not the calendar - an elapsed \
          block window says nothing about whether it was trained"
+    );
+}
+
+#[test]
+fn withheld_fuelling_names_the_clinician_only_for_the_medical_flag() {
+    let weeks = [week("2026-07-13", "volume")];
+    let render = |gate| {
+        render_training_plan_block(
+            &plan(),
+            &weeks,
+            d("2026-07-14"),
+            &catalogue(),
+            &FuelingDisclosure::from_gate(Some(gate)),
+        )
+        .unwrap_or_default()
+    };
+
+    let flagged = render(FiguresWithheld::medical_flag());
+    assert!(
+        flagged.contains("a medical/PAR-Q flag is on file") && flagged.contains("clinician"),
+        "bug: in the app a flagged athlete's block does not say why rates are withheld:\n{flagged}"
+    );
+
+    // Outside Dravr's own surfaces the block reads the same for every
+    // athlete, so it names no flag and no clinician (carnet#1565).
+    let external = render(FiguresWithheld::external_transport());
+    for word in ["clinician", "medical", "PAR-Q"] {
+        assert!(
+            !external.contains(word),
+            "bug: {word} would only be true of a flagged athlete:\n{external}"
+        );
+    }
+    assert!(
+        external.contains("Fuelling amounts are not given outside Dravr's own apps")
+            && external.contains("leave `fueling` off every saved day"),
+        "bug: outside Dravr the block does not say rates are withheld and saves refused:\n{external}"
     );
 }

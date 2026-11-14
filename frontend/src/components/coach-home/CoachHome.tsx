@@ -13,6 +13,7 @@ import { useIsMobile } from '../../hooks/useBreakpoint';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
 import { EmptyState, SearchField, Select } from '../ui';
 import { CoachHomeSwitch } from './CoachHomeSwitch';
+import { CoachPendingInvites } from './CoachPendingInvites';
 import { CoachQueueView } from './CoachQueueView';
 import { CoachRosterTable } from './CoachRosterTable';
 import { CoachSeasonView } from './CoachSeasonView';
@@ -68,11 +69,9 @@ export default function CoachHome({ route, onNavigate }: CoachHomeProps) {
       </div>
     );
   } else if (roster.athletes.length === 0) {
-    body = (
-      <div className="px-6 py-6">
-        <EmptyState data-testid="coach-home-empty">{t('coachHome.noAthletes')}</EmptyState>
-      </div>
-    );
+    // Nobody has joined yet: the athletes the coach invited wait as rows, or
+    // the empty state stands when no invite still works.
+    body = <CoachPendingInvites groups={roster.groups} onNavigate={onNavigate} />;
   } else if (route.view === 'queue') {
     body = (
       <CoachQueueView

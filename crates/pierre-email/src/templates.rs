@@ -205,6 +205,44 @@ pub fn invitation_html(accept_url: &str, ttl_days: i64) -> String {
     )
 }
 
+/// Generate the HTML body for a coach-seat invitation (carnet#1524).
+///
+/// Sent when a super-admin invites a coach the team recruited. The link is the
+/// same single-use accept link as [`invitation_html`]'s, locked to this
+/// address; the account it creates already holds coach access, so the copy
+/// says the coach goes straight to their first group, with no role question
+/// and no request to wait on. `ttl_days` is stated so the expiry is known
+/// before the link stops working.
+#[must_use]
+pub fn coach_seat_invitation_html(accept_url: &str, ttl_days: i64) -> String {
+    let cta = cta_block(accept_url, "Create my coach account");
+    layout(
+        "Your Dravr coach seat is ready",
+        "Your coach seat is waiting",
+        &format!(
+            r#"<p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          The Dravr team has set up a coach seat for you. Create your account with
+          the link below and you go straight to your first group &mdash; no
+          request to send, no approval to wait for.
+        </p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          Dravr reads your athletes' training, drafts plans you publish, and
+          answers with you in each athlete's group.
+        </p>
+        {cta}
+        <p style="margin:0 0 12px;font-size:13px;line-height:1.5;color:#6b7280;">
+          This link is for this address only.
+          It works once and expires in {ttl_days} days; if it has expired, ask
+          the Dravr team for a new one.
+        </p>
+        <p style="margin:0;font-size:13px;line-height:1.5;color:#6b7280;">
+          If you weren't expecting this, you can ignore it &mdash; nothing was
+          created in your name.
+        </p>"#
+        ),
+    )
+}
+
 /// Generate the HTML body for an email-address verification message.
 ///
 /// Sent immediately after registration. The link carries a single-use
@@ -374,6 +412,96 @@ pub fn coach_access_requested_html(
     )
 }
 
+/// Generate the HTML body of the email telling a coach their coach-access
+/// request was granted (carnet#1521).
+///
+/// `group_names` are the groups the grant made them the coach of, each named
+/// as its owner typed it (escaped); a grant that attached none says their
+/// next group is coached from the start. `coach_home_url` is where the button
+/// opens their coach Home; without one the email names it in words.
+#[must_use]
+pub fn coach_access_granted_html(
+    display_name: Option<&str>,
+    group_names: &[String],
+    coach_home_url: Option<&str>,
+) -> String {
+    let greeting = greeting(display_name);
+    let groups = match group_names {
+        [] => "Every group you create from now on has you as its coach from the start.".to_owned(),
+        [one] => format!(
+            "You are now the coach of <strong>{}</strong>. Your athletes see it in the group \
+             and choose what they share with you.",
+            encode_text(one)
+        ),
+        many => format!(
+            "You are now the coach of {}. Your athletes see it in each group and choose what \
+             they share with you.",
+            many.iter()
+                .map(|name| format!("<strong>{}</strong>", encode_text(name)))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ),
+    };
+    let action = coach_home_url.map_or_else(
+        || "Open Dravr to find coach Home.".to_owned(),
+        |url| cta_button(url, "Open my coach Home"),
+    );
+    layout(
+        "Your coach access is on",
+        "Your coach access is on",
+        &format!(
+            r#"<p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#e5e7eb;">{greeting}</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          The Dravr team turned on coach access for you. Your coach Home is ready:
+          your athletes, their plans and what needs your attention.
+        </p>
+        <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">{groups}</p>
+        <div style="text-align:center;margin:0;">{action}</div>"#
+        ),
+    )
+}
+
+/// Generate the HTML body of the email telling a coach their coach-access
+/// request was declined (carnet#1521).
+///
+/// It carries the super-admin's `reason` when one was given (escaped: an
+/// operator typed it). `ask_again_url` opens the app where they can ask
+/// again; without one the email says so in words.
+#[must_use]
+pub fn coach_access_declined_html(
+    display_name: Option<&str>,
+    reason: Option<&str>,
+    ask_again_url: Option<&str>,
+) -> String {
+    let greeting = greeting(display_name);
+    let reason = reason
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map_or_else(String::new, |r| {
+            format!(
+                r#"<p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#e5e7eb;">Reason: {}</p>"#,
+                encode_text(r)
+            )
+        });
+    let action = ask_again_url.map_or_else(
+        || "You can ask again from Dravr whenever you like.".to_owned(),
+        |url| cta_button(url, "Ask again"),
+    );
+    layout(
+        "Your coach access request was declined",
+        "Your coach access request was declined",
+        &format!(
+            r#"<p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#e5e7eb;">{greeting}</p>
+        <p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#9ca3af;">
+          The Dravr team declined your request for coach access. You can still
+          use Dravr as before, and ask again whenever you like.
+        </p>
+        {reason}
+        <div style="text-align:center;margin:0;">{action}</div>"#
+        ),
+    )
+}
+
 /// The operator email announcing a sign-up that no auto-approval rule
 /// admitted (carnet#1056). Everything the applicant typed is escaped.
 #[must_use]
@@ -405,6 +533,42 @@ pub fn signup_awaiting_approval_html(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_granted_email_names_each_attached_group_escaped_and_links_coach_home() {
+        let html = coach_access_granted_html(
+            Some("Phil"),
+            &["Léa · Marathon".to_owned(), HOSTILE.to_owned()],
+            Some("https://app.example/#home"),
+        );
+        assert!(html.contains("Hi Phil,"));
+        assert!(html.contains("Léa · Marathon"));
+        assert!(
+            !html.contains(HOSTILE),
+            "a group name must never render as markup"
+        );
+        assert!(html.contains("Open my coach Home"));
+        assert!(html.contains("https://app.example/#home"));
+
+        let none = coach_access_granted_html(None, &[], None);
+        assert!(none.contains("Every group you create from now on"));
+        assert!(none.contains("Open Dravr to find coach Home."));
+    }
+
+    #[test]
+    fn the_declined_email_carries_the_reason_escaped_only_when_given() {
+        let with = coach_access_declined_html(None, Some(HOSTILE), Some("https://app.example/"));
+        assert!(with.contains("Reason: "));
+        assert!(
+            !with.contains(HOSTILE),
+            "an operator's words never render as markup"
+        );
+        assert!(with.contains("Ask again"));
+
+        let without = coach_access_declined_html(Some("Phil"), Some("   "), None);
+        assert!(!without.contains("Reason:"));
+        assert!(without.contains("ask again from Dravr"));
+    }
 
     /// A value an athlete or requester could type that must never render as
     /// markup.
@@ -449,6 +613,12 @@ mod tests {
                 invitation_html("https://app.example.test/accept", 7),
                 "You're invited to Dravr",
                 "You're invited",
+                "expires in 7 days",
+            ),
+            rendered(
+                coach_seat_invitation_html("https://app.example.test/accept", 7),
+                "Your Dravr coach seat is ready",
+                "Your coach seat is waiting",
                 "expires in 7 days",
             ),
             rendered(

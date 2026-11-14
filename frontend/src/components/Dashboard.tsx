@@ -14,6 +14,7 @@ import {
   useRef,
 } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useCoachAccessGrantRefresh } from "../hooks/coachAccessHooks";
 import { useFeedbackUnread } from "../hooks/useFeedbackUnread";
 import { useIsMobile, useIsTablet } from "../hooks/useBreakpoint";
 import { useComposerFocused } from "../hooks/useComposerFocused";
@@ -35,6 +36,7 @@ import {
 } from "@pierre/shared-constants";
 import type { PendingComposerAction } from "./chat/types";
 import type { PersonalToday } from "./home/personalToday";
+import type { FirstStepRequest } from "./home/FirstStepSheet";
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
@@ -152,6 +154,7 @@ const PickTeamSheet = lazy(() =>
   })),
 );
 const ChatAppSheet = lazy(() => import("./chatApp/ChatAppSheet"));
+const FirstStepSheet = lazy(() => import("./home/FirstStepSheet"));
 const ActivityView = lazy(() => import("./activity/ActivityView"));
 const AdminConfiguration = lazy(() => import("./AdminConfiguration"));
 const UserToolOverrides = lazy(() => import("./UserToolOverrides"));
@@ -199,6 +202,7 @@ interface TabDefinition {
 
 import { DravrLogo } from "./DravrLogo";
 import { ConnectProviderBanner } from "./ConnectProviderBanner";
+import { CoachAccessHome } from "./CoachAccessPanel";
 import { IconRail } from "./layout/IconRail";
 import SettingsShell from "./settings/SettingsShell";
 import { SETTINGS_TABS, type SettingsTab } from "./settings/settingsTabs";
@@ -258,6 +262,9 @@ export default function Dashboard({
   onInviteCodeConsumed,
 }: DashboardProps) {
   const { user, logout } = useAuth();
+  // A coach-access grant shows on the next navigation, without signing out
+  // and in again (carnet#1521).
+  useCoachAccessGrantRefresh();
   const { t } = useTranslation();
   // Default tab depends on user role: admin sees 'users', an athlete lands on
   // 'home' — today's plan and the latest activities, where the logo also leads.
@@ -1171,6 +1178,9 @@ export default function Dashboard({
   const [teamPickerOpen, setTeamPickerOpen] = useState(false);
   // Getting started's chat-app sheet, over the page the same way.
   const [chatAppOpen, setChatAppOpen] = useState(false);
+  // A first step's sheet — the health check, the goal and the why, the
+  // cadence — over the page the same way (carnet#1530).
+  const [firstStep, setFirstStep] = useState<FirstStepRequest | null>(null);
   // While the athlete types, a phone's tab bar steps aside so the composer
   // sits on the keyboard (Phil, 2026-10-05).
   const composing = useComposerFocused();
@@ -1201,7 +1211,12 @@ export default function Dashboard({
               actions.dismiss();
               setChatAppOpen(true);
             }}
+            onOpenFirstStep={(request) => {
+              actions.dismiss();
+              setFirstStep(request);
+            }}
             compact={compact}
+            lead={<CoachAccessHome />}
           />
         </Suspense>
       ),
@@ -2049,6 +2064,15 @@ export default function Dashboard({
               <ChatAppSheet
                 side={isMobile ? "bottom" : "right"}
                 onClose={() => setChatAppOpen(false)}
+              />
+            </Suspense>
+          )}
+          {firstStep && (
+            <Suspense fallback={null}>
+              <FirstStepSheet
+                request={firstStep}
+                side={isMobile ? "bottom" : "right"}
+                onClose={() => setFirstStep(null)}
               />
             </Suspense>
           )}

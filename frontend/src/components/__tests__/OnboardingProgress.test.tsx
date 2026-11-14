@@ -70,4 +70,29 @@ describe('OnboardingProgress', () => {
     expect(screen.queryByTestId('onboarding-current-step')).toBeNull();
     expect(screen.queryByTestId('onboarding-step-counter')).toBeNull();
   });
+
+  describe('a coach the team invited with their seat', () => {
+    const INVITED: OnboardingProgressItem[] = [
+      { id: 'profile_type', labelKey: 'onboarding.stepProfile', status: 'done' },
+      { id: 'coach_seat', labelKey: 'humanCoach.stepSeat', status: 'done' },
+      { id: 'coach_group', labelKey: 'onboarding.stepGroup', status: 'current' },
+      { id: 'coach_invite', labelKey: 'onboarding.stepInvite', status: 'upcoming' },
+    ];
+
+    it('keeps the role and the seat on the bar, done, and says the invitation settled them', () => {
+      const { container } = render(<OnboardingProgress steps={INVITED} settledByInvite />);
+      expect(screen.getByTestId('onboarding-settled-by-invite')).toHaveTextContent(
+        'Profile and Coach seat settled by your invitation',
+      );
+      const settled = Array.from(container.querySelectorAll('li[data-settled="invite"]')).map((li) => li.textContent);
+      expect(settled).toEqual(['Profile', 'Coach seat']);
+      expect(screen.getByRole('navigation', { name: 'Step 3 of 4: Your group' })).toBeInTheDocument();
+    });
+
+    it('says nothing about an invitation for a coach who answered for themselves', () => {
+      const { container } = render(<OnboardingProgress steps={INVITED} />);
+      expect(screen.queryByTestId('onboarding-settled-by-invite')).toBeNull();
+      expect(container.querySelector('li[data-settled]')).toBeNull();
+    });
+  });
 });

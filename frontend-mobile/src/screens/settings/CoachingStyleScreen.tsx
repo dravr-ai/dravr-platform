@@ -13,6 +13,7 @@ import { personasApi, userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
 import { HomeSettingsSection } from './HomeSettingsSection';
+import { CoachAccessSettings } from '../../components/CoachAccessPanel';
 
 /**
  * The persona picker.
@@ -172,6 +173,8 @@ export function CoachingStyleScreen() {
         </Section>
         {/* Whether Home suggests building a plan sits with how the agent coaches, as on web. */}
         <HomeSettingsSection />
+        {/* The coach-access request with no group, as on web (carnet#1522). */}
+        <CoachAccessSettings />
       </PaneScrollView>
     </View>
   );

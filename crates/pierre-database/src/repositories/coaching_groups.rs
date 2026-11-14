@@ -160,6 +160,18 @@ pub(crate) const LIST_GROUPS_COACHED_BY_SQL: &str = concat!(
               ORDER BY updated_at DESC"
 );
 
+/// Every active group one user owns within one tenant that no human coach
+/// holds, oldest first: the groups a coach-access grant attaches its coach to.
+pub(crate) const LIST_COACHLESS_GROUPS_OWNED_BY_SQL: &str = concat!(
+    "SELECT ",
+    group_columns!(""),
+    "
+              FROM coaching_groups
+              WHERE owner_id = $1 AND tenant_id = $2
+                AND coach_user_id IS NULL AND is_active = TRUE
+              ORDER BY created_at ASC, id ASC"
+);
+
 /// Every live member of every active group one human coach holds, each user
 /// once, across tenants like [`LIST_GROUPS_COACHED_BY_SQL`].
 pub(crate) const LIST_ATHLETES_COACHED_BY_SQL: &str = r"SELECT DISTINCT m.user_id
@@ -309,27 +321,6 @@ pub(crate) const FIND_GROUPS_FOR_USER_AND_AGENT_SQL: &str = concat!(
 /// Active groups one user owns within a tenant.
 pub(crate) const COUNT_GROUPS_FOR_OWNER_SQL: &str = r"SELECT COUNT(*) as cnt FROM coaching_groups
               WHERE owner_id = $1 AND tenant_id = $2 AND is_active = TRUE";
-
-// ============================================================================
-// group_digest_deliveries
-// ============================================================================
-
-/// A missing row inserts (nobody has claimed the week); an existing one takes
-/// the new lease only when the week was never finished and the old lease has
-/// lapsed. Both drivers report zero rows changed when the WHERE fails — that
-/// zero is the losing claim.
-pub(crate) const CLAIM_GROUP_DIGEST_SQL: &str = r"INSERT INTO group_digest_deliveries
-              (tenant_id, group_id, week_key, leased_until_ms, finished_at_ms)
-              VALUES ($1, $2, $3, $4, 0)
-              ON CONFLICT(tenant_id, group_id, week_key) DO UPDATE
-              SET leased_until_ms = excluded.leased_until_ms
-              WHERE group_digest_deliveries.finished_at_ms = 0
-                AND group_digest_deliveries.leased_until_ms <= $5";
-
-/// Close one group's week: stamp it finished and release the lease.
-pub(crate) const FINISH_GROUP_DIGEST_SQL: &str = r"UPDATE group_digest_deliveries
-              SET finished_at_ms = $1, leased_until_ms = 0
-              WHERE tenant_id = $2 AND group_id = $3 AND week_key = $4";
 
 /// Read one column by name via `try_get`, never `Row::get`, so a corrupt row
 /// surfaces as a recoverable error naming the column rather than a panic.
@@ -617,6 +608,25 @@ macro_rules! impl_coaching_group_repository {
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to list groups coached by user: {e}"))
+                    })?;
+
+                rows.iter().map(row_to_group).collect()
+            }
+
+            async fn list_coachless_groups_owned_by(
+                &self,
+                owner_id: Uuid,
+                tenant_id: TenantId,
+            ) -> AppResult<Vec<CoachingGroup>> {
+                let rows = sqlx::query(LIST_COACHLESS_GROUPS_OWNED_BY_SQL)
+                    .bind($ids::bind(owner_id))
+                    .bind(tenant_id.to_string())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to list the coachless groups a user owns: {e}"
+                        ))
                     })?;
 
                 rows.iter().map(row_to_group).collect()

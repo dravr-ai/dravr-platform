@@ -30,6 +30,8 @@ import { presentMenu } from '../../utils/presentMenu';
 import { useChatPlusActions } from '../chat/useChatPlusActions';
 import { ConversationRow } from './ConversationRow';
 import { useConversationList } from './useConversationList';
+import { useGroupSeatLines } from '../../hooks/coachAccessHooks';
+import { useAuth } from '../../contexts/AuthContext';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
 
@@ -77,6 +79,9 @@ export function ConversationsScreen() {
   );
 
   const visibleRows = useMemo(() => filterRows(list.rows, searchQuery), [list.rows, searchQuery]);
+  // A room the viewer owns says where their coach seat stands while it moves (carnet#1521).
+  const { user } = useAuth();
+  const seatLines = useGroupSeatLines(visibleRows, user);
 
   const openThread = useCallback(
     (row: ConversationRowModel) => {
@@ -171,13 +176,14 @@ export function ConversationsScreen() {
     ({ item }: { item: ConversationRowModel }) => (
       <ConversationRow
         row={item}
+        seatLine={seatLines.get(item.id) ?? null}
         onPress={openThread}
         onLongPress={openActionMenu}
         onMarkUnread={markUnread}
         onDelete={confirmDelete}
       />
     ),
-    [openThread, openActionMenu, markUnread, confirmDelete],
+    [openThread, openActionMenu, markUnread, confirmDelete, seatLines],
   );
 
   const keyExtractor = useCallback((item: ConversationRowModel) => item.id, []);

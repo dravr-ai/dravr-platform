@@ -34,6 +34,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_groups::GroupService;
 use pierre_services::account_reset::AccountArchiveEraser;
+use pierre_services::coach_access::CoachAccessNotices;
 use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::scrape_session::ScrapeSessionInstaller;
 use pierre_services::user_approval::UserApprovalNotifier;
@@ -84,6 +85,11 @@ pub struct AdminApiContext {
     /// Notifier that emails and messages a just-approved user across their
     /// linked channels (injected by the composition root; `None` until wired).
     pub approval_notifier: Option<Arc<dyn UserApprovalNotifier>>,
+    /// What tells a coach how the console decided their coach-access
+    /// request: the room line, the in-app notice and the email (carnet#1521;
+    /// injected by the composition root, `None` until wired, in which case a
+    /// decision reaches only the notify channel).
+    pub coach_access_notices: Option<Arc<CoachAccessNotices>>,
     /// The provider-disconnect chokepoint, through which the admin user
     /// routes disconnect a provider for a user and revoke every grant before
     /// deleting one (injected by the composition root; `None` until wired, in
@@ -306,6 +312,7 @@ impl AdminApiContext {
             website_base_url: DEFAULT_WEBSITE_BASE_URL.to_owned(),
             background: TaskTracker::new(),
             approval_notifier: None,
+            coach_access_notices: None,
             provider_disconnector: None,
             archive_eraser: None,
             provider_purge: None,

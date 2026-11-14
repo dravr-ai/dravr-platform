@@ -39,6 +39,7 @@ import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
+import { CoachAccessSettings } from './CoachAccessPanel';
 import type { SettingsTab } from './settings/settingsTabs';
 import { visibleSettingsTabs } from './settings/visibleSettingsTabs';
 import ApiKeysSettings from './settings/ApiKeysSettings';
@@ -1243,7 +1244,12 @@ Authorization: Bearer <your-token-here>`}
           </>
         )}
 
-        {activeTab === 'coaching' && <CoachingPersonaTab />}
+        {activeTab === 'coaching' && (
+          <>
+            <CoachingPersonaTab />
+            <CoachAccessSettings />
+          </>
+        )}
 
         {activeTab === 'messaging' && <MessagingSettingsTab />}
 

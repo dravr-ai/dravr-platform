@@ -50,10 +50,10 @@ pub struct GetTrainingPlanResult {
     /// again with `all_weeks` to read them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weeks_omitted: Option<usize>,
-    /// Present when a medical/PAR-Q flag is on file: the athlete's clinician
-    /// sets their fuelling amounts, so no day in `weeks` carries `fueling`
-    /// rates, `dates` names the days whose stored rates were withheld, and a
-    /// save carrying `fueling` is refused. Describe fuelling in words.
+    /// Present when fuelling amounts are withheld (`figures_withheld` says
+    /// why): no day in `weeks` carries `fueling` rates, `dates` names the days
+    /// whose stored rates were withheld, and a save carrying `fueling` is
+    /// refused. Describe fuelling in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling_withheld: Option<WithheldFueling>,
     /// The agents that wrote this season: the one that laid it, and each one
@@ -92,8 +92,8 @@ pub struct DraftSection {
     pub drafted_weeks: Vec<String>,
     /// Where the draft stands: what publishing it now would overwrite.
     pub state: DraftState,
-    /// Present when a medical/PAR-Q flag is on file: fuelling rates are
-    /// withheld from `weeks` as they are from the live ones.
+    /// Present when fuelling amounts are withheld: rates are withheld from
+    /// `weeks` as they are from the live ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling_withheld: Option<WithheldFueling>,
 }

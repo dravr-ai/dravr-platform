@@ -178,4 +178,59 @@ describe('AcceptInvitation', () => {
     expect((await screen.findByRole('alert')).textContent).toBe('User state error: User already exists');
     expect(screen.getByRole('heading', { name: 'Create Your Account' })).toBeTruthy();
   });
+
+  describe('a team-issued coach-seat link', () => {
+    function renderCoachPage(token: string | null = TOKEN) {
+      return render(
+        <AcceptInvitation token={token} kind="coach_seat" onSignIn={onSignIn} onRegister={onRegister} />,
+      );
+    }
+
+    it('says the coach seat comes with the account and the address is the invitation one', () => {
+      renderCoachPage();
+      expect(screen.getByRole('heading', { name: 'Create your coach account' })).toBeTruthy(); // humanCoach.seatInvite.title
+      expect(screen.getByText('An invitation from the Dravr team: your coach seat is included.')).toBeTruthy(); // humanCoach.seatInvite.subtitle
+      expect(screen.getByTestId('invite-email-locked').textContent).toBe(
+        'Your account is created with the address your invitation was sent to, and no other.',
+      );
+      expect(screen.queryByLabelText('Email address')).toBeNull();
+    });
+
+    it('names the address and says the seat is already active once the account exists', async () => {
+      vi.mocked(invitationsApi.acceptInvitation).mockResolvedValue({
+        user_id: 'user-1',
+        email: 'coach@example.com',
+        user_status: 'active',
+        display_name: null,
+        message: 'Your account is ready.',
+      });
+      renderCoachPage();
+
+      await fillAndSubmit('StrongPass1', 'StrongPass1');
+
+      expect(await screen.findByRole('heading', { name: 'Your coach account is ready' })).toBeTruthy();
+      expect(screen.getByTestId('accepted-email').textContent).toContain('coach@example.com');
+      expect(
+        screen.getByText('Sign in with this address and your password: your coach seat is already active.'), // humanCoach.seatInvite.doneBody
+      ).toBeTruthy();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Continue to sign in' }));
+      expect(onSignIn).toHaveBeenCalledTimes(1);
+    });
+
+    it('refuses an expired or revoked link plainly and sends the coach back to the team', async () => {
+      vi.mocked(invitationsApi.acceptInvitation).mockRejectedValue({
+        response: { status: 404, data: { message: 'The requested resource was not found' } },
+      });
+      renderCoachPage();
+
+      await fillAndSubmit('StrongPass1', 'StrongPass1');
+
+      expect(await screen.findByRole('heading', { name: 'This invitation link no longer works' })).toBeTruthy();
+      expect(screen.getByTestId('invite-expired-body').textContent).toContain('Ask the Dravr team to send you a new one');
+      // A plain sign-up would carry no seat, so it is not the way offered.
+      expect(screen.queryByRole('button', { name: 'Create an account' })).toBeNull();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Back to sign in' }));
+      expect(onSignIn).toHaveBeenCalledTimes(1);
+    });
+  });
 });

@@ -311,7 +311,9 @@ test.describe('the coach', () => {
     });
     await page.route('**/api/groups', async (route) => {
       groupMade = true;
-      await json(route, { id: 'g-1', tenant_id: USER_ID, name: 'Léa', description: null, agent_id: 'agent-endurance', owner_id: USER_ID, coach_user_id: USER_ID }, 201);
+      // A coach still without the seat: an active one leaves the invite for
+      // the coach Home instead of the group's thread.
+      await json(route, { id: 'g-1', tenant_id: USER_ID, name: 'Léa', description: null, agent_id: 'agent-endurance', owner_id: USER_ID, coach_user_id: null }, 201);
     });
     await page.route('**/api/groups/g-1/invites', (route) =>
       json(route, { id: 'i-1', group_id: 'g-1', code: 'ABCD2345', kind: 'member' }, 201),

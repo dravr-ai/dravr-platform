@@ -110,6 +110,8 @@ export interface ConversationRowModel {
   agentTitle: string | null;
   /** The group's name, for a group row. */
   groupName: string | null;
+  /** The group's id, for a group row: what the row's coach-seat line is read from. */
+  groupId: string | null;
   /**
    * The athlete a coach's plan thread is about, when the title does not
    * already name them — the row would otherwise print the athlete twice.
@@ -304,6 +306,7 @@ export function buildConversationRow(
       kind === 'subject' || title === agentTitle ? null : conversation.agent_handle || null,
     agentTitle: conversation.agent_title || null,
     groupName: conversation.group_name || null,
+    groupId: kind === 'group' ? conversation.group_id ?? null : null,
     subjectName: subject !== null && !title.includes(subject) ? subject : null,
     channel: resolveChannelOrigin(conversation),
     initials: initialsFor(title),

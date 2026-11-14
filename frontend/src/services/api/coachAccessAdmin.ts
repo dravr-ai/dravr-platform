@@ -7,12 +7,14 @@
 import type { CoachAccessRequest, CoachAccessRequestView, CoachAccessStatus } from '@pierre/shared-types';
 import { axios } from './client';
 
-/** What a grant did: the request, and the group it made the coach coach. */
+/** What a grant did: the request, and the groups it made the coach coach. */
 export interface CoachAccessGrantResult {
   message: string;
   request: CoachAccessRequest;
-  /** The group the coach now coaches; `null` when the request named none it could attach. */
+  /** The first group the coach now coaches (the named one first); `null` when none was attached. */
   attachedGroupId: string | null;
+  /** Every coachless group the coach owned, now coached by them (carnet#1521). */
+  attachedGroupIds: string[];
 }
 
 /** What a decline did. */
@@ -43,13 +45,19 @@ export const coachAccessAdminApi = {
       message: response.data.message,
       request: response.data.data.request,
       attachedGroupId: response.data.data.attached_group_id ?? null,
+      attachedGroupIds: response.data.data.attached_group_ids ?? [],
     };
   },
 
-  /** Decline a request; the coach may ask again. */
-  async decline(requestId: string): Promise<CoachAccessDeclineResult> {
+  /**
+   * Decline a request; the coach may ask again. `reason`, when given, is shown
+   * to the coach in the notice, the email and their declined state.
+   */
+  async decline(requestId: string, reason?: string): Promise<CoachAccessDeclineResult> {
+    const trimmed = reason?.trim();
     const response = await axios.post(
       `/api/admin/coach-access-requests/${encodeURIComponent(requestId)}/decline`,
+      trimmed ? { reason: trimmed } : {},
     );
     return { message: response.data.message, request: response.data.data.request };
   },

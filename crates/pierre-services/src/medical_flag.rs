@@ -16,12 +16,19 @@
 //! Both read the flag here and carry the same [`FiguresWithheld`] statement,
 //! so an athlete's clinician is named the same way on every surface, and a
 //! read that fails never releases a figure the flag would have withheld.
+//!
+//! Outside Dravr's own surfaces (an MCP client, an A2A agent, an API key) the
+//! gate answers the same for every athlete: amounts withheld, with a statement
+//! that names no flag. Answering per athlete would let an outside caller read
+//! whether a flag is on file from the answer alone, and the flag is health
+//! information the athlete gave Dravr, not that caller (carnet#1565).
 
 use pierre_core::errors::AppResult;
 use pierre_core::models::TenantId;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::FactKind;
+use pierre_providers::ai_scope;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -31,6 +38,9 @@ use uuid::Uuid;
 pub enum WithheldReason {
     /// A medical / PAR-Q flag is on the athlete's dossier.
     MedicalFlag,
+    /// Served outside Dravr's own apps and channels, where amounts are
+    /// withheld for every athlete.
+    ExternalTransport,
 }
 
 /// Who sets the withheld figures instead of the platform.
@@ -39,20 +49,23 @@ pub enum WithheldReason {
 pub enum FigureAuthority {
     /// The athlete's clinician.
     Clinician,
+    /// Not stated: outside Dravr's own apps and channels the answer says
+    /// nothing about who sets this athlete's amounts.
+    NotStated,
 }
 
 /// The machine-readable statement that figures were withheld, and why.
 ///
-/// Present means the athlete has a medical flag on file and the answer carries
-/// no amount to eat or drink: no energy, macronutrient, fluid, sodium or
-/// caffeine intake. What a finished session cost (its calories burned) still
-/// describes the session and is not an intake. Relay `note` rather than
-/// supplying a number of your own.
+/// Present means the answer carries no amount to eat or drink: no energy,
+/// macronutrient, fluid, sodium or caffeine intake. What a finished session
+/// cost (its calories burned) still describes the session and is not an
+/// intake. Relay `note` rather than supplying a number of your own.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct FiguresWithheld {
     /// `medical_flag`: a medical / PAR-Q flag is on file.
+    /// `external_transport`: withheld for every athlete outside Dravr's apps.
     pub reason: WithheldReason,
-    /// `clinician`: who sets these amounts for this athlete.
+    /// `clinician`: who sets these amounts; `not_stated` outside Dravr's apps.
     pub set_by: FigureAuthority,
     /// What to tell the athlete, in plain words.
     pub note: String,
@@ -64,6 +77,12 @@ const MEDICAL_FLAG_NOTE: &str = "A medical/PAR-Q flag is on file for this athlet
      energy, protein, carbohydrate, fat, fluid, sodium and caffeine amounts are set by their \
      clinician and were withheld here. Ask what their clinician has advised and work inside it.";
 
+/// The note outside Dravr's own surfaces. It names no flag, because it is the
+/// same for every athlete.
+const EXTERNAL_TRANSPORT_NOTE: &str = "Energy, protein, carbohydrate, fat, fluid, sodium and \
+     caffeine amounts are not given outside Dravr's own apps and channels, for any athlete, so \
+     they were withheld here.";
+
 impl FiguresWithheld {
     /// The statement for an athlete with a medical flag on file.
     #[must_use]
@@ -73,6 +92,25 @@ impl FiguresWithheld {
             set_by: FigureAuthority::Clinician,
             note: MEDICAL_FLAG_NOTE.to_owned(),
         }
+    }
+
+    /// The statement outside Dravr's own surfaces, identical for every
+    /// athlete.
+    #[must_use]
+    pub fn external_transport() -> Self {
+        Self {
+            reason: WithheldReason::ExternalTransport,
+            set_by: FigureAuthority::NotStated,
+            note: EXTERNAL_TRANSPORT_NOTE.to_owned(),
+        }
+    }
+
+    /// Whether the amounts were withheld for this athlete's medical flag, so
+    /// the surrounding words may name their clinician. `false` outside
+    /// Dravr's own surfaces, where the words must not differ by athlete.
+    #[must_use]
+    pub const fn names_clinician(&self) -> bool {
+        matches!(self.reason, WithheldReason::MedicalFlag)
     }
 }
 
@@ -158,8 +196,32 @@ pub async fn nutrition_figures_gate(
     tenant_id: Option<TenantId>,
     user_id: Uuid,
 ) -> AppResult<Option<FiguresWithheld>> {
+    if ai_scope::serving_external() {
+        return Ok(Some(FiguresWithheld::external_transport()));
+    }
     let tenants = athlete_tenants(repos, tenant_id, user_id).await?;
-    Ok(medical_flag_on_file(repos, &tenants, user_id)
+    nutrition_figures_gate_over(repos, &tenants, user_id).await
+}
+
+/// [`nutrition_figures_gate`] for a caller that already holds the athlete's
+/// tenants ([`athlete_tenants`]).
+///
+/// Outside Dravr's own surfaces ([`ai_scope::serving_external`]) the answer is
+/// [`FiguresWithheld::external_transport`] for every athlete and the flag is
+/// not read, so nothing in the answer depends on it (carnet#1565).
+///
+/// # Errors
+///
+/// Returns the repository error when the flag cannot be read.
+pub async fn nutrition_figures_gate_over(
+    repos: &RepositoryRegistry,
+    tenants: &[TenantId],
+    user_id: Uuid,
+) -> AppResult<Option<FiguresWithheld>> {
+    if ai_scope::serving_external() {
+        return Ok(Some(FiguresWithheld::external_transport()));
+    }
+    Ok(medical_flag_on_file(repos, tenants, user_id)
         .await?
         .then(FiguresWithheld::medical_flag))
 }

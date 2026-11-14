@@ -50,7 +50,9 @@ test.describe('COROS code step — real backend, scripted scraper', () => {
     await signInThroughUi(page, FRONTEND_URL, email, password);
 
     // An athlete with no provider lands on onboarding's connect step, whose
-    // COROS card opens the same sign-in dialog Settings does.
+    // COROS card opens the same sign-in dialog Settings does. The step leads
+    // with three providers and folds the rest under "More services" (carnet#1530).
+    await page.getByTestId('provider-more-services').click({ timeout: 15_000 });
     const connectCoros = page.getByRole('button', { name: 'Connect to COROS' });
     await expect(connectCoros).toBeVisible({ timeout: 15_000 });
     await connectCoros.click();
