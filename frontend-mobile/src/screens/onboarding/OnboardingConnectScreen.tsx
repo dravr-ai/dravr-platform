@@ -10,11 +10,12 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
@@ -40,13 +41,13 @@ import { COACH_SEAT_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboar
 import { CoachSeatPanel } from '../../components/CoachSeatPanel';
 import { useSignInModal } from '../../hooks/useSignInModal';
 import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
-import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import type { SciotteTarget } from '@pierre/shared-types';
 import {
   COACH_PLATFORM_PROVIDERS,
   HISTORY_ACTION_KEYS,
   OAUTH_NO_SEAT,
+  ONBOARDING_LEAD_PROVIDERS,
   cardForSlug,
   cardStatus,
   connectPlan,
@@ -75,12 +76,14 @@ import { ownAppDevPortal } from '@pierre/domain-utils';
  * `needs_provider_connection: true`, and stepping backwards would land them on a
  * step they already finished.
  *
- * There IS a skip, matching web. This screen used to have none, which meant the
- * same account met a soft wall on a laptop and a hard one on a phone — the
- * harder wall being the surface people actually onboard on. The skip is
- * session-only (see `useProviderSkipped`), so the nudge returns next launch, and
- * the backend `NoProviderConnected` 403 still refuses any turn that would need
- * provider data. Skipping defers the ask; it does not buy access.
+ * Tes données, the athlete's second screen (carnet#1530): « Connecte ton
+ * entraînement », Garmin, Strava and Intervals.icu, the rest and the file
+ * import behind « Plus de services ». « Continuer sans connecter » is a
+ * visible secondary, matching web, and saved on the server (see
+ * `useProviderSkipped`), so the screen never comes back at sign-in; the
+ * backend `NoProviderConnected` 403 still refuses any turn that would need
+ * provider data. Skipping defers the ask; it does not buy access. Sign out
+ * sits quiet at the bottom.
  *
  * In `seat` mode it is the coach-seat step (web `OnboardingCoachSeat`): the
  * two coaching platforms as plain rows, in seat order, through the same
@@ -112,6 +115,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   // The provider sign-in window: the account, the notice its row owes, and
   // whether it copies the history of a row already connected.
   const signIn = useSignInModal();
@@ -382,6 +386,14 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
     : providers.filter(
         (p) => p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu',
       );
+  // Tes données leads with Garmin, Strava and Intervals.icu and folds the rest,
+  // with the file import, behind « Plus de services » (carnet#1530); a folded
+  // row that is connected opens the fold by itself.
+  const leadProviders = seat
+    ? visibleProviders
+    : ONBOARDING_LEAD_PROVIDERS.flatMap((name) => visibleProviders.filter((p) => p.provider === name));
+  const moreProviders = seat ? [] : visibleProviders.filter((p) => !ONBOARDING_LEAD_PROVIDERS.includes(p.provider));
+  const showMore = moreOpen || moreProviders.some((p) => p.connected);
 
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const isConnecting = connectingProvider === provider.provider;
@@ -506,14 +518,10 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
             className="mt-4 text-3xl font-display text-left text-text-primary mb-3"
             accessibilityRole="header"
           >
-            {seat
-              ? t('humanCoach.seatHeading')
-              : user?.display_name
-                ? t('onboarding.welcomeNamed', { name: user.display_name })
-                : t('app.welcomeToDravr')}
+            {seat ? t('humanCoach.seatHeading') : t('onboarding.connect.heading')}
           </Text>
           <Text className="text-base text-text-secondary leading-6">
-            {seat ? t('humanCoach.seatIntro') : t('onboarding.connectProviderIntro')}
+            {seat ? t('humanCoach.seatIntro') : t('onboarding.connect.intro')}
           </Text>
         </View>
 
@@ -523,10 +531,37 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
           </View>
         ) : (
           <View>
-            {visibleProviders.map((provider, index) =>
-              renderProvider(provider, index === visibleProviders.length - 1),
+            {leadProviders.map((provider, index) =>
+              renderProvider(provider, index === leadProviders.length - 1 && moreProviders.length === 0),
             )}
-            {!seat && <ImportOwnDataRow onboarding />}
+            {moreProviders.length > 0 ? (
+              <Pressable
+                onPress={() => setMoreOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showMore }}
+                className="flex-row items-center px-4 min-h-[52px]"
+                testID="provider-more-services"
+              >
+                <View className="w-6 items-center mr-3.5">
+                  <Feather name={showMore ? 'chevron-down' : 'chevron-right'} size={18} color={colors.text.secondary} />
+                </View>
+                <View className="flex-1 min-w-0 py-2">
+                  <Text className="text-base text-text-primary">{t('onboarding.connect.moreServices')}</Text>
+                  {showMore ? null : (
+                    <Text className="text-sm text-text-secondary mt-0.5" numberOfLines={1}>
+                      {[
+                        ...moreProviders.slice(0, 3).map((p) => p.display_name),
+                        t('onboarding.connect.moreServicesFile'),
+                      ].join(', ')}
+                    </Text>
+                  )}
+                </View>
+              </Pressable>
+            ) : null}
+            {showMore
+              ? moreProviders.map((provider, index) => renderProvider(provider, index === moreProviders.length - 1))
+              : null}
+            {!seat && (showMore || moreProviders.length === 0) && <ImportOwnDataRow onboarding />}
           </View>
         )}
 
@@ -545,44 +580,41 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
             onReloadProviders={reloadProviders}
             onDone={() => void markSeatDone()}
           />
-        ) : (
-          <>
-            <Text className="text-xs text-text-tertiary text-center mt-6">
-              {t('app.credsEncrypted')}
-            </Text>
-            <ConnectPreview />
-          </>
-        )}
+        ) : null}
 
         {seat ? null : anyConnected ? (
-          <View className="mt-6 items-center" testID="onboarding-connect-continue">
+          <View className="mt-6" testID="onboarding-connect-continue">
             <Text className="text-sm text-text-secondary text-center mb-3">
               {t('onboarding.connectAnotherOrContinue')}
             </Text>
             <Button title={t('onboarding.continueAfterConnect')} onPress={continuePastConnect} />
           </View>
         ) : (
-          <View className="mt-6 items-center">
-            <TouchableOpacity onPress={skip} accessibilityRole="button">
-              <Text className="text-sm font-medium text-text-secondary underline">
-                {t('app.continueWithoutConnecting')}
-              </Text>
-            </TouchableOpacity>
-            <Text className="text-xs text-text-tertiary text-center mt-1">
-              {t('app.connectAnytime')}
-            </Text>
+          <View className="mt-6">
+            {/* A visible secondary, saved on the server: the screen never comes back. */}
+            <Button
+              title={t('onboarding.connect.continueWithout')}
+              variant="secondary"
+              onPress={skip}
+              testID="onboarding-connect-skip"
+            />
           </View>
         )}
 
         {seat ? null : (
-          <View className="mt-8 items-center">
-            <Button
-              title={t('common.logout')}
-              variant="ghost"
+          <>
+            <Text className="text-xs text-text-tertiary text-center mt-6">
+              {t('app.credsEncrypted')}
+            </Text>
+            <Pressable
               onPress={() => void logout()}
+              accessibilityRole="button"
+              className="mt-4 min-h-11 items-center justify-center self-center px-4"
               testID="onboarding-logout-link"
-            />
-          </View>
+            >
+              <Text className="text-sm text-text-secondary">{t('common.logout')}</Text>
+            </Pressable>
+          </>
         )}
       </ScrollView>
 

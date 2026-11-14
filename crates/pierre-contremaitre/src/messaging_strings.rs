@@ -1261,6 +1261,19 @@ pub const KEY_GROUP_JOINED: &str = "commands.group.joined";
 /// Key: `/group join` success for a coach-kind invite. `{0}` = group name.
 pub const KEY_GROUP_JOINED_AS_COACH: &str = "humanCoach.joined_group";
 
+// ── Coach-access decision keys (carnet#1521) ──────────────────────────────
+
+/// Key: the line a coach-access grant leaves in the coach's own copy of each
+/// group it made them the coach of. `{0}` = the coach's name.
+pub const KEY_COACH_ACCESS_ROOM_LINE_COACH: &str = "humanCoach.access.roomLineCoach";
+/// Key: the same line in an athlete's copy of that group's chat, with what
+/// the coach now sees and where the athlete stops it. `{0}` = the coach's
+/// name.
+pub const KEY_COACH_ACCESS_ROOM_LINE_ATHLETE: &str = "humanCoach.access.roomLineAthlete";
+/// Key: the declined coach-access notice's body when the super-admin gave a
+/// reason. `{0}` = the reason, in the operator's own words.
+pub const KEY_COACH_ACCESS_DECLINED_REASON_BODY: &str = "humanCoach.access.declinedReasonBody";
+
 // ── /discover command keys ────────────────────────────────────────────────
 
 /// Key: `/discover` list card title.

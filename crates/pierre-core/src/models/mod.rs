@@ -49,6 +49,7 @@ pub mod gear;
 /// The profile-recorded window of an athlete's most recent fixed-list walk.
 pub mod guided_window;
 mod health;
+mod invitation;
 /// Measured-vs-estimated provenance carried by a physiological value.
 pub mod measurement;
 mod nutrition;
@@ -168,11 +169,12 @@ pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
 pub use sport_anchors::{AnchorUnit, ProfileTwin, SportAnchor, SportAnchorName, TargetAnchor};
 
 // User domain
+pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};
 pub use user::{
     default_locale, locale_from_accept_language, normalize_email, page_locale, roster_display_name,
-    supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex,
-    PreApprovedEmail, User, UserId, UserInvitation, UserPhysiologicalProfile, UserReference,
-    UserReferenceKind, UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
+    supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex, User,
+    UserId, UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
+    FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
@@ -253,7 +255,9 @@ pub use session_refresh_token::SessionRefreshToken;
 
 // Coach-access requests — a coach asks, a super-admin decides (carnet#738)
 mod coach_access;
-pub use coach_access::{CoachAccessRequest, CoachAccessStatus};
+pub use coach_access::{
+    normalize_decline_reason, CoachAccessRequest, CoachAccessStatus, DECLINE_REASON_MAX_CHARS,
+};
 
 // A coach's after-the-fact review of the agent's group replies (carnet#847)
 mod coach_review;

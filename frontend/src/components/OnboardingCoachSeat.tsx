@@ -217,9 +217,9 @@ function SeatStatus({
         </p>
       ) : seat.kind === 'requested' ? (
         <>
-          <p className="text-sm font-semibold text-on-surface">{t('humanCoach.seatRequestSent')}</p>
+          <p className="text-sm font-semibold text-on-surface">{t('humanCoach.seatRequestDone')}</p>
           <p className="mt-1 text-sm text-on-surface-variant">
-            {t('humanCoach.seatRequestSentOn', { date: sentOn(seat.sentAt) })}
+            {t('humanCoach.seatRequestSentNotice', { date: sentOn(seat.sentAt) })}
           </p>
         </>
       ) : seat.kind === 'checking' ? (

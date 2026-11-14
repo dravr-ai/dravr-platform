@@ -9,13 +9,13 @@ import { render, screen } from '@testing-library/react-native';
 import type { OnboardingProgressItem, OnboardingStepStatus } from '@pierre/shared-constants';
 import { OnboardingProgressBar } from '../OnboardingProgressBar';
 
-/** An athlete's journey, steps by status: about-you put off, the health check current. */
+/** A coach who trains, steps by status: Connect put off, the health check current. */
 const STEPS: OnboardingProgressItem[] = [
   { id: 'profile_type', labelKey: 'onboarding.stepProfile', status: 'done' },
-  { id: 'about_you', labelKey: 'onboarding.stepAboutTraining', status: 'skipped' },
+  { id: 'connect_provider', labelKey: 'onboarding.stepConnect', status: 'skipped' },
   { id: 'parq', labelKey: 'onboarding.stepHealthCheck', status: 'current' },
-  { id: 'check_in', labelKey: 'onboarding.stepCheckIn', status: 'upcoming' },
-  { id: 'connect_provider', labelKey: 'onboarding.stepConnect', status: 'upcoming' },
+  { id: 'coach_proposal', labelKey: 'onboarding.stepAgent', status: 'upcoming' },
+  { id: 'coach_seat', labelKey: 'humanCoach.stepSeat', status: 'upcoming' },
 ];
 
 /** The segments and the caption are hidden from assistive tech: the bar's own name says it all. */
@@ -63,5 +63,21 @@ describe('OnboardingProgressBar', () => {
     render(<OnboardingProgressBar steps={allBehind} testID="bar" />);
     expect(screen.getByTestId('bar').props.accessibilityValue).toEqual({ min: 0, max: 5, now: 5 });
     expect(screen.queryByTestId('onboarding-progress-caption', HIDDEN)).toBeNull();
+  });
+
+  it('for a coach the team invited, names the segments the invitation settled under the bar', () => {
+    const invited: OnboardingProgressItem[] = [
+      { id: 'profile_type', labelKey: 'onboarding.stepProfile', status: 'done' },
+      { id: 'coach_seat', labelKey: 'humanCoach.stepSeat', status: 'done' },
+      { id: 'coach_group', labelKey: 'onboarding.stepGroup', status: 'current' },
+      { id: 'coach_invite', labelKey: 'onboarding.stepInvite', status: 'upcoming' },
+    ];
+    const { rerender } = render(<OnboardingProgressBar steps={invited} settledByInvite />);
+    expect(screen.getByTestId('onboarding-progress-settled').props.children).toMatch(
+      /^Profile(,| and) Coach seat settled by your invitation$/,
+    );
+
+    rerender(<OnboardingProgressBar steps={invited} />);
+    expect(screen.queryByTestId('onboarding-progress-settled')).toBeNull();
   });
 });

@@ -39,8 +39,13 @@ test.describe('Coach seat — the room', () => {
 
     const strip = page.getByTestId('coach-seat-strip');
     await expect(strip).toHaveAttribute('data-state', 'pending');
-    await expect(strip.getByRole('heading')).toHaveText(/^Coach access requested on /);
-    await expect(strip).toContainText('usually within 24 hours');
+    await expect(strip.getByRole('heading')).toHaveText('Coach access requested');
+    // Dated, and no wait time: the answer comes here and by email (carnet#1521).
+    await expect(strip.getByTestId('coach-access-pending')).toHaveText(
+      /^Request sent .+\. We'll let you know here and by email\.$/,
+    );
+    await expect(strip).not.toContainText('24');
+    await expect(strip.getByRole('button', { name: 'Cancel request' })).toBeVisible();
     await expect(strip.getByRole('button', { name: 'Request coach access' })).toHaveCount(0);
     await expect(page.getByTestId('thread-status')).toHaveText('coach access pending');
     expect(record.requests).toEqual([{ group_id: SEAT_GROUP_ID }]);
@@ -52,7 +57,8 @@ test.describe('Coach seat — the room', () => {
     await expect(block.getByRole('list', { name: 'Where your request stands' })).toBeVisible();
     await expect(block.getByTestId('coach-seat-step-sent')).toContainText('Request sent');
     await expect(block.getByTestId('coach-seat-step-review')).toHaveAttribute('aria-current', 'step');
-    await expect(block).not.toContainText(/email/i);
+    await expect(block.getByTestId('coach-seat-step-review')).toContainText('here and by email');
+    await expect(block).not.toContainText('24');
   });
 
   test('a member of the room who does not own it sees no seat', async ({ page }) => {

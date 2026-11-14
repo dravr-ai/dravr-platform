@@ -110,6 +110,7 @@ vi.mock('../../../services/api', () => ({
     getOnboardingStatus: vi.fn(),
     getCoachAccessRequest: vi.fn(),
     requestCoachAccess: vi.fn(),
+    cancelCoachAccessRequest: vi.fn(),
   },
   chatApi: {
     openAthleteThread: vi.fn(),
@@ -379,10 +380,48 @@ describe('GroupInfoPanel', () => {
       expect(block).toHaveAttribute('data-state', 'pending');
       expect(within(block).getByTestId('coach-seat-step-sent')).toHaveTextContent('Request sent');
       expect(within(block).getByTestId('coach-seat-step-review')).toHaveAttribute('aria-current', 'step');
-      expect(within(block).getByTestId('coach-seat-step-review')).toHaveTextContent(/usually within 24 hours/i);
+      // No wait time is promised; the answer comes here and by email (carnet#1521).
+      expect(within(block).getByTestId('coach-seat-step-review')).toHaveTextContent(/here and by email/i);
+      expect(block.textContent).not.toMatch(/24/);
       expect(within(block).queryByTestId('coach-access-request')).toBeNull();
-      // It promises no email: a grant reaches the operators only today.
-      expect(block.textContent).not.toMatch(/email/i);
+      // The waiting request can be withdrawn from where it is shown.
+      expect(within(block).getByTestId('coach-access-cancel')).toHaveTextContent('Cancel request');
+    });
+
+    it('withdraws the waiting request and offers it again at once', async () => {
+      offerSeat();
+      vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: pending });
+      vi.mocked(userApi.cancelCoachAccessRequest).mockResolvedValue({ request: null });
+      renderPanel();
+
+      const block = await screen.findByTestId('coach-seat-block');
+      await waitFor(() => expect(block).toHaveAttribute('data-state', 'pending'));
+      await userEvent.click(within(block).getByTestId('coach-access-cancel'));
+
+      await waitFor(() => expect(userApi.cancelCoachAccessRequest).toHaveBeenCalled());
+      await waitFor(() => expect(block).toHaveAttribute('data-state', 'to_request'));
+      expect(within(block).getByTestId('coach-access-cancelled')).toHaveTextContent('Request cancelled');
+      expect(within(block).getByTestId('coach-access-request')).toBeEnabled();
+    });
+
+    it('shows the reason the team gave with a decline, beside "Ask again"', async () => {
+      offerSeat();
+      vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({
+        request: {
+          ...pending,
+          status: 'declined',
+          decided_at: '2026-11-13T09:00:00Z',
+          decline_reason: 'No coaching account we could verify.',
+        },
+      });
+      renderPanel();
+
+      const block = await screen.findByTestId('coach-seat-block');
+      await waitFor(() => expect(block).toHaveAttribute('data-state', 'declined'));
+      expect(within(block).getByTestId('coach-access-decline-reason')).toHaveTextContent(
+        'Reason: No coaching account we could verify.',
+      );
+      expect(within(block).getByTestId('coach-access-request')).toHaveTextContent('Ask again');
     });
 
     it('is the drawer\'s only filled button while it is offered', async () => {
@@ -456,14 +495,15 @@ describe('GroupInfoPanel', () => {
       expect(within(panel).queryByLabelText('Invite type')).toBeNull();
     });
 
-    it('offers nothing to an owner who does not coach others', async () => {
+    it('offers the seat to an owner who never said they coach others (carnet#1522)', async () => {
+      // The onboarding answer is "athlete"; owning a coachless group without
+      // coach access is what offers the request.
       renderPanel();
 
-      await screen.findByTestId('group-info-no-coach');
-      await waitFor(() => expect(userApi.getOnboardingStatus).toHaveBeenCalled());
-      expect(screen.queryByTestId('coach-seat-block')).toBeNull();
-      expect(screen.queryByTestId('coach-access-request')).toBeNull();
-      expect(userApi.getCoachAccessRequest).not.toHaveBeenCalled();
+      const block = await screen.findByTestId('coach-seat-block');
+      expect(block).toHaveAttribute('data-state', 'to_request');
+      expect(within(block).getByTestId('coach-access-request')).toBeEnabled();
+      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
     });
 
     it('offers nothing to an owner who already holds coach access', async () => {
@@ -554,6 +594,8 @@ describe('GroupInfoPanel', () => {
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
     renderPanel();
 
     expect(await screen.findByTestId('coach-sharing-row')).toBeInTheDocument();
@@ -743,6 +785,9 @@ describe('GroupInfoPanel', () => {
     });
 
     it('phrases the flags, the report and the decimals in French', async () => {
+      // An admin of someone else's group: no seat to offer, so the coach slot
+      // reads the group's own line.
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
       renderPanel();
 
       expect(await screen.findByTestId('group-report-summary')).toHaveTextContent(

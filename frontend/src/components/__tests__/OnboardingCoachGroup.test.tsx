@@ -79,13 +79,13 @@ const agent = (id: string, title: string, extra: Record<string, unknown> = {}) =
   ...extra,
 });
 
-function renderStep() {
+function renderStep({ seatSettledByInvite = false }: { seatSettledByInvite?: boolean } = {}) {
   const onComplete = vi.fn();
   const onCreated = vi.fn();
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   render(
     <QueryClientProvider client={client}>
-      <OnboardingCoachGroup onCreated={onCreated} onComplete={onComplete} />
+      <OnboardingCoachGroup onCreated={onCreated} onComplete={onComplete} seatSettledByInvite={seatSettledByInvite} />
     </QueryClientProvider>,
   );
   return { onComplete, onCreated, client };
@@ -320,7 +320,8 @@ describe('OnboardingCoachGroup — the invite has one job', () => {
     expect(requestCoachAccessMock).toHaveBeenCalledWith('g-1');
     const seat = screen.getByTestId('onboarding-group-seat');
     await waitFor(() => expect(seat).toHaveAttribute('data-state', 'requested'));
-    expect(seat).toHaveTextContent(/Request sent .*2026.* The Dravr team usually answers within 24 h\./);
+    expect(seat).toHaveTextContent(/Request sent .*2026\. We'll let you know here and by email\./);
+    expect(seat.textContent).not.toMatch(/24/);
     expect(screen.queryByTestId('coach-access-request')).not.toBeInTheDocument();
   });
 
@@ -345,8 +346,9 @@ describe('OnboardingCoachGroup — the invite has one job', () => {
     expect(screen.getByTestId('coach-access-request')).toBeInTheDocument();
   });
 
-  it('completes the step and opens the group thread from « Go to Léa’s group »', async () => {
+  it('without coach access, completes the step and opens the group thread from « Go to Léa’s group »', async () => {
     window.location.hash = '';
+    createGroupMock.mockResolvedValue(group(null));
     const { onComplete } = renderStep();
     await createTheGroup();
     const done = await screen.findByTestId('onboarding-group-done');
@@ -359,8 +361,23 @@ describe('OnboardingCoachGroup — the invite has one job', () => {
     window.location.hash = '';
   });
 
+  it('with a TrainingPeaks seat, the coach of the group leaves for the coach Home', async () => {
+    window.location.hash = '';
+    const { onComplete } = renderStep();
+    await createTheGroup();
+    const done = await screen.findByTestId('onboarding-group-done');
+    expect(done).toHaveTextContent('Open my coach Home');
+    // Only the invitation says the seat was granted by the team.
+    expect(screen.queryByTestId('onboarding-group-seat-active')).toBeNull();
+    onComplete.mockImplementation(() => expect(window.location.hash).toBe(''));
+    await userEvent.click(done);
+    expect(onComplete).toHaveBeenCalledWith('complete');
+    expect(window.location.hash).toBe('#home');
+    window.location.hash = '';
+  });
+
   it('without an athlete name, keeps the generic heading and "Go to my group"', async () => {
-    createGroupMock.mockResolvedValue(group('u-1', 'Les Rouleurs'));
+    createGroupMock.mockResolvedValue(group(null, 'Les Rouleurs'));
     renderStep();
     await userEvent.type(screen.getByTestId('onboarding-group-name'), 'Les Rouleurs');
     await screen.findByTestId('onboarding-group-agent');
@@ -368,5 +385,46 @@ describe('OnboardingCoachGroup — the invite has one job', () => {
 
     expect(await screen.findByRole('heading', { level: 1 })).toHaveTextContent('Invite your athlete');
     expect(screen.getByTestId('onboarding-group-done')).toHaveTextContent('Go to my group');
+  });
+});
+
+describe('OnboardingCoachGroup — a coach the team invited with their seat', () => {
+  beforeEach(() => {
+    authState.managesRoster = true;
+    createGroupMock.mockReset().mockResolvedValue(group('u-1'));
+    createConversationMock.mockReset().mockResolvedValue({ id: 'c-1' });
+    createInviteMock.mockReset().mockResolvedValue({ code: 'ABCD2345' });
+    getCoachAccessRequestMock.mockReset().mockResolvedValue({ request: null });
+    requestCoachAccessMock.mockReset();
+    listAgentsMock.mockReset().mockResolvedValue({
+      agents: [agent('a-2', 'Endurance Agent', { tags: ['endurance'] })],
+      total: 1,
+      metadata: {},
+    });
+  });
+
+  it('says on the group screen that the seat is already active', () => {
+    renderStep({ seatSettledByInvite: true });
+    expect(screen.getByTestId('onboarding-group-seat-active')).toHaveTextContent(
+      'Your coach seat is active: granted by the Dravr team.',
+    );
+  });
+
+  it('leaves the invite for the coach Home once the step is recorded', async () => {
+    window.location.hash = '';
+    const { onComplete } = renderStep({ seatSettledByInvite: true });
+    await createTheGroup();
+    const done = await screen.findByTestId('onboarding-group-done');
+    expect(done).toHaveTextContent('Open my coach Home');
+    onComplete.mockImplementation(() => expect(window.location.hash).toBe(''));
+    await userEvent.click(done);
+    expect(onComplete).toHaveBeenCalledWith('complete');
+    expect(window.location.hash).toBe('#home');
+    window.location.hash = '';
+  });
+
+  it('a coach who answered for themselves meets no seat-granted line', () => {
+    renderStep();
+    expect(screen.queryByTestId('onboarding-group-seat-active')).toBeNull();
   });
 });

@@ -5,6 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import type { OnboardingProgressItem, OnboardingStepStatus } from '../onboarding/steps';
+import { settledByInviteLine, settledByInviteSegments } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 
 /**
@@ -23,9 +24,22 @@ import { useTranslation } from '@pierre/i18n';
  * so the count never moves mid-flow: a step put off keeps its place as a
  * dashed ring. The landmark's name says where the user is — "Step 2 of 4:
  * Your data" — and a caption under the dots says it visibly.
+ *
+ * A coach the team invited with their seat arrives with the role and the seat
+ * already settled (`settledByInvite`, server truth): those segments stay on
+ * the bar, done, and one line under it names them and says the invitation
+ * settled them, so nothing on the bar is unexplained.
  */
-export default function OnboardingProgress({ steps }: { steps: OnboardingProgressItem[] }) {
-  const { t } = useTranslation();
+export default function OnboardingProgress({
+  steps,
+  settledByInvite = false,
+}: {
+  steps: OnboardingProgressItem[];
+  settledByInvite?: boolean;
+}) {
+  const { t, language } = useTranslation();
+  const settledIds = new Set(settledByInviteSegments(steps, settledByInvite).map((s) => s.id));
+  const settledLine = settledByInviteLine(t, steps, settledByInvite, language);
   const currentIndex = steps.findIndex((s) => s.status === 'current');
   const current = currentIndex >= 0 ? steps[currentIndex] : undefined;
   const position = { current: currentIndex + 1, total: steps.length };
@@ -41,7 +55,12 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
     >
       <ol className="flex items-start" aria-hidden="true">
         {steps.map((step, index) => (
-          <li key={step.id} data-status={step.status} className="flex items-start">
+          <li
+            key={step.id}
+            data-status={step.status}
+            data-settled={settledIds.has(step.id) ? 'invite' : undefined}
+            className="flex items-start"
+          >
             {index > 0 ? (
               <span
                 className={`mt-[4px] h-0.5 w-5 rounded-full lg:w-12 ${
@@ -78,6 +97,14 @@ export default function OnboardingProgress({ steps }: { steps: OnboardingProgres
             {t('onboarding.stepOf', position)}
           </span>
         </>
+      ) : null}
+      {settledLine ? (
+        <span
+          data-testid="onboarding-settled-by-invite"
+          className="max-w-xs text-center text-xs leading-tight text-on-surface-variant"
+        >
+          {settledLine}
+        </span>
       ) : null}
     </nav>
   );

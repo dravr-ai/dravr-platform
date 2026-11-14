@@ -98,6 +98,7 @@ jest.mock('../src/services/api', () => ({
     getOnboardingStatus: jest.fn(),
     getCoachAccessRequest: jest.fn(),
     requestCoachAccess: jest.fn(),
+    cancelCoachAccessRequest: jest.fn(),
   },
   chatApi: {
     openAthleteThread: jest.fn(),
@@ -240,6 +241,8 @@ describe('GroupInfoSheet', () => {
     });
 
     it('points an admin of a coach-less group at the coach invite', async () => {
+      // An admin of a group someone else owns: there is no seat for them to ask for.
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue({ ...GROUP, owner_id: 'user-founder' });
       const { findByTestId } = renderSheet();
 
       const none = await findByTestId('group-info-no-coach');
@@ -273,11 +276,13 @@ describe('GroupInfoSheet', () => {
         fireEvent.press(ask);
 
         await waitFor(() => expect(userApi.requestCoachAccess).toHaveBeenCalledWith('group-1'));
-        // The block turns into the dated timeline, with no button and no email promise.
+        // The block turns into the dated timeline: no button, no wait time,
+        // the answer here and by email, and the way to withdraw it.
         expect(await within(getByTestId('coach-seat-block')).findByTestId('coach-access-pending')).toBeTruthy();
         expect(getByTestId('coach-seat-step-sent')).toHaveTextContent(/Request sent/);
-        expect(getByTestId('coach-seat-step-review')).toHaveTextContent(/usually within 24 hours/i);
-        expect(getByTestId('coach-seat-block')).not.toHaveTextContent(/email/i);
+        expect(getByTestId('coach-seat-step-review')).toHaveTextContent(/here and by email/i);
+        expect(getByTestId('coach-seat-block')).not.toHaveTextContent(/24/);
+        expect(within(getByTestId('coach-seat-block')).getByTestId('coach-access-cancel')).toBeTruthy();
         expect(queryByTestId('coach-access-request')).toBeNull();
         expect(await findByTestId('group-info-coach-seat')).toHaveTextContent(/You · coach access pending/);
       });
@@ -317,12 +322,37 @@ describe('GroupInfoSheet', () => {
         await waitFor(() => expect(groupsApi.createInvite).toHaveBeenCalledWith('group-1', { expires_in_days: 7 }));
       });
 
-      it('offers no seat to an owner who does not coach others', async () => {
+      it('offers the seat to an owner who never said they coach others (carnet#1522)', async () => {
+        // The onboarding answer is "athlete": owning a coachless group without
+        // coach access is what offers the request.
         const { findByTestId, queryByTestId } = renderSheet();
 
-        await findByTestId('group-info-no-coach');
-        await waitFor(() => expect(userApi.getOnboardingStatus).toHaveBeenCalled());
-        expect(queryByTestId('coach-seat-block')).toBeNull();
+        const block = await findByTestId('coach-seat-block');
+        expect(within(block).getByTestId('coach-access-request')).toBeTruthy();
+        expect(queryByTestId('group-info-no-coach')).toBeNull();
+        expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
+      });
+
+      it("withdraws the waiting request from the block, and shows a decline's reason", async () => {
+        (userApi.getCoachAccessRequest as jest.Mock).mockResolvedValue({ request: pending });
+        (userApi.cancelCoachAccessRequest as jest.Mock).mockResolvedValue({
+          request: {
+            ...pending,
+            status: 'declined',
+            decided_at: '2026-10-08T12:00:00Z',
+            decline_reason: 'No coaching account we could verify.',
+          },
+        });
+        const { findByTestId, getByTestId } = renderSheet();
+
+        fireEvent.press(await findByTestId('coach-access-cancel'));
+
+        await waitFor(() => expect(userApi.cancelCoachAccessRequest).toHaveBeenCalled());
+        // What the server holds after the withdrawal is the earlier decline.
+        expect(await findByTestId('coach-access-decline-reason')).toHaveTextContent(
+          'Reason: No coaching account we could verify.',
+        );
+        expect(within(getByTestId('coach-seat-block')).getByTestId('coach-access-request')).toHaveTextContent('Ask again');
       });
 
       it('offers no seat to an owner who already holds coach access', async () => {

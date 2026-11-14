@@ -18,10 +18,12 @@ use crate::helpers;
 
 use std::iter::once;
 use std::sync::Arc;
+use std::time::Duration as WallDuration;
 
 use axum::http::StatusCode;
 use chrono::{Duration, NaiveDate, Utc};
-use serde_json::Value;
+use serde_json::{json, Value};
+use tokio::time::sleep;
 use uuid::Uuid;
 
 use common::{create_test_server_resources, create_test_user, generate_test_token};
@@ -311,33 +313,54 @@ fn row<'a>(body: &'a Value, id: &str) -> &'a Value {
         .unwrap_or_else(|| panic!("no {id} row in {body}"))
 }
 
-/// Home's list: connect, then the four flows in order; the first open row
-/// is current and carries its gs: postback; the rows offered are reported
-/// shown under the `getting_started` surface and never counted toward
-/// retiring a starter.
+fn ids(body: &Value) -> Vec<&str> {
+    body["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap())
+        .collect()
+}
+
+/// Write one onboarding step row, as the wizard and Home's sheets do.
+async fn put_step(fx: &Fixture, step_id: &str, status: &str) {
+    AxumTestRequest::put(&format!("/api/me/onboarding/steps/{step_id}"))
+        .header("Authorization", &fx.auth)
+        .json(&json!({ "status": status }))
+        .send(OnboardingRoutes::routes(Arc::clone(&fx.resources)))
+        .await
+        .assert_status(StatusCode::NO_CONTENT);
+}
+
+/// Step rows are stamped by the engine clock, to the second on `SQLite`:
+/// a write meant to come after another waits for the clock to move on.
+async fn next_second() {
+    sleep(WallDuration::from_millis(1_100)).await;
+}
+
+/// Home's list in the board's order: connect, then the questions the wizard
+/// left to Home, then the flows; the first open row is current; a flow's row carries its gs:
+/// postback; the rows offered are reported shown under the
+/// `getting_started` surface and never counted toward retiring a starter.
 #[tokio::test]
 async fn getting_started_lists_the_rows_and_reports_them_shown_without_counting_them() {
     let fx = setup().await;
     let (events, _guard) = capture_notify();
     let body = fx.getting_started().await;
 
-    let ids: Vec<&str> = body["rows"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|row| row["id"].as_str().unwrap())
-        .collect();
     assert_eq!(
-        ids,
+        ids(&body),
         [
             "connect",
-            "meet_team",
-            "last_workout",
+            "health_check",
             "about_me_more",
-            "check_in"
-        ]
+            "check_in",
+            "meet_team",
+            "last_workout"
+        ],
+        "connect first, then a PAR-Q never asked"
     );
-    assert_eq!(body["total"], 5);
+    assert_eq!(body["total"], 6);
     assert_eq!(body["done_count"], 0);
     assert_eq!(body["hidden"], false);
     assert!(body["folded_at"].is_null());
@@ -347,7 +370,13 @@ async fn getting_started_lists_the_rows_and_reports_them_shown_without_counting_
         "nothing connected: connect is current"
     );
     assert!(connect["postback"].is_null(), "connect opens Settings");
-    assert_eq!(row(&body, "meet_team")["postback"], "gs:1:meet_team");
+    let health = row(&body, "health_check");
+    assert_eq!(health["current"], false);
+    assert!(
+        health["postback"].is_null(),
+        "the health check opens a sheet"
+    );
+    assert_eq!(row(&body, "meet_team")["postback"], "gs:4:meet_team");
     assert_eq!(row(&body, "meet_team")["current"], false);
     let last_workout = row(&body, "last_workout");
     assert_eq!(last_workout["eligible"], false, "no activities yet");
@@ -361,7 +390,11 @@ async fn getting_started_lists_the_rows_and_reports_them_shown_without_counting_
     }
     assert!(shown
         .iter()
-        .any(|e| e.field("use_case") == MEET_TEAM && e.field("position") == "1"));
+        .any(|e| e.field("use_case") == MEET_TEAM && e.field("position") == "4"));
+    assert!(
+        shown.iter().all(|e| e.field("use_case") != "health_check"),
+        "a sheet row is no starter"
+    );
     assert!(
         fx.repos()
             .use_case_exposures
@@ -411,6 +444,62 @@ async fn getting_started_ticks_a_done_flow_and_says_when_it_is_hidden() {
     );
 }
 
+/// The questions the wizard left to Home (carnet#1530). A health check put off
+/// at the third screen leads the list; the goal and the why, and the cadence,
+/// tick on the step rows their sheets write; a PAR-Q answered from Home keeps
+/// its row, ticked, so the count moves on by one.
+#[tokio::test]
+async fn getting_started_asks_what_the_wizard_left_and_ticks_each_on_its_step_row() {
+    let fx = setup().await;
+    put_step(&fx, "parq", "skipped").await;
+    put_step(&fx, "coach_proposal", "complete").await;
+    let body = fx.getting_started().await;
+    assert_eq!(&ids(&body)[..2], ["connect", "health_check"]);
+    assert_eq!(row(&body, "health_check")["done"], false);
+    assert_eq!(row(&body, "about_me_more")["done"], false);
+    assert_eq!(row(&body, "check_in")["done"], false);
+    assert_eq!(
+        row(&body, "check_in")["eligible"],
+        true,
+        "the cadence is chosen before any check-in runs"
+    );
+    assert_eq!(body["done_count"], 0);
+
+    put_step(&fx, "about_you", "complete").await;
+    put_step(&fx, "check_in", "complete").await;
+    let body = fx.getting_started().await;
+    assert_eq!(row(&body, "about_me_more")["done"], true);
+    assert_eq!(row(&body, "check_in")["done"], true);
+    assert_eq!(body["done_count"], 2);
+
+    next_second().await;
+    put_step(&fx, "parq", "complete").await;
+    let body = fx.getting_started().await;
+    let health = row(&body, "health_check");
+    assert_eq!(
+        health["done"], true,
+        "answered from Home, the row ticks: {body}"
+    );
+    assert_eq!(body["done_count"], 3);
+    assert_eq!(body["total"], 6);
+}
+
+/// A PAR-Q answered at the third screen, before the team step, was never Home's
+/// to ask: no row, before or after.
+#[tokio::test]
+async fn getting_started_never_lists_a_health_check_answered_in_the_wizard() {
+    let fx = setup().await;
+    put_step(&fx, "parq", "complete").await;
+    next_second().await;
+    put_step(&fx, "coach_proposal", "complete").await;
+    let body = fx.getting_started().await;
+    assert!(
+        !ids(&body).contains(&"health_check"),
+        "answered in the wizard: {body}"
+    );
+    assert_eq!(body["total"], 5);
+}
+
 /// The chat-app row (carnet#1525): listed only once the workspace offers a
 /// chat app the sheet could link, and only while the list is still open; open
 /// until the athlete links one, then done. The count follows it, so the list
@@ -427,7 +516,7 @@ async fn getting_started_lists_the_chat_app_only_when_one_is_offered_and_ticks_i
             .all(|row| row["id"] != "chat_app"),
         "no app offered, no row: {body}"
     );
-    assert_eq!(body["total"], 5);
+    assert_eq!(body["total"], 6);
 
     let messaging: &dyn MessagingRepository = &*fx.repos().messaging;
     messaging
@@ -448,14 +537,17 @@ async fn getting_started_lists_the_chat_app_only_when_one_is_offered_and_ticks_i
         .unwrap();
     let body = fx.getting_started().await;
     let chat_app = row(&body, "chat_app");
-    assert_eq!(chat_app["order"], 6);
+    assert_eq!(
+        chat_app["order"], 5,
+        "after connect, the health check, the goal and the why, and the cadence"
+    );
     assert_eq!(chat_app["eligible"], true);
     assert_eq!(chat_app["done"], false);
     assert!(
         chat_app["postback"].is_null(),
         "the row opens a sheet, not a thread"
     );
-    assert_eq!(body["total"], 6);
+    assert_eq!(body["total"], 7);
     let done_before_link = body["done_count"].as_u64().unwrap();
 
     messaging

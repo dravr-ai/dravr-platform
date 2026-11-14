@@ -47,10 +47,12 @@ const mockGetOnboardingStatus = jest.fn();
 const mockGetCoachAccessRequest = jest.fn();
 const mockRequestCoachAccess = jest.fn();
 const mockGetSession = jest.fn();
+const mockSetOnboardingStep = jest.fn().mockResolvedValue(undefined);
 jest.mock('../../../services/api', () => ({
   oauthApi: { getProvidersStatus: jest.fn(), initMobileOAuth: jest.fn() },
   userApi: {
     getOnboardingStatus: (...args: unknown[]) => mockGetOnboardingStatus(...args),
+    setOnboardingStep: (...args: unknown[]) => mockSetOnboardingStep(...args),
     getCoachAccessRequest: (...args: unknown[]) => mockGetCoachAccessRequest(...args),
     requestCoachAccess: (...args: unknown[]) => mockRequestCoachAccess(...args),
   },
@@ -176,6 +178,8 @@ describe('OnboardingConnectScreen — TrainingPeaks', () => {
   }] });
 
     renderScreen();
+    // Tes données folds every service but Garmin, Strava and Intervals.icu.
+    fireEvent.press(await screen.findByTestId('provider-more-services'));
     fireEvent.press(await screen.findByLabelText('Connect TrainingPeaks'));
 
     expect(await screen.findByText('sciotte-modal:trainingpeaks:consent')).toBeTruthy();
@@ -414,7 +418,7 @@ describe('OnboardingConnectScreen — an import started counts as connected', ()
     renderScreen();
 
     expect(await screen.findByTestId('onboarding-connect-continue')).toBeTruthy();
-    expect(screen.queryByText(i18n.t('app.continueWithoutConnecting'))).toBeNull();
+    expect(screen.queryByTestId('onboarding-connect-skip')).toBeNull();
   });
 
   it('keeps the skip while the server still needs a connection', async () => {
@@ -422,7 +426,7 @@ describe('OnboardingConnectScreen — an import started counts as connected', ()
 
     renderScreen();
 
-    expect(await screen.findByText(i18n.t('app.continueWithoutConnecting'))).toBeTruthy();
+    expect(await screen.findByTestId('onboarding-connect-skip')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-connect-continue')).toBeNull();
   });
 });
@@ -464,7 +468,7 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
       ).toBeTruthy();
       // The other services are still one tap away.
       expect(screen.getByLabelText('Connecter Garmin')).toBeTruthy();
-      expect(screen.queryByText(i18n.t('app.continueWithoutConnecting'))).toBeNull();
+      expect(screen.queryByTestId('onboarding-connect-skip')).toBeNull();
 
       fireEvent.press(screen.getByText('Continuer'));
       expect(queryClient.getQueryData(['connect-provider-done', 'u1'])).toBe(true);
@@ -555,6 +559,7 @@ describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
   it('asks for the athlete\'s own app before the OAuth start while no app of the server can authorize it', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoop(true)] });
     renderScreen();
+    fireEvent.press(await screen.findByTestId('provider-more-services'));
     fireEvent.press(await screen.findByLabelText('Connect WHOOP'));
 
     expect(
@@ -571,6 +576,7 @@ describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
   it('starts the OAuth flow directly while an app of the server can authorize it', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoop(false)] });
     renderScreen();
+    fireEvent.press(await screen.findByTestId('provider-more-services'));
     fireEvent.press(await screen.findByLabelText('Connect WHOOP'));
 
     await waitFor(() =>
@@ -697,8 +703,9 @@ describe('OnboardingConnectScreen — the coach-seat step', () => {
 
     await waitFor(() => expect(screen.getByTestId('coach-seat-status-requested')).toBeTruthy());
     expect(mockRequestCoachAccess).toHaveBeenCalledWith();
-    expect(screen.getByText('Request sent · usually within 24 h')).toBeTruthy();
-    expect(screen.getByText(/Sent Nov 12, 2026/)).toBeTruthy();
+    // No wait time is promised: the answer comes here and by email (carnet#1521).
+    expect(screen.getByText('Request sent')).toBeTruthy();
+    expect(screen.getByText(/Nov 12, 2026\. We'll let you know here and by email\./)).toBeTruthy();
     fireEvent.press(screen.getByTestId('coach-seat-continue'));
     expect(mockMarkSeatDone).toHaveBeenCalledTimes(1);
   });
@@ -731,12 +738,42 @@ describe('OnboardingConnectScreen — the coach-seat step', () => {
     expect(screen.queryByText('Get your coach seat')).toBeNull(); // humanCoach.seatHeading
   });
 
-  it('an athlete still sees every provider an athlete connects', async () => {
+  it('an athlete meets « Connect your training », three services, and every other one behind « More services »', async () => {
     getProvidersStatus.mockResolvedValue(served());
     renderScreen();
 
     expect(await screen.findByLabelText('Connect Strava')).toBeTruthy();
+    expect(screen.getByText('Connect your training')).toBeTruthy();
+    expect(screen.getByText(i18n.t('onboarding.connect.intro'))).toBeTruthy();
+    expect(screen.queryByLabelText('Connect WHOOP')).toBeNull();
+
+    const more = screen.getByTestId('provider-more-services');
+    expect(more).toHaveTextContent(/More services/);
+    fireEvent.press(more);
     expect(screen.getByLabelText('Connect WHOOP')).toBeTruthy();
-    expect(screen.getByText(i18n.t('onboarding.connectProviderIntro'))).toBeTruthy();
+  });
+});
+
+describe('OnboardingConnectScreen — continue without connecting (carnet#1530)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [STRAVA_CARD] });
+    mockGetOnboardingStatus.mockResolvedValue({ needs_provider_connection: true });
+  });
+
+  it('is a visible secondary, saved on the server so the screen never comes back', async () => {
+    const { queryClient } = renderScreen();
+
+    fireEvent.press(await screen.findByTestId('onboarding-connect-skip'));
+
+    expect(queryClient.getQueryData(['provider-skipped', 'u1'])).toBe(true);
+    expect(mockSetOnboardingStep).toHaveBeenCalledWith('connect_provider', 'skipped');
+  });
+
+  it('keeps sign out quiet at the bottom, below the credentials line', async () => {
+    renderScreen();
+    const signOut = await screen.findByTestId('onboarding-logout-link');
+    expect(signOut).toHaveTextContent(i18n.t('common.logout'));
+    expect(screen.getByText(i18n.t('app.credsEncrypted'))).toBeTruthy();
   });
 });

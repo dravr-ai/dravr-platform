@@ -15,6 +15,7 @@ import {
   ATHLETE_STEP_IDS,
   athleteStepsWaived as serverAthleteStepsWaived,
   isConnectProviderRecorded,
+  isConnectProviderSkipped,
   isServerStepComplete,
   skippedStepIds,
   withStepRecorded,
@@ -44,12 +45,8 @@ export interface OnboardingState {
    * does not train) takes the athlete steps out of the journey.
    */
   completeProfileType: (choice: { trains: boolean }) => void;
-  /** About-you answers submitted or skipped — persist + advance. */
-  completeAboutYou: (status?: 'complete' | 'skipped') => void;
   /** PAR-Q answered or skipped — persist + advance. */
   completeParq: (status?: 'complete' | 'skipped') => void;
-  /** The check-in cadence chosen (stored by the step) or skipped — persist + advance. */
-  completeCheckIn: (status: 'complete' | 'skipped') => void;
   /**
    * Write the Your team step and wait for it. The server joins every agent in
    * `teamAgentIds` to the team, makes `leadAgentId` the selected agent and
@@ -66,10 +63,28 @@ export interface OnboardingState {
   completeCoachSeat: () => void;
   /** The coach's group was just made: the invite is the next screen. */
   markCoachGroupCreated: () => void;
+  /**
+   * A team-issued coach-seat invitation settled the role question and the
+   * seat before onboarding began (server truth: `settled_by_invite`): the bar
+   * says so, and the group step says the seat is already active.
+   */
+  settledByInvite: boolean;
   /** Continue past the connect step once a first provider is connected this session. */
   completeConnectProvider: () => void;
-  /** Session-only "continue without connecting" — escapes the flow to the dashboard. */
+  /**
+   * « Continuer sans connecter »: advances at once and saves the skip as the
+   * connect step's `skipped` row, so Connect never comes back at sign-in.
+   */
   skipProvider: () => void;
+}
+
+/** What the hook's host knows about how the user arrived. */
+export interface OnboardingArrival {
+  /**
+   * The user opened a group invite link — a coach inviting an athlete — so
+   * the role is recorded as athlete for them and Profil is behind them.
+   */
+  invitedAsAthlete?: boolean;
 }
 
 /**
@@ -83,7 +98,7 @@ export interface OnboardingState {
  * server status, so a fresh tab after the OAuth return meets it too
  * (carnet#1042).
  */
-export function useOnboardingState(): OnboardingState {
+export function useOnboardingState({ invitedAsAthlete = false }: OnboardingArrival = {}): OnboardingState {
   const { user, isAuthenticated, updateUser } = useAuth();
 
   // Admins are exempt: their primary intent is administering, not chatting, so
@@ -97,10 +112,10 @@ export function useOnboardingState(): OnboardingState {
 
   const { data: onboardingStatus } = useOnboardingStatus(onboardingActive);
 
-  // Session-only "continue without a provider": lets the user into the app
-  // without connecting. Deliberately not persisted — the connect prompts in
-  // chat and on the agent screens carry the nudge from here on.
-  const [skippedProvider, setSkippedProvider] = useState(false);
+  // "Continue without connecting", as tapped in this tab. The tap also writes
+  // the connect step `skipped`, which carries it to every later sign-in and
+  // device; Home's "Connect your data" row is the nudge from here on.
+  const [skippedProviderLocal, setSkippedProviderLocal] = useState(false);
   // Session-only: the user connected a first provider and pressed Continue. The
   // connect step stays up until then so a second service is one tap away.
   const [connectProviderDone, setConnectProviderDone] = useState(false);
@@ -119,27 +134,13 @@ export function useOnboardingState(): OnboardingState {
     );
   }, [coachProposalKey]);
 
-  // About-you and PAR-Q completion. Same shape as profile-type: a local flag for
-  // instant advance, the durable server record for cross-device truth.
-  const aboutYouKey = user?.user_id ? `dravr.about_you_done.${user.user_id}` : null;
-  const [aboutYouDoneLocal, setAboutYouDoneLocal] = useState(false);
-  useEffect(() => {
-    setAboutYouDoneLocal(aboutYouKey ? localStorage.getItem(aboutYouKey) === '1' : true);
-  }, [aboutYouKey]);
-
+  // PAR-Q completion. Same shape as profile-type: a local flag for instant
+  // advance, the durable server record for cross-device truth.
   const parqKey = user?.user_id ? `dravr.parq_done.${user.user_id}` : null;
   const [parqDoneLocal, setParqDoneLocal] = useState(false);
   useEffect(() => {
     setParqDoneLocal(parqKey ? localStorage.getItem(parqKey) === '1' : true);
   }, [parqKey]);
-
-  // The check-in cadence question, the same local-plus-server shape: the
-  // step stores the cadence itself, this records that it was answered.
-  const checkInKey = user?.user_id ? `dravr.check_in_done.${user.user_id}` : null;
-  const [checkInDoneLocal, setCheckInDoneLocal] = useState(false);
-  useEffect(() => {
-    setCheckInDoneLocal(checkInKey ? localStorage.getItem(checkInKey) === '1' : true);
-  }, [checkInKey]);
 
   // Profile-type completion, persisted per-user so the athlete-vs-coach step
   // shows once within the first-run connect flow.
@@ -193,11 +194,14 @@ export function useOnboardingState(): OnboardingState {
     profileTypeChosenLocal || isServerStepComplete(serverSteps, 'profile_type');
   const coachProposalDone =
     coachProposalDoneLocal || isServerStepComplete(serverSteps, 'coach_proposal');
-  const aboutYouDone = aboutYouDoneLocal || isServerStepComplete(serverSteps, 'about_you');
   const parqDone = parqDoneLocal || isServerStepComplete(serverSteps, 'parq');
-  const checkInDone = checkInDoneLocal || isServerStepComplete(serverSteps, 'check_in');
+  const skippedProvider = skippedProviderLocal || isConnectProviderSkipped(serverSteps);
   const athleteStepsWaived = athleteStepsWaivedLocal || serverAthleteStepsWaived(serverSteps);
   const coachGroupDone = coachGroupDoneLocal || isServerStepComplete(serverSteps, 'coach_group');
+  // The seat step's server row exists only where a coach-seat invitation
+  // settled the seat before sign-in, so that coach never meets the step.
+  const coachSeatDone = coachSeatDoneLocal || isServerStepComplete(serverSteps, 'coach_seat');
+  const settledByInvite = onboardingStatus?.settled_by_invite === true;
   const coachesOthers = onboardingStatus?.coaches_others === true;
   // Server-only: the status read records it the first time a provider is
   // connected, so disconnecting later never reopens the wizard (carnet#1341).
@@ -300,14 +304,28 @@ export function useOnboardingState(): OnboardingState {
 
   const markCoachGroupCreated = useCallback(() => setCoachGroupCreated(true), []);
 
-  const completeAboutYou = useCallback(
-    (status: 'complete' | 'skipped' = 'complete') => {
-      if (aboutYouKey) localStorage.setItem(aboutYouKey, '1');
-      setAboutYouDoneLocal(true);
-      persistStep('about_you', status);
-    },
-    [aboutYouKey, persistStep],
-  );
+  // An invite link records the role it implies — athlete — as the role
+  // question's answer would, once, so the wizard opens past Profil and the bar
+  // shows Profil done because the role is recorded, not by a case of its own.
+  // Best-effort like the other step writes: a new account already reads as an
+  // athlete, and the role stays changeable in Settings.
+  const inviteRoleRecorded = useRef(false);
+  const statusLoaded = onboardingStatus !== undefined;
+  useEffect(() => {
+    if (!invitedAsAthlete || !onboardingActive || !statusLoaded || inviteRoleRecorded.current) return;
+    if (profileTypeChosen || coachesOthers || athleteStepsWaived) return;
+    inviteRoleRecorded.current = true;
+    void userApi.setCoachingRole(false).catch(() => {});
+    completeProfileType({ trains: true });
+  }, [
+    invitedAsAthlete,
+    onboardingActive,
+    statusLoaded,
+    profileTypeChosen,
+    coachesOthers,
+    athleteStepsWaived,
+    completeProfileType,
+  ]);
 
   const completeParq = useCallback(
     (status: 'complete' | 'skipped' = 'complete') => {
@@ -318,16 +336,10 @@ export function useOnboardingState(): OnboardingState {
     [parqKey, persistStep],
   );
 
-  const completeCheckIn = useCallback(
-    (status: 'complete' | 'skipped') => {
-      if (checkInKey) localStorage.setItem(checkInKey, '1');
-      setCheckInDoneLocal(true);
-      persistStep('check_in', status);
-    },
-    [checkInKey, persistStep],
-  );
-
-  const skipProvider = useCallback(() => setSkippedProvider(true), []);
+  const skipProvider = useCallback(() => {
+    setSkippedProviderLocal(true);
+    persistStep('connect_provider', 'skipped');
+  }, [persistStep]);
   const completeConnectProvider = useCallback(() => setConnectProviderDone(true), []);
 
   const ctx: OnboardingContext = {
@@ -340,13 +352,11 @@ export function useOnboardingState(): OnboardingState {
     connectProviderDone,
     profileTypeChosen,
     coachProposalDone,
-    aboutYouDone,
     parqDone,
-    checkInDone,
     athleteStepsWaived,
     coachesOthers,
     coachGroupDone,
-    coachSeatDone: coachSeatDoneLocal,
+    coachSeatDone,
     coachGroupCreated,
     analyticsConsentAnswered: user?.analytics_consent_answered !== false,
   };
@@ -355,14 +365,13 @@ export function useOnboardingState(): OnboardingState {
     ctx,
     answerAnalyticsConsent,
     completeProfileType,
-    completeAboutYou,
     completeParq,
-    completeCheckIn,
     persistCoachProposal,
     completeCoachProposal,
     completeCoachGroup,
     completeCoachSeat,
     markCoachGroupCreated,
+    settledByInvite,
     completeConnectProvider,
     skipProvider,
   };

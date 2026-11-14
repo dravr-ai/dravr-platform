@@ -41,6 +41,9 @@ pub const SUBJECT_WEBSITE_SIGN_IN: &str = "Your sign-in link for the Dravr docs"
 /// Subject line for the operator-sent invitation.
 pub const SUBJECT_INVITATION: &str = "You're invited to Dravr";
 
+/// Subject line for a super-admin's coach-seat invitation (carnet#1524).
+pub const SUBJECT_COACH_SEAT_INVITATION: &str = "Your Dravr coach seat is ready";
+
 /// Subject line of the operator email announcing a coach-access request a
 /// coach asked for.
 pub const SUBJECT_COACH_ACCESS_REQUESTED: &str = "Dravr: a coach is asking for coach access";
@@ -48,6 +51,13 @@ pub const SUBJECT_COACH_ACCESS_REQUESTED: &str = "Dravr: a coach is asking for c
 /// for a coach from the Intervals.icu roster of a key they linked.
 pub const SUBJECT_COACH_ACCESS_FILED: &str =
     "Dravr: a coach-access request was filed from an Intervals.icu roster";
+
+/// Subject line of the email telling a coach their coach-access request was
+/// granted.
+pub const SUBJECT_COACH_ACCESS_GRANTED: &str = "Your Dravr coach access is on";
+/// Subject line of the email telling a coach their coach-access request was
+/// declined.
+pub const SUBJECT_COACH_ACCESS_DECLINED: &str = "Your Dravr coach access request was declined";
 
 /// Subject line of the operator email announcing a sign-up awaiting approval.
 pub const SUBJECT_SIGNUP_AWAITING_APPROVAL: &str = "Dravr: a new account is waiting for approval";
@@ -227,6 +237,23 @@ impl ResendEmailService {
         self.send_email(to, SUBJECT_INVITATION, &html).await
     }
 
+    /// Send a coach-seat invitation carrying its single-use accept link
+    /// (carnet#1524): the account it creates already holds coach access.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_coach_seat_invitation(
+        &self,
+        to: &str,
+        accept_url: &str,
+        ttl_days: i64,
+    ) -> AppResult<()> {
+        let html = templates::coach_seat_invitation_html(accept_url, ttl_days);
+        self.send_email(to, SUBJECT_COACH_SEAT_INVITATION, &html)
+            .await
+    }
+
     /// Tell a super-admin that a coach-access request opened (carnet#738):
     /// one the coach asked for, or one filed for them from their
     /// Intervals.icu roster, as `origin` says.
@@ -258,6 +285,44 @@ impl ResendEmailService {
             CoachAccessOrigin::IntervalsIcuRoster { .. } => SUBJECT_COACH_ACCESS_FILED,
         };
         self.send_email(to, subject, &html).await
+    }
+
+    /// Tell a coach their coach-access request was granted (carnet#1521),
+    /// naming the groups the grant made them the coach of and linking their
+    /// coach Home when `coach_home_url` is given.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_coach_access_granted(
+        &self,
+        to: &str,
+        display_name: Option<&str>,
+        group_names: &[String],
+        coach_home_url: Option<&str>,
+    ) -> AppResult<()> {
+        let html = templates::coach_access_granted_html(display_name, group_names, coach_home_url);
+        self.send_email(to, SUBJECT_COACH_ACCESS_GRANTED, &html)
+            .await
+    }
+
+    /// Tell a coach their coach-access request was declined (carnet#1521),
+    /// with the super-admin's reason when one was given, and where they can
+    /// ask again when `ask_again_url` is given.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if email delivery fails.
+    pub async fn send_coach_access_declined(
+        &self,
+        to: &str,
+        display_name: Option<&str>,
+        reason: Option<&str>,
+        ask_again_url: Option<&str>,
+    ) -> AppResult<()> {
+        let html = templates::coach_access_declined_html(display_name, reason, ask_again_url);
+        self.send_email(to, SUBJECT_COACH_ACCESS_DECLINED, &html)
+            .await
     }
 
     /// Tell a super-admin that a new account is waiting for approval

@@ -150,6 +150,13 @@ interface ProviderConnectionCardsProps {
    * another, every route reads the same.
    */
   plain?: boolean;
+  /**
+   * Lead with these cards (by served id, in this order) and fold every other
+   * card, and the import-your-own-data link, behind « Plus de services » —
+   * onboarding's Tes données. The folded rows keep every action, and open by
+   * themselves when one of them is connected.
+   */
+  leadProviders?: readonly string[];
 }
 
 export default function ProviderConnectionCards({
@@ -157,10 +164,12 @@ export default function ProviderConnectionCards({
   isSkipPending,
   onlyProviders,
   plain = false,
+  leadProviders,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
   const [signIn, setSignIn] = useState<SignInWindow | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   // The card whose grant came back refused: its row says so and its tap tries again.
   const [refusedCard, setRefusedCard] = useState<string | null>(null);
   // The Intervals.icu dialog, and whether it leads with the authorization
@@ -373,10 +382,16 @@ export default function ProviderConnectionCards({
         .filter((p) => onlyProviders.includes(p.provider))
         .sort((a, b) => onlyProviders.indexOf(a.provider) - onlyProviders.indexOf(b.provider))
     : served;
+  // Tes données leads with a few cards and folds the rest (`leadProviders`).
+  const lead = leadProviders
+    ? providers
+        .filter((p) => leadProviders.includes(p.provider))
+        .sort((a, b) => leadProviders.indexOf(a.provider) - leadProviders.indexOf(b.provider))
+    : providers;
+  const more = leadProviders ? providers.filter((p) => !leadProviders.includes(p.provider)) : [];
+  const showMore = moreOpen || more.some((p) => p.connected);
 
-  return (
-    <div className="w-full">
-      {providers.map((provider) => {
+  const renderRow = (provider: ProviderStatus) => {
         // The brand colour is carried by the glyph, not by a tile (DESIGN.md
         // §5), and only in a scheme where it clears the 3:1 icon floor on the
         // canvas; elsewhere — and for a provider with no brand colour — the
@@ -456,10 +471,42 @@ export default function ProviderConnectionCards({
             )}
           </div>
         );
-      })}
+  };
+
+  return (
+    <div className="w-full">
+      {lead.map(renderRow)}
+
+      {/* « Plus de services »: every card Tes données does not lead with, and the file import */}
+      {more.length > 0 && (
+        <div className={ROW_WRAPPER_CLASS}>
+          <button
+            type="button"
+            onClick={() => setMoreOpen((open) => !open)}
+            aria-expanded={showMore}
+            className={ROW_CLASS}
+            data-testid="provider-more-services"
+          >
+            <span aria-hidden="true" className="flex h-6 w-6 flex-shrink-0 items-center justify-center text-on-surface-variant">
+              <svg className={`h-4 w-4 transition-transform ${showMore ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </span>
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+              <span className="text-sm font-medium text-on-surface">{t('onboarding.connect.moreServices')}</span>
+              {!showMore && (
+                <span className="min-w-0 truncate text-xs text-on-surface-variant">
+                  {[...more.filter((p) => connectPlan(p).primary.kind !== 'none').slice(0, 3).map((p) => p.display_name), t('onboarding.connect.moreServicesFile')].join(', ')}
+                </span>
+              )}
+            </span>
+          </button>
+        </div>
+      )}
+      {showMore && more.map(renderRow)}
 
       {/* Import your own data (Apple Health has no card): below the providers, never one of them */}
-      {!plain && <ImportOwnDataLink />}
+      {!plain && (leadProviders === undefined || showMore) && <ImportOwnDataLink />}
 
       {/* Skip and start chatting - last row */}
       {onSkip && (

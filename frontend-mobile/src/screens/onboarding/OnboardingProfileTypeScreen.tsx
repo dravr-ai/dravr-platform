@@ -31,7 +31,7 @@ type ProfileChoice = 'athlete' | 'coach' | 'coach_and_athlete';
  * The answer records a role — whether the user coaches others — never the
  * reply style, which stays the user's own under Settings → Coaching style
  * (carnet#827). The athlete answer records the role as off. A coach who does not
- * train also takes the athlete steps (about-you, PAR-Q) out of the journey —
+ * train also takes the athlete steps (the PAR-Q, the about-you answers) out of the journey —
  * locally, and as `not_applicable` step rows on the server — before the
  * profile-type step is marked done, so the routing gate never lands them on
  * an athlete question. Mirrors the web OnboardingProfileType.

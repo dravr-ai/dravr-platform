@@ -19,6 +19,18 @@
 //! the group its coach later asks to coach
 //! ([`CoachAccessRequestRepository::name_group`]).
 //!
+//! A coach withdraws their own waiting request by deleting it
+//! ([`CoachAccessRequestRepository::withdraw`]), which frees the one-pending
+//! slot so they can ask again at once; no status is added for it. A decline
+//! may carry the super-admin's reason (`decline_reason`, carnet#1521).
+//!
+//! Asking again replaces an earlier decline: opening a request stamps the
+//! user's declined requests `superseded_at`
+//! ([`CoachAccessRequestRepository::supersede_declined`]), and the request the
+//! coach reads ([`CoachAccessRequestRepository::current_for_user`]) skips a
+//! superseded decline. [`CoachAccessRequestRepository::latest_for_user`] stays
+//! the raw history, which a roster read files at most once against.
+//!
 //! `user_id` and `decided_by` are `uuid` on Postgres and `TEXT` on `SQLite`;
 //! they bind and read through the shell's codec (`$ids`). `id` and `group_id`
 //! are `TEXT` on both. `$n` placeholders throughout: sqlx accepts them on
@@ -40,6 +52,19 @@ pub trait CoachAccessRequestRepository: Send + Sync {
     async fn get(&self, id: Uuid) -> AppResult<Option<CoachAccessRequest>>;
     /// The user's most recent request, whatever its status.
     async fn latest_for_user(&self, user_id: Uuid) -> AppResult<Option<CoachAccessRequest>>;
+    /// The request the user reads as theirs: the most recent one, leaving out
+    /// a decline a newer ask superseded. `None` when they never asked, or
+    /// asked again after a decline and withdrew that ask.
+    async fn current_for_user(&self, user_id: Uuid) -> AppResult<Option<CoachAccessRequest>>;
+    /// Stamp `user_id`'s declined requests other than `except` as superseded
+    /// at `at`, since a new ask replaced them. Returns how many it stamped; a
+    /// decline already stamped keeps its first stamp.
+    async fn supersede_declined(
+        &self,
+        user_id: Uuid,
+        except: Uuid,
+        at: DateTime<Utc>,
+    ) -> AppResult<u64>;
     /// Every request in `status`, oldest first.
     async fn list_by_status(&self, status: CoachAccessStatus)
         -> AppResult<Vec<CoachAccessRequest>>;
@@ -53,16 +78,23 @@ pub trait CoachAccessRequestRepository: Send + Sync {
         group_id: Uuid,
         group_tenant_id: &str,
     ) -> AppResult<bool>;
-    /// Record a super-admin's decision on a pending request. `false` when the
-    /// request is not pending (already decided, or unknown), which is left
-    /// as it is.
+    /// Record a super-admin's decision on a pending request, with the reason
+    /// given for a decline (`None` for a grant, or a decline given without
+    /// one). `false` when the request is not pending (already decided,
+    /// withdrawn, or unknown), which is left as it is.
     async fn decide(
         &self,
         id: Uuid,
         status: CoachAccessStatus,
         decided_by: Option<Uuid>,
         decided_at: DateTime<Utc>,
+        decline_reason: Option<&str>,
     ) -> AppResult<bool>;
+    /// Withdraw `user_id`'s pending request `id`: the row is deleted, so the
+    /// one-pending slot is free and the coach may ask again at once. `false`
+    /// when the request is not theirs or no longer pending (a decision won
+    /// the race), which is left as it is.
+    async fn withdraw(&self, id: Uuid, user_id: Uuid) -> AppResult<bool>;
     /// Put a granted request back to pending, clearing its decision. A grant
     /// claims the request before applying its effects; when an effect fails,
     /// this undoes the claim so the row never says granted for access that
@@ -82,7 +114,7 @@ pub(crate) const OPEN_REQUEST_SQL: &str = r"
 /// The columns every read decodes.
 macro_rules! coach_access_request_columns {
     () => {
-        "id, user_id, group_id, group_tenant_id, status, created_at, decided_at, decided_by"
+        "id, user_id, group_id, group_tenant_id, status, created_at, decided_at, decided_by, decline_reason, superseded_at"
     };
 }
 
@@ -99,6 +131,22 @@ pub(crate) const LATEST_FOR_USER_SQL: &str = concat!(
     coach_access_request_columns!(),
     " FROM coach_access_requests WHERE user_id = $1 ORDER BY created_at DESC, id DESC LIMIT 1"
 );
+
+/// The user's newest request that a newer ask has not superseded.
+pub(crate) const CURRENT_FOR_USER_SQL: &str = concat!(
+    "SELECT ",
+    coach_access_request_columns!(),
+    " FROM coach_access_requests WHERE user_id = $1 AND superseded_at IS NULL",
+    " ORDER BY created_at DESC, id DESC LIMIT 1"
+);
+
+/// Stamp the user's not-yet-stamped declines, other than one request, as
+/// superseded by a new ask.
+pub(crate) const SUPERSEDE_DECLINED_SQL: &str = r"
+            UPDATE coach_access_requests
+            SET superseded_at = $3
+            WHERE user_id = $1 AND id <> $2 AND status = 'declined' AND superseded_at IS NULL
+            ";
 
 /// Every request in one status, oldest first.
 pub(crate) const LIST_BY_STATUS_SQL: &str = concat!(
@@ -118,14 +166,21 @@ pub(crate) const NAME_GROUP_SQL: &str = r"
 /// Decide a request that is still pending; matches nothing otherwise.
 pub(crate) const DECIDE_REQUEST_SQL: &str = r"
             UPDATE coach_access_requests
-            SET status = $2, decided_at = $3, decided_by = $4
+            SET status = $2, decided_at = $3, decided_by = $4, decline_reason = $5
             WHERE id = $1 AND status = 'pending'
+            ";
+
+/// Delete the user's own request while it is still pending; matches nothing
+/// otherwise, so a decision that won the race stands.
+pub(crate) const WITHDRAW_REQUEST_SQL: &str = r"
+            DELETE FROM coach_access_requests
+            WHERE id = $1 AND user_id = $2 AND status = 'pending'
             ";
 
 /// Undo a grant's claim; matches nothing unless the request is granted.
 pub(crate) const REOPEN_REQUEST_SQL: &str = r"
             UPDATE coach_access_requests
-            SET status = 'pending', decided_at = NULL, decided_by = NULL
+            SET status = 'pending', decided_at = NULL, decided_by = NULL, decline_reason = NULL
             WHERE id = $1 AND status = 'granted'
             ";
 
@@ -178,6 +233,12 @@ where
             .try_get("decided_at")
             .map_err(|e| column("decided_at", e))?,
         decided_by,
+        decline_reason: row
+            .try_get("decline_reason")
+            .map_err(|e| column("decline_reason", e))?,
+        superseded_at: row
+            .try_get("superseded_at")
+            .map_err(|e| column("superseded_at", e))?,
     })
 }
 
@@ -241,6 +302,40 @@ macro_rules! impl_coach_access_request_repository {
                 row.map(|row| Self::coach_access_row(&row)).transpose()
             }
 
+            async fn current_for_user(
+                &self,
+                user_id: Uuid,
+            ) -> AppResult<Option<CoachAccessRequest>> {
+                let row = sqlx::query(CURRENT_FOR_USER_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read coach access request: {e}"))
+                    })?;
+                row.map(|row| Self::coach_access_row(&row)).transpose()
+            }
+
+            async fn supersede_declined(
+                &self,
+                user_id: Uuid,
+                except: Uuid,
+                at: DateTime<Utc>,
+            ) -> AppResult<u64> {
+                let result = sqlx::query(SUPERSEDE_DECLINED_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(except.to_string())
+                    .bind(at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to supersede earlier coach access declines: {e}"
+                        ))
+                    })?;
+                Ok(result.rows_affected())
+            }
+
             async fn list_by_status(
                 &self,
                 status: CoachAccessStatus,
@@ -283,16 +378,30 @@ macro_rules! impl_coach_access_request_repository {
                 status: CoachAccessStatus,
                 decided_by: Option<Uuid>,
                 decided_at: DateTime<Utc>,
+                decline_reason: Option<&str>,
             ) -> AppResult<bool> {
                 let result = sqlx::query(DECIDE_REQUEST_SQL)
                     .bind(id.to_string())
                     .bind(status.as_str())
                     .bind(decided_at)
                     .bind($ids::bind_opt(decided_by))
+                    .bind(decline_reason)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to decide coach access request: {e}"))
+                    })?;
+                Ok(result.rows_affected() == 1)
+            }
+
+            async fn withdraw(&self, id: Uuid, user_id: Uuid) -> AppResult<bool> {
+                let result = sqlx::query(WITHDRAW_REQUEST_SQL)
+                    .bind(id.to_string())
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to withdraw coach access request: {e}"))
                     })?;
                 Ok(result.rows_affected() == 1)
             }

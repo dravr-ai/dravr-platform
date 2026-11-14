@@ -143,10 +143,10 @@ describe('OnboardingCoachSeat', () => {
     expect(requestCoachAccess).toHaveBeenCalledWith();
     const status = await screen.findByTestId('coach-seat-status');
     expect(status).toHaveAttribute('data-state', 'requested');
-    expect(status).toHaveTextContent('Request sent · usually within 24 h');
-    expect(status).toHaveTextContent(/Sent Nov 12, 2026/);
-    // Only what ships: no promise of an email or an in-app notice.
-    expect(status).not.toHaveTextContent(/email/i);
+    expect(status).toHaveTextContent('Request sent');
+    expect(status).toHaveTextContent(/Nov 12, 2026\. We'll let you know here and by email\./);
+    expect(status.textContent).not.toMatch(/24/);
+    // The answer now comes here and by email (carnet#1521), so the step says so.
     await userEvent.click(screen.getByTestId('coach-seat-continue'));
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
@@ -195,7 +195,8 @@ describe('OnboardingCoachSeat', () => {
 
     const status = await screen.findByTestId('coach-seat-status');
     await waitFor(() => expect(status).toHaveAttribute('data-state', 'requested'));
-    expect(status).toHaveTextContent('Request sent · usually within 24 h');
+    expect(status).toHaveTextContent('Request sent');
+    expect(status.textContent).not.toMatch(/24/);
     expect(getCoachAccessRequest.mock.calls.length).toBeGreaterThan(1);
   });
 

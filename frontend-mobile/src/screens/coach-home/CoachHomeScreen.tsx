@@ -14,6 +14,7 @@ import { BrandLockup, EmptyState, Row, TextTabs } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
 import { coachAthleteHref, coachRepliesHref } from '../../navigation/routes';
+import { CoachPendingInvites } from './CoachPendingInvites';
 import { CoachQueueView } from './CoachQueueView';
 import { CoachRosterList } from './CoachRosterList';
 import { CoachSeasonList } from './CoachSeasonList';
@@ -101,7 +102,9 @@ export function CoachHomeScreen({ scopeSwitch }: CoachHomeScreenProps) {
       </EmptyState>
     );
   } else if (roster.athletes.length === 0) {
-    body = <EmptyState testID="coach-home-empty">{t('coachHome.noAthletes')}</EmptyState>;
+    // Nobody has joined yet: the athletes the coach invited wait as rows, or
+    // the empty state stands when no invite still works.
+    body = <CoachPendingInvites groups={roster.groups} />;
   } else if (view === 'queue') {
     body = <CoachQueueView athletes={roster.athletes} onOpen={open} onSeeAll={() => setView('roster')} undo={undo} />;
   } else if (view === 'roster') {

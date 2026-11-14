@@ -484,7 +484,15 @@ test.describe('Athlete Home', () => {
     await expect(started).toBeVisible();
     await expect(started.getByTestId('home-getting-started-count')).toHaveText('1 of 5');
     await expect(started.getByTestId('home-getting-started-row-connect')).toHaveAttribute('data-state', 'done');
-    await expect(started.getByTestId('home-getting-started-row-meet_team')).toHaveAttribute('aria-current', 'step');
+    // The board's order: Connect first, then the questions the wizard left to Home (carnet#1530).
+    await expect(started.locator('li[data-testid^="home-getting-started-row-"]')).toHaveCount(5);
+    expect(
+      await started
+        .locator('li[data-testid^="home-getting-started-row-"]')
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-testid')?.replace('home-getting-started-row-', ''))),
+    ).toEqual(['connect', 'about_me_more', 'check_in', 'meet_team', 'last_workout']);
+    await expect(started.getByTestId('home-getting-started-row-about_me_more')).toHaveAttribute('aria-current', 'step');
+    await expect(started.getByTestId('home-getting-started-row-about_me_more')).toContainText('Your goal and your why');
     await expect(started.getByTestId('home-getting-started-row-meet_team')).toContainText(
       'Reply to Endurance in your thread',
     );
@@ -504,7 +512,7 @@ test.describe('Athlete Home', () => {
       (request) => request.method() === 'POST' && /\/api\/chat\/conversations\/[^/]+\/messages/.test(request.url()),
     );
     await started.getByTestId('home-getting-started-row-meet_team').getByRole('button').click();
-    expect((await sent).postDataJSON()).toMatchObject({ content: 'gs:2:meet_team' });
+    expect((await sent).postDataJSON()).toMatchObject({ content: 'gs:3:meet_team' });
   });
 
   test('an athlete with no team is offered Pick your team, which opens the picker over Home', async ({ page }) => {

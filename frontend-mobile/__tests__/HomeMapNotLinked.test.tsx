@@ -29,10 +29,15 @@ jest.mock('../src/services/api', () => {
       getActivityRoute: jest.fn(async () => fixtures.LATEST_ROUTE_RESPONSE),
     },
     oauthApi: { getProvidersStatus: jest.fn(async () => fixtures.PROVIDERS_CONNECTED) },
+    // The screen reads the signed-in user; under the real AuthProvider with no
+    // stored session it reads none.
+    authApi: { initializeAuth: jest.fn(async () => false) },
+    onAuthFailure: jest.fn(() => jest.fn()),
   };
 });
 
 import { HomeScreen } from '../src/screens/home/HomeScreen';
+import { AuthProvider } from '../src/contexts/AuthContext';
 
 describe('Home where MapLibre is not linked in', () => {
   const linked = NativeModules[MAP_NATIVE_MODULE];
@@ -54,7 +59,9 @@ describe('Home where MapLibre is not linked in', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const screen = render(
       <QueryClientProvider client={client}>
-        <HomeScreen />
+        <AuthProvider>
+          <HomeScreen />
+        </AuthProvider>
       </QueryClientProvider>,
     );
 

@@ -31,8 +31,9 @@ export interface GettingStartedRow {
 /** Body of `GET /api/me/getting-started`. */
 export interface GettingStartedResponse {
   /**
-   * Connect, then the first-run flows in flow order, then `chat_app` when the
-   * workspace offers an app and the list is still open.
+   * Connect, then `health_check` (a PAR-Q put off at onboarding), the goal
+   * and the why, the cadence, `chat_app` when the workspace offers an app —
+   * those two only while the list is open — then the first-run flows.
    */
   rows: GettingStartedRow[];
   /** Rows done. */

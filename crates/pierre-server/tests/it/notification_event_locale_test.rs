@@ -373,6 +373,8 @@ mod notification_event_locale_tests {
             NotificationEvent::PersonaSessionDigest,
             NotificationEvent::PersonaAthleteDigest,
             NotificationEvent::GroupWeeklyDigest,
+            NotificationEvent::CoachAccessGranted,
+            NotificationEvent::CoachAccessDeclined,
         ] {
             assert_eq!(NotificationEvent::from_wire(event.wire()), Some(event));
         }

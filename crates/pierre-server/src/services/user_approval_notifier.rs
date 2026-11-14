@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pierre_contremaitre::messaging_strings::{MessagingStringsRegistry, KEY_REGISTRATION_APPROVED};
+use pierre_core::models::InvitationKind;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
 use pierre_middleware::redaction::mask_email;
@@ -103,10 +104,19 @@ impl UserApprovalNotifier for ApprovalNotifier {
             return false;
         };
         let accept_url = invitation.url(frontend_url);
-        match svc
-            .send_invitation(&invitation.email, &accept_url, INVITATION_TTL_DAYS)
-            .await
-        {
+        // A coach-seat invitation says the seat is ready; its link is the same
+        // single-use accept link, locked to the same address.
+        let sent = match invitation.kind {
+            InvitationKind::Account => {
+                svc.send_invitation(&invitation.email, &accept_url, INVITATION_TTL_DAYS)
+                    .await
+            }
+            InvitationKind::CoachSeat => {
+                svc.send_coach_seat_invitation(&invitation.email, &accept_url, INVITATION_TTL_DAYS)
+                    .await
+            }
+        };
+        match sent {
             Ok(()) => {
                 info!(%recipient, "Invitation email sent");
                 true

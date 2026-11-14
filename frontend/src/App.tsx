@@ -12,7 +12,7 @@ import ForgotPassword from './components/ForgotPassword';
 import ResetPassword from './components/ResetPassword';
 import VerifyEmail from './components/VerifyEmail';
 import AcceptInvitation from './components/AcceptInvitation';
-import { ACCEPT_INVITATION_PATH, TAKEOVER_PATH, VERIFY_EMAIL_PATH, parseLinkToken } from './utils/tokenLink';
+import { ACCEPT_INVITATION_PATH, TAKEOVER_PATH, VERIFY_EMAIL_PATH, parseInvitationKind, parseLinkToken } from './utils/tokenLink';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
 import OnboardingFlow from './components/OnboardingFlow';
@@ -89,6 +89,32 @@ function getGroupInviteCode(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
+/** Where this tab holds a group invite opened before signing in. */
+const PENDING_INVITE_KEY = 'dravr.pending_invite_code';
+
+/**
+ * The group invite this tab opened before the sign-in redirect reloaded it, or
+ * null. Storage can be refused (a private window): the invite then lasts only
+ * as long as the page, as it always did.
+ */
+function readPendingInvite(): string | null {
+  try {
+    return window.sessionStorage.getItem(PENDING_INVITE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+/** Hold `code` for this tab across the sign-in redirect, or forget it once sent. */
+function writePendingInvite(code: string | null) {
+  try {
+    if (code === null) window.sessionStorage.removeItem(PENDING_INVITE_KEY);
+    else window.sessionStorage.setItem(PENDING_INVITE_KEY, code);
+  } catch {
+    // Storage refused: the invite lasts as long as the page.
+  }
+}
+
 /**
  * Whether the current URL is the create-account link: /register, or /signup.
  * dravr.ai's "Create your account" button points here, so it opens the form it
@@ -125,7 +151,9 @@ function AppContent() {
   const [oauthCallback, setOauthCallback] = useState<OAuthCallbackParams | null>(() =>
     settleOAuthReturn(getOAuthCallbackParams()),
   );
-  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(null);
+  // A group invite opened signed out survives the sign-in redirect, which
+  // reloads the page: held for this tab until the join is sent (carnet#1530).
+  const [pendingInviteCode, setPendingInviteCode] = useState<string | null>(readPendingInvite);
   // The confirmation token, read once from the link's fragment. `undefined`
   // when this page load is not a confirmation link.
   const [verifyEmailToken, setVerifyEmailToken] = useState<string | null | undefined>(() =>
@@ -136,6 +164,9 @@ function AppContent() {
   const [invitationToken, setInvitationToken] = useState<string | null | undefined>(() =>
     isAcceptInvitationPath() ? parseLinkToken(window.location.hash) : undefined,
   );
+  // What the invitation link says it is (a coach seat words the page for a
+  // coach), read with the token before the fragment is cleared.
+  const [invitationKind] = useState(() => parseInvitationKind(window.location.hash));
   // The takeover token, read once from the link's fragment. `undefined` when
   // this page load is not a takeover link.
   const [takeoverToken] = useState<string | null | undefined>(() =>
@@ -169,8 +200,9 @@ function AppContent() {
   // Onboarding flow state (server status + per-step flags + transitions). Kept
   // here — above the `oauthCallback` early return — so the status query stays
   // mounted across the OAuth-callback screen and the needs→false transition
-  // that keeps the connect step up for a second service is observed.
-  const onboarding = useOnboardingState();
+  // that keeps the connect step up for a second service is observed. A group
+  // invite link is a coach inviting an athlete: the role is recorded from it.
+  const onboarding = useOnboardingState({ invitedAsAthlete: pendingInviteCode !== null });
 
   // Boot/teardown PostHog analytics in lockstep with the user's
   // analytics_consent flag. Default is opt-out so this is a no-op
@@ -231,6 +263,7 @@ function AppContent() {
     const code = getGroupInviteCode();
     if (code) {
       setPendingInviteCode(code);
+      writePendingInvite(code);
       // Clean the URL so the invite path doesn't persist on refresh
       window.history.replaceState({}, document.title, '/');
     }
@@ -256,6 +289,7 @@ function AppContent() {
     return (
       <AcceptInvitation
         token={invitationToken}
+        kind={invitationKind}
         onSignIn={() => {
           setInvitationToken(undefined);
           setAuthView('login');
@@ -452,7 +486,10 @@ function AppContent() {
           <UnitsProvider>
             <Dashboard
               pendingInviteCode={pendingInviteCode}
-              onInviteCodeConsumed={() => setPendingInviteCode(null)}
+              onInviteCodeConsumed={() => {
+                setPendingInviteCode(null);
+                writePendingInvite(null);
+              }}
             />
           </UnitsProvider>
         }

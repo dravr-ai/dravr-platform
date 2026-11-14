@@ -22,9 +22,23 @@ export interface CoachAccessRequest {
   created_at: string;
   decided_at: string | null;
   decided_by: string | null;
+  /**
+   * The reason the super-admin gave with a decline, in their own words;
+   * `null` for a decline given without one and for every other status.
+   * Absent from a server that predates it.
+   */
+  decline_reason?: string | null;
+  /**
+   * When a newer ask from the same coach replaced this decline; the caller's
+   * own read never returns a superseded decline, the console's history does.
+   */
+  superseded_at?: string | null;
 }
 
-/** Body of both caller-side coach-access routes. */
+/**
+ * Body of the caller-side coach-access routes. After a withdrawal it is the
+ * caller's latest request left — an earlier decided one, or `null`.
+ */
 export interface CoachAccessRequestResponse {
   /** The caller's latest request; `null` when they never asked. */
   request: CoachAccessRequest | null;

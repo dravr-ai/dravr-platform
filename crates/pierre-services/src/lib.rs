@@ -39,6 +39,8 @@ pub mod cache_adoption;
 pub mod coach_access;
 /// An Intervals.icu key whose roster coaches active athletes files its owner's coach-access request, never a grant
 pub mod coach_access_evidence;
+/// A decided coach-access request told to its coach: the room line, the in-app notice, the email (carnet#1521)
+pub mod coach_access_notice;
 /// Coach Home's attention reasons and season state, from one roster row's signals (carnet#1252, #1250)
 pub mod coach_attention;
 /// Hourly purge of the athletes' records of their human coach's reads past 12 months (carnet#1445)

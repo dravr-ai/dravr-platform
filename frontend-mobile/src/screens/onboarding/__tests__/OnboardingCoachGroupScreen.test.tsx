@@ -13,6 +13,7 @@ import { OnboardingCoachGroupScreen } from '../OnboardingCoachGroupScreen';
 import { chatApi, coachesApi, groupsApi, userApi } from '../../../services/api';
 import { useOnboardingFlag } from '../../../hooks/useOnboardingFlag';
 import { useCoachGroupCreated } from '../../../hooks/useCoachGroupCreated';
+import { HOME_ROUTE } from '../../../navigation/routes';
 
 const mockReplace = jest.fn();
 jest.mock('expo-router', () => ({
@@ -31,6 +32,7 @@ jest.mock('../../../hooks/useOnboardingProgress', () => ({
 jest.mock('react-native-qrcode-svg', () => 'QRCode');
 jest.mock('../../../services/api', () => ({
   userApi: {
+    getOnboardingStatus: jest.fn(),
     setOnboardingStep: jest.fn(),
     getCoachAccessRequest: jest.fn(),
     requestCoachAccess: jest.fn(),
@@ -49,6 +51,7 @@ const setOnboardingStep = userApi.setOnboardingStep as jest.Mock;
 const listAgents = coachesApi.list as jest.Mock;
 const getCoachAccessRequest = userApi.getCoachAccessRequest as jest.Mock;
 const requestCoachAccess = userApi.requestCoachAccess as jest.Mock;
+const getOnboardingStatus = userApi.getOnboardingStatus as jest.Mock;
 
 const accessRequest = (status: 'pending' | 'granted' | 'declined') => ({
   id: 'r-1',
@@ -104,6 +107,7 @@ describe('OnboardingCoachGroupScreen', () => {
     createInvite.mockReset().mockResolvedValue({ code: 'ABCD2345' });
     setOnboardingStep.mockReset().mockResolvedValue(undefined);
     getCoachAccessRequest.mockReset().mockResolvedValue({ request: null });
+    getOnboardingStatus.mockReset().mockResolvedValue({ needs_provider_connection: true, steps: [], coaches_others: true });
     requestCoachAccess.mockReset();
     listAgents.mockReset().mockResolvedValue({
       agents: [
@@ -239,7 +243,8 @@ describe('OnboardingCoachGroupScreen', () => {
 
       await waitFor(() => expect(screen.getByTestId('onboarding-group-seat-requested')).toBeTruthy());
       expect(requestCoachAccess).toHaveBeenCalledWith('g-1');
-      expect(screen.getByText(/Request sent .*2026.* The Dravr team usually answers within 24 h\./)).toBeTruthy();
+      // No wait time is promised: the answer comes here and by email (carnet#1521).
+      expect(screen.getByText(/Request sent .*2026\. We'll let you know here and by email\./)).toBeTruthy();
       expect(screen.queryByTestId('coach-access-request')).toBeNull();
     });
 
@@ -273,7 +278,8 @@ describe('OnboardingCoachGroupScreen', () => {
     expect(createConversation).toHaveBeenCalledTimes(1);
   });
 
-  it('completes the step from the invite, then opens the group thread', async () => {
+  it('without coach access, completes the step from the invite, then opens the group thread', async () => {
+    createGroup.mockResolvedValue(group(null));
     // The thread replaces the step only once the step is recorded.
     mockMark.mockImplementation(async () => {
       expect(mockReplace).not.toHaveBeenCalled();
@@ -294,6 +300,23 @@ describe('OnboardingCoachGroupScreen', () => {
     expect(setOnboardingStep).toHaveBeenCalledWith('coach_group', 'complete');
   });
 
+  it('with a TrainingPeaks seat, the coach of the group leaves the invite for the coach Home', async () => {
+    mockMark.mockImplementation(async () => {
+      expect(mockReplace).not.toHaveBeenCalled();
+    });
+    render(<OnboardingCoachGroupScreen />);
+    await createTheGroup();
+    const done = await screen.findByTestId('onboarding-group-done');
+    expect(screen.getByText('Open my coach Home')).toBeTruthy();
+    // Only the invitation says the seat was granted by the team.
+    expect(screen.queryByTestId('onboarding-group-seat-active')).toBeNull();
+
+    fireEvent.press(done);
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(HOME_ROUTE));
+    expect(mockMark).toHaveBeenCalledTimes(1);
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_group', 'complete');
+  });
+
   it('puts the step off with Later and creates nothing', async () => {
     render(<OnboardingCoachGroupScreen />);
     fireEvent.press(screen.getByTestId('onboarding-group-later'));
@@ -303,5 +326,25 @@ describe('OnboardingCoachGroupScreen', () => {
     expect(createGroup).not.toHaveBeenCalled();
     // Later leaves the landing to the layout (Home), never a thread.
     expect(mockReplace).not.toHaveBeenCalled();
+  });
+
+  it('a coach the team invited with their seat is told it is active and leaves for the coach Home', async () => {
+    getOnboardingStatus.mockResolvedValue({
+      needs_provider_connection: true,
+      steps: [{ step_id: 'coach_seat', status: 'complete' }],
+      coaches_others: true,
+      settled_by_invite: true,
+    });
+    render(<OnboardingCoachGroupScreen />);
+
+    expect(await screen.findByTestId('onboarding-group-seat-active')).toBeTruthy();
+    expect(screen.getByText('Your coach seat is active: granted by the Dravr team.')).toBeTruthy();
+
+    await createTheGroup();
+    const done = await screen.findByTestId('onboarding-group-done');
+    expect(screen.getByText('Open my coach Home')).toBeTruthy();
+    fireEvent.press(done);
+    await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(HOME_ROUTE));
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_group', 'complete');
   });
 });

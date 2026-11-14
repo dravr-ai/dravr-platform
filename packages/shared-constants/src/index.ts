@@ -8,6 +8,9 @@ export * from './brands';
 // The chat-app offer outside the wizard (Getting started row, group card)
 export { CHAT_APP_OFFER_STEP_ID, chatAppOfferAnswered, offeredChatApp } from './chat-app';
 
+// The team-issued coach-seat invitation's settled steps on the progress bar
+export { settledByInviteLine, settledByInviteSegments } from './coach-invite';
+
 // Agent tuning bounds (mirrors the server-side range checks)
 export {
   MIN_MAX_TOOL_ITERATIONS,
@@ -448,14 +451,24 @@ export {
 // The coach seat: who may ask for coach access from a group, where the request stands, what the
 // onboarding seat step says (server state only), and its words
 export {
+  COACH_ACCESS_WAIT_POLL_MS,
   COACH_SEAT_CHECK_POLL_MS,
   COACH_SEAT_CHECK_WINDOW_MS,
   COACH_SEAT_KEYS,
   COACH_SEAT_SUBTITLE_KEY,
   canRequestCoachAccess,
+  canRequestCoachAccessWithoutGroup,
+  coachSeatDeclineReason,
+  coachSeatListLine,
   coachSeatMoment,
   coachSeatState,
   coachSeatStepState,
   connectedCoachPlatforms,
 } from './coach-seat';
-export type { CoachSeatInputs, CoachSeatProvider, CoachSeatState, CoachSeatStepState } from './coach-seat';
+export type {
+  CoachSeatInputs,
+  CoachSeatListLine,
+  CoachSeatProvider,
+  CoachSeatState,
+  CoachSeatStepState,
+} from './coach-seat';

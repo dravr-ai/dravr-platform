@@ -13,8 +13,12 @@ import fr from '../../i18n/src/locales/fr/translation.json';
 import pt from '../../i18n/src/locales/pt/translation.json';
 import {
   COACH_SEAT_KEYS,
+  COACH_SEAT_LIST_GRANT_GRACE_MS,
   COACH_SEAT_SUBTITLE_KEY,
   canRequestCoachAccess,
+  canRequestCoachAccessWithoutGroup,
+  coachSeatDeclineReason,
+  coachSeatListLine,
   coachSeatMoment,
   coachSeatState,
   coachSeatStepState,
@@ -22,7 +26,7 @@ import {
 } from '../src/coach-seat';
 
 const coachless = { coach_user_id: null };
-const owner = { group: coachless, isOwner: true, managesRoster: false, coachesOthers: true };
+const owner = { group: coachless, isOwner: true, managesRoster: false };
 
 function request(status: CoachAccessRequest['status']): CoachAccessRequest {
   return {
@@ -45,7 +49,7 @@ function lookup(catalogue: unknown, key: string): unknown {
 }
 
 describe('canRequestCoachAccess', () => {
-  it('offers the seat to the owner of a coachless group who coaches others and holds no coach access', () => {
+  it('offers the seat to the owner of a coachless group who holds no coach access', () => {
     expect(canRequestCoachAccess(owner)).toBe(true);
   });
 
@@ -61,13 +65,68 @@ describe('canRequestCoachAccess', () => {
     expect(canRequestCoachAccess({ ...owner, managesRoster: true })).toBe(false);
   });
 
-  it('offers nothing to an owner who does not coach others', () => {
-    expect(canRequestCoachAccess({ ...owner, coachesOthers: false })).toBe(false);
+  it('offers it whatever the owner answered to "I coach others" — the rule never reads it', () => {
+    // An owner who started as an athlete and coaches later is offered the seat.
+    expect(canRequestCoachAccess({ ...owner, coachesOthers: false } as typeof owner)).toBe(true);
   });
 
   it('offers nothing before the group is read', () => {
     expect(canRequestCoachAccess({ ...owner, group: null })).toBe(false);
     expect(canRequestCoachAccess({ ...owner, group: undefined })).toBe(false);
+  });
+});
+
+describe('canRequestCoachAccessWithoutGroup', () => {
+  it('offers the request with no group to someone who coaches others and holds no coach access', () => {
+    expect(canRequestCoachAccessWithoutGroup({ coachesOthers: true, managesRoster: false })).toBe(true);
+    expect(canRequestCoachAccessWithoutGroup({ coachesOthers: true, managesRoster: true })).toBe(false);
+    expect(canRequestCoachAccessWithoutGroup({ coachesOthers: false, managesRoster: false })).toBe(false);
+  });
+});
+
+describe('coachSeatDeclineReason', () => {
+  it('reads the reason a declined request carries, trimmed, and nothing otherwise', () => {
+    expect(coachSeatDeclineReason({ ...request('declined'), decline_reason: '  Pas de compte coach.  ' })).toBe(
+      'Pas de compte coach.',
+    );
+    expect(coachSeatDeclineReason({ ...request('declined'), decline_reason: '   ' })).toBeNull();
+    expect(coachSeatDeclineReason(request('declined'))).toBeNull();
+    expect(coachSeatDeclineReason({ ...request('pending'), decline_reason: 'stale' })).toBeNull();
+    expect(coachSeatDeclineReason(null)).toBeNull();
+  });
+});
+
+describe('coachSeatListLine', () => {
+  const room = { owner_id: 'user-1', coach_user_id: null as string | null };
+  const base = { viewerId: 'user-1', managesRoster: false, lastActivityAt: '2026-11-12T20:00:00Z' };
+
+  it('says the request waits on every coachless room the viewer owns', () => {
+    expect(coachSeatListLine({ ...base, group: room, request: request('pending') })).toEqual({
+      kind: 'pending',
+      sentAt: '2026-11-12T19:32:00Z',
+    });
+  });
+
+  it('says nothing on a room the viewer does not own, or with nothing waiting', () => {
+    expect(coachSeatListLine({ ...base, group: { ...room, owner_id: 'someone' }, request: request('pending') })).toBeNull();
+    expect(coachSeatListLine({ ...base, group: room, request: null })).toBeNull();
+    expect(coachSeatListLine({ ...base, group: room, request: request('declined') })).toBeNull();
+    expect(coachSeatListLine({ ...base, group: undefined, request: request('pending') })).toBeNull();
+  });
+
+  it('says the viewer is the coach right after the grant, until the room talks again', () => {
+    const granted = { ...request('granted'), decided_at: '2026-11-13T09:14:00Z' };
+    const coached = { ...room, coach_user_id: 'user-1' };
+    const justAfter = new Date(Date.parse('2026-11-13T09:14:00Z') + 1_000).toISOString();
+    expect(coachSeatListLine({ ...base, managesRoster: true, group: coached, request: granted, lastActivityAt: justAfter })).toEqual({
+      kind: 'coach',
+      since: '2026-11-13T09:14:00Z',
+    });
+    const later = new Date(Date.parse('2026-11-13T09:14:00Z') + COACH_SEAT_LIST_GRANT_GRACE_MS + 1_000).toISOString();
+    expect(coachSeatListLine({ ...base, managesRoster: true, group: coached, request: granted, lastActivityAt: later })).toBeNull();
+    expect(
+      coachSeatListLine({ ...base, managesRoster: true, group: { ...room, coach_user_id: 'other' }, request: granted, lastActivityAt: justAfter }),
+    ).toBeNull();
   });
 });
 

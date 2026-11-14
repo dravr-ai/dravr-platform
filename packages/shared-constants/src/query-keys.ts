@@ -243,6 +243,7 @@ export const QUERY_KEYS = {
     pending: () => ['pending-users'] as const,
     preApproved: () => ['pre-approved-emails'] as const,
     coachAccess: (status?: string) => ['coach-access-requests', status] as const,
+    coachSeatInvitations: () => ['coach-seat-invitations'] as const,
     rateLimit: (userId?: string) => ['user-rate-limit', userId] as const,
     activity: (userId?: string) => ['user-activity', userId] as const,
   },

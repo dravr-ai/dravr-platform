@@ -1,76 +1,63 @@
-// ABOUTME: Onboarding step — three questions about the athlete, before the provider gate
-// ABOUTME: Feeds build_coach_proposal, which already reads these and falls back to sport-mix without them
+// ABOUTME: Home's « Ton objectif et ton pourquoi » sheet body — the sport, the goal and the why, once onboarding's About you
+// ABOUTME: Saved through the same about-you endpoint; the host ticks the row once the answers are stored
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
-import { userApi } from '../services/api';
-import { Button, Input, Textarea } from './ui';
-import OnboardingShell from './OnboardingShell';
 import { useTranslation } from '@pierre/i18n';
 import { ONBOARDING_SPORTS as SPORTS, SPORT_LABEL_KEY } from '@pierre/shared-constants';
+import { Button, Input, Textarea } from '../ui';
 
+/** What the sheet hands its host to store: only the fields the athlete filled. */
+export interface GoalWhyAnswers {
+  primary_sport?: string;
+  goal?: string;
+  north_star?: string;
+}
 
 /**
- * Who the athlete is, in three questions.
+ * Who the athlete is, in three questions — onboarding's About you, moved to
+ * a « Pour bien démarrer » row on Home (carnet#1530) so the wizard reaches
+ * the team in four screens. Every field is optional, as it was: a partial
+ * answer is worth strictly more than none. The why keeps its hint, word for
+ * word: it is what the agent comes back to when training gets hard.
  *
- * This runs *before* the provider gate on purpose. The coach proposal already
- * reads a North Star and covered pillars and explicitly falls back to sport-mix
- * when they're absent — and on a first-run connection there is no sport-mix
- * either, because the provider hasn't synced. Three answers we can always get
- * beat a data pull we don't control, and they're the only proposal input
- * guaranteed to exist when it runs.
- *
- * Every field is optional and the step is skippable: a partial answer is worth
- * strictly more than none, and a wall of required fields ahead of any value is
- * what people abandon.
+ * Save waits for the host's write; a refusal keeps the answers on screen with
+ * an error. Closing the sheet saves nothing and ticks nothing.
  */
-export default function OnboardingAboutYou({
-  userDisplayName,
-  onComplete,
-}: {
-  userDisplayName?: string | null;
-  onComplete: (status?: 'complete' | 'skipped') => void;
-}) {
+export function GoalWhyForm({ onSave }: { onSave: (answers: GoalWhyAnswers) => Promise<void> }) {
   const { t } = useTranslation();
   const [sport, setSport] = useState('');
   const [goal, setGoal] = useState('');
   const [northStar, setNorthStar] = useState('');
   const [saving, setSaving] = useState(false);
+  const [failed, setFailed] = useState(false);
 
   const hasAnything = Boolean(sport.trim() || goal.trim() || northStar.trim());
 
-  const handleContinue = async () => {
-    if (saving) return;
-    if (!hasAnything) {
-      onComplete('skipped');
-      return;
-    }
+  const handleSave = async () => {
+    if (saving || !hasAnything) return;
     setSaving(true);
+    setFailed(false);
     try {
-      await userApi.saveAboutYou({
+      await onSave({
         primary_sport: sport.trim() || undefined,
         goal: goal.trim() || undefined,
         north_star: northStar.trim() || undefined,
       });
     } catch {
-      // Non-fatal, deliberately: the answers are a head start, not a gate. A
-      // failed write must not trap someone on the step — the pillar walk asks
-      // the same things conversationally later.
+      setFailed(true);
+    } finally {
+      setSaving(false);
     }
-    onComplete('complete');
   };
 
   return (
-    <OnboardingShell
-      heading={userDisplayName ? t('app.obTellMeGreeting', { name: userDisplayName }) : t('onboarding.tellMeAboutTraining')}
-    >
-      <p className="mt-3 text-sm text-on-surface-variant text-center">
-        {t('onboarding.aboutYouHint')}
-      </p>
+    <div>
+      <p className="text-sm text-on-surface-variant">{t('onboarding.aboutYouHint')}</p>
 
-      <div className="mt-8 space-y-6">
+      <div className="mt-6 space-y-6">
         <div>
           <span className="block text-sm font-medium text-on-surface">{t('onboarding.primarySportLabel')}</span>
           <div className="mt-3 flex flex-wrap gap-2">
@@ -82,7 +69,7 @@ export default function OnboardingAboutYou({
                   type="button"
                   aria-pressed={selected}
                   onClick={() => setSport(selected ? '' : option)}
-                  className={`rounded-full border px-4 py-1.5 text-sm transition-colors ${
+                  className={`touch-target rounded-full border px-4 py-1.5 text-sm transition-colors focus-ring ${
                     selected
                       ? 'border-primary bg-primary text-on-primary'
                       : 'border-outline-variant bg-surface-container-low text-on-surface hover:border-primary'
@@ -129,24 +116,23 @@ export default function OnboardingAboutYou({
         </div>
       </div>
 
-      <div className="mt-8 space-y-3">
+      {failed ? (
+        <p role="alert" className="mt-4 text-sm text-error">
+          {t('home.firstSteps.saveFailed')}
+        </p>
+      ) : null}
+
+      <div className="mt-8">
         <Button
           variant="primary"
-          onClick={() => void handleContinue()}
-          disabled={saving}
+          onClick={() => void handleSave()}
+          disabled={saving || !hasAnything}
           className="w-full"
+          data-testid="goal-why-save"
         >
-          {saving ? t('onboarding.saving') : t('onboarding.continueButton')}
+          {saving ? t('onboarding.saving') : t('common.save')}
         </Button>
-        <button
-          type="button"
-          onClick={() => onComplete('skipped')}
-          disabled={saving}
-          className="w-full text-sm font-medium text-on-surface-variant hover:text-on-surface underline-offset-2 hover:underline transition-colors"
-        >
-          {t('onboarding.skipForNow')}
-        </button>
       </div>
-    </OnboardingShell>
+    </div>
   );
 }

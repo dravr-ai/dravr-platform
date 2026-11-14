@@ -16,6 +16,12 @@ import { useTranslation } from '@pierre/i18n';
 interface ConversationItemProps {
   row: ConversationRowModel;
   isSelected: boolean;
+  /**
+   * The room's coach-seat line, shown in place of its last words while the
+   * viewer's seat moves: « Accès coach en attente · demandé le … », then
+   * « Tu es le coach · depuis … » (carnet#1521).
+   */
+  seatLine?: string | null;
   isEditing: boolean;
   editedTitleValue: string;
   onSelect: () => void;
@@ -180,6 +186,7 @@ function KindGlyph({ row }: { row: ConversationRowModel }) {
 const ConversationItem = memo(function ConversationItem({
   row,
   isSelected,
+  seatLine = null,
   isEditing,
   editedTitleValue,
   onSelect,
@@ -304,15 +311,24 @@ const ConversationItem = memo(function ConversationItem({
             </span>
           </div>
           <div className="flex items-center gap-2 min-w-0">
-            <p
-              className={clsx(
-                'min-w-0 flex-1 truncate text-sm',
-                unread ? 'text-on-surface-variant' : 'text-outline',
-              )}
-              data-testid="conversation-preview"
-            >
-              {row.preview || (row.agentHandle ? `@${row.agentHandle}` : ' ')}
-            </p>
+            {seatLine ? (
+              <p
+                className="min-w-0 flex-1 truncate text-sm text-on-surface-variant"
+                data-testid="conversation-seat-line"
+              >
+                {seatLine}
+              </p>
+            ) : (
+              <p
+                className={clsx(
+                  'min-w-0 flex-1 truncate text-sm',
+                  unread ? 'text-on-surface-variant' : 'text-outline',
+                )}
+                data-testid="conversation-preview"
+              >
+                {row.preview || (row.agentHandle ? `@${row.agentHandle}` : ' ')}
+              </p>
+            )}
             {unread && (
               <span
                 data-testid="conversation-unread-count"

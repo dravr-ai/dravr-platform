@@ -11,7 +11,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use pierre_email::templates::invitation_html;
+use pierre_email::templates::{coach_seat_invitation_html, invitation_html};
 
 const ACCEPT_URL: &str = "https://app.example.test/accept-invite#token=Sel1.Ver2";
 
@@ -59,5 +59,30 @@ fn a_quote_in_the_url_cannot_break_out_of_the_href_attribute() {
     assert!(
         html.contains("&quot;"),
         "the quote must be encoded rather than dropped: {html}"
+    );
+}
+
+#[test]
+fn a_coach_seat_invitation_links_its_accept_page_and_says_the_seat_is_ready() {
+    let url = "https://app.example.test/accept-invite#token=Sel1.Ver2&kind=coach_seat";
+    let html = coach_seat_invitation_html(url, 7);
+
+    assert!(
+        html.contains(
+            r#"href="https://app.example.test/accept-invite#token=Sel1.Ver2&amp;kind=coach_seat""#
+        ),
+        "the accept URL, kind included, must be the anchor's href: {html}"
+    );
+    assert!(
+        html.contains("Create my coach account"),
+        "the call to action names the coach account: {html}"
+    );
+    assert!(
+        html.contains("This link is for this address only."),
+        "the copy says the link is locked to the address: {html}"
+    );
+    assert!(
+        html.contains("expires in 7 days"),
+        "the copy states the expiry it was given: {html}"
     );
 }

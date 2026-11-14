@@ -40,13 +40,14 @@ function renderRow(
     onDelete: () => void;
     onStartRename: () => void;
   }> = {},
-  state: { isSelected?: boolean; isEditing?: boolean; editedTitleValue?: string } = {},
+  state: { isSelected?: boolean; isEditing?: boolean; editedTitleValue?: string; seatLine?: string | null } = {},
 ) {
   return render(
     <ul>
       <ConversationItem
         row={buildConversationRow(conv, LABELS, NOW)}
         isSelected={state.isSelected ?? false}
+        seatLine={state.seatLine ?? null}
         isEditing={state.isEditing ?? false}
         editedTitleValue={state.editedTitleValue ?? ''}
         onSelect={handlers.onSelect ?? noop}
@@ -69,6 +70,15 @@ describe('ConversationItem anatomy', () => {
     expect(screen.getByTestId('conversation-title')).toHaveTextContent('Sunday long run');
     expect(screen.getByTestId('conversation-preview')).toHaveTextContent('Keep the cadence high');
     expect(screen.getByTestId('conversation-timestamp')).toHaveTextContent('09:50');
+  });
+
+  it('says where the coach seat stands in place of the last words while it moves (carnet#1521)', () => {
+    renderRow(conversation(), {}, { seatLine: 'Coach access pending · requested Nov 12, 2026' });
+
+    expect(screen.getByTestId('conversation-seat-line')).toHaveTextContent(
+      'Coach access pending · requested Nov 12, 2026',
+    );
+    expect(screen.queryByTestId('conversation-preview')).toBeNull();
   });
 
   it('labels an archived thread, and only an archived one', () => {

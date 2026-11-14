@@ -12,8 +12,9 @@ const json = (route: Route, status: number, body: unknown) =>
 
 /**
  * A connected coach whose agent and seat steps are done, so the flow opens on
- * the group step. `managesRoster` decides whether the created group names
- * them its coach.
+ * the group step. `managesRoster` is their coach access (a TrainingPeaks
+ * coach account, say): it decides whether the created group names them its
+ * coach, and so whether the invite leaves for the coach Home.
  */
 async function setupCoach(page: Page, managesRoster: boolean) {
   const calls = {
@@ -30,7 +31,7 @@ async function setupCoach(page: Page, managesRoster: boolean) {
     window.localStorage.setItem('dravr.coach_seat_done.user-123', '1');
     window.localStorage.setItem('dravr.theme', 'dark');
   });
-  await setupDashboardMocks(page, { role: 'user', email: 'coach@test.com', displayName: 'Coach' });
+  await setupDashboardMocks(page, { role: 'user', email: 'coach@test.com', displayName: 'Coach', managesRoster });
 
   // Registered after the dashboard defaults, so these win.
   await page.route('**/api/me/onboarding-status', (route) =>
@@ -69,10 +70,37 @@ async function setupCoach(page: Page, managesRoster: boolean) {
       coach_user_id: managesRoster ? 'user-123' : null,
     });
   });
+  const invite = {
+    id: 'i-1',
+    group_id: 'g-1',
+    tenant_id: 'user-123',
+    code: 'ABCD2345',
+    kind: 'member',
+    created_by: 'user-123',
+    expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString(),
+    max_uses: null,
+    use_count: 0,
+    is_active: true,
+    approves_signup: false,
+    created_at: new Date().toISOString(),
+  };
+  let groupMade = false;
   await page.route('**/api/groups/g-1/invites', async (route) => {
+    // Coach Home reads the group's invites back; the step creates one.
+    if (route.request().method() === 'GET') return json(route, 200, { invites: [invite] });
     calls.invites.push(route.request().postDataJSON());
-    await json(route, 201, { id: 'i-1', group_id: 'g-1', code: 'ABCD2345', kind: 'member' });
+    groupMade = true;
+    await json(route, 201, invite);
   });
+  // The coach's roster once the group exists: the group, nobody in it yet.
+  await page.route('**/api/coach/roster**', (route) =>
+    json(route, 200, {
+      scope: { visible_members: 0, roster_members: 0 },
+      groups: groupMade ? [{ id: 'g-1', name: 'Les Rouleurs', athlete_count: 0 }] : [],
+      athletes: [],
+      next_offset: null,
+    }),
+  );
   // The coach's coach-access request: none until they ask, pending after.
   await page.route('**/api/me/coach-access-request', async (route) => {
     if (route.request().method() === 'POST') {
@@ -136,7 +164,7 @@ async function createGroup(page: Page) {
   await page.getByRole('button', { name: 'Create the group' }).click();
 }
 
-test('a coach with coach access leaves onboarding with a group, its link and its QR code', async ({
+test('a coach with a TrainingPeaks seat leaves onboarding with a group, its link and its QR code, for the coach Home', async ({
   page,
 }) => {
   const calls = await setupCoach(page, true);
@@ -155,14 +183,17 @@ test('a coach with coach access leaves onboarding with a group, its link and its
   ]);
   expect(calls.invites).toEqual([{ expires_in_days: 30 }]);
 
-  await page.getByTestId('onboarding-group-done').click();
+  // An active seat leaves for the coach Home, where the athlete invited waits.
+  const done = page.getByTestId('onboarding-group-done');
+  await expect(done).toHaveText('Open my coach Home');
+  // Only an invitation says the seat was granted by the team.
+  await expect(page.getByTestId('onboarding-group-seat-active')).toHaveCount(0);
+  await done.click();
   await expect(page.getByTestId('onboarding-flow')).toHaveCount(0, { timeout: 10_000 });
   expect(calls.steps).toContain('coach_group:complete');
-  // "Go to my group" lands in the group's thread, not on Home.
-  await expect(page).toHaveURL(/#chat\/c-1$/);
-  await expect(page.getByTestId('conversation-header-title')).toHaveText(/Les Rouleurs/, {
-    timeout: 10_000,
-  });
+  await expect(page).toHaveURL(/#home$/);
+  await expect(page.getByTestId('coach-home')).toBeVisible({ timeout: 10_000 });
+  await expect(page.getByTestId('coach-pending-invite-g-1')).toContainText('Les Rouleurs');
 });
 
 test('a coach without coach access gets the group and asks for access in one tap', async ({
@@ -182,8 +213,19 @@ test('a coach without coach access gets the group and asks for access in one tap
   // One tap asks for coach access, naming the group the coach just made.
   await page.getByRole('button', { name: 'Request coach access' }).click();
   await expect(seat).toHaveAttribute('data-state', 'requested');
-  await expect(seat).toContainText('The Dravr team usually answers within 24 h.');
+  // Dated, and no wait time is promised: the answer comes here and by email.
+  await expect(seat).toContainText("We'll let you know here and by email.");
+  await expect(seat).not.toContainText('24');
   expect(calls.accessRequests).toEqual([{ group_id: 'g-1' }]);
+
+  // Without the seat, "Go to my group" lands in the group's thread, not on Home.
+  await page.getByTestId('onboarding-group-done').click();
+  await expect(page.getByTestId('onboarding-flow')).toHaveCount(0, { timeout: 10_000 });
+  expect(calls.steps).toContain('coach_group:complete');
+  await expect(page).toHaveURL(/#chat\/c-1$/);
+  await expect(page.getByTestId('conversation-header-title')).toHaveText(/Les Rouleurs/, {
+    timeout: 10_000,
+  });
 });
 
 test('a coach can put the group step off', async ({ page }) => {

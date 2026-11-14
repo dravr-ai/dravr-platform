@@ -70,12 +70,8 @@ function routeForStep(id: OnboardingStepId) {
       return '/(onboarding)/analytics-consent' as const;
     case 'profile_type':
       return '/(onboarding)/profile-type' as const;
-    case 'about_you':
-      return '/(onboarding)/about-you' as const;
     case 'parq':
       return '/(onboarding)/parq' as const;
-    case 'check_in':
-      return '/(onboarding)/check-in' as const;
     case 'connect_provider':
       return '/(onboarding)/connect' as const;
     case 'coach_proposal':

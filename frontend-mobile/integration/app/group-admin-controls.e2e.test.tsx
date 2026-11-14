@@ -385,7 +385,35 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
   // The invite is created from inside the group's chat now — there is no
   // Groups tab to open first — and it is the code the `/group join` command
   // and the invite link both carry.
+  // The owner of this coachless group has no coach access yet, so the group
+  // offers them its coach seat (carnet#1522: owning a coachless group is
+  // enough), and an owner offered the seat invites members only: no kind to
+  // pick, the member invite is created straight away.
   it('creates a member invite from Group info and shares its code', async () => {
+    const { getByTestId, findByTestId } = renderGroup();
+
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-invites-toggle'));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('group-info-create-invite'));
+    });
+
+    expect(Alert.alert).not.toHaveBeenCalledWith('Create Invite', expect.anything(), expect.anything());
+    await waitFor(() => {
+      const createRequest = stub
+        .requestsFor('POST')
+        .find((request) => request.url === '/api/groups/group-1/invites');
+      expect(createRequest?.body).toEqual({ expires_in_days: 7 });
+    });
+    await waitFor(() => expect(shareMock).toHaveBeenCalled());
+    expect((shareMock.mock.calls.at(-1)?.[0] as { message: string }).message).toContain('HARRI-NEW');
+  });
+
+  // A group that already has its coach offers no seat, so its owner picks who
+  // the invite is for: a member, or a coach.
+  it('asks the owner of a coached group who the invite is for, and creates a coach invite', async () => {
+    group = { ...GROUP, coach_user_id: 'user-coach', coach_display_name: 'Casey Coach' };
     const { getByTestId, findByTestId } = renderGroup();
 
     await act(async () => {
@@ -401,18 +429,22 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
       Array<{ text: string; onPress?: () => void }>,
     ];
     expect(prompt[0]).toBe('Create Invite');
+    expect(prompt[2].map((button) => button.text)).toEqual(['Member (athlete)', 'Coach', 'Cancel']);
     await act(async () => {
-      prompt[2].find((button) => button.text === 'Member (athlete)')?.onPress?.();
+      prompt[2].find((button) => button.text === 'Coach')?.onPress?.();
     });
 
     await waitFor(() => {
       const createRequest = stub
         .requestsFor('POST')
         .find((request) => request.url === '/api/groups/group-1/invites');
-      expect(createRequest?.body).toEqual({ expires_in_days: 7 });
+      expect(createRequest?.body).toEqual({ expires_in_days: 7, kind: 'coach' });
     });
     await waitFor(() => expect(shareMock).toHaveBeenCalled());
-    expect((shareMock.mock.calls.at(-1)?.[0] as { message: string }).message).toContain('HARRI-NEW');
+    // The coach invite is shared in the coach's words, not the member's.
+    expect((shareMock.mock.calls.at(-1)?.[0] as { message: string }).message).toMatch(
+      /^Coach invite for Harricana 2027 on Dravr: \S+\/HARRI-NEW$/,
+    );
   });
 
   it('renders the weekly report and one row per flagged member', async () => {

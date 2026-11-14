@@ -45,6 +45,7 @@ jest.mock('../../src/hooks/useServerStatus', () => ({
   useServerStatus: () => ({ isServerReachable: true, isChecking: false, checkNow: jest.fn() }),
 }));
 
+import { AuthProvider } from '../../src/contexts/AuthContext';
 import { HomeScreen } from '../../src/screens/home/HomeScreen';
 import { apiClient } from '../../src/services/api';
 import { ConversationsScreen } from '../../src/screens/conversations/ConversationsScreen';
@@ -142,7 +143,9 @@ function renderHome() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <HomeScreen />
+      <AuthProvider>
+        <HomeScreen />
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -572,7 +575,9 @@ describe('the Home tab over the wire', () => {
     };
     const screen = render(
       <QueryClientProvider client={client}>
-        <HomeScreen />
+        <AuthProvider>
+          <HomeScreen />
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -713,8 +718,10 @@ describe('the way back Home', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const screen = render(
       <QueryClientProvider client={client}>
-        <ConversationsScreen />
-        <TabsLayout />
+        <AuthProvider>
+          <ConversationsScreen />
+          <TabsLayout />
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -739,8 +746,10 @@ describe('the shell reconnect banner', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     return render(
       <QueryClientProvider client={client}>
-        <TabsLayout />
-        <HomeScreen />
+        <AuthProvider>
+          <TabsLayout />
+          <HomeScreen />
+        </AuthProvider>
       </QueryClientProvider>,
     );
   }

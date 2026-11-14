@@ -4,13 +4,16 @@
 // ABOUTME: Home's Today — Getting started, Your team, today's plan, the week, the status, the latest activities — beside the conversation
 // ABOUTME: A tap on a day drafts its question in that conversation, a first step sends its starter, one on an activity opens its view
 
+import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
 import { planWindow, useVolumeSportFilter } from '@pierre/ui-logic';
 import { DEFAULT_HOME_PREFERENCES } from '@pierre/shared-types';
+import { healthCheckOutstanding } from '@pierre/shared-constants';
 import { Section } from '../ui/Section';
 import { EmptyState } from '../ui/EmptyState';
 import { useHomePreferences, useTrainingPlan, useTrainingVolume } from '../../hooks/useHome';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { HomeToday } from './HomeToday';
 import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
@@ -19,6 +22,7 @@ import { RecentActivities } from './RecentActivities';
 import { GettingStarted } from './GettingStarted';
 import { YourTeam } from './YourTeam';
 import type { TodayActions } from './personalToday';
+import type { FirstStepRequest } from './FirstStepSheet';
 
 interface HomeBriefingProps {
   /** Dashboard route navigator, `tab[/subview]`. */
@@ -29,8 +33,12 @@ interface HomeBriefingProps {
   onPickTeam: () => void;
   /** Open the chat-app sheet over the page, from Getting started. */
   onOpenChatApp: () => void;
+  /** Open a first step's sheet over the page, from Getting started or the plan's health gate. */
+  onOpenFirstStep: (request: FirstStepRequest) => void;
   /** Laid out for the docked side panel: the latest activity's map in its shorter frame. */
   compact?: boolean;
+  /** What leads Today before Getting started: the group-less coach-access request (carnet#1522). */
+  lead?: ReactNode;
 }
 
 /**
@@ -42,11 +50,32 @@ interface HomeBriefingProps {
  * back. A plan that could not be read is said as such and never shown as
  * "no plan", because offering to build a plan to an athlete who has one is
  * the wrong answer.
+ *
+ * No plan before the health check (carnet#1530): while the PAR-Q is still to
+ * answer, « Construire mon plan » opens the health-check sheet first, and the
+ * request is drafted once it is answered. Only this button waits on it; the
+ * agent's plan tools are unchanged.
  */
-function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void }) {
+function HomePlan({
+  onOpenChatDraft,
+  onOpenFirstStep,
+}: {
+  onOpenChatDraft: (text: string) => void;
+  onOpenFirstStep: (request: FirstStepRequest) => void;
+}) {
   const { t } = useTranslation();
   const plan = useTrainingPlan();
   const home = useHomePreferences();
+  const onboarding = useOnboardingStatus();
+  const healthFirst = onboarding.data !== undefined && healthCheckOutstanding(onboarding.data.steps);
+  const buildPlan = () => {
+    const draft = () => onOpenChatDraft(t('home.plan.buildDraft'));
+    if (healthFirst) {
+      onOpenFirstStep({ step: 'health_check', onDone: draft });
+      return;
+    }
+    draft();
+  };
 
   // A failed re-read keeps the plan already on screen; only a page with no
   // answer at all says the plan could not be loaded.
@@ -80,13 +109,15 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
           <p className="text-sm font-medium text-on-surface">{t('home.plan.emptyTitle')}</p>
           {preferences !== null && !preferences.plan_suggestion_hidden && (
             <>
-              <p className="mt-1 max-w-[560px] text-sm text-on-surface-variant">{t('home.plan.emptyBody')}</p>
+              <p className="mt-1 max-w-[560px] text-sm text-on-surface-variant">
+                {t(healthFirst ? 'home.plan.emptyBodyHealthFirst' : 'home.plan.emptyBody')}
+              </p>
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                 <button
                   type="button"
                   data-testid="home-plan-build"
                   className="rounded font-medium text-primary hover:underline focus-ring"
-                  onClick={() => onOpenChatDraft(t('home.plan.buildDraft'))}
+                  onClick={buildPlan}
                 >
                   {t('home.plan.buildCta')}
                 </button>
@@ -127,14 +158,28 @@ function HomePlan({ onOpenChatDraft }: { onOpenChatDraft: (text: string) => void
  * on a narrower one — which therefore opens on the same two sections. The
  * sport picked on the volume card filters the activities under it.
  */
-export function HomeBriefing({ onNavigate, actions, onPickTeam, onOpenChatApp, compact = false }: HomeBriefingProps) {
+export function HomeBriefing({
+  onNavigate,
+  actions,
+  onPickTeam,
+  onOpenChatApp,
+  onOpenFirstStep,
+  compact = false,
+  lead,
+}: HomeBriefingProps) {
   const onOpenChatDraft = actions.draft;
   const sportFilter = useVolumeSportFilter(useTrainingVolume().data?.weeks);
   return (
     <div data-testid="home-briefing" className={clsx('space-y-8 px-4', compact ? 'py-2' : 'py-4')}>
-      <GettingStarted actions={actions} onNavigate={onNavigate} onOpenChatApp={onOpenChatApp} />
+      {lead}
+      <GettingStarted
+        actions={actions}
+        onNavigate={onNavigate}
+        onOpenChatApp={onOpenChatApp}
+        onOpenFirstStep={onOpenFirstStep}
+      />
       <YourTeam actions={actions} onNavigate={onNavigate} onPickTeam={onPickTeam} />
-      <HomePlan onOpenChatDraft={onOpenChatDraft} />
+      <HomePlan onOpenChatDraft={onOpenChatDraft} onOpenFirstStep={onOpenFirstStep} />
       <HomeWeek onOpenChatDraft={onOpenChatDraft} onNavigate={onNavigate} />
       <HomeStatus />
       <HomeVolume filter={sportFilter} />

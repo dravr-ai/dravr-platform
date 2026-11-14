@@ -79,6 +79,11 @@ async fn user_onboarding_step_roundtrip_and_upsert() {
         profile.chosen_channel, None,
         "NULL chosen_channel reads back as None"
     );
+    let written = profile.updated_at.expect("updated_at reads as an instant");
+    assert!(
+        (chrono::Utc::now() - written).num_minutes().abs() < 5,
+        "updated_at is the engine clock at the write, in UTC: {written}"
+    );
 }
 
 #[tokio::test]

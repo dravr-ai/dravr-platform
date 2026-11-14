@@ -9,6 +9,7 @@ import {
   athleteStepsWaived as serverAthleteStepsWaived,
   isServerStepComplete,
   isConnectProviderRecorded,
+  isConnectProviderSkipped,
   beforeProviderGate,
   pastProviderGate,
   skippedStepIds,
@@ -69,17 +70,21 @@ export function useOnboardingContext(): OnboardingContextState {
       ? undefined
       : coachProposalSeenLocal ||
         isServerStepComplete(onboardingStatus?.steps, 'coach_proposal');
-  const { chosen: profileTypeChosen } = useProfileTypeChosen(user?.id);
-  // The two pre-connect steps added alongside profile-type; same fail-open flag.
-  const { done: aboutYouDone } = useOnboardingFlag('dravr.about_you_done.', user?.id);
-  const { done: parqDone } = useOnboardingFlag('dravr.parq_done.', user?.id);
-  // How often the coach checks in (carnet#831): the same fail-open flag, plus
-  // the server's step row, which the chat intake and the web write too.
-  const { done: checkInDoneLocal } = useOnboardingFlag('dravr.check_in_done.', user?.id);
-  const checkInDone =
-    checkInDoneLocal === undefined
+  const { chosen: profileTypeChosenLocal } = useProfileTypeChosen(user?.id);
+  // The server's step row too, as web reads it: a role answered on another
+  // surface, or settled by a team-issued coach-seat invitation before the
+  // first sign-in, is not asked again on the phone.
+  const profileTypeChosen =
+    profileTypeChosenLocal === undefined
       ? undefined
-      : checkInDoneLocal || isServerStepComplete(onboardingStatus?.steps, 'check_in');
+      : profileTypeChosenLocal || isServerStepComplete(onboardingStatus?.steps, 'profile_type');
+  // The PAR-Q, the third screen: the same fail-open flag, plus the server's
+  // step row, which the chat intake and the web write too.
+  const { done: parqDoneLocal } = useOnboardingFlag('dravr.parq_done.', user?.id);
+  const parqDone =
+    parqDoneLocal === undefined
+      ? undefined
+      : parqDoneLocal || isServerStepComplete(onboardingStatus?.steps, 'parq');
   // A coach who does not train: the athlete steps leave the journey. Fails
   // closed — see useOnboardingFlag's `fallback`. The server's not_applicable
   // step rows carry it across devices and from the chat intake.
@@ -100,10 +105,14 @@ export function useOnboardingContext(): OnboardingContextState {
   // itself is server state the screen reads. The group made this session
   // moves the coach on to its invite.
   const { done: coachSeatDoneLocal } = useOnboardingFlag(COACH_SEAT_DONE_PREFIX, user?.id);
+  // The seat step's server row exists only where a team-issued coach-seat
+  // invitation settled the seat before sign-in, so that coach never meets it.
+  const coachSeatSettled = isServerStepComplete(onboardingStatus?.steps, 'coach_seat');
   const { created: coachGroupCreated } = useCoachGroupCreated(user?.id);
-  // Session-only escape from the provider gate, matching web. Not persisted:
-  // the nudge should come back next launch.
-  const { skipped: skippedProvider } = useProviderSkipped(user?.id);
+  // « Continuer sans connecter », matching web: this session's tap, or the
+  // connect step's skipped row it writes, so the screen never comes back.
+  const { skipped: skippedProviderLocal } = useProviderSkipped(user?.id);
+  const skippedProvider = skippedProviderLocal || isConnectProviderSkipped(onboardingStatus?.steps);
   // The steps put off, from the server's rows — which each screen writes into
   // the cached status as it skips (`useRecordOnboardingStep`).
   const skippedSteps = useMemo(() => skippedStepIds(onboardingStatus?.steps), [onboardingStatus?.steps]);
@@ -135,14 +144,12 @@ export function useOnboardingContext(): OnboardingContextState {
 
   const preConnectPending =
     beforeProviderGate({ needsProviderConnection, connectProviderRecorded }) &&
-    (profileTypeChosen === undefined ||
-      aboutYouDone === undefined ||
-      parqDone === undefined ||
-      checkInDone === undefined ||
-      athleteStepsWaivedLocal === undefined);
+    (profileTypeChosen === undefined || athleteStepsWaivedLocal === undefined);
+  // The PAR-Q comes after Tes données, connected or skipped, and before the
+  // team: its flag and the team's are waited on past the gate and after a skip.
   const postConnectPending =
-    postConnect &&
-    (coachProposalSeen === undefined || coachGroupDoneLocal === undefined);
+    (postConnect || (onboardingActive && skippedProvider)) &&
+    (coachProposalSeen === undefined || coachGroupDoneLocal === undefined || parqDone === undefined);
   // A coach who trains and skipped the connect step reaches the coach steps
   // before the gate, so their flags are waited on wherever the coach is.
   const coachPending =
@@ -158,13 +165,11 @@ export function useOnboardingContext(): OnboardingContextState {
       justOnboarded,
       connectProviderDone,
       profileTypeChosen: profileTypeChosen ?? true,
-      aboutYouDone: aboutYouDone ?? true,
       parqDone: parqDone ?? true,
-      checkInDone: checkInDone ?? true,
       athleteStepsWaived,
       coachesOthers,
       coachGroupDone,
-      coachSeatDone: coachSeatDoneLocal !== false,
+      coachSeatDone: coachSeatDoneLocal !== false || coachSeatSettled,
       coachGroupCreated,
       coachProposalDone: coachProposalSeen ?? true,
       analyticsConsentAnswered,
@@ -178,13 +183,12 @@ export function useOnboardingContext(): OnboardingContextState {
       justOnboarded,
       connectProviderDone,
       profileTypeChosen,
-      aboutYouDone,
       parqDone,
-      checkInDone,
       athleteStepsWaived,
       coachesOthers,
       coachGroupDone,
       coachSeatDoneLocal,
+      coachSeatSettled,
       coachGroupCreated,
       coachProposalSeen,
       analyticsConsentAnswered,

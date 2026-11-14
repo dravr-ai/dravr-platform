@@ -7,10 +7,20 @@
 import React from 'react';
 import { Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
-import type { OnboardingProgressItem, OnboardingStepStatus } from '@pierre/shared-constants';
+import {
+  settledByInviteLine,
+  type OnboardingProgressItem,
+  type OnboardingStepStatus,
+} from '@pierre/shared-constants';
 
 export interface OnboardingProgressBarProps {
   steps: OnboardingProgressItem[];
+  /**
+   * A team-issued coach-seat invitation settled the role and the seat
+   * (server truth: `settled_by_invite`): a line under the bar names those
+   * segments and says the invitation settled them.
+   */
+  settledByInvite?: boolean;
   testID?: string;
 }
 
@@ -28,11 +38,12 @@ export interface OnboardingProgressBarProps {
  * assembling hook's flags are still loading) rather than a bar stuck at an
  * arbitrary fraction.
  */
-export function OnboardingProgressBar({ steps, testID }: OnboardingProgressBarProps) {
-  const { t } = useTranslation();
+export function OnboardingProgressBar({ steps, settledByInvite = false, testID }: OnboardingProgressBarProps) {
+  const { t, language } = useTranslation();
   if (steps.length === 0) {
     return null;
   }
+  const settledLine = settledByInviteLine(t, steps, settledByInvite, language);
 
   const currentIndex = steps.findIndex((step) => step.status === 'current');
   const current = currentIndex >= 0 ? steps[currentIndex] : undefined;
@@ -73,6 +84,11 @@ export function OnboardingProgressBar({ steps, testID }: OnboardingProgressBarPr
           testID="onboarding-progress-caption"
         >
           {whereAmI}
+        </Text>
+      ) : null}
+      {settledLine ? (
+        <Text className="mt-1 text-xs text-on-surface-variant" testID="onboarding-progress-settled">
+          {settledLine}
         </Text>
       ) : null}
     </View>

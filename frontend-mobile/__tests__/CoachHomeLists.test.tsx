@@ -35,7 +35,11 @@ jest.mock('expo-router', () =>
 
 const mockGetRoster = jest.fn<Promise<CoachRosterResponse>, [{ offset?: number; limit?: number }?]>();
 const mockOpenGroupRoom = jest.fn();
+const mockListInvites = jest.fn();
+const mockSetClipboard = jest.fn();
+jest.mock('expo-clipboard', () => ({ setStringAsync: (text: string) => mockSetClipboard(text) }));
 jest.mock('../src/services/api', () => ({
+  groupsApi: { listInvites: (groupId: string) => mockListInvites(groupId) },
   coachRosterApi: {
     getRoster: (query?: { offset?: number; limit?: number }) => mockGetRoster(query),
     dismissAttention: jest.fn(),
@@ -95,6 +99,45 @@ describe('the roster read', () => {
     mockGetRoster.mockResolvedValue({ ...ROSTER, athletes: [], scope: { visible_members: 0, roster_members: 0 } });
     const screen = renderCoachHome();
     await screen.findByTestId('coach-home-empty');
+  });
+
+  it('before anyone joined, shows the invited group as invited and not joined, with why and what to do', async () => {
+    const group = { id: 'g-lea', name: 'Léa · Marathon de Montréal', athlete_count: 0 };
+    mockGetRoster.mockResolvedValue({ ...ROSTER, groups: [group], athletes: [], scope: { visible_members: 0, roster_members: 0 } });
+    mockListInvites.mockResolvedValue({
+      invites: [
+        {
+          id: 'inv-1',
+          group_id: 'g-lea',
+          tenant_id: 't-1',
+          code: 'ABCD2345',
+          kind: 'member',
+          created_by: 'coach-1',
+          expires_at: '2099-12-13T14:40:00Z',
+          max_uses: null,
+          use_count: 0,
+          is_active: true,
+          approves_signup: false,
+          created_at: '2026-11-13T14:40:00Z',
+        },
+      ],
+    });
+    mockSetClipboard.mockResolvedValue(true);
+    mockOpenGroupRoom.mockResolvedValue({ id: 'room-lea' });
+    const screen = renderCoachHome();
+
+    const row = within(await screen.findByTestId('coach-pending-invite-g-lea'));
+    expect(mockListInvites).toHaveBeenCalledWith('g-lea');
+    expect(row.getByText('Léa · Marathon de Montréal')).toBeTruthy();
+    expect(row.getByTestId('coach-pending-invite-status').props.children).toBe('Invited · hasn’t joined yet');
+
+    fireEvent.press(row.getByTestId('coach-pending-invite-copy'));
+    await waitFor(() => expect(mockSetClipboard).toHaveBeenCalledWith('https://app.dravr.ai/groups/join/ABCD2345'));
+    await row.findByText('Link copied');
+
+    fireEvent.press(row.getByTestId('coach-pending-invite-write'));
+    await waitFor(() => expect(mockOpenGroupRoom).toHaveBeenCalledWith('g-lea'));
+    await waitFor(() => expect(mockPush).toHaveBeenCalled());
   });
 
   it('follows next_offset until the last page and merges them', async () => {

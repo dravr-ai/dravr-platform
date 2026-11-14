@@ -63,23 +63,43 @@ describe('OnboardingParqScreen', () => {
     expect(screen.getByTestId('onboarding-progress-bar')).toBeTruthy();
   });
 
-  it('marks the chosen answer with a trailing check', async () => {
+  it('the common answer takes one tap: every question sent as "no"', async () => {
     renderScreen();
     await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
 
-    const yesRow = screen.getByTestId('parq-heart_condition-yes');
-    expect(yesRow.props.accessibilityState).toEqual({ selected: false });
-    fireEvent.press(screen.getAllByText('Yes')[0]);
-    expect(screen.getByTestId('parq-heart_condition-yes').props.accessibilityState).toEqual({ selected: true });
+    fireEvent.press(screen.getByTestId('parq-none-apply'));
+
+    await waitFor(() =>
+      expect(submitParq).toHaveBeenCalledWith([
+        { id: 'heart_condition', yes: false },
+        { id: 'joint_problem', yes: false },
+      ]),
+    );
+    await waitFor(() => expect(setOnboardingStep).toHaveBeenCalledWith('parq', 'complete'));
+    expect(mockMark).toHaveBeenCalled();
+  });
+
+  it('« Some apply » reveals a 44px No/Yes pair per question and marks the chosen one', async () => {
+    renderScreen();
+    await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
+    expect(screen.queryByTestId('parq-heart_condition-yes')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('parq-some-apply'));
+    const yes = screen.getByTestId('parq-heart_condition-yes');
+    expect(yes.props.className).toContain('min-h-11');
+    expect(yes.props.accessibilityState).toMatchObject({ selected: false });
+    fireEvent.press(yes);
+    expect(screen.getByTestId('parq-heart_condition-yes').props.accessibilityState).toMatchObject({ selected: true });
+    expect(screen.getByTestId('parq-yes-note')).toBeTruthy();
   });
 
   it('submits a yes as yes — the flag is the whole point of the screen', async () => {
     renderScreen();
     await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
 
-    // First question yes, second no.
-    fireEvent.press(screen.getAllByText('Yes')[0]);
-    fireEvent.press(screen.getAllByText('No')[1]);
+    fireEvent.press(screen.getByTestId('parq-some-apply'));
+    fireEvent.press(screen.getByTestId('parq-heart_condition-yes'));
+    fireEvent.press(screen.getByTestId('parq-joint_problem-no'));
     fireEvent.press(screen.getByText('Continue'));
 
     await waitFor(() =>
@@ -95,12 +115,23 @@ describe('OnboardingParqScreen', () => {
     renderScreen();
     await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
 
+    fireEvent.press(screen.getByTestId('parq-some-apply'));
     expect(screen.getByText('Answer all to continue')).toBeTruthy();
-    fireEvent.press(screen.getAllByText('No')[0]);
+    fireEvent.press(screen.getByTestId('parq-heart_condition-no'));
     expect(screen.getByText('Answer all to continue')).toBeTruthy();
 
-    fireEvent.press(screen.getAllByText('No')[1]);
+    fireEvent.press(screen.getByTestId('parq-joint_problem-no'));
     await waitFor(() => expect(screen.getByText('Continue')).toBeTruthy());
+  });
+
+  it('« Skip for now » stays, recorded as skipped', async () => {
+    renderScreen();
+    await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
+
+    fireEvent.press(screen.getByTestId('parq-skip'));
+
+    await waitFor(() => expect(setOnboardingStep).toHaveBeenCalledWith('parq', 'skipped'));
+    expect(submitParq).not.toHaveBeenCalled();
   });
 
   it('a failed submit still advances — a health screen must never block sign-up', async () => {
@@ -108,9 +139,7 @@ describe('OnboardingParqScreen', () => {
     renderScreen();
     await waitFor(() => expect(screen.getByText(QUESTIONS[0].text)).toBeTruthy());
 
-    fireEvent.press(screen.getAllByText('No')[0]);
-    fireEvent.press(screen.getAllByText('No')[1]);
-    fireEvent.press(screen.getByText('Continue'));
+    fireEvent.press(screen.getByTestId('parq-none-apply'));
 
     await waitFor(() => expect(mockMark).toHaveBeenCalled());
   });
