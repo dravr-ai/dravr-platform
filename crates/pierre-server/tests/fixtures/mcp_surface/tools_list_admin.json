@@ -4415,7 +4415,7 @@
               },
               {
                 "const": "segment_detail_unread",
-                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "description": "The segment efforts of some of the window's activities were not read,\nand this answer started no read of them: they are held only in the\nathlete's own export, which no walk reads, or the walk could not be\nrecorded, or this transport asks none. Nothing tried them, so none is\nsaid to be unreadable.",
                 "type": "string"
               },
               {
@@ -10268,7 +10268,7 @@
               },
               {
                 "const": "segment_detail_unread",
-                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "description": "The segment efforts of some of the window's activities were not read,\nand this answer started no read of them: they are held only in the\nathlete's own export, which no walk reads, or the walk could not be\nrecorded, or this transport asks none. Nothing tried them, so none is\nsaid to be unreadable.",
                 "type": "string"
               },
               {
@@ -14240,7 +14240,7 @@
               },
               {
                 "const": "segment_detail_unread",
-                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "description": "The segment efforts of some of the window's activities were not read,\nand this answer started no read of them: they are held only in the\nathlete's own export, which no walk reads, or the walk could not be\nrecorded, or this transport asks none. Nothing tried them, so none is\nsaid to be unreadable.",
                 "type": "string"
               },
               {
@@ -15451,7 +15451,7 @@
               },
               {
                 "const": "segment_detail_unread",
-                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "description": "The segment efforts of some of the window's activities were not read,\nand this answer started no read of them: they are held only in the\nathlete's own export, which no walk reads, or the walk could not be\nrecorded, or this transport asks none. Nothing tried them, so none is\nsaid to be unreadable.",
                 "type": "string"
               },
               {
@@ -16364,7 +16364,7 @@
               },
               {
                 "const": "segment_detail_unread",
-                "description": "The segment efforts of some of the window's activities were not read,\nand nothing is reading them: no walk was asked for them (they are held\nonly in the athlete's own export, which no walk reads, or the walk\ncould not be recorded, or this transport asks none). Nothing tried\nthem, so none is said to be unreadable.",
+                "description": "The segment efforts of some of the window's activities were not read,\nand this answer started no read of them: they are held only in the\nathlete's own export, which no walk reads, or the walk could not be\nrecorded, or this transport asks none. Nothing tried them, so none is\nsaid to be unreadable.",
                 "type": "string"
               },
               {

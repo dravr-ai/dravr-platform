@@ -64,10 +64,10 @@ pub enum IncompleteReason {
         unreadable: u64,
     },
     /// The segment efforts of some of the window's activities were not read,
-    /// and nothing is reading them: no walk was asked for them (they are held
-    /// only in the athlete's own export, which no walk reads, or the walk
-    /// could not be recorded, or this transport asks none). Nothing tried
-    /// them, so none is said to be unreadable.
+    /// and this answer started no read of them: they are held only in the
+    /// athlete's own export, which no walk reads, or the walk could not be
+    /// recorded, or this transport asks none. Nothing tried them, so none is
+    /// said to be unreadable.
     SegmentDetailUnread,
     /// No backend the athlete holds reads segment efforts: they come from
     /// Strava's API, which this athlete has not connected.
@@ -102,7 +102,7 @@ impl IncompleteReason {
                 "the segment efforts of some of its activities could not be read, so the efforts here are not all the athlete's",
             ),
             Self::SegmentDetailUnread => Some(
-                "the segment efforts of some of its activities have not been read, and nothing is reading them now, so the efforts here are not all the athlete's",
+                "the segment efforts of some of its activities have not been read, and this answer started no read of them, so the efforts here are not all the athlete's",
             ),
             Self::SegmentDetailUnavailable => Some(
                 "segment efforts can't be read for this athlete yet; they come from Strava's API, which this athlete hasn't connected",
@@ -1037,7 +1037,7 @@ mod tests {
         );
         let note = wire["note"].as_str().ok_or("no note")?;
         assert!(
-            note.contains("have not been read, and nothing is reading them now"),
+            note.contains("have not been read, and this answer started no read of them"),
             "bug: the note does not say the rest are unread and unread by anything: {note}"
         );
         assert!(
