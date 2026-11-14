@@ -28,7 +28,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::history_walk_api_test::{open_window, server, strava_athlete};
+use crate::history_walk_api_test::{open_window, server, steps_settled, strava_athlete};
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashSet;
@@ -245,7 +245,9 @@ pub(crate) async fn walk_row(
 const AGED_MS: i64 = 10 * 60 * 1_000;
 
 /// Run the walk the sweep's way, one step a pass, in a fresh window each
-/// pass, until its row ends.
+/// pass, until its row ends. A pass starts only once no step holds the row
+/// ([`steps_settled`]): the ask's own step, or the last pass's, keeps the
+/// day it started in.
 ///
 /// The sweep takes only a row asked longer ago than its grace, so the row's
 /// ask is moved back [`AGED_MS`] while it runs: each walk keeps an ask time
@@ -262,6 +264,7 @@ pub(crate) async fn walk_ended(
         .await
         .map(|row| row.created_at_ms);
     loop {
+        steps_settled(resources, user_id, BackfillJobKind::DetailWalk, deadline).await;
         let row = walk_row(resources, user_id, tenant).await;
         if let Some(row) = row
             .as_ref()

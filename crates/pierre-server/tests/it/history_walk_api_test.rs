@@ -280,6 +280,50 @@ pub(crate) async fn open_window(resources: &Arc<ServerContext>) {
         .unwrap();
 }
 
+/// Wait until no step holds one of the athlete's `kind` job rows: a row is
+/// leased from its record, and from each claim, until its step settles it.
+///
+/// A sweep run by a test opens a fresh window ([`open_window`]) only then:
+/// a window opened under a step part-way through its day would let that
+/// step read past the day it was refused in, which no real day's end does.
+pub(crate) async fn steps_settled(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    kind: BackfillJobKind,
+    deadline: Instant,
+) {
+    let sql = "SELECT COUNT(*) AS held FROM activity_backfill_jobs \
+               WHERE user_id = $1 AND kind = $2 AND leased_until_ms > $3";
+    macro_rules! held {
+        ($pool:expr) => {{
+            sqlx::query(sql)
+                .bind(user_id.to_string())
+                .bind(kind.as_str())
+                .bind(Utc::now().timestamp_millis())
+                .fetch_one($pool)
+                .await
+                .unwrap()
+                .get::<i64, _>("held")
+        }};
+    }
+    loop {
+        let held = match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => held!(sqlite.pool()),
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => held!(pg.pool()),
+        };
+        if held == 0 {
+            return;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "a step still held the athlete's {} row at the deadline",
+            kind.as_str()
+        );
+        sleep(Duration::from_millis(20)).await;
+    }
+}
+
 /// An athlete holding a live Strava grant and its connection.
 pub(crate) async fn strava_athlete(resources: &Arc<ServerContext>) -> (Uuid, TenantId) {
     let (user_id, _user, tenant) = common::create_test_user_with_plan(
@@ -426,6 +470,7 @@ async fn released_row(resources: &Arc<ServerContext>, user_id: Uuid) -> Option<R
 async fn walk_ended(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
     let deadline = Instant::now() + WALK_DEADLINE;
     loop {
+        steps_settled(resources, user_id, BackfillJobKind::HistoryWalk, deadline).await;
         let state = walk_state(resources, user_id, tenant, oauth_providers::STRAVA).await;
         if matches!(
             state,

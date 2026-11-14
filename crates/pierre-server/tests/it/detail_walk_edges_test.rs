@@ -21,7 +21,8 @@
 #![allow(missing_docs)]
 
 use crate::detail_walk_test::{
-    mock_strava, ride_listed_at, rows_under, since, store_rides, walk_ended, walk_row, DAY, SESSION,
+    mock_strava, ride_listed_at, rows_under, since, store_rides, walk_ended, walk_row, MockStrava,
+    DAY, SESSION,
 };
 use crate::history_walk_api_test::{open_window, server, strava_athlete, with_window};
 use crate::history_walk_handoff_test::holding_writes;
@@ -250,20 +251,17 @@ async fn a_read_copy_past_a_thousand_rows_still_stops_its_ride_being_read() {
     );
 }
 
-/// A step a spent day stops part-way through a second records only the
-/// rides of it the next step will not read again: a ride it stored is read,
-/// but one it walked past (`404`) is read again with the rest of that second,
-/// and is counted once, when the second is finished.
-#[tokio::test]
-async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
-    let (api_base, mock) = mock_strava().await;
-    // 20 a day: a background share of 5, half of it, 2, for the walk.
-    let resources = server(&api_base, 20).await;
-    let (user_id, tenant) = strava_athlete(&resources).await;
+/// The three rides of one second, five days back, the session listed on
+/// its day and stored for the athlete, read newest id first: one Strava
+/// answers `404` for, one that stores, and one a walk day of 2 refuses.
+async fn one_second_of_three(
+    resources: &Arc<ServerContext>,
+    mock: &MockStrava,
+    user_id: Uuid,
+    tenant: TenantId,
+) -> (i64, i64, i64) {
     let now = Utc::now().timestamp();
     let day_start = (now - 5 * DAY) - (now - 5 * DAY).rem_euclid(DAY);
-    // Read newest id first within the second: the unreadable one, then one
-    // that stores, then the one the spent day refuses.
     let (unreadable, stored, refused) = (
         day_start + 3 * 3_600,
         day_start + 2 * 3_600,
@@ -280,8 +278,14 @@ async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
         .ingest(user_id, tenant, SESSION, &listed, Utc::now())
         .await
         .unwrap();
-    open_window(&resources).await;
+    (unreadable, stored, refused)
+}
 
+/// Ask the walk of the athlete's last ten days, which owes the three rides
+/// of [`one_second_of_three`].
+async fn ask_the_three(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let now = Utc::now().timestamp();
     assert_eq!(
         ask_detail_walk(
             &runtime,
@@ -294,6 +298,23 @@ async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
         DetailWalkAsked::Started { units_total: 3 },
         "the three rides of the one second are owed"
     );
+}
+
+/// A step a spent day stops part-way through a second records only the
+/// rides of it the next step will not read again: a ride it stored is read,
+/// but one it walked past (`404`) is read again with the rest of that second,
+/// and is counted once, when the second is finished.
+#[tokio::test]
+async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
+    let (api_base, mock) = mock_strava().await;
+    // 20 a day: a background share of 5, half of it, 2, for the walk.
+    let resources = server(&api_base, 20).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let (unreadable, stored, refused) =
+        one_second_of_three(&resources, &mock, user_id, tenant).await;
+    open_window(&resources).await;
+
+    ask_the_three(&resources, user_id, tenant).await;
     let ended = walk_ended(&resources, user_id, tenant).await;
     assert_eq!(
         mock.detail_reads(),
@@ -304,6 +325,47 @@ async fn a_second_cut_short_by_a_spent_day_counts_each_ride_once() {
         (ended.progress.units_done, ended.progress.rows_landed),
         (3, 2),
         "bug: the ride walked past in a second the spent day cut short is counted twice"
+    );
+}
+
+/// A step still reading when the sweep comes round keeps the day it started
+/// in: the sweep opens the next day only once no step holds the walk, so the
+/// step is refused where its day is spent, never let past it by a day
+/// opened under it. The ask's own step is held on its first read while the
+/// sweep makes passes, as a slow database holds it.
+#[tokio::test]
+async fn a_step_the_sweep_meets_mid_read_keeps_its_day() {
+    let (api_base, mock) = mock_strava().await;
+    // 20 a day: a background share of 5, half of it, 2, for the walk.
+    let resources = server(&api_base, 20).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    let (unreadable, stored, refused) =
+        one_second_of_three(&resources, &mock, user_id, tenant).await;
+    open_window(&resources).await;
+
+    let gate = mock.hold_next_read();
+    ask_the_three(&resources, user_id, tenant).await;
+    mock.read_held().await;
+    let sweep = tokio::spawn({
+        let resources = Arc::clone(&resources);
+        async move { walk_ended(&resources, user_id, tenant).await }
+    });
+    // Several of the sweep's passes go by while the step holds its row.
+    sleep(Duration::from_millis(400)).await;
+    gate.notify_one();
+    let ended = timeout(Duration::from_secs(60), sweep)
+        .await
+        .expect("the walk ends")
+        .expect("the sweep does not panic");
+    assert_eq!(
+        mock.detail_reads(),
+        vec![unreadable, stored, unreadable, refused],
+        "bug: a day opened under the running step let it read past its spent day"
+    );
+    assert_eq!(
+        (ended.progress.units_done, ended.progress.rows_landed),
+        (3, 2),
+        "the walk reads the three rides and stores two"
     );
 }
 
