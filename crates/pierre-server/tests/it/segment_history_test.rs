@@ -118,6 +118,8 @@ async fn mock_strava(listing: Listing) -> (String, Arc<MockStrava>) {
     });
     let app = Router::new()
         .route("/segment_efforts", get(segment_efforts))
+        .route("/athlete", get(|| async { Json(json!({ "id": 4242 })) }))
+        .route("/athlete/activities", get(|| async { Json(json!([])) }))
         .route("/activities/{id}", get(held_detail))
         .with_state(Arc::clone(&mock));
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -451,6 +453,135 @@ async fn an_id_reads_its_efforts_once_across_the_session_and_grant_copies() {
         1,
         "bug: a refused listing is asked again within the day"
     );
+}
+
+/// A session's list read can carry only the ride's day: its copy starts at
+/// midnight while the grant's starts at the real time. They are still one
+/// ride, read once its grant copy was.
+#[tokio::test]
+async fn a_session_copy_listed_at_its_day_is_the_grant_copy_it_stands_for() {
+    let (resources, _mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
+    let at = start(3);
+    let midnight = at - 7 * 3_600;
+    let listed_at_day = ActivityBuilder::new(
+        at.to_string(),
+        "Morning ride",
+        SportType::Ride,
+        Utc.timestamp_opt(midnight, 0).unwrap(),
+        3_600,
+        SESSION,
+    )
+    .distance_meters(30_000.0)
+    .source(oauth_providers::STRAVA)
+    .build();
+    store_rides(&resources, user_id, tenant, SESSION, &[listed_at_day]).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, at)],
+    )
+    .await;
+    read_segments(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        at,
+        vec![effort(at, LA_BETE_ID, LA_BETE, 412)],
+    )
+    .await;
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+
+    let coverage = &payload["coverage"];
+    assert_eq!(
+        coverage["window"]["total"], 1,
+        "bug: the session's day-dated copy counts as a second ride: {coverage}"
+    );
+    assert_eq!(coverage["window"]["returned"], 1, "{coverage}");
+    assert_eq!(coverage["complete"], true, "{coverage}");
+    assert_eq!(efforts(&payload).len(), 1, "{payload}");
+    assert!(
+        walk_row(&resources, user_id, tenant).await.is_none(),
+        "bug: a walk was asked for a ride already read"
+    );
+}
+
+/// A window deeper than the stored history reaches says the history walk is
+/// still copying it in, before anything about its segments.
+#[tokio::test]
+async fn a_window_deeper_than_the_stored_history_reports_the_history_walk_first() {
+    let (base, _mock) = mock_strava(Listing::Status(402)).await;
+    let resources = server(&base, 1_000).await;
+    let (user_id, tenant) = strava_athlete(&resources).await;
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, start(5))],
+    )
+    .await;
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_name": LA_BETE }),
+    )
+    .await;
+
+    let coverage = &payload["coverage"];
+    assert_eq!(
+        coverage["incomplete_reason"], "history_walk_running",
+        "bug: a window the stored history does not reach reads as only short of segments: {coverage}"
+    );
+    assert!(
+        coverage["pending"]["kind"]
+            .as_str()
+            .is_some_and(|kind| kind.starts_with("history_")),
+        "bug: the history walk owed is reported: {coverage}"
+    );
+}
+
+/// A model may pass the id as the number it read from `segment_efforts`.
+#[tokio::test]
+async fn a_numeric_segment_id_is_the_same_ask() {
+    let (resources, mock, user_id, tenant) = walked_athlete(Listing::Status(402)).await;
+    let at = start(2);
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[ride(oauth_providers::STRAVA, at)],
+    )
+    .await;
+    read_segments(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        at,
+        vec![effort(at, LA_BETE_ID, LA_BETE, 412)],
+    )
+    .await;
+
+    let payload = call(
+        &resources,
+        (user_id, tenant),
+        json!({ "segment_id": 611_413 }),
+    )
+    .await;
+
+    assert_eq!(mock.listings(), 1, "bug: a numeric id is listed live too");
+    assert_eq!(efforts(&payload).len(), 1, "{payload}");
 }
 
 #[tokio::test]

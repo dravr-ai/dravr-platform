@@ -16,9 +16,9 @@
 //! Any failure falls through to the stored details: a transport the
 //! provider's terms keep its data off (the governed provider refuses before
 //! any request), a dead grant, a spent budget, Strava refusing the listing to
-//! a non-subscriber. A refusal Strava answered is remembered for the athlete
-//! for a day ([`REFUSAL_MEMO`]), so a non-subscriber spends one listing a
-//! day, not one a call.
+//! a non-subscriber. An external-service failure of the listing is
+//! remembered for the athlete for a day ([`REFUSAL_MEMO`], [`provider_refused`]),
+//! so a non-subscriber spends one listing a day, not one a call.
 //!
 //! **The stored details.** Every stored copy of the athlete's Strava
 //! activities in the window, under the keys their history is held under and
@@ -101,8 +101,8 @@ const STORE_PAGE_ROWS: i64 = 500;
 /// the newest rows read and says it stopped short ([`IncompleteReason::ReadCapped`]).
 const MAX_WINDOW_ROWS: usize = 20_000;
 
-/// How long a refusal of the live listing Strava answered keeps the athlete
-/// off it.
+/// How long a failure of the live listing ([`provider_refused`]) keeps the
+/// athlete off it.
 const REFUSAL_MEMO_TTL: StdDuration = StdDuration::from_hours(24);
 
 /// Athletes the refusal memo holds at most; the least recently refused goes
@@ -281,8 +281,16 @@ fn date_arg(args: &Value, key: &str) -> AppResult<Option<NaiveDate>> {
 /// window (`to` defaults to the athlete's `today`, `from` to
 /// [`DEFAULT_YEARS`] before it), and the sport.
 fn parse_ask(args: &Value, today: NaiveDate) -> AppResult<SegmentAsk> {
-    let segment = match (text_arg(args, "segment_id"), text_arg(args, "segment_name")) {
-        (Some(id), None) => SegmentMatch::Id(id.to_owned()),
+    // A model may pass the id as the number `segment_efforts` showed it.
+    let numeric_id = args
+        .get("segment_id")
+        .and_then(Value::as_u64)
+        .map(|id| id.to_string());
+    let segment_id = text_arg(args, "segment_id")
+        .map(str::to_owned)
+        .or(numeric_id);
+    let segment = match (segment_id, text_arg(args, "segment_name")) {
+        (Some(id), None) => SegmentMatch::Id(id),
         (None, Some(name)) => {
             let folded = fold_for_match(name);
             if folded.is_empty() {
@@ -350,11 +358,15 @@ fn remember_refusal(key: (Uuid, String), now: Instant) {
     }
 }
 
-/// Whether `error` is the provider's own answer to the listing, which the
-/// next call would get again: anything it answered but a missing segment.
-/// A gate that refused before any request (this transport, the athlete's
-/// consent), a spent budget or rate limit, a dead grant and the caller's own
-/// bad id are not remembered: none says the athlete cannot list.
+/// Whether `error` keeps the athlete off the listing for a day: an external
+/// service error, which is how every non-`401` refusal Strava answers
+/// reaches here (a `402` or `403` to a non-subscriber, a `5xx`, a `404`),
+/// and also a request that could not be sent and an open circuit breaker.
+/// The error carries no status to tell those apart, so all of them are
+/// remembered: the stored details still answer. A gate that refused before
+/// any request (this transport, the athlete's consent), a spent budget or
+/// rate limit, a dead grant and an id that is not a number are not
+/// remembered: none says the athlete cannot list.
 fn provider_refused(error: &AppError) -> bool {
     error.code == ErrorCode::ExternalServiceError
 }
