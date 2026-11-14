@@ -45,6 +45,13 @@ const DEVICE_NAME_MAX_CHARS: usize = 60;
 /// Longest comment author name, in characters.
 const MAX_AUTHOR_CHARS: usize = 60;
 
+/// Longest segment name a model reads, in characters: a segment is a named
+/// stretch of road, titled like an activity by whoever created it.
+pub(crate) const SEGMENT_NAME_MAX_CHARS: usize = ACTIVITY_NAME_MAX_CHARS;
+
+/// The serialized [`Activity`] key holding its segment efforts.
+const SEGMENT_EFFORTS_KEY: &str = "segment_efforts";
+
 /// The serialized [`Activity`] key holding the provider's encoded route
 /// overview, which [`detail_json`] never hands the model.
 const ROUTE_OVERVIEW_KEY: &str = "summary_polyline";
@@ -264,8 +271,10 @@ pub fn summary_json(summaries: &[ActivitySummary]) -> serde_json::Result<Value> 
 /// close the fence — so a note reading "ignore your instructions" arrives as
 /// something the athlete wrote, never as something the agent was told. The
 /// activity's name and a comment author are short labels, so they are
-/// flattened, defanged and capped ([`display_line`]) rather than fenced. The
-/// thread keeps its newest [`MAX_COMMENTS`] entries.
+/// flattened, defanged and capped ([`display_line`]) rather than fenced. So
+/// is each segment effort's name, which whoever created the segment wrote:
+/// on Strava, another athlete. The thread keeps its newest [`MAX_COMMENTS`]
+/// entries.
 ///
 /// The route overview (`summary_polyline`) is left out. It is an encoded
 /// polyline — hundreds of characters a model cannot read as a route — and it
@@ -293,6 +302,7 @@ pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
             };
             fence_self_report(row);
             fence_athlete_only(row, ai_scope::withholds_athlete_only_fields());
+            neutralize_segment_names(row);
             row.remove(ROUTE_OVERVIEW_KEY);
             if let Some(Value::Object(streams)) = row.get_mut(STREAMS_KEY) {
                 streams.remove(GPS_TRACK_KEY);
@@ -307,6 +317,19 @@ pub fn detail_json(activities: &[Activity]) -> serde_json::Result<Value> {
         }
     }
     Ok(value)
+}
+
+/// Each segment effort's name as one defanged line.
+fn neutralize_segment_names(row: &mut Map<String, Value>) {
+    let Some(Value::Array(efforts)) = row.get_mut(SEGMENT_EFFORTS_KEY) else {
+        return;
+    };
+    for effort in efforts.iter_mut().filter_map(Value::as_object_mut) {
+        if let Some(name) = effort.get("name").and_then(Value::as_str) {
+            let name = display_line(name, SEGMENT_NAME_MAX_CHARS);
+            effort.insert("name".to_owned(), Value::String(name));
+        }
+    }
 }
 
 /// The athlete's private note, fenced, or removed when the read is not the
