@@ -371,7 +371,7 @@ impl StravaProvider {
         Ok(Self::strava_activity_builder(detailed.summary)?
             .splits_opt(splits)
             .laps_opt(laps)
-            .segment_efforts(efforts)
+            .segment_efforts_opt(efforts)
             .description_opt(detailed.description.filter(|d| !d.trim().is_empty()))
             // The recording device, which names the Garmin model a
             // Garmin-recorded activity is attributed to (carnet#521).

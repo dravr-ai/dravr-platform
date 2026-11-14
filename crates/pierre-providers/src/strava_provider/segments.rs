@@ -1,5 +1,5 @@
 // ABOUTME: Strava segment efforts — the detail read's efforts mapped to cageux, and one segment's efforts listed
-// ABOUTME: A detail read always stamps its efforts list, so a row read through the API reads as segment-read
+// ABOUTME: A detail read stamps its efforts list unless every effort sent failed to map, so the row reads as segment-read
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,6 +10,11 @@
 //! effort the activity has: an absent or empty array is Strava's word that
 //! the activity crossed no segment, and the mapper stamps it with an empty
 //! list. That stamp is what marks a stored row's segments as read.
+//!
+//! Strava's published schema marks no effort field as required, so an
+//! answer whose efforts all fail to map is possible, and it is no word that
+//! the activity crossed no segment: it is left unstamped (`None`), and the
+//! row reads as unread, an activity a walk tried and could not read.
 
 use chrono::{DateTime, Utc};
 
@@ -32,15 +37,15 @@ const EFFORTS_PER_PAGE: usize = 200;
 const MAX_PAGES: u32 = 20;
 
 impl StravaProvider {
-    /// A detail read's efforts, every one that maps; an empty list, never
-    /// `None`, when the answer held none or none mapped (see the module doc).
+    /// A detail read's efforts, every one that maps: an empty list when the
+    /// answer held none, and `None` when it held some and none of them
+    /// mapped (see the module doc).
     pub(super) fn convert_strava_segment_efforts(
         raw: Option<&[StravaSegmentEffort]>,
-    ) -> Vec<SegmentEffort> {
-        raw.unwrap_or_default()
-            .iter()
-            .filter_map(convert_segment_effort)
-            .collect()
+    ) -> Option<Vec<SegmentEffort>> {
+        let raw = raw.unwrap_or_default();
+        let efforts: Vec<SegmentEffort> = raw.iter().filter_map(convert_segment_effort).collect();
+        (raw.is_empty() || !efforts.is_empty()).then_some(efforts)
     }
 
     /// Every effort the athlete made on segment `segment_id` over `window`,
@@ -341,7 +346,9 @@ mod tests {
 
     /// The detail read asks for every effort, so an answer with none is
     /// Strava's word that the ride crossed no segment: the read is stamped
-    /// with an empty list, absent array or not.
+    /// with an empty list, absent array or not. An answer whose efforts all
+    /// fail to map is no such word: it is left unstamped, so the ride reads
+    /// as unread rather than as one that crossed no segment.
     #[test]
     fn an_absent_or_empty_efforts_array_stamps_an_empty_list() {
         assert_eq!(
@@ -355,9 +362,10 @@ mod tests {
             "bug: an empty array is read as no efforts"
         );
         assert_eq!(
-            mapped(&json!({ "segment_efforts": [effort(9_005, None)] })),
-            Some(Vec::new()),
-            "bug: every effort skipped still stamps the read"
+            mapped(&json!({ "segment_efforts": [effort(9_005, None), effort(9_006, None)] })),
+            None,
+            "bug: efforts Strava sent that all failed to map stamp the ride as \
+             crossing no segment"
         );
     }
 

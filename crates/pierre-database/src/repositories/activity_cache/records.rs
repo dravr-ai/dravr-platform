@@ -135,8 +135,8 @@ impl ActivityDetail {
     /// that has none reads this way, and so does one whose provider served it
     /// without them because the request carrying them failed.
     ///
-    /// An empty efforts list counts as none. A Strava API detail read always
-    /// stamps its efforts, `[]` for a ride over no segment, and that stamp
+    /// An empty efforts list counts as none. A Strava API detail read stamps
+    /// its efforts, `[]` for a ride over no segment, and that stamp
     /// alone proves no more than an empty read does, so the read is checked
     /// again at its recheck instant. The stamp still serializes, and that key
     /// is what marks the row's segments as read.
@@ -160,8 +160,8 @@ impl ActivityDetail {
 mod tests {
     use super::ActivityDetail;
 
-    /// A Strava API detail read always stamps its segment efforts, an empty
-    /// list for a ride over no segment. That stamp alone fills nothing, so
+    /// A Strava API detail read stamps its segment efforts, an empty list
+    /// for a ride over no segment. That stamp alone fills nothing, so
     /// the read stays empty and is checked again; the key still serializes,
     /// which is what marks the row's segments as read.
     #[test]
