@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Proves the shared coach-access hooks — the grant refresh re-reads the session once on a grant, the seat line reads rooms only while it moves
+// ABOUTME: Proves the shared coach-access hooks — the grant refresh re-reads the session once on a grant, the seat line reads rooms only while it moves, a platform link reads the seat back
 // ABOUTME: The pending line carries the short day both clients print (no year); an athlete's list and a held coach access read nothing
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
-import { renderHook, waitFor } from '@testing-library/react';
+import { cleanup, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { buildConversationRow, type ConversationRowModel } from '@pierre/chat-utils';
+import { COACH_SEAT_CHECK_WINDOW_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import type { CoachAccessRequest, CoachingGroup, Conversation } from '@pierre/shared-types';
 import { createCoachAccessHooks, seatLineDay, type CoachAccessViewer } from '../src/coachAccessHooks';
 
@@ -18,7 +19,7 @@ const getGroup = vi.fn();
 const updateUser = vi.fn();
 const session: { user: CoachAccessViewer | null } = { user: { id: 'user-coach', manages_roster: false } };
 
-const { useCoachAccessGrantRefresh, useGroupSeatLines } = createCoachAccessHooks({
+const { useCoachAccessGrantRefresh, useGroupSeatLines, useSeatAfterPlatformLink } = createCoachAccessHooks({
   userApi: { getCoachAccessRequest },
   authApi: { getSession },
   groupsApi: { getGroup },
@@ -93,6 +94,13 @@ function wrapper() {
 beforeEach(() => {
   vi.clearAllMocks();
   session.user = { id: 'user-coach', manages_roster: false };
+});
+
+// No vitest globals here, so nothing unmounts a hook between tests: a seat
+// probe left reading would keep polling past the file and wake React after
+// its window is gone.
+afterEach(() => {
+  cleanup();
 });
 
 describe('seatLineDay', () => {
@@ -176,5 +184,110 @@ describe('useGroupSeatLines', () => {
     vi.clearAllMocks();
     renderHook(() => useGroupSeatLines(rows, null), { wrapper: wrapper() });
     expect(getCoachAccessRequest).not.toHaveBeenCalled();
+  });
+});
+
+describe('useSeatAfterPlatformLink', () => {
+  type Props = { connected: readonly string[] | undefined };
+
+  it('reads the session back once a coaching platform connects, and gives the user the access it earned', async () => {
+    getCoachAccessRequest.mockResolvedValue({ request: null });
+    getSession.mockResolvedValue({ user: { id: 'user-coach', manages_roster: true } });
+    const { result, rerender } = renderHook(({ connected }: Props) => useSeatAfterPlatformLink(connected), {
+      wrapper: wrapper(),
+      initialProps: { connected: ['strava'] },
+    });
+    expect(result.current).toEqual({ reading: false, ended: false });
+
+    rerender({ connected: ['strava', 'sciotte_trainingpeaks'] });
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith({ manages_roster: true }));
+  });
+
+  it('reads nothing for a platform connected before the surface opened, nor for another provider', async () => {
+    getCoachAccessRequest.mockResolvedValue({ request: null });
+    const { result, rerender } = renderHook(({ connected }: Props) => useSeatAfterPlatformLink(connected), {
+      wrapper: wrapper(),
+      initialProps: { connected: undefined },
+    });
+    rerender({ connected: ['intervals_icu'] });
+    rerender({ connected: ['intervals_icu', 'strava'] });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(getSession).not.toHaveBeenCalled();
+    expect(result.current.reading).toBe(false);
+  });
+
+  it('opens the window for a platform already there on arrival when the surface says so', async () => {
+    getCoachAccessRequest.mockResolvedValue({ request: null });
+    getSession.mockResolvedValue({ user: { id: 'user-coach', manages_roster: false } });
+    const onRead = vi.fn();
+    const { result, rerender } = renderHook(
+      ({ connected }: Props) => useSeatAfterPlatformLink(connected, { fromFirstRead: true, onRead }),
+      { wrapper: wrapper(), initialProps: { connected: undefined } },
+    );
+    rerender({ connected: ['intervals_icu'] });
+
+    await waitFor(() => expect(getSession).toHaveBeenCalled());
+    expect(onRead).toHaveBeenCalled();
+    await waitFor(() => expect(result.current.reading).toBe(true));
+    expect(updateUser).not.toHaveBeenCalled();
+  });
+
+  it('stops reading at a waiting request — the roster filed it', async () => {
+    getCoachAccessRequest.mockResolvedValue({ request: request('pending') });
+    const { result, rerender } = renderHook(({ connected }: Props) => useSeatAfterPlatformLink(connected), {
+      wrapper: wrapper(),
+      initialProps: { connected: [] },
+    });
+    await waitFor(() => expect(getCoachAccessRequest).toHaveBeenCalled());
+    rerender({ connected: ['intervals_icu'] });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.reading).toBe(false);
+    expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it('says the window ran out once the check window is over', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      getCoachAccessRequest.mockResolvedValue({ request: null });
+      getSession.mockResolvedValue({ user: { id: 'user-coach', manages_roster: false } });
+      const { result, rerender } = renderHook(({ connected }: Props) => useSeatAfterPlatformLink(connected), {
+        wrapper: wrapper(),
+        initialProps: { connected: [] },
+      });
+      rerender({ connected: ['intervals_icu'] });
+      await waitFor(() => expect(result.current.reading).toBe(true));
+      await vi.advanceTimersByTimeAsync(COACH_SEAT_CHECK_WINDOW_MS + 1);
+      await waitFor(() => expect(result.current).toEqual({ reading: false, ended: true }));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reads nothing once the user holds coach access', async () => {
+    session.user = { id: 'user-coach', manages_roster: true };
+    const { result, rerender } = renderHook(({ connected }: Props) => useSeatAfterPlatformLink(connected), {
+      wrapper: wrapper(),
+      initialProps: { connected: [] },
+    });
+    rerender({ connected: ['intervals_icu'] });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(result.current.reading).toBe(false);
+    expect(getSession).not.toHaveBeenCalled();
+  });
+
+  it('never refetches a failed request read as it mounts, so a surface that hides while pending cannot loop', async () => {
+    getCoachAccessRequest.mockRejectedValue(new Error('offline'));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrap = ({ children }: { children: ReactNode }) => createElement(QueryClientProvider, { client }, children);
+    // The surface's own read, failed: the block under it renders on the error.
+    await client.prefetchQuery({ queryKey: QUERY_KEYS.user.coachAccessRequest(), queryFn: getCoachAccessRequest });
+    expect(getCoachAccessRequest).toHaveBeenCalledTimes(1);
+
+    for (let mount = 0; mount < 3; mount += 1) {
+      const { unmount } = renderHook(() => useSeatAfterPlatformLink(['strava']), { wrapper: wrap });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      unmount();
+    }
+    expect(getCoachAccessRequest).toHaveBeenCalledTimes(1);
   });
 });

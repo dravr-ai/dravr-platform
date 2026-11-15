@@ -33,7 +33,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
   onOpenDrawer,
   drawerHasBadge,
 }) => {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   return (
     <nav
       aria-label={t('shell.mobileNavPrimary')}
@@ -61,7 +61,7 @@ export const BottomTabBar: React.FC<BottomTabBarProps> = ({
                   {tab.badge !== undefined && tab.badge > 0 && (
                     <span
                       className="absolute -top-1.5 -right-2 bg-primary text-on-primary text-xs rounded-full h-[18px] min-w-[18px] px-1 flex items-center justify-center font-semibold ring-2 ring-surface"
-                      aria-label={`${tab.badge} unread`}
+                      aria-label={t(countKey(tab.badge, language, UNREAD_COUNT_ARIA_KEYS), { count: tab.badge })}
                     >
                       {badgeLabel(tab.badge)}
                     </span>

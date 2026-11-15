@@ -1114,15 +1114,206 @@ const FIRST_ARRIVAL_TEAM = [
   is_assigned: true,
 }));
 
+/** The same first arrival before any provider is connected: Connect is the next step. */
+const GETTING_STARTED_NO_PROVIDER = {
+  ...GETTING_STARTED_FIRST_ARRIVAL,
+  rows: GETTING_STARTED_FIRST_ARRIVAL.rows.map((row) =>
+    row.id === 'connect'
+      ? { ...row, done: false, current: true }
+      : row.id === 'last_workout'
+        ? { ...row, eligible: false, postback: null }
+        : { ...row, current: false },
+  ),
+  done_count: 0,
+};
+
 /**
- * A first arrival on Home (carnet#1098): Getting started open on Meet your
- * team, a team of three led by Endurance, a daily check-in. Call after
- * `setupDashboardMocks` so these routes win.
+ * A returning athlete's Getting started (carnet#1528): they answered the
+ * lead's welcome and set a cadence, so Meet your team and the check-in are
+ * done and the goal and the why is next.
  */
-export async function mockHomeFirstArrival(page: Page): Promise<void> {
-  await page.route('**/api/me/getting-started', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GETTING_STARTED_FIRST_ARRIVAL) });
+const GETTING_STARTED_RETURNING = {
+  ...GETTING_STARTED_FIRST_ARRIVAL,
+  rows: GETTING_STARTED_FIRST_ARRIVAL.rows.map((row) =>
+    row.id === 'meet_team' || row.id === 'check_in' ? { ...row, done: true, postback: null } : row,
+  ),
+  done_count: 3,
+};
+
+/** The thread Home opens on in these mocks: the athlete's personal thread, led by Endurance. */
+const HOME_THREAD_ID = 'conv-home';
+
+/** Fill a server-rendered template's positional `{n}` slots, as the server's `format_template` does. */
+function fillTemplate(template: string, ...args: string[]): string {
+  return template.replace(/\{(\d+)\}/g, (slot, index: string) => args[Number(index)] ?? slot);
+}
+
+interface WelcomeCorpus {
+  app: Record<string, string>;
+  use_cases: Record<string, { label: string }>;
+  messaging: { agent_welcome: Record<string, string> };
+}
+
+function englishCorpus(): WelcomeCorpus {
+  const file = path.resolve(process.cwd(), '../packages/i18n/src/locales/en/translation.json');
+  return JSON.parse(fs.readFileSync(file, 'utf-8')) as WelcomeCorpus;
+}
+
+/**
+ * The lead's first welcome as the server writes it at the team step
+ * (carnet#1528): the greeting and the role, what it can see, the figure line
+ * read from synced history when `history` is set, the team, how to reach it,
+ * and Discover, with its three ranked starters as the row's
+ * actions. Every sentence is the English corpus's, so the mock reads what the
+ * server would write.
+ */
+function firstWelcomeRow(history: boolean) {
+  const corpus = englishCorpus();
+  const w = corpus.messaging.agent_welcome;
+  const sport = (key: string) => corpus.app[key];
+  const figures = [
+    fillTemplate(w.figures_read, '90', '46', `${sport('sportRun')} 38, ${sport('sportRide')} 6, ${sport('sportSwim')} 2`),
+    fillTemplate(w.figures_per_week, '4'),
+    fillTemplate(w.figures_last, `${sport('sportRun')}, ${fillTemplate(w.figures_distance_time, '21.4 km', '1:52:14')}`),
+  ].join(' ');
+  const content = [
+    fillTemplate(w.greeting, 'Endurance', 'Plans and reads every session.'),
+    w.can_see,
+    history ? figures : null,
+    fillTemplate(w.team_many, fillTemplate(w.list_and, 'Fuelling', 'Recovery')),
+    w.reach_line,
+    w.discover_line,
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n\n');
+  const starters = history ? ['last_workout', 'load', 'can_see'] : ['connect', 'can_see', 'zone2'];
+  return {
+    id: 'welcome-home',
+    role: 'assistant',
+    content,
+    finish_reason: 'agent_welcome',
+    created_at: '2026-10-21T07:42:00Z',
+    actions: {
+      title: w.starters_title,
+      actions: starters.map((id, slot) => ({
+        label: corpus.use_cases[id].label,
+        action_type: 'postback',
+        value: `uc:${slot}:${id}`,
+      })),
+    },
+  };
+}
+
+/**
+ * Serve `messages` as the Home thread's transcript, and the thread as the one
+ * row of the conversation list, whose agent names the thread's header; every
+ * other call falls through.
+ */
+async function mockHomeThread(page: Page, messages: unknown[]): Promise<void> {
+  await page.route(`**/api/chat/conversations/${HOME_THREAD_ID}/messages**`, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages, feedback: [] }) });
   });
+  await page.route('**/api/chat/conversations**', async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== 'GET' || url.pathname !== '/api/chat/conversations') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        conversations: [
+          {
+            id: HOME_THREAD_ID,
+            title: 'Endurance',
+            agent_id: 'agent-endurance',
+            agent_title: 'Endurance',
+            group_id: null,
+            personal: true,
+            channel_type: 'web',
+            message_count: messages.length,
+            total_tokens: 0,
+            unread_count: 0,
+            created_at: '2026-10-21T07:40:00Z',
+            updated_at: '2026-10-21T07:50:20Z',
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      }),
+    });
+  });
+}
+
+/** The provider list a mocked Home reads: Strava, connected or not. */
+async function mockHomeProvider(page: Page, connected: boolean): Promise<void> {
+  await page.route('**/api/providers', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        providers: [{ provider: 'strava', display_name: 'Strava', connected, capabilities: [] }],
+      }),
+    });
+  });
+}
+
+/**
+ * A first arrival on Home (carnet#1098, carnet#1528): the personal thread
+ * opens on the lead's welcome, Getting started open on Meet your team, a team
+ * of three led by Endurance, a daily check-in. With `provider: false` nothing
+ * is connected yet: Connect is the next step and the welcome reads no figures.
+ * Call after `setupDashboardMocks` so these routes win.
+ */
+export async function mockHomeFirstArrival(page: Page, { provider = true }: { provider?: boolean } = {}): Promise<void> {
+  const gettingStarted = provider ? GETTING_STARTED_FIRST_ARRIVAL : GETTING_STARTED_NO_PROVIDER;
+  await page.route('**/api/me/getting-started', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(gettingStarted) });
+  });
+  await mockHomeProvider(page, provider);
+  await mockHomeThread(page, [firstWelcomeRow(provider)]);
+  await mockHomeShell(page);
+}
+
+/**
+ * A returning athlete on Home (carnet#1528, P5·C): they answered the lead's
+ * welcome — the agent's reply to it is the thread's latest message — so Today
+ * leads with today's session and Getting started is the meter under the
+ * header. Call after `setupDashboardMocks` so these routes win.
+ */
+export async function mockHomeReturning(page: Page): Promise<void> {
+  await page.route('**/api/me/getting-started', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GETTING_STARTED_RETURNING) });
+  });
+  await mockHomeProvider(page, true);
+  await mockHomeThread(page, [
+    firstWelcomeRow(true),
+    {
+      id: 'reply-athlete',
+      role: 'user',
+      content: 'Thanks! How did my long run on Sunday look?',
+      created_at: '2026-10-21T07:50:00Z',
+    },
+    {
+      id: 'reply-agent',
+      role: 'assistant',
+      content:
+        'Steady: 21.4 km in 1:52:14, and your last third was as even as your first. Keep this week easy; tomorrow is your tempo, 25 minutes at threshold.',
+      finish_reason: 'stop',
+      created_at: '2026-10-21T07:50:20Z',
+    },
+  ]);
+  await mockHomeShell(page);
+}
+
+/** The reads every mocked Home shares: the cadence, the onboarding record, the team and the personal thread. */
+async function mockHomeShell(page: Page): Promise<void> {
   await page.route('**/api/me/check-in', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ cadence: 'daily' }) });
   });
@@ -1155,7 +1346,7 @@ export async function mockHomeFirstArrival(page: Page): Promise<void> {
       contentType: 'application/json',
       body: JSON.stringify({
         conversation: {
-          id: 'conv-home',
+          id: HOME_THREAD_ID,
           title: 'Endurance',
           agent_id: 'agent-endurance',
           personal: true,

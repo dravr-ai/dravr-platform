@@ -212,8 +212,8 @@ async function openToday(page: Page) {
 }
 
 test.describe('Athlete Home — mobile viewport, first arrival', () => {
-  // carnet#1098: no extra line above the thread — the Today line ends with
-  // the count, and the sheet opens on Getting started and Your team.
+  // carnet#1098, carnet#1528: no extra line above the thread — the Today line ends with
+  // the count, and the sheet opens on Getting started, then today's session.
   test('a first arrival’s Today line ends with the Getting started count, and the sheet opens on it', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
     await mockHome(page);
@@ -230,7 +230,7 @@ test.describe('Athlete Home — mobile viewport, first arrival', () => {
     const order = await sheet
       .locator('[data-testid="home-getting-started"], [data-testid="home-team"], [data-testid="home-today"]')
       .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-testid')));
-    expect(order).toEqual(['home-getting-started', 'home-team', 'home-today']);
+    expect(order).toEqual(['home-getting-started', 'home-today', 'home-team']);
     const { scrollWidth, clientWidth } = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,

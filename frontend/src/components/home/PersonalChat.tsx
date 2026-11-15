@@ -417,6 +417,9 @@ function PersonalSurface({
     ) : null;
 
   const peek = !isDesktop && today ? today.peek(() => onTodaySheetOpenChange(true), peekHidden) : null;
+  // Getting started's slim meter for a returning athlete, under the header at
+  // every width (carnet#1528, P5·C).
+  const meter = today?.meter?.(todayActions) ?? null;
 
   let centre: ReactNode;
   if (selectedConversation) {
@@ -429,6 +432,7 @@ function PersonalSurface({
             {bell}
           </>,
         )}
+        {meter}
         {peek}
         {thread}
       </>
@@ -444,6 +448,7 @@ function PersonalSurface({
             {bell}
           </div>
         </div>
+        {meter}
         {peek}
         {resolving ? (
           <div className="flex flex-1 items-center justify-center" role="status" aria-label={t('common.loading')}>

@@ -23,6 +23,12 @@
 //! the why, the check-in cadence. Each completes in a sheet that writes the
 //! onboarding step row its wizard screen wrote, so [`SheetAnswers`] reads
 //! those rows, not first-run days.
+//!
+//! A coach's first steps — the seat, the athlete invited, a coaching platform
+//! linked — are their own list, in [`coach`] (carnet#1529).
+
+/// The coach's first steps, « Préparer ton coaching » (carnet#1529).
+pub mod coach;
 
 use std::iter::once;
 

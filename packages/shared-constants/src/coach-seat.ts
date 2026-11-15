@@ -198,12 +198,14 @@ export function coachSeatMoment(iso: string, language: string): { date: string; 
  * connected, for that connection to settle it. Both outcomes are written off
  * the connect request: a TrainingPeaks coach account's `manages_roster` once
  * its role is read, an Intervals.icu request once its roster is read. The
- * onboarding seat step then says the connection produced nothing; Group
- * info's seat block, where a platform can be linked too, stops re-reading.
+ * one seat probe (`useSeatAfterPlatformLink` in `@pierre/ui-logic`) holds the
+ * window for every surface that offers the platforms: the onboarding seat
+ * step then says the connection produced nothing; Group info's seat block and
+ * the pending coach Home stop re-reading.
  */
 export const COACH_SEAT_CHECK_WINDOW_MS = 20_000;
 
-/** How often the seat step and the seat block read the server again while they wait. */
+/** How often the seat probe reads the server again while its window is open. */
 export const COACH_SEAT_CHECK_POLL_MS = 2_500;
 
 /**

@@ -145,6 +145,13 @@ function mobileRouteOf(id: string): string {
 export const HOME_ROUTE = mobileRouteOf('home');
 
 /**
+ * The Discover tab — where an agent joins or leaves the athlete's team, and
+ * where Home's Your team row leads (carnet#1528). Read from the surface
+ * registry like {@link HOME_ROUTE}.
+ */
+export const DISCOVER_ROUTE = mobileRouteOf('discover');
+
+/**
  * The mobile route of a settings pane, from the shared pane declaration.
  * Throws at module load for the same reason {@link mobileRouteOf} does:
  * `SettingsPaneParity.test.tsx` fails when a pane declared for mobile has no

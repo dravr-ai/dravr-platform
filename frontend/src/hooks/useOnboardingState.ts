@@ -110,7 +110,12 @@ export function useOnboardingState({ invitedAsAthlete = false }: OnboardingArriv
     isAuthenticated && user?.user_status === 'active' && !isAdminRole,
   );
 
-  const { data: onboardingStatus } = useOnboardingStatus(onboardingActive);
+  // The status is a shared query that other surfaces read for every account —
+  // the dashboard's coach-shaped Home reads it for an admin too — so a disabled
+  // read here does not keep it empty. The gate drops it itself where
+  // onboarding does not apply.
+  const statusQuery = useOnboardingStatus(onboardingActive);
+  const onboardingStatus = onboardingActive ? statusQuery.data : undefined;
 
   // "Continue without connecting", as tapped in this tab. The tap also writes
   // the connect step `skipped`, which carries it to every later sign-in and

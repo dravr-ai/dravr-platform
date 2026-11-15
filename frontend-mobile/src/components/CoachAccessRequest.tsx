@@ -25,14 +25,17 @@ import { ProviderGlyph } from './ProviderGlyph';
 import { userApi } from '../services/api';
 import { useThemeColors } from '../constants/theme';
 import { useProviderConnected } from '../hooks/useHome';
+import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
 
 /**
  * Where the request is shown — the same places as the web: `inline` under the
  * onboarding group step's copy, `strip` at the top of the group room, `block`
  * first in Group info, and `panel` in Settings and on Home for a coach with no
- * group (carnet#1522), which says the access is on once it is.
+ * group (carnet#1522), which says the access is on once it is; and `row`, the
+ * seat row of the pending coach Home's checklist (carnet#1529), under the
+ * row's own title.
  */
-export type CoachAccessRequestVariant = 'inline' | 'strip' | 'block' | 'panel';
+export type CoachAccessRequestVariant = 'inline' | 'strip' | 'block' | 'panel' | 'row';
 
 interface CoachAccessRequestProps {
   /** The group the coach asks from; none in Settings or on Home. */
@@ -116,6 +119,7 @@ export function CoachAccessRequest({
   if (variant === 'panel') {
     return managesRoster ? <SeatGranted onOpenHome={onOpenHome} /> : <SeatPanel {...view} />;
   }
+  if (variant === 'row') return <SeatRow {...view} />;
   return variant === 'strip' ? (
     <SeatStrip {...view} onOpenInfo={onOpenInfo} />
   ) : (
@@ -361,6 +365,11 @@ function SeatStrip({
  * Group info's first block: the state as its title, what is blocked, the
  * sheet's one filled request, then TrainingPeaks and Intervals.icu as plain
  * identical rows; once asked, the dated three-step timeline.
+ *
+ * A platform linked from Connections while the sheet is open settles the
+ * seat off its connect request, so the block mounts the one seat probe
+ * (`useSeatAfterPlatformLink`, carnet#1529): a TrainingPeaks coach account's
+ * grant shows without signing out, an Intervals.icu request once filed.
  */
 function SeatBlock({
   state,
@@ -375,6 +384,8 @@ function SeatBlock({
   onCancel,
 }: SeatViewProps & { onOpenConnections?: () => void }) {
   const { t } = useTranslation();
+  const { providers } = useProviderConnected();
+  useSeatAfterPlatformLink(providers?.filter((p) => p.connected).map((p) => p.provider));
   const pending = state === 'pending';
 
   return (
@@ -473,6 +484,56 @@ function SeatPanel({
   );
 }
 
+/**
+ * The seat row of the pending coach Home's checklist (carnet#1529), under the
+ * row's own title — mirrors the web: what the access opens and the one
+ * filled request; once asked, the state in the review's warm ink with its
+ * date, that the answer comes here and by email (no wait time promised), and
+ * the way to withdraw it; after a decline, the reason and "Ask again".
+ */
+function SeatRow({
+  state,
+  request,
+  asking,
+  failed,
+  onAsk,
+  cancelling,
+  cancelFailed,
+  justCancelled,
+  onCancel,
+}: SeatViewProps) {
+  const { t } = useTranslation();
+  const colors = useThemeColors();
+  const pending = state === 'pending';
+  return (
+    <View className="gap-1.5" testID={`coach-seat-row-${state}`}>
+      {pending && request ? (
+        <>
+          <View className="flex-row items-center gap-1.5" accessibilityLiveRegion="polite">
+            <Feather name="clock" size={15} color={colors.ink.warning} />
+            <Text className="flex-1 text-sm font-medium text-on-warning-container">{t(COACH_SEAT_KEYS.pendingBlockTitle)}</Text>
+          </View>
+          <PendingSentence request={request} />
+          <CancelButton cancelling={cancelling} onCancel={onCancel} />
+        </>
+      ) : (
+        <>
+          {state === 'declined' && request ? (
+            <DeclinedLines request={request} />
+          ) : (
+            <Text className="text-sm text-text-secondary">{t(COACH_SEAT_KEYS.panelBody)}</Text>
+          )}
+          <View className="mt-2">
+            <AskButton state={state} asking={asking} onAsk={onAsk} />
+          </View>
+        </>
+      )}
+      {failed && <AskFailed />}
+      <CancelOutcome justCancelled={justCancelled && !pending} cancelFailed={cancelFailed} />
+    </View>
+  );
+}
+
 /** The panel once the access is on: it says so, and opens the coach's Home. */
 function SeatGranted({ onOpenHome }: { onOpenHome?: () => void }) {
   const { t } = useTranslation();
@@ -501,17 +562,29 @@ function SeatGranted({ onOpenHome }: { onOpenHome?: () => void }) {
   );
 }
 
-/**
- * TrainingPeaks and Intervals.icu as identical rows: glyph, name, Connect.
- * A tap opens Connections, where the platform's own flow runs — what the
- * server does with the account shows here afterwards, read from the request.
- */
+/** Group info's coaching platforms, under their « Ou relie ton compte coach » label. */
 function CoachPlatformRows({ onOpenConnections }: { onOpenConnections?: () => void }) {
   const { t } = useTranslation();
-  const { providers } = useProviderConnected();
   return (
     <View className="mt-3 pt-3 border-t border-border" testID="coach-seat-routes">
       <Text className="text-xs text-text-tertiary">{t(COACH_SEAT_KEYS.routesLabel)}</Text>
+      <CoachPlatformList onOpenConnections={onOpenConnections} />
+    </View>
+  );
+}
+
+/**
+ * TrainingPeaks and Intervals.icu as identical rows: glyph, name, Connect
+ * (D3). A tap opens Connections, where the platform's own flow runs — what
+ * the server does with the account shows afterwards, read from the seat.
+ * Group info's seat block and the pending coach Home's platform row
+ * (carnet#1529) draw these same rows.
+ */
+export function CoachPlatformList({ onOpenConnections }: { onOpenConnections?: () => void }) {
+  const { t } = useTranslation();
+  const { providers } = useProviderConnected();
+  return (
+    <View>
       {COACH_PLATFORM_PROVIDERS.map((id, index) => {
         const row = providers?.find((p) => p.provider === id);
         const name = row?.display_name ?? coachPlatformName(id);

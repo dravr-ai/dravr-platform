@@ -273,11 +273,15 @@ describe('VerdictDrawer athlete card', () => {
     const onClose = vi.fn();
     render(<VerdictDrawer verdicts={[SUPPORTED]} onClose={onClose} onCopyReference={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Verdict actions' }));
-    fireEvent.keyDown(document, { key: 'Escape' });
+    const trigger = screen.getByRole('button', { name: 'Verdict actions' });
+    fireEvent.click(trigger);
+    // The menu's one action has focus, so Escape reaches the menu first.
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Copy reference for support' }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
 
     // The menu was the layer on top; the next Escape is the drawer's.
     fireEvent.keyDown(document, { key: 'Escape' });

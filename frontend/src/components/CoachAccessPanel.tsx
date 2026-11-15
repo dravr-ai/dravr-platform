@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach-access request with no group — on Home and in Settings' coaching pane, for a coach who has no room to ask from
-// ABOUTME: Shown to someone who coaches others without coach access; Settings also keeps a waiting or declined request and the granted state
+// ABOUTME: The coach-access request with no group in Settings' coaching pane, for a coach who has no room to ask from
+// ABOUTME: Shown to someone who coaches others without coach access, a waiting or declined request, and the granted state; Home's is the pending coach Home's seat row
 
 import { useQuery } from '@tanstack/react-query';
 import {
@@ -21,27 +21,6 @@ import { Section } from './ui';
 /** Open the coach's Home from anywhere in the shell: the Dashboard routes on the hash. */
 function openCoachHome(): void {
   window.location.hash = 'home';
-}
-
-/**
- * Home's group-less request (carnet#1522): a coach who tapped "Later" on the
- * onboarding group step, or never made a group, still has the one way to ask
- * on the page they land on. Shown only to someone who said they coach others
- * and holds no coach access; it leaves the page once the access is on, when
- * Home becomes their coach Home.
- */
-export function CoachAccessHome() {
-  const { user } = useAuth();
-  const managesRoster = user?.manages_roster === true;
-  const { data: onboarding } = useOnboardingStatus(!!user && !managesRoster);
-  if (!canRequestCoachAccessWithoutGroup({ managesRoster, coachesOthers: onboarding?.coaches_others === true })) {
-    return null;
-  }
-  return (
-    <div data-testid="home-coach-access">
-      <CoachAccessRequest variant="panel" />
-    </div>
-  );
 }
 
 /**

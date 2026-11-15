@@ -464,7 +464,7 @@ describe('carnet #55/#52 — Group info admin controls + peer consent', () => {
     expect(getAllByTestId('group-report-concern')).toHaveLength(2);
     expect(getByText('ChefFamille: Weekly volume 35% below the group average')).toBeTruthy();
     expect(getAllByTestId('group-report-recommendation')).toHaveLength(2);
-    expect(getByText('Members at high overtraining risk: 1. Consider adjusting their recovery.')).toBeTruthy();
+    expect(getByText('Members in deep fatigue, with form below -30% of their chronic load: 1. Worth a look at their recovery.')).toBeTruthy();
     // A steady week still says which way the group went.
     expect(getByText('Group volume is steady compared with last week.')).toBeTruthy();
     expect(getAllByTestId('group-health-flag-row')).toHaveLength(2);

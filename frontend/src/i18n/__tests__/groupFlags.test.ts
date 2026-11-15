@@ -126,9 +126,19 @@ describe('group flag and weekly-report phrasing', () => {
       '2/3 membres actifs cette semaine, 87,5 mi en moyenne par membre.',
     );
     expect(weeklyReportRecommendations(t, STATS)).toEqual([
-      'Membres à risque de surentraînement élevé : 1. Pense à adapter leur récupération.',
+      'Membres en fatigue profonde, avec une forme sous -30 % de leur charge chronique : 1. Jette un œil à leur récupération.',
       'Volume du groupe en baisse par rapport à la semaine dernière — prends des nouvelles des membres moins actifs.',
     ]);
+  });
+
+  it('describes the members in deep fatigue as a magnitude in every locale, never as a risk', () => {
+    // Methodology's framing rule (load is a magnitude, never an injury or
+    // overtraining risk): the flagged members are the deep-fatigue band.
+    for (const locale of ['en', 'fr', 'es', 'de', 'pt']) {
+      const [line] = weeklyReportRecommendations(i18n.getFixedT(locale), STATS);
+      expect(line, locale).toContain('-30');
+      expect(line, locale).not.toMatch(/risk|risque|riesgo|risiko|risco|overtrain|surentra|sobreentren|übertrain|sobretrein/i);
+    }
   });
 
   it('says the report covers only the members who share with the reader, and how many', () => {

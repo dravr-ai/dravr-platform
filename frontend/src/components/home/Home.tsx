@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Home's Today — Getting started, Your team, today's plan, the week, the status, the latest activities — beside the conversation
+// ABOUTME: Home's Today — a first arrival's Getting started, today's plan, the week, the status, Your team, the latest activities — beside the conversation
 // ABOUTME: A tap on a day drafts its question in that conversation, a first step sends its starter, one on an activity opens its view
 
-import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
 import { useTranslation } from '@pierre/i18n';
 import { planWindow, useVolumeSportFilter } from '@pierre/ui-logic';
@@ -37,8 +36,6 @@ interface HomeBriefingProps {
   onOpenFirstStep: (request: FirstStepRequest) => void;
   /** Laid out for the docked side panel: the latest activity's map in its shorter frame. */
   compact?: boolean;
-  /** What leads Today before Getting started: the group-less coach-access request (carnet#1522). */
-  lead?: ReactNode;
 }
 
 /**
@@ -151,12 +148,17 @@ function HomePlan({
 }
 
 /**
- * Home's own sections. Getting started and Your team lead (carnet#1098), so
- * a new athlete meets what to do next and who they work with first, then the
- * sections the page always had. The personal surface draws them in its Today
- * panel beside the conversation on a wide screen, and in a drawer or a sheet
- * on a narrower one — which therefore opens on the same two sections. The
- * sport picked on the volume card filters the activities under it.
+ * Home's own sections (carnet#1528, P5·A and P5·C): today's session, the
+ * week, the training status, then Your team as one folded row, then the
+ * volume and the latest activities. A first arrival — Getting started open,
+ * the lead's welcome not yet answered — meets the whole Getting started list
+ * above them; once they have answered it, Getting started is the slim meter
+ * under the conversation's header instead, and only its folded line stays
+ * here. The welcome in the thread is where a new athlete meets the team, so
+ * Your team follows the training sections. The personal surface draws these
+ * in its Today panel beside the conversation on a wide screen, and in a
+ * drawer or a sheet on a narrower one. The sport picked on the volume card
+ * filters the activities under it.
  */
 export function HomeBriefing({
   onNavigate,
@@ -165,23 +167,21 @@ export function HomeBriefing({
   onOpenChatApp,
   onOpenFirstStep,
   compact = false,
-  lead,
 }: HomeBriefingProps) {
   const onOpenChatDraft = actions.draft;
   const sportFilter = useVolumeSportFilter(useTrainingVolume().data?.weeks);
   return (
     <div data-testid="home-briefing" className={clsx('space-y-8 px-4', compact ? 'py-2' : 'py-4')}>
-      {lead}
       <GettingStarted
         actions={actions}
         onNavigate={onNavigate}
         onOpenChatApp={onOpenChatApp}
         onOpenFirstStep={onOpenFirstStep}
       />
-      <YourTeam actions={actions} onNavigate={onNavigate} onPickTeam={onPickTeam} />
       <HomePlan onOpenChatDraft={onOpenChatDraft} onOpenFirstStep={onOpenFirstStep} />
       <HomeWeek onOpenChatDraft={onOpenChatDraft} onNavigate={onNavigate} />
       <HomeStatus />
+      <YourTeam actions={actions} onNavigate={onNavigate} onPickTeam={onPickTeam} />
       <HomeVolume filter={sportFilter} />
       <RecentActivities onNavigate={onNavigate} compact={compact} sport={sportFilter.sport} />
     </div>

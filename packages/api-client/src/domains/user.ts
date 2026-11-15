@@ -24,6 +24,7 @@ import type {
   ThemePreference,
   User,
 } from '@pierre/shared-types';
+import { parseCoachSetupResponse, type CoachSetupResponse } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
@@ -329,6 +330,20 @@ export function createUserApi(axios: AxiosInstance) {
         ENDPOINTS.USER.COACH_ACCESS_REQUEST,
       );
       return response.data;
+    },
+
+    /**
+     * The pending coach's checklist (carnet#1529): the seat, the athlete
+     * invited, a coaching platform linked — each done from server state —
+     * with the groups, the athlete who joined and the platform it read.
+     */
+    async getCoachSetup(): Promise<CoachSetupResponse> {
+      const response = await axios.get<unknown>(ENDPOINTS.USER.COACH_SETUP);
+      const parsed = parseCoachSetupResponse(response.data);
+      if (parsed === null) {
+        throw new Error(`Unexpected response shape from ${ENDPOINTS.USER.COACH_SETUP}`);
+      }
+      return parsed;
     },
 
     // ==================== MCP TOKENS ====================

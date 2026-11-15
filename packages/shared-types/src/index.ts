@@ -362,6 +362,16 @@ export type { ParqAnswer, ParqQuestion } from './parq.js';
 export type { GettingStartedResponse, GettingStartedRow } from './getting-started.js';
 export { parseGettingStartedResponse } from './getting-started.js';
 
+// The pending coach's « Préparer ton coaching » checklist (carnet#1529)
+export type {
+  CoachSetupAthlete,
+  CoachSetupGroup,
+  CoachSetupResponse,
+  CoachSetupRow,
+  CoachSetupRowId,
+} from './coach-setup.js';
+export { parseCoachSetupResponse } from './coach-setup.js';
+
 // The calendar Dravr's plan and workout pushes go to (carnet#1393)
 export type { CalendarOption, PreferredCalendar } from './preferred-calendar.js';
 export { parsePreferredCalendar } from './preferred-calendar.js';

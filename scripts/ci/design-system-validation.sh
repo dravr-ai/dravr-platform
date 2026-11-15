@@ -47,13 +47,13 @@ BASELINE_WEB_LEGACY_PIERRE=0
 # Boreal v2 (DESIGN.md §4, §5): backdrop blur belongs to overlays over
 # photography and `boreal-hero-gradient` to nothing at all any more. Both are
 # ratcheted from the count the refresh left, so they can only fall.
-BASELINE_WEB_BACKDROP_BLUR=15
+BASELINE_WEB_BACKDROP_BLUR=14
 BASELINE_WEB_HERO_GRADIENT=4
 # Boreal v2.1 (DESIGN.md §5, §9): a group is a Section, not a Card; the
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
-BASELINE_WEB_CARD_SITES=90
+BASELINE_WEB_CARD_SITES=85
 BASELINE_WEB_LEGACY_CARD_CLASSES=12
 BASELINE_WEB_LARGE_TEXT=46
 
@@ -81,7 +81,11 @@ BASELINE_MOBILE_CARD_SITES=9
 # 36: the plan card's per-day evidence chip (carnet#1495) — a badge, the web's
 # neutral `.badge` drawn on the phone; carnet#1518 moves every pill onto a
 # shared Badge component.
-BASELINE_MOBILE_ROUNDED_FULL=36
+# 37: the pending coach Home's checklist step marker (carnet#1529) — a dot on
+# the same `full` step as the seat timeline's markers.
+# 38: Home's Your team row (carnet#1528) — the overlapping agent avatars, an
+# avatar like the conversation list's.
+BASELINE_MOBILE_ROUNDED_FULL=38
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=32
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,

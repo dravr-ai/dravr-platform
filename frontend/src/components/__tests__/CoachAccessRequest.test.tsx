@@ -18,6 +18,8 @@ const api = vi.hoisted(() => ({
   requestCoachAccess: vi.fn(),
   cancelCoachAccessRequest: vi.fn(),
   getProvidersStatus: vi.fn(),
+  getSession: vi.fn(),
+  updateUser: vi.fn(),
 }));
 
 vi.mock('../../services/api', () => ({
@@ -28,8 +30,13 @@ vi.mock('../../services/api', () => ({
   },
   providersApi: { getProvidersStatus: () => api.getProvidersStatus() },
   oauthApi: { sciotteCancel: vi.fn(), authorizeUrl: vi.fn() },
+  authApi: { getSession: () => api.getSession() },
 }));
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
+// The block's seat probe reads the signed-in owner and patches them on a grant.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { id: 'user-1', manages_roster: false }, updateUser: api.updateUser }),
+}));
 
 const pending: Request = {
   id: 'req-1',
@@ -73,6 +80,7 @@ describe('CoachAccessRequest', () => {
     vi.clearAllMocks();
     api.getCoachAccessRequest.mockResolvedValue({ request: null });
     api.getProvidersStatus.mockResolvedValue(platforms(false));
+    api.getSession.mockResolvedValue({ user: { id: 'user-1', manages_roster: false } });
   });
 
   it('keeps the onboarding step its quiet inline button', async () => {
@@ -99,6 +107,26 @@ describe('CoachAccessRequest', () => {
 
     await waitFor(() => expect(block).toHaveAttribute('data-state', 'pending'), { timeout: 5000 });
     expect(within(block).getByTestId('coach-seat-step-sent')).toHaveTextContent('Request sent');
+  });
+
+  it('reads the session back after a TrainingPeaks link, so a coach account’s grant shows without signing out', async () => {
+    const { queryClient } = renderRequest('block');
+    const block = await screen.findByTestId('coach-seat-block');
+    await within(block).findByTestId('provider-card-sciotte_trainingpeaks');
+    expect(api.getSession).not.toHaveBeenCalled();
+
+    // A TrainingPeaks coach account on the verified email: coach access, no request.
+    api.getProvidersStatus.mockResolvedValue({
+      providers: platforms(false).providers.map((p) =>
+        p.provider === 'sciotte_trainingpeaks' ? { ...p, connected: true } : p,
+      ),
+    });
+    api.getSession.mockResolvedValue({ user: { id: 'user-1', manages_roster: true } });
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
+    });
+
+    await waitFor(() => expect(api.updateUser).toHaveBeenCalledWith({ manages_roster: true }));
   });
 
   it('reads nothing again for a platform linked before the block opened', async () => {

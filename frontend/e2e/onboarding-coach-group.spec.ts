@@ -58,18 +58,21 @@ async function setupCoach(page: Page, managesRoster: boolean) {
       metadata: { timestamp: new Date().toISOString(), api_version: 'v1' },
     });
   });
+  const group = {
+    id: 'g-1',
+    tenant_id: 'user-123',
+    name: 'Les Rouleurs',
+    description: null,
+    agent_id: 'a-2',
+    owner_id: 'user-123',
+    coach_user_id: managesRoster ? 'user-123' : null,
+  };
   await page.route('**/api/groups', async (route) => {
     calls.createGroup.push(route.request().postDataJSON());
-    await json(route, 201, {
-      id: 'g-1',
-      tenant_id: 'user-123',
-      name: 'Les Rouleurs',
-      description: null,
-      agent_id: 'a-2',
-      owner_id: 'user-123',
-      coach_user_id: managesRoster ? 'user-123' : null,
-    });
+    await json(route, 201, group);
   });
+  // The group's room reads the group back once its thread opens.
+  await page.route('**/api/groups/g-1', (route) => json(route, 200, group));
   const invite = {
     id: 'i-1',
     group_id: 'g-1',

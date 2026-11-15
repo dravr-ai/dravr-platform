@@ -58,10 +58,15 @@ describe('MessageList agent welcome', () => {
 
     expect(screen.getByText(/Agent Ravitaillement de Dravr/)).toBeTruthy();
     expect(screen.getByText('Pour commencer, tu peux me demander :')).toBeTruthy();
-    // Each starter is a button a screen reader announces by its question.
+    // Each starter is a button a screen reader announces by its question, a
+    // 44pt ink link as the empty thread draws its starters: no pill (D3,
+    // carnet#1528).
     for (const q of STARTERS) {
-      expect(screen.getByRole('button', { name: q })).toBeTruthy();
+      const starter = screen.getByRole('button', { name: q });
+      expect(starter.props.className).toContain('min-h-11');
+      expect(starter.props.className).not.toMatch(/\bbg-/);
     }
+    expect(screen.getByTestId('welcome-starters')).toBeTruthy();
     fireEvent.press(screen.getByRole('button', { name: STARTERS[2] }));
     // A starter on a row the room reads answers in the room.
     expect(onActionClick).toHaveBeenCalledWith(

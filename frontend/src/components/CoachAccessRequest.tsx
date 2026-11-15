@@ -1,17 +1,15 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach-access request — inline in onboarding, a strip over the room, a block in Group info, a panel in Settings and on Home
+// ABOUTME: The coach-access request — inline in onboarding, a strip over the room, a block in Group info, a panel in Settings, a row on the pending coach Home
 // ABOUTME: Shows the latest request's state (to ask, pending + cancel, declined + reason, granted) from the server; asking grants nothing (ADR-018)
 
-import { useCallback, useEffect, useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Check, CheckCircle2, Clock, UserCheck } from 'lucide-react';
 import { clsx } from 'clsx';
 import {
   COACH_PLATFORM_PROVIDERS,
-  COACH_SEAT_CHECK_POLL_MS,
-  COACH_SEAT_CHECK_WINDOW_MS,
   COACH_SEAT_KEYS,
   coachSeatDeclineReason,
   coachSeatMoment,
@@ -21,6 +19,7 @@ import type { CoachAccessRequest as CoachAccessRequestRecord } from '@pierre/sha
 import { useTranslation } from '@pierre/i18n';
 import { providersApi, userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
 import { Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
 
@@ -34,13 +33,18 @@ import ProviderConnectionCards from './ProviderConnectionCards';
  * - `block`: the first block of Group info: what is blocked, the drawer's one
  *   filled request, then the coaching platforms as plain rows; once asked, the
  *   dated three-step timeline.
- * - `panel`: Settings and Home, for a coach with no group (carnet#1522): the
- *   request on its own, and once granted, the way to their coach Home.
+ * - `panel`: Settings, for a coach with no group (carnet#1522): the request on
+ *   its own, and once granted, the way to their coach Home.
+ * - `row`: the seat row of the pending coach Home's checklist (carnet#1529):
+ *   the row carries the title and the marker, so this is only what follows —
+ *   what the access opens and the filled request; once asked, the dated
+ *   sentence and the way to withdraw it; after a decline, the reason and
+ *   "Ask again".
  */
-export type CoachAccessRequestVariant = 'inline' | 'strip' | 'block' | 'panel';
+export type CoachAccessRequestVariant = 'inline' | 'strip' | 'block' | 'panel' | 'row';
 
 interface CoachAccessRequestProps {
-  /** The group the coach asks from; none in Settings or on Home. */
+  /** The group the coach asks from; none in Settings or on the pending coach Home. */
   groupId?: string;
   variant?: CoachAccessRequestVariant;
   /** `strip` only: open Group info, where the coaching platforms are offered. */
@@ -54,7 +58,7 @@ interface CoachAccessRequestProps {
 /**
  * The one coach-access request (carnet#738), behind every entry point so none
  * can drift: the onboarding group step, the room's top strip, Group info, and
- * the group-less panel in Settings and on Home.
+ * the group-less panel in Settings and the pending coach Home's seat row.
  *
  * Reads where the coach's latest request stands so a return visit shows it.
  * A request asked from a group names it; either way a grant attaches the
@@ -72,20 +76,9 @@ export default function CoachAccessRequest({
   onOpenHome,
 }: CoachAccessRequestProps) {
   const queryClient = useQueryClient();
-  // Set when a coaching platform was just linked here: an Intervals.icu roster
-  // that coaches an active athlete files the request in the background
-  // (`coach_access_evidence`), a few seconds after the link answers, so the
-  // request is read again for the seat step's window. The block shows what the
-  // server filed, never a guess.
-  const [probeUntil, setProbeUntil] = useState<number | null>(null);
-  const startProbe = useCallback(() => setProbeUntil(Date.now() + COACH_SEAT_CHECK_WINDOW_MS), []);
   const latest = useQuery({
     queryKey: QUERY_KEYS.user.coachAccessRequest(),
     queryFn: () => userApi.getCoachAccessRequest(),
-    refetchInterval: (query) =>
-      probeUntil !== null && Date.now() < probeUntil && coachSeatState(query.state.data?.request) === 'to_request'
-        ? COACH_SEAT_CHECK_POLL_MS
-        : false,
   });
   const cancel = useMutation({
     mutationFn: () => userApi.cancelCoachAccessRequest(),
@@ -133,10 +126,11 @@ export default function CoachAccessRequest({
   if (variant === 'panel') {
     return managesRoster ? <SeatGranted onOpenHome={onOpenHome} /> : <SeatPanel {...view} />;
   }
+  if (variant === 'row') return <SeatRow {...view} />;
   return variant === 'strip' ? (
     <SeatStrip {...view} onOpenInfo={onOpenInfo} />
   ) : (
-    <SeatBlock {...view} onPlatformLinked={startProbe} />
+    <SeatBlock {...view} />
   );
 }
 
@@ -404,6 +398,12 @@ function SeatStrip({
  * blocked, the drawer's one filled request, then TrainingPeaks and
  * Intervals.icu as plain identical rows. After a request, the dated three-step
  * timeline in its place; after a decline, the date and "Ask again".
+ *
+ * A platform linked from the rows settles the seat off its connect request —
+ * a TrainingPeaks coach account grants, an Intervals.icu roster files the
+ * request a few seconds later — so the block mounts the one seat probe
+ * (`useSeatAfterPlatformLink`, carnet#1529): the session and the request are
+ * read back for the check window, and a grant shows without signing out.
  */
 function SeatBlock({
   state,
@@ -412,16 +412,19 @@ function SeatBlock({
   failed,
   justAsked,
   onAsk,
-  onPlatformLinked,
   cancelling,
   cancelFailed,
   justCancelled,
   onCancel,
-}: SeatViewProps & { onPlatformLinked: () => void }) {
+}: SeatViewProps) {
   const { t } = useTranslation();
   const titleId = useId();
   const headingRef = useFocusOnAsked(justAsked, state);
-  usePlatformLinked(state === 'pending' ? null : onPlatformLinked);
+  const providers = useQuery({
+    queryKey: QUERY_KEYS.providers.status(),
+    queryFn: () => providersApi.getProvidersStatus(),
+  });
+  useSeatAfterPlatformLink(providers.data?.providers.filter((p) => p.connected).map((p) => p.provider));
   const pending = state === 'pending';
 
   return (
@@ -473,7 +476,7 @@ function SeatBlock({
 }
 
 /**
- * The group-less panel, in Settings and on Home (carnet#1522): what coach
+ * The group-less panel, in Settings (carnet#1522): what coach
  * access opens and the one filled request; once asked, the dated sentence and
  * the way to withdraw it; after a decline, the reason and "Ask again". The
  * request names no group: a grant attaches the coach to every coachless group
@@ -543,6 +546,68 @@ function SeatPanel({
   );
 }
 
+/**
+ * The seat row of the pending coach Home's checklist (carnet#1529), under the
+ * row's own title: what the access opens and the one filled request; once
+ * asked, the state in the review's warm ink with its date, that the answer
+ * comes here and by email — no wait time is promised — and the way to
+ * withdraw it; after a decline, the reason and "Ask again".
+ */
+function SeatRow({
+  state,
+  request,
+  asking,
+  failed,
+  justAsked,
+  onAsk,
+  cancelling,
+  cancelFailed,
+  justCancelled,
+  onCancel,
+}: SeatViewProps) {
+  const { t } = useTranslation();
+  const statusRef = useRef<HTMLParagraphElement>(null);
+  useEffect(() => {
+    if (justAsked && state === 'pending') statusRef.current?.focus();
+  }, [justAsked, state]);
+  const pending = state === 'pending';
+
+  return (
+    <div className="space-y-1" data-testid="coach-seat-row" data-state={state}>
+      {pending && request ? (
+        <>
+          <p
+            ref={statusRef}
+            tabIndex={-1}
+            role="status"
+            className="flex items-center gap-1.5 text-sm font-medium text-on-warning-container focus:outline-none"
+          >
+            <Clock aria-hidden="true" className="h-4 w-4 shrink-0" />
+            {t(COACH_SEAT_KEYS.pendingBlockTitle)}
+          </p>
+          <PendingSentence request={request} />
+          <div className="-ml-1.5 pt-0.5">
+            <CancelButton cancelling={cancelling} onCancel={onCancel} />
+          </div>
+        </>
+      ) : (
+        <>
+          {state === 'declined' && request ? (
+            <DeclinedLines request={request} />
+          ) : (
+            <p className="text-sm text-on-surface-variant">{t(COACH_SEAT_KEYS.panelBody)}</p>
+          )}
+          <div className="pt-2">
+            <AskButton state={state} asking={asking} onAsk={onAsk} fullWidthOnPhone />
+          </div>
+        </>
+      )}
+      {failed && <AskFailed />}
+      <CancelOutcome justCancelled={justCancelled && !pending} cancelFailed={cancelFailed} />
+    </div>
+  );
+}
+
 /** The panel once the access is on: it says so, and opens the coach's Home. */
 function SeatGranted({ onOpenHome }: { onOpenHome?: () => void }) {
   const { t } = useTranslation();
@@ -575,32 +640,6 @@ function SeatGranted({ onOpenHome }: { onOpenHome?: () => void }) {
       </div>
     </section>
   );
-}
-
-/**
- * Call `onLinked` when a coaching platform becomes connected while the block
- * is on screen — not for one connected before it opened. Reads the provider
- * status the rows themselves read, so no extra request is made.
- */
-function usePlatformLinked(onLinked: (() => void) | null) {
-  const { data } = useQuery({
-    queryKey: QUERY_KEYS.providers.status(),
-    queryFn: () => providersApi.getProvidersStatus(),
-  });
-  const linked = (data?.providers ?? [])
-    .filter((p) => p.connected && COACH_PLATFORM_PROVIDERS.includes(p.provider))
-    .map((p) => p.provider)
-    .sort()
-    .join(',');
-  const seen = useRef<string | null>(null);
-  useEffect(() => {
-    if (!data) return;
-    const before = seen.current;
-    seen.current = linked;
-    if (before === null || !onLinked) return;
-    const grew = linked.split(',').some((p) => p && !before.split(',').includes(p));
-    if (grew) onLinked();
-  }, [data, linked, onLinked]);
 }
 
 /**

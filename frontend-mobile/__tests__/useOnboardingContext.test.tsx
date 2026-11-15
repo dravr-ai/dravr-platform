@@ -8,7 +8,7 @@ import React from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { currentOnboardingStep } from '@pierre/shared-constants';
+import { currentOnboardingStep, QUERY_KEYS } from '@pierre/shared-constants';
 
 const mockAuth: {
   isAuthenticated: boolean;
@@ -342,6 +342,20 @@ describe('useOnboardingContext', () => {
     expect(result.current.context.onboardingActive).toBe(false);
     expect(result.current.context.needsProviderConnection).toBeUndefined();
     expect(result.current.settled).toBe(true);
+    expect(mockGetOnboardingStatus).not.toHaveBeenCalled();
+  });
+
+  it('keeps an admin exempt when another screen has cached their status', async () => {
+    mockAuth.user = { id: 'u1', role: 'admin', user_status: 'active' };
+    const { client, wrapper } = setup();
+    // Home reads the shared status for every account, an admin's too.
+    client.setQueryData(QUERY_KEYS.user.onboardingStatus(), status(true));
+
+    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
+
+    await waitFor(() => expect(result.current.settled).toBe(true));
+    expect(result.current.context.needsProviderConnection).toBeUndefined();
+    expect(currentOnboardingStep(result.current.context)).toBeNull();
     expect(mockGetOnboardingStatus).not.toHaveBeenCalled();
   });
 });

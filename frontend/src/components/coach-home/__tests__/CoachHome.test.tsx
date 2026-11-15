@@ -49,7 +49,7 @@ vi.mock('../../../hooks/useBreakpoint', () => ({
 
 const TODAY = localToday();
 
-function renderHome(initial: CoachHomeRoute = { view: 'queue', athleteId: null }) {
+function renderHome(initial: CoachHomeRoute = { view: 'queue', athleteId: null }, trains = true) {
   const navigate = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   /** A host that follows the hash the way the dashboard does: a navigation is the new route. */
@@ -58,6 +58,7 @@ function renderHome(initial: CoachHomeRoute = { view: 'queue', athleteId: null }
     return (
       <CoachHome
         route={route as Exclude<CoachHomeRoute, { view: 'me' }>}
+        trains={trains}
         onNavigate={(next) => {
           navigate(next);
           const sub = next === 'home' ? '' : next.startsWith('home/') ? next.slice('home/'.length) : null;
@@ -506,6 +507,14 @@ describe('the switch and the routes', () => {
     expect(screen.getByTestId('coach-home-switch-athletes')).toHaveAttribute('aria-pressed', 'true');
     await user.click(screen.getByTestId('coach-home-switch-me'));
     expect(navigate).toHaveBeenCalledWith('home/me');
+  });
+
+  it('gives a coach who does not train no « Mon entraînement », only the page’s name (carnet#1529)', async () => {
+    renderHome({ view: 'queue', athleteId: null }, false);
+    await screen.findByTestId('coach-home');
+    expect(screen.queryByTestId('coach-home-switch')).toBeNull();
+    expect(screen.queryByText('My training')).toBeNull();
+    expect(screen.getByTestId('coach-home-title')).toHaveTextContent('My athletes');
   });
 
   it('moves between the views', async () => {

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Today's Getting started — the first steps, done, current or open, read from the server so web and phone agree
+// ABOUTME: Getting started — the whole list in a first arrival's Today, the slim meter under a returning athlete's header (carnet#1528)
 // ABOUTME: A row opens its sheet, Settings, or sends its flow's starter into the thread; Hide is a server preference, and the section folds then goes once done (carnet#1098)
 
-import { useMemo, type ReactNode } from 'react';
+import { useId, useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
@@ -145,6 +145,44 @@ interface GettingStartedProps {
   onOpenFirstStep: (request: FirstStepRequest) => void;
 }
 
+/** The rows the client draws, in the server's order. */
+function listedRows(rows: readonly GettingStartedRow[]): GettingStartedRow[] {
+  return rows.filter((row) => row.id in ROW_KEY).sort((a, b) => a.order - b.order);
+}
+
+/**
+ * What a row is called and what a tap on it does, for the list and the meter
+ * alike: Connect goes to Settings › Connections, the chat-app row opens its
+ * sheet, a question opens its sheet, and a first-run flow sends its starter
+ * into the thread. A done row, or one whose prerequisite is missing, does
+ * nothing.
+ */
+function useRowActions({ actions, onNavigate, onOpenChatApp, onOpenFirstStep }: GettingStartedProps) {
+  const { t } = useTranslation();
+  const titleOf = (row: GettingStartedRow) => t(`home.gettingStarted.rows.${ROW_KEY[row.id]}.title`);
+  const opensItsOwnPlace = (row: GettingStartedRow) =>
+    row.id === 'connect' || row.id === 'chat_app' || row.id in SHEET_OF_ROW;
+  const actionable = (row: GettingStartedRow) =>
+    !row.done && (opensItsOwnPlace(row) || (row.eligible && row.postback !== null));
+  const open = (row: GettingStartedRow) => {
+    if (row.id === 'connect') {
+      onNavigate('settings/connections');
+      return;
+    }
+    if (row.id === 'chat_app') {
+      onOpenChatApp();
+      return;
+    }
+    const sheet = SHEET_OF_ROW[row.id];
+    if (sheet) {
+      onOpenFirstStep({ step: sheet });
+      return;
+    }
+    if (row.postback) actions.send(row.postback, titleOf(row));
+  };
+  return { titleOf, actionable, open };
+}
+
 /**
  * Getting started (carnet#1098), in the server's order and with its verdicts
  * — done, current, and whether a row's prerequisite is met. A done row is
@@ -163,11 +201,18 @@ interface GettingStartedProps {
  * the server records it as a tap from this surface (carnet#1100). Closing a
  * sheet ticks nothing; once the last row is done the section folds to one
  * line naming the way back, and is gone seven days later.
+ *
+ * The whole list is a first arrival's (carnet#1528): once the athlete has
+ * answered the lead's welcome, Today leads with today's session and the list
+ * becomes the slim meter under the conversation's header
+ * ([`GettingStartedMeter`]). The folded line stays here either way.
  */
-export function GettingStarted({ actions, onNavigate, onOpenChatApp, onOpenFirstStep }: GettingStartedProps) {
+export function GettingStarted(props: GettingStartedProps) {
   const { t } = useTranslation();
-  const { query, home, state } = useGettingStarted();
-  const hintFor = useRowHints(state === 'open');
+  const { query, home, state, stage } = useGettingStarted();
+  const listed = state === 'open' && stage === 'first_arrival';
+  const hintFor = useRowHints(listed);
+  const { titleOf, actionable, open } = useRowActions(props);
 
   if (state === null || state === 'gone' || query.data === undefined) return null;
   const data = query.data;
@@ -179,25 +224,7 @@ export function GettingStarted({ actions, onNavigate, onOpenChatApp, onOpenFirst
       </p>
     );
   }
-
-  const titleOf = (row: GettingStartedRow) => t(`home.gettingStarted.rows.${ROW_KEY[row.id]}.title`);
-
-  const open = (row: GettingStartedRow) => {
-    if (row.id === 'connect') {
-      onNavigate('settings/connections');
-      return;
-    }
-    if (row.id === 'chat_app') {
-      onOpenChatApp();
-      return;
-    }
-    const sheet = SHEET_OF_ROW[row.id];
-    if (sheet) {
-      onOpenFirstStep({ step: sheet });
-      return;
-    }
-    if (row.postback) actions.send(row.postback, titleOf(row));
-  };
+  if (!listed) return null;
 
   const title = (
     <>
@@ -220,7 +247,7 @@ export function GettingStarted({ actions, onNavigate, onOpenChatApp, onOpenFirst
     </button>
   );
 
-  const rows = data.rows.filter((row) => row.id in ROW_KEY).sort((a, b) => a.order - b.order);
+  const rows = listedRows(data.rows);
 
   return (
     <Section title={title} headingLevel={3} actions={hide} data-testid="home-getting-started">
@@ -262,8 +289,6 @@ export function GettingStarted({ actions, onNavigate, onOpenChatApp, onOpenFirst
             row.current && !row.done && 'bg-surface-container-low',
           );
           // A done row, or one whose prerequisite is missing, is not a link.
-          const opensItsOwnPlace = row.id === 'connect' || row.id === 'chat_app' || row.id in SHEET_OF_ROW;
-          const actionable = !row.done && (opensItsOwnPlace || (row.eligible && row.postback !== null));
           return (
             <li
               key={row.id}
@@ -271,7 +296,7 @@ export function GettingStarted({ actions, onNavigate, onOpenChatApp, onOpenFirst
               data-state={row.done ? 'done' : row.current ? 'current' : 'open'}
               aria-current={row.current && !row.done ? 'step' : undefined}
             >
-              {actionable ? (
+              {actionable(row) ? (
                 <button
                   type="button"
                   className={clsx(rowClass, 'transition-colors hover:bg-surface-container-low focus-ring')}
@@ -291,5 +316,84 @@ export function GettingStarted({ actions, onNavigate, onOpenChatApp, onOpenFirst
         })}
       </ol>
     </Section>
+  );
+}
+
+/**
+ * Getting started as a returning athlete meets it (carnet#1528, P5·C): one
+ * slim line under the conversation's header, in the transcript's column —
+ * a segment per step, the count, the next step and « Continue », which does
+ * what a tap on that row of the list does, and the Hide the list carries.
+ * Gone once every step is done or the athlete hides it; a first arrival gets
+ * the whole list in Today instead.
+ */
+export function GettingStartedMeter(props: GettingStartedProps) {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const { query, home, state, stage } = useGettingStarted();
+  const { titleOf, actionable, open } = useRowActions(props);
+
+  if (state !== 'open' || stage !== 'returning' || query.data === undefined) return null;
+  const data = query.data;
+  const rows = listedRows(data.rows);
+  const next = rows.find((row) => row.current && !row.done) ?? null;
+
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="home-getting-started-meter"
+      className="shrink-0 border-b ghost-border bg-surface"
+    >
+      <div className="mx-auto flex h-11 w-full max-w-[720px] items-center gap-2.5 px-4 md:px-6">
+        <span aria-hidden="true" className="hidden shrink-0 gap-[3px] sm:flex">
+          {rows.map((row) => (
+            <span
+              key={row.id}
+              className={clsx('h-1 w-3.5 rounded-sm', row.done ? 'bg-primary' : 'bg-outline-variant')}
+            />
+          ))}
+        </span>
+        <h2 id={headingId} className="shrink-0 whitespace-nowrap text-sm font-medium text-on-surface">
+          {t('home.gettingStarted.title')}{' '}
+          <span aria-hidden="true" className="font-mono text-xs font-normal text-outline">
+            {t('home.gettingStarted.count', { done: data.done_count, total: data.total })}
+          </span>
+          <span className="sr-only">{t('home.gettingStarted.countAria', { done: data.done_count, total: data.total })}</span>
+        </h2>
+        {next !== null ? (
+          <>
+            <span aria-hidden="true" className="hidden text-outline sm:inline">
+              ·
+            </span>
+            <span className="hidden min-w-0 flex-1 truncate text-sm text-on-surface-variant sm:block">
+              {t('home.gettingStarted.meterNext', { step: titleOf(next) })}
+            </span>
+          </>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {next !== null && actionable(next) && (
+          <button
+            type="button"
+            data-testid="home-getting-started-meter-continue"
+            onClick={() => open(next)}
+            className="ml-auto shrink-0 rounded px-1 text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+          >
+            {t('home.gettingStarted.meterContinue')}
+            <span className="sr-only"> — {titleOf(next)}</span>
+          </button>
+        )}
+        <button
+          type="button"
+          data-testid="home-getting-started-meter-hide"
+          aria-label={t('home.gettingStarted.hideAria')}
+          title={t('home.gettingStarted.hideAria')}
+          onClick={() => home.update({ getting_started_hidden: true })}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-ring touch-target"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+    </section>
   );
 }

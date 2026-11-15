@@ -376,7 +376,13 @@ export {
 } from './coachHome';
 export { createCoachRosterHooks } from './coachRosterHooks';
 // A coach-access grant picked up without signing out, and the list's coach-seat line (carnet#1521).
-export { createCoachAccessHooks, type CoachAccessViewer } from './coachAccessHooks';
+export {
+  createCoachAccessHooks,
+  seatLineDay,
+  type CoachAccessViewer,
+  type SeatProbe,
+  type SeatProbeOptions,
+} from './coachAccessHooks';
 // Coach Home's invited-but-not-joined rows (carnet#1524).
 export { COACH_PENDING_INVITE_KEYS, groupsAwaitingAthlete, usableMemberInvite } from './coachPendingInvites';
 export {

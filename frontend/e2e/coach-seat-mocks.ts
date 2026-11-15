@@ -2,11 +2,13 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Mocks for the coach seat: the owner of a coachless room who holds no coach access, and what a decision does to it
-// ABOUTME: One room, its group, its roster, the coaching platforms, the coach-access request (ask, withdraw) and a grant that lands
+// ABOUTME: One room, its group, its roster, the coaching platforms, the request, the pending coach Home's checklist, a grant, or a coached room
 
 import type { Page } from '@playwright/test';
-import type { CoachAccessRequest } from '@pierre/shared-types';
+import type { CoachAccessRequest, CoachSetupResponse } from '@pierre/shared-types';
+import { localToday } from '@pierre/ui-logic';
 import { loginToDashboard, setupDashboardMocks, ONBOARDED_STATUS } from './test-helpers';
+import { buildRoster } from '../src/test/coachRosterFixtures';
 
 export const SEAT_GROUP_ID = 'group-seat';
 export const SEAT_CONVERSATION_ID = 'conv-group-seat';
@@ -41,6 +43,19 @@ export interface SeatMockOptions {
   coachesOthers?: boolean;
   /** The caller already holds coach access (`manages_roster`). */
   managesRoster?: boolean;
+  /**
+   * Who coaches the room: nobody (the default, the seat still to win), the
+   * caller (`'viewer'`, as a grant leaves it), or another person
+   * (`'someone-else'`, an athlete's room with their coach in it).
+   */
+  coach?: 'viewer' | 'someone-else';
+  /**
+   * The coach trains too (« J'entraîne et je m'entraîne »); `false` records
+   * the athlete steps waived, as the coach-only answer does (carnet#1529).
+   */
+  trains?: boolean;
+  /** What the pending coach Home's checklist holds beyond the room's group (carnet#1529). */
+  setup?: Partial<CoachSetupResponse>;
 }
 
 /** What the coach did against the mocked server, and what the team can do to it. */
@@ -190,16 +205,23 @@ function json(body: unknown, status = 200) {
  * with a pending request dated now, and the GET reads it back from then on.
  */
 export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions = {}): Promise<SeatRecord> {
-  const { role = 'owner', coachesOthers = true, managesRoster = false } = options;
+  const { role = 'owner', coachesOthers = true, managesRoster = false, trains = true } = options;
   let latest: CoachAccessRequest | null = options.request ?? null;
+  let granted = managesRoster;
   // A member who does not own the room: the group names someone else as its owner.
-  let group: Record<string, unknown> = { ...groupDetail, owner_id: role === 'owner' ? 'user-123' : 'user-lea' };
+  let group: Record<string, unknown> = {
+    ...groupDetail,
+    owner_id: role === 'owner' ? 'user-123' : 'user-lea',
+    ...(options.coach === 'viewer' ? { coach_user_id: 'user-123', coach_display_name: 'Philippe' } : {}),
+    ...(options.coach === 'someone-else' ? { coach_user_id: 'user-marc', coach_display_name: 'Marc Tremblay' } : {}),
+  };
   let conversation: Record<string, unknown> = { ...groupConversation };
   const record: SeatRecord = {
     requests: [],
     cancels: 0,
     grant: async () => {
       const decidedAt = new Date().toISOString();
+      granted = true;
       latest = { ...(latest ?? PENDING_REQUEST), status: 'granted', decided_at: decidedAt, decided_by: 'admin-1' };
       group = { ...group, coach_user_id: 'user-123', coach_display_name: 'Philippe' };
       conversation = {
@@ -234,16 +256,45 @@ export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions =
   await setupDashboardMocks(page, { role: 'user', skipProvidersRoute: true, managesRoster });
 
   await page.route('**/api/providers', (route) => route.fulfill(json(coachPlatforms)));
-  // Onboarded, the group step behind them: the room is where they landed.
+  // Onboarded, the group step behind them: the room is where they landed. A
+  // coach who does not train has the athlete steps waived (carnet#1529).
+  const waived = trains
+    ? []
+    : [
+        { step_id: 'about_you', status: 'not_applicable' },
+        { step_id: 'parq', status: 'not_applicable' },
+      ];
   await page.route('**/api/me/onboarding-status', (route) =>
     route.fulfill(
       json({
         ...ONBOARDED_STATUS,
-        steps: [...ONBOARDED_STATUS.steps, { step_id: 'coach_group', status: 'complete' }],
+        steps: [...ONBOARDED_STATUS.steps, { step_id: 'coach_group', status: 'complete' }, ...waived],
         coaches_others: coachesOthers,
       }),
     ),
   );
+  // The pending coach Home's checklist (carnet#1529): the room's group, no
+  // athlete in it yet, no coaching platform; the seat ticks once granted.
+  await page.route('**/api/me/coach-setup', (route) => {
+    const extra = options.setup ?? {};
+    const inviteDone = extra.athlete != null;
+    const platformDone = extra.platform != null;
+    const decided = [granted, inviteDone, platformDone];
+    const current = decided.indexOf(false);
+    const ids = ['seat', 'invite', 'platform'] as const;
+    const body: CoachSetupResponse = {
+      rows: ids.map((id, index) => ({ id, order: index + 1, done: decided[index], current: index === current })),
+      done_count: decided.filter(Boolean).length,
+      total: 3,
+      groups: role === 'owner' ? [{ id: SEAT_GROUP_ID, name: SEAT_GROUP_NAME }] : [],
+      athlete: null,
+      platform: null,
+      ...extra,
+    };
+    return route.fulfill(json(body));
+  });
+  // Once granted, Home is the coach Home: its roster read.
+  await page.route('**/api/coach/roster**', (route) => route.fulfill(json(buildRoster(localToday(), 0))));
   await page.route('**/api/me/coach-access-request', async (route) => {
     const method = route.request().method();
     if (method === 'POST') {
@@ -294,6 +345,38 @@ export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions =
   );
   await page.route(`**/api/groups/${SEAT_GROUP_ID}/members/me/coach-sharing`, (route) =>
     route.fulfill(json({ consent: true })),
+  );
+  // A coached room: the coach's TrainingPeaks links, or the athlete's own
+  // record of the coach's reads and what they let the coach do.
+  await page.route(`**/api/groups/${SEAT_GROUP_ID}/delegated-connections`, (route) =>
+    route.fulfill(json({ connections: [], total: 0, viewer: options.coach === 'viewer' ? 'coach' : 'member' })),
+  );
+  await page.route(`**/api/groups/${SEAT_GROUP_ID}/delegated-connections/roster*`, (route) =>
+    route.fulfill(
+      json({
+        provider: 'trainingpeaks',
+        athletes: [
+          { provider_athlete_id: '900001', display_name: 'Léa Gagnon', connection: null, suggested_member_user_id: 'user-lea' },
+        ],
+      }),
+    ),
+  );
+  await page.route(`**/api/groups/${SEAT_GROUP_ID}/members/me/coach-reads`, (route) =>
+    route.fulfill(json({ reads: [], retention_months: 12 })),
+  );
+  await page.route(`**/api/groups/${SEAT_GROUP_ID}/members/me/coach-consents`, (route) =>
+    route.fulfill(
+      json({
+        calendar_write: false,
+        calendar_write_at: null,
+        calendar_write_supported: true,
+        wellness_read: false,
+        wellness_read_at: null,
+        wellness_read_supported: true,
+        wellness_read_skipped: null,
+        wellness_notice_due: false,
+      }),
+    ),
   );
   await page.route(`**/api/chat/groups/${SEAT_GROUP_ID}/transcript*`, (route) => route.fulfill(json(transcript)));
   await page.route('**/api/agents**', (route) =>

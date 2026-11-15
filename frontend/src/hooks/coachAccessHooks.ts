@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The web binding of the coach-access hooks — a grant picked up without signing out, and the Groups list's coach-seat line
+// ABOUTME: The web binding of the coach-access hooks — a grant picked up without signing out, the Groups list's coach-seat line, the seat read after a platform links
 // ABOUTME: The definitions live in @pierre/ui-logic, one for web and phone; this hands in the web's APIs, session and words
 
 import { createCoachAccessHooks } from '@pierre/ui-logic';
@@ -14,7 +14,7 @@ import { useAuth } from './useAuth';
  * hook runs, so importing this touches no client. The web reads the waiting
  * request again when the window regains focus.
  */
-export const { useCoachAccessGrantRefresh, useGroupSeatLines } = createCoachAccessHooks({
+export const { useCoachAccessGrantRefresh, useGroupSeatLines, useSeatAfterPlatformLink } = createCoachAccessHooks({
   userApi: { getCoachAccessRequest: () => userApi.getCoachAccessRequest() },
   authApi: { getSession: () => authApi.getSession() },
   groupsApi: { getGroup: (groupId) => groupsApi.getGroup(groupId) },

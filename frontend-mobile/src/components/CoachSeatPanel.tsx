@@ -4,25 +4,22 @@
 // ABOUTME: The coach-seat step's lower half (mobile): the link to ask the team, what the server did, and the way on
 // ABOUTME: Mirrors the web OnboardingCoachSeat; reads the seat back (session, request, account role), never infers it from a tap
 
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { View, Text, Pressable, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  COACH_SEAT_CHECK_POLL_MS,
-  COACH_SEAT_CHECK_WINDOW_MS,
   QUERY_KEYS,
   coachSeatMoment,
-  coachSeatState,
   coachSeatStepState,
-  connectedCoachPlatforms,
   type CoachSeatProvider,
   type CoachSeatStepState,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { Button } from './ui';
-import { authApi, userApi } from '../services/api';
+import { userApi } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
+import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
 import { useThemeColors } from '../constants/theme';
 
 /**
@@ -48,7 +45,7 @@ export function CoachSeatPanel({
 }) {
   const { t, language } = useTranslation();
   const queryClient = useQueryClient();
-  const { user, updateUser } = useAuth();
+  const { user } = useAuth();
   const managesRoster = user?.manages_roster === true;
   const latest = useQuery({
     queryKey: QUERY_KEYS.user.coachAccessRequest(),
@@ -59,40 +56,21 @@ export function CoachSeatPanel({
     onSuccess: (data) => queryClient.setQueryData(QUERY_KEYS.user.coachAccessRequest(), data),
   });
 
-  const platformConnected = connectedCoachPlatforms(providers).length > 0;
-  const [checkExpired, setCheckExpired] = useState(false);
-  const seat = coachSeatStepState({ managesRoster, request: latest.data?.request, providers, checkExpired });
-
-  useEffect(() => {
-    if (!platformConnected) return;
-    const timer = setTimeout(() => setCheckExpired(true), COACH_SEAT_CHECK_WINDOW_MS);
-    return () => clearTimeout(timer);
-  }, [platformConnected]);
-
-  const awaiting =
-    platformConnected && !managesRoster && coachSeatState(latest.data?.request) !== 'pending' && !checkExpired;
-  const refetchRequest = latest.refetch;
-  useEffect(() => {
-    if (!awaiting) return;
-    let cancelled = false;
-    const read = () => {
-      onReloadProviders();
-      void refetchRequest();
-      authApi
-        .getSession()
-        .then(({ user: fresh }) => {
-          if (!cancelled && fresh.manages_roster === true) void updateUser({ manages_roster: true });
-        })
-        // The next tick reads again.
-        .catch(() => {});
-    };
-    read();
-    const timer = setInterval(read, COACH_SEAT_CHECK_POLL_MS);
-    return () => {
-      cancelled = true;
-      clearInterval(timer);
-    };
-  }, [awaiting, onReloadProviders, refetchRequest, updateUser]);
+  // The one seat probe (carnet#1529): the session, the request and — through
+  // `onReloadProviders`, since the connect screen holds its cards outside the
+  // query cache — the cards for the account role, read again for the check
+  // window. A platform there on arrival opens it too: the way back from a
+  // sign-in may remount the screen.
+  const probe = useSeatAfterPlatformLink(
+    providers.filter((p) => p.connected).map((p) => p.provider),
+    { fromFirstRead: true, onRead: onReloadProviders },
+  );
+  const seat = coachSeatStepState({
+    managesRoster,
+    request: latest.data?.request,
+    providers,
+    checkExpired: probe.ended,
+  });
 
   return (
     <View>

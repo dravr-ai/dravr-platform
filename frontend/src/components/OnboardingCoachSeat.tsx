@@ -4,22 +4,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import {
   COACH_PLATFORM_PROVIDERS,
-  COACH_SEAT_CHECK_POLL_MS,
-  COACH_SEAT_CHECK_WINDOW_MS,
   coachSeatMoment,
-  coachSeatState,
   coachSeatStepState,
-  connectedCoachPlatforms,
   type CoachSeatStepState,
 } from '@pierre/shared-constants';
-import { authApi, providersApi, userApi } from '../services/api';
+import { providersApi, userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useAuth } from '../hooks/useAuth';
+import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
 import { Button } from './ui';
 import OnboardingShell from './OnboardingShell';
 import ProviderConnectionCards from './ProviderConnectionCards';
@@ -47,7 +44,7 @@ import ProviderConnectionCards from './ProviderConnectionCards';
 export default function OnboardingCoachSeat({ onComplete }: { onComplete: () => void }) {
   const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
-  const { user, updateUser } = useAuth();
+  const { user } = useAuth();
   const managesRoster = user?.manages_roster === true;
 
   // Held before the step came up: nothing to get. Read once, so a seat
@@ -71,52 +68,22 @@ export default function OnboardingCoachSeat({ onComplete }: { onComplete: () => 
   });
 
   const served = providers.data?.providers ?? [];
-  const platformConnected = connectedCoachPlatforms(served).length > 0;
-  const [checkExpired, setCheckExpired] = useState(false);
+  // The one seat probe (carnet#1529): a connection settles the seat off its
+  // connect request, so the session, the request and the cards (for the
+  // account role) are read again for the check window. Its window opens the
+  // first time this screen sees a coaching platform connected — back from a
+  // sign-in, a key, or an authorization that reloaded the page — and its end
+  // is when a connection is said to have produced nothing.
+  const probe = useSeatAfterPlatformLink(
+    providers.data ? served.filter((p) => p.connected).map((p) => p.provider) : undefined,
+    { fromFirstRead: true },
+  );
   const seat = coachSeatStepState({
     managesRoster,
     request: latest.data?.request,
     providers: served,
-    checkExpired,
+    checkExpired: probe.ended,
   });
-
-  // The window for a connection's outcome opens the first time this screen
-  // sees a coaching platform connected (back from a sign-in, a key, or an
-  // authorization that reloaded the page).
-  useEffect(() => {
-    if (!platformConnected) return;
-    const timer = window.setTimeout(() => setCheckExpired(true), COACH_SEAT_CHECK_WINDOW_MS);
-    return () => window.clearTimeout(timer);
-  }, [platformConnected]);
-
-  // While a connection may still settle the seat, read the server again: the
-  // session for `manages_roster`, the request, and the cards for the account
-  // role. Stops at coach access, a waiting request, or the window's end.
-  const awaiting =
-    platformConnected && !managesRoster && coachSeatState(latest.data?.request) !== 'pending' && !checkExpired;
-  const refetchProviders = providers.refetch;
-  const refetchRequest = latest.refetch;
-  useEffect(() => {
-    if (!awaiting) return;
-    let cancelled = false;
-    const read = () => {
-      void refetchProviders();
-      void refetchRequest();
-      authApi
-        .getSession()
-        .then(({ user: fresh }) => {
-          if (!cancelled && fresh.manages_roster === true) updateUser({ manages_roster: true });
-        })
-        // The next tick reads again.
-        .catch(() => {});
-    };
-    read();
-    const timer = window.setInterval(read, COACH_SEAT_CHECK_POLL_MS);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [awaiting, refetchProviders, refetchRequest, updateUser]);
 
   if (heldOnArrival.current) return null;
 

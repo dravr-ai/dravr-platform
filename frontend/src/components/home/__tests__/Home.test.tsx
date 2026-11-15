@@ -11,6 +11,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { TrainingPlanResponse } from '@pierre/shared-types';
 import { ThemeProvider } from '../../../hooks/useTheme';
 import { HomeBriefing } from '../Home';
+import { GettingStartedMeter } from '../GettingStarted';
 import { activity, homePlan, recentResponse, routeView, TODAY } from './homeFixtures';
 import { calendarAnswer } from './calendarFixtures';
 
@@ -110,6 +111,33 @@ function renderHome() {
   return { ...view, onNavigate, onPickTeam, onOpenChatApp, onOpenFirstStep, actions, onOpenChatDraft: actions.draft };
 }
 
+/** Unfold Your team's one row into the team's rows (carnet#1528). */
+async function openTeam() {
+  await userEvent.click(await screen.findByRole('button', { name: 'Manage your team' }));
+}
+
+/** Getting started's meter, as the conversation's header draws it. */
+function renderMeter() {
+  const onNavigate = vi.fn();
+  const onOpenChatApp = vi.fn();
+  const onOpenFirstStep = vi.fn();
+  const actions = { draft: vi.fn(), send: vi.fn(), openTopic: vi.fn(), dismiss: vi.fn() };
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  render(
+    <QueryClientProvider client={queryClient}>
+      <ThemeProvider>
+        <GettingStartedMeter
+          onNavigate={onNavigate}
+          actions={actions}
+          onOpenChatApp={onOpenChatApp}
+          onOpenFirstStep={onOpenFirstStep}
+        />
+      </ThemeProvider>
+    </QueryClientProvider>,
+  );
+  return { onNavigate, onOpenChatApp, onOpenFirstStep, actions };
+}
+
 /**
  * A new athlete's Getting started, as the server orders it (carnet#1530, the
  * board's order): connect (done), the health check put off at onboarding, the
@@ -131,6 +159,25 @@ function gettingStarted(overrides: Record<string, unknown> = {}) {
     hidden: false,
     ...overrides,
   };
+}
+
+/**
+ * A returning athlete's Getting started (carnet#1528): they answered the
+ * lead's welcome, so Meet your team is done, and the goal and the why is the
+ * next step.
+ */
+function returning() {
+  return gettingStarted({
+    rows: [
+      { id: 'connect', order: 1, eligible: true, done: true, current: false, postback: null },
+      { id: 'about_me_more', order: 2, eligible: true, done: false, current: true, postback: null },
+      { id: 'check_in', order: 3, eligible: true, done: true, current: false, postback: null },
+      { id: 'meet_team', order: 4, eligible: true, done: true, current: false, postback: null },
+      { id: 'last_workout', order: 5, eligible: true, done: false, current: false, postback: 'gs:4:last_workout' },
+    ],
+    done_count: 3,
+    total: 5,
+  });
 }
 
 /** An onboarded athlete whose PAR-Q is answered: « Build my plan » drafts at once. */
@@ -199,15 +246,21 @@ beforeEach(() => {
 });
 
 describe('Home — Today', () => {
-  it('holds Getting started, Your team, the plan for today, the week, the status and the recent activities, in that order', async () => {
+  it('holds a first arrival’s Getting started, the plan for today, the week, the status, Your team and the recent activities, in that order', async () => {
     api.getTrainingPlan.mockResolvedValue({ plan: homePlan(), today: TODAY });
     renderHome();
 
-    // carnet#1098: what to do next and who the athlete works with come first.
+    // carnet#1528 (P5·A): a first arrival meets what to do next first; the
+    // welcome in the thread introduces the team, which folds to one row under
+    // the training status.
     const started = await screen.findByTestId('home-getting-started');
+    const today = await screen.findByTestId('home-today');
+    expect(started.compareDocumentPosition(today)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
     const team = await screen.findByTestId('home-team');
-    expect(started.compareDocumentPosition(team)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
-    expect(team.compareDocumentPosition(await screen.findByTestId('home-today'))).toBe(
+    expect((await screen.findByTestId('home-status')).compareDocumentPosition(team)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(team.compareDocumentPosition(await screen.findByTestId('home-volume'))).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
     );
 
@@ -230,6 +283,22 @@ describe('Home — Today', () => {
     expect(api.getRecentActivities).toHaveBeenCalledWith();
     // With a plan on screen the page has no filled button at all.
     expect(document.querySelectorAll('.btn-primary')).toHaveLength(0);
+  });
+
+  // carnet#1528 (P5·C): once the athlete has answered the lead's welcome,
+  // Today leads with today's session; Getting started is the meter under the
+  // conversation's header, not a list here.
+  it('leads a returning athlete’s Today with today’s session and keeps the list off it', async () => {
+    api.getTrainingPlan.mockResolvedValue({ plan: homePlan(), today: TODAY });
+    api.getGettingStarted.mockResolvedValue(returning());
+    renderHome();
+
+    await screen.findByTestId('home-today');
+    const team = await screen.findByTestId('home-team');
+    await screen.findByTestId('home-today-session');
+    expect(screen.getByTestId('home-briefing').firstElementChild).toHaveAttribute('data-testid', 'home-today');
+    expect(screen.getByTestId('home-status').compareDocumentPosition(team)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
+    expect(screen.queryByTestId('home-getting-started')).toBeNull();
   });
 
   // carnet#820: not every athlete wants a plan, so the offer is a quiet link
@@ -592,10 +661,29 @@ describe('Home — Your team', () => {
     api.getTrainingPlan.mockResolvedValue({ plan: homePlan(), today: TODAY });
   });
 
-  it('leads with the thread’s agent, then the team by title with @handle, never an agent off the team', async () => {
+  // carnet#1528 (P5·C): one folded row — the avatars, everyone's names, and
+  // « Manage », which unfolds the rows.
+  it('folds to one row naming the team, lead first, with Manage unfolding it', async () => {
     renderHome();
     const team = await screen.findByTestId('home-team');
     expect(within(team).getByRole('heading', { level: 3 })).toHaveTextContent('Your team');
+    expect(within(team).getByTestId('home-team-names')).toHaveTextContent('Endurance, Fuelling, and Recovery');
+    expect(within(team).queryByTestId('home-team-lead')).toBeNull();
+
+    const manage = within(team).getByRole('button', { name: 'Manage your team' });
+    expect(manage).toHaveTextContent('Manage');
+    expect(manage).toHaveAttribute('aria-expanded', 'false');
+    await userEvent.click(manage);
+    expect(manage).toHaveAttribute('aria-expanded', 'true');
+    expect(within(team).getByTestId('home-team-lead')).toBeInTheDocument();
+    await userEvent.click(manage);
+    expect(within(team).queryByTestId('home-team-lead')).toBeNull();
+  });
+
+  it('leads with the thread’s agent, then the team by title with @handle, never an agent off the team', async () => {
+    renderHome();
+    const team = await screen.findByTestId('home-team');
+    await openTeam();
 
     const lead = await within(team).findByTestId('home-team-lead');
     expect(lead).toHaveTextContent('Endurance');
@@ -611,6 +699,7 @@ describe('Home — Your team', () => {
   it('takes Find more and Add an agent to Discover', async () => {
     const { onNavigate } = renderHome();
     const team = await screen.findByTestId('home-team');
+    await openTeam();
 
     await userEvent.click(within(team).getByRole('button', { name: 'Find more' }));
     await userEvent.click(within(team).getByRole('button', { name: 'Add an agent' }));
@@ -623,6 +712,7 @@ describe('Home — Your team', () => {
     api.createConversation.mockResolvedValue({ id: 'conv-fuel', title: 'Fuelling' });
     const { actions } = renderHome();
 
+    await openTeam();
     await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
     await waitFor(() => expect(actions.openTopic).toHaveBeenCalledExactlyOnceWith('conv-fuel', null));
     expect(api.createConversation).toHaveBeenCalledExactlyOnceWith({ agent_id: FUELLING.id });
@@ -650,6 +740,7 @@ describe('Home — Your team', () => {
     });
     const { actions } = renderHome();
 
+    await openTeam();
     await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
     await waitFor(() => expect(actions.openTopic).toHaveBeenCalledExactlyOnceWith('conv-fuel-new', null));
     expect(api.createConversation).not.toHaveBeenCalled();
@@ -664,6 +755,7 @@ describe('Home — Your team', () => {
     });
     const { actions } = renderHome();
 
+    await openTeam();
     await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
     await waitFor(() => expect(actions.openTopic).toHaveBeenCalledExactlyOnceWith('conv-home', 'divider-7'));
     expect(api.openPersonalTopic).toHaveBeenCalledExactlyOnceWith({ agent_id: FUELLING.id });
@@ -676,6 +768,7 @@ describe('Home — Your team', () => {
     });
     const { actions } = renderHome();
 
+    await openTeam();
     await userEvent.click(await screen.findByRole('button', { name: 'Talk to Fuelling' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       "You've reached your limit of 20 active conversations. Delete one from the sidebar to start a new chat.",
@@ -694,5 +787,57 @@ describe('Home — Your team', () => {
 
     await userEvent.click(within(empty).getByRole('button', { name: 'Pick your team' }));
     expect(onPickTeam).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Home — Getting started meter', () => {
+  // carnet#1528 (P5·C): one slim line under the header — the count, the next
+  // step, and Continue doing what a tap on that row does.
+  it('shows a returning athlete the count and the next step, and Continue opens it', async () => {
+    api.getGettingStarted.mockResolvedValue(returning());
+    const { onOpenFirstStep } = renderMeter();
+
+    const meter = await screen.findByTestId('home-getting-started-meter');
+    expect(within(meter).getByRole('heading', { level: 2 })).toHaveTextContent('Getting started');
+    expect(meter).toHaveTextContent('3 of 5');
+    expect(meter).toHaveTextContent('Next step: Your goal and your why');
+    await userEvent.click(within(meter).getByTestId('home-getting-started-meter-continue'));
+    expect(onOpenFirstStep).toHaveBeenCalledExactlyOnceWith({ step: 'goal_why' });
+    expect(meter.querySelectorAll('.btn-primary')).toHaveLength(0);
+  });
+
+  it('sends a flow’s starter into the thread when that is the next step', async () => {
+    api.getGettingStarted.mockResolvedValue(
+      gettingStarted({
+        rows: [
+          { id: 'connect', order: 1, eligible: true, done: true, current: false, postback: null },
+          { id: 'meet_team', order: 2, eligible: true, done: true, current: false, postback: null },
+          { id: 'last_workout', order: 3, eligible: true, done: false, current: true, postback: 'gs:2:last_workout' },
+        ],
+        done_count: 2,
+        total: 3,
+      }),
+    );
+    const { actions } = renderMeter();
+
+    await userEvent.click(await screen.findByTestId('home-getting-started-meter-continue'));
+    expect(actions.send).toHaveBeenCalledExactlyOnceWith('gs:2:last_workout', 'Read your last workout');
+  });
+
+  it('is not drawn for a first arrival, whose Today holds the whole list', async () => {
+    renderMeter();
+    await waitFor(() => expect(api.getGettingStarted).toHaveBeenCalled());
+    await waitFor(() => expect(api.getHomePreferences).toHaveBeenCalled());
+    expect(screen.queryByTestId('home-getting-started-meter')).toBeNull();
+  });
+
+  it('hides on the server, as the list does', async () => {
+    api.getGettingStarted.mockResolvedValue(returning());
+    api.updateHomePreferences.mockImplementation(() => new Promise(() => {}));
+    renderMeter();
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Hide Getting started' }));
+    expect(api.updateHomePreferences).toHaveBeenCalledExactlyOnceWith({ getting_started_hidden: true });
+    await waitFor(() => expect(screen.queryByTestId('home-getting-started-meter')).toBeNull());
   });
 });

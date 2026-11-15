@@ -15,6 +15,7 @@ import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useOpenGroupRoom } from '../../hooks/useCoachPlan';
 import { Button, EmptyState, useErrorToast } from '../ui';
 import { AthleteAvatar } from './parts';
+import { inviteLink } from '../../utils/inviteLink';
 
 /** A group nobody has joined, with the invite its athlete can still join with. */
 interface PendingInvite {
@@ -92,7 +93,7 @@ function PendingInviteRow({ entry, onNavigate }: { entry: PendingInvite; onNavig
   const [copied, setCopied] = useState(false);
   const { group, invite } = entry;
   const roomKey = `invite:${group.id}`;
-  const link = `${window.location.origin}/groups/join/${encodeURIComponent(invite.code)}`;
+  const link = inviteLink(invite.code);
 
   const copy = async () => {
     try {

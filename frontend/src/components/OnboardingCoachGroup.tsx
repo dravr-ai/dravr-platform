@@ -15,7 +15,8 @@ import {
   coachCategoryLabelKey,
   coachSeatMoment,
   coachSeatState,
-  isCoachFacing,
+  defaultGroupAgent,
+  groupAgentChoices,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { coachesApi, userApi } from '../services/api';
@@ -26,6 +27,7 @@ import { Button, Input } from './ui';
 import OnboardingShell from './OnboardingShell';
 import CoachAccessRequest from './CoachAccessRequest';
 import { CheckDisc } from './OnboardingCoachSeat';
+import { inviteLink } from '../utils/inviteLink';
 
 /**
  * The coach's group, then its invite: two segments of the progress bar, one
@@ -78,7 +80,7 @@ export default function OnboardingCoachGroup({
         ? athleteName
         : t('onboarding.groupNameFromAthleteGoal', { athlete: athleteName, goal: goalText });
   const name = typedName ?? suggestedName;
-  const agentId = pickedAgentId ?? defaultAgent(agents.list)?.id ?? null;
+  const agentId = pickedAgentId ?? defaultGroupAgent(agents.list)?.id ?? null;
   const agent = agents.list.find((a) => a.id === agentId) ?? null;
 
   const ready = created !== null && conversationId !== null && inviteCode !== null;
@@ -90,7 +92,7 @@ export default function OnboardingCoachGroup({
   }, [ready, onCreated]);
 
   if (created && conversationId && inviteCode) {
-    const link = `${window.location.origin}/groups/join/${encodeURIComponent(inviteCode)}`;
+    const link = inviteLink(inviteCode);
     return (
       <OnboardingShell
         heading={
@@ -215,18 +217,8 @@ function useGroupAgents() {
     queryFn: () => coachesApi.list(),
   });
   // Coach-facing agents are left out: the athletes talk to this one.
-  const list: Agent[] = (data?.agents ?? []).filter((a) => !a.is_hidden && !isCoachFacing(a));
+  const list: Agent[] = groupAgentChoices(data?.agents ?? []);
   return { list, isLoading, isError };
-}
-
-/**
- * The agent a new group starts with: the endurance generalist, which reads
- * load, recovery and key sessions whatever the sport, else the catalogue's
- * first. The coach's own activities are no evidence of what their athletes
- * need, so nothing is ranked on them.
- */
-function defaultAgent(agents: Agent[]): Agent | undefined {
-  return agents.find((a) => a.tags?.includes('endurance')) ?? agents[0];
 }
 
 /** The group's agent as one row with « Changer », or the catalogue while changing it. */

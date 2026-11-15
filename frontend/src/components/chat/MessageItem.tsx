@@ -28,6 +28,7 @@ import {
 } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import {
+  AGENT_WELCOME_FINISH_REASON,
   audienceOf,
   copyableText,
   correctionAuthorLabel,
@@ -428,6 +429,27 @@ const MessageItem = memo(function MessageItem({
       }
 
       case 'actions':
+        // An agent's welcome offers its starters as the empty thread does:
+        // ink links in a row under a caption, no pill (D3, carnet#1528).
+        if (message.finish_reason === AGENT_WELCOME_FINISH_REASON) {
+          return (
+            <div key={key} className="mt-5" data-testid="welcome-starters">
+              {block.title ? <p className="text-xs text-on-surface-variant">{block.title}</p> : null}
+              <div className="mt-0.5 flex flex-wrap items-center gap-x-5">
+                {block.actions.map((action, idx) => (
+                  <button
+                    key={`${action.value}-${idx}`}
+                    type="button"
+                    onClick={() => onActionClick?.(action)}
+                    className="inline-flex items-center rounded text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+                  >
+                    {action.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        }
         return (
           <div key={key} className="mt-3">
             {block.title ? (

@@ -2,10 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the header info drawer's four shapes — Group info, a plan thread's athlete, Agent info, and a plain thread
-// ABOUTME: Pins that the shape is read off the conversation, that Remove sends /agent remove, and that Escape closes a confirm over it first
+// ABOUTME: Pins the shape read off the conversation, /agent remove, the sheet's trap, scrim and focus return, and a confirm taking Escape first
 
+import { useState } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Conversation } from '@pierre/shared-types';
@@ -206,8 +207,73 @@ describe('ConversationInfoPanel', () => {
     await user.click(screen.getByTestId('conversation-info-rename'));
     expect(handlers.onRename).toHaveBeenCalledWith('Track night');
 
-    await user.click(screen.getByTestId('conversation-info-delete'));
+    // Delete is a quiet row: it asks first, and the danger is drawn in the confirm.
+    const deleteRow = screen.getByTestId('conversation-info-delete');
+    expect(deleteRow).not.toHaveClass('btn-danger');
+    await user.click(deleteRow);
+    expect(handlers.onDelete).not.toHaveBeenCalled();
+    const dialogs = await screen.findAllByRole('dialog');
+    const confirm = dialogs[dialogs.length - 1];
+    expect(confirm).toHaveTextContent('Delete this chat?');
+    await user.click(within(confirm).getByRole('button', { name: 'Delete' }));
     expect(handlers.onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the drawer as a sheet over the scrim, with a close target of at least 32px', async () => {
+    renderPanel(conversation());
+
+    const sheet = await screen.findByRole('dialog', { name: 'Chat info' });
+    expect(sheet).toHaveAttribute('aria-modal', 'true');
+    expect(document.querySelector('.bg-scrim\\/60')).not.toBeNull();
+    expect(document.querySelector('.bg-black\\/60')).toBeNull();
+    // h-11 w-11: 44px, over the 32px desktop floor (DESIGN.md §8).
+    expect(within(sheet).getByRole('button', { name: 'Close' })).toHaveClass('h-11', 'w-11');
+  });
+
+  it('keeps Tab inside the drawer, and gives focus back to the thread title on Escape', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <button type="button" onClick={() => setOpen(true)}>
+              Sunday long run
+            </button>
+            <button type="button">behind the drawer</button>
+            {open && (
+              <ConversationInfoPanel
+                conversation={conversation()}
+                onClose={() => setOpen(false)}
+                onSendCommand={vi.fn()}
+                onEditCoach={vi.fn()}
+                onRename={vi.fn()}
+                onDelete={vi.fn()}
+                onThreadGone={vi.fn()}
+              />
+            )}
+          </ToastProvider>
+        </QueryClientProvider>
+      );
+    }
+    render(<Host />);
+
+    const title = screen.getByRole('button', { name: 'Sunday long run' });
+    await user.click(title);
+    const sheet = await screen.findByRole('dialog', { name: 'Chat info' });
+    await screen.findByTestId('conversation-info-title');
+
+    // However far the keyboard walks, it never reaches the page behind.
+    for (let step = 0; step < 12; step += 1) {
+      await user.tab();
+      expect(sheet).toContainElement(document.activeElement as HTMLElement);
+    }
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Chat info' })).toBeNull();
+    expect(document.activeElement).toBe(title);
   });
 
   it('refuses a rename that changes nothing', async () => {

@@ -20,7 +20,8 @@ import {
   coachCategoryLabelKey,
   coachSeatMoment,
   coachSeatState,
-  isCoachFacing,
+  defaultGroupAgent,
+  groupAgentChoices,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { Button, Input, Row } from '../../components/ui';
@@ -90,7 +91,7 @@ export function OnboardingCoachGroupScreen() {
         ? athleteName
         : t('onboarding.groupNameFromAthleteGoal', { athlete: athleteName, goal: goalText });
   const name = typedName ?? suggestedName;
-  const agentId = pickedAgentId ?? defaultAgent(agents.list)?.id ?? null;
+  const agentId = pickedAgentId ?? defaultGroupAgent(agents.list)?.id ?? null;
   const agent = agents.list.find((a) => a.id === agentId) ?? null;
 
   const ready = created !== null && threadId !== null && link !== null;
@@ -242,17 +243,8 @@ function useGroupAgents() {
     queryFn: () => coachesApi.list(),
   });
   // Coach-facing agents are left out: the athletes talk to this one.
-  const list: Agent[] = (data?.agents ?? []).filter((a) => !a.is_hidden && !isCoachFacing(a));
+  const list: Agent[] = groupAgentChoices(data?.agents ?? []);
   return { list, isLoading, isError };
-}
-
-/**
- * The agent a new group starts with: the endurance generalist, which reads
- * load, recovery and key sessions whatever the sport, else the catalogue's
- * first. Mirrors the web step.
- */
-function defaultAgent(agents: Agent[]): Agent | undefined {
-  return agents.find((a) => a.tags?.includes('endurance')) ?? agents[0];
 }
 
 /** The group's agent as one row with « Changer », or the catalogue while changing it. */

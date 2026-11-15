@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { currentOnboardingStep, onboardingProgress } from '../../onboarding/steps';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 const getOnboardingStatus = vi.fn();
 const setOnboardingStep = vi.fn();
@@ -434,5 +435,34 @@ describe('useOnboardingState — the coach path: seat, group, invite', () => {
     const { result } = renderHook(() => useOnboardingState(), { wrapper });
     await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_seat'));
     expect(result.current.settledByInvite).toBe(false);
+  });
+});
+
+describe('useOnboardingState — an admin never meets the flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    client.clear();
+  });
+  afterEach(() => {
+    sessionUser = SESSION_USER;
+  });
+
+  it('a status another surface cached for the admin opens no step', () => {
+    sessionUser = { user_id: 'u1', role: 'admin', user_status: 'active' };
+    // The dashboard reads the shared status for every account, an admin's too.
+    client.setQueryData(QUERY_KEYS.user.onboardingStatus(), {
+      needs_provider_connection: true,
+      coaches_others: false,
+      chosen_channel: null,
+      steps: [],
+    });
+
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    expect(result.current.ctx.onboardingActive).toBe(false);
+    expect(result.current.ctx.needsProviderConnection).toBeUndefined();
+    expect(currentOnboardingStep(result.current.ctx)).toBeNull();
+    expect(getOnboardingStatus).not.toHaveBeenCalled();
   });
 });

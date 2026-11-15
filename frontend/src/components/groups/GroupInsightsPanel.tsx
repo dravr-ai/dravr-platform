@@ -4,8 +4,7 @@
 // ABOUTME: Renders a group's computed weekly report and per-member health flags
 // ABOUTME: Admin-only panel gated on the tenant tier flag the digest scheduler sweeps on
 
-import { AlertTriangle, CalendarRange, CheckCircle2, Info, Lightbulb } from 'lucide-react';
-import { Card } from '../ui';
+import { AlertTriangle, CheckCircle2, Info, Lightbulb } from 'lucide-react';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '@pierre/shared-types';
 import {
@@ -74,18 +73,14 @@ export default function GroupInsightsPanel({
 
   if (!weeklyDigestEnabled) {
     return (
-      <div data-testid="group-insights-tier-locked">
-        <Card variant="dark" className="!p-5">
-          <div className="flex items-start gap-3">
-            <Info className="w-4 h-4 text-on-surface-variant mt-0.5 flex-shrink-0" />
-            <div>
-              <h4 className="text-sm font-semibold text-on-surface">{t('groups.weeklyReport')}</h4>
-              <p className="text-sm text-on-surface-variant mt-1">
-                {t('groups.insightsPlanRequired')}
-              </p>
-            </div>
-          </div>
-        </Card>
+      <div className="flex items-start gap-3" data-testid="group-insights-tier-locked">
+        <Info className="w-4 h-4 text-on-surface-variant mt-0.5 flex-shrink-0" aria-hidden="true" />
+        <div>
+          <h4 className="text-sm font-semibold text-on-surface">{t('groups.weeklyReport')}</h4>
+          <p className="text-pretty text-sm text-on-surface-variant mt-1">
+            {t('groups.insightsPlanRequired')}
+          </p>
+        </div>
       </div>
     );
   }
@@ -102,12 +97,9 @@ export default function GroupInsightsPanel({
 
   return (
     <div className="space-y-4" data-testid="group-insights-panel">
+      {/* The row that opens this already says "This week": the report starts with its summary. */}
       {report && (
-        <Card variant="dark" className="!p-5">
-          <div className="flex items-center gap-2 mb-3">
-            <CalendarRange className="w-4 h-4 text-primary" />
-            <h4 className="text-sm font-semibold text-on-surface">{t('groups.thisWeek')}</h4>
-          </div>
+        <div>
           <p className="text-sm text-on-surface-variant" data-testid="group-report-summary">
             {weeklyReportSummary(t, language, report.stats, units)}
           </p>
@@ -165,10 +157,10 @@ export default function GroupInsightsPanel({
               </ul>
             </div>
           )}
-        </Card>
+        </div>
       )}
 
-      <Card variant="dark" className="!p-5">
+      <div>
         <div className="flex items-center gap-2 mb-3">
           <AlertTriangle className="w-4 h-4 text-warning" />
           <h4 className="text-sm font-semibold text-on-surface">
@@ -202,7 +194,7 @@ export default function GroupInsightsPanel({
             ))}
           </ul>
         )}
-      </Card>
+      </div>
     </div>
   );
 }

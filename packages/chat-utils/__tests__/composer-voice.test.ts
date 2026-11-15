@@ -47,6 +47,14 @@ describe('coachComposerPlaceholder', () => {
     );
   });
 
+  it('names the group in its room for a member too, not only for its coach', () => {
+    expect(
+      coachComposerPlaceholder(t, { planSubjectName: null, coachRoomName: null, roomName: 'Tri', pending: false }),
+    ).toBe('humanCoach.groupRoom.composerPlaceholder{"group":"Tri"}');
+    // A client that does not pass the room keeps its own words outside a coach's room.
+    expect(coachComposerPlaceholder(t, { planSubjectName: null, coachRoomName: null, roomName: null, pending: false })).toBeNull();
+  });
+
   it("prints nothing while the voice is not known, and leaves an athlete's thread its own words", () => {
     expect(coachComposerPlaceholder(t, { planSubjectName: null, coachRoomName: null, pending: true })).toBe('');
     expect(coachComposerPlaceholder(t, { planSubjectName: null, coachRoomName: null, pending: false })).toBeNull();

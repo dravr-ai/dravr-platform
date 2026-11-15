@@ -24,9 +24,10 @@ export interface SheetProps {
   actions?: ReactNode;
   /**
    * Width of a side panel. A bottom sheet always spans the screen. `full` is
-   * a side panel that covers a phone — the history's own screen there.
+   * a side panel that covers a phone — the history's own screen there. `lg`
+   * is the 440px info drawer, which also covers a phone.
    */
-  width?: 'md' | 'full';
+  width?: 'md' | 'lg' | 'full';
   'data-testid'?: string;
 }
 
@@ -38,9 +39,16 @@ const PANEL_BY_SIDE: Record<SheetSide, string> = {
   left: 'inset-y-0 left-0 border-r ghost-border animate-sheet-in-left pad-safe-top',
 };
 
+const SIDE_WIDTH: Record<NonNullable<SheetProps['width']>, string> = {
+  md: 'w-full max-w-[360px]',
+  lg: 'w-full max-w-[440px]',
+  full: 'w-full md:w-[360px]',
+};
+
 /**
- * One sheet for every slide-over the personal Home needs: Today on a tablet
- * (right) and a phone (bottom), and the conversation history (left).
+ * One sheet for every slide-over the personal Home and the messenger need:
+ * Today on a tablet (right) and a phone (bottom), the conversation history
+ * (left), and the open thread's info drawer (right, 440px).
  *
  * Rendered into `document.body`, so no transformed ancestor can trap its
  * `position: fixed`. Mount it only while it is open.
@@ -63,7 +71,7 @@ export function Sheet({ side, title, onClose, children, actions, width = 'md', .
         className={clsx(
           'absolute flex flex-col bg-surface text-on-surface focus:outline-none',
           PANEL_BY_SIDE[side],
-          side !== 'bottom' && (width === 'full' ? 'w-full md:w-[360px]' : 'w-full max-w-[360px]'),
+          side !== 'bottom' && SIDE_WIDTH[width],
         )}
       >
         {side === 'bottom' && (

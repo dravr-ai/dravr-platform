@@ -1,17 +1,19 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Invite management panel for coaching groups
-// ABOUTME: Lists active invites, create new invites with expiry/max uses (optionally approving signups), copy links, deactivate
+// ABOUTME: A group's live invite links as Group info rows — the code, its uses and expiry, copy, and a `⋯` to deactivate
+// ABOUTME: A quiet "New invite link" opens the inline form (expiry, uses, and for a coach with access, approving signups)
 
 import { useState } from 'react';
-import { Link2, Plus, Copy, Check, Trash2, UserCog, BadgeCheck } from 'lucide-react';
+import { BadgeCheck, Check, Copy, Link2, Plus, UserCog } from 'lucide-react';
 import { useGroupInvites, useCreateInvite, useDeactivateInvite } from '../../hooks/useGroups';
-import { Button, Card, Checkbox, Select, ConfirmDialog, useErrorToast, useSuccessToast } from '../ui';
+import { Button, Checkbox, ConfirmDialog, EmptyState, IconButton, OverflowMenu, Select, useErrorToast, useSuccessToast } from '../ui';
 import type { SelectOption } from '../ui';
+import { RowBox, ROW_DIVIDER } from './GroupInfoParts';
 import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../hooks/useAuth';
-import { formatDateTime } from '@pierre/chat-utils';
+import { formatDateTime, type Translate } from '@pierre/chat-utils';
+import { countKey, INVITE_EXPIRY_DAY_KEYS, INVITE_USE_LIMIT_KEYS } from '@pierre/shared-constants';
 import type {
   GroupRole,
   GroupInvite,
@@ -19,6 +21,7 @@ import type {
   CreateInviteRequest,
 } from '@pierre/shared-types';
 import { describeApiError } from '@pierre/ui-logic';
+import { inviteLink } from '../../utils/inviteLink';
 
 interface InviteManagerProps {
   groupId: string;
@@ -30,38 +33,44 @@ interface InviteManagerProps {
    */
   offerCoachKind?: boolean;
   /**
-   * "New invite" as a quiet button, where another action is the view's one
-   * filled button (the coach seat's request in Group info).
+   * The form's Create as a quiet button, where another action is the view's
+   * one filled button (the coach seat's request in Group info).
    */
   quietCreate?: boolean;
+  /** A line above the links: "Invite your athlete" while the owner's group has no one to coach yet. */
+  heading?: string;
 }
 
-function expiry_options(t: (key: string) => string): SelectOption[] {
+/** The expiry choices, in days; `0` never expires. */
+const EXPIRY_DAYS = [1, 3, 7, 14, 30] as const;
+/** The use limits; `0` is unlimited. */
+const USE_LIMITS = [1, 5, 10, 25] as const;
+
+function expiryOptions(t: Translate, language: string): SelectOption[] {
   return [
-  { value: '1', label: '1 day' },
-  { value: '3', label: '3 days' },
-  { value: '7', label: '7 days' },
-  { value: '14', label: '14 days' },
-  { value: '30', label: '30 days' },
-  { value: '0', label: t('settingsUi.neverExpires') },
-];
+    ...EXPIRY_DAYS.map((count) => ({
+      value: String(count),
+      label: t(countKey(count, language, INVITE_EXPIRY_DAY_KEYS), { count }),
+    })),
+    { value: '0', label: t('settingsUi.neverExpires') },
+  ];
 }
 
-function max_uses_options(t: (key: string) => string): SelectOption[] {
+function limitOptions(t: Translate, language: string): SelectOption[] {
   return [
-  { value: '1', label: '1 use' },
-  { value: '5', label: '5 uses' },
-  { value: '10', label: '10 uses' },
-  { value: '25', label: '25 uses' },
-  { value: '0', label: t('groups.inviteUnlimited') },
-];
+    ...USE_LIMITS.map((count) => ({
+      value: String(count),
+      label: t(countKey(count, language, INVITE_USE_LIMIT_KEYS), { count }),
+    })),
+    { value: '0', label: t('groups.inviteUnlimited') },
+  ];
 }
 
-function kind_options(t: (key: string) => string): SelectOption[] {
+function kindOptions(t: Translate): SelectOption[] {
   return [
-  { value: 'member', label: t('groups.inviteTypeMember') },
-  { value: 'coach', label: t('humanCoach.coach') },
-];
+    { value: 'member', label: t('groups.inviteTypeMember') },
+    { value: 'coach', label: t('humanCoach.coach') },
+  ];
 }
 
 /**
@@ -87,11 +96,17 @@ function isExhausted(invite: GroupInvite): boolean {
   return invite.use_count >= invite.max_uses;
 }
 
+/**
+ * The links that still let someone in. Expired, used-up and deactivated
+ * links are not listed: nothing can be done with one, and in a pilot group
+ * they outnumbered the people.
+ */
 export default function InviteManager({
   groupId,
   currentUserRole,
   offerCoachKind = true,
   quietCreate = false,
+  heading,
 }: InviteManagerProps) {
   const { t, i18n } = useTranslation();
   const { invites, isLoading } = useGroupInvites(groupId);
@@ -116,6 +131,7 @@ export default function InviteManager({
   const [confirmDeactivate, setConfirmDeactivate] = useState<GroupInvite | null>(null);
 
   const canManage = currentUserRole === 'owner' || currentUserRole === 'admin';
+  const language = i18n.language;
 
   const handleApprovesSignupChange = (checked: boolean) => {
     setApprovesSignup(checked);
@@ -163,7 +179,7 @@ export default function InviteManager({
   };
 
   const handleCopyLink = async (code: string, inviteId: string) => {
-    const link = `${window.location.origin}/groups/join/${encodeURIComponent(code)}`;
+    const link = inviteLink(code);
     try {
       await navigator.clipboard.writeText(link);
       setCopiedId(inviteId);
@@ -195,218 +211,152 @@ export default function InviteManager({
   };
 
   const activeInvites = invites.filter((inv) => inv.is_active && !isExpired(inv) && !isExhausted(inv));
-  const inactiveInvites = invites.filter((inv) => !inv.is_active || isExpired(inv) || isExhausted(inv));
 
   if (isLoading) {
     return (
-      <div className="flex justify-center py-8">
+      <div className="flex justify-center py-4">
         <div className="pierre-spinner" />
       </div>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header with create button */}
-      {canManage && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-on-surface-variant">
-            {t('groups.inviteShareHint')}
-          </p>
-          <Button
-            variant={quietCreate ? 'secondary' : 'primary'}
-            size="sm"
-            onClick={() => setShowCreateForm(!showCreateForm)}
-          >
-            <span className="flex items-center gap-2">
-              <Plus className="w-4 h-4" />
-              {t('groups.inviteNew')}
-            </span>
-          </Button>
-        </div>
+    <div className="space-y-2" data-testid="invite-manager">
+      {heading && <p className="text-sm font-medium text-on-surface">{heading}</p>}
+
+      {activeInvites.length > 0 ? (
+        <RowBox>
+          {activeInvites.map((invite) => (
+            <div key={invite.id} className={`flex items-center gap-3 px-4 py-2.5 ${ROW_DIVIDER}`} data-testid={`invite-row-${invite.id}`}>
+              <Link2 className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <code className="truncate font-mono text-sm text-on-surface">{invite.code}</code>
+                  {invite.kind === 'coach' && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
+                      <UserCog className="h-3 w-3" aria-hidden="true" />
+                      {t('humanCoach.coach')}
+                    </span>
+                  )}
+                  {invite.approves_signup && (
+                    <span
+                      className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary"
+                      data-testid="invite-signup-code-badge"
+                    >
+                      <BadgeCheck className="h-3 w-3" aria-hidden="true" />
+                      {t('groups.signupCodeBadge')}
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-1.5 text-xs text-on-surface-variant">
+                  <span>
+                    {t('groups.inviteUses', {
+                      used: invite.use_count,
+                      max: invite.max_uses ?? t('groups.inviteUnlimited'),
+                    })}
+                  </span>
+                  <span aria-hidden="true">·</span>
+                  {invite.expires_at ? (
+                    <span>{t('frag.expires')} {formatDateTime(invite.expires_at, language)}</span>
+                  ) : (
+                    <span>{t('groups.inviteNoExpiry')}</span>
+                  )}
+                </div>
+              </div>
+              <IconButton
+                onClick={() => void handleCopyLink(invite.code, invite.id)}
+                title={t('groups.inviteCopy')}
+                aria-label={t('groups.inviteCopyAria')}
+              >
+                {copiedId === invite.id ? (
+                  <Check className="h-4 w-4 text-primary" aria-hidden="true" />
+                ) : (
+                  <Copy className="h-4 w-4" aria-hidden="true" />
+                )}
+              </IconButton>
+              {canManage && (
+                <OverflowMenu
+                  label={t('groups.info.inviteMoreActions', { code: invite.code })}
+                  items={[
+                    {
+                      label: t('groups.info.deactivateInvite'),
+                      danger: true,
+                      onSelect: () => setConfirmDeactivate(invite),
+                    },
+                  ]}
+                />
+              )}
+            </div>
+          ))}
+        </RowBox>
+      ) : (
+        <EmptyState className="!py-1">{t('groups.inviteEmptyTitle')}</EmptyState>
       )}
 
-      {/* Create invite form */}
+      {canManage && !showCreateForm && (
+        <Button variant="tertiary" onClick={() => setShowCreateForm(true)} data-testid="invite-new">
+          <Plus className="mr-1.5 h-4 w-4" aria-hidden="true" />
+          {t('groups.info.newInvite')}
+        </Button>
+      )}
+
       {showCreateForm && canManage && (
-        <Card variant="dark" className="!p-5">
-          <h4 className="text-sm font-semibold text-on-surface mb-4">{t('groups.inviteCreateTitle')}</h4>
+        <RowBox className="space-y-4 p-4" data-testid="invite-create-form">
+          <p className="text-sm font-semibold text-on-surface">{t('groups.info.newInvite')}</p>
           {offerCoachKind && (
-            <div className="mb-4">
+            <div>
               <Select
-                label={t('groups.inviteType')}
-                options={kind_options(t)}
+                label={t('groups.info.inviteTypeLabel')}
+                options={kindOptions(t)}
                 value={inviteKind}
                 onChange={(e) => setInviteKind(e.target.value as GroupInviteKind)}
               />
               {inviteKind === 'coach' && (
-                <p className="text-xs text-outline mt-1.5">
+                <p className="mt-1.5 text-xs text-on-surface-variant">
                   {t('humanCoach.inviteHint')}
                 </p>
               )}
             </div>
           )}
           {canApproveSignups && kind === 'member' && (
-            <div className="mb-4">
-              <Checkbox
-                label={t('groups.approvesSignupLabel')}
-                description={t('groups.approvesSignupHint')}
-                checked={approvesSignup}
-                onChange={(e) => handleApprovesSignupChange(e.target.checked)}
-              />
-            </div>
+            <Checkbox
+              label={t('groups.approvesSignupLabel')}
+              description={t('groups.approvesSignupHint')}
+              checked={approvesSignup}
+              onChange={(e) => handleApprovesSignupChange(e.target.checked)}
+            />
           )}
-          <div className="grid grid-cols-2 gap-4 mb-4">
+          <div className="grid grid-cols-2 gap-4">
             <Select
-              label={t('groups.inviteExpiresAfter')}
-              options={signupCode ? bounded(expiry_options(t)) : expiry_options(t)}
+              label={t('groups.info.expiresAfterLabel')}
+              options={signupCode ? bounded(expiryOptions(t, language)) : expiryOptions(t, language)}
               value={signupCode && expiryDays === '0' ? SIGNUP_CODE_DEFAULT_EXPIRY : expiryDays}
               onChange={(e) => setExpiryDays(e.target.value)}
             />
             <Select
-              label={t('groups.inviteMaxUses')}
-              options={signupCode ? bounded(max_uses_options(t)) : max_uses_options(t)}
+              label={t('groups.info.maxUsesLabel')}
+              options={signupCode ? bounded(limitOptions(t, language)) : limitOptions(t, language)}
               value={signupCode && maxUses === '0' ? SIGNUP_CODE_DEFAULT_MAX_USES : maxUses}
               onChange={(e) => setMaxUses(e.target.value)}
             />
           </div>
           <div className="flex justify-end gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setShowCreateForm(false)}>
+            <Button variant="tertiary" onClick={() => setShowCreateForm(false)}>
               {t('settingsUi.cancel')}
             </Button>
-            <Button variant="primary" size="sm" onClick={handleCreate} loading={isCreating}>
+            <Button variant={quietCreate ? 'outline' : 'primary'} onClick={() => void handleCreate()} loading={isCreating}>
               {t('groups.inviteCreate')}
             </Button>
           </div>
-        </Card>
+        </RowBox>
       )}
 
-      {/* Active invites */}
-      {activeInvites.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold text-on-surface-variant mb-3">
-            {t('groups.activeInvitesCount', { n: activeInvites.length })}
-          </h4>
-          <div className="space-y-2">
-            {activeInvites.map((invite) => (
-              <div
-                key={invite.id}
-                className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low hover:bg-surface-container transition-colors"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Link2 className="w-4 h-4 text-primary flex-shrink-0" />
-                    <code className="text-sm text-on-surface font-mono truncate">{invite.code}</code>
-                    {invite.kind === 'coach' && (
-                      <span className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full">
-                        <UserCog className="w-3 h-3" />
-                        {t('humanCoach.coach')}
-                      </span>
-                    )}
-                    {invite.approves_signup && (
-                      <span
-                        className="flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full"
-                        data-testid="invite-signup-code-badge"
-                      >
-                        <BadgeCheck className="w-3 h-3" />
-                        {t('groups.signupCodeBadge')}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-outline">
-                    <span>
-                      {t('groups.inviteUses', {
-                        used: invite.use_count,
-                        max: invite.max_uses ?? t('groups.inviteUnlimited'),
-                      })}
-                    </span>
-                    {invite.expires_at && (
-                      <span>{t('frag.expires')} {formatDateTime(invite.expires_at, i18n.language)}</span>
-                    )}
-                    {!invite.expires_at && <span>{t('groups.inviteNoExpiry')}</span>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2 ml-4">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => handleCopyLink(invite.code, invite.id)}
-                    title={t('groups.inviteCopy')}
-                    aria-label={t('groups.inviteCopyAria')}
-                  >
-                    {copiedId === invite.id ? (
-                      <Check className="w-4 h-4 text-activity" />
-                    ) : (
-                      <Copy className="w-4 h-4" />
-                    )}
-                  </Button>
-                  {canManage && (
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={() => setConfirmDeactivate(invite)}
-                      title={t('groups.inviteDeactivateAria')}
-                      aria-label={t('groups.inviteDeactivateThis')}
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Inactive invites */}
-      {inactiveInvites.length > 0 && (
-        <div>
-          <h4 className="text-sm font-semibold text-on-surface-variant mb-3">
-            {t('groups.expiredInvitesCount', { n: inactiveInvites.length })}
-          </h4>
-          <div className="space-y-2">
-            {inactiveInvites.map((invite) => (
-              <div
-                key={invite.id}
-                className="flex items-center justify-between p-4 rounded-lg bg-surface-container-low opacity-50"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Link2 className="w-4 h-4 text-outline flex-shrink-0" />
-                    <code className="text-sm text-on-surface-variant font-mono truncate">{invite.code}</code>
-                  </div>
-                  <div className="flex items-center gap-3 text-xs text-on-surface-variant">
-                    <span>{t('groups.inviteUsed', { n: invite.use_count })}</span>
-                    {!invite.is_active && <span>{t('groups.inviteDeactivated')}</span>}
-                    {invite.is_active && isExpired(invite) && <span>{t('groups.inviteExpired')}</span>}
-                    {invite.is_active && isExhausted(invite) && <span>{t('groups.inviteMaxReached')}</span>}
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {invites.length === 0 && (
-        <div className="text-center py-8">
-          <Link2 className="w-8 h-8 text-on-surface-variant mx-auto mb-3" />
-          <p className="text-outline">{t('groups.inviteEmptyTitle')}</p>
-          {canManage && (
-            <p className="text-on-surface-variant text-sm mt-1">
-              {t('groups.inviteEmptyHint')}
-            </p>
-          )}
-        </div>
-      )}
-
-      {/* Confirm deactivation dialog */}
       <ConfirmDialog
         isOpen={!!confirmDeactivate}
         onClose={() => setConfirmDeactivate(null)}
-        onConfirm={handleDeactivate}
-        title={t('groups.inviteDeactivate')}
-        message="This invite link will stop working immediately. Anyone who hasn't used it yet will need a new invite."
+        onConfirm={() => void handleDeactivate()}
+        title={t('groups.info.deactivateInviteTitle')}
+        message={t('groups.info.deactivateInviteBody')}
         confirmLabel={t('app.deactivate')}
         variant="warning"
         isLoading={isDeactivating}

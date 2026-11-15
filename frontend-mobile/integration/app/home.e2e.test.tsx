@@ -103,7 +103,11 @@ function homeServer(overrides: StubRoutes = {}): StubRoutes {
     [CALENDAR_URL]: { data: calendarAnswer('2026-09-21', '2026-09-27') },
     // The route maps ask whether distance markers are armed (carnet#807); off here.
     'GET /api/me/features': { data: { flags: { route_km_markers: false }, known: [] } },
-    // The athlete's one thread a day's question is drafted into (carnet#840).
+    // Your team row reads the agent list for who is on the team (carnet#1528);
+    // none here, so the row draws nothing and the screen is the same.
+    'GET /api/agents': { data: { agents: [] } },
+    // The athlete's one thread a day's question is drafted into (carnet#840),
+    // whose lead the team row names first.
     'GET /api/chat/personal': {
       data: {
         conversation: {
@@ -173,7 +177,7 @@ describe('the Home tab over the wire', () => {
 
     expect(await screen.findByTestId('route-track', {}, { timeout: FIRST_MAP_TIMEOUT_MS })).toBeTruthy();
     await screen.findByTestId('home-activity-sketch-intervals_icu-i77');
-    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(11));
+    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(13));
 
     const urls = stub.requestsFor('GET').map((request) => request.url).sort();
     expect(urls).toEqual(
@@ -181,6 +185,9 @@ describe('the Home tab over the wire', () => {
         // The map's published basemap style, fetched once so its place names
         // can be relabelled in the athlete's language.
         'https://tiles.openfreemap.org/styles/dark',
+        // Your team row: the agent list and the personal thread's lead.
+        '/api/agents',
+        '/api/chat/personal',
         '/api/me/activities/intervals_icu/i77/route?burst=true',
         '/api/me/activities/recent',
         '/api/me/activities/strava/8998/route?burst=true',

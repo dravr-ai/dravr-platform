@@ -34,7 +34,7 @@ export const GROUP_ROOM_KEYS = {
   kindLabel: 'humanCoach.groupRoom.kindLabel',
   /** The coach's empty room: who reads what they write there. */
   empty: 'humanCoach.groupRoom.empty',
-  /** "Write to {{group}}…" — the coach's composer in the room. */
+  /** "Write to {{group}}…" — the composer in the room, for its coach and every member. */
   composerPlaceholder: 'humanCoach.groupRoom.composerPlaceholder',
   /** The room could not be opened. */
   openError: 'humanCoach.groupRoom.openError',

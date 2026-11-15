@@ -59,3 +59,24 @@ export const COACH_TOOL_TAG = 'coach-tool';
 export function isCoachFacing(agent: { tags?: readonly string[] }): boolean {
   return (agent.tags ?? []).includes(COACH_TOOL_TAG);
 }
+
+/**
+ * The agents a group's athletes may talk to, from the catalogue: visible ones,
+ * coach-facing ones left out. Every surface that makes a coach's group — the
+ * onboarding group step, the pending coach Home's invite row — offers these.
+ */
+export function groupAgentChoices<T extends { is_hidden?: boolean; tags?: readonly string[] }>(
+  agents: readonly T[],
+): T[] {
+  return agents.filter((agent) => !agent.is_hidden && !isCoachFacing(agent));
+}
+
+/**
+ * The agent a new group starts with: the endurance generalist, which reads
+ * load, recovery and key sessions whatever the sport, else the first choice.
+ * The coach's own activities are no evidence of what their athletes need, so
+ * nothing is ranked on them.
+ */
+export function defaultGroupAgent<T extends { tags?: readonly string[] }>(agents: readonly T[]): T | undefined {
+  return agents.find((agent) => agent.tags?.includes('endurance')) ?? agents[0];
+}

@@ -256,6 +256,28 @@ describe('ConversationItem actions', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the same menu on a right-click, and walks it from the keyboard back to its trigger', () => {
+    const onMarkUnread = vi.fn();
+    renderRow(conversation(), { onMarkUnread });
+
+    fireEvent.contextMenu(screen.getByTestId('conversation-row'));
+    const menu = screen.getByRole('menu', { name: 'Conversation actions' });
+    expect(menu).toHaveAttribute('data-testid', 'conversation-actions-menu');
+    // The first action takes focus; the arrows move through the three.
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Rename conversation' }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Mark conversation unread' }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp' });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Delete conversation' }));
+
+    // Escape closes it and hands focus back to the trigger.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('conversation-actions-trigger'));
+    expect(onMarkUnread).not.toHaveBeenCalled();
+  });
+
   it('marks the selected row as current', () => {
     renderRow(conversation(), {}, { isSelected: true });
 

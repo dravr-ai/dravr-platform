@@ -180,3 +180,15 @@ export const IMPORT_DELETE_CONFIRM_ACTION_KEYS: CountKeys = {
   one: 'providers.import.strava.deleteConfirmActionOne',
   many: 'providers.import.strava.deleteConfirmActionN',
 };
+
+/** An invite link's expiry choice: « 1 jour », « 7 jours ». */
+export const INVITE_EXPIRY_DAY_KEYS: CountKeys = {
+  one: 'groups.info.expiryDayOne',
+  many: 'groups.info.expiryDayN',
+};
+
+/** An invite link's use limit: « 1 utilisation », « 10 utilisations ». */
+export const INVITE_USE_LIMIT_KEYS: CountKeys = {
+  one: 'groups.info.useLimitOne',
+  many: 'groups.info.useLimitN',
+};

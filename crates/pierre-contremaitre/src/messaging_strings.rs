@@ -348,6 +348,31 @@ pub const KEY_AGENT_WELCOME_TEAM_SOLO: &str = "messaging.agent_welcome.team_solo
 pub const KEY_AGENT_WELCOME_REACH_LINE: &str = "messaging.agent_welcome.reach_line";
 /// Key: the one sentence pointing at Discover. No placeholders.
 pub const KEY_AGENT_WELCOME_DISCOVER_LINE: &str = "messaging.agent_welcome.discover_line";
+/// Key: the lead's first welcome reading back synced history (carnet#1528).
+/// `{0}` = days read, `{1}` = sessions, `{2}` = the sports mix, as
+/// `Run 38, Ride 6`.
+pub const KEY_AGENT_WELCOME_FIGURES_READ: &str = "messaging.agent_welcome.figures_read";
+/// Key: the same, when no session's sport has a word to name it by.
+/// `{0}` = days read, `{1}` = sessions.
+pub const KEY_AGENT_WELCOME_FIGURES_READ_UNMIXED: &str =
+    "messaging.agent_welcome.figures_read_unmixed";
+/// Key: the same, for one session. `{0}` = days read.
+pub const KEY_AGENT_WELCOME_FIGURES_READ_ONE: &str = "messaging.agent_welcome.figures_read_one";
+/// Key: the sessions a week the history averages. `{0}` = the rounded count.
+pub const KEY_AGENT_WELCOME_FIGURES_PER_WEEK: &str = "messaging.agent_welcome.figures_per_week";
+/// Key: the last session. `{0}` = its sport and figures, as
+/// `Run, 21.4 km in 1:52:14`.
+pub const KEY_AGENT_WELCOME_FIGURES_LAST: &str = "messaging.agent_welcome.figures_last";
+/// Key: a distance covered in a time. `{0}` = the distance, `{1}` = the time.
+pub const KEY_AGENT_WELCOME_FIGURES_DISTANCE_TIME: &str =
+    "messaging.agent_welcome.figures_distance_time";
+/// Key: the athlete's goal and why, quoted from About you. `{0}` = the goal,
+/// `{1}` = the why.
+pub const KEY_AGENT_WELCOME_GOAL_WHY: &str = "messaging.agent_welcome.goal_why";
+/// Key: the athlete's goal alone. `{0}` = the goal.
+pub const KEY_AGENT_WELCOME_GOAL_ONLY: &str = "messaging.agent_welcome.goal_only";
+/// Key: the athlete's why alone. `{0}` = the why.
+pub const KEY_AGENT_WELCOME_WHY_ONLY: &str = "messaging.agent_welcome.why_only";
 
 /// Key: the reply to a tapped suggestion that no longer resolves — the thread
 /// lost its agent, or the agent's examples changed since it was posted

@@ -22,6 +22,7 @@ import { Alert, Share } from 'react-native';
 import {
   audienceOf,
   copyableText,
+  AGENT_WELCOME_FINISH_REASON,
   correctionAuthorLabel,
   countActivities,
   dayLabelFor,
@@ -658,6 +659,8 @@ export function MessageList({
       planConversationId: string | null;
       /** Who reads the row the block is in. */
       audience: MessageAudience;
+      /** The row is an agent's welcome, whose starters are ink links (carnet#1528). */
+      welcome?: boolean;
     },
   ): React.ReactNode => {
     switch (block.type) {
@@ -757,6 +760,26 @@ export function MessageList({
       }
 
       case 'actions':
+        // An agent's welcome offers its starters as the empty thread does:
+        // 44pt ink links under a caption, no pill (D3, carnet#1528).
+        if (context.welcome) {
+          return (
+            <View key={key} className="mt-4" testID="welcome-starters">
+              {block.title ? <Text className="text-xs text-text-secondary">{block.title}</Text> : null}
+              {block.actions.map((action, idx) => (
+                <Pressable
+                  key={`${action.value}-${idx}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
+                  className="min-h-11 flex-row items-center"
+                  onPress={() => onActionClick?.(action, context.audience)}
+                >
+                  <Text className="text-sm font-medium text-primary">{action.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          );
+        }
         return (
           <View key={key} className="mt-3">
             {block.title ? (
@@ -1087,6 +1110,7 @@ export function MessageList({
       rows,
       planConversationId: conversationId,
       audience: 'room' as const,
+      welcome: item.finish_reason === AGENT_WELCOME_FINISH_REASON,
     };
     // What copy and share hand out. The reply's own text carries the ⟦viz:N⟧
     // markers this surface turns into charts; pasted anywhere else they are a

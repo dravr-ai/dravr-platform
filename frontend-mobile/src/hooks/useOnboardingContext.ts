@@ -60,7 +60,11 @@ export function useOnboardingContext(): OnboardingContextState {
   const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
   const onboardingActive = isAuthenticated && user?.user_status === 'active' && !isAdminRole;
 
-  const { data: onboardingStatus } = useOnboardingStatus(onboardingActive);
+  // The status is a shared query that other screens read for every account —
+  // Home's coach shape reads it for an admin too — so a disabled read here does
+  // not keep it empty. The gate drops it itself where onboarding does not apply.
+  const statusQuery = useOnboardingStatus(onboardingActive);
+  const onboardingStatus = onboardingActive ? statusQuery.data : undefined;
   const { seen: coachProposalSeenLocal } = useCoachProposalSeen(user?.id);
   // The agent step is gated on server state alone (carnet#1042), so its done
   // flag reads the server's step row too: one answered on the web or on

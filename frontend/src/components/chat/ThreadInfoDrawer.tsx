@@ -7,6 +7,7 @@
 import type { Conversation } from '@pierre/shared-types';
 import { useConversationMutations } from '../../hooks/useConversationList';
 import { CONNECTIONS_ROUTE } from '../../constants/surfaceLayout';
+import { coachHomeRoute } from '../coach-home/coachHomeRoute';
 import ConversationInfoPanel from './ConversationInfoPanel';
 import type { ThreadInfoState } from './useThreadInfo';
 
@@ -68,6 +69,14 @@ export default function ThreadInfoDrawer({
           ? () => {
               info.close();
               onNavigate(CONNECTIONS_ROUTE);
+            }
+          : undefined
+      }
+      onOpenCoachHome={
+        onNavigate
+          ? (athleteId) => {
+              info.close();
+              onNavigate(coachHomeRoute({ view: 'queue', athleteId }));
             }
           : undefined
       }

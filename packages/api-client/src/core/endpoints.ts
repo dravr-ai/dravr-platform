@@ -317,6 +317,8 @@ export const ENDPOINTS = {
     ONBOARDING_STEP: (stepId: string) => `/api/me/onboarding/steps/${encodeURIComponent(stepId)}`,
     /** The caller's coach-access request: GET where it stands, POST to ask in one tap */
     COACH_ACCESS_REQUEST: '/api/me/coach-access-request',
+    /** The pending coach's « Préparer ton coaching » checklist (carnet#1529). */
+    COACH_SETUP: '/api/me/coach-setup',
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },

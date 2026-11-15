@@ -46,18 +46,26 @@ export interface ComposerVoice {
   planSubjectName: string | null;
   /** The group's name when the viewer is its human coach in its room; `null` for every other reader. */
   coachRoomName: string | null;
+  /**
+   * The group's name in its room for any reader — a member and the owner
+   * waiting on their coach seat as much as the coach; `null` outside a room.
+   * A client that leaves it out keeps the app's own words for them.
+   */
+  roomName?: string | null;
   /** The composer's voice is not yet known (`composerVoicePending`). */
   pending: boolean;
 }
 
 /**
- * The composer's placeholder in a coach's own thread: the plan thread names
- * the athlete the agent is asked about, the room names the group that reads
- * it. `''` while the voice is not yet known, so nothing is printed and then
- * swapped; `null` in an athlete's thread, which keeps the app's own words.
+ * The composer's placeholder: a coach's plan thread names the athlete the
+ * agent is asked about, a group's room names the group that reads what is
+ * written there, for its coach and every member alike. `''` while the voice
+ * is not yet known, so nothing is printed and then swapped; `null` in an
+ * athlete's own thread, which keeps the app's own words.
  */
 export function coachComposerPlaceholder(t: Translate, voice: ComposerVoice): string | null {
   if (voice.planSubjectName !== null) return t(PLAN_THREAD_KEYS.composerPlaceholder, { name: voice.planSubjectName });
-  if (voice.coachRoomName !== null) return t(GROUP_ROOM_KEYS.composerPlaceholder, { group: voice.coachRoomName });
+  const room = voice.coachRoomName ?? voice.roomName ?? null;
+  if (room !== null) return t(GROUP_ROOM_KEYS.composerPlaceholder, { group: room });
   return voice.pending ? '' : null;
 }

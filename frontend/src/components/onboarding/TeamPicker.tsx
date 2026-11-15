@@ -130,7 +130,7 @@ export function TeamPicker({ proposal, withoutProvider = false, onSubmit }: Team
       <WhatWeRead proposal={proposal} withoutProvider={withoutProvider} />
 
       <section aria-labelledby="team-lead-heading">
-        <h2 id="team-lead-heading" className="text-[13px] font-semibold text-on-surface">
+        <h2 id="team-lead-heading" className="text-sm font-semibold text-on-surface">
           {t('onboarding.team.leadHeading')}
         </h2>
         <div
@@ -152,15 +152,15 @@ export function TeamPicker({ proposal, withoutProvider = false, onSubmit }: Team
               </button>
             </div>
             <p className="text-xs text-outline">{t(coachCategoryLabelKey(lead.category))}</p>
-            {lead.reason ? <p className="mt-1 text-[13px] text-on-surface-variant">{lead.reason}</p> : null}
+            {lead.reason ? <p className="mt-1 text-sm text-on-surface-variant">{lead.reason}</p> : null}
           </div>
         </div>
       </section>
 
       <fieldset disabled={saving}>
-        <legend className="text-[13px] font-semibold text-on-surface">{t('onboarding.team.membersLegend')}</legend>
+        <legend className="text-sm font-semibold text-on-surface">{t('onboarding.team.membersLegend')}</legend>
         {members.length === 0 ? (
-          <p className="mt-2 text-[13px] text-on-surface-variant">{t('onboarding.team.noMembers')}</p>
+          <p className="mt-2 text-sm text-on-surface-variant">{t('onboarding.team.noMembers')}</p>
         ) : (
           <div className="mt-2 rounded-xl border ghost-border bg-surface-container-lowest">
             {members.map((member) => (
@@ -195,7 +195,7 @@ export function TeamPicker({ proposal, withoutProvider = false, onSubmit }: Team
 
       {failed ? (
         <div role="alert" className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          <p className="text-[13px] text-error">{t('onboarding.team.saveFailed')}</p>
+          <p className="text-sm text-error">{t('onboarding.team.saveFailed')}</p>
           <button
             type="button"
             onClick={() => void submit(failed)}
@@ -336,7 +336,7 @@ function MemberLabel({ entry }: { entry: MemberEntry }) {
           {entry.source ? `${category} · ${entry.source}` : category}
         </span>
         {entry.reason ? (
-          <span className="mt-1 block text-[13px] text-on-surface-variant">{entry.reason}</span>
+          <span className="mt-1 block text-sm text-on-surface-variant">{entry.reason}</span>
         ) : null}
       </span>
     </span>

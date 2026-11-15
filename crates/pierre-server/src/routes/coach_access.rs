@@ -19,6 +19,9 @@
 //!   `200` with their latest request after it (an earlier decided one, or
 //!   `null`), `404` with none waiting, `409` when a decision claimed it first.
 //!
+//! The same mount serves `GET /api/me/coach-setup`, the coach-shaped Home's
+//! checklist the request sits in ([`crate::routes::coach_setup`]).
+//!
 //! The decision is a super-admin's, made in the admin console
 //! (`pierre_routes_admin` coach-access handlers). Logic lives in
 //! [`pierre_services::coach_access`], the operator email included; this
@@ -43,6 +46,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
+use crate::routes::coach_setup::get_coach_setup;
 
 /// Body of `POST /api/me/coach-access-request`.
 #[derive(Debug, Default, Deserialize)]
@@ -170,7 +174,9 @@ pub fn coach_access_notices(resources: &ServerContext) -> CoachAccessNotices {
     }
 }
 
-/// Mount-helper for the caller's coach-access routes.
+/// Mount-helper for the caller's coach-access routes, and the checklist of
+/// the coach-shaped Home they ask from (`GET /api/me/coach-setup`,
+/// carnet#1529).
 #[derive(Debug)]
 pub struct CoachAccessRoutes;
 
@@ -182,6 +188,7 @@ impl CoachAccessRoutes {
                 "/api/me/coach-access-request",
                 get(handle_get).post(handle_post).delete(handle_delete),
             )
+            .route("/api/me/coach-setup", get(get_coach_setup))
             .with_state(resources)
     }
 }

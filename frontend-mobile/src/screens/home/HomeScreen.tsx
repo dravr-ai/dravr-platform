@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The Home tab — today's session from the plan, the week calendar around it, the training status, the latest activities
+// ABOUTME: The Home tab — today's session from the plan, the week calendar around it, the training status, Your team, the latest activities
 // ABOUTME: Where the app lands after sign-in; a day on it opens a chat with a drafted question, an activity its own view
 
 import React, { useCallback, useRef, useState } from 'react';
@@ -22,21 +22,21 @@ import {
   useTrainingStatus,
   useTrainingVolume,
 } from '../../hooks/useHome';
-import { CONNECTIONS_ROUTE, activityHref, threadHref } from '../../navigation/routes';
+import { CONNECTIONS_ROUTE, DISCOVER_ROUTE, activityHref, threadHref } from '../../navigation/routes';
 import { useFindPersonalThread } from '../chat/usePersonalThread';
 import { HomePlan } from './HomePlan';
 import { HomeWeek } from './HomeWeek';
 import { HomeStatus } from './HomeStatus';
+import { HomeTeam } from './HomeTeam';
 import { HomeVolume } from './HomeVolume';
 import { RecentActivities } from './RecentActivities';
-import { CoachAccessHome } from '../../components/CoachAccessPanel';
 
 interface HomeScreenProps {
   /** The coach's "Mes athlètes / Mon entraînement" switch, drawn first on the page; an athlete's Home has none. */
   scopeSwitch?: React.ReactNode;
 }
 
-// LIMITATION(registre#1102): `HomeScreen` has no Getting started, Your team or team empty state on the native app.
+// LIMITATION(registre#1102): `HomeScreen` has no Getting started or team empty state on the native app; Your team is one row that opens Discover.
 export function HomeScreen({ scopeSwitch }: HomeScreenProps = {}) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -155,8 +155,6 @@ export function HomeScreen({ scopeSwitch }: HomeScreenProps = {}) {
         testID="home-scroll"
       >
         {scopeSwitch !== undefined && <View className="px-4">{scopeSwitch}</View>}
-        {/* A coach with no group still has the way to ask for coach access (carnet#1522). */}
-        <CoachAccessHome />
         <HomePlan
           response={plan.data ?? null}
           isError={plan.isError}
@@ -165,6 +163,8 @@ export function HomeScreen({ scopeSwitch }: HomeScreenProps = {}) {
         />
         <HomeWeek response={plan.data ?? null} openDraft={openDraft} openActivity={openActivity} />
         <HomeStatus response={status.data ?? null} isError={status.isError} onRetry={() => void refetchStatus()} />
+        {/* Today, the week, the status, then the team as one row (carnet#1528, P5·C). */}
+        <HomeTeam onManage={() => router.push(DISCOVER_ROUTE)} />
         <HomeVolume
           response={volume.data ?? null}
           isError={volume.isError}

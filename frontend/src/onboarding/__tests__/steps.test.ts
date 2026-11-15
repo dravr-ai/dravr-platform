@@ -245,6 +245,13 @@ describe('currentOnboardingStep — equivalent to the former App.tsx gate chain'
     ).toBeNull();
   });
 
+  it('admin / inactive user with a provider still to connect (needs=true) → null', () => {
+    // The whole flow is exempt, whatever status reached the context.
+    expect(
+      currentOnboardingStep(ctx({ onboardingActive: false, needsProviderConnection: true })),
+    ).toBeNull();
+  });
+
   it('fresh tab, provider already connected, coach step unrecorded → coach_proposal (carnet#1042)', () => {
     // The OAuth return landed in a tab that never saw needs true→false, so
     // justOnboarded is false; the server still says a provider is connected

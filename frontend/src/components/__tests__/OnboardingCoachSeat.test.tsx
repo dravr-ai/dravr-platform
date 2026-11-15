@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { COACH_SEAT_CHECK_WINDOW_MS } from '@pierre/shared-constants';
+import { COACH_SEAT_CHECK_WINDOW_MS, QUERY_KEYS } from '@pierre/shared-constants';
 import OnboardingCoachSeat from '../OnboardingCoachSeat';
 import { ThemeProvider } from '../../hooks/useTheme';
 
@@ -32,17 +32,26 @@ vi.mock('../../services/api', () => ({
   authApi: { getSession: (...args: unknown[]) => getSession(...args) },
 }));
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
-// The session user as the auth context holds it: a patch re-renders the step.
+// The session user as the auth context holds it: one user for every reader —
+// the step and the shared seat probe — so a patch re-renders the step.
 vi.mock('../../hooks/useAuth', async () => {
-  const { useState } = await import('react');
+  const { useSyncExternalStore } = await import('react');
+  const listeners = new Set<() => void>();
+  const subscribe = (listener: () => void) => {
+    listeners.add(listener);
+    return () => listeners.delete(listener);
+  };
   return {
     useAuth: () => {
-      const [managesRoster, setManagesRoster] = useState(auth.managesRoster);
+      const managesRoster = useSyncExternalStore(subscribe, () => auth.managesRoster);
       return {
         user: { manages_roster: managesRoster },
         updateUser: (patch: { manages_roster?: boolean }) => {
           updateUser(patch);
-          if (patch.manages_roster !== undefined) setManagesRoster(patch.manages_roster);
+          if (patch.manages_roster !== undefined) {
+            auth.managesRoster = patch.manages_roster;
+            listeners.forEach((listener) => listener());
+          }
         },
         logout: vi.fn(),
       };
@@ -94,7 +103,7 @@ function renderSeat() {
       </ThemeProvider>
     </QueryClientProvider>,
   );
-  return { onComplete };
+  return { onComplete, client };
 }
 
 describe('OnboardingCoachSeat', () => {
@@ -169,6 +178,24 @@ describe('OnboardingCoachSeat', () => {
     await waitFor(() => expect(updateUser).toHaveBeenCalledWith({ manages_roster: true }));
     expect(await screen.findByTestId('coach-seat-status')).toHaveAttribute('data-state', 'coach');
     expect(screen.getByTestId('coach-seat-status')).toHaveTextContent("You're the coach of your groups");
+  });
+
+  it('a TrainingPeaks link made on this screen still reads the grant back, through the shared seat probe', async () => {
+    const { client } = renderSeat();
+    await screen.findByText('TrainingPeaks');
+    expect(getSession).not.toHaveBeenCalled();
+
+    // The link answers: the cards read the coach account, the session the access it earned.
+    getProvidersStatus.mockResolvedValue(
+      served({ sciotte_trainingpeaks: { connected: true, account_role: 'coach' } }),
+    );
+    getSession.mockResolvedValue({ user: { manages_roster: true } });
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
+    });
+
+    await waitFor(() => expect(updateUser).toHaveBeenCalledWith({ manages_roster: true }));
+    expect(await screen.findByTestId('coach-seat-status')).toHaveAttribute('data-state', 'coach');
   });
 
   it('a TrainingPeaks athlete account produced nothing: says so plainly and offers the team', async () => {

@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The coach-access hooks both clients bind — a grant picked up without signing out, and the Groups list rows' coach-seat line
+// ABOUTME: The coach-access hooks both clients bind — a grant picked up without signing out, the Groups list rows' coach-seat line, the seat read back after a platform links
 // ABOUTME: One definition for web and phone: each client hands in its APIs, its signed-in session and its translation
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { ConversationRowModel } from '@pierre/chat-utils';
 import type { AuthApi, GroupsApi, UserApi } from '@pierre/api-client';
 import {
   COACH_ACCESS_WAIT_POLL_MS,
+  COACH_PLATFORM_PROVIDERS,
+  COACH_SEAT_CHECK_POLL_MS,
+  COACH_SEAT_CHECK_WINDOW_MS,
   COACH_SEAT_KEYS,
   QUERY_KEYS,
   coachSeatListLine,
@@ -60,6 +63,46 @@ export interface CoachAccessHooks {
     rows: readonly ConversationRowModel[],
     viewer: CoachAccessViewer | null | undefined,
   ) => Map<string, string>;
+  /**
+   * Mounted by every surface that offers the coaching platforms — the
+   * onboarding seat step, Group info's seat block, the pending coach Home:
+   * once one connects, the seat is read back for the check window.
+   * `connected` is the providers connected now (`undefined` until read).
+   */
+  useSeatAfterPlatformLink: (
+    connected: readonly string[] | undefined,
+    options?: SeatProbeOptions,
+  ) => SeatProbe;
+}
+
+/** How a surface wires the seat probe. */
+export interface SeatProbeOptions {
+  /**
+   * A coaching platform already connected on the first read opens the window
+   * too. The onboarding seat step says so: the way back from a platform's
+   * sign-in may reload the page, so the link it waits on is there on arrival.
+   * Elsewhere only a platform that connects while the surface is open does,
+   * since one connected before it opened has already settled the seat.
+   */
+  fromFirstRead?: boolean;
+  /**
+   * Called on every read of the window, for a surface that holds a read of
+   * its own the probe cannot reach — the phone's connect screen keeps its
+   * provider cards outside the query cache.
+   */
+  onRead?: () => void;
+}
+
+/** Where the seat probe stands. */
+export interface SeatProbe {
+  /** The window is open and the seat is still being read back. */
+  reading: boolean;
+  /**
+   * A window opened and ran out: what the connection did is in. The seat step
+   * says then that a connection produced nothing (`coachSeatStepState`'s
+   * `checkExpired`).
+   */
+  ended: boolean;
 }
 
 /** How long after a grant the list still reads the rooms, so the line can say it. */
@@ -97,6 +140,18 @@ export function seatLineDay(iso: string, language: string): string {
  *   room talks again. Rooms are read only while there is something to say —
  *   a request waiting, or one granted in the last day — so an athlete's list
  *   costs no read; without a viewer nothing is read.
+ * - `useSeatAfterPlatformLink`: the one seat probe (carnet#1529). A
+ *   TrainingPeaks coach account grants coach access with no request at all,
+ *   and an Intervals.icu roster files one a few seconds after the link
+ *   answers, both written off the connect request. So once a coaching
+ *   platform connects on a surface that offers it, a window of
+ *   {@link COACH_SEAT_CHECK_WINDOW_MS} opens, and every
+ *   {@link COACH_SEAT_CHECK_POLL_MS} the session, the request, the provider
+ *   cards (for the account role) and the pending coach Home's checklist are
+ *   read again. It stops at coach access — a grant patches the user, so the
+ *   coach Home appears without signing out — at a waiting request, or at the
+ *   window's end, which the surface reads as "the connection produced
+ *   nothing". What the server did, never a guess.
  */
 export function createCoachAccessHooks(deps: CoachAccessHooksDeps): CoachAccessHooks {
   function useCoachAccessGrantRefresh(): void {
@@ -193,5 +248,90 @@ export function createCoachAccessHooks(deps: CoachAccessHooksDeps): CoachAccessH
     }, [moving, groupRows, groups, user?.id, managesRoster, request, t, language]);
   }
 
-  return { useCoachAccessGrantRefresh, useGroupSeatLines };
+  function useSeatAfterPlatformLink(
+    connected: readonly string[] | undefined,
+    options: SeatProbeOptions = {},
+  ): SeatProbe {
+    const { fromFirstRead = false, onRead } = options;
+    const { user, updateUser } = deps.useSession();
+    const queryClient = useQueryClient();
+    const managesRoster = user?.manages_roster === true;
+    // The surface's own read of the request: the probe only watches it for a
+    // filed request, so mounting it costs no second read. Nor does it retry a
+    // failed one: a surface that hides itself while the read is pending would
+    // otherwise remount the probe, refetch, hide, fail and remount in a loop.
+    const latest = useQuery({
+      queryKey: QUERY_KEYS.user.coachAccessRequest(),
+      queryFn: () => deps.userApi.getCoachAccessRequest(),
+      enabled: !!user && !managesRoster,
+      refetchOnMount: false,
+      retryOnMount: false,
+    });
+    const linked =
+      connected === undefined
+        ? null
+        : connected
+            .filter((provider) => COACH_PLATFORM_PROVIDERS.includes(provider))
+            .sort()
+            .join(',');
+    const seen = useRef<string | null>(null);
+    const [phase, setPhase] = useState<'idle' | 'open' | 'ended'>('idle');
+    // The surface's own read, held so a new callback each render neither
+    // restarts the window nor drops a tick.
+    const onReadRef = useRef(onRead);
+    useEffect(() => {
+      onReadRef.current = onRead;
+    });
+
+    // A platform that connects while the surface is open opens the window;
+    // one there on the first read does only when the surface says so.
+    useEffect(() => {
+      if (linked === null) return;
+      const before = seen.current;
+      seen.current = linked;
+      const arrived = before === null && fromFirstRead && linked !== '';
+      const grew =
+        before !== null &&
+        linked.split(',').some((provider) => provider !== '' && !before.split(',').includes(provider));
+      if (arrived || grew) setPhase('open');
+    }, [linked, fromFirstRead]);
+
+    useEffect(() => {
+      if (phase !== 'open') return;
+      const timer = setTimeout(() => setPhase('ended'), COACH_SEAT_CHECK_WINDOW_MS);
+      return () => clearTimeout(timer);
+    }, [phase]);
+
+    const reading = phase === 'open' && !managesRoster && coachSeatState(latest.data?.request) !== 'pending';
+    useEffect(() => {
+      if (!reading) return;
+      let cancelled = false;
+      const read = () => {
+        onReadRef.current?.();
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.coachAccessRequest() });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.providers.status() });
+        void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.home.coachSetup() });
+        deps.authApi
+          .getSession()
+          .then(async ({ user: fresh }) => {
+            if (cancelled || fresh.manages_roster !== true) return;
+            await updateUser({ manages_roster: true });
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.all });
+            void queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+          })
+          // The next tick reads again; a failed read changes nothing.
+          .catch(() => undefined);
+      };
+      read();
+      const timer = setInterval(read, COACH_SEAT_CHECK_POLL_MS);
+      return () => {
+        cancelled = true;
+        clearInterval(timer);
+      };
+    }, [reading, queryClient, updateUser]);
+
+    return { reading, ended: phase === 'ended' };
+  }
+
+  return { useCoachAccessGrantRefresh, useGroupSeatLines, useSeatAfterPlatformLink };
 }

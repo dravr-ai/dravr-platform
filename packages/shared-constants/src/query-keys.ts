@@ -117,6 +117,11 @@ export const QUERY_KEYS = {
      */
     gettingStarted: () => ['home', 'getting-started'] as const,
     /**
+     * The pending coach's « Préparer ton coaching » checklist (carnet#1529):
+     * the seat, the athlete invited, a coaching platform linked.
+     */
+    coachSetup: () => ['home', 'coach-setup'] as const,
+    /**
      * The workouts and plan weeks over the days `from..=to` (`YYYY-MM-DD`) — one strip week or one month grid —
      * with a plan day's evidence chip and relabel line in `locale`.
      */

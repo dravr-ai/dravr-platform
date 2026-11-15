@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Group info for the open group thread — who runs it, members, TrainingPeaks links, invites, coach, settings, analytics, room
-// ABOUTME: The Groups tab's management surface, re-homed where App Messaging keeps it: inside the chat
+// ABOUTME: Group info for the open group thread, ordered by who reads it — the owner waiting on their seat, the coach, an athlete
+// ABOUTME: What each viewer needs first leads; settings, the week and the room history fold into rows; leaving is a quiet last row
 
 import { useState } from 'react';
-import { Activity, BarChart3, CalendarCheck, Crown, Link2, MessageCircle, Settings, UserCog, Users } from 'lucide-react';
+import { clsx } from 'clsx';
 import {
   useCoachConsents,
   useCoachSharing,
@@ -15,7 +15,6 @@ import {
   useGroupMembers,
   useGroupPermissions,
   useGroupStats,
-  useUpdateGroup,
   useUpdatePeerConsent,
   useSetCoachSharing,
   useLeaveGroup,
@@ -26,19 +25,17 @@ import { useAuth } from '../../hooks/useAuth';
 import { useCoachSeat } from '../../hooks/useCoachSeat';
 import { useOpenAthleteThread } from '../../hooks/useCoachPlan';
 import {
-  Button,
-  Card,
   Checkbox,
   ConfirmDialog,
-  Input,
-  Select,
-  Textarea,
+  EmptyState,
+  OverflowMenu,
+  Section,
   useErrorToast,
   useSuccessToast,
 } from '../ui';
 import MemberList from './MemberList';
 import AthletePlanModal from './AthletePlanModal';
-import GroupLeads from './GroupLeads';
+import { AgentRow, CoachRow } from './GroupLeads';
 import CoachAccessRequest from '../CoachAccessRequest';
 import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
@@ -46,7 +43,13 @@ import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
 import CoachConsentsSection from './CoachConsentsSection';
 import CoachReadLog from './CoachReadLog';
-import type { GroupDigestMode, GroupMember, GroupRespondMode, GroupRole, GroupTrend } from '@pierre/shared-types';
+import CoachAthleteCard from './CoachAthleteCard';
+import GroupSettingsForm from './GroupSettingsForm';
+import WhoSeesWhat from './WhoSeesWhat';
+import { useMemberActions } from './useMemberActions';
+import { DisclosureRow, QuietExitRow, ROW_DIVIDER, RowBox, ValueRow } from './GroupInfoParts';
+import { DIGEST_MODES, RESPOND_MODE_LABEL_KEY } from './groupSettingsLabels';
+import type { GroupMember, GroupRole, GroupTrend } from '@pierre/shared-types';
 import {
   COACH_CONSENTS_KEYS,
   analyticsScopeLine,
@@ -55,9 +58,10 @@ import {
   oneDecimal,
   weeklyVolumeFigure,
 } from '@pierre/shared-constants';
-import { distanceSymbol } from '@pierre/chat-utils';
+import { avatarSlot, distanceSymbol, initialsFor } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError, openThreadRefusalText, useDistanceUnit } from '@pierre/ui-logic';
+import { avatarShapeClass, avatarSlotClass } from '../chat/avatarSlots';
 
 interface GroupInfoPanelProps {
   /** The group this conversation is scoped to. */
@@ -74,60 +78,50 @@ interface GroupInfoPanelProps {
    * for one member. Without it, the roster offers no way into one.
    */
   onOpenConversation?: (conversationId: string) => void;
+  /** Open one athlete on the coach's Home; offered only to a coach who has one. */
+  onOpenCoachHome?: (athleteId: string) => void;
 }
 
 // Built at import time, where `t` does not exist: the table carries the key
 // and the render resolves it.
 const TREND_DISPLAY: Record<GroupTrend, { labelKey: string; color: string }> = {
-  improving: { labelKey: 'groups.improving', color: 'text-success' },
+  improving: { labelKey: 'groups.improving', color: 'text-on-success-container' },
   stable: { labelKey: 'groups.stable', color: 'text-on-surface-variant' },
   declining: { labelKey: 'groups.declining', color: 'text-on-warning-container' },
 };
 
-// Each weekly-digest mode's option label and the one-line hint shown under the
-// select while it is chosen.
-const DIGEST_MODES: Record<GroupDigestMode, { labelKey: string; hintKey: string }> = {
-  off: { labelKey: 'groups.digestOff', hintKey: 'groups.digestOffHint' },
-  chat: { labelKey: 'groups.digestChat', hintKey: 'groups.digestChatHint' },
-  managers: { labelKey: 'groups.digestManagers', hintKey: 'groups.digestManagersHint' },
-};
+/**
+ * Below this many members sharing with the reader, the group's averages
+ * describe one or two people — an average CTL of a pilot's one athlete is
+ * just their CTL — so the figures stay folded away unshown.
+ */
+const STATS_FROM_SHARERS = 3;
 
-/** One titled block of the panel. */
-function Section({
-  icon,
-  title,
-  children,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section className="space-y-2">
-      <h4 className="flex items-center gap-1.5 text-xs font-semibold text-outline">
-        {icon}
-        {title}
-      </h4>
-      {children}
-    </section>
-  );
-}
+/** Who is reading the drawer, which decides what leads it. */
+type Viewer = 'seat' | 'coach' | 'member';
 
 /**
- * Everything the Groups tab used to hold, for the group behind the open thread.
+ * Everything about the group behind the open thread, in the order its reader
+ * needs it (canvas row 3, P2·A):
  *
- * Tapping the thread header is how Telegram and WhatsApp reach group info, and
- * it is now the only way here: the AI agent and the human coach who run the
- * group, the roster and its admin actions, the invite links, the coach's
- * management, the group settings, the caller's own peer-sharing consent, the
- * analytics an admin may read, the shared room transcript, and the two exits.
- * Creating and joining are commands, so neither appears.
+ * - **The owner offered the coach seat** meets the seat block first — what is
+ *   blocked and the drawer's one filled button — then who is here, with the
+ *   invite link inline while there is nobody to coach yet.
+ * - **The group's coach** meets their athlete first, with the plan thread as
+ *   coach Home weighs it, then the planning connections, then the agent.
+ * - **An athlete** reads who is here and what each of them sees, then their
+ *   own sharing, then what their coach may change.
+ *
+ * Settings (saved as they change), the week and the room history fold into
+ * rows for everyone; leaving or deleting is a quiet row at the very bottom,
+ * and the danger is drawn only inside the confirm it opens.
  */
 export default function GroupInfoPanel({
   groupId,
   onMembershipEnded,
   onOpenConnections,
   onOpenConversation,
+  onOpenCoachHome,
 }: GroupInfoPanelProps) {
   const { t, language } = useTranslation();
   const units = useDistanceUnit();
@@ -163,13 +157,12 @@ export default function GroupInfoPanel({
     !!group?.coach_user_id && !!currentMember && !isGroupCoach,
   );
   const { weeklyDigest } = useGroupPermissions();
-  const { updateGroup, isPending: isUpdating } = useUpdateGroup(groupId);
   const { updateConsent, isPending: isSavingConsent } = useUpdatePeerConsent(groupId);
   // The owner offered this group's coach seat (carnet#1520): the seat block
   // leads the drawer, and nothing below tells them someone else will coach.
   const seat = useCoachSeat(groupId);
   // Whether the group's human coach sees the member's training: granted at
-  // join, so the member's own switch sits beside peer sharing (carnet#1168).
+  // join, so the member's own switch leads their sharing (carnet#1168).
   // The owner about to be the coach is never asked to share with a coach.
   const showsCoachSharing = !!currentMember && !isGroupCoach && !seat.offered;
   const { sharing: coachSharing } = useCoachSharing(groupId, showsCoachSharing);
@@ -188,26 +181,12 @@ export default function GroupInfoPanel({
   // The member whose live plan the coach is reading, read-only (carnet#1244).
   const [viewingPlanFor, setViewingPlanFor] = useState<GroupMember | null>(null);
 
-  const [editName, setEditName] = useState('');
-  const [editDescription, setEditDescription] = useState('');
-  const [editPeerSharing, setEditPeerSharing] = useState(false);
-  const [editRespondMode, setEditRespondMode] = useState<GroupRespondMode>('all');
-  const [editDigestMode, setEditDigestMode] = useState<GroupDigestMode>('off');
-  const [settingsInitialized, setSettingsInitialized] = useState(false);
-
-  // Seed the settings form from the group the first time it resolves.
-  if (group && !settingsInitialized) {
-    setEditName(group.name);
-    setEditDescription(group.description ?? '');
-    setEditPeerSharing(group.peer_data_sharing);
-    setEditRespondMode(group.respond_mode ?? 'all');
-    setEditDigestMode(group.digest_mode ?? 'off');
-    setSettingsInitialized(true);
-  }
-
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
   const isAdmin = currentUserRole === 'admin' || isOwner;
+  // The coach who also owns or administers the group changes roles and
+  // removes members from each athlete's card, as the rows do for everyone else.
+  const athleteActions = useMemberActions(groupId, currentUserRole, currentUserId);
   // A member sees only their own links: one live per coaching platform the
   // group's coach links them on, each with its own controls.
   const memberLinks = delegationViewer === 'member' ? delegatedConnections : [];
@@ -252,28 +231,6 @@ export default function GroupInfoPanel({
     } catch (err) {
       const message = describeApiError(err, { t, fallbackKey: 'groups.consentFailed' });
       showError(t('app.updateFailed'), message);
-    }
-  };
-
-  const handleSaveSettings = async () => {
-    if (!group) return;
-    const digest = canSetDigest ? { digest_mode: editDigestMode } : {};
-    try {
-      await updateGroup(
-        isAdmin
-          ? {
-              name: editName.trim() || undefined,
-              description: editDescription.trim() || undefined,
-              peer_data_sharing: editPeerSharing,
-              respond_mode: editRespondMode,
-              ...digest,
-            }
-          : digest,
-      );
-      showSuccess(t('app.settingsSaved'), t('app.groupSettingsUpdated'));
-    } catch (err) {
-      const message = describeApiError(err, { t, fallbackKey: 'groups.saveFailed' });
-      showError(t('app.saveFailed'), message);
     }
   };
 
@@ -343,74 +300,211 @@ export default function GroupInfoPanel({
     );
   }
 
+  const viewer: Viewer = seat.offered ? 'seat' : isGroupCoach ? 'coach' : 'member';
+  // Everyone in the group but the viewer: the coach's athletes, or the others an athlete shares the room with.
+  const others = members.filter((m) => m.user_id !== currentUserId);
+  const showsPeerConsent = !!currentMember && group.peer_data_sharing;
+  const showsSharing = showsCoachSharing || showsPeerConsent;
+  const statsShown = !!stats && (statsScope?.visible_members ?? 0) >= STATS_FROM_SHARERS;
+  const showsThisWeek = !isCoachViewer && (isAdmin || statsShown);
+  const showsSettings = isAdmin || canSetDigest;
+  const roomAvatar = avatarSlot({ id: group.id, agent_id: null, group_id: group.id, subject_user_id: null });
+  const canOpenCoachHome = auth.user?.manages_roster === true && !!onOpenCoachHome;
+
+  // The member list's `⋯` holds role and removal; the coach row's holds
+  // detaching the coach, for an admin of a group someone else coaches.
+  const coachMenu =
+    isAdmin && group.coach_user_id && !isGroupCoach ? (
+      <OverflowMenu
+        label={t('groups.info.moreActions', { name: coachName ?? t('humanCoach.attached') })}
+        items={[
+          {
+            label: t('humanCoach.removeCoachRow'),
+            danger: true,
+            onSelect: () => setConfirmRemoveCoach(true),
+            'data-testid': 'group-info-remove-coach',
+          },
+        ]}
+        data-testid="group-info-coach-menu"
+      />
+    ) : undefined;
+
+  const invites = (inline: boolean) => (
+    <InviteManager
+      groupId={groupId}
+      currentUserRole={currentUserRole}
+      offerCoachKind={!seat.offered}
+      quietCreate={seat.offered}
+      heading={inline && others.length === 0 ? t('groups.info.inviteAthlete') : undefined}
+    />
+  );
+
   return (
-    <div className="space-y-6" data-testid="group-info-panel">
-      <section>
-        <h3 className="text-lg font-semibold text-on-surface" data-testid="group-info-name">
-          {group.name}
-        </h3>
-        {group.description && (
-          <p
-            className="mt-1 text-sm text-on-surface-variant"
-            data-testid="group-info-description"
-          >
-            {group.description}
-          </p>
-        )}
-        <div className="mt-2 flex flex-wrap items-center gap-3 text-xs text-outline">
-          <span className="flex items-center gap-1.5">
-            <Users className="w-3.5 h-3.5" aria-hidden="true" />
-            {t('groups.memberCount', { n: members.length })}
-          </span>
-          {isOwner && (
-            <span className="flex items-center gap-1.5 text-on-warning-container">
-              <Crown className="w-3.5 h-3.5" aria-hidden="true" />
-              {t('groups.owner')}
-            </span>
+    <div className="flex flex-col gap-6" data-testid="group-info-panel">
+      <header className="flex items-center gap-3">
+        <span
+          aria-hidden="true"
+          className={clsx(
+            'flex h-11 w-11 shrink-0 select-none items-center justify-center text-sm font-semibold',
+            avatarShapeClass('square'),
+            avatarSlotClass(roomAvatar),
           )}
-          {group.coach_user_id && (
-            <span className="flex items-center gap-1.5 text-primary" data-testid="group-info-coach-badge">
-              <UserCog className="w-3.5 h-3.5" aria-hidden="true" />
-              {isGroupCoach ? (
-                t('humanCoach.youCoach')
-              ) : coachName ? (
-                <span>
-                  {t('humanCoach.coach')} <span className="font-medium">{coachName}</span>
+        >
+          {initialsFor(group.name)}
+        </span>
+        <div className="min-w-0">
+          <h3 className="font-display text-lg font-semibold text-on-surface" data-testid="group-info-name">
+            {group.name}
+          </h3>
+          <p className="flex flex-wrap items-center gap-x-1.5 text-xs text-on-surface-variant">
+            {group.coach_user_id && (
+              <>
+                <span data-testid="group-info-coach-badge">
+                  {isGroupCoach ? (
+                    t('humanCoach.youCoach')
+                  ) : coachName ? (
+                    <>
+                      {t('humanCoach.coach')} <span className="font-medium text-on-surface">{coachName}</span>
+                    </>
+                  ) : (
+                    t('humanCoach.attachedBadge')
+                  )}
                 </span>
-              ) : (
-                t('humanCoach.attachedBadge')
-              )}
-            </span>
-          )}
+                <span aria-hidden="true">·</span>
+              </>
+            )}
+            <span>{t('groups.memberCount', { n: members.length })}</span>
+          </p>
         </div>
-      </section>
+      </header>
+      {group.description && (
+        <p className="-mt-3 text-pretty text-sm text-on-surface-variant" data-testid="group-info-description">
+          {group.description}
+        </p>
+      )}
 
       {/* The coach seat leads the drawer for the owner it is offered to: what
           is blocked, the drawer's one filled request, the coaching platforms;
           once asked, the dated timeline (carnet#1520). */}
-      {seat.offered && <CoachAccessRequest groupId={groupId} variant="block" />}
+      {viewer === 'seat' && <CoachAccessRequest groupId={groupId} variant="block" />}
 
-      {/* The caller's own peer-sharing consent. The group can allow peer
-          sharing, but each athlete still decides whether their own training
-          data is part of it. Beside it, in the same card, their coach
-          sharing (carnet#1168). */}
-      {currentMember && (
-        <div data-testid="peer-consent-card">
-          <Card variant="dark" className="!p-4">
-            <Checkbox
-              label={t('groups.shareMyData')}
-              description={
-                group.peer_data_sharing
-                  ? t('groups.shareMyDataHint')
-                  : t('groups.sharingOffHint')
-              }
-              checked={currentMember.peer_sharing_consent}
-              disabled={isSavingConsent}
-              onChange={(e) => void handleConsentChange(e.target.checked)}
-              data-testid="peer-consent-switch"
+      {viewer === 'coach' && (
+        <Section
+          headingLevel={3}
+          title={others.length === 1 ? t('humanCoach.athleteCard.titleOne') : t('humanCoach.athleteCard.titleMany')}
+          data-testid="group-info-athletes"
+        >
+          {isMembersLoading ? (
+            <div className="flex justify-center py-6">
+              <div className="pierre-spinner" />
+            </div>
+          ) : others.length === 0 ? (
+            <EmptyState>{t('groups.info.noAthlete')}</EmptyState>
+          ) : (
+            <div className="space-y-3">
+              {others.map((member) => (
+                <CoachAthleteCard
+                  key={member.id}
+                  member={member}
+                  primary={others.length === 1}
+                  onWorkOnPlan={onOpenConversation ? (m) => void handleWorkOnPlan(m) : undefined}
+                  opening={pendingAthleteId === member.user_id}
+                  busy={pendingAthleteId !== null}
+                  onViewPlan={setViewingPlanFor}
+                  onOpenCoachHome={canOpenCoachHome ? (m) => onOpenCoachHome?.(m.user_id) : undefined}
+                  menu={
+                    athleteActions.itemsFor(member).length > 0 ? (
+                      <OverflowMenu
+                        label={t('groups.info.moreActions', { name: member.display_name ?? t('groups.memberFallback') })}
+                        items={athleteActions.itemsFor(member)}
+                        data-testid={`member-menu-${member.user_id}`}
+                      />
+                    ) : undefined
+                  }
+                />
+              ))}
+            </div>
+          )}
+          {athleteActions.dialog}
+        </Section>
+      )}
+
+      {viewer !== 'coach' && (
+        <Section headingLevel={3} title={t('groups.info.whoTitle')} data-testid="group-info-people">
+          <RowBox>
+            <CoachRow
+              group={group}
+              // While the request is read, the owner is still not the coach.
+              seatState={viewer === 'seat' ? (seat.state ?? 'to_request') : null}
+              menu={coachMenu}
             />
+            <AgentRow group={group} />
+            {others.length > 0 && (
+              <MemberList
+                groupId={groupId}
+                members={members}
+                currentUserRole={currentUserRole}
+                currentUserId={currentUserId}
+                isLoading={isMembersLoading}
+                // The owner waiting on the seat reads themselves in the coach slot.
+                hideSelf={viewer === 'seat'}
+              />
+            )}
+            {viewer === 'member' && <WhoSeesWhat group={group} coachSharing={coachSharing ? coachSharing.consent : null} />}
+          </RowBox>
+          {/* Getting the athlete in is the owner's second step: the link sits
+              right under who is here (§10). Elsewhere it is a setting. */}
+          {viewer === 'seat' && isAdmin && <div className="mt-3">{invites(true)}</div>}
+        </Section>
+      )}
+
+      <AthletePlanModal
+        member={viewingPlanFor}
+        groupId={groupId}
+        onClose={() => setViewingPlanFor(null)}
+        onWorkOnPlan={onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
+        isOpeningThread={viewingPlanFor !== null && pendingAthleteId === viewingPlanFor.user_id}
+      />
+
+      {/* Which side of the links the caller is on is the server's answer:
+          a coach who is also a member is still the group's coach. */}
+      {delegationViewer === 'coach' && (
+        <Section headingLevel={3} title={t('delegation.sectionTitle', { platform: rosterPlatform })}>
+          <DelegatedConnectionsSection
+            groupId={groupId}
+            mode="coach"
+            connections={delegatedConnections}
+            members={members}
+            onOpenConnections={onOpenConnections}
+          />
+        </Section>
+      )}
+
+      {viewer === 'coach' && (
+        <Section headingLevel={3} title={t('groups.info.agentTitle')} data-testid="group-info-agent-section">
+          <RowBox>
+            <AgentRow group={group} />
+            <ValueRow
+              label={t('groups.info.agentReplies')}
+              value={t(RESPOND_MODE_LABEL_KEY[group.respond_mode ?? 'all'])}
+              data-testid="group-info-agent-replies"
+            />
+            {weeklyDigest && (
+              <ValueRow
+                label={t('groups.digestMode')}
+                value={t(DIGEST_MODES[group.digest_mode ?? 'off'].labelKey)}
+                data-testid="group-info-agent-recap"
+              />
+            )}
+          </RowBox>
+        </Section>
+      )}
+
+      {showsSharing && (
+        <Section headingLevel={3} title={t('groups.info.sharingTitle')} data-testid="group-info-sharing">
+          <RowBox>
             {showsCoachSharing && (
-              <div className="mt-4" data-testid="coach-sharing-row">
+              <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-sharing-row">
                 <Checkbox
                   label={t('humanCoach.shareTraining')}
                   description={
@@ -428,290 +522,138 @@ export default function GroupInfoPanel({
             {/* What the coach's agent read of the member, beside the sharing
                 that lets it (carnet#1445): only once a human coach is attached. */}
             {showsCoachSharing && group.coach_user_id && (
-              <div className="mt-4">
+              <div className={clsx('px-4 py-3', ROW_DIVIDER)}>
                 <CoachReadLog groupId={groupId} />
               </div>
             )}
-          </Card>
-        </div>
-      )}
-
-      <Section icon={<Users className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabMembers')}>
-        <GroupLeads group={group} viewerIsCoach={isGroupCoach} seatState={seat.state} />
-        <MemberList
-          groupId={groupId}
-          members={members}
-          currentUserRole={currentUserRole}
-          currentUserId={currentUserId}
-          isLoading={isMembersLoading}
-          // Only the group's coach works on an athlete's plan, whether or not
-          // they also hold a membership row, and the list keeps it off their
-          // own row; a member's view of the roster never carries the action.
-          onWorkOnPlan={isGroupCoach && onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
-          openingPlanFor={pendingAthleteId}
-          // The same coach reads a member's live plan without opening the
-          // thread (carnet#1244); the server checks the coaching link by id.
-          onViewPlan={isGroupCoach ? setViewingPlanFor : undefined}
-        />
-      </Section>
-
-      <AthletePlanModal
-        member={viewingPlanFor}
-        groupId={groupId}
-        onClose={() => setViewingPlanFor(null)}
-        onWorkOnPlan={onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
-        isOpeningThread={viewingPlanFor !== null && pendingAthleteId === viewingPlanFor.user_id}
-      />
-
-      {/* Which side of the links the caller is on is the server's answer:
-          a coach who is also a member is still the group's coach. */}
-      {delegationViewer === 'coach' ? (
-        <Section icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />} title={t('delegation.sectionTitle', { platform: rosterPlatform })}>
-          <DelegatedConnectionsSection
-            groupId={groupId}
-            mode="coach"
-            connections={delegatedConnections}
-            members={members}
-            onOpenConnections={onOpenConnections}
-          />
+            {/* The caller's own peer-sharing consent, shown while the group
+                shares at all: each athlete still decides whether their own
+                training is part of it. */}
+            {showsPeerConsent && currentMember && (
+              <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="peer-consent-card">
+                <Checkbox
+                  label={t('groups.shareMyData')}
+                  description={t('groups.shareMyDataHint')}
+                  checked={currentMember.peer_sharing_consent}
+                  disabled={isSavingConsent}
+                  onChange={(e) => void handleConsentChange(e.target.checked)}
+                  data-testid="peer-consent-switch"
+                />
+              </div>
+            )}
+          </RowBox>
         </Section>
-      ) : (
-        memberLinks.map((link) => (
-          <Section
-            key={link.id}
-            icon={<Activity className="w-3.5 h-3.5" aria-hidden="true" />}
-            title={t('delegation.memberSectionTitle', { platform: coachPlatformName(link.provider) })}
-          >
-            <DelegatedConnectionsSection
-              groupId={groupId}
-              mode="member"
-              connections={[link]}
-              members={members}
-            />
-          </Section>
-        ))
       )}
+
+      {memberLinks.map((link) => (
+        <Section
+          key={link.id}
+          headingLevel={3}
+          title={t('delegation.memberSectionTitle', { platform: coachPlatformName(link.provider) })}
+        >
+          <DelegatedConnectionsSection groupId={groupId} mode="member" connections={[link]} members={members} />
+        </Section>
+      ))}
 
       {/* One block for the coach relationship, never one per link: an athlete who
           connects the platform themselves has no link and still grants here. */}
       {coachConsents && coachName && offeredConsents(coachConsents).length > 0 && (
-        <Section icon={<CalendarCheck className="w-3.5 h-3.5" aria-hidden="true" />} title={t(COACH_CONSENTS_KEYS.title)}>
+        <Section headingLevel={3} title={t(COACH_CONSENTS_KEYS.title)}>
           <CoachConsentsSection groupId={groupId} consents={coachConsents} coach={coachName} />
         </Section>
       )}
 
-      {/* Only an owner or admin may list a group's invites; the route refuses anyone else. */}
-      {isAdmin && (
-        <Section icon={<Link2 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabInvites')}>
-          <InviteManager
-            groupId={groupId}
-            currentUserRole={currentUserRole}
-            offerCoachKind={!seat.offered}
-            quietCreate={seat.offered}
-          />
-        </Section>
-      )}
+      <RowBox data-testid="group-info-more">
+        {showsThisWeek && (
+          <DisclosureRow label={t('groups.thisWeek')} data-testid="group-info-this-week">
+            <div className="space-y-4">
+              {isStatsLoading ? (
+                <div className="flex justify-center py-4">
+                  <div className="pierre-spinner" />
+                </div>
+              ) : statsShown && stats ? (
+                <div>
+                  <div className="grid grid-cols-2 gap-3" data-testid="group-info-stats">
+                    <div className="stat-card-dark">
+                      <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.activeMembers')}</p>
+                      <p className="text-xl font-bold text-on-surface">{stats.active_members}</p>
+                      <p className="text-xs text-outline mt-1">{t('groups.ofTotal', { n: stats.total_members })}</p>
+                    </div>
+                    <div className="stat-card-dark">
+                      <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgWeeklyVolume')}</p>
+                      <p className="text-xl font-bold text-on-surface">
+                        {weeklyVolumeFigure(language, stats.avg_weekly_volume_km, units)}
+                        <span className="text-sm text-on-surface-variant ml-1">{distanceSymbol(units)}</span>
+                      </p>
+                    </div>
+                    <div className="stat-card-dark">
+                      <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgCtl')}</p>
+                      <p className="text-xl font-bold text-on-surface">
+                        {stats.avg_ctl !== null ? oneDecimal(language, stats.avg_ctl) : '--'}
+                      </p>
+                    </div>
+                    <div className="stat-card-dark">
+                      <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.flagged')}</p>
+                      <p className="text-xl font-bold text-on-surface">{stats.flagged_members}</p>
+                      <p className="text-xs mt-1">
+                        <span className={TREND_DISPLAY[stats.weekly_trend].color}>
+                          {t(TREND_DISPLAY[stats.weekly_trend].labelKey)}
+                        </span>
+                      </p>
+                    </div>
+                  </div>
+                  {/* The stats, the weekly report and the health flags all cover the members who share with the reader. */}
+                  {statsScopeLine && (
+                    <p className="text-xs text-outline mt-2" data-testid="group-info-scope">
+                      {statsScopeLine}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+              <GroupInsightsPanel groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
+            </div>
+          </DisclosureRow>
+        )}
+        {showsSettings && (
+          <DisclosureRow
+            label={t('groups.info.settingsRow')}
+            hint={
+              !isAdmin
+                ? t('groups.digestMode')
+                : viewer === 'seat'
+                  ? t('groups.info.settingsHintNoInvites')
+                  : t('groups.info.settingsHint')
+            }
+            data-testid="group-info-settings-row"
+          >
+            <GroupSettingsForm group={group} isAdmin={isAdmin} canSetDigest={canSetDigest}>
+              {/* Only an owner or admin may list a group's invites; the route refuses anyone else. */}
+              {isAdmin && viewer !== 'seat' && (
+                <div className="space-y-2 pt-2">
+                  <p className="text-sm font-semibold text-on-surface">{t('groups.tabInvites')}</p>
+                  {invites(false)}
+                </div>
+              )}
+            </GroupSettingsForm>
+          </DisclosureRow>
+        )}
+        <DisclosureRow label={t('groups.info.roomRow')} data-testid="group-info-room-row">
+          <GroupTranscriptPanel groupId={groupId} />
+        </DisclosureRow>
+      </RowBox>
 
-      {/* Who coaches the group, for its admins. The owner offered the seat
-          reads it in the seat block instead: "create a Coach invite" would
-          make someone else the coach. */}
-      {isAdmin && !seat.offered && (
-        <Section icon={<UserCog className="w-3.5 h-3.5" aria-hidden="true" />} title={t('humanCoach.coach')}>
-          <p className="text-sm text-on-surface">
-            {t('humanCoach.roomHint')}
-          </p>
-          {group.coach_user_id ? (
-            <div className="flex items-center justify-between gap-3">
-              <span
-                className="min-w-0 flex-1 truncate text-sm font-medium text-on-surface"
-                data-testid="group-info-coach-name"
-              >
-                {coachName ?? t('humanCoach.attached')}
-              </span>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() => setConfirmRemoveCoach(true)}
-                data-testid="group-info-remove-coach"
-              >
-                {t('humanCoach.remove')}
-              </Button>
-            </div>
-          ) : (
-            <p className="text-sm text-outline">
-              {t('humanCoach.noneHint')}
-            </p>
-          )}
-        </Section>
-      )}
-
-      {(isAdmin || canSetDigest) && (
-        <Section icon={<Settings className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabSettings')}>
-          <div className="space-y-4">
-            {isAdmin && (
-              <>
-                <Input
-                  label={t('groups.name')}
-                  variant="dark"
-                  value={editName}
-                  onChange={(e) => setEditName(e.target.value)}
-                  maxLength={100}
-                />
-                <Textarea
-                  label={t('chat.descriptionLabel')}
-                  rows={3}
-                  value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
-                  maxLength={500}
-                />
-                <Checkbox
-                  label={t('groups.peerSharingEnable')}
-                  description={t('groups.peerSharingDescription')}
-                  checked={editPeerSharing}
-                  onChange={(e) => setEditPeerSharing(e.target.checked)}
-                />
-                <Select
-                  id="group-respond-mode"
-                  label={t('groups.respondMode')}
-                  value={editRespondMode}
-                  onChange={(e) => setEditRespondMode(e.target.value as GroupRespondMode)}
-                  options={[
-                    { value: 'all', label: t('groups.respondEvery') },
-                    { value: 'mentions', label: t('groups.respondMentioned') },
-                  ]}
-                  helpText={t('groups.respondMentionedHint')}
-                />
-              </>
-            )}
-            {canSetDigest && (
-              <Select
-                id="group-digest-mode"
-                label={t('groups.digestMode')}
-                value={editDigestMode}
-                onChange={(e) => setEditDigestMode(e.target.value as GroupDigestMode)}
-                options={(Object.keys(DIGEST_MODES) as GroupDigestMode[]).map((mode) => ({
-                  value: mode,
-                  label: t(DIGEST_MODES[mode].labelKey),
-                }))}
-                helpText={t(DIGEST_MODES[editDigestMode].hintKey)}
-                data-testid="group-digest-mode"
-              />
-            )}
-            <div className="flex justify-end">
-              <Button
-                // The seat's request is the drawer's one filled button while it is offered.
-                variant={seat.offered ? 'secondary' : 'primary'}
-                onClick={() => void handleSaveSettings()}
-                loading={isUpdating}
-                data-testid="group-info-save-settings"
-              >
-                {t('groups.saveSettings')}
-              </Button>
-            </div>
-          </div>
-        </Section>
-      )}
-
-      {!isCoachViewer && (
-      <Section icon={<BarChart3 className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabAnalytics')}>
-        {isStatsLoading ? (
-          <div className="flex justify-center py-6">
-            <div className="pierre-spinner" />
-          </div>
-        ) : stats ? (
-          <div className="grid grid-cols-2 gap-3" data-testid="group-info-stats">
-            <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.activeMembers')}</p>
-              <p className="text-xl font-bold text-on-surface">{stats.active_members}</p>
-              <p className="text-xs text-outline mt-1">{t('groups.ofTotal', { n: stats.total_members })}</p>
-            </div>
-            <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgWeeklyVolume')}</p>
-              <p className="text-xl font-bold text-on-surface">
-                {weeklyVolumeFigure(language, stats.avg_weekly_volume_km, units)}
-                <span className="text-sm text-on-surface-variant ml-1">{distanceSymbol(units)}</span>
-              </p>
-            </div>
-            <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.avgCtl')}</p>
-              <p className="text-xl font-bold text-on-surface">
-                {stats.avg_ctl !== null ? oneDecimal(language, stats.avg_ctl) : '--'}
-              </p>
-            </div>
-            <div className="stat-card-dark">
-              <p className="text-xs font-medium text-on-surface-variant mb-1">{t('groups.flagged')}</p>
-              <p className="text-xl font-bold text-on-surface">{stats.flagged_members}</p>
-              <p className="text-xs mt-1">
-                <span className={TREND_DISPLAY[stats.weekly_trend].color}>
-                  {t(TREND_DISPLAY[stats.weekly_trend].labelKey)}
-                </span>
-              </p>
-            </div>
-          </div>
+      {!isCoachViewer &&
+        (isOwner ? (
+          <QuietExitRow label={t('groups.info.deleteRow')} onClick={() => setConfirmDelete(true)} data-testid="group-info-delete" />
         ) : (
-          <p className="text-sm text-outline">{t('groups.noStats')}</p>
-        )}
-        {/* The stats, the weekly report and the health flags all cover the members who share with the reader. */}
-        {!isStatsLoading && statsScopeLine && (
-          <p className="text-xs text-outline mt-2" data-testid="group-info-scope">
-            {statsScopeLine}
-          </p>
-        )}
-        <GroupInsightsPanel groupId={groupId} isAdmin={isAdmin} weeklyDigestEnabled={weeklyDigest} />
-      </Section>
-      )}
-
-      <Section icon={<MessageCircle className="w-3.5 h-3.5" aria-hidden="true" />} title={t('groups.tabRoom')}>
-        <GroupTranscriptPanel groupId={groupId} />
-      </Section>
-
-      {!isCoachViewer && (
-      <section className="space-y-3 rounded-lg border border-error/20 p-4">
-        <h4 className="text-xs font-semibold text-error">{t('chat.dangerZone')}</h4>
-        {!isOwner && (
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm text-on-surface">{t('groups.leaveGroup')}</p>
-              <p className="text-xs text-outline mt-0.5">
-                {t('groups.leaveHint')}
-              </p>
-            </div>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => setConfirmLeave(true)}
-              data-testid="group-info-leave"
-            >
-              {t('groups.leave')}
-            </Button>
-          </div>
-        )}
-        {isOwner && (
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p className="text-sm text-on-surface">{t('groups.deleteGroup')}</p>
-              <p className="text-xs text-outline mt-0.5">
-                {t('groups.deleteHint')}
-              </p>
-            </div>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => setConfirmDelete(true)}
-              data-testid="group-info-delete"
-            >
-              {t('groups.deleteGroup')}
-            </Button>
-          </div>
-        )}
-      </section>
-      )}
+          <QuietExitRow label={t('groups.info.leaveRow')} onClick={() => setConfirmLeave(true)} data-testid="group-info-leave" />
+        ))}
 
       <ConfirmDialog
         isOpen={confirmLeave}
         onClose={() => setConfirmLeave(false)}
         onConfirm={() => void handleLeave()}
-        title={t('groups.leaveGroup')}
+        title={t('groups.info.leaveTitle')}
         message={[
           t('app.confirmLeaveGroupWeb', { group: group.name }),
           // Leaving ends every link the member holds in the group.
@@ -719,8 +661,8 @@ export default function GroupInfoPanel({
             t('delegation.leaveEndsLink', { platform: coachPlatformName(link.provider) }),
           ),
         ].join(' ')}
-        confirmLabel={t('app.leaveGroup')}
-        variant="warning"
+        confirmLabel={t('groups.info.leaveConfirm')}
+        variant="danger"
         isLoading={isLeaving}
       />
 
@@ -728,9 +670,9 @@ export default function GroupInfoPanel({
         isOpen={confirmDelete}
         onClose={() => setConfirmDelete(false)}
         onConfirm={() => void handleDelete()}
-        title={t('groups.deleteGroup')}
+        title={t('groups.info.deleteTitle')}
         message={t('app.confirmArchiveGroupWeb', { group: group.name })}
-        confirmLabel={t('app.deleteGroup')}
+        confirmLabel={t('groups.info.deleteConfirm')}
         variant="danger"
         isLoading={isDeleting}
       />
@@ -739,10 +681,10 @@ export default function GroupInfoPanel({
         isOpen={confirmRemoveCoach}
         onClose={() => setConfirmRemoveCoach(false)}
         onConfirm={() => void handleRemoveCoach()}
-        title={t('humanCoach.remove')}
+        title={t('humanCoach.removeCoachTitle')}
         message={t('humanCoach.detachQ')}
-        confirmLabel={t('humanCoach.remove')}
-        variant="warning"
+        confirmLabel={t('humanCoach.removeCoachConfirm')}
+        variant="danger"
         isLoading={isRemovingCoach}
       />
     </div>

@@ -11,12 +11,14 @@ import {
   loginToDashboard,
   signInThroughHostedPage,
   mockHomeFirstArrival,
+  mockHomeReturning,
   navigateToTab,
   ONBOARDED_STATUS,
   TOKENS_TAB_LABEL,
 } from './test-helpers';
 import { describeLayoutFailures, measurePageLayout } from './layout-gate';
 import { mockCoach } from './coach-home-mocks';
+import { PENDING_REQUEST, SEAT_CONVERSATION_ID, setupCoachSeatMocks } from './coach-seat-mocks';
 
 // A colour or primitive change touches dozens of files at once. Type-checks and
 // lint prove the classes exist; they cannot show that a status chip still reads
@@ -432,41 +434,89 @@ test.describe('design sweep', () => {
   }
 });
 
-// Home's first arrival (carnet#1098): Getting started open on Meet your team
-// and a team of three at the top of Today — the state no registry walk
-// reaches, since the shared mocks model an established athlete. Wide, Today
-// is the docked panel; narrow, the Today line carries the count and its sheet
-// opens on the same two sections. Both pass the page's layout contract.
-async function sweepHomeFirstArrival(page: Page, theme: (typeof THEMES)[number]) {
+/** Whether the page scrolls sideways, in px past the viewport. */
+async function sidewaysOverflow(page: Page): Promise<number> {
+  return page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+}
+
+// Home's first arrival (carnet#1098, carnet#1528 P5·A): the thread opens on the
+// lead's welcome — the figures it read of the synced history, the team and
+// its starters as links — and Getting started leads Today, the
+// state no registry walk reaches, since the shared mocks model an established
+// athlete. Wide (1440), Today is the docked panel; narrow (390), the thread
+// leads with the Today line carrying the count, and its sheet opens on Getting
+// started. `provider: false` is the same arrival with nothing connected: the
+// plain greeting and « Connect my watch ». Both widths pass the page's layout
+// contract.
+async function sweepHomeFirstArrival(page: Page, theme: (typeof THEMES)[number], provider: boolean) {
+  const name = provider ? 'user-home-first-arrival' : 'user-home-first-arrival-no-provider';
+  await page.setViewportSize({ width: 1440, height: 900 });
   await setupDashboardMocks(page, { role: 'user', displayName: 'Camille' });
-  await mockHomeFirstArrival(page);
+  await mockHomeFirstArrival(page, { provider });
   await loginToDashboard(page);
   page.setDefaultTimeout(5_000);
   await expect(page.getByTestId('home-getting-started')).toBeVisible();
   await expect(page.getByTestId('home-team')).toBeVisible();
+  await expect(page.getByTestId('welcome-starters')).toBeVisible();
   await page.waitForTimeout(700);
   await setTheme(page, theme);
-  await page.screenshot({ path: `design-sweep/${theme}/user-home-first-arrival.png`, fullPage: true });
-  const wide = describeLayoutFailures('user/home-first-arrival', await measurePageLayout(page));
+  await page.screenshot({ path: `design-sweep/${theme}/${name}.png`, fullPage: true });
+  const wide = describeLayoutFailures(`user/${name}`, await measurePageLayout(page));
   expect(wide, `layout contract broken:\n${wide.join('\n')}`).toEqual([]);
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(page.getByTestId('home-today-peek-progress')).toHaveText('1 of 5');
+  await expect(page.getByTestId('home-today-peek-progress')).toHaveText(provider ? '1 of 5' : '0 of 5');
+  await expect(page.getByTestId('welcome-starters')).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `design-sweep/${theme}/${name}-phone.png`, fullPage: true });
+  expect(await sidewaysOverflow(page), 'the thread scrolls sideways at 390px').toBeLessThanOrEqual(0);
   await page.getByTestId('home-today-peek').click();
   await expect(page.getByRole('dialog', { name: 'Today' }).getByTestId('home-getting-started')).toBeVisible();
   await page.waitForTimeout(700);
-  await page.screenshot({ path: `design-sweep/${theme}/user-home-first-arrival-phone.png`, fullPage: true });
-  const sideways = await page.evaluate(
-    () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
-  );
-  expect(sideways, 'the Today sheet scrolls sideways at 390px').toBeLessThanOrEqual(0);
+  await page.screenshot({ path: `design-sweep/${theme}/${name}-phone-today.png`, fullPage: true });
+  expect(await sidewaysOverflow(page), 'the Today sheet scrolls sideways at 390px').toBeLessThanOrEqual(0);
+}
+
+// A returning athlete's Home (carnet#1528 P5·C): they answered the welcome, so
+// Today leads with today's session and the team folds to one row, and Getting
+// started is the slim meter under the conversation's header.
+async function sweepHomeReturning(page: Page, theme: (typeof THEMES)[number]) {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await setupDashboardMocks(page, { role: 'user', displayName: 'Camille' });
+  await mockHomeReturning(page);
+  await loginToDashboard(page);
+  page.setDefaultTimeout(5_000);
+  await expect(page.getByTestId('home-getting-started-meter')).toBeVisible();
+  await expect(page.getByTestId('home-team')).toBeVisible();
+  await page.waitForTimeout(700);
+  await setTheme(page, theme);
+  await page.screenshot({ path: `design-sweep/${theme}/user-home-returning.png`, fullPage: true });
+  const wide = describeLayoutFailures('user/home-returning', await measurePageLayout(page));
+  expect(wide, `layout contract broken:\n${wide.join('\n')}`).toEqual([]);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByTestId('home-getting-started-meter')).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `design-sweep/${theme}/user-home-returning-phone.png`, fullPage: true });
+  expect(await sidewaysOverflow(page), 'the thread scrolls sideways at 390px').toBeLessThanOrEqual(0);
+  await page.getByTestId('home-today-peek').click();
+  await expect(page.getByRole('dialog', { name: 'Today' }).getByTestId('home-today')).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: `design-sweep/${theme}/user-home-returning-phone-today.png`, fullPage: true });
+  expect(await sidewaysOverflow(page), 'the Today sheet scrolls sideways at 390px').toBeLessThanOrEqual(0);
 }
 
 test.describe('design sweep — Home first arrival', () => {
   test.describe.configure({ timeout: 180_000 });
   for (const theme of THEMES) {
     test(`Home's first arrival renders in ${theme}`, async ({ page }) => {
-      await sweepHomeFirstArrival(page, theme);
+      await sweepHomeFirstArrival(page, theme, true);
+    });
+    test(`Home's first arrival with no provider renders in ${theme}`, async ({ page }) => {
+      await sweepHomeFirstArrival(page, theme, false);
+    });
+    test(`a returning athlete's Home renders in ${theme}`, async ({ page }) => {
+      await sweepHomeReturning(page, theme);
     });
   }
 });
@@ -530,5 +580,68 @@ test.describe('design sweep — Coach Home', () => {
     test(`a coach's Home renders in ${theme}`, async ({ page }) => {
       await sweepCoachHome(page, theme);
     });
+  }
+});
+
+// The pending coach Home (carnet#1529): a coach without coach access who does
+// not train, before the request, after it and after the grant, then the same
+// on a phone; and their group room once coached, where no provider nudge
+// shows. The shared mocks model an athlete, so none of this is reached by the
+// registry walk.
+async function capturePendingCoach(page: Page, theme: (typeof THEMES)[number], name: string) {
+  await page.waitForTimeout(700);
+  await setTheme(page, theme);
+  await page.screenshot({ path: `design-sweep/${theme}/pending-coach-${name}.png`, fullPage: true });
+  const failures = describeLayoutFailures(`pending-coach/${name}`, await measurePageLayout(page));
+  expect(failures, `layout contract broken:\n${failures.join('\n')}`).toEqual([]);
+}
+
+async function sweepPendingCoachHome(page: Page, theme: (typeof THEMES)[number], width: number) {
+  await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+  const suffix = width < 768 ? '-phone' : '';
+  const record = await setupCoachSeatMocks(page, { trains: false });
+  await loginToDashboard(page);
+  page.setDefaultTimeout(10_000);
+  await expect(page.getByTestId('coach-setup')).toBeVisible();
+  await expect(page.getByTestId('coach-setup-row-seat').getByTestId('coach-access-request')).toBeVisible();
+  await capturePendingCoach(page, theme, `before-request${suffix}`);
+
+  await page.getByTestId('coach-setup-row-seat').getByTestId('coach-access-request').click();
+  await expect(page.getByTestId('coach-seat-row')).toHaveAttribute('data-state', 'pending');
+  await capturePendingCoach(page, theme, `after-request${suffix}`);
+
+  await record.grant();
+  await page.evaluate(() => {
+    window.dispatchEvent(new Event('visibilitychange'));
+    window.dispatchEvent(new Event('focus'));
+  });
+  await expect(page.getByTestId('coach-home')).toBeVisible({ timeout: 15_000 });
+  await capturePendingCoach(page, theme, `after-grant${suffix}`);
+}
+
+async function sweepUntrainedCoachRoom(page: Page, theme: (typeof THEMES)[number], width: number) {
+  await page.setViewportSize({ width, height: width < 768 ? 844 : 900 });
+  const suffix = width < 768 ? '-phone' : '';
+  await setupCoachSeatMocks(page, { request: PENDING_REQUEST, trains: false });
+  await loginToDashboard(page);
+  await page.evaluate((id) => {
+    window.location.hash = `#chat/${id}`;
+  }, SEAT_CONVERSATION_ID);
+  await expect(page.getByTestId('thread-header')).toBeVisible();
+  await expect(page.getByTestId('connect-provider-banner')).toHaveCount(0);
+  await capturePendingCoach(page, theme, `room${suffix}`);
+}
+
+test.describe('design sweep — pending coach Home', () => {
+  test.describe.configure({ timeout: 180_000 });
+  for (const theme of THEMES) {
+    for (const width of [1440, 390]) {
+      test(`the pending coach Home renders in ${theme} at ${width}`, async ({ page }) => {
+        await sweepPendingCoachHome(page, theme, width);
+      });
+      test(`a non-training coach's room renders in ${theme} at ${width}`, async ({ page }) => {
+        await sweepUntrainedCoachRoom(page, theme, width);
+      });
+    }
   }
 });

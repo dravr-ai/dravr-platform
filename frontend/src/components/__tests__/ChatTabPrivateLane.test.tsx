@@ -251,7 +251,8 @@ describe("a coach's private lane in a one-athlete room", () => {
     expect(await screen.findByTestId('room-entry-member')).toBeInTheDocument();
     expect(screen.queryByTestId('composer-audience-switch')).toBeNull();
     expect(screen.queryByRole('button', { name: 'Adjust plan from this' })).toBeNull();
-    expect(composer()).toHaveAttribute('placeholder', 'Message Dravr...');
+    // The athlete's composer names the room everyone in it reads (carnet#1531).
+    expect(composer()).toHaveAttribute('placeholder', 'Write to Camille Roy · 70.3 build…');
   });
 
   it('gives the coach of a room of two athletes no switch', async () => {

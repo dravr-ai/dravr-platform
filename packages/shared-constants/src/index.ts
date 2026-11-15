@@ -20,6 +20,8 @@ export {
   coachCategoryLabelKey,
   COACH_TOOL_TAG,
   isCoachFacing,
+  groupAgentChoices,
+  defaultGroupAgent,
 } from './coaches';
 
 // Design system (Boreal Editorial colors, typography, spacing, effects)
@@ -411,6 +413,8 @@ export {
   IMPORT_HISTORY_ON_CARD_KEYS,
   IMPORT_STOPPED_KEYS,
   INSTALL_COUNT_KEYS,
+  INVITE_EXPIRY_DAY_KEYS,
+  INVITE_USE_LIMIT_KEYS,
   MEMORY_FACT_COUNT_KEYS,
   NOTIFICATIONS_BELL_UNREAD_KEYS,
   NOTIFICATIONS_UNREAD_KEYS,
@@ -463,7 +467,6 @@ export {
   coachSeatMoment,
   coachSeatState,
   coachSeatStepState,
-  connectedCoachPlatforms,
 } from './coach-seat';
 export type {
   CoachSeatInputs,
@@ -472,3 +475,5 @@ export type {
   CoachSeatState,
   CoachSeatStepState,
 } from './coach-seat';
+// The pending coach's Home: who lands on it, whether they train too, and its words (carnet#1529)
+export { COACH_SETUP_KEYS, coachTrainsToo, landsOnPendingCoachHome } from './coach-setup';

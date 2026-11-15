@@ -248,6 +248,7 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     id: 'connect_provider',
     labelKey: 'onboarding.stepConnect',
     isApplicable: (c) =>
+      c.onboardingActive &&
       (beforeProviderGate(c) || (c.justOnboarded && !c.connectProviderDone)) &&
       !c.skippedProvider &&
       !c.athleteStepsWaived,

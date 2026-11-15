@@ -69,6 +69,19 @@ beforeEach(() => {
   mockOpenGroupRoom.mockReset();
 });
 
+describe('the header', () => {
+  it('names the page in place of the switch for a coach who does not train (carnet#1529)', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
+    const screen = render(
+      <QueryClientProvider client={client}>
+        <CoachHomeScreen />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByTestId('coach-home-title')).toHaveTextContent('My athletes');
+    expect(screen.queryByTestId('coach-home-switch')).toBeNull();
+  });
+});
+
 describe('the roster read', () => {
   it('shows a spinner, then the queue with the scope line', async () => {
     const screen = renderCoachHome();

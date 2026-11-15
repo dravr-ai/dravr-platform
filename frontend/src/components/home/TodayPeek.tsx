@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Home's Today folded to one line above the conversation on a narrow screen — today's session, form, the latest route
-// ABOUTME: It ends with Getting started's count while that section is open; a tap opens the whole of Today
+// ABOUTME: It ends with a first arrival's Getting started count while that list is open; a tap opens the whole of Today
 
 import { useMemo } from 'react';
 import { clsx } from 'clsx';
@@ -78,8 +78,13 @@ export function TodayPeek({ onOpen, hidden }: TodayPeekProps) {
   const recent = useQuery(recentActivitiesQuery());
   // Getting started's count, from the query the section reads, so the line
   // and the sheet never disagree; gone with the section once folded or hidden.
+  // Only a first arrival's: a returning athlete reads it on the meter under
+  // the header (carnet#1528).
   const gettingStarted = useGettingStarted();
-  const progress = gettingStarted.state === 'open' ? (gettingStarted.query.data ?? null) : null;
+  const progress =
+    gettingStarted.state === 'open' && gettingStarted.stage === 'first_arrival'
+      ? (gettingStarted.query.data ?? null)
+      : null;
   const latest = recent.data?.activities[0] ?? null;
   const points = useMemo(
     () => (latest?.summary_polyline ? decodePolyline(latest.summary_polyline) : null),

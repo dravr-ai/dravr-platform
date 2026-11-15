@@ -4,10 +4,10 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useEffect, useId, useRef, useState } from 'react';
+import { useId, useState } from 'react';
 import type { ReactNode } from 'react';
 import { clsx } from 'clsx';
-import { BookOpen, ExternalLink, MessageCircle, MoreHorizontal } from 'lucide-react';
+import { BookOpen, ExternalLink, MessageCircle } from 'lucide-react';
 import type { ClaimVerdict } from '@pierre/shared-types';
 import { VERDICT_STATUS_TONE, summarizeVerdicts } from '@pierre/shared-types';
 import {
@@ -19,7 +19,8 @@ import {
 import { claimInContext, formatDateTime, parseEvidenceRefs } from '@pierre/chat-utils';
 import type { EvidenceRef } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { useDialog, useEscapeLayer } from '../../hooks/useDialog';
+import { OverflowMenu } from '../ui';
+import { useDialog } from '../../hooks/useDialog';
 
 /** The reply the verdicts were drawn from, as the chat surface holds it. */
 export interface VerdictSource {
@@ -229,63 +230,17 @@ function SourcePill({
 /**
  * The card's actions menu. It carries one action — handing support the ids
  * that locate the verdict — which is how the athlete's card offers those ids
- * without printing them.
+ * without printing them. Escape closes the menu alone: the open menu is the
+ * top layer on useDialog's stack, so the drawer under it waits for the next.
  */
 function VerdictActions({ verdict, onCopyReference }: { verdict: ClaimVerdict; onCopyReference: (verdict: ClaimVerdict) => void }) {
   const { t } = useTranslation();
-  const [open, setOpen] = useState(false);
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  // The menu is the layer over the drawer: an Escape closes it alone, and the
-  // next one closes the drawer.
-  const menuRef = useEscapeLayer(open, () => setOpen(false));
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-    };
-  }, [open]);
-
   return (
-    <div ref={rootRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t('chat.verdictActions')}
-        title={t('chat.verdictActions')}
-        data-testid="verdict-actions-trigger"
-        className="flex h-8 w-8 items-center justify-center rounded-lg text-on-surface-variant hover:bg-surface-container hover:text-on-surface touch-target"
-      >
-        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
-      </button>
-      {open ? (
-        <div
-          ref={menuRef}
-          role="menu"
-          aria-label={t('chat.verdictActions')}
-          className="absolute right-0 z-30 mt-1 w-60 rounded-xl border ghost-border bg-surface-container-lowest p-1.5 shadow-floating"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              setOpen(false);
-              onCopyReference(verdict);
-            }}
-            className="w-full rounded-lg px-3 py-2 text-left text-sm text-on-surface transition-colors hover:bg-surface-container-low touch-target"
-          >
-            {t('chat.verdictCopyReference')}
-          </button>
-        </div>
-      ) : null}
-    </div>
+    <OverflowMenu
+      label={t('chat.verdictActions')}
+      data-testid="verdict-actions-trigger"
+      items={[{ label: t('chat.verdictCopyReference'), onSelect: () => onCopyReference(verdict) }]}
+    />
   );
 }
 

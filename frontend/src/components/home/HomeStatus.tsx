@@ -238,7 +238,7 @@ export function HomeStatus() {
           </div>
         )
       ) : form === null ? (
-        <EmptyState data-testid="home-status-empty">{t(TRAINING_STATUS_KEY.empty)}</EmptyState>
+        <EmptyState className="text-pretty" data-testid="home-status-empty">{t(TRAINING_STATUS_KEY.empty)}</EmptyState>
       ) : (
         <StatusReading status={{ ...status.data, form }} />
       )}

@@ -77,6 +77,7 @@ const mockUpdateHomePreferences = jest.fn<
   [{ plan_suggestion_hidden: boolean }]
 >();
 const mockGetCalendar = jest.fn<Promise<CalendarResponse>, [string, string]>();
+const mockListAgents = jest.fn();
 
 jest.mock('../src/services/api', () => ({
   athleteApi: {
@@ -100,6 +101,7 @@ jest.mock('../src/services/api', () => ({
     getPersonalConversation: () => mockGetPersonalConversation(),
     openPersonalTopic: (options?: unknown) => mockOpenPersonalTopic(options),
   },
+  coachesApi: { list: () => mockListAgents() },
   // The screen reads the signed-in user; under the real AuthProvider with no
   // stored session it reads none.
   authApi: { initializeAuth: jest.fn(async () => false) },
@@ -169,8 +171,48 @@ beforeEach(() => {
   mockGetTrainingVolume.mockResolvedValue(VOLUME_RESPONSE);
   mockGetHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false });
   mockGetPersonalConversation.mockResolvedValue({ id: PERSONAL_THREAD_ID, title: 'Dravr', personal: true });
+  // No team unless a suite gives one: the row is Your team's suite's.
+  mockListAgents.mockResolvedValue({ agents: [] });
   // The strip's own workouts are the HomeWeek suite's; here the week holds none.
   mockGetCalendar.mockImplementation(async (from, to) => calendarAnswer(from, to, { activities: [] }));
+});
+
+describe('Your team', () => {
+  const agent = (id: string, title: string, assigned = true) => ({ id, title, handle: id, is_assigned: assigned });
+
+  // carnet#1528 (P5·C): the team folds to one row after the training status —
+  // lead first, then the others by title — and Manage opens Discover.
+  it('is one row naming the team lead first, and Manage opens Discover', async () => {
+    mockGetPersonalConversation.mockResolvedValue({
+      id: PERSONAL_THREAD_ID,
+      title: 'Dravr',
+      personal: true,
+      agent_id: 'agent-endurance',
+    });
+    mockListAgents.mockResolvedValue({
+      agents: [
+        agent('agent-recovery', 'Recovery'),
+        agent('agent-mind', 'Mind', false),
+        agent('agent-fuelling', 'Fuelling'),
+        agent('agent-endurance', 'Endurance'),
+      ],
+    });
+    const screen = renderHome();
+
+    expect(await screen.findByTestId('home-team-names')).toHaveTextContent('Endurance, Fuelling, and Recovery');
+    const manage = screen.getByTestId('home-team-manage');
+    expect(manage.props.accessibilityLabel).toBe('Manage your team');
+    fireEvent.press(manage);
+    expect(mockPush).toHaveBeenCalledTimes(1);
+    expect(mockPush).toHaveBeenCalledWith('/(app)/(tabs)/(discover)');
+  });
+
+  it('draws nothing for an athlete with no team', async () => {
+    const screen = renderHome();
+    await screen.findByTestId('home-today');
+    await waitFor(() => expect(mockListAgents).toHaveBeenCalled());
+    expect(screen.queryByTestId('home-team')).toBeNull();
+  });
 });
 
 describe('the Home header', () => {

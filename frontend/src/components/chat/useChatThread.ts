@@ -23,6 +23,7 @@ import {
   type TurnTrail,
 } from '@pierre/chat-utils';
 import {
+  coachTrainsToo,
   holdIdleWhileBusy,
   idleSignal,
   MENTION_PREFIX,
@@ -61,6 +62,7 @@ import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { conversationCapOf } from './conversationCap';
 import { useGroup } from '../../hooks/useGroups';
 import { useAuth } from '../../hooks/useAuth';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { usePrivateLane } from '../../hooks/usePrivateLane';
 import { useErrorToast } from '../ui';
 import { useMessageFeedback } from './useMessageFeedback';
@@ -165,6 +167,8 @@ export interface ChatThreadState {
    * room's empty line and composer speak to them. `null` for every other reader.
    */
   coachRoomName: string | null;
+  /** The group's name when the thread is its room, for any reader; `null` outside a room. */
+  roomName: string | null;
   /** The composer's voice is not yet known: it shows no placeholder. */
   composerPending: boolean;
   /** What the agent can read, worded; `null` until the status call answers. */
@@ -340,9 +344,15 @@ export function useChatThread({
   // connected — every chat load. A plan thread for one athlete is about that
   // athlete's data, which the agent reads through the athlete's own links: the
   // coach working on it is never asked to connect a service of their own
-  // there (carnet#1191).
+  // there (carnet#1191). A coach who does not train — who answered "I coach
+  // others" alone — is asked nowhere: there is no training of theirs for an
+  // agent to read (carnet#1529). Only an answered status says so; a failed
+  // read keeps the nudge, as for everyone else.
+  const onboardingStatus = useOnboardingStatus();
+  const trainsThemselves =
+    onboardingStatus.isError || (onboardingStatus.isSuccess && coachTrainsToo(onboardingStatus.data.steps));
   const showConnectBanner =
-    providersLoaded && !hasConnectedProvider && !activeConversation?.subject_user_id;
+    providersLoaded && trainsThemselves && !hasConnectedProvider && !activeConversation?.subject_user_id;
 
   const { coach: activeCoach } = useCoachInfo(activeConversation?.agent_id ?? null);
   // A group's agent may belong to another tenant, where the caller's own agent
@@ -628,6 +638,10 @@ export function useChatThread({
     return line?.kind === 'subject' ? line.name : null;
   }, [activeConversation]);
   const coachRoomName = coachRoomNameOf(activeGroup ?? null, user?.id ?? null, activeConversation?.group_name ?? null);
+  // Every reader's composer in a room names the group that reads it.
+  const roomName = activeConversation?.group_id
+    ? activeGroup?.name.trim() || activeConversation.group_name?.trim() || null
+    : null;
   // Until a room's group is read, nobody knows whether the composer is the
   // coach's or an athlete's: it says nothing rather than swap words.
   const composerPending = composerVoicePending({
@@ -1229,6 +1243,7 @@ export function useChatThread({
     subtitle,
     planSubjectName,
     coachRoomName,
+    roomName,
     composerPending,
     providerStatus,
     showConnectBanner,
