@@ -368,7 +368,7 @@ dependencies:
         repo_id: 265601040
     'dtolnay/rust-toolchain@1.99.1':
         ref: '1.99.1'
-        commit: 'sha1-d124f86f28ff42855784ff3319f48ac182c248f8'
+        commit: 'sha1-263313d2989f864a2b8613f97277288638e7d8f8'
         owner_id: 1940490
         repo_id: 260749683
     'expo/expo-github-action@v9':
