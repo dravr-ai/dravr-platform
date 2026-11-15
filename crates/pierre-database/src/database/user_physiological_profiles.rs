@@ -6,7 +6,10 @@
 
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Dossier, TenantId, UserId, UserPhysiologicalProfile};
+use pierre_core::models::periodization::SportFamily;
+use pierre_core::models::{
+    Dossier, SportAnchor, SportAnchorName, TenantId, UserId, UserPhysiologicalProfile,
+};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::{FactKind, FactSource};
 use uuid::Uuid;
@@ -17,6 +20,10 @@ use crate::repositories::user_physiological_profiles::{
     impl_user_physiological_profile_repository, profile_binds, profile_from_row, DossierRepository,
     UserPhysiologicalProfileRepository, GET_PHYSIOLOGICAL_PROFILE_SQL, LIST_PROFILE_USER_IDS_SQL,
     PROFILE_HOLDERS_SQL, UPSERT_PHYSIOLOGICAL_PROFILE_SQL,
+};
+use crate::repositories::user_physiology_sport_anchors::{
+    sport_anchor_from_row, sport_anchor_stamp, DELETE_SPORT_ANCHOR_SQL, LIST_SPORT_ANCHORS_SQL,
+    UPSERT_SPORT_ANCHOR_SQL,
 };
 use crate::repositories::{HarnessMemoryRepository, ProfileRepository};
 use pierre_core::models::PhysiologicalSex;

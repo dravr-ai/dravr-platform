@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Admin console queue of coach-access requests — who asked, for which group, grant or decline (carnet#738)
-// ABOUTME: A grant gives manages_roster and makes the coach their onboarding group's coach; super-admin only server-side
+// ABOUTME: Admin console queue of coach-access requests — who asked, for which group, grant or decline with a reason (carnet#738)
+// ABOUTME: A grant gives manages_roster and makes the coach the coach of every coachless group they own; super-admin only server-side
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
@@ -10,19 +10,32 @@ import type { CoachAccessRequestView } from '@pierre/shared-types';
 import { formatDate } from '@pierre/chat-utils';
 import { coachAccessAdminApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { Button, EmptyState, Section } from './ui';
+import { Button, EmptyState, Section, Textarea } from './ui';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import CoachSeatInvitations from './CoachSeatInvitations';
+
+/**
+ * The longest decline reason the field takes: what the server keeps
+ * (`DECLINE_REASON_MAX_CHARS` in `pierre_core::models::coach_access`), so the
+ * operator never types words the coach would not read.
+ */
+const DECLINE_REASON_MAX_CHARS = 500;
 
 /**
  * A coach whose onboarding group came back coachless asks for coach access in
  * one tap; the request waits here. Granting is the same decision as turning
  * on "May coach a group" in the user drawer, and it also makes the coach the
- * coach of the group they asked from when it still has none — so they need
- * no coach invite. Declining changes nothing else; they may ask again.
+ * coach of every coachless group they own — so they need no coach invite
+ * (carnet#1521). Declining changes nothing else; they may ask again. Either
+ * way the coach is told in the app and by email, a decline with the reason
+ * typed here when one is.
  */
 export default function CoachAccessRequests() {
   const queryClient = useQueryClient();
   const [result, setResult] = useState<{ message: string; ok: boolean } | null>(null);
+  // The row whose decline is being written, and the reason typed for it.
+  const [declining, setDeclining] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
 
   const {
     data: requests = [],
@@ -53,9 +66,11 @@ export default function CoachAccessRequests() {
   });
 
   const declineMutation = useMutation({
-    mutationFn: (id: string) => coachAccessAdminApi.decline(id),
+    mutationFn: ({ id, why }: { id: string; why: string }) => coachAccessAdminApi.decline(id, why),
     onSuccess: (data) => {
       setResult({ message: data.message, ok: true });
+      setDeclining(null);
+      setReason('');
       invalidate();
     },
     onError: (err: unknown) => {
@@ -114,27 +129,71 @@ export default function CoachAccessRequests() {
                   Requested {formatDate(request.created_at, ADMIN_LOCALE)}
                 </p>
               </div>
-              <div className="flex shrink-0 gap-2">
-                <Button
-                  onClick={() => grantMutation.mutate(request.id)}
-                  disabled={busy}
-                  size="sm"
+              {declining === request.id ? (
+                <form
+                  className="w-full max-w-sm shrink-0 space-y-2"
+                  data-testid={`coach-access-decline-form-${request.id}`}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    declineMutation.mutate({ id: request.id, why: reason });
+                  }}
                 >
-                  Grant
-                </Button>
-                <Button
-                  onClick={() => declineMutation.mutate(request.id)}
-                  disabled={busy}
-                  size="sm"
-                  variant="outline"
-                >
-                  Decline
-                </Button>
-              </div>
+                  <Textarea
+                    label="Reason for the coach (optional)"
+                    helpText="Shown to them in the app and in the email."
+                    value={reason}
+                    onChange={(event) => setReason(event.target.value)}
+                    maxLength={DECLINE_REASON_MAX_CHARS}
+                    rows={2}
+                    size="sm"
+                    data-testid="coach-access-decline-reason"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <Button
+                      type="button"
+                      onClick={() => {
+                        setDeclining(null);
+                        setReason('');
+                      }}
+                      disabled={busy}
+                      size="sm"
+                      variant="outline"
+                    >
+                      Keep it waiting
+                    </Button>
+                    <Button type="submit" disabled={busy} size="sm" data-testid="coach-access-decline-confirm">
+                      Decline request
+                    </Button>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex shrink-0 gap-2">
+                  <Button
+                    onClick={() => grantMutation.mutate(request.id)}
+                    disabled={busy}
+                    size="sm"
+                  >
+                    Grant
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      setDeclining(request.id);
+                      setReason('');
+                    }}
+                    disabled={busy}
+                    size="sm"
+                    variant="outline"
+                    data-testid={`coach-access-decline-${request.id}`}
+                  >
+                    Decline
+                  </Button>
+                </div>
+              )}
             </li>
           ))}
         </ul>
       )}
+      <CoachSeatInvitations />
     </Section>
   );
 }

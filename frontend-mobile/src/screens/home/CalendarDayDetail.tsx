@@ -4,11 +4,12 @@
 // ABOUTME: One open calendar day — the workouts done on it, each opening its own view, and the plan's session drafting a chat
 // ABOUTME: Shared by the week strip and the month sheet; a day older than stored history says so instead of reading as empty
 
-import React from 'react';
+import React, { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
 import type { CalendarDay, HomeActivity, PlanDayLookup } from '@pierre/shared-types';
 import { activityRowFigures, planDayDraft, sportLabel, useDistanceUnit } from '@pierre/ui-logic';
+import { EvidenceSheet } from '../chat/EvidenceChip';
 import { DayRow, Figure } from '../chat/WorkoutPlanCard';
 
 /**
@@ -42,18 +43,33 @@ export function PlanDayButton({
   openDraft: (draft: string) => void;
 }) {
   const { t, language } = useTranslation();
+  const [evidenceOpen, setEvidenceOpen] = useState(false);
   const draft = planDayDraft(t, language, lookup.day.date, lookup);
+  const evidence = lookup.day.evidence;
   return (
-    <Pressable
-      onPress={() => {
-        if (draft !== null) openDraft(draft);
-      }}
-      accessibilityRole="button"
-      className="min-h-11 pb-2"
-      testID={`home-plan-day-${lookup.day.date}`}
-    >
-      <DayRow day={lookup.day} />
-    </Pressable>
+    <>
+      <Pressable
+        onPress={() => {
+          if (draft !== null) openDraft(draft);
+        }}
+        accessibilityRole="button"
+        // The row is one element to VoiceOver, which never reaches the
+        // evidence chip inside it; the row's actions menu opens the same sheet.
+        accessibilityActions={
+          evidence ? [{ name: 'evidence', label: t('plan.card.evidence.sheetTitle') }] : undefined
+        }
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'evidence') setEvidenceOpen(true);
+        }}
+        className="min-h-11 pb-2"
+        testID={`home-plan-day-${lookup.day.date}`}
+      >
+        <DayRow day={lookup.day} />
+      </Pressable>
+      {evidence ? (
+        <EvidenceSheet evidence={evidence} visible={evidenceOpen} onClose={() => setEvidenceOpen(false)} />
+      ) : null}
+    </>
   );
 }
 

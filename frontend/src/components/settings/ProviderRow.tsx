@@ -14,7 +14,6 @@ import {
   coachPlatformName,
   countKey,
   delegationRefusalKey,
-  historyActionKey,
   providerGlyphInk,
   providerScopeLabelKey,
 } from '@pierre/shared-constants';
@@ -69,13 +68,11 @@ export default function ProviderRow({
   const archiveSource = cardExportSource(provider);
   const importedCount = archiveSource ? importedHistoryCount(importsOverview, archiveSource) : 0;
   // A card offers its history only while the server names the sign-in that
-  // copies it; with none, it offers no history action.
-  const offersHistory =
-    (status === 'history_needed' || status === 'history_incomplete') && connectPlan(provider).history.signIn !== null;
+  // brings it in; with none, it offers no history action.
+  const offersHistory = status === 'history_needed' && connectPlan(provider).history.signIn !== null;
   // A connected card whose connection still serves: its actions are the
-  // history, the AI consent and the disconnect, and a card asked to move to its
-  // official connection also offers that move. Every other card — to connect,
-  // to reconnect, owing its authorization — shows its connect action.
+  // history, the AI consent and the disconnect. Every other card — to
+  // connect, to reconnect, owing its authorization — shows its connect action.
   const servesNow = provider.connected && status !== 'reconnect' && status !== 'authorize_owed';
   const connectable =
     provider.requires_oauth || provider.provider.startsWith('sciotte') || provider.provider === 'intervals_icu';
@@ -85,9 +82,7 @@ export default function ProviderRow({
       ? t('providers.authorizeAction')
       : status === 'reconnect'
         ? t('settingsUi.reconnect')
-        : status === 'migrate'
-          ? t('app.connectProvider', name)
-          : t('shell.intervalsConnectAction');
+        : t('shell.intervalsConnectAction');
 
   return (
     <div
@@ -210,18 +205,7 @@ export default function ProviderRow({
                   aria-describedby={historyLineId(provider.provider)}
                   title={t(HISTORY_ACTION_KEYS.explainer, name)}
                 >
-                  {t(historyActionKey(provider))}
-                </Button>
-              )}
-              {status === 'migrate' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={onConnect}
-                  loading={isConnecting}
-                  data-testid={`provider-connect-${provider.provider}`}
-                >
-                  {connectLabel}
+                  {t(HISTORY_ACTION_KEYS.add)}
                 </Button>
               )}
               {connectable && (
@@ -270,8 +254,6 @@ function StatusPill({ status, provider, displayName }: { status: ReturnType<type
       return pill('bg-warning', t('providers.authorizeToKeepSyncing', { provider: displayName }), `provider-authorization-owed-${provider}`);
     case 'reconnect':
       return pill('bg-warning', t('providers.reconnectNeeded'), `provider-reconnect-needed-${provider}`);
-    case 'migrate':
-      return pill('bg-warning', t('providers.migration.oauthRequired', { provider: displayName }), `provider-migrate-${provider}`);
     case 'connect':
       return null;
     default:

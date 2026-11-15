@@ -13,7 +13,7 @@ import { oauthApi, providersApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 /**
- * A machine code the return may carry (`no_seat`, `oauth_required`,
+ * A machine code the return may carry (`no_seat`, `invalid_scope`,
  * `access_denied`…): a lowercase word and underscores. The page words it
  * itself rather than print it.
  */

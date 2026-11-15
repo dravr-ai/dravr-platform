@@ -34,15 +34,22 @@
 //!
 //! [`DataClass::Wellness`]: super::DataClass::Wellness
 
+use std::sync::atomic::Ordering;
+
+use pierre_core::errors::AppResult;
 #[cfg(feature = "tools-config")]
 use pierre_core::models::UserPhysiologicalProfile;
+use pierre_database::repositories::CoachReadClass;
+use pierre_database::RepositoryRegistry;
 #[cfg(feature = "tools-config")]
 use pierre_services::stored_health::Anchors;
 
-use super::{refusal, ReadSubject};
+use super::{record_coach_read, refusal, ReadSubject};
 #[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
 use crate::context::scoped_read_subject;
 use crate::protocol::types::UniversalResponse;
+#[cfg(feature = "tools-analytics")]
+use crate::protocols::ProtocolError;
 
 #[cfg(feature = "tools-data")]
 mod named;
@@ -151,6 +158,84 @@ impl ReadSubject {
             athlete: self.access.display_name.clone(),
         })
     }
+
+    /// Put this call's read of the athlete's wellness on their record, before
+    /// it is read (carnet#1445): one wellness row, under the call's tool, as
+    /// their coach.
+    ///
+    /// Nothing when the grant leaves their wellness out (the read then reads
+    /// none), and nothing again once the call has recorded it: a
+    /// wellness-class call is on the record from the dispatch chokepoint, and
+    /// a training call records the first time it reads their wellness, its
+    /// nested calls included. A record that cannot be written fails the read.
+    ///
+    /// # Errors
+    ///
+    /// Returns the repository error from the insert.
+    pub(crate) async fn record_wellness_read(&self, repos: &RepositoryRegistry) -> AppResult<()> {
+        if self.wellness_withheld().is_some() || self.wellness_recorded.swap(true, Ordering::AcqRel)
+        {
+            return Ok(());
+        }
+        let recorded = record_coach_read(
+            repos,
+            &self.access,
+            self.requester,
+            &self.tool,
+            CoachReadClass::Wellness,
+        )
+        .await;
+        if recorded.is_err() {
+            // Unrecorded: a later read of their wellness in this call tries
+            // again rather than reading unrecorded.
+            self.wellness_recorded.store(false, Ordering::Release);
+        }
+        recorded
+    }
+}
+
+/// Put the in-flight training read's read of the athlete's wellness on their
+/// record, before it reads it ([`ReadSubject::record_wellness_read`]).
+///
+/// A training tool reads a coached athlete's wellness only under their grant:
+/// the sleep `sleep_provider` adds (`analyze_training_load`,
+/// `calculate_fitness_score`), the weight and medical flag of the nutrition
+/// mode (`generate_recommendations`), the weight `estimate_vo2max` defaults
+/// to, the resting heart rate `calculate_metrics` reads a heart rate against
+/// and `calculate_personalized_zones` echoes, the wellness overrides
+/// `get_user_configuration` shows. Each calls here once its grant check has
+/// let that read through and before it is made. Nothing on the caller's own
+/// read, which no record covers.
+///
+/// # Errors
+///
+/// Returns the repository error from the insert: the read is refused rather
+/// than left unrecorded.
+#[cfg(any(feature = "tools-analytics", feature = "tools-config"))]
+pub(crate) async fn record_wellness_read(repos: &RepositoryRegistry) -> AppResult<()> {
+    match scoped_read_subject() {
+        Some(subject) => subject.record_wellness_read(repos).await,
+        None => Ok(()),
+    }
+}
+
+/// [`record_wellness_read`] for an analytics handler, whose failure is a
+/// protocol error that fails `tool_name`'s call.
+///
+/// # Errors
+///
+/// Returns an internal error when the record cannot be written: the read is
+/// refused rather than left unrecorded.
+#[cfg(feature = "tools-analytics")]
+pub(crate) async fn record_analytics_wellness_read(
+    repos: &RepositoryRegistry,
+    tool_name: &str,
+) -> Result<(), ProtocolError> {
+    record_wellness_read(repos).await.map_err(|e| {
+        ProtocolError::InternalError(format!(
+            "recording the coach's read of '{tool_name}' on the athlete's record: {e}"
+        ))
+    })
 }
 
 /// The refusal of `tool_name`, a read of the athlete's wellness, on a coach's

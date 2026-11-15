@@ -24,9 +24,11 @@
 use std::sync::{Arc, LazyLock};
 
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use pierre_core::models::TenantId;
 use uuid::Uuid;
 
+use crate::envelope_notices::EnvelopeNotices;
 use crate::guardian::{Guardian, GuardianTurns};
 use crate::incomplete_window::IncompleteWindows;
 use crate::reconnect::ReconnectOffers;
@@ -40,12 +42,14 @@ use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_contremaitre::TrainingCatalogueRegistry;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
+use pierre_database::repositories::{BackfillJobKind, ProviderPurge};
 use pierre_database::RepositoryRegistry;
 use pierre_llm::LlmProvider;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::group_chat_poster::GroupChatPoster;
+use pierre_services::live_activities::LiveActivityStore;
 
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -54,6 +58,119 @@ use pierre_services::provider_refresh::SyncNotifier;
 use dravr_enforme::SyncOrchestrator;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
+
+/// A background read that finished, and the conversation it answers
+/// ([`BackfillNotifier::push_backfill_complete`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BackfillCompletion<'job> {
+    /// The athlete.
+    pub user_id: Uuid,
+    /// The tenant that owns the rows.
+    pub tenant_id: TenantId,
+    /// The conversation that asked.
+    pub pierre_conversation_id: &'job str,
+    /// The backend that was read.
+    pub provider: &'job str,
+    /// The read window's `after` lower bound in unix seconds (`0` when the
+    /// read had none).
+    pub after_ts: i64,
+    /// The net distinct activities the read wrote.
+    pub activity_count: usize,
+    /// What finished: the answer a [`BackfillJobKind::LiveRead`] owes depends
+    /// on whether the athlete has asked something newer since.
+    pub kind: BackfillJobKind,
+    /// The athlete's message a live read answers; `None` for every other
+    /// kind, and for a read no stored message asked.
+    pub asked_message_id: Option<&'job str>,
+    /// A [`BackfillJobKind::LiveRead`] that never landed: every attempt
+    /// failed, so nothing new is stored. Its re-ask is answered from what
+    /// was, labelled as the provider being unavailable, which the model
+    /// words; no note or list says data landed. `false` for every other kind.
+    pub provider_unavailable: bool,
+}
+
+impl<'job> BackfillCompletion<'job> {
+    /// A finished [`BackfillJobKind::Backfill`] of `activity_count`
+    /// activities from `provider`, back to `after_ts`.
+    #[must_use]
+    pub const fn backfill(
+        user_id: Uuid,
+        tenant_id: TenantId,
+        pierre_conversation_id: &'job str,
+        provider: &'job str,
+        after_ts: i64,
+        activity_count: usize,
+    ) -> Self {
+        Self {
+            user_id,
+            tenant_id,
+            pierre_conversation_id,
+            provider,
+            after_ts,
+            activity_count,
+            kind: BackfillJobKind::Backfill,
+            asked_message_id: None,
+            provider_unavailable: false,
+        }
+    }
+}
+
+/// What asked for a history walk
+/// (`activity_backfill::history_walk::start_history_walk`): it changes
+/// nothing of what the walk does, and is logged so a walk can be traced to
+/// its ask.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WalkTrigger {
+    /// The athlete just connected the provider: a sign-in stored a session,
+    /// or an OAuth grant landed.
+    Connected,
+    /// A connect's first data landed (the first sync).
+    FirstSync,
+    /// A read of the history found depth missing.
+    DepthMissing,
+    /// The personal-best seed found an athlete whose history no walk copied.
+    Seed,
+    /// A step of the walk found its phase taken by a purge while it ran, and
+    /// asked again once it stopped: a grant connected meanwhile reopens it.
+    PhaseReset,
+}
+
+/// A history walk that reached the end of the athlete's history
+/// ([`BackfillNotifier::push_history_walk_complete`]). No conversation asked
+/// for it: a connection or a first sync did.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HistoryWalkCompletion<'job> {
+    /// The athlete.
+    pub user_id: Uuid,
+    /// The tenant that owns the rows.
+    pub tenant_id: TenantId,
+    /// The backend that was walked.
+    pub provider: &'job str,
+    /// The start of the oldest activity the walked key holds.
+    pub oldest: DateTime<Utc>,
+    /// The activities the whole walk wrote, every step's.
+    pub activity_count: usize,
+}
+
+/// A detail walk that ended having stored segment efforts
+/// ([`BackfillNotifier::push_detail_walk_complete`]).
+///
+/// No conversation waits on it: the ask that recorded it was answered with
+/// what was read then.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DetailWalkCompletion<'job> {
+    /// The athlete.
+    pub user_id: Uuid,
+    /// The tenant that owns the rows.
+    pub tenant_id: TenantId,
+    /// The backend the walk read through.
+    pub provider: &'job str,
+    /// When the ask that recorded the walk was made (unix ms): the walk's
+    /// identity, which its one post is claimed under.
+    pub asked_at_ms: i64,
+    /// The activities whose segment efforts the whole walk stored.
+    pub activity_count: usize,
+}
 
 /// Best-effort sink that pushes a "your historical backfill finished" notice
 /// back to the messaging channel that triggered it.
@@ -73,24 +190,33 @@ use pierre_notifications::NotificationService;
 /// the server crate, behind the implementation.
 #[async_trait]
 pub trait BackfillNotifier: Send + Sync {
-    /// Notify the channel behind `pierre_conversation_id` that a background
-    /// historical backfill of `activity_count` activities from `provider`
-    /// finished for `(user_id, tenant_id)`. Best-effort — implementations
-    /// swallow and log their own failures.
+    /// Answer the conversation a finished background read was asked from
+    /// ([`BackfillCompletion`]). Best-effort — implementations swallow and
+    /// log their own failures.
     ///
-    /// `after_ts` is the historical-window `after` lower bound in unix seconds
-    /// (`0` when the request had no `after`). It keys the durable cross-replica
-    /// dedup claim so the notice is sent exactly once per `(user, provider,
-    /// window)` even when several replicas finish the same backfill.
-    async fn push_backfill_complete(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        pierre_conversation_id: &str,
-        provider: &str,
-        after_ts: i64,
-        activity_count: usize,
-    );
+    /// The completion's `after_ts` keys the durable cross-replica dedup
+    /// claim, so the answer is sent exactly once per `(user, provider,
+    /// window)` even when several replicas finish the same read. A live read
+    /// whose asking message is no longer the conversation's newest gets a
+    /// one-line note that its data landed instead of an answer to a question
+    /// the athlete has moved on from.
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>);
+
+    /// Tell the athlete a history walk no conversation asked for reached the
+    /// end of their history ([`HistoryWalkCompletion`]): one short message in
+    /// their personal thread naming the oldest year it reached and how many
+    /// activities it brought in. Sent once per `(user, provider, oldest
+    /// activity)` across replicas. Best-effort — implementations swallow and
+    /// log their own failures.
+    async fn push_history_walk_complete(&self, completion: HistoryWalkCompletion<'_>);
+
+    /// Tell the athlete a detail walk ended having stored the segment efforts
+    /// of `activity_count` of their activities ([`DetailWalkCompletion`]):
+    /// one short line in their personal thread, counts only, never a
+    /// segment's name. Sent once per walk, `(user, provider, asked_at_ms)`,
+    /// across replicas, so a later walk tells its own end. Best-effort —
+    /// implementations swallow and log their own failures.
+    async fn push_detail_walk_complete(&self, completion: DetailWalkCompletion<'_>);
 
     /// Answer the conversation behind `pierre_conversation_id` that
     /// `provider`'s session expired and must be reconnected — a localized
@@ -98,7 +224,7 @@ pub trait BackfillNotifier: Send + Sync {
     /// channel (any channel) via the same rail as
     /// [`Self::push_backfill_complete`].
     ///
-    /// Fired from the DETACHED backfill path, where an auth failure would
+    /// Fired from a background job, where an auth failure would
     /// otherwise be silent (the foreground tool loop already nudges inline).
     /// It is the conversation's answer, not the connection's notice: the flag
     /// and the once-per-transition notice are
@@ -121,18 +247,33 @@ pub trait BackfillNotifier: Send + Sync {
     /// hosted login, and the same sentence without one otherwise. Returns how
     /// many channels accepted it.
     ///
-    /// Called only by [`crate::protocol::reauth_notice::notify_needs_reauth`],
-    /// after it won the connection's once-per-transition claim, so an
-    /// implementation sends unconditionally. Best-effort: a channel that is
-    /// unconfigured is logged and skipped; one that refuses the send is
-    /// queued for retry on its own, bounded by the link's life and by the
-    /// connection staying `needs_reauth`, and is not counted.
+    /// Called only by [`crate::protocol::reauth_notice`], after it won the
+    /// connection's once-per-transition claim, so an implementation sends
+    /// unconditionally. Best-effort: a channel that is unconfigured is logged
+    /// and skipped; one that refuses the send is queued for retry on its own,
+    /// bounded by the link's life and, as `retry` says, by the connection
+    /// staying `needs_reauth`, and is not counted.
     async fn push_reauth_to_linked_channels(
         &self,
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
+        retry: ReauthRetry,
     ) -> usize;
+}
+
+/// How long a reconnect notice's chat copy that a channel refused stays owed
+/// to the athlete, for the retry worker that re-sends it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReauthRetry {
+    /// While the connection stays `needs_reauth`: the athlete reconnecting,
+    /// or the connection going, makes the notice moot, and the queued copy
+    /// is cancelled. Bounded by the link's life too.
+    WhileFlagged,
+    /// Until the link in it would expire, whatever the connection's rows: a
+    /// withdrawn grant's rows are deleted right after its notice is claimed,
+    /// so they cannot say whether the athlete is still owed it.
+    UntilLinkExpires,
 }
 
 /// Narrow façade over the server's shared services that tool implementations
@@ -215,6 +356,23 @@ pub trait ToolRuntime: Send + Sync + 'static {
         static OFFERS: LazyLock<Arc<ReconnectOffers>> =
             LazyLock::new(|| Arc::new(ReconnectOffers::new()));
         &OFFERS
+    }
+
+    /// The one write path of every live provider read (carnet#1482).
+    fn live_activities(&self) -> &Arc<dyn LiveActivityStore>;
+
+    /// The one provider data purge: the tables, then the live store's
+    /// records of the provider (carnet#1482).
+    fn provider_purge(&self) -> &Arc<dyn ProviderPurge>;
+
+    /// The process-wide store of the envelope findings one headless turn's
+    /// writes reported (carnet#1495). Shared for the reason
+    /// [`Self::reconnect_offers`] is: the headless loop's tools run on the
+    /// tool-host surface's own executor.
+    fn envelope_notices(&self) -> &Arc<EnvelopeNotices> {
+        static NOTICES: LazyLock<Arc<EnvelopeNotices>> =
+            LazyLock::new(|| Arc::new(EnvelopeNotices::new()));
+        &NOTICES
     }
 
     /// The process-wide store of the turns that read an incomplete activity

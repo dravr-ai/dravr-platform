@@ -58,7 +58,7 @@ async function expectHistorySignIn(page: Page) {
   const login = page.getByRole('dialog', { name: /Garmin/ });
   await expect(login).toBeVisible({ timeout: 10000 });
   await expect(login.getByTestId('sciotte-history-intro')).toHaveText(
-    'Sign in once to copy your history; Garmin keeps your new workouts coming.',
+    'Sign in to bring in your Garmin history. Your sign-in keeps new workouts coming too.',
   );
   // Nothing to choose, and no service name behind the sign-in.
   await expect(page.getByRole('dialog', { name: 'Bring in your Garmin history' })).toHaveCount(0);

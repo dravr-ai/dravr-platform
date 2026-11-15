@@ -78,6 +78,19 @@ pub(crate) const THREAD_OPENING_SQL: &str = concat!(
      LIMIT 1"
 );
 
+/// The newest `user` row of a conversation for a participant that is not a
+/// slash command. `$4` is the command stamp.
+pub(crate) const LATEST_USER_MESSAGE_SQL: &str = concat!(
+    "SELECT m.id FROM chat_messages m \
+     JOIN chat_conversations c ON m.conversation_id = c.id \
+     JOIN conversation_participants p ON p.conversation_id = c.id \
+     WHERE m.conversation_id = $1 AND m.role = 'user' \
+       AND (m.finish_reason IS NULL OR m.finish_reason <> $4) AND ",
+    participant_scope!(),
+    " ORDER BY m.created_at DESC, m.id DESC \
+     LIMIT 1"
+);
+
 /// The newest divider row of a conversation in a tenant. `$3` is the divider
 /// stamp, bound rather than spelled so the one constant names it.
 pub(crate) const LATEST_DIVIDER_SQL: &str = r"
@@ -88,12 +101,16 @@ pub(crate) const LATEST_DIVIDER_SQL: &str = r"
     LIMIT 1";
 
 /// Emit the window and topic reads for one backend type: the bodies behind
-/// [`ChatRepository::get_message_page`] and [`ChatRepository::list_topics`].
+/// [`ChatRepository::get_message_page`], [`ChatRepository::list_topics`],
+/// [`ChatRepository::get_recent_messages`] and
+/// [`ChatRepository::latest_user_message_id`].
 /// Invoked inside `impl_chat_repository!`, whose row parsers and helpers it
 /// names unqualified.
 ///
 /// [`ChatRepository::get_message_page`]: super::chat::ChatRepository::get_message_page
 /// [`ChatRepository::list_topics`]: super::chat::ChatRepository::list_topics
+/// [`ChatRepository::get_recent_messages`]: super::chat::ChatRepository::get_recent_messages
+/// [`ChatRepository::latest_user_message_id`]: super::chat::ChatRepository::latest_user_message_id
 macro_rules! impl_chat_windows {
     ($ty:ty, $ids:ident) => {
         impl $ty {
@@ -128,6 +145,57 @@ macro_rules! impl_chat_windows {
                 // Newest first from the statement; oldest first for the caller.
                 messages.reverse();
                 Ok(MessagePage { messages, has_more })
+            }
+
+            /// The newest non-command `user` row's id, for a participant.
+            async fn latest_user_message(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<String>> {
+                let row = sqlx::query($crate::repositories::chat_windows::LATEST_USER_MESSAGE_SQL)
+                    .bind(conversation_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .bind(COMMAND_FINISH_REASON)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the latest user message: {e}"))
+                    })?;
+                row.map(|row| row.try_get("id").map_err(|e| chat_column_error("id", &e)))
+                    .transpose()
+            }
+
+            /// The newest `limit` readable rows of a conversation for a
+            /// participant, oldest first.
+            async fn recent_messages(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                limit: i64,
+                readable: TransportPolicy,
+            ) -> AppResult<Vec<MessageRecord>> {
+                let rows = sqlx::query(GET_RECENT_MESSAGES_SQL)
+                    .bind(conversation_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .bind(limit)
+                    .bind(readable.is_first_party_only())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to get recent messages: {e}"))
+                    })?;
+                // Newest first from the statement; chronological for the caller.
+                let mut messages = rows
+                    .iter()
+                    .map(message_from_row)
+                    .collect::<AppResult<Vec<_>>>()?;
+                messages.reverse();
+                Ok(messages)
             }
 
             /// A conversation's topics for a participant, newest first.

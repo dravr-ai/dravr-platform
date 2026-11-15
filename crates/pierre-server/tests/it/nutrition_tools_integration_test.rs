@@ -26,6 +26,7 @@
 use anyhow::Result;
 use pierre_config::environment::ServerConfig;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use secrecy::SecretString;
 use serde_json::json;
@@ -56,7 +57,11 @@ async fn create_executor_with_usda_key(
         ..common::test_server_config()
     };
     let resources = common::create_test_server_resources_with_config(config).await?;
-    Ok(UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()))
+    // Dravr's own app: the prescriptive nutrition tools run only there, and
+    // the nutrition gate reads the medical flag only there (carnet#1565).
+    Ok(UniversalToolExecutor::new(resources)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp))
 }
 
 /// Create test executor for nutrition tool tests: a USDA key is configured,

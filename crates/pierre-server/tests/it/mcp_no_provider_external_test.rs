@@ -337,6 +337,59 @@ async fn tools_list_offers_only_what_the_grant_covers() {
     );
 }
 
+/// The read-only grant the Claude directory connects with is offered
+/// `verify_claim` and gets a verdict from it over `/mcp`: the server
+/// instructions and every data result's `_reply_verification` send that client
+/// to it before it states a figure about the athlete (carnet#1510).
+#[tokio::test]
+async fn a_read_only_grant_lists_verify_claim_and_gets_its_verdict() {
+    let res = create_test_server_resources().await.unwrap();
+    let (user_id, tenant) = new_athlete(&res, "verify@no-provider.test").await;
+    let app = ProviderToolRouter::build_http_app(&res);
+    let read_only = token_with_scopes(&res, user_id, &tenant, &["fitness:read", "profile:read"]);
+
+    let listed = post_mcp(
+        &app,
+        &read_only,
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }),
+    )
+    .await;
+    let names: BTreeSet<&str> = listed["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|tool| tool["name"].as_str())
+        .collect();
+    assert!(
+        names.contains("verify_claim"),
+        "bug: the read grant told to call verify_claim is not offered it: {names:?}"
+    );
+    assert!(
+        !names.contains("set_goal"),
+        "bug: the listing is not narrowed to the grant, so it proves nothing: {names:?}"
+    );
+
+    let answered = post_mcp(
+        &app,
+        &read_only,
+        call(
+            "verify_claim",
+            &json!({ "claim": "You covered 21 km on your last run.", "category": "athlete_data" }),
+        ),
+    )
+    .await;
+    assert_eq!(
+        answered["result"]["isError"], false,
+        "bug: the listed tool is refused at the call: {answered}"
+    );
+    // With nothing connected, no source could have produced the figure, so
+    // the athlete's own record contradicts it: a verdict on their data, not a
+    // gate waving the call by.
+    let verdict = &answered["result"]["structuredContent"];
+    assert_eq!(verdict["status"], "contradicted", "{answered}");
+    assert_eq!(verdict["layer_fired"], "athlete_data", "{answered}");
+}
+
 /// A client validates an ordinary result against the tool's declared output and
 /// fails the call on a mismatch, so the no-provider answer has to satisfy the
 /// schema `tools/list` declares for every tool that can give it.

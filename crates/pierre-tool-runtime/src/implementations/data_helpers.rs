@@ -15,18 +15,30 @@
 use std::env;
 use std::sync::Arc;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 
 use serde_json::{json, Value};
 
-use pierre_core::models::coverage::{Completeness, IncompleteReason};
+#[cfg(feature = "tools-data")]
+use pierre_core::models::coverage::Pending;
+use pierre_core::models::coverage::{
+    Completeness, Coverage, CoverageWindow, IncompleteReason, WindowScope, WindowTotals,
+};
 use pierre_core::models::TenantId;
 use pierre_formatters::OutputFormat;
 use pierre_providers::backend_resolver::user_facing_name;
+#[cfg(feature = "tools-data")]
+use pierre_providers::core::ActivityQueryParams;
+#[cfg(feature = "tools-data")]
+use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::provider_refresh::UNREAD_PROVIDER_DIRECTIVE;
 use uuid::Uuid;
 
-use crate::activity_fetch::StaleReason;
+#[cfg(feature = "tools-data")]
+use crate::activity_fetch::{grant_window, serve_without_primary};
+use crate::activity_fetch::{FallbackServe, StaleReason};
+#[cfg(feature = "tools-data")]
+use crate::context::ToolExecutionContext;
 use crate::runtime::ToolRuntime;
 
 /// How far forward the coverage probe looks from `after`.
@@ -159,78 +171,90 @@ pub struct AskedWindow {
 /// Build the LLM-facing `coverage` sidecar for a served activity window.
 ///
 /// Present whenever the window's total is known or the window is incomplete.
-/// It says what was asked (`asked_from`/`asked_to`), what was served
-/// (`window_oldest`/`window_newest`, `window_total`, `returned`), and whether
-/// that is the whole truth for the ask (`complete`, with `incomplete_reason`
-/// when it is not). A count stated from an incomplete window is not a fact: the
-/// note says so in the words a model acts on (carnet#1481: 43 trail runs since
-/// 2020, counted from a 151-row cached window, were stated as fact).
+/// It says what was asked (`window.asked_from`/`asked_to`), what was served
+/// (`window.oldest`/`newest`, `window.total`, `returned`, and the window's
+/// `totals` when they were summed), and whether that is the whole truth for
+/// the ask (`complete`, with `incomplete_reason` when it is not). A count
+/// stated from an incomplete window is not a fact: the note says so in the
+/// words a model acts on (carnet#1481: 43 trail runs since 2020, counted from
+/// a 151-row cached window, were stated as fact). A window that filled the
+/// durable read cap holds at least its total, never exactly it.
 ///
 /// Lives in the tool RESULT, not the tool's `input_schema`/description, so it
-/// adds no SDK or contremaitre drift; the model renders it in the user's
-/// language, so it needs no localized `messaging_strings` key.
+/// adds no contremaitre drift; the model renders it in the user's language,
+/// so it needs no localized `messaging_strings` key.
 #[must_use]
-pub fn activity_coverage_note(
+pub fn activity_coverage(
     window_total: Option<usize>,
     returned: usize,
-    window_span: Option<&(String, String)>,
+    window_span: Option<(NaiveDate, NaiveDate)>,
     asked: AskedWindow,
     completeness: Completeness,
-) -> Option<Value> {
+    totals: Option<WindowTotals>,
+) -> Option<Coverage> {
     if window_total.is_none() && completeness.is_complete() {
         return None;
     }
     let total = window_total.unwrap_or(returned);
-    let truncated = total > returned;
-    if !truncated && completeness.is_complete() && asked.after.is_none() {
+    if total <= returned && completeness.is_complete() && asked.after.is_none() {
         return None;
     }
-    // When the served window filled the durable read cap the true count is
-    // unknown — `window_total` is only a lower bound, so state it as "at least
-    // {total}" instead of an exact figure.
-    let total_phrase = if total >= HISTORICAL_WINDOW_READ_LIMIT
-        || completeness.reason() == Some(IncompleteReason::ReadCapped)
-    {
-        format!("at least {total}")
-    } else {
-        total.to_string()
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    let day = |epoch: Option<i64>| {
+        epoch
+            .and_then(|e| DateTime::<Utc>::from_timestamp(e, 0))
+            .map(|at| at.date_naive())
     };
-    let span_phrase = window_span.map_or_else(String::new, |(oldest, newest)| {
-        format!(" spanning {oldest} to {newest}")
-    });
-    let mut note = if truncated {
-        format!(
-            "This window holds {total_phrase} activities{span_phrase}; only {returned} are shown below. Frame your reply around the full count ({total_phrase}) and span — do not imply the user's history is limited to the activities shown."
-        )
-    } else {
-        format!("This window holds {total_phrase} activities{span_phrase}.")
-    };
-    if let Some(reason) = completeness.reason() {
-        note.push_str(" This window is INCOMPLETE: ");
-        note.push_str(reason.explanation());
-        note.push_str(". Do not state a count, a total or \"nothing before\" for the period asked as fact: say which dates are covered and that the rest is not loaded.");
+    Some(Coverage {
+        completeness,
+        window: CoverageWindow {
+            scope: WindowScope::Asked,
+            asked_from: day(asked.after),
+            asked_to: day(asked.before),
+            oldest: window_span.map(|(oldest, _)| oldest),
+            newest: window_span.map(|(_, newest)| newest),
+            total: Some(count(total)),
+            total_is_lower_bound: total >= HISTORICAL_WINDOW_READ_LIMIT,
+            returned: count(returned),
+            totals,
+        },
+        trustworthy_from: None,
+        pending: None,
+    })
+}
+
+/// Build the `coverage` a `get_segment_history` answer carries
+/// ([`WindowScope::SegmentsRead`]).
+///
+/// The window asked, `[asked_from, asked_to]`, with `window.total` the
+/// activities in it and `window.returned` those whose segment efforts were
+/// read; `None` for a total no read counted (Strava's live listing names
+/// only the activities it holds efforts of). Always present, unlike
+/// [`activity_coverage`]: a segment's efforts are never more than the
+/// activities read, so a model must always see how many those were.
+#[cfg(feature = "tools-data")]
+#[must_use]
+pub(crate) fn segments_read_coverage(
+    activities: Option<usize>,
+    read: usize,
+    asked: (NaiveDate, NaiveDate),
+    completeness: Completeness,
+    pending: Option<Pending>,
+) -> Coverage {
+    let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
+    Coverage {
+        completeness,
+        window: CoverageWindow {
+            scope: WindowScope::SegmentsRead,
+            asked_from: Some(asked.0),
+            asked_to: Some(asked.1),
+            total: activities.map(count),
+            returned: count(read),
+            ..CoverageWindow::default()
+        },
+        trustworthy_from: None,
+        pending,
     }
-    let mut coverage = json!({
-        "window_total": total,
-        "returned": returned,
-        "complete": completeness.is_complete(),
-        "note": note,
-    });
-    if let Some(object) = coverage.as_object_mut() {
-        if let Some((oldest, newest)) = window_span {
-            object.insert("window_oldest".to_owned(), json!(oldest));
-            object.insert("window_newest".to_owned(), json!(newest));
-        }
-        if let Some(reason) = completeness.reason() {
-            object.insert("incomplete_reason".to_owned(), json!(reason));
-        }
-        for (key, epoch) in [("asked_from", asked.after), ("asked_to", asked.before)] {
-            if let Some(day) = epoch.and_then(|e| DateTime::<Utc>::from_timestamp(e, 0)) {
-                object.insert(key.to_owned(), json!(day.format("%Y-%m-%d").to_string()));
-            }
-        }
-    }
-    Some(coverage)
 }
 
 /// Build the `reconnect_required` sidecar for a window that was served WITHOUT
@@ -310,11 +334,34 @@ pub fn provider_stale_note(display_name: &str) -> Value {
     })
 }
 
-/// Why the elected provider's window was not its own live read, keyed by that
-/// provider's backend: the athlete's other connections served it, or its own
-/// cached window did.
+/// Build the `provider_unavailable` sidecar for a window the provider's own
+/// OAuth grant served in place of the athlete's usr/pwd session
+/// (carnet#1494).
+///
+/// Nothing is missing: the grant is the same provider, read through its API,
+/// and it vouched for the window. The note says so, so the agent neither
+/// treats the window as partial nor asks for a reconnect; the session's own
+/// sign-in, when it died, is asked for by the reconnect notice, not here.
+#[must_use]
+fn provider_served_by_grant_note(display_name: &str) -> Value {
+    json!({
+        "provider": display_name,
+        "note": format!(
+            "{display_name} could not be read through the athlete's sign-in just now, so the activities above came from its API connection instead: they are current and complete. Do not ask the athlete to reconnect it. Answer the question from the activities shown. {UNREAD_PROVIDER_DIRECTIVE}"
+        ),
+    })
+}
+
+/// Why the elected provider's window was not its own live read, keyed by
+/// that provider's backend.
+///
+/// Its grant served it in its session's place, the athlete's other
+/// connections served it, or its own cached window did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PrimaryStandIn {
+    /// Its session could not answer and the provider's own OAuth grant
+    /// served the window in its place (carnet#1494).
+    ServedByGrant(String),
     /// Its grant or session is dead: the athlete must reconnect it.
     Dead(String),
     /// It could not answer just now, and its connection stands.
@@ -326,8 +373,9 @@ pub enum PrimaryStandIn {
 }
 
 impl PrimaryStandIn {
-    /// Whether the elected provider's own cache answered the window, which
-    /// counts as that connection serving the athlete.
+    /// Whether the elected provider itself answered the window — its own
+    /// cache, or its grant in its session's place — which counts as that
+    /// connection serving the athlete.
     ///
     /// `CaptureFreshness::last_used_at` promises "live fetch or cache
     /// alike", and the active-athlete sweep selects on it. Touching only a
@@ -336,8 +384,8 @@ impl PrimaryStandIn {
     /// days while chat served him daily (carnet#1278). A sibling's answer
     /// (`Dead`, `Unreachable`) is still not the primary's serve.
     #[must_use]
-    pub const fn served_from_own_cache(&self) -> bool {
-        matches!(self, Self::Stale(..))
+    pub const fn served_by_the_provider(&self) -> bool {
+        matches!(self, Self::Stale(..) | Self::ServedByGrant(_))
     }
 
     /// The sidecar the served window carries for it, and the key it rides
@@ -346,6 +394,11 @@ impl PrimaryStandIn {
     #[must_use]
     pub fn caveat(&self) -> (&'static str, Value) {
         let (key, mut note, reason) = match self {
+            Self::ServedByGrant(backend) => (
+                "provider_unavailable",
+                provider_served_by_grant_note(user_facing_name(backend)),
+                "grant",
+            ),
             Self::Dead(backend) => (
                 "reconnect_required",
                 provider_reconnect_note(user_facing_name(backend), backend),
@@ -368,18 +421,31 @@ impl PrimaryStandIn {
         (key, note)
     }
 
-    /// How complete a window this stand-in served is: a read past the
-    /// turn's budget is still running; any other stand-in is the provider
-    /// unavailable.
+    /// How complete a window this stand-in served is, or `None` when the
+    /// stand-in says nothing about it: a grant that served in its session's
+    /// place vouched for the window. A read past the turn's budget is still
+    /// running; any other stand-in is the provider unavailable.
     #[must_use]
-    pub const fn completeness(&self) -> Completeness {
+    pub const fn completeness(&self) -> Option<Completeness> {
         match self {
+            Self::ServedByGrant(_) => None,
             Self::Stale(_, StaleReason::Timeout) => {
-                Completeness::Incomplete(IncompleteReason::LiveReadRunning)
+                Some(Completeness::Incomplete(IncompleteReason::LiveReadRunning))
             }
-            Self::Dead(_) | Self::Unreachable(_) | Self::Stale(..) => {
-                Completeness::Incomplete(IncompleteReason::ProviderUnavailable)
-            }
+            Self::Dead(_) | Self::Unreachable(_) | Self::Stale(..) => Some(
+                Completeness::Incomplete(IncompleteReason::ProviderUnavailable),
+            ),
+        }
+    }
+
+    /// The stand-in for a window [`serve_in_place`] served: the grant's, when
+    /// it answered first, else `otherwise`.
+    #[must_use]
+    pub fn of_fallback(fallback: &FallbackServe, primary: &str, otherwise: Self) -> Self {
+        if fallback.served_by_grant.is_some() {
+            Self::ServedByGrant(primary.to_owned())
+        } else {
+            otherwise
         }
     }
 
@@ -387,9 +453,49 @@ impl PrimaryStandIn {
     #[must_use]
     pub fn backend(&self) -> &str {
         match self {
-            Self::Dead(backend) | Self::Unreachable(backend) | Self::Stale(backend, _) => backend,
+            Self::ServedByGrant(backend)
+            | Self::Dead(backend)
+            | Self::Unreachable(backend)
+            | Self::Stale(backend, _) => backend,
         }
     }
+}
+
+/// The window served in place of a primary that cannot answer: for a read
+/// pinned to the provider, its grant alone ([`grant_window`]: the same
+/// provider, so the pin still holds), else the grant first and the athlete's
+/// other connections after it ([`serve_without_primary`]). `None` when
+/// nothing served a row.
+#[cfg(feature = "tools-data")]
+pub(super) async fn serve_in_place(
+    context: &ToolExecutionContext,
+    primary: &str,
+    pinned: bool,
+    is_historical: bool,
+    params: &ActivityQueryParams,
+) -> Option<FallbackServe> {
+    if !pinned {
+        return serve_without_primary(context, primary, is_historical, params).await;
+    }
+    let tenant = TenantId::from_uuid(context.tenant_id?);
+    let (grant, rows) = Box::pin(grant_window(
+        &context.resources,
+        primary,
+        context.user_id,
+        tenant,
+        params,
+    ))
+    .await?;
+    if rows.is_empty() {
+        return None;
+    }
+    let (activities, merge_report) = merge_duplicates(rows, &DedupConfig::from_env());
+    Some(FallbackServe {
+        activities,
+        merge_report,
+        served_by: vec![user_facing_name(&grant).to_owned()],
+        served_by_grant: Some(grant),
+    })
 }
 
 /// Put a stand-in's caveat on a served window's payload.

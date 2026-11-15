@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserManagementResponse } from '../types/api';
@@ -9,6 +9,7 @@ import { Button, Card, Textarea } from './ui';
 import { Badge } from './ui/Badge';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { useDialog } from '../hooks/useDialog';
 
 interface UserApprovalModalProps {
   user: User | null;
@@ -61,6 +62,10 @@ export default function UserApprovalModal({
     onClose();
     setReason('');
   };
+  const titleId = useId();
+  // Focus trap, focus restore, Escape and the scroll lock: one layer on the
+  // same stack as every other dialog.
+  const { containerRef } = useDialog({ open: isOpen && !!user, onClose: handleClose });
 
   if (!isOpen || !user) return null;
 
@@ -69,11 +74,18 @@ export default function UserApprovalModal({
   const actionVerb = action === 'approve' ? 'approve' : 'suspend';
 
   return (
-    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 focus:outline-none"
+    >
       <div className="bg-surface-container-low rounded-lg max-w-md w-full m-4 border ghost-border">
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
-            <h2 className="text-xl font-semibold text-on-surface">
+            <h2 id={titleId} className="text-xl font-semibold text-on-surface">
               {actionTitle}
             </h2>
             <button

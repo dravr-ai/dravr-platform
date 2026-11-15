@@ -93,6 +93,7 @@ fn physiology(who: Person, ftp: u32, vo2_max: f64, wellness: bool) -> UserPhysio
 /// A provider profile cached for `who`, under the upload key their reads use.
 fn cached_athlete(first_name: &str) -> Athlete {
     Athlete {
+        created_at: None,
         id: "4242".to_owned(),
         username: first_name.to_lowercase(),
         firstname: Some(first_name.to_owned()),

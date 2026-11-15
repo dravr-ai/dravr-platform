@@ -271,6 +271,7 @@ describe('buildConversationRow', () => {
       agentHandle: 'trail-coach',
       agentTitle: 'Trail Coach',
       groupName: 'Harricana crew',
+      groupId: 'group-1',
       subjectName: null,
       channel: null,
       initials: 'H8',

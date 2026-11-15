@@ -73,28 +73,39 @@ impl LinkedWellness {
     }
 }
 
-/// The wellness `coach` reads of `athlete` through the link they hold in
-/// `group_id`, or `None` when no confirmed link there names the athlete or
-/// the athlete has not granted the coach `wellness_read`.
+/// The confirmed link a coach reads a coached athlete's wellness through,
+/// once the athlete granted them `wellness_read`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WellnessLink {
+    /// The athlete.
+    pub athlete: Uuid,
+    /// The tenant the athlete confirmed the link in, where its rows are filed.
+    pub tenant: TenantId,
+    /// The backend slug of the link's platform.
+    pub provider: String,
+}
+
+/// The link `coach` reads `athlete`'s wellness through in `group_id`, or
+/// `None` without the athlete's `wellness_read` or a confirmed link there.
+///
+/// Nothing of their wellness is read: a caller that records the coach's read
+/// on the athlete's record does so between this and
+/// [`read_linked_wellness`], so a coach with nothing to read leaves no record
+/// of a read.
 ///
 /// The caller has run the coaching gates for this pair
 /// ([`coached_athlete_access`](crate::coached_athlete::coached_athlete_access));
-/// this decides only what the link lets the coach read. The reads run under
-/// the athlete's own AI consents, as every model read of a member's data
-/// does: the coach's consents say nothing about the athlete's providers.
+/// this decides only what the link lets the coach read.
 ///
 /// # Errors
 ///
-/// Returns the repository error from the link, sleep, recovery or health
-/// reads.
-pub async fn linked_wellness(
+/// Returns the repository error from the consent or link reads.
+pub async fn wellness_link(
     repos: &RepositoryRegistry,
-    terms: &dyn ProviderTerms,
     coach: Uuid,
     athlete: Uuid,
     group_id: Uuid,
-    now: DateTime<Utc>,
-) -> AppResult<Option<LinkedWellness>> {
+) -> AppResult<Option<WellnessLink>> {
     if !member_consents(repos.groups.as_ref(), group_id, athlete)
         .await?
         .wellness_read
@@ -107,26 +118,45 @@ pub async fn linked_wellness(
         .await?
         .into_iter()
         .find(|link| link.member_user_id == athlete && link.status == DelegationStatus::Confirmed);
-    let Some((link, tenant)) =
-        link.and_then(|link| link.member_tenant_id.map(|tenant| (link, tenant)))
-    else {
-        return Ok(None);
-    };
+    Ok(link.and_then(|link| {
+        link.member_tenant_id.map(|tenant| WellnessLink {
+            athlete,
+            tenant,
+            provider: link.provider,
+        })
+    }))
+}
+
+/// The newest wellness `link` filed in the last [`LINKED_WELLNESS_DAYS`] days
+/// before `now`.
+///
+/// The reads run under the athlete's own AI consents, as every model read of
+/// a member's data does: the coach's consents say nothing about the athlete's
+/// providers.
+///
+/// # Errors
+///
+/// Returns the repository error from the sleep, recovery or health reads.
+pub async fn read_linked_wellness(
+    repos: &RepositoryRegistry,
+    terms: &dyn ProviderTerms,
+    link: &WellnessLink,
+    now: DateTime<Utc>,
+) -> AppResult<LinkedWellness> {
     let filed = Filed {
-        athlete,
-        tenant,
-        provider: link.provider,
+        athlete: link.athlete,
+        tenant: link.tenant,
+        provider: link.provider.clone(),
         start: now - Duration::days(LINKED_WELLNESS_DAYS),
         end: now,
     };
     under_ai_consent(
         repos,
-        tenant.as_uuid(),
-        athlete,
+        link.tenant.as_uuid(),
+        link.athlete,
         newest_filed(repos, terms, filed),
     )
     .await
-    .map(Some)
 }
 
 /// Whose rows, under which tenant, filed by which platform, in which span.

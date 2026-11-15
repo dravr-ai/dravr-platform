@@ -21,15 +21,9 @@ const {
  */
 const READ_ONLY_TOOLS = [
   'get_connection_status',
-  'get_configuration_catalog',
-  'get_configuration_profiles',
-  'get_user_configuration',
-  'get_fitness_config',
-  'list_fitness_configs',
   'get_data_freshness',
   'list_data_sources',
   'get_training_history',
-  'list_coaching_playbooks',
   'list_recipes',
   'list_stretching_exercises',
   'list_yoga_poses',

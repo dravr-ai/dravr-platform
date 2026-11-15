@@ -1,44 +1,54 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Filling progress hairline for onboarding screens — the phone equivalent of web's labelled step dots
-// ABOUTME: Renders under a screen's header; no visible per-step labels, its accessible name carries "Step N of M: label"
+// ABOUTME: Segmented progress hairline for onboarding screens — the phone equivalent of web's labelled step dots
+// ABOUTME: One segment per step of the journey, a skipped one dashed, and a "Step N of M: label" caption under it
 
 import React from 'react';
-import { View } from 'react-native';
+import { Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
-import type { OnboardingProgressItem } from '@pierre/shared-constants';
+import {
+  settledByInviteLine,
+  type OnboardingProgressItem,
+  type OnboardingStepStatus,
+} from '@pierre/shared-constants';
 
 export interface OnboardingProgressBarProps {
   steps: OnboardingProgressItem[];
+  /**
+   * A team-issued coach-seat invitation settled the role and the seat
+   * (server truth: `settled_by_invite`): a line under the bar names those
+   * segments and says the invitation settled them.
+   */
+  settledByInvite?: boolean;
   testID?: string;
 }
 
 /**
- * A single filling hairline under the onboarding header — the phone's answer
- * to web's row of labelled step dots (Boreal v2.2 D5: a hairline, not dots,
- * on the phone). The fill fraction is position-based, matching
- * `onboardingProgress()`'s own "nothing reads done until it's behind us"
- * rule: the current step counts as `(index + 1)` of the journey's total, so
- * the bar never reads full until the last step is actually current.
+ * A hairline under the onboarding header — the phone's answer to web's row
+ * of labelled step dots (Boreal v2.2: a hairline, not dots, on the phone) —
+ * cut into one segment per step of the journey `onboardingProgress()`
+ * returns. The journey is decided by the role, so the segments never change
+ * count mid-flow: the steps behind the user and the one they are on are
+ * filled, a step they put off stays as a dashed segment, the ones ahead are
+ * the pale track. The caption under it says where they are, which is also
+ * the bar's accessible name.
  *
  * Renders nothing for an empty journey (onboarding already finished, or the
  * assembling hook's flags are still loading) rather than a bar stuck at an
  * arbitrary fraction.
  */
-export function OnboardingProgressBar({ steps, testID }: OnboardingProgressBarProps) {
-  const { t } = useTranslation();
+export function OnboardingProgressBar({ steps, settledByInvite = false, testID }: OnboardingProgressBarProps) {
+  const { t, language } = useTranslation();
   if (steps.length === 0) {
     return null;
   }
+  const settledLine = settledByInviteLine(t, steps, settledByInvite, language);
 
   const currentIndex = steps.findIndex((step) => step.status === 'current');
   const current = currentIndex >= 0 ? steps[currentIndex] : undefined;
-  const doneCount = steps.filter((step) => step.status === 'done').length;
-  const position = currentIndex >= 0 ? currentIndex + 1 : doneCount;
-  const fraction = Math.min(1, position / steps.length);
-
-  const label = current
+  const behind = steps.filter((step) => step.status === 'done' || step.status === 'skipped').length;
+  const whereAmI = current
     ? t('onboarding.stepOfLabel', {
         current: currentIndex + 1,
         total: steps.length,
@@ -48,12 +58,45 @@ export function OnboardingProgressBar({ steps, testID }: OnboardingProgressBarPr
 
   return (
     <View
-      className="h-0.5 w-full overflow-hidden rounded-full bg-outline-variant"
       accessibilityRole="progressbar"
-      accessibilityLabel={label}
+      accessibilityLabel={whereAmI}
+      accessibilityValue={{ min: 0, max: steps.length, now: current ? currentIndex + 1 : behind }}
       testID={testID ?? 'onboarding-progress-bar'}
     >
-      <View className="h-full rounded-full bg-primary" style={{ width: `${fraction * 100}%` }} />
+      <View
+        className="flex-row gap-1"
+        importantForAccessibility="no-hide-descendants"
+        accessibilityElementsHidden
+      >
+        {steps.map((step) => (
+          <View
+            key={step.id}
+            testID={`onboarding-progress-segment-${step.id}`}
+            className={`h-0.5 flex-1 rounded-full ${segmentClass(step.status)}`}
+          />
+        ))}
+      </View>
+      {whereAmI ? (
+        <Text
+          className="mt-2 text-xs text-on-surface-variant"
+          importantForAccessibility="no"
+          accessibilityElementsHidden
+          testID="onboarding-progress-caption"
+        >
+          {whereAmI}
+        </Text>
+      ) : null}
+      {settledLine ? (
+        <Text className="mt-1 text-xs text-on-surface-variant" testID="onboarding-progress-settled">
+          {settledLine}
+        </Text>
+      ) : null}
     </View>
   );
+}
+
+/** A segment's look: filled once reached, dashed when put off, the pale track ahead. */
+function segmentClass(status: OnboardingStepStatus): string {
+  if (status === 'skipped') return 'border border-dashed border-outline';
+  return status === 'upcoming' ? 'bg-outline-variant' : 'bg-primary';
 }

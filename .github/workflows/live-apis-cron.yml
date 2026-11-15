@@ -61,7 +61,7 @@ jobs:
       # its own pushed the caches the push lanes restore out of the 10 GB quota
       # (carnet#1114).
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: test-dev
           cache-save: 'false'

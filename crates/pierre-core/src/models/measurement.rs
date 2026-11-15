@@ -266,6 +266,51 @@ impl AnchorProvenance {
     }
 }
 
+/// The day the athlete stated each of the profile's four scalar thresholds.
+///
+/// [`ThresholdProvenance`] describes only a provider's import, and its absence
+/// is what marks a value as the athlete's own, which an import never replaces.
+/// So the day an athlete-set value was stated is kept apart: an entry here
+/// exists exactly when the value is the athlete's own and was stated after
+/// this was recorded (carnet#1496). A threshold with neither entry predates
+/// both records, and its day is unknown.
+#[derive(
+    Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+pub struct ThresholdStatedOn {
+    /// The day the athlete stated their functional threshold power.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ftp_watts: Option<NaiveDate>,
+    /// The day the athlete stated their lactate threshold heart rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_hr: Option<NaiveDate>,
+    /// The day the athlete stated their maximum heart rate.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_hr: Option<NaiveDate>,
+    /// The day the athlete stated their threshold pace.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold_pace_sec_per_km: Option<NaiveDate>,
+}
+
+impl ThresholdStatedOn {
+    /// No threshold carries a stated day.
+    pub(crate) const NONE: Self = Self {
+        ftp_watts: None,
+        threshold_hr: None,
+        max_hr: None,
+        threshold_pace_sec_per_km: None,
+    };
+
+    /// Whether no threshold carries a stated day.
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.ftp_watts.is_none()
+            && self.threshold_hr.is_none()
+            && self.max_hr.is_none()
+            && self.threshold_pace_sec_per_km.is_none()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;

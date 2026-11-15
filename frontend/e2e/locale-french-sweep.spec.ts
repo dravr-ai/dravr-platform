@@ -130,38 +130,32 @@ const WIZARD_STEPS: {
   /** A corpus key that step alone renders — proof the step mounted before it is swept. */
   marker: string;
   steps: { step_id: string; status: string }[];
+  /** The server's `coaches_others`, for a step only a coach meets. */
+  coachesOthers?: boolean;
 }[] = [
   { name: 'profile_type', marker: 'onboarding.imAnAthlete', steps: [] },
   {
-    name: 'about_you',
-    marker: 'onboarding.primarySportLabel',
+    name: 'connect_provider',
+    marker: 'onboarding.connect.intro',
     steps: [{ step_id: 'profile_type', status: 'complete' }],
   },
   {
+    // The health check is the third screen (carnet#1530): reached past a saved
+    // « Continuer sans connecter », the provider still unconnected.
     name: 'parq',
-    marker: 'onboarding.parqIntro',
+    marker: 'onboarding.parq.intro',
     steps: [
       { step_id: 'profile_type', status: 'complete' },
-      { step_id: 'about_you', status: 'complete' },
+      { step_id: 'connect_provider', status: 'skipped' },
     ],
   },
   {
-    name: 'check_in',
-    marker: 'onboarding.checkInIntro',
+    name: 'coach_seat',
+    marker: 'humanCoach.seatHeading',
+    coachesOthers: true,
     steps: [
       { step_id: 'profile_type', status: 'complete' },
-      { step_id: 'about_you', status: 'complete' },
-      { step_id: 'parq', status: 'complete' },
-    ],
-  },
-  {
-    name: 'connect_provider',
-    marker: 'onboarding.connectProviderIntro',
-    steps: [
-      { step_id: 'profile_type', status: 'complete' },
-      { step_id: 'about_you', status: 'complete' },
-      { step_id: 'parq', status: 'complete' },
-      { step_id: 'check_in', status: 'complete' },
+      { step_id: 'parq', status: 'not_applicable' },
     ],
   },
 ];
@@ -317,6 +311,7 @@ test.describe('French rendering sweep', () => {
             onboarding_complete: false,
             steps: step.steps,
             chosen_channel: null,
+            coaches_others: step.coachesOthers ?? false,
           }),
         });
       });

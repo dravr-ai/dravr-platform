@@ -49,6 +49,7 @@ pub mod gear;
 /// The profile-recorded window of an athlete's most recent fixed-list walk.
 pub mod guided_window;
 mod health;
+mod invitation;
 /// Measured-vs-estimated provenance carried by a physiological value.
 pub mod measurement;
 mod nutrition;
@@ -64,6 +65,9 @@ mod provider_thresholds;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
 mod sleep;
+/// An athlete's physiology anchors per sport family, and the `AthleteAnchors`
+/// the workout families resolve on.
+pub mod sport_anchors;
 /// The coarse sport family a provider sport type belongs to.
 pub mod sport_family;
 mod tenant;
@@ -148,7 +152,7 @@ pub use dravr_equilibre::{
 pub use nutrition::{FoodItem, MealEntry, MealType, NutritionLog};
 
 // Athlete domain
-pub use athlete::{Athlete, PeriodTotals, Stats, StatsCoverage};
+pub use athlete::{Athlete, PeriodTotals, Stats};
 pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAccess, RosterAthlete,
 };
@@ -159,16 +163,18 @@ pub use check_in::CheckInCadence;
 // Physiology provenance domain
 pub use measurement::{
     AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance,
-    ProvenancedValue, ThresholdProvenance, ATHLETE_REPORTED_ORIGIN,
+    ProvenancedValue, ThresholdProvenance, ThresholdStatedOn, ATHLETE_REPORTED_ORIGIN,
 };
 pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
+pub use sport_anchors::{AnchorUnit, ProfileTwin, SportAnchor, SportAnchorName, TargetAnchor};
 
 // User domain
+pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};
 pub use user::{
     default_locale, locale_from_accept_language, normalize_email, page_locale, roster_display_name,
-    supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex,
-    PreApprovedEmail, User, UserId, UserInvitation, UserPhysiologicalProfile, UserReference,
-    UserReferenceKind, UserStatus, UserTier, FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
+    supported_ui_locale, CoachingPersona, ColorScheme, OperatorRosterGrant, PhysiologicalSex, User,
+    UserId, UserPhysiologicalProfile, UserReference, UserReferenceKind, UserStatus, UserTier,
+    FEDERATED_ONLY_PASSWORD_HASH, SUPPORTED_LOCALES,
 };
 
 // Endurance zones + dossier + training-history + workout-template domain
@@ -249,7 +255,9 @@ pub use session_refresh_token::SessionRefreshToken;
 
 // Coach-access requests — a coach asks, a super-admin decides (carnet#738)
 mod coach_access;
-pub use coach_access::{CoachAccessRequest, CoachAccessStatus};
+pub use coach_access::{
+    normalize_decline_reason, CoachAccessRequest, CoachAccessStatus, DECLINE_REASON_MAX_CHARS,
+};
 
 // A coach's after-the-fact review of the agent's group replies (carnet#847)
 mod coach_review;
@@ -283,12 +291,12 @@ pub use conversation::{
     ConversationLastMessage, ConversationPage, ConversationParticipant, ConversationRecord,
     ConversationSubject, ConversationSummary, ConversationTurnId, InputSource,
     MessageFeedbackRecord, MessagePage, MessageRecord, ParticipantRole, PersistedAction,
-    PersistedReplyBlock, ThreadTopic, TurnOrigin, UpsertMessageFeedbackParams, ACTIONS_BLOCK_TYPE,
-    AGENT_WELCOME_FINISH_REASON, CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB, COMMAND_FINISH_REASON,
-    DIVIDER_FINISH_REASON, FILTERED_REPLY_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON,
-    STOPPED_TURN_FINISH_REASON, STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON,
-    TURN_AUTHOR_BLOCK_TYPE, TURN_STOP_BLOCK_TYPE, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON,
-    WITHHELD_REPLY_FINISH_REASON,
+    PersistedReplyBlock, StopState, ThreadTopic, TurnOrigin, UpsertMessageFeedbackParams,
+    ACTIONS_BLOCK_TYPE, AGENT_WELCOME_FINISH_REASON, CHANNEL_TYPE_MOBILE, CHANNEL_TYPE_WEB,
+    COMMAND_FINISH_REASON, DIVIDER_FINISH_REASON, ENVELOPE_NOTICE_BLOCK_TYPE,
+    FILTERED_REPLY_FINISH_REASON, GUARDIAN_DENIED_FINISH_REASON, STOPPED_TURN_FINISH_REASON,
+    STOP_CAVEAT_SEPARATOR, TRUNCATED_REPLY_FINISH_REASON, TURN_AUTHOR_BLOCK_TYPE,
+    TURN_STOP_BLOCK_TYPE, UNVERIFIED_CAPABILITY_CLAIM_FINISH_REASON, WITHHELD_REPLY_FINISH_REASON,
 };
 pub use room_quote::{RoomQuote, ROOM_QUOTE_BLOCK_TYPE};
 

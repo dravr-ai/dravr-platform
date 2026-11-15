@@ -8,7 +8,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor, act } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { HISTORY_IMPORTING_REFRESH_MS, PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
+import { PROVIDER_LINK_POLL_INTERVAL_MS } from '@pierre/shared-constants';
 import { i18n } from '@pierre/i18n';
 import ProviderConnectionCards from '../ProviderConnectionCards';
 import { ThemeProvider } from '../../hooks/useTheme';
@@ -457,55 +457,26 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       expect(await screen.findByTestId('provider-connect-refused-sciotte_garmin')).toBeInTheDocument();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
-
-    it('says so on a sign-in-only card asked to move, whose tap tries the authorization again', async () => {
-      localStorage.setItem('pierre_oauth_result', refused());
-      getProvidersStatus.mockResolvedValue({
-        providers: [
-          {
-            ...garminCard('oauth'),
-            connected: true,
-            connected_backend: 'sciotte_garmin',
-            migration: 'oauth_required' as const,
-          },
-        ],
-      });
-      const user = userEvent.setup();
-      renderCards();
-
-      expect(await screen.findByTestId('provider-connect-refused-sciotte_garmin')).toHaveTextContent(
-        i18n.t('providers.connectRefused', { provider: 'Garmin' }),
-      );
-      expect(screen.getByTestId('provider-card-sciotte_garmin').querySelector('[data-status]')).toHaveAttribute(
-        'data-status',
-        'migrate',
-      );
-      await user.click(screen.getByText(i18n.t('app.connectProvider', { provider: 'Garmin' })));
-      await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
-    });
   });
 
-  it('moves a sign-in-only Garmin card to Garmin\'s authorization', async () => {
+  it('reconnects a dead Garmin grant through the Garmin sign-in, never its authorization (carnet#1494)', async () => {
     getProvidersStatus.mockResolvedValue({
       providers: [
         {
-          ...garminCard('oauth'),
+          ...garminCard('mirror'),
           connected: true,
-          connected_backend: 'sciotte_garmin',
-          migration: 'oauth_required' as const,
+          connected_backend: 'garmin',
+          needs_reauth: true,
         },
       ],
     });
     const user = userEvent.setup();
     renderCards();
 
-    expect(
-      await screen.findByText(i18n.t('providers.migration.oauthRequired', { provider: 'Garmin' })),
-    ).toBeInTheDocument();
-    await user.click(screen.getByText(i18n.t('app.connectProvider', { provider: 'Garmin' })));
+    await user.click(await screen.findByText(i18n.t('app.reconnect')));
 
-    await waitFor(() => expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/garmin'));
-    expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    expect(await screen.findByTestId('sciotte-modal')).toBeInTheDocument();
+    expect(assign).not.toHaveBeenCalled();
   });
 
   it('names a card needing its reconnect by what it shows, and reconnects it the way it is connected', async () => {
@@ -655,25 +626,6 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
       expect(screen.queryByText(i18n.t('providers.history.add'))).not.toBeInTheDocument();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
     });
-
-    it('offers to try again from the card of a copy that did not finish', async () => {
-      getProvidersStatus.mockResolvedValue({
-        providers: [{ ...garminAwaiting(true), history: { state: 'incomplete' as const, sign_in_target: 'sciotte_garmin', archive_source: null } }],
-      });
-      const user = userEvent.setup();
-      renderCards();
-
-      const retry = await screen.findByRole('button', {
-        name: (name) => name.includes('Garmin') && name.includes(i18n.t('providers.history.retry')),
-      });
-      expect(screen.queryByText(i18n.t('providers.history.add'))).not.toBeInTheDocument();
-      await user.click(retry);
-
-      const modal = await screen.findByTestId('sciotte-modal');
-      expect(modal).toHaveTextContent('garmin');
-      expect(modal).toHaveAttribute('data-history-mode', 'true');
-      expect(assign).not.toHaveBeenCalled();
-    });
   });
 
   describe('the OAuth-callback poll is transient', () => {
@@ -715,34 +667,6 @@ describe('ProviderConnectionCards — OAuth-first with Sciotte fallback', () => 
         await vi.advanceTimersByTimeAsync(PROVIDER_LINK_POLL_INTERVAL_MS * 20);
       });
       expect(getProvidersStatus).toHaveBeenCalledTimes(callsWhenLanded);
-    });
-
-    it('keeps reading a connected card while its history is copying, until the copy settles', async () => {
-      const copying = {
-        ...garminCard('oauth'),
-        connected: true,
-        connected_backend: 'garmin',
-        history: { state: 'importing' as const, sign_in_target: 'sciotte_garmin', archive_source: null },
-      };
-      getProvidersStatus.mockResolvedValue({ providers: [copying] });
-      renderCards();
-      expect(await screen.findByTestId('provider-history-importing-sciotte_garmin')).toBeInTheDocument();
-      const before = getProvidersStatus.mock.calls.length;
-
-      getProvidersStatus.mockResolvedValue({
-        providers: [{ ...copying, history: { ...copying.history, state: 'imported' as const } }],
-      });
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(HISTORY_IMPORTING_REFRESH_MS);
-      });
-      await waitFor(() => expect(getProvidersStatus.mock.calls.length).toBeGreaterThan(before));
-      await waitFor(() => expect(screen.queryByTestId('provider-history-importing-sciotte_garmin')).toBeNull());
-
-      const settled = getProvidersStatus.mock.calls.length;
-      await act(async () => {
-        await vi.advanceTimersByTimeAsync(HISTORY_IMPORTING_REFRESH_MS * 4);
-      });
-      expect(getProvidersStatus).toHaveBeenCalledTimes(settled);
     });
   });
 });

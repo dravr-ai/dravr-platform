@@ -25,7 +25,6 @@ use pierre_database::RepositoryRegistry;
 use serde_json::{json, Value};
 use tracing::warn;
 
-use crate::commands::garmin::GarminCommand;
 #[cfg(feature = "tools-verification")]
 use crate::commands::harness::HarnessCommand;
 use crate::commands::tenant::TenantCommand;
@@ -67,17 +66,6 @@ pub(crate) fn describe(command: &Command) -> Option<LocalAudit> {
         } => Some(LocalAudit::new(
             "zones.backfill",
             format!("Re-cut stored zones for tenant {tenant_id}"),
-            json!({ "tenant_id": tenant_id }),
-        )),
-        Command::Garmin {
-            action:
-                GarminCommand::RetireHistorySessions {
-                    tenant_id,
-                    dry_run: false,
-                },
-        } => Some(LocalAudit::new(
-            "garmin.retire_history_sessions",
-            format!("Retired the Garmin sign-in sessions beside a grant in tenant {tenant_id}"),
             json!({ "tenant_id": tenant_id }),
         )),
         #[cfg(feature = "tools-verification")]
@@ -342,25 +330,6 @@ mod tests {
         assert!(
             describe(&backfill(false)).is_none(),
             "bug: a dry run changes nothing and writes no row"
-        );
-    }
-
-    #[test]
-    fn a_garmin_session_retirement_is_audited_only_when_it_writes() {
-        let retire = |dry_run| Command::Garmin {
-            action: GarminCommand::RetireHistorySessions {
-                tenant_id: "t-1".to_owned(),
-                dry_run,
-            },
-        };
-        assert_eq!(
-            describe(&retire(false)).map(|a| a.action),
-            Some("garmin.retire_history_sessions"),
-            "bug: a retirement deletes session rows"
-        );
-        assert!(
-            describe(&retire(true)).is_none(),
-            "bug: a dry run only lists the sessions and writes no row"
         );
     }
 }

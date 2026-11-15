@@ -59,6 +59,8 @@ pub mod chat;
 /// A conversation archived by `/reset` and reactivated: its statements and the bodies behind them.
 pub(crate) mod chat_archive;
 pub(crate) mod chat_backend;
+/// A conversation its owner deletes, outright or only while empty: its statements and the bodies behind them.
+pub(crate) mod chat_delete;
 /// A participant's thumbs on one reply: its statements and the bodies behind them.
 pub(crate) mod chat_feedback;
 /// A thread's rows about a group member: the prompt read that keeps only the readable ones.
@@ -67,6 +69,8 @@ pub(crate) mod chat_member_rows;
 pub(crate) mod chat_participants;
 /// The row parsers `chat_backend` emits per backend.
 pub(crate) mod chat_rows;
+/// A stopped notice gaining the envelope notice its turn's writes earned.
+pub(crate) mod chat_stop_notice;
 /// A coach's thread bound to one athlete: its row, statements and open attempt.
 pub mod chat_subject;
 /// A thread read in windows, and the topics its dividers open.
@@ -81,6 +85,8 @@ pub mod claim_verdicts;
 pub mod coach_access_requests;
 /// Repository trait and shared body for a coach's "Traité" on Coach Home attention reasons (carnet#1252).
 pub mod coach_attention_dismissals;
+/// The athlete's record of their human coach's reads of their data (carnet#1445).
+pub mod coach_data_reads;
 /// Repository trait and shared body for a coach's review of the agent's group replies (carnet#847).
 pub mod coach_reply_reviews;
 /// Shared statements, row decoders and body for coaching groups, members, invites and the transcript.
@@ -109,6 +115,8 @@ pub mod first_run_progress;
 pub mod fitness_config;
 /// `GarminPushInboxRepository`: every batch Garmin pushes, written before the 200.
 pub mod garmin_push_inbox;
+/// Shared statements for a group's weekly digest lease, run by the coaching-group repository body.
+pub(crate) mod group_digest_sql;
 /// Shared statements for group invites, run by the coaching-group repository body.
 pub(crate) mod group_invite_sql;
 /// Shared statements for a coaching group's room transcript.
@@ -171,6 +179,8 @@ pub mod prescribed_workouts;
 pub mod provider_connections;
 /// Deleting every row one provider contributed, per user on disconnect or platform-wide on termination.
 pub mod provider_data;
+/// The provider data purge every caller makes: the tables and the activity store
+pub mod provider_purge;
 /// `PushedDataRepository`: newest-receipt-wins writes for data a provider pushes.
 pub mod pushed_data;
 /// Repository traits for recipe persistence.
@@ -240,6 +250,8 @@ pub mod user_oauth_tokens;
 pub mod user_onboarding;
 /// `UserPhysiologicalProfileRepository` + `DossierRepository`: physiology row and the read-time dossier composer
 pub mod user_physiological_profiles;
+/// Statements and row decoder for an athlete's per-sport anchors, emitted by the profile repository's macro.
+pub(crate) mod user_physiology_sport_anchors;
 /// Shared statements and bodies for the single-column preference writes on the users row.
 pub mod user_preferences;
 /// Shared statements and body for the profile document, goals and user configuration.
@@ -307,6 +319,9 @@ pub use coach_access_requests::CoachAccessRequestRepository;
 pub use coach_attention_dismissals::{
     AttentionDismissal, AttentionDismissalKey, CoachAttentionDismissalRepository,
 };
+pub use coach_data_reads::{
+    CoachDataRead, CoachDataReadRepository, CoachReadClass, CoachReadSurface, NewCoachDataRead,
+};
 pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;
 pub use data_source::*;
@@ -344,6 +359,7 @@ pub use platform_post_claims::PlatformPostClaimRepository;
 pub use playbooks::*;
 pub use prescribed_workouts::*;
 pub use provider_data::*;
+pub use provider_purge::ProviderPurge;
 pub use pushed_data::*;
 pub use recipes::*;
 pub use resumable_turns::*;

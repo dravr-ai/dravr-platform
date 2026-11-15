@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ABOUTME: Fixture test for check-contremaitre-sync.sh — Check 3's tool list from the one registry scan,
-# ABOUTME: Check 1's server-rendered keys read from contremaitre, Check 8's bot-only pin, and Check 4's framing scan in all five locales
+# ABOUTME: Check 1's server-rendered keys read from contremaitre, Check 8's bot-only pin, and Check 4's framing scan of every catalogue string in all five locales
 #
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
@@ -43,6 +43,11 @@ served() {
     printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
 }
 
+# public <root> <json> — the public profile's tool names: what the SDK types describe.
+public() {
+    printf '%s\n' "$2" > "$1/crates/pierre-server/tests/fixtures/mcp_surface/tools_list_public_names.json"
+}
+
 # tree <name> — two tools, and the three mirrors Check 3 compares them with.
 tree() {
     local root="$TMP/$1"
@@ -72,6 +77,7 @@ RS
     printf '// Tool count: 2\nexport type ToolName = "alpha_tool" | "beta_tool";\n' \
         > "$root/packages/mcp-types/src/tools.ts"
     served "$root" '{"tools":[{"name":"alpha_tool"},{"name":"beta_tool"}]}'
+    public "$root" '["alpha_tool","beta_tool"]'
     echo "$root"
 }
 
@@ -93,6 +99,18 @@ expect_absent() { # $1 = label, $2 = literal the last run must NOT print
 
 echo "==== check-contremaitre-sync.sh fixture test ===="
 
+# 0. The script parses under /bin/bash, the shell its shebang names. Every case
+# below runs it through `bash`, which on a Mac is Homebrew's 5.x when that is
+# first on PATH, while pre-push runs the shebang's 3.2: an unpaired quote
+# inside a heredoc passes one and fails the other. On Linux /bin/bash is 5.x
+# and this proves the same as the cases below.
+if /bin/bash -n "$UNDER_TEST" 2>"$OUT"; then
+    pass "the script parses under /bin/bash"
+else
+    fail "the script parses under /bin/bash"
+    sed 's/^/      /' "$OUT"
+fi
+
 # 1. The baseline: two tools, three mirrors in agreement.
 root="$(tree baseline)"
 run "$root"
@@ -102,12 +120,26 @@ expect_output "two registered tools match their mirrors" "MCP tool list: 2 tools
 #     kept to Dravr's own surfaces is registered, unserved and absent from them.
 root="$(tree first_party)"
 served "$root" '{"tools":[{"name":"alpha_tool"}]}'
+public "$root" '["alpha_tool"]'
 printf '// Tool count: 1\nexport type ToolName = "alpha_tool";\n' > "$root/packages/mcp-types/src/tools.ts"
 run "$root"
-expect_output "SDK types may leave out a registered tool /mcp does not serve" "the SDK types match the 1 /mcp serves"
+expect_output "SDK types may leave out a registered tool /mcp does not serve" "the SDK types match the 1 tools of the public profile"
+
+# 1c. A coach-only tool is served to a coach but not to the public profile the
+#     SDK types describe (carnet#1426): types without it pass, types with it fail.
+root="$(tree coach_only)"
+public "$root" '["alpha_tool"]'
+printf '// Tool count: 1\nexport type ToolName = "alpha_tool";\n' > "$root/packages/mcp-types/src/tools.ts"
+run "$root"
+expect_output "SDK types may leave out a tool only a coach is offered" "the SDK types match the 1 tools of the public profile"
+root="$(tree coach_only_in_types)"
+public "$root" '["alpha_tool"]'
+run "$root"
+expect_output "SDK types naming a coach-only tool fail Check 3" "SDK type drift"
 
 root="$(tree sdk_lists_unserved)"
 served "$root" '{"tools":[{"name":"alpha_tool"}]}'
+public "$root" '["alpha_tool"]'
 run "$root"
 expect_output "SDK types naming an unserved tool fail Check 3" "SDK type drift"
 expect_absent "no clean tool list over SDK types naming an unserved tool" "MCP tool list: 2 tools match"
@@ -132,6 +164,20 @@ root="$(tree empty_fixture)"
 served "$root" '{"tools":[]}'
 run "$root"
 expect_output "an empty served fixture fails Check 3 closed" "lists no tools"
+
+# The public profile's names fail closed the same way: a fixture that cannot be
+# read, or names nothing, never reads as SDK types in sync.
+root="$(tree bad_public_fixture)"
+public "$root" 'not json'
+run "$root"
+expect_output "an unreadable public fixture fails Check 3 closed" "Could not read the public profile's tool names"
+expect_absent "no clean tool list over an unreadable public fixture" "MCP tool list: 2 tools match"
+
+root="$(tree empty_public_fixture)"
+public "$root" '[]'
+run "$root"
+expect_output "an empty public fixture fails Check 3 closed" "Could not read the public profile's tool names"
+expect_absent "no clean tool list over an empty public fixture" "MCP tool list: 2 tools match"
 
 # 2. A property declared after the final tool_definition. The shared scan
 #    refuses it (its attribution would read the schema as empty), and Check 3
@@ -173,6 +219,35 @@ impl McpTool for Delta {
 RS
 run "$root"
 expect_output "a computed tool name fails Check 3" "have a name this scan cannot read as a literal"
+
+# 4b. A schema built in a shape the scan reads no name from: an array of
+#     tuples mapped through a helper, as get_segment_history once was. The
+#     tool would read as declaring nothing, so the shared scan refuses it.
+root="$(tree unread_schema)"
+cat >> "$root/crates/demo/src/tools.rs" <<'RS'
+
+fn string_property(description: &str) -> PropertySchema {
+    PropertySchema {
+        property_type: "string".to_owned(),
+        description: Some(description.to_owned()),
+        ..Default::default()
+    }
+}
+
+impl McpTool for Epsilon {
+    fn definition(&self) -> Tool {
+        let properties: HashMap<String, PropertySchema> = [("from", "Start date.")]
+            .into_iter()
+            .map(|(name, description)| (name.to_owned(), string_property(description)))
+            .collect();
+        tool_definition("epsilon_tool", "Epsilon", object_schema(properties, None))
+    }
+}
+RS
+run "$root"
+expect_output "an unread schema fails Check 3" "Tool scan incomplete"
+expect_output "the refusal names the tool whose schema went unread" "tools.rs: epsilon_tool"
+expect_absent "no clean tool list is reported over an unread schema" "tools match"
 
 # ---------------------------------------------------------------------------
 # Check 1 and Check 8 (carnet#826). The fixture grows what they read: a
@@ -339,6 +414,36 @@ expect_framing_hit "a Spanish 'no' does not excuse English framing" "ACWR above 
 expect_framing_hit "French framing still fails" "Un ACWR élevé est un risque de blessure." fr fr_hit
 expect_framing_clean "French negated framing still passes" "Ne présente jamais l'ACWR comme un risque de blessure." fr fr_clean
 expect_framing_clean "an injury word with no load word passes" "La fuerza reduce el riesgo de lesión." es es_noload
+
+# 14. Check 4 reads every string in the catalogue: a messaging string is the
+# platform's own voice — the envelope notice under an edited session among them
+# (carnet#1495) — and answers to the same framing as a use case.
+catalogue_framing() { # <text> <name> — the text as messaging.notice in every locale
+    local saved="$TMP/strings_saved_$2"
+    mkdir -p "$saved"
+    cp "$CM"/strings/*.json "$saved/"
+    for l in "${LOCALES[@]}"; do
+        printf '{"common": {"greet": "Hi {0}", "cancel": "Cancel {{name}}"}, "messaging": {"notice": "%s"}}\n' \
+            "$1" > "$CM/strings/$l.json"
+    done
+    run_override "$(catalogue_tree "catalogue_framing_$2")" "$CM"
+    cp "$saved"/*.json "$CM/strings/"
+}
+catalogue_framing "This load spike raises your injury risk." msg_hit
+expect_output "a messaging string framing load as injury risk fails" "[ACWR presented as injury risk]"
+expect_output "the hit names the messaging key it read" "strings/en.json:messaging.notice"
+catalogue_framing "Saved as written, outside what the evidence supports." msg_clean
+expect_output "a messaging string without the framing passes" "Contremaitre catalogues carry no retired ACWR/TSB framing"
+
+# 14b. A strings/ directory holding no catalogue fails Check 4 closed: a scan
+# that read no string would otherwise report the same green as a clean one.
+root="$(catalogue_tree catalogue_framing_none)"
+mkdir -p "$TMP/strings_saved_none"
+mv "$CM"/strings/*.json "$TMP/strings_saved_none/"
+run_override "$root" "$CM"
+mv "$TMP/strings_saved_none"/*.json "$CM/strings/"
+expect_output "a strings directory with no catalogue fails Check 4 closed" "SCAN-INCOMPLETE: no string read from $CM/strings/*.json"
+expect_absent "no clean framing scan over an unread catalogue" "Contremaitre catalogues carry no retired ACWR/TSB framing"
 
 echo ""
 if [[ "$failures" -gt 0 ]]; then

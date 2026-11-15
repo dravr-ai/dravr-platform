@@ -263,7 +263,6 @@
     "confirmYourEmail": "Bestätige deine E-Mail",
     "connect": "Verbinden",
     "connectAccountsBlurb": "Verbinde deine Fitness-Konten, um Aktivitäten, Gesundheitswerte und mehr zu synchronisieren.",
-    "connectAnytime": "Du kannst jederzeit verbinden — dein Agent braucht einen Anbieter, um deine Aktivität zu lesen.",
     "connectChannelTitle": "{{channel}} verbinden",
     "connectOneTap": "Mit einem Tippen verbinden",
     "connectProvider": "{{provider}} verbinden",
@@ -281,7 +280,6 @@
     "continueWith": "Weiter mit",
     "continueWithGoogle": "Weiter mit Google",
     "continueWithProvider": "Weiter mit {{provider}}",
-    "continueWithoutConnecting": "Ohne Verbindung fortfahren",
     "convDeleteTitle": "Unterhaltung löschen",
     "convListTitle": "Chats",
     "convMenuMarkUnread": "Als ungelesen markieren",
@@ -333,7 +331,6 @@
     "definePromptPlaceholderLong": "Lege fest, wie sich dieser Agent verhalten und antworten soll…",
     "deleteAgent": "Agenten löschen",
     "deleteFailed": "Löschen fehlgeschlagen",
-    "deleteGroup": "Gruppe löschen",
     "demote": "Herabstufen",
     "describeAgentPlaceholder": "Beschreibe kurz, was dieser Agent macht",
     "description": "Beschreibung",
@@ -512,12 +509,9 @@
     "oauthAllFieldsRequired": "Client-ID, Client-Secret und Redirect-URI sind alle erforderlich.",
     "oauthCredentials": "OAuth-Zugangsdaten",
     "oauthCredsBlurb": "Richte eigene OAuth-Zugangsdaten ein, um deine eigenen Entwickler-Apps statt der Server-Standards zu nutzen.",
-    "obAlmostThereGreeting": "Fast geschafft, {{name}}",
-    "obConnectGreeting": "Verbinde {{channel}}, {{name}}",
     "obMostlySport": ", überwiegend {{sport}}.",
     "obParqGreeting": "Ein kurzer Gesundheitscheck, {{name}}",
     "obStartingLineup": "Hier ist deine Startaufstellung, {{name}}",
-    "obTellMeGreeting": "Erzähl mir von deinem Training, {{name}}",
     "obWhyHint": "Darauf kommt dein Agent zurück, wenn das Training hart wird.",
     "obWindowSummaryOne": "In den letzten {{days}} Tagen haben wir {{count}} Aktivität erfasst",
     "obWindowSummaryN": "In den letzten {{days}} Tagen haben wir {{count}} Aktivitäten erfasst",
@@ -571,12 +565,6 @@
     "prefetchActivity": "Aktivitätsdaten vorab laden",
     "preparingConnection": "Verbindung wird vorbereitet…",
     "preparingLink": "Dein {{channel}}-Link wird vorbereitet…",
-    "previewAthlete": "Eine erfundene Athletin, Maya, drei Wochen im Marathontraining.",
-    "previewHide": "Beispiel ausblenden",
-    "previewNotYourData": "Beispiel — nicht deine Daten",
-    "previewQuestion": "Die Beine fühlten sich beim heutigen Tempolauf schwer an. Soll ich den langen Lauf am Samstag trotzdem machen?",
-    "previewSeeFirst": "Sieh dir zuerst an, wie Coaching aussieht",
-    "previewSpecifics": "Die Details stammen aus dem Dienst, den du verbindest. Ohne ihn kann ein Agent nur die allgemeine Antwort geben.",
     "privacyAnalyticsBlurb": "Hilf mit, Dravr mit Nutzungsstatistiken zu verbessern. Mit deiner Einwilligung erfasst PostHog, welche Funktionen du nutzt, verknüpft mit der E-Mail-Adresse deines Kontos. Es bleibt aus, bis du es einschaltest, und du kannst es jederzeit ausschalten.",
     "privacyAndData": "Datenschutz und Daten",
     "privacyNote": "Datenschutzhinweis",
@@ -986,12 +974,9 @@
       "tableCaptionTitled": "[Tabelle: {{title}}]"
     },
     "copyMessage": "Nachricht kopieren",
-    "dangerZone": "Gefahrenbereich",
     "dataContextSection": "Datenkontext",
     "dayToday": "Heute",
     "dayYesterday": "Gestern",
-    "deleteAction": "Löschen",
-    "deleteChatHint": "Diesen Chat und seine Nachrichten löschen.",
     "deleteConversation": "Unterhaltung löschen",
     "descriptionLabel": "Beschreibung",
     "descriptionPlaceholder": "Kurze Beschreibung des Schwerpunkts dieses Agenten",
@@ -1244,7 +1229,9 @@
         "offline": "Du bist offline. Prüfe deine Verbindung."
       }
     },
-    "verdictsNone": "Keine Urteile"
+    "verdictsNone": "Keine Urteile",
+    "deleteChatRow": "Diesen Chat löschen…",
+    "deleteChatTitle": "Diesen Chat löschen?"
   },
   "coachHome": {
     "switch": {
@@ -1473,6 +1460,15 @@
     },
     "phase": {
       "draft": "Entwurf"
+    },
+    "pendingInvite": {
+      "status": "Eingeladen · noch nicht beigetreten",
+      "why": "Noch niemand ist der Gruppe über diesen Link beigetreten. Er gilt bis zum {{date}}.",
+      "whyNoExpiry": "Noch niemand ist der Gruppe über diesen Link beigetreten.",
+      "copyAgain": "Link erneut kopieren",
+      "copied": "Link kopiert",
+      "copyFailed": "Der Link konnte nicht kopiert werden.",
+      "after": "Sobald eine Athletin oder ein Athlet beitritt und Daten teilt, erscheint sie oder er hier an den Morgen, an denen etwas deine Aufmerksamkeit braucht."
     }
   },
   "coachReview": {
@@ -1686,7 +1682,22 @@
         "member": "Mitglied",
         "owner": "Eigentümer"
       },
-      "status_summary": "{0} — Statistiken:\n- Mitglieder: {1}\n- Aktiv: {2}\n- Peer-Sharing: {3}"
+      "status_summary": "{0} — Statistiken:\n- Mitglieder: {1}\n- Aktiv: {2}\n- Peer-Sharing: {3}",
+      "reads_header": "Zugriffe deines menschlichen Coaches auf deine Daten in {0}, neueste zuerst:",
+      "reads_line": "• {0} — {1}: {2} ({3})",
+      "reads_none": "{0}: Dein menschlicher Coach hat in den letzten {1} Monaten keine deiner Daten eingesehen.",
+      "reads_training": "Training",
+      "reads_wellness": "Wohlbefinden",
+      "reads_former_coach": "ein früherer menschlicher Coach",
+      "reads_source_plan_view": "dein Plan, aus den Gruppeninfos",
+      "reads_source_plan_command": "der Befehl /plan",
+      "reads_source_roster": "die Athletenliste",
+      "reads_source_coach_thread": "die Unterhaltung über dich",
+      "reads_source_group_room": "der Raum der Gruppe",
+      "reads_source_group_stats": "die Statistiken der Gruppe",
+      "reads_source_group_report": "der Wochenbericht der Gruppe",
+      "reads_source_group_health": "die Gesundheitshinweise der Gruppe",
+      "reads_source_weekly_digest": "die Wochenzusammenfassung der Gruppe"
     },
     "group-coach": {
       "description": "Den Dravr-Agenten dieser Gruppe festlegen oder ihren menschlichen Coach lösen"
@@ -1711,6 +1722,9 @@
     },
     "group-members": {
       "description": "Gruppenmitglieder auflisten"
+    },
+    "group-reads": {
+      "description": "Sieh, welche deiner Daten der menschliche Coach deiner Gruppe eingesehen hat, mit welchem Tool und wann"
     },
     "group-respond": {
       "description": "Festlegen, wann der Agent dieser Gruppe antwortet — auf jede Nachricht oder nur bei Erwähnung"
@@ -1773,7 +1787,8 @@
       "athlete_ambiguous": "„{0}“ passt auf mehrere deiner Athleten: {1}. Bitte gib einen genaueren Namen an.",
       "athlete_not_sharing": "{0} teilt keine Daten mehr mit dir, daher wird der Plan nicht angezeigt. Mit `/group consent coach yes` lässt sich das Teilen wieder einschalten.",
       "athlete_several_tenants": "{0} gehört zu mehreren Arbeitsbereichen, daher kann der Plan nicht zuverlässig angezeigt werden.",
-      "athlete_plans_disabled": "Trainingspläne sind im Arbeitsbereich von {0} ausgeschaltet."
+      "athlete_plans_disabled": "Trainingspläne sind im Arbeitsbereich von {0} ausgeschaltet.",
+      "session_notes": "{0} ({1})"
     },
     "plan-share": {
       "description": "Deinen Trainingsplan in den Raum posten, in dem du tippst — Countdown zum Ziel plus heute und morgen, die ganze Woche oder nur heute"
@@ -1911,6 +1926,21 @@
     "action": "Meine Daten herunterladen",
     "description": "Erhalte eine Kopie der persönlichen Daten, die Dravr über dich speichert, als eine JSON-Datei: Profil, verbundene Anbieter, Aktivitäten, Gesundheitsdaten, Pläne, Unterhaltungen und Notizen. Passwörter, Tokens und Schlüssel sind nie enthalten.",
     "failed": "Deine Daten konnten nicht exportiert werden. Versuche es gleich noch einmal.",
+    "originalsAction": "Meine Dateien vorbereiten",
+    "originalsBuilding": "Deine Dateien werden vorbereitet… Das kann einige Minuten dauern; du kannst diese Seite verlassen und später zurückkommen.",
+    "originalsBusy": "Gerade werden zu viele Dateien vorbereitet. Versuche es gleich noch einmal.",
+    "originalsDescription": "Erhalte alle Originaldateien, die Dravr für dich aufbewahrt, als eine ZIP-Datei: die Aufzeichnungen, die du importiert oder hochgeladen hast, und die Screenshots, die du uns geschickt hast, mit einer Liste der Aktivitäten, zu denen jede gehört.",
+    "originalsDownload": "Meine Dateien herunterladen",
+    "originalsFailed": "Deine Dateien konnten nicht vorbereitet werden. Versuche es gleich noch einmal.",
+    "originalsIncomplete": "Einige Dateien konnten nicht aufgenommen werden. Die Liste in der ZIP-Datei (manifest.json) nennt sie.",
+    "originalsOtherBuilding": "Eine andere Datei wird gerade vorbereitet. Warte, bis sie fertig ist, und versuche es dann erneut.",
+    "originalsRateLimited": "Du hast deine Dateien heute schon mehrmals vorbereitet. Versuche es morgen erneut.",
+    "originalsReady": "Deine Dateien sind bereit ({{files}} Dateien). Du kannst sie bis {{date}} herunterladen.",
+    "originalsSealHint": "Mindestens 12 Zeichen. Dravr speichert deine Passphrase nie: Wenn du sie verlierst, lässt sich die Datei nicht öffnen, und du kannst eine neue vorbereiten.",
+    "originalsSealLabel": "Datei mit einer Passphrase schützen (optional)",
+    "originalsSealTooShort": "Verwende mindestens 12 Zeichen.",
+    "originalsSealed": "Diese Datei ist mit deiner Passphrase geschützt.",
+    "originalsTitle": "Deine Originaldateien",
     "partial": "Deine Datei ist fertig, aber unvollständig: Ein Teil deiner Daten konnte nicht gelesen werden. Die Datei nennt die fehlenden Teile unter failed_tables. Versuche es gleich noch einmal.",
     "partialLimit": "Deine Datei ist fertig, aber unvollständig: Sie hat eine Grenze für einen Export erreicht, bevor alle deine Daten geschrieben waren. Die Datei nennt unter skipped_tables, was fehlt.",
     "partialLimitAndFailed": "Deine Datei ist fertig, aber unvollständig: Sie hat eine Grenze für einen Export erreicht, bevor alle deine Daten geschrieben waren, und ein Teil deiner Daten konnte nicht gelesen werden. Die Datei nennt unter skipped_tables, was fehlt, und unter failed_tables, was nicht gelesen werden konnte.",
@@ -1982,14 +2012,14 @@
     "unlinked": "{{platform}}-Verknüpfung beendet",
     "waitingFor": "Wartet auf Bestätigung von {{member}}",
     "wellnessAppsGranted": "Teilt Schlaf, HRV, Ruhepuls, Gewicht, Tagesform und Tagesnotizen",
-    "wellnessAppsHint": "{{coach}} liest sie über Dravr, egal aus welcher App sie kommen. Beim Ausschalten endet dieser Zugriff, und Dravr entfernt nur, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto.",
+    "wellnessAppsHint": "{{coach}} liest sie über Dravr und über die KI-Tools, die {{coach}} mit Dravr verbindet, egal aus welcher App sie kommen. Beim Ausschalten endet dieser Zugriff, und Dravr entfernt nur, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto.",
     "wellnessAppsLabel": "{{coach}} deinen Schlaf, deine HRV, deinen Ruhepuls, dein Gewicht, deine Tagesform und deine Tagesnotizen aus deinen verbundenen Apps sehen lassen",
     "wellnessAppsRevokeBody": "{{coach}} sieht deinen Schlaf, deine HRV, deinen Ruhepuls, dein Gewicht, deine Tagesform und deine Tagesnotizen nicht mehr. Dravr entfernt, was es über das {{platform}}-Konto von {{coach}} synchronisiert hat; was deine eigenen Apps synchronisieren, bleibt in deinem Konto.",
     "wellnessReadOwnSource": "Wellness-Daten kommen aus der eigenen Garmin- oder WHOOP-Verbindung",
     "wellnessReadOwnSourceNote": "Deine eigene Garmin- oder WHOOP-Verbindung gibt Dravr diese Daten schon, daher liest die Verknüpfung nichts davon, solange sie besteht.",
     "wellnessRevokeConfirm": "Nicht mehr teilen",
     "wellnessRevokeTitle": "Wellness nicht mehr teilen?",
-    "wellnessWidenedBody": "Wenn du deine Wellness mit {{coach}} teilst, umfasst das jetzt Schlaf, HRV, Ruhepuls, Gewicht, Tagesform und Tagesnotizen aus allen deinen verbundenen Apps, nicht nur aus {{platform}}.",
+    "wellnessWidenedBody": "Wenn du deine Wellness mit {{coach}} teilst, umfasst das jetzt Schlaf, HRV, Ruhepuls, Gewicht, Tagesform und Tagesnotizen aus allen deinen verbundenen Apps, nicht nur aus {{platform}}. {{coach}} kann sie über Dravr und über die KI-Tools lesen, die {{coach}} mit Dravr verbindet.",
     "wellnessWidenedKeep": "Weiter teilen",
     "wellnessWidenedTitle": "Das Teilen deiner Wellness umfasst jetzt alle deine Apps",
     "withdraw": "Zurückziehen"
@@ -2257,7 +2287,6 @@
     "avgWeeklyVolume": "Ø Wochenvolumen",
     "backToGroups": "Zurück zu den Gruppen",
     "chatFailed": "Gruppenchat konnte nicht geöffnet werden",
-    "colActions": "Aktionen",
     "colJoined": "Beigetreten",
     "colName": "Name",
     "concerns": "Auffälligkeiten",
@@ -2267,9 +2296,6 @@
     "dataSharingOnBody": "Diese Gruppe kann deine Trainingsdaten jetzt lesen.",
     "declining": "Rückläufig",
     "deleteFailed": "Gruppe konnte nicht gelöscht werden",
-    "deleteGroup": "Gruppe löschen",
-    "deleteHint": "Diese Gruppe dauerhaft archivieren. Alle Mitglieder werden entfernt.",
-    "demoteNamed": "{{name}} zum Mitglied herabstufen",
     "demoteToMember": "Zum Mitglied herabstufen",
     "description": "Beschreibung",
     "descriptionPlaceholder": "Worum geht es in dieser Gruppe?",
@@ -2281,7 +2307,6 @@
     "digestOff": "Aus",
     "digestOffHint": "Es wird nichts gesendet.",
     "emptyTitle": "Noch keine Gruppen",
-    "expiredInvitesCount": "Abgelaufen / verwendet ({{n}})",
     "flagDeepFatigue": "Tiefe Ermüdung",
     "flagDetail": {
       "deepFatigue": "Form bei {{pct}} % der chronischen Belastung (TSB {{tsb}}), tiefste Ermüdungsstufe",
@@ -2306,45 +2331,25 @@
     "inviteCopyAria": "Einladungslink in die Zwischenablage kopieren",
     "inviteCreate": "Erstellen",
     "inviteCreateFailed": "Einladung konnte nicht erstellt werden",
-    "inviteCreateTitle": "Einladungslink erstellen",
-    "inviteDeactivate": "Einladung deaktivieren",
-    "inviteDeactivateAria": "Einladung deaktivieren",
     "inviteDeactivateFailed": "Einladung konnte nicht deaktiviert werden",
-    "inviteDeactivateThis": "Diese Einladung deaktivieren",
-    "inviteDeactivated": "Deaktiviert",
-    "inviteEmptyHint": "Erstelle einen Einladungslink, damit andere dieser Gruppe beitreten.",
     "inviteEmptyTitle": "Noch keine Einladungen erstellt.",
-    "inviteExpired": "Abgelaufen",
-    "inviteExpiresAfter": "Läuft ab nach",
-    "inviteMaxReached": "Maximale Nutzungen erreicht",
-    "inviteMaxUses": "Maximale Nutzungen",
-    "inviteNew": "Neue Einladung",
     "inviteNoExpiry": "Ohne Ablauf",
     "inviteReadyToShare": "Der Einladungslink kann jetzt geteilt werden.",
-    "inviteShareHint": "Teile Einladungslinks, damit andere dieser Gruppe beitreten.",
     "inviteShareMessage": "Tritt {{group}} auf Dravr bei: {{link}}",
-    "inviteType": "Einladungsart",
     "inviteTypeMember": "Mitglied (Athlet)",
     "inviteUnlimited": "Unbegrenzt",
-    "inviteUsed": "Nutzungen: {{n}}",
     "inviteUses": "Nutzungen: {{used}} / {{max}}",
     "joinCode": "Einladungscode",
     "joinGroup": "Gruppe beitreten",
     "joinInvalid": "Ungültiger oder abgelaufener Einladungscode.",
     "joinTitle": "Einer Gruppe beitreten",
     "joinWithCode": "Mit Code beitreten",
-    "leave": "Verlassen",
     "leaveFailed": "Gruppe konnte nicht verlassen werden",
-    "leaveGroup": "Gruppe verlassen",
-    "leaveHint": "Du verlierst den Zugang zu dieser Gruppe und ihren Daten.",
     "maxMembers": "Maximale Mitgliederzahl",
     "member": "Mitglied",
     "memberCount": "Mitglieder: {{n}}",
     "memberFallback": "Mitglied",
-    "name": "Gruppenname",
     "namePlaceholder": "Marathon-Crew",
-    "noMembers": "Keine Mitglieder in dieser Gruppe.",
-    "noStats": "Noch keine Statistiken.",
     "noneFlagged": "Diese Woche ist kein Mitglied markiert.",
     "notFound": "Gruppe nicht gefunden.",
     "ofTotal": "von {{n}} insgesamt",
@@ -2352,21 +2357,17 @@
     "peerSharing": "Teilen unter Mitgliedern",
     "peerSharingDescription": "Erlaubt Mitgliedern, die zustimmen, die aggregierten Trainingsdaten der anderen zu sehen.",
     "peerSharingEnable": "Datenaustausch unter Mitgliedern aktivieren",
-    "promoteNamed": "{{name}} zum Admin befördern",
     "promoteToAdmin": "Zum Admin machen",
     "recommendations": "Empfehlungen",
     "removeFailed": "Mitglied konnte nicht entfernt werden",
-    "removeMember": "Mitglied entfernen",
-    "removeMemberAria": "Mitglied entfernen",
-    "removeNamed": "{{name}} aus der Gruppe entfernen",
     "report": {
       "concern": "{{name}}: {{detail}}",
       "fresh": "{{name}}: frische Form ({{pct}} % der chronischen Belastung, TSB {{tsb}})",
-      "reviewFlagged": "Mitglieder mit hohem Übertrainingsrisiko: {{n}}. Passe ihre Erholung gegebenenfalls an.",
       "trendDeclining": "Das Gruppenvolumen liegt unter der Vorwoche – melde dich bei den weniger aktiven Mitgliedern.",
       "trendImproving": "Das Gruppenvolumen liegt über der Vorwoche – achte darauf, dass die Erholung mithält.",
       "trendStable": "Das Gruppenvolumen ist gegenüber der Vorwoche stabil.",
-      "summaryDistance": "{{active}}/{{total}} Mitglieder diese Woche aktiv, im Schnitt {{distance}} pro Mitglied."
+      "summaryDistance": "{{active}}/{{total}} Mitglieder diese Woche aktiv, im Schnitt {{distance}} pro Mitglied.",
+      "reviewDeepFatigue": "Mitglieder in tiefer Ermüdung, mit einer Form unter -30 % ihrer chronischen Belastung: {{n}}. Wirf einen Blick auf ihre Erholung."
     },
     "respondEvery": "Auf jede Nachricht",
     "respondMentioned": "Nur wenn er erwähnt wird",
@@ -2377,20 +2378,15 @@
     "roomHint": "Nachrichten von allen Oberflächen landen hier, sobald die Gruppe zu reden beginnt.",
     "roomLoadFailed": "Das Raumprotokoll konnte nicht geladen werden.",
     "saveFailed": "Einstellungen konnten nicht gespeichert werden",
-    "saveSettings": "Einstellungen speichern",
     "settingsTitle": "Gruppeneinstellungen",
     "shareMyData": "Meine Trainingsdaten mit dieser Gruppe teilen",
     "shareMyDataHint": "Erlaubt dem Agenten, dich mit der übrigen Gruppe zu vergleichen. Gilt nur für deine Mitgliedschaft.",
     "sharingOff": "Teilen aus",
-    "sharingOffHint": "Das Teilen in der Gruppe ist aus, deine Daten bleiben also ohnehin privat.",
     "sharingOffNotice": "Deine Trainingsdaten sind für diese Gruppe nicht mehr lesbar.",
     "sharingOn": "Teilen aktiviert",
     "stable": "Stabil",
-    "tabAnalytics": "Analysen",
     "tabInvites": "Einladungen",
     "tabMembers": "Mitglieder",
-    "tabRoom": "Raum",
-    "tabSettings": "Einstellungen",
     "tabStats": "Statistiken",
     "thisWeek": "Diese Woche",
     "weeklyReport": "Wochenbericht",
@@ -2405,7 +2401,45 @@
     "signupCodeBadge": "Anmeldecode",
     "sortBy": "Sortieren nach",
     "sortAscending": "Aufsteigend",
-    "sortDescending": "Absteigend"
+    "sortDescending": "Absteigend",
+    "info": {
+      "whoTitle": "Wer dabei ist",
+      "sharingTitle": "Was du teilst",
+      "agentTitle": "Der Agent",
+      "agentReplies": "Antwortet im Raum",
+      "agentEvery": "{{agent}} liest im Raum mit und antwortet auf jede Nachricht.",
+      "agentMentions": "{{agent}} verfolgt den Raum und antwortet dir, wenn du ihn mit {{handle}} erwähnst.",
+      "agentMentionsNoHandle": "{{agent}} verfolgt den Raum und antwortet, wenn jemand ihn erwähnt.",
+      "settingsRow": "Gruppeneinstellungen",
+      "settingsHint": "Name, Beschreibung, Einladungen",
+      "settingsHintNoInvites": "Name, Beschreibung, Antworten des Agenten",
+      "roomRow": "Verlauf des Raums",
+      "leaveRow": "Diese Gruppe verlassen…",
+      "leaveTitle": "Diese Gruppe verlassen?",
+      "leaveConfirm": "Gruppe verlassen",
+      "deleteRow": "Diese Gruppe löschen…",
+      "deleteTitle": "Diese Gruppe löschen?",
+      "deleteConfirm": "Gruppe löschen",
+      "moreActions": "Weitere Aktionen für {{name}}",
+      "inviteMoreActions": "Weitere Aktionen für die Einladung {{code}}",
+      "removeFromGroup": "Aus der Gruppe entfernen…",
+      "removeTitle": "{{name}} entfernen?",
+      "nameLabel": "Gruppenname",
+      "autosaveHint": "Änderungen werden sofort gespeichert.",
+      "inviteAthlete": "Lade die Person ein, die du trainierst",
+      "newInvite": "Neuer Einladungslink",
+      "inviteTypeLabel": "Einladungsart",
+      "expiresAfterLabel": "Läuft ab nach",
+      "maxUsesLabel": "Anzahl der Nutzungen",
+      "expiryDayOne": "{{count}} Tag",
+      "expiryDayN": "{{count}} Tage",
+      "useLimitOne": "{{count}} Nutzung",
+      "useLimitN": "{{count}} Nutzungen",
+      "deactivateInvite": "Link deaktivieren…",
+      "deactivateInviteBody": "Dieser Einladungslink funktioniert ab sofort nicht mehr. Wer ihn noch nicht benutzt hat, braucht einen neuen.",
+      "noAthlete": "Noch keine Athleten in dieser Gruppe.",
+      "deactivateInviteTitle": "Diesen Link deaktivieren?"
+    }
   },
   "home": {
     "plan": {
@@ -2423,7 +2457,8 @@
       "routeDistanceDraft": "Schlag mir eine {{distance}} lange Strecke in meiner Nähe für meine Einheit am {{date}} vor: {{workout}}",
       "loadFailed": "Dein Plan konnte nicht geladen werden.",
       "hideSuggestion": "Ausblenden",
-      "hideSuggestionAria": "Planvorschlag ausblenden"
+      "hideSuggestionAria": "Planvorschlag ausblenden",
+      "emptyBodyHealthFirst": "Erst der Gesundheitscheck, dann plant dein Agent deine Saison Woche für Woche."
     },
     "activities": {
       "heading": "Letzte Aktivitäten",
@@ -2576,14 +2611,15 @@
       "folded": "Alles eingerichtet. Unter Einstellungen › Erste Schritte holst du es zurück.",
       "hide": "Ausblenden",
       "hideAria": "Erste Schritte ausblenden",
+      "meterContinue": "Weiter",
+      "meterNext": "Nächster Schritt: {{step}}",
       "rows": {
         "checkIn": {
           "hintDaily": "Jeden Morgen um {{time}}",
-          "hintOff": "Wähle in den Einstellungen, wie oft",
           "hintThreePerWeek": "Drei Morgen pro Woche um {{time}}",
           "hintWeekly": "Einmal pro Woche um {{time}}",
-          "needsData": "Beginnt, sobald deine ersten Daten da sind",
-          "title": "Dein täglicher Check-in"
+          "title": "Dein täglicher Check-in",
+          "hint": "Wie oft deine Morgennachricht kommt"
         },
         "connect": {
           "doneHint": "{{provider}} verbunden",
@@ -2598,9 +2634,17 @@
           "hint": "Antworte {{lead}} in deinem Chat",
           "title": "Lerne dein Team kennen"
         },
-        "profile": {
-          "hint": "<num>{{covered}}</num> von <num>{{total}}</num> Themen",
-          "title": "Vervollständige dein Profil"
+        "chatApp": {
+          "title": "Schreib mir auch anderswo",
+          "doneHint": "{{app}} eingerichtet"
+        },
+        "healthCheck": {
+          "title": "Gesundheitscheck",
+          "hint": "1 Min. · vor deinem ersten Plan"
+        },
+        "goalWhy": {
+          "title": "Dein Ziel und dein Warum",
+          "hint": "3 Fragen · dein Agent kommt darauf zurück"
         }
       },
       "title": "Erste Schritte"
@@ -2610,6 +2654,8 @@
       "empty": "Noch kein Team.",
       "findMore": "Mehr finden",
       "leads": "Leitet deinen Chat",
+      "manage": "Verwalten",
+      "manageAria": "Dein Team verwalten",
       "openAgentAria": "Mit {{agent}} sprechen",
       "pick": "Stell dein Team zusammen",
       "title": "Dein Team"
@@ -2620,6 +2666,9 @@
       "planSuggestionHint": "Wird auf der Startseite angezeigt, solange du keinen Plan hast.",
       "gettingStarted": "Erste Schritte",
       "gettingStartedHint": "Wird oben bei Heute angezeigt, bis deine ersten Schritte erledigt sind."
+    },
+    "firstSteps": {
+      "saveFailed": "Das konnte nicht gespeichert werden. Versuch es noch einmal."
     }
   },
   "hosted": {
@@ -2657,7 +2706,6 @@
       "signInUnavailable": "Die Anmeldung bei {0} ist gerade nicht möglich. Das ist meist vorübergehend – versuche es in ein paar Minuten erneut.",
       "signInChallenged": "{0} hat eine zusätzliche Sicherheitsprüfung verlangt, die wir gerade nicht automatisch abschließen können. Versuche es bitte etwas später erneut.",
       "signInPaused": "Die Anmeldung bei {0} ist pausiert, während wir auf die offizielle {0}-Verbindung umstellen.",
-      "signInOauthRequired": "{0} verbindet sich jetzt über die offizielle Anmeldung. Geh zurück und wähle {0}.",
       "signInExpired": "Diese Anmeldung ist nicht mehr aktiv. Starte die Anmeldung bitte erneut.",
       "tryAgain": "Erneut versuchen"
     },
@@ -2676,9 +2724,6 @@
       "tagEmailPassword": "E-Mail / Passwort",
       "tagEmailOrUsernamePassword": "E-Mail oder Benutzername / Passwort",
       "tagImportHistory": "Meinen Verlauf importieren",
-      "tagHistoryImporting": "Verlauf wird kopiert…",
-      "tagHistoryIncomplete": "Erneut versuchen",
-      "tagMoveToOfficial": "Wechsle zur offiziellen {0}-Verbindung",
       "stravaFallback": "Die Anmeldung bei Strava wurde nicht abgeschlossen – du kannst dich stattdessen mit deiner Strava-E-Mail und deinem Passwort verbinden.",
       "signInIncomplete": "Diese Anmeldung wurde nicht abgeschlossen. Geh zurück und versuche es erneut.",
       "historySignInNote": "Melde dich einmal an, um deinen Verlauf zu kopieren; {0} liefert deine neuen Trainings weiter.",
@@ -2733,17 +2778,15 @@
     }
   },
   "humanCoach": {
-    "accessPendingBody": "Deine Gruppe ist bereit, aber du bist noch nicht ihr Coach. Den Coach-Zugang gibt es mit einem TrainingPeaks-Coach-Konto, oder das Dravr-Team schaltet ihn für dich frei. Wenn du ein intervals.icu-Konto verbindest, das Athleten trainiert, fragt Dravr das Team für dich an.",
-    "accessPendingHeading": "Coach-Zugang ausstehend",
     "attached": "Menschlicher Coach zugeordnet",
     "attachedBadge": "Coach zugewiesen",
     "calendarWriteStep": "Auf {{platform}} muss {{coach}} auch dein menschlicher Coach sein: Öffne intervals.icu/athletes, klicke auf {{coach}} und wähle die Rolle Coach, nicht Follower.",
-    "cardDescription": "Erstelle Pläne für die Athletinnen und Athleten, die du coachst, mit den Planungswerkzeugen für Coaches. Keine Fragen zu deinem eigenen Training.",
+    "cardDescription": "Dravr liest das Training deiner Athleten, entwirft Pläne, die du veröffentlichst, und antwortet mit dir in ihrer Gruppe.",
     "coach": "Coach",
-    "coachAndTrainCardDescription": "Die Planungswerkzeuge für Coaches, dazu ein Agent, der auch dein eigenes Training begleitet.",
+    "coachAndTrainCardDescription": "Alles, was Dravr für einen Coach tut, dazu ein Agent, der auch dein eigenes Training begleitet.",
     "detachQ": "Den menschlichen Coach von dieser Gruppe lösen? Seine Athletenverknüpfungen in dieser Gruppe enden, und er verliert den Zugriff auf die Mitgliederliste der Gruppe.",
     "detached": "Der menschliche Coach wurde von dieser Gruppe gelöst.",
-    "groupStepIntro": "Jeder Athlet bekommt seine eigene Gruppe: du als sein Coach, dein Athlet und dein Agent, der im Verlauf an deiner Seite antwortet. Fang mit deinem ersten Athleten an.",
+    "groupStepIntro": "Eine Gruppe pro Athlet: du, dein Athlet und der Agent, der mit dir im Verlauf antwortet.",
     "group_detached": "{0} hat jetzt keinen menschlichen Coach mehr.",
     "group_role": "Coach",
     "iCoachAndTrain": "Ich trainiere andere und mich selbst",
@@ -2756,13 +2799,11 @@
     "invite_body": "Coach-Einladung für {0} — wer sie einlöst, wird der menschliche Coach der Gruppe:\nhttps://app.dravr.ai/groups/join/{1}\n\nCode: {2}\n7 Tage gültig.",
     "joined_group": "Du bist jetzt der menschliche Coach von {0}.",
     "none": "Kein menschlicher Coach zugeordnet. Teile eine Coach-Einladung, um jemanden dazuzuholen.",
-    "noneHint": "Kein menschlicher Coach zugewiesen. Erstelle oben eine Coach-Einladung und teile sie mit dem Coach, der diese Gruppe betreuen soll.",
     "noneMember": "Diese Gruppe hat noch keinen menschlichen Coach.",
     "persona_summary": "Die Power-athlete-Strenge, angewandt auf die Athleten, die du trainierst.",
     "remove": "Coach entfernen",
     "removeFailed": "Coach konnte nicht entfernt werden",
     "removed": "Coach entfernt",
-    "roomHint": "Der KI-Agent antwortet in diesem Raum; ein menschlicher Coach kann ihn ebenfalls betreuen.",
     "trainingpeaksAccount": "Coach-Konto",
     "trainingpeaksAccountHint": "TrainingPeaks führt für ein Coach-Konto keinen Kalender. Verknüpfe deine Athleten aus einer Gruppe, die du coachst.",
     "youCoach": "Du coachst diese Gruppe",
@@ -2801,7 +2842,14 @@
       "conflictWeeks": "Im Entwurf und im aktuellen Plan geänderte Wochen: {{weeks}}",
       "conflictSeason": "Die Saison von {{name}} wurde nach Beginn dieses Entwurfs neu aufgebaut, daher passen die Wochen des Entwurfs womöglich nicht mehr dazu.",
       "overwrite": "Trotzdem veröffentlichen",
-      "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher kann der Plan nicht mehr geändert werden."
+      "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher kann der Plan nicht mehr geändert werden.",
+      "pushed": "Der Plan steht auch im Kalender von {{name}}.",
+      "pushedPartly": "Der Plan steht im Kalender von {{name}}, bis auf einige Tage, die dort bearbeitet wurden oder nicht geschrieben werden konnten. Frag den Agenten hier, welche.",
+      "pushNoCalendar": "Nicht im Kalender von {{name}}: Es ist kein Kalender verbunden, in den Dravr schreiben kann.",
+      "pushNoConsent": "Nicht im Kalender von {{name}}: {{name}} hat dir das Schreiben noch nicht erlaubt.",
+      "pushChooseCalendar": "Nicht im Kalender von {{name}}: Mehrere Kalender sind verbunden, aber keiner wurde für Dravr ausgewählt.",
+      "pushNoAccess": "Nicht im Kalender von {{name}}: Die Kalender-App lässt dich noch nicht hineinschreiben.",
+      "pushNotWritten": "Noch nicht im Kalender von {{name}}. Frag den Agenten hier, warum."
     },
     "planView": {
       "open": "Plan von {{name}} ansehen",
@@ -2826,11 +2874,132 @@
       "bubbleAria": "Diese Nachricht ist nur für dich und {{agent}} sichtbar",
       "quoteUnavailable": "Diese Nachricht kann nicht mehr für den Plan verwendet werden."
     },
+    "readLog": {
+      "title": "Was dein Coach eingesehen hat",
+      "hint": "Jedes Mal, wenn der Agent deines menschlichen Coaches deine Daten liest, wird es hier {{months}} Monate lang aufgelistet.",
+      "empty": "Dein menschlicher Coach hat in den letzten {{months}} Monaten keine deiner Daten eingesehen.",
+      "training": "Training",
+      "wellness": "Wohlbefinden",
+      "formerCoach": "Ein früherer Coach",
+      "loadFailed": "Die Zugriffe deines Coaches konnten nicht geladen werden.",
+      "sourcePlanView": "Dein Plan, in den Gruppeninfos",
+      "sourcePlanCommand": "Der Befehl /plan",
+      "sourceRoster": "Die Athletenliste",
+      "sourceCoachThread": "Die Unterhaltung über dich",
+      "sourceGroupRoom": "Der Raum der Gruppe",
+      "sourceGroupStats": "Die Statistiken der Gruppe",
+      "sourceGroupReport": "Der Wochenbericht der Gruppe",
+      "sourceGroupHealth": "Die Gesundheitshinweise der Gruppe",
+      "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe"
+    },
     "shareTraining": "Mein Training mit meinem Coach teilen",
-    "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. Gilt nur für diese Gruppe.",
+    "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. KI-Tools, die dein Coach mit Dravr verbindet, etwa Claude, können dein Training und deinen Plan ebenfalls lesen. Schaltest du dies aus, endet beides. Gilt nur für diese Gruppe.",
     "shareTrainingPendingHint": "Noch kein Coach. Der Coach, der dieser Gruppe beitritt, sieht dein Training, deinen Plan und deine Nachrichten in ihrem Chat.",
     "sharingOnNotice": "Dein Coach sieht dein Training in dieser Gruppe wieder.",
-    "sharingOffNotice": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten in dieser Gruppe nicht mehr."
+    "sharingOffNotice": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten in dieser Gruppe nicht mehr.",
+    "seat": {
+      "title": "Du bist noch nicht der Coach dieser Gruppe",
+      "stripBody": "Um das Training deiner Athleten zu sehen und ihre Pläne zu erstellen, brauchst du Coach-Zugang. Das Dravr-Team schaltet ihn frei.",
+      "blockBody": "Bis das Dravr-Team deinen Coach-Zugang freischaltet, kannst du im Raum schreiben, aber weder die Pläne deiner Athleten erstellen noch privat mit dem Agenten arbeiten oder deine Startseite als Coach öffnen.",
+      "linkAccount": "Coach-Konto verknüpfen",
+      "routesLabel": "Oder verknüpfe dein Coach-Konto",
+      "pendingBlockTitle": "Coach-Zugang angefragt",
+      "timelineLabel": "Stand deiner Anfrage",
+      "stepSent": "Anfrage gesendet",
+      "stepSentWhen": "Am {{date}} um {{time}}.",
+      "stepReview": "Das Dravr-Team prüft sie",
+      "stepSeat": "Du bist der Coach dieser Gruppe",
+      "stepSeatWhat": "Du siehst das Training, das deine Athleten mit dir teilen, erstellst ihre Pläne mit dem Agenten, und deine Startseite als Coach öffnet sich.",
+      "stepDone": "erledigt",
+      "stepNow": "läuft",
+      "declinedTitle": "Deine Anfrage auf Coach-Zugang wurde abgelehnt",
+      "declinedBody": "Abgelehnt am {{date}}. Du kannst erneut anfragen.",
+      "askAgain": "Erneut anfragen",
+      "rosterNotYet": "Du · noch nicht Coach",
+      "rosterPending": "Du · Coach-Zugang ausstehend",
+      "subtitleToRequest": "Coach-Zugang anfragen",
+      "subtitlePending": "Coach-Zugang ausstehend",
+      "subtitleDeclined": "Coach-Zugang abgelehnt",
+      "cancel": "Anfrage zurückziehen",
+      "cancelling": "Wird zurückgezogen…",
+      "cancelled": "Anfrage zurückgezogen. Du kannst jederzeit erneut anfragen.",
+      "cancelFailed": "Wir konnten deine Anfrage nicht zurückziehen. Bitte versuche es erneut.",
+      "declinedReason": "Grund: {{reason}}",
+      "panelTitle": "Hol dir deinen Coach-Zugang",
+      "panelBody": "Ohne ihn siehst du das Training deiner Athleten nicht und erstellst keine Pläne für sie. Das Dravr-Team schaltet ihn frei.",
+      "settingsTitle": "Coach-Zugang",
+      "listPending": "Coach-Zugang ausstehend · angefragt am {{date}}",
+      "listCoach": "Du bist der Coach · seit {{time}}",
+      "pendingSentBody": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
+      "stepReviewNotice": "Jeden Coach-Zugang schaltet eine Person frei, nie automatisch. Wir sagen dir hier und per E-Mail Bescheid."
+    },
+    "stepSeat": "Coach-Platz",
+    "seatHeading": "Hol dir deinen Coach-Platz",
+    "seatIntro": "Verbinde dein Coach-Konto oder frag das Team danach.",
+    "seatNeither": "Ich nutze keins von beiden →",
+    "seatSkip": "Vorerst überspringen",
+    "seatCoach": "Du bist der Coach deiner Gruppen",
+    "seatChecking": "Wir prüfen dein Konto …",
+    "seatNothing": "{{provider}} ist verbunden, hat dir aber keinen Coach-Platz gegeben.",
+    "seatAskTeam": "Das Dravr-Team fragen",
+    "inviteSeatCoach": "Du bist der Coach dieser Gruppe",
+    "inviteSeatCoachBody": "Sobald dein Athlet beitritt, siehst du sein Training.",
+    "inviteSeatPending": "Du bist noch nicht der Coach dieser Gruppe",
+    "inviteSeatNotRequested": "Du hast deinen Platz noch nicht angefragt.",
+    "inviteSeatMeanwhile": "Bis dahin kann dein Athlet der Gruppe schon beitreten und mit dem Agenten sprechen.",
+    "access": {
+      "grantedTitle": "Dein Coach-Zugang ist freigeschaltet",
+      "grantedBody": "Deine Startseite als Coach ist bereit: deine Athleten, ihre Pläne und was deine Aufmerksamkeit braucht.",
+      "declinedTitle": "Deine Anfrage auf Coach-Zugang wurde abgelehnt",
+      "declinedBody": "Das Dravr-Team hat deine Anfrage abgelehnt. Du kannst jederzeit erneut anfragen.",
+      "declinedReasonBody": "Das Dravr-Team hat deine Anfrage abgelehnt, und du kannst jederzeit erneut anfragen. Grund: {0}",
+      "openHome": "Meine Startseite als Coach öffnen",
+      "roomLineCoach": "{0} ist jetzt der Coach dieser Gruppe. Deine Athleten sehen diese Nachricht und entscheiden, was sie mit dir teilen.",
+      "roomLineAthlete": "{0} ist jetzt der Coach dieser Gruppe und sieht das Training, den Plan und die Nachrichten, die du hier teilst. Was du teilst, entscheidest du in den Gruppeninfos."
+    },
+    "seatInvite": {
+      "title": "Erstelle dein Coach-Konto",
+      "subtitle": "Einladung vom Dravr-Team: Dein Coach-Platz ist inklusive.",
+      "emailLocked": "Dein Konto wird mit der Adresse deiner Einladung erstellt, mit keiner anderen.",
+      "doneTitle": "Dein Coach-Konto ist bereit",
+      "doneBody": "Melde dich mit dieser Adresse und deinem Passwort an: Dein Coach-Platz ist schon aktiv.",
+      "expiredTitle": "Dieser Einladungslink funktioniert nicht mehr",
+      "expiredBody": "Er ist abgelaufen, wurde schon benutzt oder zurückgezogen. Bitte das Dravr-Team um einen neuen: Dein Coach-Platz wartet auf dich.",
+      "seatActive": "Dein Coach-Platz ist aktiv: vom Dravr-Team vergeben.",
+      "openCoachHome": "Meine Startseite als Coach öffnen"
+    },
+    "seatRequestDone": "Anfrage gesendet",
+    "seatRequestSentNotice": "Am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
+    "inviteSeatRequestedNotice": "Anfrage gesendet am {{date}}. Wir sagen dir hier und per E-Mail Bescheid.",
+    "pendingHome": {
+      "scope": "Deine Startseite als Coach öffnet sich, sobald dein Coach-Zugang freigeschaltet ist",
+      "scopePending": "Coach-Zugang ausstehend · deine Startseite als Coach öffnet sich, sobald er freigeschaltet ist",
+      "title": "Bereite dein Coaching vor",
+      "inviteTitle": "Lade deinen Athleten ein",
+      "inviteDone": "{{name}} ist deiner Gruppe am {{date}} beigetreten.",
+      "inviteDoneNoName": "Dein Athlet ist deiner Gruppe am {{date}} beigetreten.",
+      "platformTitle": "Verbinde TrainingPeaks oder Intervals.icu",
+      "platformBody": "Damit die Pläne, die du veröffentlichst, im Kalender deines Athleten landen.",
+      "platformDone": "{{provider}} ist verbunden.",
+      "groupsTitleOne": "Deine Gruppe",
+      "groupsTitleN": "Deine Gruppen",
+      "groupsNote": "Der Agent antwortet schon im Raum, auch vor deinem Coach-Zugang.",
+      "loadFailed": "Deine Liste konnte nicht geladen werden. Versuch es noch einmal."
+    },
+    "athleteCard": {
+      "titleOne": "Wen du trainierst",
+      "titleMany": "Wen du trainierst",
+      "viewPlan": "Plan ansehen",
+      "seeOnCoachHome": "Auf der Startseite als Coach ansehen"
+    },
+    "whoSees": {
+      "sharing": "{{coach}} sieht hier dein Training, deinen Plan und deine Nachrichten.",
+      "notSharing": "{{coach}} sieht hier weder dein Training noch deinen Plan noch deine Nachrichten, solange du nicht teilst.",
+      "planThread": "{{coach}} bereitet deinen Plan mit {{agent}} in einem privaten Verlauf vor. Du siehst, was {{coach}} veröffentlicht."
+    },
+    "removeCoachRow": "Coach entfernen…",
+    "removeCoachTitle": "Coach entfernen?",
+    "removeCoachConfirm": "Coach entfernen"
   },
   "messaging": {
     "account": {
@@ -2847,6 +3016,15 @@
       "push_title": "Dein Verlauf ist bereit",
       "ready": "✅ Dein Verlauf ist bereit — {0} Aktivitäten geladen. Frag mich einfach noch einmal, wonach du gesucht hast."
     },
+    "history_walk": {
+      "complete": "✅ Dein Verlauf seit {0} ist da: {1} Aktivitäten."
+    },
+    "detail_walk": {
+      "complete": "✅ Deine Segmentleistungen sind da: {0} Aktivitäten gelesen."
+    },
+    "live_read": {
+      "overtaken": "✅ Die Daten zu deiner früheren Frage sind da."
+    },
     "capability": {
       "refusal": "Das kann ich mit meinen Werkzeugen nicht tun."
     },
@@ -2859,6 +3037,14 @@
     "agent_welcome": {
       "can_see": "Ich sehe, was deine verbundenen Dienste teilen, etwa deine Einheiten, deinen Schlaf und deine Erholung, und was du mir erzählst. Mehr sehe ich nicht, und ich ersetze keinen Arzt.",
       "discover_line": "Weitere Agenten findest du unter Entdecken: Füg jederzeit einen zu deinem Team hinzu.",
+      "figures_distance_time": "{0} in {1}",
+      "figures_last": "Deine letzte: {0}.",
+      "figures_per_week": "Das sind etwa {0} pro Woche.",
+      "figures_read": "Ich habe deine letzten {0} Tage gelesen: {1} Einheiten ({2}).",
+      "figures_read_one": "Ich habe deine letzten {0} Tage gelesen: 1 Einheit.",
+      "figures_read_unmixed": "Ich habe deine letzten {0} Tage gelesen: {1} Einheiten.",
+      "goal_only": "Dein Ziel: „{0}“.",
+      "goal_why": "Dein Ziel: „{0}“. Dein Warum: „{1}“. Darauf komme ich zurück, wenn das Training hart wird.",
       "greeting": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.\n\n{1}",
       "greeting_no_role": "Hallo! Hier ist {0} von Dravr – ich bin für dich da.",
       "list_and": "{0} und {1}",
@@ -2866,7 +3052,8 @@
       "starters_title": "Zum Einstieg kannst du mich fragen:",
       "team_many": "{0} sind auch in deinem Team.",
       "team_one": "{0} ist auch in deinem Team.",
-      "team_solo": "Im Moment bin ich allein in deinem Team."
+      "team_solo": "Im Moment bin ich allein in deinem Team.",
+      "why_only": "Dein Warum: „{0}“. Darauf komme ich zurück, wenn das Training hart wird."
     },
     "commitment": {
       "activity_any": "Einheiten",
@@ -2883,6 +3070,93 @@
     "empty_reply": "Hmm, ich konnte keine Antwort formulieren. Kannst du deine Frage umformulieren?",
     "error": {
       "generic": "Dravr ist vorübergehend nicht verfügbar. Das Team wurde benachrichtigt — versuch es in ein paar Minuten erneut. (Ref: {0})"
+    },
+    "envelope": {
+      "anchor": "Bezugswert: {0} {1}, {2}.",
+      "anchor_estimate": "etwa {0} (Schätzung)",
+      "anchor_label": {
+        "critical_power": "kritische Leistung",
+        "critical_speed": "kritische Geschwindigkeit",
+        "ftp": "FTP",
+        "map": "MAP",
+        "max_heart_rate": "maximale Herzfrequenz",
+        "threshold_heart_rate": "Schwellenherzfrequenz",
+        "threshold_speed": "Schwellentempo",
+        "vvo2max": "vVO2max"
+      },
+      "anchor_range": "etwa {0}–{1} (Schätzung)",
+      "day": "{0}: {1}",
+      "finding": {
+        "cycle_mean_floor": "Der Mittelwert aus Belastung und aktiver Pause liegt bei etwa {0} % der maximalen aeroben Intensität, unter {1} %: Bei so kurzen Wiederholungen folgt der Körper dem Mittelwert, das ist also keine VO2max-Arbeit mehr.",
+        "duration_ceiling": "{0} min liegen über der Obergrenze von {1} min dieser Einheitenfamilie.",
+        "fixed_pacing": "Ein festes Ziel unterdosiert trainierte Athleten bei diesen Wiederholungen; die getestete Dosis ist die härteste Belastung, die du über die ganze Serie wiederholen kannst.",
+        "gps_short_reps": "Die GPS-Geschwindigkeit ist bei so kurzen Wiederholungen unzuverlässig; lauf sie als Distanzen auf einer vermessenen Strecke oder auf dem Laufband.",
+        "hr_rep_target": "Die Herzfrequenz kann so kurze Wiederholungen nicht steuern; sie wird zur Kontrolle der Einheit, und die Wiederholungen laufen nach Gefühl.",
+        "insert_quality_cap": "{0} min über der ersten Schwelle sind mehr als die {1} min, die eine lockere Einheit enthalten darf.",
+        "left_purpose": "Diese Schritte trainieren eine andere Art von Arbeit als für die Einheit geplant.",
+        "map_without_definition": "Für deine MAP ist keine Definition hinterlegt (Rampenspitze, Leistung bei VO2peak oder extrapoliert), daher kann derselbe Prozentwert unterschiedliche Watt bedeuten.",
+        "on_intensity_window": "Eine Belastung mit {0} % der maximalen aeroben Intensität liegt außerhalb des getesteten Fensters für diese Wiederholungen (Grenze bei {1} %).",
+        "on_time_ceiling": "{0} min Belastung liegen über {1} min, außerhalb jeder Studie zu diesem Format.",
+        "on_time_floor": "{0} min Belastung liegen unter {1} min: eine geringe Dosis, deren Wirkung nur in der Allgemeinbevölkerung gezeigt ist.",
+        "one_to_one_long_rep": "Ein Verhältnis von 1:1 bei minutenlangen Wiederholungen bringt weniger Zeit nahe VO2max als 2:1 (60/30).",
+        "param_out_of_range": "Ein angegebener Wert ({0}) liegt außerhalb des getesteten Bereichs dieses Formats (Grenze {1}).",
+        "params_disagree_with_steps": "Die angegebenen Werte und die geschriebenen Schritte beschreiben unterschiedliche Einheiten.",
+        "ratio_ceiling": "Ein Belastungs-Pausen-Verhältnis von {0}:1 liegt über {1}:1; die meisten Athleten können eine solche Serie nicht im Zielbereich beenden.",
+        "ratio_floor": "Die Pause ist länger als die Belastung bei kurzen Wiederholungen mit {0} % der maximalen aeroben Intensität, unter {1} %: Die Einheit bleibt unterhalb der VO2max-Arbeit.",
+        "sport_not_offered": "Diese Einheitenfamilie hat keine Form für diese Sportart.",
+        "steady_ceiling": "Ein gleichmäßiger Abschnitt bei etwa {0} % der kritischen Leistung oder Geschwindigkeit liegt über der Obergrenze von {1} % dieser Familie.",
+        "true_tabata": "20 s mit {0} % und 10 s passiver Pause sind echtes Tabata: Arbeit an der anaeroben Kapazität.",
+        "under_dosed": "So kurze Wiederholungen über der Schwelle mit so viel Pause sind zu leicht für anaerobe Arbeit und zu zerstückelt für VO2max-Arbeit.",
+        "unknown_preset": "Das genannte Format gehört nicht zu dieser Einheitenfamilie.",
+        "work_range": "Belastungen von {0} s liegen außerhalb des getesteten Bereichs dieses Formats (Grenze bei {1} s)."
+      },
+      "heading": "So gespeichert, wie geschrieben – außerhalb dessen, was die Evidenz stützt:",
+      "param": {
+        "duration_minutes": "{0} min liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} min).",
+        "reps": "{0} Wiederholungen pro Serie liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1}).",
+        "rest_seconds": "Pausen von {0} s liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} s).",
+        "set_rest_seconds": "{0} s zwischen den Serien liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} s).",
+        "sets": "{0} Serien liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1}).",
+        "work_seconds": "Belastungen von {0} s liegen außerhalb des getesteten Bereichs dieses Formats (Grenze {1} s)."
+      },
+      "purpose": {
+        "anaerobic_capacity": "Einheit für anaerobe Kapazität",
+        "brick": "Koppeleinheit",
+        "downhill": "Bergab-Einheit",
+        "endurance": "Ausdauereinheit",
+        "endurance_long": "lange Ausdauereinheit",
+        "mobility": "Mobilitätseinheit",
+        "neuromuscular": "neuromuskuläre Einheit",
+        "plyometric": "Plyometrie-Einheit",
+        "race_prep": "Wettkampfvorbereitung",
+        "race_specific": "wettkampfspezifische Einheit",
+        "recovery": "Regenerationseinheit",
+        "sprint": "Sprinteinheit",
+        "strength_aa": "Krafteinheit zur anatomischen Anpassung",
+        "strength_maint": "Krafterhaltungseinheit",
+        "strength_max": "Maximalkrafteinheit",
+        "sweet_spot": "Sweet-Spot-Einheit",
+        "tempo": "Tempoeinheit",
+        "threshold": "Schwelleneinheit",
+        "uphill": "Bergeinheit",
+        "vo2max_long": "VO2max-Einheit mit langen Intervallen",
+        "vo2max_short": "VO2max-Einheit mit kurzen Intervallen"
+      },
+      "relabelled": "Sie zählt jetzt als {0}.",
+      "source_athlete": "der eigene Wert des Athleten",
+      "source_from": "von {0}",
+      "source_own": "dein eigener Wert"
+    },
+    "evidence": {
+      "convention": "Trainingskonvention",
+      "transposed": "Aus einer anderen Sportart übertragen",
+      "acute_only": "Nur Kurzzeitdaten",
+      "uncontrolled_only": "Nur Studien ohne Kontrollgruppe",
+      "acute_uncontrolled": "Nur Einzeleinheit-Studien ohne Kontrollgruppe",
+      "counts_as": "Zählt als {0}",
+      "outside": "Außerhalb der Evidenz",
+      "no_basis_convention": "Keine Studie deckt diese Einheit ab; sie folgt der üblichen Trainingspraxis.",
+      "no_basis_transposed": "Ihre Studien liefen in einer anderen Sportart; in diese gelangt sie über die Übertragungsregeln."
     },
     "flavour": {
       "hvlit_foundation": "alles locker, viel davon, eine lange Einheit pro Woche",
@@ -3022,10 +3296,10 @@
       "reauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. Verbinde {0} in den Einstellungen neu, damit ich alles sehe.",
       "reauth_fallback_served": "Kurzer Hinweis: {0} synchronisiert vorerst weiter, aber deine Anmeldung bei {0} ist abgelaufen. Melde dich hier erneut bei {0} an, damit das so bleibt:\n\n{1}",
       "reauth_fallback_served_no_link": "Kurzer Hinweis: {0} synchronisiert vorerst weiter, aber deine Anmeldung bei {0} ist abgelaufen. Melde dich in den Einstellungen erneut bei {0} an, damit das so bleibt.",
-      "reauth_oauth_required": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. {0} verbindet sich jetzt über die offizielle Anmeldung: Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}\n\nSobald es verbunden ist, frag mich noch einmal.",
-      "reauth_oauth_required_no_link": "Deine Verbindung zu {0} ist abgelaufen — ich kann deine Daten gerade nicht abrufen. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
       "reauth_oauth_served": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung: Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}\n\nSobald es verbunden ist, frag mich noch einmal.",
       "reauth_oauth_served_no_link": "Kurzer Hinweis: Deine Verbindung zu {0} ist abgelaufen, das eben Gezeigte stammt daher aus deinen anderen verbundenen Konten. {0} verbindet sich jetzt über die offizielle Anmeldung. Öffne Verbindungen in Dravr, wähle {0} verbinden und frag mich dann noch einmal.",
+      "reauth_grant_writes": "Kurzer Hinweis: Deine {0}-Aktivitäten werden weiter synchronisiert, aber um Workouts und Kalendereinträge an {0} zu senden, brauchst du wieder deine Verbindung zu {0}. Verbinde {0} hier (Link 1 Stunde gültig):\n\n{1}",
+      "reauth_grant_writes_no_link": "Kurzer Hinweis: Deine {0}-Aktivitäten werden weiter synchronisiert, aber um Workouts und Kalendereinträge an {0} zu senden, brauchst du wieder deine Verbindung zu {0}. Öffne Verbindungen in Dravr und wähle {0} verbinden.",
       "reconnect_button": "{0} neu verbinden"
     },
     "quota_exceeded": "Du hast das Chat-Kontingent deines Tarifs vorerst erreicht. Es setzt sich automatisch zurück — schau etwas später wieder vorbei.",
@@ -3277,9 +3551,9 @@
       "half_marathon": "Halbmarathon",
       "marathon": "Marathon"
     },
-    "provider_oauth_required": {
-      "title": "Wechsle bei {0} zur offiziellen Verbindung",
-      "body": "Deine {0}-Anmeldung ist abgelaufen. Verbinde {0} über die offizielle Verbindung, damit deine Daten weiter ankommen."
+    "provider_grant_writes": {
+      "title": "Neu verbinden, um Workouts zu senden",
+      "body": "Deine {0}-Aktivitäten werden weiter synchronisiert. Verbinde {0} erneut, um Workouts und Kalendereinträge zu senden."
     },
     "provider_reauth": {
       "title": "Erneute Verbindung nötig",
@@ -3304,6 +3578,7 @@
       "scope": {
         "fitnessRead": "Ihre Fitnessdaten lesen: Aktivitäten und ihre Orte, Statistiken, Schlaf, Analysen und was Sie Dravr über sich erzählt haben, einschließlich Verletzungen",
         "fitnessWrite": "Ihre Fitnessdaten erstellen oder ändern: Ziele, Pläne und erfasste Einheiten",
+        "offlineAccess": "verbunden bleiben, ohne Sie erneut zur Anmeldung aufzufordern, bis Sie die Verbindung trennen",
         "profileRead": "Ihr Profil, Ihre Einstellungen und Ihre verknüpften Dienste lesen",
         "profileWrite": "Ihr Profil, Ihre Einstellungen und Ihre verknüpften Dienste ändern"
       },
@@ -3345,7 +3620,6 @@
     "agentProposalNoActivities": "Wir haben noch keine aktuellen Aktivitäten gefunden — hier sind ein paar Agenten für den Anfang. Deine Vorschläge werden genauer, sobald dein Anbieter mehr Daten synchronisiert.",
     "agentProposalNoProvider": "Noch kein Dienst verbunden – hier sind ein paar Agenten für den Anfang. Verbinde einen, dann richten sich deine Vorschläge nach deinem echten Training.",
     "agentSuggestionsFailed": "Wir konnten deine Agenten-Vorschläge gerade nicht erstellen.",
-    "almostThere": "Fast geschafft",
     "analyzingTrainingData": "Deine Trainingsdaten werden analysiert…",
     "preparingTeam": "Wir stellen dein Startteam zusammen…",
     "athleteCardDescription": "Verfolge dein eigenes Training und erhalte Coaching, das zu deinem tatsächlichen Training passt.",
@@ -3354,22 +3628,13 @@
     "channelRecommended": "Empfohlen",
     "channelScanQr": "Scanne einen QR-Code oder tippe, um die App zu öffnen",
     "channelSettingUp": "Wird eingerichtet…",
-    "connectAnytimeHint": "Du kannst jederzeit einen Anbieter verbinden — dein Agent braucht ihn, um deine Aktivität zu lesen.",
     "connectAnotherOrContinue": "Du kannst jetzt einen weiteren Dienst verbinden oder weitermachen.",
     "continueAfterConnect": "Weiter",
-    "connectCoachPlatformIntro": "Du coachst auf TrainingPeaks oder Intervals.icu? Verbinde es jetzt, oder überspringe diesen Schritt — Dravr liest dein eigenes Training nicht.",
-    "connectCoachPlatformLaterHint": "Als Nächstes kommt deine Gruppe. Du kannst eine Coaching-Plattform später in den Einstellungen verbinden.",
-    "connectPreviewSample": "Deine Belastung liegt 24 % über der Vorwoche und du hast zweimal weniger als sechs Stunden geschlafen — schwere Beine sind das erwartete Ergebnis, kein Warnsignal. Behalte den Samstag, nimm ihn im lockeren Tempo und streiche die letzten 5 km. Das schützt die Long-Run-Gewohnheit, ohne eine Woche weiter zu belasten, die ohnehin die größte deines Blocks ist.",
-    "connectPreviewSampleShort": "Deine Belastung liegt 24 % über der Vorwoche und du hast zweimal weniger als sechs Stunden geschlafen — schwere Beine sind das erwartete Ergebnis, kein Warnsignal. Behalte den Samstag, nimm ihn im lockeren Tempo und streiche die letzten 5 km.",
-    "connectProviderIntro": "Verbinde einen Fitness-Dienst, um zu starten. Dravr coacht dich anhand der Aktivitäten, die dein Anbieter schon aufzeichnet — ohne ihn hat das Modell nichts zu lesen.",
     "continueButton": "Weiter",
     "continueToDashboard": "Weiter zum Dashboard",
-    "continueWithoutProvider": "Ohne Verbindung fortfahren →",
     "credentialsEncryptedHint": "Deine Zugangsdaten werden verschlüsselt gespeichert und nur verwendet, um deine Aktivitätsdaten abzurufen.",
     "goalLabel": "Worauf trainierst du hin?",
     "goalPlaceholder": "Ein erster Halbmarathon im Frühling, zum Beispiel",
-    "groupAgentHeading": "Wähle den Agenten deiner Gruppe",
-    "groupAgentIntro": "Dein Athlet spricht im Verlauf der Gruppe mit diesem Agenten. Wähle den, der zu seiner Sportart passt.",
     "groupCopyLink": "Link kopieren",
     "groupCreate": "Gruppe erstellen",
     "groupCreateFailed": "Die Gruppe konnte nicht erstellt werden. Versuch es noch einmal.",
@@ -3377,13 +3642,11 @@
     "groupDone": "Zu meiner Gruppe",
     "groupHeading": "Richte deine Gruppe ein",
     "groupInviteHeading": "Lade deinen Athleten ein",
-    "groupInviteIntro": "Schick diesen Link an deinen Athleten oder lass ihn den Code scannen. Er gilt 30 Tage. Für deinen nächsten Athleten erstellst du im Chat eine weitere Gruppe.",
     "groupInviteQrAlt": "QR-Code für den Einladungslink der Gruppe",
     "groupLater": "Später",
     "groupLinkCopied": "Link kopiert",
     "groupNameLabel": "Gruppenname",
     "groupNamePlaceholder": "z. B. Maries Training",
-    "groupShare": "Teilen",
     "imAnAthlete": "Ich bin Sportlerin oder Sportler",
     "messagingChannelIntro": "Wo willst du mit deinem Agenten chatten? Wähl die App, die du schon nutzt — weitere kannst du später in den Einstellungen hinzufügen.",
     "messagingScanPrefix": "Scanne den QR-Code mit deinem Telefon, oder tippe unten, um {{app}} zu öffnen. Dann drücke",
@@ -3396,7 +3659,6 @@
     "otherSportPlaceholder": "Gib eine andere Sportart ein",
     "parqAnswerAll": "Beantworte alles, um fortzufahren",
     "parqHeading": "Ein kurzer Gesundheits-Check",
-    "parqIntro": "Standardfragen vor dem Start. Nichts davon blockiert dein Konto — ein Ja sagt deinem Agenten nur, an den richtigen Stellen vorsichtig zu sein.",
     "primarySportLabel": "Was machst du hauptsächlich?",
     "profileTypeIntro": "Wie wirst du Dravr nutzen? Das passt die vorgeschlagenen Agenten an. Du kannst es jederzeit in den Einstellungen ändern.",
     "profileTypeSaveFailed": "Deine Auswahl konnte nicht gespeichert werden. Versuche es erneut.",
@@ -3409,14 +3671,10 @@
     "skipForNow": "Erst mal überspringen",
     "startButton": "Starten",
     "starting": "Wird gestartet…",
-    "stepAboutTraining": "Dein Training",
-    "stepAboutYou": "Über dich",
     "stepAgent": "Dein Team",
-    "stepChatApp": "Chat-App",
-    "stepConnect": "Verbinden",
+    "stepConnect": "Deine Daten",
     "stepGroup": "Deine Gruppe",
-    "stepHealthCheck": "Gesundheitscheck",
-    "stepLink": "Verknüpfen",
+    "stepHealthCheck": "Gesundheit",
     "stepOfLabel": "Schritt {{current}} von {{total}}: {{label}}",
     "team": {
       "browseAll": "Alle Agenten ansehen",
@@ -3441,24 +3699,58 @@
         "strength": "wegen deines Krafttrainings"
       },
       "start": "Mit meinem Team starten · <num>{{count}}</num>",
-      "subline": "Ausgewählt nach deinem Training und dem, was du uns erzählt hast.",
       "sublineNoProvider": "Ein paar Agenten für den Anfang. Verbinde einen Dienst, dann richtet sich deine Auswahl nach deinem Training.",
       "summary": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten, vor allem {{sport}}.",
       "summaryNoSport": "Letzte {{days}} Tage · <num>{{count}}</num> Aktivitäten.",
       "summaryOne": "Letzte {{days}} Tage · <num>1</num> Aktivität.",
-      "whatWeReadAria": "Was wir gelesen haben"
+      "whatWeReadAria": "Was wir gelesen haben",
+      "sublineTraining": "Ausgewählt nach deinem Training."
     },
-    "tellMeAboutTraining": "Erzähl mir von deinem Training",
     "welcomeNamed": "Willkommen, {{name}}",
     "welcomeToDravr": "Willkommen bei Dravr",
-    "stepCheckIn": "Check-ins",
-    "checkInHeading": "Wie oft soll sich dein Agent melden?",
     "checkInIntro": "Dein Agent kann sich zuerst melden: morgens eine kurze Notiz zu deinem letzten Training, in deinem eigenen Verlauf. Wähl, wie oft — du kannst es jederzeit in den Einstellungen ändern.",
     "analyticsConsentTitle": "Hilfst du mit, Dravr zu verbessern?",
     "analyticsConsentBody": "Mit deiner Einwilligung erfasst PostHog, welche Funktionen du nutzt, verknüpft mit der E-Mail-Adresse deines Kontos, damit wir sehen, was hilft, und beheben, was hakt. Es bleibt aus, solange du nicht zustimmst, und du kannst deine Antwort jederzeit in den Einstellungen ändern.",
     "analyticsConsentAccept": "Ja, Nutzungsstatistiken teilen",
     "analyticsConsentDecline": "Nein, danke",
-    "analyticsConsentSaveFailed": "Deine Antwort wurde nicht gespeichert. Versuch es noch einmal."
+    "analyticsConsentSaveFailed": "Deine Antwort wurde nicht gespeichert. Versuch es noch einmal.",
+    "stepProfile": "Profil",
+    "stepInvite": "Einladung",
+    "stepOf": "Schritt {{current}} von {{total}}",
+    "groupAthleteLabel": "Dein Athlet",
+    "groupAthletePlaceholder": "Vorname, z. B. Léa",
+    "groupGoalLabel": "Ziel (optional)",
+    "groupGoalPlaceholder": "z. B. Montréal-Marathon",
+    "groupNameHint": "Aus deinem Athleten übernommen. Du kannst ihn ändern.",
+    "groupNameFromAthleteGoal": "{{athlete}} · {{goal}}",
+    "groupAgentLabel": "Agent der Gruppe",
+    "groupAgentChange": "Ändern",
+    "groupAgentChangeAria": "Einen anderen Agenten für die Gruppe wählen",
+    "groupInviteHeadingNamed": "Lade {{name}} ein",
+    "groupInviteIntroNamed": "Schick diesen Link an {{name}}: Ein Tippen genügt, um „{{group}}“ beizutreten. Er gilt {{days}} Tage.",
+    "groupShareLink": "Link teilen",
+    "groupShowQr": "QR-Code anzeigen",
+    "groupHideQr": "QR-Code ausblenden",
+    "groupDoneNamed": "Zur Gruppe von {{name}}",
+    "groupInviteLinkIntro": "Schick diesen Link an deinen Athleten: Ein Tippen genügt, um „{{group}}“ beizutreten. Er gilt {{days}} Tage.",
+    "connect": {
+      "heading": "Verbinde dein Training",
+      "intro": "Dein Agent liest, was deine Uhr oder deine App schon aufzeichnet. Ohne Dienst hat er nichts zu lesen.",
+      "continueWithout": "Ohne Verbindung weiter",
+      "moreServices": "Weitere Dienste",
+      "moreServicesFile": "Datei"
+    },
+    "parq": {
+      "intro": "Sieben Standardfragen (PAR-Q+). Ein Ja blockiert nichts: Es sagt deinem Agenten, wo er besonders vorsichtig sein soll.",
+      "noneApply": "Nichts davon trifft zu",
+      "someApply": "Manches trifft zu",
+      "answerEach": "Beantworte jede. Was dich nicht betrifft, ist ein „Nein“.",
+      "backToNone": "Zurück zu „Nichts davon trifft zu“",
+      "yesNote": "Notiert: Dein Agent berücksichtigt das. Nichts hält dich vom Training ab, und ein Wort mit deiner Ärztin oder deinem Arzt lohnt sich, bevor du dich voll forderst.",
+      "saveFailed": "Deine Antworten konnten nicht gespeichert werden. Versuch es noch einmal.",
+      "loadFailed": "Die Fragen konnten nicht geladen werden."
+    },
+    "settledByInvite": "{{steps}} durch deine Einladung erledigt"
   },
   "password": {
     "change": "Passwort ändern",
@@ -3504,6 +3796,30 @@
       "power_athlete": "Zeile für Zeile präzise, mit Verweisen auf die Referenzmodelle."
     }
   },
+  "physiology": {
+    "title": "Schwellen pro Sportart",
+    "blurb": "Die Werte, auf die deine Einheiten abgestimmt sind, so wie Dravr sie gespeichert hat. Ein Wert mit geringer Verlässlichkeit erscheint als Spanne oder Schätzung. Um einen zu ändern, sag es deinem Agenten im Chat.",
+    "empty": "Noch keine Schwellen. Nenne deinem Agenten im Chat deine FTP, dein Schwellentempo oder deine maximale Herzfrequenz, oder bitte ihn, sie aus einem verbundenen Dienst zu übernehmen.",
+    "loadFailed": "Deine Schwellen konnten nicht geladen werden.",
+    "asOf": "Stand: {{date}}",
+    "noDate": "Kein Datum erfasst",
+    "range": "Spanne {{range}}",
+    "confidence": {
+      "low": "Geringe Verlässlichkeit",
+      "medium": "Mittlere Verlässlichkeit",
+      "high": "Hohe Verlässlichkeit"
+    },
+    "anchor": {
+      "ftp": "FTP",
+      "critical_power": "Kritische Leistung",
+      "map": "MAP",
+      "critical_speed": "Kritische Geschwindigkeit",
+      "vvo2max": "vVO2max",
+      "threshold_speed": "Schwellentempo",
+      "max_heart_rate": "Maximale Herzfrequenz",
+      "threshold_heart_rate": "Schwellenherzfrequenz"
+    }
+  },
   "plan": {
     "enterprise": "Enterprise",
     "professional": "Professional",
@@ -3545,7 +3861,13 @@
         "coach": "von deinem menschlichen Coach gewählt",
         "athlete": "von dir gewählt"
       },
-      "alsoRacing": "Ebenfalls im Kalender"
+      "alsoRacing": "Ebenfalls im Kalender",
+      "envelope": {
+        "badge": "Außerhalb der Evidenz"
+      },
+      "evidence": {
+        "sheetTitle": "Die Evidenz hinter dieser Einheit"
+      }
     },
     "limits": {
       "messagesPerDay": "Nachrichten / Tag",
@@ -3631,14 +3953,10 @@
       "imported": "Dein {{provider}}-Verlauf ist da",
       "incomplete": "Dein {{provider}}-Verlauf wurde nicht vollständig kopiert",
       "needed": "Deine früheren {{provider}}-Aktivitäten sind noch nicht da",
-      "retry": "Erneut versuchen",
-      "explainer": "Melde dich einmal mit deinem {{provider}}-Konto an: Wir kopieren deine früheren Aktivitäten und ein Jahr Wellness-Daten und vergessen diese Anmeldung danach.",
+      "explainer": "Melde dich mit deinem {{provider}}-Konto an, um deine früheren Aktivitäten und ein Jahr Wellness-Daten zu übernehmen. Deine Anmeldung hält sie danach aktuell.",
       "add": "Verlauf hinzufügen",
-      "modalIntro": "Melde dich einmal an, um deinen Verlauf zu kopieren; {{provider}} liefert deine neuen Trainings weiter.",
-      "modalCopying": "Dein Verlauf wird kopiert – das passiert nur einmal."
-    },
-    "migration": {
-      "oauthRequired": "Wechsle zur offiziellen {{provider}}-Verbindung"
+      "modalIntro": "Melde dich an, um deinen {{provider}}-Verlauf zu übernehmen. Über deine Anmeldung kommen auch deine neuen Trainings weiter an.",
+      "modalCopying": "Dein Verlauf wird übernommen – das kann ein paar Minuten dauern."
     },
     "isConnectedAria": "{{provider}} ist verbunden",
     "lastSync": "Letzte Synchronisierung",
@@ -3780,7 +4098,8 @@
           "file_too_large": "Ihre Datei ist zu groß",
           "invalid_row": "Ihre Zeile im Export ist unvollständig",
           "zero_elapsed": "Ein manueller Eintrag ohne Dauer",
-          "deleted_by_athlete": "Du hast diese Aktivität gelöscht, sie bleibt gelöscht"
+          "deleted_by_athlete": "Du hast diese Aktivität gelöscht, sie bleibt gelöscht",
+          "future_dated": "Sie beginnt in der Zukunft und wurde nicht importiert"
         },
         "refusal": {
           "link_invalid": "Das sieht nicht nach einem Export-Link aus. Kopiere den ganzen Link aus der E-Mail von Strava.",
@@ -3977,6 +4296,8 @@
     "privacyHint": "Einwilligung zu Statistiken und deine Daten",
     "profile": "Profil",
     "profileHint": "Name, Anzeigename, Coaching-Persona",
+    "physiology": "Physiologie",
+    "physiologyHint": "Deine Schwellen pro Sportart, mit Quelle und Datum",
     "tokens": "MCP-Tokens",
     "tokensHint": "Tokens für Claude Desktop, Cursor und andere MCP-Clients"
   },
@@ -4147,12 +4468,6 @@
     "notificationsEmptyCategory": "Keine Benachrichtigungen in {{category}}",
     "oauthConnectionFailed": "Verbindung fehlgeschlagen",
     "offlineBanner": "Du bist offline — Dravr verbindet sich automatisch wieder.",
-    "previewExampleBadge": "Beispiel — nicht deine Daten",
-    "previewExampleCaption": "Eine erfundene Athletin, Maya, drei Wochen nach dem Start ihres Marathontrainings.",
-    "previewExampleHide": "Beispiel ausblenden",
-    "previewExampleMessage": "Beim Tempolauf heute fühlten sich die Beine schwer an. Soll ich den langen Lauf am Samstag trotzdem machen?",
-    "previewSeeExample": "Erst mal sehen, wie Coaching aussieht",
-    "previewSpecificsHint": "Die Details — die 24 %, der Schlaf, die Größe des Blocks — kommen aus dem Dienst, den du verbindest. Ohne einen kann ein Agent dir nur die allgemeine Antwort geben.",
     "roleAdmin": "Admin",
     "roleSuperAdmin": "Super Admin",
     "roleUser": "Benutzer",
@@ -4203,6 +4518,15 @@
     "trainingpeaksUsername": "TrainingPeaks-Benutzername",
     "sciotteConnectedDataReady": "Deine {{provider}}-Daten sind jetzt verfügbar",
     "sciotteProviderCoros": "COROS",
+    "sciotteTakeoverPrompt": "{{provider}} möchte prüfen, dass du kein Roboter bist. Schließe die Prüfung unten ab und tippe dann auf Anmelden.",
+    "sciotteTakeoverConnecting": "{{provider}} wird geöffnet…",
+    "sciotteTakeoverFinishing": "Deine Anmeldung bei {{provider}} wird abgeschlossen…",
+    "sciotteTakeoverPopupRefused": "Diese Option öffnet ein neues Fenster, was hier nicht funktioniert. Melde dich stattdessen mit deiner {{provider}}-E-Mail und deinem Passwort an.",
+    "sciotteTakeoverPageReset": "Dieser Link verlässt die {{provider}}-Anmeldung, deshalb haben wir dich zurückgebracht.",
+    "sciotteTakeoverEnded": "Das {{provider}}-Anmeldefenster wurde geschlossen. Versuche erneut, dich zu verbinden.",
+    "sciotteTakeoverOAuthOffer": "Lieber nicht? Schließe dieses Fenster, um {{provider}} auf andere Weise zu verbinden.",
+    "sciotteTakeoverKeyboard": "Tastatur anzeigen",
+    "sciotteTakeoverViewAria": "{{provider}}-Anmeldeseite",
     "sciotteCorosAccount": "COROS-Konto",
     "corosEmail": "COROS-E-Mail",
     "intervalsCredentialsHelp": "Deine Athleten-ID und deinen API-Schlüssel findest du in Intervals.icu: Öffne Settings und scrolle zu Developer Settings, fast ganz unten auf der Seite.",
@@ -4217,7 +4541,7 @@
     "activeCountN": "{{count}} aktive Token für KI-Client-Verbindungen",
     "connectedApps": "Verbundene Apps",
     "connectedAppsEmpty": "Noch keine verbundenen Apps",
-    "connectedAppsHint": "Apps, denen du auf dem OAuth-Zustimmungsbildschirm Zugriff auf deine Dravr-Daten erlaubt hast (zum Beispiel Claude Desktop). Widerrufe eine, um ihr den Zugriff zu entziehen — sie muss dann erneut um deine Erlaubnis bitten.",
+    "connectedAppsHint": "Apps, denen du auf dem OAuth-Zustimmungsbildschirm Zugriff auf deine Dravr-Daten erlaubt hast (zum Beispiel Claude Desktop). Bist du ein menschlicher Coach, kann eine erlaubte App auch das Training der Athleten lesen, die es mit dir teilen. Widerrufe eine, um ihr den Zugriff zu entziehen — sie muss dann erneut um deine Erlaubnis bitten.",
     "connectedMcpApps": "Verbundene MCP-Apps",
     "create": "Token erstellen",
     "createAction": "Token erstellen",
@@ -4359,5 +4683,17 @@
     "titleNoSpeech": "Keine Sprache erkannt",
     "titleTimeout": "Zeitüberschreitung der Spracheingabe",
     "unknown": "Spracheingabe fehlgeschlagen."
+  },
+  "chatApp": {
+    "pickTitle": "Wähl deine App",
+    "useAnother": "Andere App verwenden",
+    "linkedToast": "{{app}} ist eingerichtet",
+    "offer": {
+      "title": "Schreibst du mir auch über {{app}}?",
+      "body": "Du kannst mir dann aus {{app}} schreiben, und deine Benachrichtigungen folgen dir dorthin.",
+      "configure": "{{app}} einrichten",
+      "notNow": "Nicht jetzt",
+      "notNowFailed": "Deine Auswahl wurde nicht gespeichert. Versuch es noch einmal."
+    }
   }
 }

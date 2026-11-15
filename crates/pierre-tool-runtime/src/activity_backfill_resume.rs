@@ -25,19 +25,20 @@ use std::time::Duration;
 use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_database::repositories::{
-    ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, JobLease,
-    WorkerRunRepository,
+    ActivityBackfillJobRepository, ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind,
+    JobLease, WorkerRunRepository,
 };
 use pierre_providers::backend_resolver;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
 
+use crate::activity_backfill::history_walk::resolve_purged_walk;
 use crate::activity_backfill::{
-    provider_tenant_id_str, resume_recorded_backfill, ActivityBackfillJob, BACKFILL_JOB_LEASE,
-    MAX_BACKFILL_ATTEMPTS,
+    answer_reaped_live_read, provider_tenant_id_str, resume_recorded_backfill, ActivityBackfillJob,
+    BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS,
 };
-use crate::runtime::ToolRuntime;
+use crate::runtime::{ToolRuntime, WalkTrigger};
 
 /// How often the sweep looks for lapsed rows.
 pub const SWEEP_INTERVAL: Duration = Duration::from_mins(1);
@@ -58,6 +59,8 @@ const SWEEP_BATCH: i64 = 5;
 /// Returns how many this pass started. Rows past the attempt cap whose
 /// lease has ended are reaped first — nothing will claim them again, and
 /// while they stand every new ask for their pair is refused as a duplicate.
+/// History walks a purge left owed a reopen are resolved next, so a walk
+/// reopened here is claimed in the same pass.
 ///
 /// # Errors
 ///
@@ -66,7 +69,8 @@ const SWEEP_BATCH: i64 = 5;
 pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<usize> {
     let ledger = Arc::clone(&resources.repos().activity_backfill_jobs);
     let now_ms = Utc::now().timestamp_millis();
-    reap_exhausted_jobs(ledger.as_ref(), now_ms).await;
+    reap_exhausted_jobs(&resources, now_ms).await;
+    resolve_purged_walks(&resources, now_ms).await;
 
     let claim = BackfillJobClaim {
         now_ms,
@@ -93,9 +97,9 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
         if resume_recorded_backfill(job, lease.clone(), attempts) {
             resumed += 1;
         } else {
-            // A run for the pair is in flight here — an ordinary backfill a
-            // history import adopted, say. Waiting on it must not spend the
-            // job's attempts, or the sweep reaps it before that run ends.
+            // A run of the job's kind for the pair is in flight here, the
+            // ask's own spawn still running, say. Waiting on it must not spend
+            // the job's attempts, or the sweep reaps it before that run ends.
             release_claim(ledger.as_ref(), &lease).await;
         }
     }
@@ -105,23 +109,70 @@ pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<
 /// Hand back a claim this sweep could not run, with its attempt. A release
 /// that fails is logged: the claim's lease lapses as it would have.
 async fn release_claim(ledger: &dyn ActivityBackfillJobRepository, lease: &JobLease) {
-    if let Err(e) = ledger.release_backfill_job_claim(lease).await {
+    if let Err(e) = ledger.release_backfill_job_claim(lease, None).await {
         warn!(row_id = %lease, error = %e, "Activity backfill resume: a claim could not be handed back");
     }
 }
 
-/// Drop the rows past the attempt cap whose last runner died too.
-async fn reap_exhausted_jobs(ledger: &dyn ActivityBackfillJobRepository, now_ms: i64) {
-    match ledger
+/// Resolve the history walks a purge left owed the reopen of their API
+/// phase whose step stopped without resolving them: it died, or its run
+/// ended on a write that failed. Each is reopened below its session's own
+/// rows when a grant is live — this pass's claim then takes it — or kept as
+/// walked when none is ([`resolve_purged_walk`]). A row a step still holds
+/// waits for its lease to lapse.
+async fn resolve_purged_walks(resources: &Arc<dyn ToolRuntime>, now_ms: i64) {
+    let purged = match resources
+        .repos()
+        .activity_backfill_jobs
+        .purged_history_walks(now_ms, SWEEP_BATCH)
+        .await
+    {
+        Ok(purged) => purged,
+        Err(e) => {
+            warn!(error = %e, "Activity backfill resume: purged history walks could not be read");
+            return;
+        }
+    };
+    for walk in purged {
+        resolve_purged_walk(
+            resources,
+            walk.user_id,
+            walk.tenant_id,
+            &walk.provider,
+            WalkTrigger::PhaseReset,
+        )
+        .await;
+    }
+}
+
+/// Drop the rows past the attempt cap whose last runner died too. A live
+/// read among them still owes the ask it was bound to its follow-up, as a
+/// read that gave up: no run of it will ever answer it now.
+async fn reap_exhausted_jobs(resources: &Arc<dyn ToolRuntime>, now_ms: i64) {
+    let reaped = match resources
+        .repos()
+        .activity_backfill_jobs
         .reap_exhausted_backfill_jobs(now_ms, MAX_BACKFILL_ATTEMPTS)
         .await
     {
-        Ok(0) => {}
-        Ok(reaped) => warn!(
-            reaped,
-            "Activity backfill resume: dropped jobs past the attempt cap whose last runner died; each athlete's next ask starts over"
-        ),
-        Err(e) => warn!(error = %e, "Activity backfill resume: exhausted jobs could not be reaped"),
+        Ok(reaped) => reaped,
+        Err(e) => {
+            warn!(error = %e, "Activity backfill resume: exhausted jobs could not be reaped");
+            return;
+        }
+    };
+    if reaped.is_empty() {
+        return;
+    }
+    warn!(
+        reaped = reaped.len(),
+        "Activity backfill resume: dropped jobs past the attempt cap whose last runner died; each athlete's next ask starts over"
+    );
+    for row in reaped {
+        if row.kind == BackfillJobKind::LiveRead && row.conversation_id.is_some() {
+            let job = job_from_row(resources, row).await;
+            answer_reaped_live_read(job);
+        }
     }
 }
 
@@ -130,15 +181,22 @@ async fn reap_exhausted_jobs(ledger: &dyn ActivityBackfillJobRepository, now_ms:
 /// The row kept the backend the ask resolved to; resolving again from the
 /// user-facing name is what the ask itself did, so an athlete who
 /// reconnected through a different backend since is served by the one they
-/// hold now rather than a dead session. A history import's row — one its
-/// ask recorded as such, never one inferred from the rows beside it — keeps
-/// the session it names: routing never serves that session, and resolving
-/// would hand the import the grant's window instead (carnet#1386).
+/// hold now rather than a dead session. A history walk's row keeps the
+/// source it names: the walk reads the source its own order chose
+/// (`history_source_order`, carnet#1482), which the live-read plan a
+/// resolution reads does not follow — its session, or the API grant its
+/// phase handed off to (`walk_backend`).
 async fn job_from_row(
     resources: &Arc<dyn ToolRuntime>,
     row: ActivityBackfillJobRow,
 ) -> ActivityBackfillJob {
-    let provider_name = if row.history_import {
+    let provider_name = if row.kind == BackfillJobKind::HistoryWalk {
+        row.walk_backend
+            .clone()
+            .unwrap_or_else(|| row.provider.clone())
+    } else if row.kind == BackfillJobKind::DetailWalk {
+        // Filed under the backend that reads it, which it reads exactly as
+        // named: never resolved to the session first.
         row.provider.clone()
     } else {
         backend_resolver::resolve_backend(
@@ -172,7 +230,10 @@ async fn job_from_row(
             after: row.after_ts,
         },
         pierre_conversation_id: row.conversation_id,
-        history_import: row.history_import,
+        kind: row.kind,
+        turn_id: row.turn_id,
+        asked_message_id: row.asked_message_id,
+        walk_sport: row.walk_sport,
     }
 }
 

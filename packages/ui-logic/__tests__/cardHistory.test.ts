@@ -54,7 +54,7 @@ describe('cardAwaitingHistory', () => {
   });
 
   it('opens nothing once the history is no longer needed', () => {
-    for (const state of ['importing', 'incomplete', 'imported', 'not_applicable'] as const) {
+    for (const state of ['imported', 'not_applicable'] as const) {
       expect(cardAwaitingHistory([garminGrant(state)], 'garmin')).toBeUndefined();
     }
   });

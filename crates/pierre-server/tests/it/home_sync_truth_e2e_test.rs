@@ -1071,6 +1071,16 @@ async fn after_a_retry(
     home(resources, athlete).await
 }
 
+/// How many records the activity store holds of the mirror for `athlete`.
+async fn store_held(resources: &ServerContext, athlete: &Athlete) -> u64 {
+    resources
+        .common
+        .live_activities
+        .held(athlete.user_id, athlete.tenant, "sciotte")
+        .await
+        .unwrap()
+}
+
 async fn cached_solo_ride(resources: &ServerContext, athlete: &Athlete) -> Option<Activity> {
     resources
         .common
@@ -1108,6 +1118,11 @@ async fn an_empty_list_answered_three_times_across_an_hour_is_believed_and_evict
     assert!(second["sync_failure"].is_object(), "{second}");
     assert_eq!(ids(&second), ["solo"], "two empty answers are not believed");
     assert!(cached_solo_ride(&resources, &athlete).await.is_some());
+    assert_eq!(
+        store_held(&resources, &athlete).await,
+        1,
+        "the store keeps the ride"
+    );
 
     let third = after_a_retry(&resources, &athlete, &scraper).await;
     assert!(
@@ -1120,6 +1135,11 @@ async fn an_empty_list_answered_three_times_across_an_hour_is_believed_and_evict
     assert!(
         cached_solo_ride(&resources, &athlete).await.is_none(),
         "the deleted ride is evicted from the cache"
+    );
+    assert_eq!(
+        store_held(&resources, &athlete).await,
+        0,
+        "the activity store's record of the ride goes with its cached row"
     );
     await_background(&resources).await;
     assert_eq!(scraper.list_reads(), 4, "a believed empty list is fresh");

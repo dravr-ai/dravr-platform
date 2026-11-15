@@ -21,7 +21,7 @@ use std::sync::Arc;
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, GearRef, Lap, Split, SportType, TenantId};
 use pierre_database::backends::factory::Database;
-use pierre_database::repositories::ActivityDetail;
+use pierre_database::repositories::{ActivityDetail, CachedRowsQuery};
 use uuid::Uuid;
 
 fn started() -> DateTime<Utc> {
@@ -142,7 +142,11 @@ async fn a_stored_detail_survives_every_later_list_sync_on_every_read() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].splits().map(Vec::len), Some(2));
     let rows = cache
-        .get_cached_activity_rows(fx.user_id, &fx.tenant, window.0, window.1, 10)
+        .get_cached_activity_rows(
+            fx.user_id,
+            &fx.tenant,
+            &CachedRowsQuery::window(window.0, window.1, 10),
+        )
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -281,9 +285,11 @@ async fn a_detail_read_that_found_nothing_answers_its_row_only_until_its_recheck
         .get_cached_activity_rows(
             fx.user_id,
             &fx.tenant,
-            started() - Duration::hours(1),
-            started() + Duration::hours(1),
-            10,
+            &CachedRowsQuery::window(
+                started() - Duration::hours(1),
+                started() + Duration::hours(1),
+                10,
+            ),
         )
         .await
         .unwrap();

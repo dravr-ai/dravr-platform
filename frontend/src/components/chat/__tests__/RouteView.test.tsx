@@ -21,6 +21,7 @@ import {
 } from '@pierre/shared-constants';
 import { ThemeProvider, useTheme } from '../../../hooks/useTheme';
 import RouteView from '../RouteView';
+import { Sheet } from '../../ui/Sheet';
 import { SceneView } from '../SceneView';
 import { addRouteLayers, CLIMB_SOURCE, TRACK_SOURCE } from '../routeLayers';
 
@@ -910,6 +911,30 @@ describe('RouteView full screen', () => {
       animate: false,
     });
     expect(screen.getByRole('button', { name: 'Full screen' })).toBeInTheDocument();
+  });
+
+  it('folds the overlay back on Escape without closing the Today sheet the card sits in', async () => {
+    const user = userEvent.setup();
+    const onSheetClose = vi.fn();
+    render(
+      <ThemeProvider>
+        <Sheet side="bottom" title="Today" onClose={onSheetClose}>
+          <RouteView view={ROUTE} />
+        </Sheet>
+      </ThemeProvider>
+    );
+    await waitFor(() => expect(harness.constructed).toHaveLength(1));
+
+    await user.click(screen.getByRole('button', { name: 'Full screen' }));
+    expect(stage()).toHaveAttribute('data-map-screen', 'overlay');
+
+    await user.keyboard('{Escape}');
+    // carnet#1553: the overlay and the sheet both listened on `document`.
+    expect(stage()).toHaveAttribute('data-map-screen', 'inline');
+    expect(onSheetClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(onSheetClose).toHaveBeenCalledTimes(1);
   });
 
   it('asks the browser for native full screen and follows the browser out of it', async () => {

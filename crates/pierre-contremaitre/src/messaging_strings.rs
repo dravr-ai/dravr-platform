@@ -103,6 +103,67 @@ pub fn guardian_action_title_key(tool_name: &str) -> String {
     format!("messaging.guardian.action_title.{tool_name}")
 }
 
+// ── Envelope notice (carnet#1495) ─────────────────────────────────────────
+//
+// What the warn-only envelope check found on this turn's sessions, written by
+// the platform under the reply from these fixed sentences, so the model can
+// explain a warning but never drop or soften it.
+
+/// The notice's heading: the session was saved as written, outside what the
+/// evidence supports.
+pub const KEY_ENVELOPE_HEADING: &str = "messaging.envelope.heading";
+
+/// One session's line: `{0}` its day, `{1}` the sentences about it.
+pub const KEY_ENVELOPE_DAY: &str = "messaging.envelope.day";
+
+/// The relabel sentence: `{0}` the purpose label the session now counts as.
+pub const KEY_ENVELOPE_RELABELLED: &str = "messaging.envelope.relabelled";
+
+/// The anchor sentence: `{0}` its label, `{1}` its value, `{2}` its source.
+pub const KEY_ENVELOPE_ANCHOR: &str = "messaging.envelope.anchor";
+
+/// A low-confidence anchor with no range: `{0}` its value with its unit.
+pub const KEY_ENVELOPE_ANCHOR_ESTIMATE: &str = "messaging.envelope.anchor_estimate";
+
+/// A low-confidence anchor's range: `{0}` its low end, `{1}` its high end and
+/// unit.
+pub const KEY_ENVELOPE_ANCHOR_RANGE: &str = "messaging.envelope.anchor_range";
+
+/// The source of an anchor the athlete set themselves.
+pub const KEY_ENVELOPE_SOURCE_OWN: &str = "messaging.envelope.source_own";
+
+/// The source of an anchor the athlete set, in a coach's thread about them.
+pub const KEY_ENVELOPE_SOURCE_ATHLETE: &str = "messaging.envelope.source_athlete";
+
+/// The source of an anchor someone else produced: `{0}` who.
+pub const KEY_ENVELOPE_SOURCE_FROM: &str = "messaging.envelope.source_from";
+
+/// The key of the sentence for one envelope finding code (`{0}` measured,
+/// `{1}` bound where the finding carries them).
+#[must_use]
+pub fn envelope_finding_key(code: &str) -> String {
+    format!("messaging.envelope.finding.{code}")
+}
+
+/// The key of the sentence for a stated preset value outside its range, by
+/// the parameter it names (`{0}` the value, `{1}` the bound).
+#[must_use]
+pub fn envelope_param_key(param: &str) -> String {
+    format!("messaging.envelope.param.{param}")
+}
+
+/// The key of the label a relabelled session's purpose is named by.
+#[must_use]
+pub fn envelope_purpose_key(purpose: &str) -> String {
+    format!("messaging.envelope.purpose.{purpose}")
+}
+
+/// The key of the label of a stored anchor.
+#[must_use]
+pub fn envelope_anchor_label_key(anchor: &str) -> String {
+    format!("messaging.envelope.anchor_label.{anchor}")
+}
+
 /// Key: the parked action's confirmation window elapsed. No format placeholders.
 pub const KEY_GUARDIAN_CONFIRM_EXPIRED: &str = "messaging.guardian.confirm_expired";
 
@@ -287,6 +348,31 @@ pub const KEY_AGENT_WELCOME_TEAM_SOLO: &str = "messaging.agent_welcome.team_solo
 pub const KEY_AGENT_WELCOME_REACH_LINE: &str = "messaging.agent_welcome.reach_line";
 /// Key: the one sentence pointing at Discover. No placeholders.
 pub const KEY_AGENT_WELCOME_DISCOVER_LINE: &str = "messaging.agent_welcome.discover_line";
+/// Key: the lead's first welcome reading back synced history (carnet#1528).
+/// `{0}` = days read, `{1}` = sessions, `{2}` = the sports mix, as
+/// `Run 38, Ride 6`.
+pub const KEY_AGENT_WELCOME_FIGURES_READ: &str = "messaging.agent_welcome.figures_read";
+/// Key: the same, when no session's sport has a word to name it by.
+/// `{0}` = days read, `{1}` = sessions.
+pub const KEY_AGENT_WELCOME_FIGURES_READ_UNMIXED: &str =
+    "messaging.agent_welcome.figures_read_unmixed";
+/// Key: the same, for one session. `{0}` = days read.
+pub const KEY_AGENT_WELCOME_FIGURES_READ_ONE: &str = "messaging.agent_welcome.figures_read_one";
+/// Key: the sessions a week the history averages. `{0}` = the rounded count.
+pub const KEY_AGENT_WELCOME_FIGURES_PER_WEEK: &str = "messaging.agent_welcome.figures_per_week";
+/// Key: the last session. `{0}` = its sport and figures, as
+/// `Run, 21.4 km in 1:52:14`.
+pub const KEY_AGENT_WELCOME_FIGURES_LAST: &str = "messaging.agent_welcome.figures_last";
+/// Key: a distance covered in a time. `{0}` = the distance, `{1}` = the time.
+pub const KEY_AGENT_WELCOME_FIGURES_DISTANCE_TIME: &str =
+    "messaging.agent_welcome.figures_distance_time";
+/// Key: the athlete's goal and why, quoted from About you. `{0}` = the goal,
+/// `{1}` = the why.
+pub const KEY_AGENT_WELCOME_GOAL_WHY: &str = "messaging.agent_welcome.goal_why";
+/// Key: the athlete's goal alone. `{0}` = the goal.
+pub const KEY_AGENT_WELCOME_GOAL_ONLY: &str = "messaging.agent_welcome.goal_only";
+/// Key: the athlete's why alone. `{0}` = the why.
+pub const KEY_AGENT_WELCOME_WHY_ONLY: &str = "messaging.agent_welcome.why_only";
 
 /// Key: the reply to a tapped suggestion that no longer resolves — the thread
 /// lost its agent, or the agent's examples changed since it was posted
@@ -307,6 +393,27 @@ pub const KEY_REGISTRATION_APPROVED: &str = "messaging.account.registration_appr
 /// activities loaded. Used as the fallback nudge when the warmed cache reads
 /// back empty (it shouldn't, post-backfill).
 pub const KEY_BACKFILL_READY: &str = "messaging.backfill.ready";
+
+/// Key: the note a live read posts once the athlete has moved on.
+///
+/// Sent when they asked something newer than the question the read waited
+/// on: its data landed, and the earlier question is not answered again. No
+/// placeholders.
+pub const KEY_LIVE_READ_OVERTAKEN: &str = "messaging.live_read.overtaken";
+
+/// Key: a history walk reached the end of the athlete's history.
+///
+/// The one message a walk no conversation asked for posts in the athlete's
+/// personal thread. `{0}` is the oldest year it reached, `{1}` the
+/// activities it brought in.
+pub const KEY_HISTORY_WALK_COMPLETE: &str = "messaging.history_walk.complete";
+
+/// Key: a detail walk read the segment efforts of the athlete's activities.
+///
+/// The one message a detail walk posts in the athlete's personal thread when
+/// it ends having stored any. `{0}` is the activities whose segment efforts
+/// it read. Counts only: no segment's name.
+pub const KEY_DETAIL_WALK_COMPLETE: &str = "messaging.detail_walk.complete";
 
 /// Key: header line for the backfill completion notice that pushes the list.
 ///
@@ -1067,6 +1174,57 @@ pub const KEY_GROUP_COACH_CONSENT_UPDATED_ALL: &str = "commands.group.coach_cons
 /// several groups, which changes nothing and asks which group. `{0}` = the
 /// group names, comma-separated.
 pub const KEY_GROUP_CONSENT_PICK_GROUP: &str = "commands.group.consent_pick_group";
+/// Key: `/group reads` header above one group's list of the human coach's
+/// reads of the member's data, newest first. `{0}` = group name.
+pub const KEY_GROUP_READS_HEADER: &str = "commands.group.reads_header";
+/// Key: one line of `/group reads`.
+///
+/// `{0}` = when (UTC), `{1}` = the coach, `{2}` = the kind of data
+/// ([`KEY_GROUP_READS_TRAINING`] or [`KEY_GROUP_READS_WELLNESS`]), `{3}` = the
+/// tool read through, or the words of a read made outside a tool call
+/// (`KEY_GROUP_READS_SOURCE_*`).
+pub const KEY_GROUP_READS_LINE: &str = "commands.group.reads_line";
+/// Key: `/group reads` for a group whose human coach read nothing of the
+/// member's within the retention. `{0}` = group name, `{1}` = the months
+/// a read is kept.
+pub const KEY_GROUP_READS_NONE: &str = "commands.group.reads_none";
+/// Key: `/group reads` word for a read of the member's training. No
+/// placeholder.
+pub const KEY_GROUP_READS_TRAINING: &str = "commands.group.reads_training";
+/// Key: `/group reads` word for a read of the member's wellness. No
+/// placeholder.
+pub const KEY_GROUP_READS_WELLNESS: &str = "commands.group.reads_wellness";
+/// Key: `/group reads` name for a coach whose account is gone. No
+/// placeholder.
+pub const KEY_GROUP_READS_FORMER_COACH: &str = "commands.group.reads_former_coach";
+/// Key: `/group reads` words, in place of a tool, for a read made from Group
+/// info's view of the member's plan. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_PLAN_VIEW: &str = "commands.group.reads_source_plan_view";
+/// Key: `/group reads` words, in place of a tool, for a read the coach made
+/// with `/plan <member>`. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_PLAN_COMMAND: &str = "commands.group.reads_source_plan_command";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// coach's roster (Coach Home). No placeholder.
+pub const KEY_GROUP_READS_SOURCE_ROSTER: &str = "commands.group.reads_source_roster";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// coach's thread about the member, on one of its turns. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_COACH_THREAD: &str = "commands.group.reads_source_coach_thread";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// member cards the agent reads on a turn in the group's room. No
+/// placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_ROOM: &str = "commands.group.reads_source_group_room";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// group's stats. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_STATS: &str = "commands.group.reads_source_group_stats";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// group's weekly report. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_REPORT: &str = "commands.group.reads_source_group_report";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// group's health flags. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_GROUP_HEALTH: &str = "commands.group.reads_source_group_health";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// human coach's copy of the group's weekly digest. No placeholder.
+pub const KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST: &str = "commands.group.reads_source_weekly_digest";
 /// Key: the `/group join` reply's sharing line when the group has a human
 /// coach. `{0}` = the coach's name.
 pub const KEY_GROUP_COACH_SHARING_NAMED: &str = "commands.group.coach_sharing_named";
@@ -1148,6 +1306,19 @@ pub const KEY_GROUP_JOIN_FULL: &str = "commands.group.join_full";
 pub const KEY_GROUP_JOINED: &str = "commands.group.joined";
 /// Key: `/group join` success for a coach-kind invite. `{0}` = group name.
 pub const KEY_GROUP_JOINED_AS_COACH: &str = "humanCoach.joined_group";
+
+// ── Coach-access decision keys (carnet#1521) ──────────────────────────────
+
+/// Key: the line a coach-access grant leaves in the coach's own copy of each
+/// group it made them the coach of. `{0}` = the coach's name.
+pub const KEY_COACH_ACCESS_ROOM_LINE_COACH: &str = "humanCoach.access.roomLineCoach";
+/// Key: the same line in an athlete's copy of that group's chat, with what
+/// the coach now sees and where the athlete stops it. `{0}` = the coach's
+/// name.
+pub const KEY_COACH_ACCESS_ROOM_LINE_ATHLETE: &str = "humanCoach.access.roomLineAthlete";
+/// Key: the declined coach-access notice's body when the super-admin gave a
+/// reason. `{0}` = the reason, in the operator's own words.
+pub const KEY_COACH_ACCESS_DECLINED_REASON_BODY: &str = "humanCoach.access.declinedReasonBody";
 
 // ── /discover command keys ────────────────────────────────────────────────
 

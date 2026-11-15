@@ -25,10 +25,6 @@
     "./useFormField": {
       "types": "./src/useFormField.ts",
       "import": "./src/useFormField.ts"
-    },
-    "./useModal": {
-      "types": "./src/useModal.ts",
-      "import": "./src/useModal.ts"
     }
   },
   "scripts": {

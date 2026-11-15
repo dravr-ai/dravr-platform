@@ -1,4 +1,4 @@
-// ABOUTME: The chat apps the workspace offers for linking — one query shared by onboarding and Settings → Messaging
+// ABOUTME: The chat apps the workspace offers for linking — one query shared by the chat-app sheet, its offers and Settings → Messaging
 // ABOUTME: Always yields an array: a malformed read (an HTML error page) reads as no channels, never as a crash or a count
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -11,20 +11,20 @@ import { messagingLinkApi } from '../services/api';
 /** Stable empty list so the channels value keeps identity across renders. */
 const EMPTY_CHANNELS: AvailableChannel[] = [];
 
-/** Onboarding re-evaluates its steps on every render; a minute-old channel list is fine for that. */
-const ONBOARDING_STALE_MS = 60_000;
+/** The offers (Getting started's row, a group's card) re-render often; a minute-old channel list is fine for them. */
+const OFFER_STALE_MS = 60_000;
 
 /**
  * Read the connectable channels.
  *
  * The response is defended against a non-array body (an error or HTML page
- * served with a 200): onboarding must never intercept the flow on it — a
- * string's `.length` would read as a huge channel count — and the settings
- * pane must never call `.filter` on it.
+ * served with a 200): an offer must never appear on it — a string's
+ * `.length` would read as a huge channel count — and the settings pane must
+ * never call `.filter` on it.
  */
 export function useAvailableChannels({
   enabled = true,
-  staleTime = ONBOARDING_STALE_MS,
+  staleTime = OFFER_STALE_MS,
 }: {
   enabled?: boolean;
   /** How old a cached read may be before a newly mounted reader asks again. */

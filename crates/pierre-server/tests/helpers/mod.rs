@@ -29,6 +29,8 @@ pub(crate) mod first_party_sign_in;
 pub(crate) mod google_oidc;
 /// A Google-shaped signing identity: openssl key + certificate, tokens minted with it.
 pub(crate) mod google_token;
+/// History-walk rows written straight into the job ledger, owed or walked.
+pub(crate) mod history_walk_ledger;
 /// Identity Toolkit and the metadata token endpoint, for the account-deletion suites.
 pub(crate) mod identity_toolkit_stub;
 /// Answers the turn's language-classification call so a scripted mock keeps

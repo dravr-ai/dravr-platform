@@ -22,6 +22,7 @@ import { Alert, Share } from 'react-native';
 import {
   audienceOf,
   copyableText,
+  AGENT_WELCOME_FINISH_REASON,
   correctionAuthorLabel,
   countActivities,
   dayLabelFor,
@@ -68,6 +69,7 @@ import PrivateLaneDivider from './PrivateLaneDivider';
 import { presentMessageMenu } from './presentMessageMenu';
 import SceneView from './SceneView';
 import WorkoutPlanCard from './WorkoutPlanCard';
+import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
 import { MARKDOWN_RULES, TABLE_CELL_MIN_WIDTH } from './markdownRules';
 import { useTranslation } from '@pierre/i18n';
@@ -530,6 +532,12 @@ interface MessageListProps {
    */
   planDraft?: React.ReactNode;
   /**
+   * The host's one-time offer, in the agent's voice at the end of the thread
+   * — a coach's chat-app card in their group (carnet#1525). Drawn after the
+   * rows, or under the empty thread's line.
+   */
+  offer?: React.ReactNode;
+  /**
    * The empty plan thread's one-tap start — "Draft <name>'s plan" — when the
    * coach holds no draft: its label, what a press does, and whether a turn
    * is already running.
@@ -578,6 +586,7 @@ export function MessageList({
   planSubjectName = null,
   coachRoomName = null,
   planDraft = null,
+  offer = null,
   planStarter = null,
   onStarter,
   hasEarlier = false,
@@ -650,6 +659,8 @@ export function MessageList({
       planConversationId: string | null;
       /** Who reads the row the block is in. */
       audience: MessageAudience;
+      /** The row is an agent's welcome, whose starters are ink links (carnet#1528). */
+      welcome?: boolean;
     },
   ): React.ReactNode => {
     switch (block.type) {
@@ -749,6 +760,26 @@ export function MessageList({
       }
 
       case 'actions':
+        // An agent's welcome offers its starters as the empty thread does:
+        // 44pt ink links under a caption, no pill (D3, carnet#1528).
+        if (context.welcome) {
+          return (
+            <View key={key} className="mt-4" testID="welcome-starters">
+              {block.title ? <Text className="text-xs text-text-secondary">{block.title}</Text> : null}
+              {block.actions.map((action, idx) => (
+                <Pressable
+                  key={`${action.value}-${idx}`}
+                  accessibilityRole="button"
+                  accessibilityLabel={action.label}
+                  className="min-h-11 flex-row items-center"
+                  onPress={() => onActionClick?.(action, context.audience)}
+                >
+                  <Text className="text-sm font-medium text-primary">{action.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+          );
+        }
         return (
           <View key={key} className="mt-3">
             {block.title ? (
@@ -782,6 +813,11 @@ export function MessageList({
             </Text>
           </TouchableOpacity>
         );
+
+      // What the envelope check found on this turn's sessions, in the
+      // platform's own sentences beside the plan card (carnet#1495).
+      case 'envelope_notice':
+        return <EnvelopeNotice key={key} heading={block.heading} lines={block.lines} />;
 
       // A quota notice is a fact about the turn, not about the message: the
       // usage banner below the transcript shows it once.
@@ -1074,6 +1110,7 @@ export function MessageList({
       rows,
       planConversationId: conversationId,
       audience: 'room' as const,
+      welcome: item.finish_reason === AGENT_WELCOME_FINISH_REASON,
     };
     // What copy and share hand out. The reply's own text carries the ⟦viz:N⟧
     // markers this surface turns into charts; pasted anywhere else they are a
@@ -1374,6 +1411,7 @@ export function MessageList({
             : null}
         </>
       )}
+      {offer !== null ? <View className="w-full">{offer}</View> : null}
     </ScrollView>
   );
 
@@ -1424,6 +1462,7 @@ export function MessageList({
   const renderFooter = () => (
     <>
       {planDraft}
+      {offer}
       {renderTurnFooter()}
     </>
   );
@@ -1462,7 +1501,9 @@ export function MessageList({
             header
           )
         }
-        ListFooterComponent={planDraft !== null || isSending || isLoading ? renderFooter : null}
+        ListFooterComponent={
+          planDraft !== null || offer !== null || isSending || isLoading ? renderFooter : null
+        }
       />
     </View>
   );

@@ -37,6 +37,12 @@ export const QUERY_KEYS = {
     coachAccessRequest: () => ['user-coach-access-request'] as const,
     /** The units the athlete reads, and the Settings choice behind them. */
     units: () => ['user-units'] as const,
+    /**
+     * The athlete's anchors per sport family (carnet#1516). The server writes
+     * their words in the app's language and the athlete's units, so both are
+     * in the key: a language or units switch reads them again.
+     */
+    physiology: (locale: string, units: string) => ['user-physiology', locale, units] as const,
     /** How often the coach checks in on its own (carnet#831). */
     checkIn: () => ['user-check-in'] as const,
     /** The calendar Dravr's plan and workout pushes go to (carnet#1393). */
@@ -110,8 +116,16 @@ export const QUERY_KEYS = {
      * one key, so Today's section and the narrow-screen Today line agree.
      */
     gettingStarted: () => ['home', 'getting-started'] as const,
-    /** The workouts and plan weeks over the days `from..=to` (`YYYY-MM-DD`) — one strip week or one month grid. */
-    calendar: (from: string, to: string) => ['home', 'calendar', from, to] as const,
+    /**
+     * The pending coach's « Préparer ton coaching » checklist (carnet#1529):
+     * the seat, the athlete invited, a coaching platform linked.
+     */
+    coachSetup: () => ['home', 'coach-setup'] as const,
+    /**
+     * The workouts and plan weeks over the days `from..=to` (`YYYY-MM-DD`) — one strip week or one month grid —
+     * with a plan day's evidence chip and relabel line in `locale`.
+     */
+    calendar: (from: string, to: string, locale: string) => ['home', 'calendar', from, to, locale] as const,
     /** Every calendar span: the prefix a pull to refresh or a return to Home invalidates. */
     calendars: ['home', 'calendar'] as const,
   },
@@ -234,6 +248,7 @@ export const QUERY_KEYS = {
     pending: () => ['pending-users'] as const,
     preApproved: () => ['pre-approved-emails'] as const,
     coachAccess: (status?: string) => ['coach-access-requests', status] as const,
+    coachSeatInvitations: () => ['coach-seat-invitations'] as const,
     rateLimit: (userId?: string) => ['user-rate-limit', userId] as const,
     activity: (userId?: string) => ['user-activity', userId] as const,
   },
@@ -307,6 +322,7 @@ export const QUERY_KEYS = {
     delegationRoster: (groupId: string) => ['groups', groupId, 'delegation-roster'] as const,
     coachConsents: (groupId: string) => ['groups', groupId, 'coach-consents'] as const,
     coachSharing: (groupId: string) => ['groups', groupId, 'coach-sharing'] as const,
+    coachReads: (groupId: string) => ['groups', groupId, 'coach-reads'] as const,
     permissions: () => ['groups', 'permissions'] as const,
   },
 

@@ -34,7 +34,8 @@ use pierre_core::constants::oauth_providers::{
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, AnchorProvenance, ConnectionType, DailyTrainingState, SportType,
-    ThresholdProvenance, TimeSeriesData, UserOAuthToken, UserPhysiologicalProfile,
+    ThresholdProvenance, ThresholdStatedOn, TimeSeriesData, UserOAuthToken,
+    UserPhysiologicalProfile,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -214,6 +215,7 @@ async fn give_physiology(resources: &Arc<ServerContext>, athlete: &Athlete) {
         critical_speed_mps: None,
         d_prime_meters: None,
         threshold_provenance: ThresholdProvenance::default(),
+        threshold_stated_on: ThresholdStatedOn::default(),
         anchor_provenance: AnchorProvenance::default(),
         transport_policy: TransportPolicy::AnyTransport,
         sex: None,

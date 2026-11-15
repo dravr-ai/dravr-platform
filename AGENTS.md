@@ -5,7 +5,7 @@
 ## Project map
 
 - `crates/` — Cargo workspace, 45 crates. Leaf crates are reusable modules and **never** depend on `pierre_mcp_server`. Tool extensibility lives in `pierre-server`'s `tools::ToolRegistry` (implement `McpTool`, register in `register_builtin_tools`).
-- `crates/pierre-server/tests/` — server integration tests (~850 files). Doc tests compile per-crate.
+- `crates/pierre-server/tests/` — server integration tests (~900 files). Doc tests compile per-crate.
 - **Test placement (ADR-027):** unit tests live in a trailing inline `#[cfg(test)] mod tests { … }` in the module they test; integration tests live in `tests/` and use the crate's public surface only; test fixtures (`create_test_db`, user fixtures) live only in `crates/pierre-test-support`, a `[dev-dependencies]`-only crate. A module or item is `pub` only because a production caller needs it — when a test is its only outside user, move the test in and narrow it to `pub(crate)`.
 - `frontend/` — web SPA (Vite, React, TailwindCSS, port 3000).
 - `frontend-mobile/` — React Native / Expo app (NativeWind, port 8082).

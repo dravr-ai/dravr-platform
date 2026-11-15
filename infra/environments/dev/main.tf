@@ -1156,14 +1156,22 @@ module "sciotte" {
   service_account_email = module.service_accounts.app_service_account_email
 
   container_port = 3000
-  # 2 vCPU / 2Gi sized for DRAVR_SCIOTTE_MAX_CONCURRENT=2 headless Chromes
-  # (~300-500MB each) plus the vision LLM subprocess headroom.
+  # 2 vCPU / 3Gi sized for DRAVR_SCIOTTE_MAX_CONCURRENT=3 headless Chromes
+  # (~300-500MB each) plus the vision LLM subprocess headroom. Measured over
+  # 2026-11-06..13 at 2Gi: CPU p99 10%, memory p99 12%, so the third Chrome
+  # (the login takeover, carnet#1508) is what the extra 1Gi is for.
   cpu               = "2"
-  memory            = "2Gi"
+  memory            = "3Gi"
   cpu_idle          = true
   startup_cpu_boost = true
-  min_instances     = 0
-  max_instances     = 1
+  # One instance stays warm: every Strava and Garmin read goes to the session
+  # first (carnet#1494), and a cold start (p95 5.4s) plus a Chrome launch eats
+  # most of a chat turn's 15s read budget. cpu_idle keeps it CPU-throttled
+  # between requests, so the warm instance bills at the idle rate.
+  min_instances = 1
+  # One instance only: a parked 2FA login lives in that instance's memory and
+  # Cloud Run has no affinity to route its answer back (carnet#1504).
+  max_instances = 1
   # Scrapes are long-lived; keep the per-instance request budget near the
   # queue depth so overload sheds as app-level 503+Retry-After, not as a
   # Cloud Run queue pile-up.
@@ -1225,8 +1233,9 @@ module "sciotte" {
     DRAVR_SCIOTTE_ALLOWED_CALLERS = module.service_accounts.app_service_account_email
 
     # Backpressure limiter — fail-fast required set (no crate defaults).
-    # max_concurrent=2 matches the 2Gi memory sizing above.
-    DRAVR_SCIOTTE_MAX_CONCURRENT          = "2"
+    # max_concurrent=3 matches the 3Gi memory sizing above: the third Chrome
+    # is the athlete's login takeover (carnet#1508).
+    DRAVR_SCIOTTE_MAX_CONCURRENT          = "3"
     DRAVR_SCIOTTE_MAX_QUEUE               = "8"
     DRAVR_SCIOTTE_QUEUE_TIMEOUT_SECS      = "10"
     DRAVR_SCIOTTE_WATCHDOG_INTERVAL_SECS  = "15"

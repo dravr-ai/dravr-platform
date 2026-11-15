@@ -43,7 +43,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           # The gate is .build/vendor/llm-registre, a submodule nested in .build. Both repos are
           # public, so the checkout needs no token; the tracker read below does.

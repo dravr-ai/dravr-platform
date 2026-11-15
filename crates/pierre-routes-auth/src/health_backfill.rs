@@ -10,6 +10,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::connect_prefetch::PrefetchWait;
 use pierre_services::health_sync::wellness_pull_stands_down;
 use pierre_services::provider_refresh::token_tenant;
+use tokio::task::JoinHandle;
 use tracing::info;
 use uuid::Uuid;
 
@@ -39,32 +40,33 @@ use crate::AuthRoutesContext;
 /// hook's to decide. A provider the sync does not manage lands its data
 /// through the scrape pre-fetch instead, when the connect started one, and
 /// that is reported the same way.
+///
+/// Returns the task the backfill (or the pre-fetch's landing) runs on, which
+/// ends once its report did, for what must not read the session before it:
+/// the connection's history walk ([`crate::first_sync::spawn_connection_report`]).
+/// `None` when nothing was started.
 pub(crate) fn spawn_health_backfill(
     resources: &AuthRoutesContext,
     user_id: &str,
     provider: &str,
     after: Option<PrefetchWait>,
-) {
+) -> Option<JoinHandle<()>> {
     if !health_sync_backfills(resources, provider) {
         tracing::debug!(
             provider,
             "No health sync for this provider; nothing to backfill"
         );
-        if let Some(prefetch) = after {
-            spawn_prefetch_landing(resources, user_id, provider, prefetch);
-        }
-        return;
+        return after
+            .and_then(|prefetch| spawn_prefetch_landing(resources, user_id, provider, prefetch));
     }
-    let Some(orchestrator) = resources.sync_orchestrator.clone() else {
-        return;
-    };
+    let orchestrator = resources.sync_orchestrator.clone()?;
     let user_id = user_id.to_owned();
     let provider = provider.to_owned();
     let auth_repos = resources.repos.auth_repos();
     let repos = Arc::clone(&resources.repos);
     let notices = resources.sync_failure_notices.clone();
     let first_sync = Arc::clone(&resources.first_sync);
-    tokio::spawn(async move {
+    Some(tokio::spawn(async move {
         if let Some(prefetch) = after {
             // What the pre-fetch read is the activity readers'; the backfill
             // only needs the session to itself.
@@ -118,5 +120,5 @@ pub(crate) fn spawn_health_backfill(
                 hook.data_landed(user_uuid, tenant, &provider).await;
             }
         }
-    });
+    }))
 }

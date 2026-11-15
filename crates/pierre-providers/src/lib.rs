@@ -38,6 +38,8 @@ pub mod core;
 pub mod deduplication;
 /// Reads on behalf of a coached athlete through a coach's own provider credential
 pub mod delegation;
+/// Which activity fields and stream channels each backend supplies, per mode
+pub mod field_support;
 /// The process-wide bound on concurrent FIT decodes (the decoder is dravr-barrage's)
 pub mod fit_decode;
 /// Shared HTTP client for provider API calls

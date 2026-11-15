@@ -18,8 +18,11 @@
 //!
 //! - `initialize`, with the build version redacted and the instructions held
 //!   to the catalogue's prompt rather than to a copy of its words;
-//! - `tools/list` with the admin bit set;
-//! - the tool names `tools/list` gives without it, each schema identical.
+//! - `tools/list` with the admin bit set, for a user who coaches a group: the
+//!   whole catalogue, `athlete` and the coach-only tools included;
+//! - the tool names `tools/list` gives without it, each schema identical;
+//! - the listing of a user who coaches no group, which is that catalogue
+//!   without the coach-only tools and without `athlete` (carnet#1426).
 //!
 //! The contremaitre description overlay starts empty and is only filled when
 //! `CONTREMAITRE_REPO` is set, so these are the compiled-in descriptions — the
@@ -32,6 +35,7 @@
 //! ```
 
 use crate::common;
+use crate::helpers::coach_roster_fixtures::{coached_group, group_agent, Person};
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
@@ -99,11 +103,16 @@ async fn call(
     serde_json::to_value(response).unwrap()
 }
 
-/// The same tenant user seen twice, with the admin bit and without it. A global
+/// The same tenant user seen twice, with the admin bit and without it, and a
+/// second user who coaches no group. A global
 /// admin holds the public profile on `/mcp`, so the two views are one list. The
+/// first user coaches a group, so their list is the whole catalogue: `athlete=`
+/// and the coach-only tools go to a coach alone. The
 /// tenant is on the top plan: `tools/list` leaves out what a plan does not cover,
 /// and the fixture freezes every tool an external client can be offered.
-async fn admin_and_member(resources: &ServerContext) -> (ToolContext, ToolContext) {
+async fn admin_and_member(
+    resources: &Arc<ServerContext>,
+) -> (ToolContext, ToolContext, ToolContext) {
     let (user, _) = common::create_test_tenant(resources, "surface-fixture@example.com")
         .await
         .unwrap();
@@ -135,7 +144,51 @@ async fn admin_and_member(resources: &ServerContext) -> (ToolContext, ToolContex
         .iter()
         .map(|scope| scope.as_str().to_owned())
         .collect();
-    (base.clone().as_admin(true), base.as_admin(false))
+
+    // The user coaches one group, so their list carries what a coach is offered.
+    let coach = Person {
+        id: user.id,
+        tenant: tenant.id,
+        auth: String::new(),
+    };
+    // Coach access and an active group: the roster tool's rule (carnet#1511).
+    resources
+        .common
+        .repos
+        .users
+        .set_manages_roster(user.id, true)
+        .await
+        .unwrap();
+    let agent = group_agent(resources, &coach).await;
+    coached_group(resources, tenant.id, user.id, &agent, "Fixture squad").await;
+
+    // Another user of the same plan who coaches no group.
+    let (other, _) = common::create_test_tenant(resources, "surface-fixture-athlete@example.com")
+        .await
+        .unwrap();
+    let other_tenant = resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .list_for_user(other.id)
+        .await
+        .unwrap()
+        .remove(0);
+    resources
+        .agent
+        .database
+        .repositories()
+        .tenants
+        .set_plan(other_tenant.id, "enterprise")
+        .await
+        .unwrap();
+    let mut non_coach = ToolContext::new()
+        .with_user(other.id.to_string())
+        .with_tenant(other_tenant.id.to_string());
+    non_coach.scopes.clone_from(&base.scopes);
+
+    (base.clone().as_admin(true), base.as_admin(false), non_coach)
 }
 
 #[tokio::test]
@@ -180,7 +233,7 @@ async fn mcp_surface_matches_the_committed_fixtures() {
     initialize["result"]["instructions"] = json!(REDACTED);
     assert_matches_fixture("initialize", &initialize["result"]);
 
-    let (admin, member) = admin_and_member(&resources).await;
+    let (admin, member, non_coach) = admin_and_member(&resources).await;
     let admin_list = call(&server, "tools/list", json!({}), &admin).await;
     assert_matches_fixture("tools_list_admin", &admin_list["result"]);
     // The catalogue view lists a subset of the same schemas, so only its names
@@ -208,6 +261,43 @@ async fn mcp_surface_matches_the_committed_fixtures() {
         })
         .collect();
     assert_matches_fixture("tools_list_member_names", &json!(member_names));
+
+    // A user who coaches no group is listed that catalogue without the
+    // coach-only tools and without `athlete`, and nothing else is different
+    // (carnet#1426). Frozen as a derivation, not as a second 1.3 MB fixture.
+    let non_coach_list = call(&server, "tools/list", json!({}), &non_coach).await;
+    let mut expected: Vec<Value> = admin_list["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|tool| tool["name"] != "publish_training_plan")
+        .cloned()
+        .collect();
+    let mut athlete_properties = 0_usize;
+    for tool in &mut expected {
+        if let Some(properties) = tool["inputSchema"]["properties"].as_object_mut() {
+            athlete_properties += usize::from(properties.remove("athlete").is_some());
+        }
+    }
+    assert!(
+        athlete_properties > 20,
+        "the coach list carries athlete= on the scoped reads, or this proves nothing"
+    );
+    assert_eq!(
+        json!(expected),
+        non_coach_list["result"]["tools"],
+        "a non-coach's list is the coach's without publish_training_plan and athlete="
+    );
+    // The public profile's names: what every external client who coaches no
+    // group is offered, a global admin included, and so what the generated
+    // SDK types describe. The SDK drift check compares the types against it.
+    let public_names: Vec<&str> = non_coach_list["result"]["tools"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|tool| tool["name"].as_str().unwrap())
+        .collect();
+    assert_matches_fixture("tools_list_public_names", &json!(public_names));
 
     // Both views are in name order: a reordered list is a different prompt
     // prefix for every client that caches it.

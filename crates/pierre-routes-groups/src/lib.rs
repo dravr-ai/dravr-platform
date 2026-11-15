@@ -30,6 +30,10 @@
 
 #![warn(missing_docs)]
 
+/// A member's own record of their group's human coach reading their data
+/// (`/members/me/coach-reads`, carnet#1445).
+pub mod coach_reads;
+
 /// `TrainingPeaks` delegated connections: a group's coach links roster
 /// athletes to members, who confirm; either side ends a link.
 pub mod delegated_connections;
@@ -64,6 +68,7 @@ mod group_update_access;
 /// Push-notification endpoints (device tokens, preferences, feed, scheduling).
 pub mod notifications;
 
+pub use coach_reads::CoachReadRoutes;
 pub use delegated_connections::DelegatedConnectionRoutes;
 pub use groups::{
     GroupMetadata, GroupRoutes, HealthFlagsResponse, StatsResponse, WeeklyReportResponse,

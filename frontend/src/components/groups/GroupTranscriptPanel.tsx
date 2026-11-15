@@ -48,7 +48,7 @@ export default function GroupTranscriptPanel({ groupId }: GroupTranscriptPanelPr
       <div className="px-3 py-8 text-center">
         <MessageCircle className="w-8 h-8 mx-auto mb-2 text-outline" />
         <p className="text-sm text-on-surface-variant">{t('groups.roomEmpty')}</p>
-        <p className="text-xs text-outline mt-1">
+        <p className="mt-1 text-pretty text-xs text-outline">
           {t('groups.roomHint')}
         </p>
       </div>

@@ -53,18 +53,18 @@ export {
   pattern,
 } from './useFormField';
 
-// Modal hooks
-export {
-  type UseModalProps,
-  type UseModalReturn,
-  useModal,
-  type UseConfirmDialogProps,
-  type UseConfirmDialogReturn,
-  useConfirmDialog,
-} from './useModal';
 export { useAbortOnClose } from './useAbortOnClose';
 export { isSignInPhaseLive, useSignInAttempt } from './useSignInAttempt';
-export type { SignInAttemptOptions } from './useSignInAttempt';
+export type { SignInAttempt, SignInAttemptOptions } from './useSignInAttempt';
+export {
+  type TakeoverResult,
+  parseTakeoverBridgeMessage,
+  parseTakeoverEvent,
+  takeoverResult,
+  takeoverTarget,
+  takeoverTextChunks,
+  takeoverTokenProvider,
+} from './sciotteTakeover';
 
 // API error classification — one classifier for web and mobile, so a failed
 // request is named by its transport state and status, never by matching on
@@ -181,7 +181,11 @@ export {
   createPrivateLaneHooks,
   privateSendFailureText,
 } from './privateLaneHooks';
-export { type UnreadCountPolling, createNotificationHooks } from './notificationHooks';
+export {
+  type UnreadCountPolling,
+  createNotificationHooks,
+  invalidateNotificationReads,
+} from './notificationHooks';
 export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFlagsHook';
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
@@ -202,6 +206,8 @@ export {
   createUnitPreferencesHook,
   useDistanceUnit,
 } from './unitsHook';
+// Settings › Physiology: the read of the athlete's anchors and the facts under each one (carnet#1516).
+export { type PhysiologyPlatform, createPhysiologyHook, physiologyAnchorFacts } from './physiology';
 export {
   type ActivityUploadFailure,
   type ActivityUploadOutcome,
@@ -369,6 +375,16 @@ export {
   type SeasonScale,
 } from './coachHome';
 export { createCoachRosterHooks } from './coachRosterHooks';
+// A coach-access grant picked up without signing out, and the list's coach-seat line (carnet#1521).
+export {
+  createCoachAccessHooks,
+  seatLineDay,
+  type CoachAccessViewer,
+  type SeatProbe,
+  type SeatProbeOptions,
+} from './coachAccessHooks';
+// Coach Home's invited-but-not-joined rows (carnet#1524).
+export { COACH_PENDING_INVITE_KEYS, groupsAwaitingAthlete, usableMemberInvite } from './coachPendingInvites';
 export {
   ALL_COACHED_ATHLETES,
   coachedAthleteOptions,

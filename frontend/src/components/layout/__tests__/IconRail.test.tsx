@@ -2,14 +2,15 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Pins the rail's account menu — the avatar opens Settings, Send feedback and Sign out under the athlete's name
-// ABOUTME: Escape, a click outside or a choice closes it; a waiting team reply dots the avatar and counts on Send feedback (carnet#1392)
+// ABOUTME: Escape (it alone, over any sheet), a click outside or a choice closes it; a waiting team reply dots the avatar and counts on Send feedback (carnet#1392)
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { IconRail } from '../IconRail';
+import { Sheet } from '../../ui/Sheet';
 
-function renderRail(feedbackUnread = 0) {
+function renderRail(feedbackUnread = 0, sheetUnder?: () => void) {
   const handlers = {
     onSelect: vi.fn(),
     onOpenSettings: vi.fn(),
@@ -18,15 +19,22 @@ function renderRail(feedbackUnread = 0) {
     onHome: vi.fn(),
   };
   render(
-    <IconRail
-      tabs={[{ id: 'home', name: 'Home', icon: <span /> }]}
-      activeTab="home"
-      settingsActive={false}
-      userInitial="A"
-      userLabel="Alex Rider"
-      feedbackUnread={feedbackUnread}
-      {...handlers}
-    />,
+    <>
+      {sheetUnder && (
+        <Sheet side="right" title="Today" onClose={sheetUnder}>
+          <p>today</p>
+        </Sheet>
+      )}
+      <IconRail
+        tabs={[{ id: 'home', name: 'Home', icon: <span /> }]}
+        activeTab="home"
+        settingsActive={false}
+        userInitial="A"
+        userLabel="Alex Rider"
+        feedbackUnread={feedbackUnread}
+        {...handlers}
+      />
+    </>,
   );
   return handlers;
 }
@@ -89,6 +97,23 @@ describe('IconRail account menu', () => {
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument();
     expect(toggle).toHaveFocus();
+  });
+
+  it('takes Escape before a sheet already open under it', async () => {
+    const user = userEvent.setup();
+    const onSheetClose = vi.fn();
+    renderRail(0, onSheetClose);
+    const toggle = screen.getByRole('button', { name: 'Account menu' });
+
+    await user.click(toggle);
+    await user.keyboard('{Escape}');
+    // One Escape, one layer: the menu, the last one opened.
+    expect(screen.queryByRole('button', { name: 'Send feedback' })).not.toBeInTheDocument();
+    expect(toggle).toHaveFocus();
+    expect(onSheetClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(onSheetClose).toHaveBeenCalledTimes(1);
   });
 
   it('closes on a click outside it', async () => {

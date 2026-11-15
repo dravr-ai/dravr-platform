@@ -9,7 +9,9 @@ use std::slice;
 
 use pierre_contremaitre::{session_view, ResolvedWorkout};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::periodization::{EnvelopeReport, InstanceRequest, PresetParams};
+use pierre_core::models::periodization::{
+    AthleteAnchors, EnvelopeReport, InstanceRequest, PresetParams,
+};
 use pierre_core::models::{SportType, WorkoutTemplate};
 use pierre_memory::training_plans::TemplateParams;
 use pierre_services::plan_calendar_push::plan_sport;
@@ -203,6 +205,7 @@ fn preset_summaries(template: &WorkoutTemplate) -> Vec<PresetSummary> {
 pub(super) fn family_session(
     resolved: ResolvedWorkout,
     args: &Value,
+    anchors: Option<&AthleteAnchors>,
 ) -> AppResult<(WorkoutTemplate, Option<EnvelopeReport>)> {
     let ResolvedWorkout { template, request } = resolved;
     let preset_arg = args.get("preset").and_then(Value::as_str);
@@ -243,7 +246,7 @@ pub(super) fn family_session(
             sport: args.get("sport").and_then(Value::as_str).map(plan_sport),
             params: stated.map_or_else(PresetParams::default, |p| p.preset_params()),
         },
-        None,
+        anchors,
     );
     structure_minutes(
         &format!("the steps generated from {}", template.slug),
@@ -285,7 +288,7 @@ mod tests {
     fn a_legacy_slug_prescribes_its_preset_named_once() {
         let args = json!({ "template_slug": "fixture_alias_30_30" });
         let (session, envelope) =
-            family_session(legacy("fixture_alias_30_30", SportType::Run), &args).unwrap();
+            family_session(legacy("fixture_alias_30_30", SportType::Run), &args, None).unwrap();
         assert_eq!(session.name, "VO2max — short intervals — 30/30 (Billat)");
         assert_eq!(session.sport, SportType::Run, "the alias pins the run form");
         assert_eq!(session.fit.readiness_min, ReadinessLevel::P3);
@@ -305,7 +308,7 @@ mod tests {
             "sport": "ride",
             "template_params": { "reps": 20 },
         });
-        let (session, envelope) = family_session(as_written(family()), &args).unwrap();
+        let (session, envelope) = family_session(as_written(family()), &args, None).unwrap();
         assert_eq!(session.name, "VO2max — short intervals — 30/15 (Rønnestad)");
         let work = session.structure.iter().find(|s| s.repeat > 1).unwrap();
         assert_eq!(work.repeat, 20, "the value goes through as written");
@@ -326,7 +329,7 @@ mod tests {
             "template_slug": FAMILY_SLUG,
             "template_params": { "sets": 4_000_000_000_u32 },
         });
-        let refused = family_session(as_written(family()), &args).unwrap_err();
+        let refused = family_session(as_written(family()), &args, None).unwrap_err();
         assert!(
             refused.to_string().contains("template_params.sets"),
             "{refused}"
@@ -338,12 +341,13 @@ mod tests {
         let mut plain = family();
         plain.presets.clear();
         let preset = json!({ "template_slug": FAMILY_SLUG, "preset": "fx_30_15" });
-        assert!(family_session(as_written(plain.clone()), &preset).is_err());
+        assert!(family_session(as_written(plain.clone()), &preset, None).is_err());
         let values = json!({ "template_slug": FAMILY_SLUG, "template_params": { "reps": 10 } });
-        assert!(family_session(as_written(plain.clone()), &values).is_err());
+        assert!(family_session(as_written(plain.clone()), &values, None).is_err());
         let (session, envelope) = family_session(
             as_written(plain.clone()),
             &json!({ "template_slug": FAMILY_SLUG }),
+            None,
         )
         .unwrap();
         assert_eq!(session, plain, "a plain template passes through unchanged");

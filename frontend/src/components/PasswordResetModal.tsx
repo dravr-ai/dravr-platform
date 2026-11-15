@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { PasswordResetResult } from '../services/api/admin';
@@ -9,6 +9,7 @@ import type { User } from '../types/api';
 import { Button, Card } from './ui';
 import { Badge } from './ui/Badge';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { useDialog } from '../hooks/useDialog';
 
 interface PasswordResetModalProps {
   user: User | null;
@@ -63,15 +64,31 @@ export default function PasswordResetModal({
     setCopied(false);
     resetMutation.reset();
   };
+  const titleId = useId();
+  // Focus trap, focus restore, Escape and the scroll lock: one layer on the
+  // same stack as every other dialog. Once the reset token is on screen it is
+  // shown this once, so Escape stops dismissing it; the close button still does.
+  const { containerRef } = useDialog({
+    open: isOpen && !!user,
+    onClose: handleClose,
+    closeOnEscape: resetResult === null,
+  });
 
   if (!isOpen || !user) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50">
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 focus:outline-none"
+    >
       <div className="bg-surface-container-low border ghost-border rounded-xl max-w-md w-full m-4">
         <div className="p-6">
           <div className="flex justify-between items-start mb-4">
-            <h2 className="text-xl font-semibold text-on-surface">
+            <h2 id={titleId} className="text-xl font-semibold text-on-surface">
               Reset User Password
             </h2>
             <button

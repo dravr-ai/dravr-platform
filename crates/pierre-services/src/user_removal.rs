@@ -73,11 +73,12 @@ const BLOCKERS_NAMED: usize = 10;
 /// the same shape as the approval notifier beside it.
 #[async_trait]
 pub trait ProviderDisconnector: Send + Sync {
-    /// Disconnect `provider` for `user_id` within `tenant_id`, exactly as the
-    /// user's own disconnect does: the grant is revoked at the provider, the
-    /// token and connection rows (for both halves of a coalesced pair) are
-    /// deleted, every row the provider contributed is purged, and success is
-    /// refused while any row survives. `reason` names who asked on the
+    /// Disconnect `provider` for `user_id` within `tenant_id` through the
+    /// user's own disconnect chokepoint: the grant is revoked at the provider,
+    /// the token and connection rows are deleted (both halves of a coalesced
+    /// pair for an athlete or an operator, the named grant alone for a seat
+    /// reclaim or a revocation), every row they contributed is purged, and
+    /// success is refused while any of them survives. `reason` names who asked on the
     /// `provider.disconnected` event. Returns what the provider said about
     /// the grant, since the local deletion never waits on it.
     async fn disconnect(

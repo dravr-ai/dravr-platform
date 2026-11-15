@@ -20,9 +20,7 @@ use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_providers::sciotte_provider::SciotteTarget;
 use pierre_services::provider_notice::require_notice_accepted;
-use pierre_services::scrape_session::{
-    persist_sciotte_session, ScrapeSessionInstaller, StoredSession,
-};
+use pierre_services::scrape_session::{persist_sciotte_session, StoredSession};
 use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -34,20 +32,22 @@ use pierre_providers::sciotte_error::{
 };
 
 #[cfg(feature = "health-sync")]
+use crate::first_sync::spawn_connection_report;
+#[cfg(feature = "health-sync")]
 use crate::health_backfill::spawn_health_backfill;
+use crate::sciotte_caller::{authenticate, emit_provider_linked_webhook, LinkContext};
 use crate::sciotte_cancel::{
     login_cancelled_refusal, refuse_cancelled_attempt, refuse_cancelled_outcome, StepAttempt,
 };
-use crate::sciotte_grant_gate::require_garmin_grant;
 use crate::sciotte_prefetch::spawn_activity_prefetch;
 use crate::sciotte_session_reuse::{stored_session_use, StoredSessionUse};
+use crate::sciotte_takeover::takeover_required;
+use crate::sign_in_grant::{connected_response, replace_dead_grant};
 use crate::trainingpeaks_account::spawn_login_probe;
 use crate::AuthRoutesContext;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::redaction::redact_url;
-use pierre_middleware::provider_link_token::{
-    extract_bearer_link_token, verify_link_token, ProviderLinkTokenClaims, CONNECT_PROVIDER,
-};
+use pierre_middleware::provider_link_token::CONNECT_PROVIDER;
 
 /// The parked remote-login state the platform remembers between the initial
 /// login call and its OTP/2FA continuations. The heavy state — parked browser +
@@ -348,17 +348,20 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 }
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
-/// After storing, raises `provider.connected` and warms the account's data from
-/// the session (see [`warm_from_session`]).
+/// After storing, raises `provider.connected`, warms the account's data from
+/// the session (see [`warm_from_session`]) and answers `connected` with the
+/// grant authorization it goes on to ([`connected_response`]).
 async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     session: &AuthSession,
     provider_name: &str,
+    link: Option<&LinkContext>,
 ) -> Result<Response, AppError> {
     let stored = persist_sciotte_session(
         &resources.repos,
+        resources.data.provider_purge()?,
         &resources.cache,
         user_id,
         TenantId::from_uuid(tenant_id),
@@ -368,6 +371,13 @@ async fn store_sciotte_session(
     .await?;
 
     notify_sciotte_connected(user_id, tenant_id, provider_name);
+    replace_dead_grant(
+        resources,
+        user_id,
+        TenantId::from_uuid(tenant_id),
+        provider_name,
+    )
+    .await;
     warm_from_session(
         resources,
         user_id,
@@ -375,10 +385,9 @@ async fn store_sciotte_session(
         session,
         &stored,
         provider_name,
-    )
-    .await;
+    );
 
-    Ok(Json(serde_json::json!({"status": "connected", "provider": provider_name})).into_response())
+    Ok(connected_response(resources, user_id, tenant_id, provider_name, link, false).await)
 }
 
 /// Start what a freshly stored session owes the account: an activity
@@ -387,12 +396,12 @@ async fn store_sciotte_session(
 /// which decides whether there is a calendar to prefetch at all. A session
 /// the provider rotates on those reads is written back over `stored`'s row.
 ///
-/// A session signed in beside a grant whose reads serve what it copies
-/// (Garmin) is no ongoing source: the server infers history mode from the
-/// grant, with no flag from the client, and runs the session's one-time
-/// history import instead — its activities, then its wellness, then the
-/// session's retirement (carnet#1386).
-async fn warm_from_session(
+/// A session signed in beside a grant is the provider's primary source
+/// (carnet#1494) and is warmed like any other: its own reads bring its
+/// history in, and nothing retires it. Once those reads let go of the
+/// session, the connection is reported, and its history walked
+/// ([`spawn_connection_report`], carnet#1482).
+pub(crate) fn warm_from_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -400,27 +409,6 @@ async fn warm_from_session(
     stored: &StoredSession,
     provider_name: &str,
 ) {
-    if let Some(imports) = &resources.history_imports {
-        let tenant = TenantId::from_uuid(tenant_id);
-        if backend_resolver::session_imports_history(
-            &resources.repos,
-            user_id,
-            tenant,
-            provider_name,
-        )
-        .await
-        {
-            let started = imports.import_history(user_id, tenant, provider_name).await;
-            info!(
-                user_id = %user_id,
-                backend = %provider_name,
-                started,
-                "Sign-in beside a grant: importing the account's history once"
-            );
-            return;
-        }
-    }
-
     // Pre-fetch activities in background so the cache is warm when the user
     // chats. A TrainingPeaks coach account has no calendar of its own, so its
     // role is read first and decides whether there is anything to prefetch.
@@ -438,57 +426,36 @@ async fn warm_from_session(
     // at the next scheduled cycle — once the pre-fetch has finished with the
     // session, so the two never hold two of the scraper's browsers at once.
     #[cfg(feature = "health-sync")]
-    spawn_health_backfill(
+    let settled = spawn_health_backfill(
         resources,
         &user_id.to_string(),
         backend_resolver::user_facing_name(provider_name),
         prefetch,
     );
+    #[cfg(feature = "health-sync")]
+    let backend = provider_name.to_owned();
+    #[cfg(feature = "health-sync")]
+    spawn_connection_report(resources, user_id, provider_name, async move {
+        if let Some(backfill) = settled {
+            if let Err(e) = backfill.await {
+                warn!(user_id = %user_id, provider = %backend, error = %e, "the connect's health backfill task failed; the connection is still reported");
+            }
+        }
+    });
     #[cfg(not(feature = "health-sync"))]
     drop(prefetch);
 }
 
-/// The super admin clone's install: the same store and warm-up as a login,
-/// with no `provider.connected` event, since a super admin copying a session
-/// onto a test account is not an athlete connecting and must not count as one.
-#[async_trait::async_trait]
-impl ScrapeSessionInstaller for AuthRoutesContext {
-    async fn install_session(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        backend: &str,
-        session: &AuthSession,
-    ) -> AppResult<()> {
-        let stored = persist_sciotte_session(
-            &self.repos,
-            &self.cache,
-            user_id,
-            tenant_id,
-            session,
-            backend,
-        )
-        .await?;
-        warm_from_session(
-            self,
-            user_id,
-            tenant_id.as_uuid(),
-            session,
-            &stored,
-            backend,
-        )
-        .await;
-        Ok(())
-    }
-}
-
 /// Which step of a sign-in produced the outcome being answered.
 #[derive(Clone, Copy)]
-enum LoginStep<'a> {
+pub(crate) enum LoginStep<'a> {
     /// The credential login, which starts a flow.
     Login {
         /// Backend provider name the login targets
         provider: &'a str,
+        /// The window's attempt, when it named one: the only kind of login
+        /// that asks for a takeover, since closing the takeover cancels it.
+        attempt: Option<&'a StepAttempt>,
     },
     /// A 2FA pick or a code, continuing the flow the platform holds.
     Continuation {
@@ -503,7 +470,7 @@ impl LoginStep<'_> {
     /// Backend provider name the step belongs to.
     const fn provider(&self) -> &str {
         match self {
-            Self::Login { provider } | Self::Continuation { provider, .. } => provider,
+            Self::Login { provider, .. } | Self::Continuation { provider, .. } => provider,
         }
     }
 }
@@ -548,7 +515,7 @@ async fn hold_code_step(
 /// flow (keyed by `flow_id`), so the platform parks nothing. On success the
 /// full session is exported from the service and persisted, keeping the
 /// platform session-of-record (ADR-021).
-async fn remote_login_to_response(
+pub(crate) async fn remote_login_to_response(
     outcome: LoginOutcome,
     remote: &SciotteClient,
     resources: &AuthRoutesContext,
@@ -564,22 +531,13 @@ async fn remote_login_to_response(
             provider,
             ..
         } => {
-            // The service reports the provider the session authenticates against
-            // ("strava"/"garmin"/"trainingpeaks"/"coros"); map it to the backend
-            // name the platform persists under. The platform never has to
-            // remember the provider across the multi-step 2FA flow — only the
-            // flow_id string.
-            forget_remote_flow(&resources.cache, tenant_id, user_id).await;
-            let provider_name = SciotteTarget::from_target_param(&provider).provider_name();
-            info!(user_id = %user_id, provider = %provider_name, "Sciotte remote login successful");
-            let session = remote
-                .export_session(&session_id)
-                .await
-                .map_err(to_app_error)?;
-            if let Some(link) = link_context {
-                emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
-            }
-            store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
+            let signed_in = SignedIn {
+                session_id: &session_id,
+                provider: &provider,
+                user_id,
+                tenant_id,
+            };
+            store_signed_in(signed_in, remote, resources, link_context).await
         }
         LoginOutcome::OtpRequired {
             flow_id, rejected, ..
@@ -620,93 +578,63 @@ async fn remote_login_to_response(
             );
             Ok(Json(serde_json::json!({"status": "failed", "error": reason})).into_response())
         }
+        LoginOutcome::TakeoverRequired { flow_id, .. } => {
+            takeover_required(resources, user_id, tenant_id, step, flow_id, link_context).await
+        }
+        // A login step this platform does not know: nothing of it is kept.
+        _ => {
+            forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+            Err(AppError::internal("unsupported sciotte login step"))
+        }
     }
 }
 
-/// Emit a fire-and-forget webhook announcing the successful provider connection.
-/// The channel link context tells the downstream bot where to post the confirmation.
-fn emit_provider_linked_webhook(
+/// A sign-in the service authenticated.
+struct SignedIn<'a> {
+    session_id: &'a str,
+    provider: &'a str,
     user_id: Uuid,
     tenant_id: Uuid,
-    provider_name: &str,
-    ctx: &LinkContext,
-) {
-    use crate::provider_link_webhook::{spawn_emit, ProviderLinkedEvent};
-    let event = ProviderLinkedEvent::new(
+}
+
+/// Export the session the service authenticated, store it, and post back to
+/// the channel the sign-in came from.
+///
+/// The service reports the provider the session authenticates against
+/// ("strava"/"garmin"/"trainingpeaks"/"coros"); it is mapped to the backend
+/// name the platform persists under. The platform never has to remember the
+/// provider across the multi-step 2FA flow — only the `flow_id` string.
+async fn store_signed_in(
+    signed_in: SignedIn<'_>,
+    remote: &SciotteClient,
+    resources: &AuthRoutesContext,
+    link_context: Option<&LinkContext>,
+) -> Result<Response, AppError> {
+    let SignedIn {
+        session_id,
+        provider,
         user_id,
         tenant_id,
-        provider_name.to_owned(),
-        ctx.target.clone(),
-        ctx.channel.clone(),
-        ctx.channel_thread.clone(),
-    );
-    spawn_emit(event);
-}
-
-/// Channel context carried by a provider link-token — used to emit the
-/// post-back webhook after a successful connection.
-#[derive(Debug, Clone)]
-pub(crate) struct LinkContext {
-    /// Channel slug the token was minted for (e.g. "slack")
-    pub channel: String,
-    /// Optional channel thread/DM id so the bot can reply in the original thread
-    pub channel_thread: Option<String>,
-    /// Target platform (strava / garmin / trainingpeaks / coros) from the claims
-    pub target: String,
-}
-
-/// Extract authenticated `user_id` and `tenant_id` from request headers.
-///
-/// Accepts two authentication methods, tried in order:
-/// 1. A channel-initiated provider link-token (`Authorization: Bearer <link-token>`),
-///    minted in-process by the messaging pipeline or the backfill notifier. This
-///    is the path used by the hosted Sciotte login page embedded in chat
-///    channels, and it reaches only the login, 2FA, OTP and cancel routes.
-/// 2. A standard Pierre session (cookie or Bearer JWT) — used by the web/mobile
-///    `SciotteLoginModal` component.
-///
-/// When the link-token path is taken, the returned `LinkContext` carries the
-/// channel metadata needed to emit a post-back webhook on success.
-pub(crate) async fn authenticate(
-    resources: &AuthRoutesContext,
-    headers: &HeaderMap,
-) -> Result<(Uuid, Uuid, Option<LinkContext>), AppError> {
-    if let Some(claims) = try_verify_link_token_from_headers(resources, headers) {
-        let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
-            AppError::auth_invalid("Provider link-token has invalid user_id in sub claim")
-        })?;
-        let tenant_id = Uuid::parse_str(&claims.tid).map_err(|_| {
-            AppError::auth_invalid("Provider link-token has invalid tenant_id in tid claim")
-        })?;
-        let link_context = LinkContext {
-            channel: claims.channel,
-            channel_thread: claims.channel_thread,
-            target: claims.tgt,
-        };
-        return Ok((user_id, tenant_id, Some(link_context)));
+    } = signed_in;
+    forget_remote_flow(&resources.cache, tenant_id, user_id).await;
+    let provider_name = SciotteTarget::from_target_param(provider).provider_name();
+    info!(user_id = %user_id, provider = %provider_name, "Sciotte remote login successful");
+    let session = remote
+        .export_session(session_id)
+        .await
+        .map_err(to_app_error)?;
+    if let Some(link) = link_context {
+        emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
     }
-
-    let auth_result = resources
-        .auth_middleware
-        .authenticate_request_with_headers(headers)
-        .await?;
-    let tenant_id = auth_result
-        .active_tenant_id
-        .ok_or_else(|| AppError::invalid_input("No active tenant"))?;
-    Ok((auth_result.user_id, tenant_id, None))
-}
-
-/// If an `Authorization: Bearer ...` header contains a Sciotte-scoped link-token,
-/// verify it against the server's admin JWT secret and return the claims.
-/// Returns None when the header is absent, not a Bearer token, or fails verification
-/// as a link-token (so the caller falls through to normal auth).
-fn try_verify_link_token_from_headers(
-    resources: &AuthRoutesContext,
-    headers: &HeaderMap,
-) -> Option<ProviderLinkTokenClaims> {
-    let header_value = headers.get("authorization").and_then(|h| h.to_str().ok());
-    let token = extract_bearer_link_token(header_value)?;
-    verify_link_token(token, &resources.admin_jwt_secret, "sciotte").ok()
+    store_sciotte_session(
+        resources,
+        user_id,
+        tenant_id,
+        &session,
+        provider_name,
+        link_context,
+    )
+    .await
 }
 
 /// Log + alert a sciotte login *system* failure and build the user-facing error.
@@ -972,10 +900,7 @@ pub(crate) async fn handle_sciotte_login(
         request.tos_consent,
     )
     .await?;
-    // A new usr/pwd-only Garmin connection is refused while a seat is free
-    // on Garmin's OAuth, whatever client sent it (carnet#1454).
     let backend = SciotteTarget::from_target_param(target).provider_name();
-    require_garmin_grant(&resources, user_id, TenantId::from_uuid(tenant_id), backend).await?;
 
     // This login supersedes whatever the user left parked: the service mints a
     // fresh flow_id for it, and an id inherited from an abandoned 2FA would
@@ -995,7 +920,11 @@ pub(crate) async fn handle_sciotte_login(
     // switching away from. The lookups are by this caller's (user, tenant,
     // provider), so no other athlete's session or connection can seed it.
     let prior_session = match stored_session_use(&resources, user_id, tenant_id, provider).await? {
-        StoredSessionUse::Reused(response) => return Ok(response),
+        StoredSessionUse::Reused => {
+            let link = link_context.as_ref();
+            let reused = connected_response(&resources, user_id, tenant_id, provider, link, true);
+            return Ok(reused.await);
+        }
         StoredSessionUse::SignIn { prior_session } => prior_session,
     };
 
@@ -1020,7 +949,12 @@ pub(crate) async fn handle_sciotte_login(
             request.method,
             SciotteTarget::from_target_param(target).scraper_provider_name(),
             prior_session.as_ref(),
-            attempt.as_ref().map(StepAttempt::cancel_key),
+            (
+                attempt.as_ref().map(StepAttempt::cancel_key),
+                // A window that can cancel its attempt takes a robot check
+                // over; one that cannot answers the challenge as a refusal.
+                attempt.is_some(),
+            ),
         )
         .await;
     refuse_cancelled_outcome(&resources.cache, remote, attempt.as_ref(), None).await?;
@@ -1042,7 +976,10 @@ pub(crate) async fn handle_sciotte_login(
         &resources,
         user_id,
         tenant_id,
-        LoginStep::Login { provider },
+        LoginStep::Login {
+            provider,
+            attempt: attempt.as_ref(),
+        },
         link_context.as_ref(),
     )
     .await

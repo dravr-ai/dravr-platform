@@ -57,7 +57,7 @@ use serde::{Deserialize, Serialize};
 use tracing::{error, info, warn};
 use urlencoding::encode;
 
-use pierre_auth::dto::auth::{HistoryState, ProviderMigration, ProviderStatus};
+use pierre_auth::dto::auth::{HistoryState, ProviderStatus};
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::errors::AppError;
 use pierre_core::models::TenantId;
@@ -73,8 +73,9 @@ use crate::card_seats::require_garmin_seat;
 use crate::connect_hosted_import::hosted_import_source;
 use crate::connect_hosted_templates;
 use crate::hosted_page::{locale_for_reader, locale_for_token, PageStrings};
-use crate::oauth::{compute_providers_status, require_oauth_start_notice};
+use crate::oauth::{compute_providers_status, dead_grant_sign_in_url, require_oauth_start_notice};
 use crate::short_link::preferred_locale;
+use crate::sign_in_grant::oauth_follow_on;
 use crate::AuthRoutesContext;
 
 /// Catalogue cards the connect picker does not offer: the synthetic providers
@@ -132,7 +133,10 @@ struct ConnectProviderCard {
     /// serves it.
     description: String,
     /// Already connected — the card is shown disabled, unless its history
-    /// is still to bring in or it is asked to move to its provider's OAuth.
+    /// is still to bring in. A sign-in card whose serving connection needs a
+    /// reconnect reads as not connected, so picking it signs in again: the
+    /// hosted sign-in is how a dead session or a dead grant reconnects
+    /// (carnet#1494).
     connected: bool,
     /// Where the card's past workouts stand, as `/api/providers` serves its
     /// `history.state`: `needed` and `incomplete` keep a connected card
@@ -147,10 +151,6 @@ struct ConnectProviderCard {
     /// connect link-token and the source, where this server imports it there.
     #[serde(skip_serializing_if = "Option::is_none")]
     archive_url: Option<String>,
-    /// The card is served by a usr/pwd session alone and a seat is free on
-    /// the provider's OAuth (carnet#1454): connected, it stays pickable and
-    /// starts the OAuth.
-    migrate: bool,
     /// "oauth" (full-page redirect to consent), [`CREDENTIALS_KIND`] (the
     /// credential form: the athlete's own username and password) or
     /// "`api_key`" (the hosted Intervals.icu API-key form). The Intervals.icu
@@ -186,6 +186,13 @@ struct ConnectProviderCard {
     /// or meets a challenge starts the provider's OAuth for `target` instead
     /// of showing the failure (carnet#1477). Wrong credentials never do.
     oauth_fallback: bool,
+    /// The provider whose own authorization the card still owes for its
+    /// writes, a seat being there for it (Garmin's grant, which pushes
+    /// workouts; [`oauth_follow_on`]): a connected card stays pickable and
+    /// starts it, and a sign-in of the card is followed by it. Absent
+    /// otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    oauth_owed: Option<&'static str>,
 }
 
 /// Whether a not-yet-connected card's sign-in falls back to its provider's
@@ -220,11 +227,7 @@ async fn build_connect_providers(
     let status = compute_providers_status(resources, user_id, tenant_id, strings.locale()).await?;
     let history = |p: &ProviderStatus| CardHistory {
         state: p.history.state,
-        sign_in: p.history.sign_in_target.is_some()
-            && matches!(
-                p.history.state,
-                HistoryState::Needed | HistoryState::Incomplete
-            ),
+        sign_in: p.history.sign_in_target.is_some() && p.history.state == HistoryState::Needed,
         archive_url: p
             .history
             .archive_source
@@ -243,8 +246,10 @@ async fn build_connect_providers(
             continue;
         }
         match provider_name.as_str() {
-            // Strava card: OAuth-first while shared-app seats remain, else the
-            // Sciotte scraper. Mirrors ProviderConnectionCards / OnboardingConnectScreen.
+            // Strava card: the account sign-in, or its OAuth while shared-app
+            // seats remain under the operator's OAuth-first order
+            // (`recommended_backend`). Mirrors ProviderConnectionCards /
+            // OnboardingConnectScreen.
             "sciotte" => {
                 let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
                 let history = history(&p);
@@ -257,11 +262,10 @@ async fn build_connect_providers(
                     },
                     display_name: p.display_name,
                     description: p.description,
-                    connected: p.connected,
+                    connected: p.connected && !p.needs_reauth,
                     history_state: history.state,
                     history_sign_in: history.sign_in,
                     archive_url: history.archive_url,
-                    migrate: false,
                     kind: if oauth_first {
                         "oauth"
                     } else {
@@ -273,16 +277,28 @@ async fn build_connect_providers(
                     form_url: None,
                     login_identifier: "email",
                     oauth_fallback: fallback,
+                    oauth_owed: None,
                 });
             }
-            // Garmin: OAuth-first while the Developer Program client has a
-            // seat, else the connection using usr/pwd from Dravr — the Strava
-            // card's decision (carnet#1155). TrainingPeaks and COROS: always
+            // Garmin: the Strava card's decision, against the Developer
+            // Program client's seats (carnet#1155). TrainingPeaks and COROS: always
             // the credential flow — neither has an OAuth backend Pierre can
             // call. The login identifier stays the credential form's, which
             // the page opens for the same target when the OAuth start fails.
             "sciotte_garmin" | "sciotte_trainingpeaks" | "sciotte_coros" => {
                 if let Some(target) = backend_resolver::hosted_login_target(&provider_name) {
+                    let oauth_owed = match tenant_id {
+                        Some(tenant) => oauth_follow_on(
+                            resources,
+                            user_id,
+                            TenantId::from_uuid(tenant),
+                            &provider_name,
+                            None,
+                        )
+                        .await
+                        .map(|follow_on| follow_on.provider),
+                        None => None,
+                    };
                     let oauth_first = p.recommended_backend.as_deref() == Some("oauth");
                     let history = history(&p);
                     let fallback = oauth_fallback(&p);
@@ -294,11 +310,10 @@ async fn build_connect_providers(
                         },
                         display_name: p.display_name,
                         description: p.description,
-                        connected: p.connected,
+                        connected: p.connected && !p.needs_reauth,
                         history_state: history.state,
                         history_sign_in: history.sign_in,
                         archive_url: history.archive_url,
-                        migrate: p.migration == Some(ProviderMigration::OauthRequired),
                         kind: if oauth_first {
                             "oauth"
                         } else {
@@ -312,6 +327,7 @@ async fn build_connect_providers(
                             .login_identifier()
                             .as_str(),
                         oauth_fallback: fallback,
+                        oauth_owed,
                     });
                 }
             }
@@ -332,7 +348,6 @@ async fn build_connect_providers(
                 history_state: p.history.state,
                 history_sign_in: false,
                 archive_url: None,
-                migrate: false,
                 target: INTERVALS_ICU.to_owned(),
                 consent_required: false,
                 notice: None,
@@ -342,13 +357,13 @@ async fn build_connect_providers(
                 )),
                 login_identifier: "email",
                 oauth_fallback: false,
+                oauth_owed: None,
             }),
             // Any remaining OAuth provider (Whoop, and future keepers).
             _ if p.requires_oauth => cards.push(ConnectProviderCard {
                 history_state: p.history.state,
                 history_sign_in: false,
                 archive_url: history(&p).archive_url,
-                migrate: false,
                 provider: p.provider,
                 display_name: p.display_name,
                 description: p.description,
@@ -360,6 +375,7 @@ async fn build_connect_providers(
                 form_url: None,
                 login_identifier: "email",
                 oauth_fallback: false,
+                oauth_owed: None,
             }),
             // Non-OAuth, non-Sciotte (e.g. synthetic) is not offered in chat.
             _ => {}
@@ -492,6 +508,16 @@ pub(crate) async fn handle_connect_oauth_init(
             .into_response();
     };
     let tenant_id = TenantId::from_uuid(tenant_uuid);
+
+    // A dead grant reconnects through its hosted sign-in, never its OAuth
+    // (carnet#1494), however the picker was reached.
+    match dead_grant_sign_in_url(&resources, user_id, tenant_id, &provider, &claims.channel).await {
+        Ok(Some(sign_in)) => {
+            return (StatusCode::FOUND, [(header::LOCATION, sign_in)]).into_response();
+        }
+        Ok(None) => {}
+        Err(e) => return e.into_response(),
+    }
 
     // The picker shows the provider's notice before this redirect; a start
     // without its acceptance goes back to the picker rather than on to the

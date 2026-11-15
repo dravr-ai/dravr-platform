@@ -28,7 +28,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::UserInvitation;
+use pierre_core::models::{InvitationKind, UserInvitation};
 use uuid::Uuid;
 
 use super::link_token_consume::{link_token_guess_sql, LinkTokenTable, LINK_TOKEN_MAX_ATTEMPTS};
@@ -39,7 +39,8 @@ pub trait UserInvitationRepository: Send + Sync {
     /// Issue an invitation to `email`, revoking any live one it already holds.
     ///
     /// `selector` is the plaintext lookup half and `verifier_hash` the SHA-256
-    /// of the secret half; the delivered token is never stored whole.
+    /// of the secret half; the delivered token is never stored whole. `kind`
+    /// is what redeeming it gives besides the account.
     async fn issue(
         &self,
         email: &str,
@@ -47,6 +48,7 @@ pub trait UserInvitationRepository: Send + Sync {
         selector: &str,
         verifier_hash: &str,
         expires_at: DateTime<Utc>,
+        kind: InvitationKind,
     ) -> AppResult<UserInvitation>;
     /// Redeem an invitation once, returning it.
     ///
@@ -56,8 +58,15 @@ pub trait UserInvitationRepository: Send + Sync {
     async fn redeem(&self, selector: &str, verifier_hash: &str) -> AppResult<UserInvitation>;
     /// Revoke the live invitation an address holds. Returns whether there was one.
     async fn revoke_for_email(&self, email: &str) -> AppResult<bool>;
+    /// Revoke the live invitation an address holds when it is a coach-seat
+    /// invitation, leaving a plain one alone. Returns whether there was one.
+    async fn revoke_coach_seat_for_email(&self, email: &str) -> AppResult<bool>;
     /// Every invitation still redeemable at `now`, oldest first.
     async fn list_live(&self, now: DateTime<Utc>) -> AppResult<Vec<UserInvitation>>;
+    /// Every coach-seat invitation neither redeemed nor revoked, expired or
+    /// not, oldest first: the console lists an expired one so it can be sent
+    /// again.
+    async fn list_outstanding_coach_seats(&self) -> AppResult<Vec<UserInvitation>>;
     /// Invitations issued to an address since `since`, live or not, for the send budget.
     async fn count_recent(&self, email: &str, since: DateTime<Utc>) -> AppResult<i64>;
 }
@@ -71,11 +80,20 @@ pub(crate) const REVOKE_LIVE_INVITATIONS_SQL: &str = r"
               AND revoked_at IS NULL
             ";
 
+/// Revoke an address's live invitation only when it is of kind `$3`.
+pub(crate) const REVOKE_LIVE_INVITATION_OF_KIND_SQL: &str = r"
+            UPDATE user_invitations SET revoked_at = $1
+            WHERE email = $2
+              AND kind = $3
+              AND redeemed_at IS NULL
+              AND revoked_at IS NULL
+            ";
+
 /// Issue one invitation: the selector half in clear, the verifier half hashed.
 pub(crate) const INSERT_INVITATION_SQL: &str = r"
             INSERT INTO user_invitations
-                (id, email, selector, token_hash, invited_by, expires_at, created_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (id, email, selector, token_hash, invited_by, expires_at, created_at, kind)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             ";
 
 /// How an invitation is redeemed ([`consume_link_token`]): live means
@@ -84,7 +102,7 @@ pub(crate) const INVITATION_LINK_TOKEN: LinkTokenTable = LinkTokenTable {
     guess_sql: link_token_guess_sql!(
         "user_invitations",
         "redeemed_at IS NULL AND revoked_at IS NULL",
-        "email, invited_by, expires_at, created_at"
+        "email, invited_by, expires_at, created_at, kind"
     ),
     lock_sql: "UPDATE user_invitations SET revoked_at = $1 \
                WHERE selector = $2 AND redeemed_at IS NULL AND revoked_at IS NULL \
@@ -98,11 +116,22 @@ pub(crate) const INVITATION_LINK_TOKEN: LinkTokenTable = LinkTokenTable {
 
 /// Every invitation still redeemable at `$1`, oldest first.
 pub(crate) const LIST_LIVE_INVITATIONS_SQL: &str = r"
-            SELECT email, invited_by, expires_at, created_at
+            SELECT email, invited_by, expires_at, created_at, kind
             FROM user_invitations
             WHERE redeemed_at IS NULL
               AND revoked_at IS NULL
               AND expires_at > $1
+            ORDER BY created_at ASC, email ASC
+            ";
+
+/// Every invitation of kind `$1` neither redeemed nor revoked, expired or
+/// not, oldest first.
+pub(crate) const LIST_OUTSTANDING_INVITATIONS_OF_KIND_SQL: &str = r"
+            SELECT email, invited_by, expires_at, created_at, kind
+            FROM user_invitations
+            WHERE kind = $1
+              AND redeemed_at IS NULL
+              AND revoked_at IS NULL
             ORDER BY created_at ASC, email ASC
             ";
 
@@ -132,6 +161,7 @@ where
     R: sqlx::Row,
     for<'a> &'a str: sqlx::ColumnIndex<R>,
     String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<String>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
     DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
 {
     Ok(UserInvitation {
@@ -145,6 +175,11 @@ where
         created_at: row
             .try_get("created_at")
             .map_err(|e| AppError::database(format!("user_invitations created_at: {e}")))?,
+        kind: InvitationKind::from_stored(
+            row.try_get::<Option<String>, _>("kind")
+                .map_err(|e| AppError::database(format!("user_invitations kind: {e}")))?
+                .as_deref(),
+        )?,
     })
 }
 
@@ -163,6 +198,7 @@ macro_rules! impl_user_invitation_repository {
                 selector: &str,
                 verifier_hash: &str,
                 expires_at: DateTime<Utc>,
+                kind: InvitationKind,
             ) -> AppResult<UserInvitation> {
                 let email = normalize_email(email);
                 let now = Utc::now();
@@ -184,6 +220,7 @@ macro_rules! impl_user_invitation_repository {
                     .bind($ids::bind_opt(invited_by))
                     .bind(expires_at)
                     .bind(now)
+                    .bind(kind.stored())
                     .execute(&mut *tx)
                     .await
                     .map_err(issue_error)?;
@@ -194,6 +231,7 @@ macro_rules! impl_user_invitation_repository {
                     invited_by,
                     expires_at,
                     created_at: now,
+                    kind,
                 })
             }
 
@@ -222,12 +260,40 @@ macro_rules! impl_user_invitation_repository {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn revoke_coach_seat_for_email(&self, email: &str) -> AppResult<bool> {
+                let result = sqlx::query(REVOKE_LIVE_INVITATION_OF_KIND_SQL)
+                    .bind(Utc::now())
+                    .bind(normalize_email(email))
+                    .bind(InvitationKind::CoachSeat.stored())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to revoke coach-seat invitation: {e}"))
+                    })?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
             async fn list_live(&self, now: DateTime<Utc>) -> AppResult<Vec<UserInvitation>> {
                 let rows = sqlx::query(LIST_LIVE_INVITATIONS_SQL)
                     .bind(now)
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| AppError::database(format!("Failed to list invitations: {e}")))?;
+
+                rows.iter()
+                    .map(|row| invitation_from_row(row, $ids::read_opt(row, "invited_by")?))
+                    .collect()
+            }
+
+            async fn list_outstanding_coach_seats(&self) -> AppResult<Vec<UserInvitation>> {
+                let rows = sqlx::query(LIST_OUTSTANDING_INVITATIONS_OF_KIND_SQL)
+                    .bind(InvitationKind::CoachSeat.stored())
+                    .fetch_all(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to list coach-seat invitations: {e}"))
+                    })?;
 
                 rows.iter()
                     .map(|row| invitation_from_row(row, $ids::read_opt(row, "invited_by")?))

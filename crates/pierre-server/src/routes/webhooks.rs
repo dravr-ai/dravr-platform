@@ -25,15 +25,16 @@ use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
 use pierre_core::constant_time::matches_configured_secret;
+use pierre_core::constants::oauth_providers;
 use pierre_core::models::{Activity, OAuthNotification, TenantId};
-use pierre_database::RepositoryRegistry;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::personal_bests::is_measured_sport;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
+use pierre_services::user_removal::ProviderDisconnector;
 use pierre_services::webhook_owner::{resolve_webhook_owner, WebhookOwner, WebhookTarget};
-use pierre_tool_runtime::activity_fetch::fetch_provider_head;
+use pierre_tool_runtime::activity_fetch::read_exact_backend;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use crate::mcp::resources::ServerContext;
@@ -42,8 +43,8 @@ use crate::routes::garmin_webhook;
 use crate::routes::strava_webhook_gate::{subscription_refusal, STRAVA_OWNER_FETCH_GATE};
 #[cfg(feature = "provider-wahoo")]
 use crate::routes::wahoo_webhook::wahoo_event;
-use crate::services::gear_ledger::release_activity_gear;
-use crate::services::personal_best_seed::strava_provider;
+use crate::services::grant_withdrawal::GrantWithdrawal;
+use crate::services::personal_best_seed::exact_provider;
 
 /// How far before the announced event a Strava webhook-triggered fetch reads.
 ///
@@ -486,8 +487,10 @@ pub(super) async fn notify_owner(
 /// Fetch the recent activities of the user whose Strava athlete id a webhook
 /// named.
 ///
-/// Goes through [`fetch_provider_head`]: it authenticates the OAuth provider
-/// (refreshing the token when needed), fetches the window that opens
+/// Goes through [`read_exact_backend`]: it authenticates the Strava grant
+/// itself (refreshing the token when needed), never the session the
+/// athlete's reads serve first, so a webhook never starts a scrape
+/// (carnet#1494). It fetches the window that opens
 /// [`STRAVA_WEBHOOK_LOOKBACK_DAYS`] before the event, and writes the rows
 /// through to the activity cache with the freshness mark. A successful fetch
 /// stamps `last_sync`; the athlete is notified only when the window held at
@@ -521,7 +524,7 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
         offset: None,
     };
 
-    match fetch_provider_head(&runtime, "strava", user_id, &tenant_id, &params).await {
+    match read_exact_backend(&runtime, "strava", user_id, &tenant_id, &params).await {
         Ok(activities) => {
             land_strava_fetch(resources, event, user_id, &tenant_id, &activities).await;
         }
@@ -541,20 +544,24 @@ async fn sync_strava_owner(resources: &Arc<ServerContext>, event: &StravaWebhook
     }
 }
 
-/// Remove the cached row of an activity the athlete deleted on Strava.
+/// Erase an activity the athlete deleted on Strava.
 ///
-/// Nothing is fetched: the activity is gone, and the cache is the only copy
-/// left. Kept, the row would stay on Home and in the coach's answers, and
-/// every later refresh of its window that Strava answers empty — the athlete
+/// Nothing is fetched: the activity is gone. It is erased through the
+/// activity store ([`LiveActivityStore::erase`]), which forgets its record,
+/// remembers the deletion so no later read of Strava brings it back, and
+/// stops serving it: its cached row, its samples and its gear attribution.
+/// Kept, the row would stay on Home and in the coach's answers, and every
+/// later refresh of its window that Strava answers empty — the athlete
 /// deleted their only ride of the month — would be judged an empty answer
 /// over cached rides and reported as a failed sync.
 ///
 /// The pair of shoes the run was attributed to lets it go first, or hands it
-/// to another provider's copy of the same workout; a run older than the
-/// cache's retention, whose row is already gone, still leaves its pair
-/// ([`release_activity_gear`]). The row is evicted even when that release
-/// fails: a row kept past its deletion costs every refresh of its window,
-/// where a kept attribution costs only the pair's total.
+/// to another provider's copy of the same workout; the row is evicted even
+/// when that release fails, since a row kept past its deletion costs every
+/// refresh of its window, where a kept attribution costs only the pair's
+/// total.
+///
+/// [`LiveActivityStore::erase`]: pierre_services::live_activities::LiveActivityStore::erase
 async fn evict_deleted_strava_activity(resources: &ServerContext, event: &StravaWebhookEvent) {
     let owner_id = event.owner_id.to_string();
     let Some(WebhookOwner {
@@ -568,44 +575,24 @@ async fn evict_deleted_strava_activity(resources: &ServerContext, event: &Strava
         return;
     };
     let activity_id = event.object_id.to_string();
-    let repos = &resources.common.repos;
-    release_deleted_strava_activity_gear(repos, user_id, &tenant, &activity_id).await;
-    match repos
-        .activity_cache
-        .delete_cached_activity(user_id, &tenant, "strava", &activity_id)
+    match resources
+        .common
+        .live_activities
+        .erase(user_id, tenant, "strava", &activity_id)
         .await
     {
-        Ok(removed) => info!(
+        Ok(held) => info!(
             user_id = %user_id,
             activity_id = %activity_id,
-            removed,
-            "Strava webhook: deleted activity evicted from the cache"
+            held,
+            "Strava webhook: deleted activity erased"
         ),
         Err(e) => warn!(
             user_id = %user_id,
             activity_id = %activity_id,
             error = %e,
-            "Strava webhook: deleted activity could not be evicted from the cache"
+            "Strava webhook: deleted activity could not be erased"
         ),
-    }
-}
-
-/// Take a run the athlete deleted on Strava off the pair of shoes it was
-/// attributed to ([`release_activity_gear`]), logging a release that failed:
-/// the caller evicts the row either way.
-async fn release_deleted_strava_activity_gear(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    tenant: &TenantId,
-    activity_id: &str,
-) {
-    if let Err(e) = release_activity_gear(repos, user_id, tenant, "strava", activity_id).await {
-        warn!(
-            user_id = %user_id,
-            activity_id = %activity_id,
-            error = %e,
-            "Strava webhook: the deleted activity's shoe attribution could not be released"
-        );
     }
 }
 
@@ -613,12 +600,14 @@ async fn release_deleted_strava_activity_gear(
 ///
 /// Strava's API agreement makes the athlete's consent withdrawal a deletion
 /// obligation, and the deauthorization event is how Strava says it happened.
-/// The owner is disconnected through the same chokepoint as their own
-/// disconnect, with [`DisconnectReason::ProviderRevoked`]: the grant is
-/// already gone, so nothing is sent upstream, and the token, the connection
+/// The owner's grant is disconnected through the same chokepoint as their
+/// own disconnect, with [`DisconnectReason::ProviderRevoked`]: the grant is
+/// already gone, so nothing is sent upstream, and its token, its connection
 /// and every row Strava contributed are deleted, with the purge's attestation
-/// row. A failure is logged at ERROR, since it leaves data the athlete
-/// withdrew.
+/// row. Their sign-in session, if they hold one, keeps serving them; an
+/// athlete the grant served alone is told to sign in again
+/// ([`GrantWithdrawal`]). A failure is logged at ERROR, since it leaves data
+/// the athlete withdrew.
 async fn disconnect_deauthorized_strava_owner(
     resources: &Arc<ServerContext>,
     event: &StravaWebhookEvent,
@@ -637,20 +626,22 @@ async fn disconnect_deauthorized_strava_owner(
         );
         return;
     };
-    let service = OAuthService::new(resources.data(), Arc::clone(&resources.common.config));
-    match service
-        .disconnect_provider(
-            user_id,
-            "strava",
-            Some(tenant.as_uuid()),
-            DisconnectReason::ProviderRevoked,
-        )
+    // The grant alone goes: a sign-in session of the athlete's keeps serving
+    // them, and an athlete the grant served alone is told to sign in again
+    // (carnet#1494).
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
+    let withdrawal = GrantWithdrawal::new(
+        OAuthService::new(resources.data(), Arc::clone(&resources.common.config)),
+        runtime,
+    );
+    match withdrawal
+        .disconnect(user_id, "strava", tenant, DisconnectReason::ProviderRevoked)
         .await
     {
         Ok(_) => info!(
             user_id = %user_id,
             tenant_id = %tenant,
-            "Strava deauthorization: the athlete is disconnected and their Strava data deleted"
+            "Strava deauthorization: the athlete's Strava grant is disconnected and its data deleted"
         ),
         Err(e) => error!(
             user_id = %user_id,
@@ -719,7 +710,9 @@ async fn scan_new_runs(
         warn!(user_id = %user_id, "webhook owner carries an unparseable tenant id; runs not scanned");
         return;
     };
-    let Some(provider) = strava_provider(resources, user_id, tenant_id).await else {
+    let Some(provider) =
+        exact_provider(resources, oauth_providers::STRAVA, user_id, tenant_id).await
+    else {
         return;
     };
     if let Err(e) = resources

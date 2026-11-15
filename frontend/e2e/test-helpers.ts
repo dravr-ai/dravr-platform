@@ -42,14 +42,77 @@ interface UserOptions {
 }
 
 /**
- * The onboarding status of a fully onboarded user: a provider connected and the
- * agent step answered. The agent step is derived from server state (carnet#1042),
- * so a status with no step record would route every spec to the proposal.
+ * The onboarding status of a fully onboarded user: a provider connected, the
+ * PAR-Q answered and the agent step answered. The agent step is derived from
+ * server state (carnet#1042), so a status with no step record would route
+ * every spec to the proposal; a PAR-Q with no `complete` row would make Home's
+ * « Build my plan » open the health check first (carnet#1530).
  */
 export const ONBOARDED_STATUS = {
   needs_provider_connection: false,
-  steps: [{ step_id: 'coach_proposal', status: 'complete' }],
+  steps: [
+    { step_id: 'parq', status: 'complete' },
+    { step_id: 'coach_proposal', status: 'complete' },
+  ],
 };
+
+/**
+ * `GET /api/me/physiology` for an athlete who stated an FTP, measured a bike
+ * MAP and holds an estimated run critical speed: a low-confidence point, a
+ * measured value with its stated range, and a low-confidence range, worded in
+ * `language` as the server words them — the estimate, range and source
+ * phrases are the shared corpus's `messaging.envelope` strings (carnet#1516).
+ * Read from disk rather than imported, as `mockStarters` reads it; a language
+ * the corpus has no bundle for answers in English, as the server does.
+ */
+export function physiologyFixture(language = 'en') {
+  const locales = path.resolve(process.cwd(), '../packages/i18n/src/locales');
+  const lang = fs.existsSync(path.join(locales, language, 'translation.json')) ? language : 'en';
+  const corpus = JSON.parse(
+    fs.readFileSync(path.join(locales, lang, 'translation.json'), 'utf-8'),
+  ) as { messaging: { envelope: Record<string, string> } };
+  const phrase = (key: string, ...args: string[]): string =>
+    args.reduce((text, arg, slot) => text.replace(`{${slot}}`, arg), corpus.messaging.envelope[key]);
+  const own = phrase('source_own');
+  return {
+    sports: [
+      {
+        sport: 'ride',
+        anchors: [
+          {
+            anchor: 'ftp', unit: 'watts', value: 285, low: null, high: null, origin: 'athlete',
+            as_of: '2026-10-20', method: null, confidence: 'low',
+            value_text: phrase('anchor_estimate', '285 W'), range_text: null, source_text: own,
+          },
+          {
+            anchor: 'map', unit: 'watts', value: 380, low: 365, high: 395, origin: 'lab',
+            as_of: '2026-11-02', method: 'ramp peak', confidence: 'high',
+            value_text: '380 W', range_text: '365–395 W', source_text: phrase('source_from', 'lab'),
+          },
+          {
+            anchor: 'max_heart_rate', unit: 'beats_per_minute', value: 188, low: null, high: null,
+            origin: 'athlete', as_of: null, method: null, confidence: 'low',
+            value_text: phrase('anchor_estimate', '188 bpm'), range_text: null, source_text: own,
+          },
+        ],
+      },
+      {
+        sport: 'run',
+        anchors: [
+          {
+            anchor: 'critical_speed', unit: 'metres_per_second', value: 4, low: 3.92, high: 4.08,
+            origin: 'intervals.icu', as_of: '2026-10-28', method: null, confidence: 'low',
+            value_text: phrase('anchor_range', '4:05', '4:15/km'), range_text: null,
+            source_text: phrase('source_from', 'intervals.icu'),
+          },
+        ],
+      },
+    ],
+  };
+}
+
+/** The anchors an English-speaking athlete is shown. */
+export const PHYSIOLOGY_FIXTURE = physiologyFixture('en');
 
 /**
  * Stubs that EVERY E2E test needs but many spec-local login helpers
@@ -190,6 +253,18 @@ export async function applyTestStubs(page: Page) {
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({ gear_id: null, source: null }),
+    });
+  });
+  // The athlete's anchors (carnet#1516): a profile-row FTP at low confidence,
+  // a measured bike MAP with its range, and an estimated run critical speed,
+  // so Settings › Physiology shows every row shape in the design sweep. The
+  // server words them in the locale the request names, so the mock does too.
+  await page.route('**/api/me/physiology**', async (route) => {
+    const locale = new URL(route.request().url()).searchParams.get('locale') ?? 'en';
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(physiologyFixture(locale)),
     });
   });
 
@@ -1001,14 +1076,18 @@ const GETTING_STARTED_DONE = {
   hidden: false,
 };
 
-/** Getting started on a first arrival: data connected, meeting the team next, no check-in data yet. */
+/**
+ * Getting started on a first arrival, in the server's order (carnet#1530, the
+ * board's order): data connected, the goal and the why next, the cadence, then
+ * the flows. The PAR-Q was answered at onboarding, so no health-check row.
+ */
 const GETTING_STARTED_FIRST_ARRIVAL = {
   rows: [
     { id: 'connect', order: 1, eligible: true, done: true, current: false, postback: null },
-    { id: 'meet_team', order: 2, eligible: true, done: false, current: true, postback: 'gs:2:meet_team' },
-    { id: 'last_workout', order: 3, eligible: true, done: false, current: false, postback: 'gs:3:last_workout' },
-    { id: 'about_me_more', order: 4, eligible: true, done: false, current: false, postback: 'gs:4:about_me_more' },
-    { id: 'check_in', order: 5, eligible: true, done: false, current: false, postback: 'gs:5:check_in' },
+    { id: 'about_me_more', order: 2, eligible: true, done: false, current: true, postback: null },
+    { id: 'check_in', order: 3, eligible: true, done: false, current: false, postback: null },
+    { id: 'meet_team', order: 4, eligible: true, done: false, current: false, postback: 'gs:3:meet_team' },
+    { id: 'last_workout', order: 5, eligible: true, done: false, current: false, postback: 'gs:4:last_workout' },
   ],
   done_count: 1,
   total: 5,
@@ -1035,15 +1114,206 @@ const FIRST_ARRIVAL_TEAM = [
   is_assigned: true,
 }));
 
+/** The same first arrival before any provider is connected: Connect is the next step. */
+const GETTING_STARTED_NO_PROVIDER = {
+  ...GETTING_STARTED_FIRST_ARRIVAL,
+  rows: GETTING_STARTED_FIRST_ARRIVAL.rows.map((row) =>
+    row.id === 'connect'
+      ? { ...row, done: false, current: true }
+      : row.id === 'last_workout'
+        ? { ...row, eligible: false, postback: null }
+        : { ...row, current: false },
+  ),
+  done_count: 0,
+};
+
 /**
- * A first arrival on Home (carnet#1098): Getting started open on Meet your
- * team, a team of three led by Endurance, a daily check-in. Call after
- * `setupDashboardMocks` so these routes win.
+ * A returning athlete's Getting started (carnet#1528): they answered the
+ * lead's welcome and set a cadence, so Meet your team and the check-in are
+ * done and the goal and the why is next.
  */
-export async function mockHomeFirstArrival(page: Page): Promise<void> {
-  await page.route('**/api/me/getting-started', async (route) => {
-    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GETTING_STARTED_FIRST_ARRIVAL) });
+const GETTING_STARTED_RETURNING = {
+  ...GETTING_STARTED_FIRST_ARRIVAL,
+  rows: GETTING_STARTED_FIRST_ARRIVAL.rows.map((row) =>
+    row.id === 'meet_team' || row.id === 'check_in' ? { ...row, done: true, postback: null } : row,
+  ),
+  done_count: 3,
+};
+
+/** The thread Home opens on in these mocks: the athlete's personal thread, led by Endurance. */
+const HOME_THREAD_ID = 'conv-home';
+
+/** Fill a server-rendered template's positional `{n}` slots, as the server's `format_template` does. */
+function fillTemplate(template: string, ...args: string[]): string {
+  return template.replace(/\{(\d+)\}/g, (slot, index: string) => args[Number(index)] ?? slot);
+}
+
+interface WelcomeCorpus {
+  app: Record<string, string>;
+  use_cases: Record<string, { label: string }>;
+  messaging: { agent_welcome: Record<string, string> };
+}
+
+function englishCorpus(): WelcomeCorpus {
+  const file = path.resolve(process.cwd(), '../packages/i18n/src/locales/en/translation.json');
+  return JSON.parse(fs.readFileSync(file, 'utf-8')) as WelcomeCorpus;
+}
+
+/**
+ * The lead's first welcome as the server writes it at the team step
+ * (carnet#1528): the greeting and the role, what it can see, the figure line
+ * read from synced history when `history` is set, the team, how to reach it,
+ * and Discover, with its three ranked starters as the row's
+ * actions. Every sentence is the English corpus's, so the mock reads what the
+ * server would write.
+ */
+function firstWelcomeRow(history: boolean) {
+  const corpus = englishCorpus();
+  const w = corpus.messaging.agent_welcome;
+  const sport = (key: string) => corpus.app[key];
+  const figures = [
+    fillTemplate(w.figures_read, '90', '46', `${sport('sportRun')} 38, ${sport('sportRide')} 6, ${sport('sportSwim')} 2`),
+    fillTemplate(w.figures_per_week, '4'),
+    fillTemplate(w.figures_last, `${sport('sportRun')}, ${fillTemplate(w.figures_distance_time, '21.4 km', '1:52:14')}`),
+  ].join(' ');
+  const content = [
+    fillTemplate(w.greeting, 'Endurance', 'Plans and reads every session.'),
+    w.can_see,
+    history ? figures : null,
+    fillTemplate(w.team_many, fillTemplate(w.list_and, 'Fuelling', 'Recovery')),
+    w.reach_line,
+    w.discover_line,
+  ]
+    .filter((line): line is string => line !== null)
+    .join('\n\n');
+  const starters = history ? ['last_workout', 'load', 'can_see'] : ['connect', 'can_see', 'zone2'];
+  return {
+    id: 'welcome-home',
+    role: 'assistant',
+    content,
+    finish_reason: 'agent_welcome',
+    created_at: '2026-10-21T07:42:00Z',
+    actions: {
+      title: w.starters_title,
+      actions: starters.map((id, slot) => ({
+        label: corpus.use_cases[id].label,
+        action_type: 'postback',
+        value: `uc:${slot}:${id}`,
+      })),
+    },
+  };
+}
+
+/**
+ * Serve `messages` as the Home thread's transcript, and the thread as the one
+ * row of the conversation list, whose agent names the thread's header; every
+ * other call falls through.
+ */
+async function mockHomeThread(page: Page, messages: unknown[]): Promise<void> {
+  await page.route(`**/api/chat/conversations/${HOME_THREAD_ID}/messages**`, async (route) => {
+    if (route.request().method() !== 'GET') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ messages, feedback: [] }) });
   });
+  await page.route('**/api/chat/conversations**', async (route) => {
+    const url = new URL(route.request().url());
+    if (route.request().method() !== 'GET' || url.pathname !== '/api/chat/conversations') {
+      await route.fallback();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        conversations: [
+          {
+            id: HOME_THREAD_ID,
+            title: 'Endurance',
+            agent_id: 'agent-endurance',
+            agent_title: 'Endurance',
+            group_id: null,
+            personal: true,
+            channel_type: 'web',
+            message_count: messages.length,
+            total_tokens: 0,
+            unread_count: 0,
+            created_at: '2026-10-21T07:40:00Z',
+            updated_at: '2026-10-21T07:50:20Z',
+          },
+        ],
+        total: 1,
+        limit: 50,
+        offset: 0,
+      }),
+    });
+  });
+}
+
+/** The provider list a mocked Home reads: Strava, connected or not. */
+async function mockHomeProvider(page: Page, connected: boolean): Promise<void> {
+  await page.route('**/api/providers', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        providers: [{ provider: 'strava', display_name: 'Strava', connected, capabilities: [] }],
+      }),
+    });
+  });
+}
+
+/**
+ * A first arrival on Home (carnet#1098, carnet#1528): the personal thread
+ * opens on the lead's welcome, Getting started open on Meet your team, a team
+ * of three led by Endurance, a daily check-in. With `provider: false` nothing
+ * is connected yet: Connect is the next step and the welcome reads no figures.
+ * Call after `setupDashboardMocks` so these routes win.
+ */
+export async function mockHomeFirstArrival(page: Page, { provider = true }: { provider?: boolean } = {}): Promise<void> {
+  const gettingStarted = provider ? GETTING_STARTED_FIRST_ARRIVAL : GETTING_STARTED_NO_PROVIDER;
+  await page.route('**/api/me/getting-started', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(gettingStarted) });
+  });
+  await mockHomeProvider(page, provider);
+  await mockHomeThread(page, [firstWelcomeRow(provider)]);
+  await mockHomeShell(page);
+}
+
+/**
+ * A returning athlete on Home (carnet#1528, P5·C): they answered the lead's
+ * welcome — the agent's reply to it is the thread's latest message — so Today
+ * leads with today's session and Getting started is the meter under the
+ * header. Call after `setupDashboardMocks` so these routes win.
+ */
+export async function mockHomeReturning(page: Page): Promise<void> {
+  await page.route('**/api/me/getting-started', async (route) => {
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(GETTING_STARTED_RETURNING) });
+  });
+  await mockHomeProvider(page, true);
+  await mockHomeThread(page, [
+    firstWelcomeRow(true),
+    {
+      id: 'reply-athlete',
+      role: 'user',
+      content: 'Thanks! How did my long run on Sunday look?',
+      created_at: '2026-10-21T07:50:00Z',
+    },
+    {
+      id: 'reply-agent',
+      role: 'assistant',
+      content:
+        'Steady: 21.4 km in 1:52:14, and your last third was as even as your first. Keep this week easy; tomorrow is your tempo, 25 minutes at threshold.',
+      finish_reason: 'stop',
+      created_at: '2026-10-21T07:50:20Z',
+    },
+  ]);
+  await mockHomeShell(page);
+}
+
+/** The reads every mocked Home shares: the cadence, the onboarding record, the team and the personal thread. */
+async function mockHomeShell(page: Page): Promise<void> {
   await page.route('**/api/me/check-in', async (route) => {
     await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ cadence: 'daily' }) });
   });
@@ -1076,7 +1346,7 @@ export async function mockHomeFirstArrival(page: Page): Promise<void> {
       contentType: 'application/json',
       body: JSON.stringify({
         conversation: {
-          id: 'conv-home',
+          id: HOME_THREAD_ID,
           title: 'Endurance',
           agent_id: 'agent-endurance',
           personal: true,

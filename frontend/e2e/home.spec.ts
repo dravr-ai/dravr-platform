@@ -6,7 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { HOME_STALE_REFETCH_DELAYS_MS } from '@pierre/shared-constants';
-import { fulfillCalendar, setupDashboardMocks, loginToDashboard, mockHomeFirstArrival } from './test-helpers';
+import { fulfillCalendar, setupDashboardMocks, loginToDashboard, mockHomeFirstArrival, mockHomeReturning } from './test-helpers';
 
 const TODAY = '2026-09-24';
 
@@ -471,9 +471,10 @@ async function login(page: Page) {
 }
 
 test.describe('Athlete Home', () => {
-  // carnet#1098: a first arrival meets what to do next and who it works with
-  // before anything else on Today.
-  test('a first arrival opens Today on Getting started and Your team, and a first step goes out as a turn', async ({ page }) => {
+  // carnet#1528 (P5·A): the lead speaks first — the thread opens on its
+  // welcome, with the figures it read and its starters as ink links — and
+  // Today leads with what to do next.
+  test('a first arrival opens on the lead’s welcome and Today on Getting started, and a first step goes out as a turn', async ({ page }) => {
     await signInAthlete(page);
     await mockHome(page);
     await mockHomeFirstArrival(page);
@@ -484,27 +485,51 @@ test.describe('Athlete Home', () => {
     await expect(started).toBeVisible();
     await expect(started.getByTestId('home-getting-started-count')).toHaveText('1 of 5');
     await expect(started.getByTestId('home-getting-started-row-connect')).toHaveAttribute('data-state', 'done');
-    await expect(started.getByTestId('home-getting-started-row-meet_team')).toHaveAttribute('aria-current', 'step');
+    // The board's order: Connect first, then the questions the wizard left to Home (carnet#1530).
+    await expect(started.locator('li[data-testid^="home-getting-started-row-"]')).toHaveCount(5);
+    expect(
+      await started
+        .locator('li[data-testid^="home-getting-started-row-"]')
+        .evaluateAll((rows) => rows.map((row) => row.getAttribute('data-testid')?.replace('home-getting-started-row-', ''))),
+    ).toEqual(['connect', 'about_me_more', 'check_in', 'meet_team', 'last_workout']);
+    await expect(started.getByTestId('home-getting-started-row-about_me_more')).toHaveAttribute('aria-current', 'step');
+    await expect(started.getByTestId('home-getting-started-row-about_me_more')).toContainText('Your goal and your why');
     await expect(started.getByTestId('home-getting-started-row-meet_team')).toContainText(
       'Reply to Endurance in your thread',
     );
 
+    // The message that row points at is there: the lead's welcome, with what
+    // it read of the synced history and its starters as links.
+    const welcome = page.getByTestId('message-row').first();
+    await expect(welcome).toContainText('I read your last 90 days: 46 sessions');
+    await expect(welcome).toContainText('More agents live in Discover');
+    await expect(welcome.getByTestId('welcome-starters').getByRole('button')).toHaveText([
+      'My last workout',
+      'My last 6 weeks',
+      'What can you see?',
+    ]);
+    // A first arrival has no meter: the whole list is in Today.
+    await expect(page.getByTestId('home-getting-started-meter')).toHaveCount(0);
+
+    // Your team is one folded row under the status; Manage unfolds it.
     const team = panel.getByTestId('home-team');
+    await expect(team.getByTestId('home-team-names')).toHaveText('Endurance, Fuelling, and Recovery');
+    await team.getByRole('button', { name: 'Manage your team' }).click();
     await expect(team.getByTestId('home-team-lead')).toContainText('Leads your thread');
     await expect(team.getByTestId('home-team-member')).toHaveText([/@fuelling/, /@recovery/]);
-    // Getting started, then Your team, then the sections Today always had.
+    // Getting started, then today's session, then Your team.
     await expect(panel.getByTestId('home-today')).toBeVisible();
     const order = await panel
       .locator('[data-testid="home-getting-started"], [data-testid="home-team"], [data-testid="home-today"]')
       .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-testid')));
-    expect(order).toEqual(['home-getting-started', 'home-team', 'home-today']);
+    expect(order).toEqual(['home-getting-started', 'home-today', 'home-team']);
     await expect(panel.locator('.btn-primary')).toHaveCount(0);
 
     const sent = page.waitForRequest(
       (request) => request.method() === 'POST' && /\/api\/chat\/conversations\/[^/]+\/messages/.test(request.url()),
     );
     await started.getByTestId('home-getting-started-row-meet_team').getByRole('button').click();
-    expect((await sent).postDataJSON()).toMatchObject({ content: 'gs:2:meet_team' });
+    expect((await sent).postDataJSON()).toMatchObject({ content: 'gs:3:meet_team' });
   });
 
   test('an athlete with no team is offered Pick your team, which opens the picker over Home', async ({ page }) => {
@@ -533,8 +558,34 @@ test.describe('Athlete Home', () => {
     await expect(panel.getByTestId('home-getting-started')).toHaveCount(0);
     await expect(panel.getByTestId('home-team')).toBeVisible();
 
+    await panel.getByTestId('home-team').getByRole('button', { name: 'Manage your team' }).click();
     await panel.getByTestId('home-team').getByRole('button', { name: 'Find more' }).click();
     await expect(page).toHaveURL(/#discover/);
+  });
+
+  // carnet#1528 (P5·C): once the athlete has answered the welcome, Today
+  // leads with today's session and Getting started is one slim line under
+  // the header, whose Continue opens the next step.
+  test('a returning athlete gets Today first and the Getting started meter under the header', async ({ page }) => {
+    await signInAthlete(page);
+    await mockHome(page);
+    await mockHomeReturning(page);
+    await login(page);
+
+    const meter = page.getByTestId('home-getting-started-meter');
+    await expect(meter).toContainText('3 of 5');
+    await expect(meter).toContainText('Next step: Your goal and your why');
+    const panel = page.getByTestId('home-today-panel');
+    await expect(panel.getByTestId('home-team')).toBeVisible();
+    await expect(panel.getByTestId('home-status')).toBeVisible();
+    await expect(panel.getByTestId('home-getting-started')).toHaveCount(0);
+    const order = await panel
+      .locator('[data-testid="home-today"], [data-testid="home-week"], [data-testid="home-status"], [data-testid="home-team"]')
+      .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-testid')));
+    expect(order).toEqual(['home-today', 'home-week', 'home-status', 'home-team']);
+
+    await meter.getByTestId('home-getting-started-meter-continue').click();
+    await expect(page.getByRole('dialog', { name: 'Your goal and your why' })).toBeVisible();
   });
 
   test('sign-in lands on Home: today, the week, and the latest activities', async ({ page }) => {

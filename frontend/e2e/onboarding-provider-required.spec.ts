@@ -84,7 +84,8 @@ test.describe('Onboarding gate: connect a provider before chatting', () => {
     const heading = page.getByRole('heading', { name: /welcome, fresh user/i });
     await expect(heading).toBeVisible();
 
-    const progress = page.getByRole('navigation', { name: 'Onboarding progress' });
+    // The landmark's name says where the user is: the first of the journey's steps.
+    const progress = page.getByRole('navigation', { name: /^Step 1 of \d+: Profile$/ });
     await expect(progress).toBeVisible();
 
     await context.setOffline(true);

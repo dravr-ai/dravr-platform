@@ -46,6 +46,22 @@ function renderRow(model: ConversationRowModel) {
 }
 
 describe('ConversationRow', () => {
+  it("shows a room's coach-seat line in place of its last words while the seat moves (carnet#1521)", () => {
+    const model = row({
+      group_id: 'group-1',
+      group_name: 'Marathon crew',
+      last_message: { preview: 'Easy Thursday', role: 'assistant', created_at: '2026-08-26T09:50:00' },
+    });
+    const handlers = { onPress: jest.fn(), onLongPress: jest.fn(), onMarkUnread: jest.fn(), onDelete: jest.fn() };
+    const { getByTestId, queryByTestId } = render(
+      <ConversationRow row={model} seatLine="Coach access pending · requested Nov 12" {...handlers} />,
+    );
+
+    expect(model.groupId).toBe('group-1');
+    expect(getByTestId('conversation-seat-line-conv-1')).toHaveTextContent('Coach access pending · requested Nov 12');
+    expect(queryByTestId('conversation-preview-conv-1')).toBeNull();
+  });
+
   it('draws the initials avatar, the title, the preview and the relative time', () => {
     const model = row({
       last_message: { preview: 'Easy Thursday, then the long run', role: 'assistant', created_at: '2026-08-26T09:50:00' },

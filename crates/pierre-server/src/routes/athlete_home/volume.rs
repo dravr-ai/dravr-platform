@@ -12,14 +12,16 @@ use chrono::{Duration, NaiveDate, Utc};
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
+use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow, IncompleteReason};
+use pierre_database::repositories::CachedRowsQuery;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
+use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 
 use super::{active_tenant, served_rows, workouts};
 use crate::mcp::resources::ServerContext;
 use crate::services::training_volume::{
-    day_start_utc, monday_of, volume_from_sessions, window_start, TrainingVolume, VolumeCoverage,
+    day_start_utc, monday_of, volume_from_sessions, window_start, TrainingVolume,
 };
 
 /// Most cached rows the volume read takes. Twelve weeks of one athlete's
@@ -51,7 +53,11 @@ pub(super) async fn get_training_volume(
         &resources,
         repos
             .activity_cache
-            .get_cached_activity_rows(user_id, &tenant_id, opens, now, MAX_VOLUME_ROWS)
+            .get_cached_activity_rows(
+                user_id,
+                &tenant_id,
+                &CachedRowsQuery::window(opens, now, MAX_VOLUME_ROWS),
+            )
             .await?,
     );
     let read_full = usize::try_from(MAX_VOLUME_ROWS).is_ok_and(|cap| rows.len() >= cap);
@@ -59,24 +65,52 @@ pub(super) async fn get_training_volume(
         .last()
         .map(|row| local_date(row.activity.start_date(), zone));
 
+    let window = CoverageWindow {
+        asked_from: Some(window_start(today)),
+        asked_to: Some(today),
+        oldest: oldest_read,
+        total: Some(u64::try_from(rows.len()).unwrap_or(u64::MAX)),
+        total_is_lower_bound: read_full,
+        returned: u64::try_from(rows.len()).unwrap_or(u64::MAX),
+        ..CoverageWindow::default()
+    };
+    let from = |reason, day| Coverage {
+        completeness: Completeness::Incomplete(reason),
+        window: window.clone(),
+        trustworthy_from: Some(day),
+        pending: None,
+    };
+    let nothing = || Coverage {
+        completeness: Completeness::Incomplete(IncompleteReason::NoStoredActivities),
+        window: window.clone(),
+        trustworthy_from: None,
+        pending: None,
+    };
     let coverage = if read_full {
         // Rows come newest first, so the cut fell in the oldest row's week.
-        oldest_read.map_or(VolumeCoverage::Nothing, |day| {
-            VolumeCoverage::From(monday_of(day) + Duration::weeks(1))
+        oldest_read.map_or_else(nothing, |day| {
+            from(
+                IncompleteReason::ReadCapped,
+                monday_of(day) + Duration::weeks(1),
+            )
         })
     } else {
-        let since = now - Duration::days(activity_cache_retention_days());
+        let since = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
         let older = served_rows(
             &resources,
             repos
                 .activity_cache
-                .get_cached_activity_rows(user_id, &tenant_id, since, opens, 1)
+                .get_cached_activity_rows(
+                    user_id,
+                    &tenant_id,
+                    &CachedRowsQuery::window(since, opens, 1),
+                )
                 .await?,
         );
         match (older.is_empty(), oldest_read) {
-            (false, _) => VolumeCoverage::Whole,
-            (true, Some(day)) => VolumeCoverage::From(day),
-            (true, None) => VolumeCoverage::Nothing,
+            (false, _) => Coverage::complete(window.clone()),
+            (true, Some(day)) => from(IncompleteReason::ShallowHistory, day),
+            (true, None) => nothing(),
         }
     };
 
@@ -91,7 +125,7 @@ pub(super) async fn get_training_volume(
         })
         .collect();
     let sessions: Vec<_> = merged.into_iter().map(|workout| workout.session).collect();
-    let volume = volume_from_sessions(today, zone, &sessions, coverage);
+    let volume = volume_from_sessions(today, zone, &sessions, &coverage);
     // Garmin's share of exactly the workouts the weeks count (carnet#1154).
     let garmin_contribution = volume.weeks.first().and_then(|first| {
         oauth_providers::garmin_contribution(

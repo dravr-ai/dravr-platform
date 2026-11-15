@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use super::DenyReason;
 use crate::security::SecurityLabels;
+use crate::turn_store::{Stamp, TurnStore};
 
 /// How long a turn's state is retained before it is eligible for eviction.
 /// Generous relative to a turn (seconds-to-minutes) so accumulation is never
@@ -49,13 +50,6 @@ const HARD_CAP: usize = 40_000;
 /// every call. Comfortably tighter than `TURN_TTL` so stale turns are reclaimed
 /// within one interval of expiring.
 const SWEEP_MIN_INTERVAL: Duration = Duration::from_mins(5);
-
-/// Hard cap on retained unconsumed turn blocks (#10). The tool loop takes a
-/// turn's block when it returns, so an entry outlives its turn only when the
-/// loop failed or a stage dispatched after it; blocks are rare enough that this
-/// is unreachable in practice, and overflow drops the entries past [`TURN_TTL`]
-/// first, every entry only if that was not enough.
-const DENIAL_CAP: usize = 10_000;
 
 /// Identifies one logical turn for budget accumulation.
 ///
@@ -216,7 +210,12 @@ pub struct GuardianTurns {
     /// turn to report to, is never recorded (carnet#1404). Separate lock from
     /// `inner` — it is touched only on the rare block path and the turn
     /// boundaries, never on the hot allow path.
-    blocks: Mutex<HashMap<TurnKey, (Instant, HeadlessBlock)>>,
+    ///
+    /// An entry outlives its turn only when the loop failed or a stage
+    /// dispatched after it. A pending block the store's overflow drops falls
+    /// back to the model's paraphrase (safe), and the turn still commits
+    /// nothing further.
+    blocks: TurnStore<HeadlessBlock>,
 }
 
 /// What the gate makes of a call it decided, applied under the same lock as the
@@ -301,7 +300,7 @@ impl GuardianTurns {
                 map: HashMap::new(),
                 last_sweep: Instant::now(),
             }),
-            blocks: Mutex::new(HashMap::new()),
+            blocks: TurnStore::new(),
         }
     }
 
@@ -312,20 +311,8 @@ impl GuardianTurns {
     /// poisoned lock is skipped — the turn then falls back to the model's
     /// paraphrase, never a panic.
     pub fn record_block(&self, key: &TurnKey, block: HeadlessBlock) {
-        if let Ok(mut blocks) = self.blocks.lock() {
-            let now = Instant::now();
-            // Bound memory. A turn whose loop failed never takes its entry, so
-            // past the cap the abandoned ones go first; a dropped pending block
-            // just falls back to the model's paraphrase (safe), and the turn
-            // still commits nothing further.
-            if blocks.len() >= DENIAL_CAP {
-                blocks.retain(|_, (at, _)| now.duration_since(*at) < TURN_TTL);
-                if blocks.len() >= DENIAL_CAP {
-                    blocks.clear();
-                }
-            }
-            blocks.entry(key.clone()).or_insert((now, block));
-        }
+        self.blocks
+            .record(key, Stamp::First, |held| held.unwrap_or(block));
     }
 
     /// Remember that `tool_name`, a consequential call, succeeded in `key`'s turn.
@@ -394,7 +381,7 @@ impl GuardianTurns {
     /// Consume and return the block recorded under `key`, if any.
     #[must_use]
     pub fn take_block(&self, key: &TurnKey) -> Option<HeadlessBlock> {
-        self.blocks.lock().ok()?.remove(key).map(|(_, block)| block)
+        self.blocks.take(key)
     }
 
     /// Atomically evaluate `decide` against the live turn state and, under the
@@ -513,28 +500,6 @@ mod tests {
             "a later block never replaces the one the athlete is told about"
         );
         assert_eq!(store.take_block(&first_turn), None, "taken once");
-    }
-
-    #[test]
-    fn unconsumed_blocks_stay_bounded_and_a_new_block_still_lands() {
-        let store = GuardianTurns::new();
-        for turn in 0..DENIAL_CAP {
-            store.record_block(
-                &TurnKey::new(None, format!("turn-{turn}")),
-                denied(DenyReason::BudgetExceeded),
-            );
-        }
-        let past_the_cap = TurnKey::new(None, "turn-past-the-cap");
-        store.record_block(&past_the_cap, denied(DenyReason::TurnBlocked));
-        assert!(
-            store.blocks.lock().expect("lock").len() <= DENIAL_CAP,
-            "the block store must hold its cap"
-        );
-        assert_eq!(
-            store.take_block(&past_the_cap),
-            Some(denied(DenyReason::TurnBlocked)),
-            "a block recorded past the cap must still land"
-        );
     }
 
     #[test]

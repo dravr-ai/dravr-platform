@@ -51,6 +51,7 @@ use super::peer_grounding::{
     fetch_peer_activities_outcome, mentioned_peers, PeerFetchOutcome, PeerGroundingBlock,
     PeerMention, PEER_FETCH_TOOL,
 };
+use super::tool_dispatch::turn_executor;
 use super::turn_evidence::collect_turn_evidence;
 use crate::turn::TurnInput;
 use pierre_core::models::MemberFitnessSnapshot;
@@ -59,7 +60,6 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_llm::call_record::complete_recorded;
 use pierre_llm::{ChatProvider, ChatRequest, FunctionResponse};
 use pierre_services::chat_provider_factory::chat_provider_from_resources_arc;
-use pierre_tool_runtime::protocol::UniversalExecutor;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 use pierre_tool_runtime::tool_results::format_tool_results_as_text;
 use uuid::Uuid;
@@ -397,14 +397,8 @@ async fn fetch_peer_subjects(
     evidence: &mut SubjectEvidence,
 ) {
     let group_id = conversation_group_id(deps, input).await;
-    let executor = Arc::new(
-        UniversalExecutor::new(Arc::clone(&deps.ctx.tool_runtime))
-            // The turn's own grant — see stage 9's binding.
-            .with_scopes(input.grant.clone())
-            .with_conversation_id(input.conversation_id.clone())
-            .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
-            .with_turn_token(input.turn_id.0.to_string()),
-    );
+    // The turn's own executor, on its seat (carnet#1448).
+    let executor = Arc::new(turn_executor(deps.ctx, input, deps.seat));
     for peer in peers {
         let name = peer.display_name.clone();
         if let Some(payload) = pregrounded_payload(deps.peer_blocks, &name) {

@@ -27,8 +27,17 @@
 //! - their live season and the coach's draft, with where the draft stands;
 //! - their wellness, only under the athlete's `wellness_read` grant: the data
 //!   tools that read it, and the newest readings the coach's link filed
-//!   ([`linked_wellness`]); without the grant, that only the athlete shares
-//!   it, and where.
+//!   ([`read_linked_wellness`]); without the grant, that only the athlete
+//!   shares it, and where.
+//!
+//! What the block reads of the athlete is on the athlete's own record
+//! (carnet#1445), as a `coach_thread` read, once per class per turn: a
+//! training row when the gates let the turn through, before their plan is
+//! read ([`resolve`], which the turn runs once), and a wellness row when the
+//! coach's link has wellness of theirs to read, before it is read
+//! ([`block`], which the turn's prompt is built from once). A row that cannot
+//! be written withholds what it would have recorded: the turn is refused, or
+//! goes on without the wellness.
 //!
 //! Never their dossier, memory or commitments, and never
 //! another member's data. The plan block that follows (stage 7f.2) is the
@@ -44,11 +53,12 @@
 use std::fmt::Write as _;
 
 use chrono::{NaiveDate, Utc};
-use pierre_core::errors::ErrorCode;
+use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::{ConversationSubject, TenantId};
 use pierre_core::untrusted::{display_line, ROSTER_NAME_MAX_CHARS};
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::{ConversationRecord, MessageRecord};
+use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{PlanWeek, TrainingPlan};
 use pierre_providers::backend_resolver::brand_name;
@@ -57,8 +67,10 @@ use pierre_services::coach_plan_draft::{coach_plan_view, CoachDraftTarget, Coach
 use pierre_services::coached_athlete::{
     coached_athlete_access, CoachedAthleteAccess, CoachedAthleteRefusal,
 };
-use pierre_services::linked_wellness::{linked_wellness, LinkedWellness, LINKED_WELLNESS_DAYS};
-use pierre_tool_runtime::read_subject::{self, DataClass, WELLNESS_GRANT_WHERE};
+use pierre_services::linked_wellness::{
+    read_linked_wellness, wellness_link, LinkedWellness, LINKED_WELLNESS_DAYS,
+};
+use pierre_tool_runtime::read_subject::{self, record_coach_read, DataClass, WELLNESS_GRANT_WHERE};
 use tracing::{info, warn};
 use uuid::Uuid;
 
@@ -211,6 +223,26 @@ pub(crate) async fn resolve(
         Ok(granted) => granted,
         Err(refused) => return Some(SubjectTurn::Refused(refused)),
     };
+    // The turn reads the athlete's training from here on — their plan and
+    // draft, their roster line — so their record names it first, once for
+    // the turn (carnet#1445). A row that cannot be written refuses the turn.
+    if let Err(e) = record_coach_read(
+        repos,
+        &access,
+        coach,
+        CoachReadSurface::CoachThread.as_str(),
+        CoachReadClass::Training,
+    )
+    .await
+    {
+        warn!(
+            athlete = %subject.athlete_user_id,
+            group_id = %subject.group_id,
+            error = %e,
+            "coach's athlete thread: the read could not be recorded on the athlete's record; nothing of the athlete is shown"
+        );
+        return Some(SubjectTurn::Refused(SubjectRefusal::Unconfirmed));
+    }
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, coach);
     let view = match coach_plan_view(repos, &target).await {
         Ok(view) => Some(view),
@@ -345,24 +377,55 @@ async fn roster_line(_ctx: &ChatPipelineContext, _granted: &GrantedSubject) -> R
 }
 
 /// The wellness the coach's link filed under the athlete's `wellness_read`
-/// consent, or `None` without that consent (or when it could not be read).
+/// consent, or `None` without that consent or a confirmed link (or when it
+/// could not be read or recorded).
 async fn wellness(ctx: &ChatPipelineContext, granted: &GrantedSubject) -> Option<LinkedWellness> {
-    match linked_wellness(
-        &ctx.repos,
-        ctx.tool_runtime.provider_registry().as_ref(),
-        granted.coach,
-        granted.athlete(),
-        granted.access.group.id,
-        Utc::now(),
-    )
-    .await
-    {
+    match recorded_wellness(ctx, granted).await {
         Ok(wellness) => wellness,
         Err(e) => {
-            warn!(error = %e, "coach's athlete thread: the linked wellness could not be read");
+            warn!(
+                error = %e,
+                "coach's athlete thread: the linked wellness could not be read or recorded; it is left out"
+            );
             None
         }
     }
+}
+
+/// [`wellness`]: with a link to read through, the read goes on the athlete's
+/// record first, as the turn's one wellness row (carnet#1445) — the prompt is
+/// built once per turn — and only then is it read. A row that cannot be
+/// written reads nothing.
+async fn recorded_wellness(
+    ctx: &ChatPipelineContext,
+    granted: &GrantedSubject,
+) -> AppResult<Option<LinkedWellness>> {
+    let Some(link) = wellness_link(
+        &ctx.repos,
+        granted.coach,
+        granted.athlete(),
+        granted.access.group.id,
+    )
+    .await?
+    else {
+        return Ok(None);
+    };
+    record_coach_read(
+        &ctx.repos,
+        &granted.access,
+        granted.coach,
+        CoachReadSurface::CoachThread.as_str(),
+        CoachReadClass::Wellness,
+    )
+    .await?;
+    read_linked_wellness(
+        &ctx.repos,
+        ctx.tool_runtime.provider_registry().as_ref(),
+        &link,
+        Utc::now(),
+    )
+    .await
+    .map(Some)
 }
 
 /// A person, group or agent name as it may enter the prompt: one line,

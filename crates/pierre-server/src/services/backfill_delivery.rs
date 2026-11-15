@@ -238,6 +238,28 @@ impl InAppDelivery<'_> {
         body: String,
         count: usize,
     ) {
+        if self
+            .persist(user_id, tenant_id, conversation_id, body, count)
+            .await
+        {
+            self.push_app_notification(user_id, tenant_id, locale, count, self.transport_policy)
+                .await;
+        }
+    }
+
+    /// Persist the notice into a first-party conversation without the app
+    /// push [`Self::deliver`] raises after it: for a notice that loaded no
+    /// activities, which the push's "N activities loaded" would misstate.
+    /// The stored turn and its unread badge are the delivery. `false`
+    /// (logged) when the turn could not be stored.
+    pub(crate) async fn persist(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        conversation_id: &str,
+        body: String,
+        count: usize,
+    ) -> bool {
         let transport_policy = self.transport_policy;
         let owner = user_id.to_string();
         let params = AddMessageParams {
@@ -260,14 +282,13 @@ impl InAppDelivery<'_> {
         };
         if let Err(e) = self.repos.chat.add_message(&params).await {
             warn!(error = %e, "Backfill push: failed to persist the in-app completion turn");
-            return;
+            return false;
         }
         info!(
             count,
             "Delivered backfill-ready notice into the in-app conversation"
         );
-        self.push_app_notification(user_id, tenant_id, locale, count, transport_policy)
-            .await;
+        true
     }
 
     /// Raise only the app notification, for a notice the chat pipeline has

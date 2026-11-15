@@ -21,7 +21,7 @@ use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::ConnectionType;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_tool_runtime::runtime::BackfillNotifier;
+use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier};
 
 // Shared messaging fixtures + channel fakes, pulled in via `#[path]` so this
 // contract test reuses the one copy the notifier tests share.
@@ -88,14 +88,14 @@ async fn failed_push_is_enqueued_for_retry_not_dropped() {
     // `after_ts` = 30 days ago so the 2-day-old cached activity is in-window.
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             1,
-        )
+        ))
         .await;
 
     // (a) Exactly one send attempt — the notifier itself must not retry; the
@@ -170,14 +170,14 @@ async fn successful_push_does_not_enqueue() {
 
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             1,
-        )
+        ))
         .await;
 
     // Exactly one send, and it succeeded.

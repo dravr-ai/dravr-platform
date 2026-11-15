@@ -1,5 +1,5 @@
 // ABOUTME: carnet#539/#725 — a disconnect deletes every row the provider contributed for that user in that tenant
-// ABOUTME: The termination purge spans tenants; every purge leaves an attestation row; a cache TTL evicts old copies
+// ABOUTME: The termination purge spans tenants; every purge leaves an attestation row; the retention sweep expires old wellness
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -58,21 +58,22 @@ use pierre_core::models::{
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, ActivityFetchFailure, ActivityFetchFailureRecord, ActivityStreamsWrite,
-    BackfillCoverage, PersonalBest, PersonalBestSeed, ProviderDataPurge, PurgeReason,
-    StoredRouteTrack, StreamOrigin, SyncCursorRow, STREAMS_FORMAT_VERSION,
+    BackfillCoverage, BackfillJobClaim, BackfillJobKind, BackfillJobState, HistoryWalkRowState,
+    JobLease, JobProgress, JobProgressStep, PersonalBest, PersonalBestSeed, ProviderDataPurge,
+    PurgeReason, PurgedHistoryWalk, ReopenFrom, StoredRouteTrack, StreamOrigin, SyncCursorRow,
+    WalkHandOff, STREAMS_FORMAT_VERSION,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::provider_terms::NOLIO_CACHE_TTL;
 use pierre_routes_admin::handlers::provider_data::{
     handle_list_provider_data_purges, handle_purge_provider_data,
 };
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit};
 use pierre_routes_auth::OAuthService;
 use pierre_services::health_sync::PierreSyncStorage;
-use pierre_services::provider_cache_sweeper::sweep_provider_caches;
 use pierre_services::provider_revocation::DisconnectReason;
+use pierre_test_support::db::create_test_db;
 use pierre_tool_runtime::guardian::GuardianConfigRegistry;
 use serde_json::Value;
 use tokio::time::sleep;
@@ -540,7 +541,12 @@ async fn seed_provider_rows(
                 leased_until_ms: 0,
                 attempts: 0,
                 lease_token: Some(Uuid::new_v4().to_string()),
-                history_import: false,
+                kind: BackfillJobKind::Backfill,
+                progress: JobProgress::default(),
+                turn_id: None,
+                asked_message_id: None,
+                walk_backend: None,
+                walk_sport: None,
             })
             .await
             .unwrap();
@@ -1003,9 +1009,10 @@ async fn disconnecting_whoop_deletes_that_athletes_whoop_rows_through_the_chokep
     assert_removed(&whoop_left, 3, 2);
 }
 
-/// The admin context the operator route runs under.
+/// The admin context the operator route runs under, purging through the
+/// server's provider data purge as the composition root wires it.
 fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
-    Arc::new(AdminApiContext::new(AdminApiContextInit {
+    let mut context = AdminApiContext::new(AdminApiContextInit {
         database: resources.agent.database.clone(),
         repos: resources.common.repos.clone(),
         jwt_secret: "test_admin_jwt_secret_for_provider_purge".to_owned(),
@@ -1023,7 +1030,9 @@ fn admin_context(resources: &Arc<ServerContext>) -> Arc<AdminApiContext> {
         training_catalogue_registry: Arc::new(TrainingCatalogueRegistry::new()),
         contremaitre_config: None,
         app_behavior: resources.common.config.app_behavior.clone(),
-    }))
+    });
+    context.provider_purge = Some(Arc::clone(&resources.common.provider_purge));
+    Arc::new(context)
 }
 
 /// A stored admin token, so the audit row its purge writes has a token to
@@ -1224,46 +1233,35 @@ async fn the_operator_purge_deletes_whoop_in_every_tenant_and_audits_it() {
     assert!(audited[0].success);
 }
 
-/// Tables a cache expiry evicts one row from per seeded scope, the sync state
-/// describing them included. `activity_backfill_jobs` is apart, as above.
-const ONE_ROW_EXPIRED_TABLES: [&str; 11] = [
+/// Tables a wellness expiry removes one row from per seeded scope, the
+/// health sync's cursors included.
+const ONE_ROW_EXPIRED_TABLES: [&str; 5] = [
     "sleep_sessions",
     "recovery_metrics",
     "health_snapshots",
     "daily_activity",
-    "cached_activities",
-    "activity_route_tracks",
-    "activity_streams",
     "sync_state",
-    "activity_fetch_freshness",
-    "activity_fetch_failures",
-    "activity_backfill_coverage",
 ];
 
-/// The declared Nolio cap, applied to the fixture's WHOOP rows: the sweep
-/// reads a provider's cap from the registry in production, where WHOOP
-/// declares none.
-fn whoop_under_nolio_cap() -> [(&'static str, StdDuration); 1] {
-    [("whoop", NOLIO_CACHE_TTL)]
+/// A seven-day retention's cutoff, `days_later` after the fixture was
+/// written: what the retention sweep passes for a provider set to seven days.
+fn seven_day_cutoff(days_later: i64) -> DateTime<Utc> {
+    Utc::now() + Duration::days(days_later) - Duration::days(7)
 }
 
 #[tokio::test]
-async fn a_seven_day_cache_ttl_keeps_a_six_day_old_copy() {
+async fn a_seven_day_retention_keeps_a_six_day_old_wellness_copy() {
     let world = world().await;
     let repos = world.repos();
 
-    let swept = sweep_provider_caches(
-        repos.provider_data.as_ref(),
-        &whoop_under_nolio_cap(),
-        Utc::now() + Duration::days(6),
-    )
-    .await
-    .unwrap();
+    let expiry = repos
+        .provider_data
+        .expire_provider_wellness("whoop", seven_day_cutoff(6))
+        .await
+        .unwrap();
 
-    assert_eq!(swept.len(), 1);
-    assert_eq!(swept[0].0, "whoop");
-    assert_eq!(swept[0].1.scopes, 0, "{:?}", swept[0].1);
-    assert_eq!(swept[0].1.evicted.total(), 0, "{:?}", swept[0].1);
+    assert_eq!(expiry.scopes, 0, "{expiry:?}");
+    assert_eq!(expiry.evicted.total(), 0, "{expiry:?}");
     assert_eq!(
         sleep_sources(&world, world.athlete).await,
         ["garmin", "whoop"]
@@ -1279,28 +1277,29 @@ async fn a_seven_day_cache_ttl_keeps_a_six_day_old_copy() {
 }
 
 #[tokio::test]
-async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state() {
+async fn a_seven_day_retention_expires_an_eight_day_old_wellness_copy_and_its_cursors() {
     let world = world().await;
     let repos = world.repos();
     let (athlete, tenant) = world.athlete;
 
-    let swept = sweep_provider_caches(
-        repos.provider_data.as_ref(),
-        &whoop_under_nolio_cap(),
-        Utc::now() + Duration::days(8),
-    )
-    .await
-    .unwrap();
+    let expiry = repos
+        .provider_data
+        .expire_provider_wellness("whoop", seven_day_cutoff(8))
+        .await
+        .unwrap();
 
-    let expiry = &swept[0].1;
     assert_eq!(expiry.scopes, 4, "every WHOOP scope held an expired copy");
     for table in ONE_ROW_EXPIRED_TABLES {
         assert_eq!(expiry.evicted.removed_from(table), 4, "{table}: {expiry:?}");
     }
     assert_eq!(expiry.evicted.removed_from("data_point_series"), 8);
-    assert_eq!(expiry.evicted.removed_from("activity_backfill_jobs"), 3);
+    assert_eq!(
+        expiry.evicted.removed_from("cached_activities"),
+        0,
+        "activities expire in the activity store, never here: {expiry:?}"
+    );
 
-    // The athlete's Garmin copies carry no cap and stay.
+    // The athlete's Garmin copies are another provider's and stay.
     assert_eq!(sleep_sources(&world, world.athlete).await, ["garmin"]);
     for other in [world.teammate, world.stranger, world.athlete_elsewhere] {
         let got = sleep_sources(&world, other).await;
@@ -1313,33 +1312,27 @@ async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state()
         .unwrap()
         .is_none());
 
-    // What the expiry leaves is derived or descriptive, not a copy: the
-    // device row, the activity thread link and the
-    // personal-best rows. A disconnect still takes them.
+    // The provider's activities, the sync state describing them and the
+    // device row stay: a disconnect still takes them, and no wellness.
     let rest = repos
         .provider_data
         .purge_user_provider_data(athlete, &tenant, "whoop", PurgeReason::AthleteDisconnect)
         .await
         .unwrap();
-    assert_eq!(
-        rest.rows_removed
-            .keys()
-            .map(String::as_str)
-            .collect::<Vec<_>>(),
-        [
-            "activity_conversations",
-            "best_effort_scans",
-            "data_sources",
-            "personal_best_efforts",
-            "personal_best_seeds",
-        ],
-        "{rest:?}"
-    );
-    assert_eq!(
-        rest.total(),
-        5,
-        "bug: the five shared rows are all that stay: {rest:?}"
-    );
+    for kept in [
+        "cached_activities",
+        "activity_fetch_freshness",
+        "data_sources",
+    ] {
+        assert!(rest.removed_from(kept) > 0, "{kept} was kept: {rest:?}");
+    }
+    for expired in ONE_ROW_EXPIRED_TABLES
+        .iter()
+        .copied()
+        .chain(["data_point_series"])
+    {
+        assert_eq!(rest.removed_from(expired), 0, "{expired}: {rest:?}");
+    }
 
     let recorded = repos
         .provider_data
@@ -1348,11 +1341,17 @@ async fn a_seven_day_cache_ttl_evicts_an_eight_day_old_copy_and_its_sync_state()
         .unwrap();
     let expired = recorded
         .iter()
-        .filter(|record| record.reason == "cache_expired")
+        .filter(|record| record.reason == "wellness_expired")
         .count();
     assert_eq!(
         expired, 4,
-        "one attestation row per evicted scope: {recorded:?}"
+        "one wellness attestation row per expired scope: {recorded:?}"
+    );
+    assert!(
+        recorded
+            .iter()
+            .all(|record| record.reason != "cache_expired"),
+        "bug: a wellness expiry attests as an activity expiry: {recorded:?}"
     );
 }
 
@@ -1397,7 +1396,7 @@ async fn a_copy_re_synced_inside_the_window_stays() {
 
     let expiry = repos
         .provider_data
-        .expire_provider_cache("whoop", between)
+        .expire_provider_wellness("whoop", between)
         .await
         .unwrap();
 
@@ -1513,17 +1512,15 @@ async fn a_provider_purge_takes_only_the_samples_it_pushed() {
         held
     };
 
-    sweep_provider_caches(
-        repos.provider_data.as_ref(),
-        &whoop_under_nolio_cap(),
-        Utc::now() + Duration::days(8),
-    )
-    .await
-    .unwrap();
+    repos
+        .provider_data
+        .expire_provider_wellness("whoop", seven_day_cutoff(8))
+        .await
+        .unwrap();
     assert_eq!(
         still_held().await,
         ["uploaded-1", "archived-1"],
-        "cache expiry"
+        "wellness expiry"
     );
 
     let purged = repos
@@ -1532,9 +1529,9 @@ async fn a_provider_purge_takes_only_the_samples_it_pushed() {
         .await
         .unwrap();
     assert_eq!(
-        purged.rows_removed.get("activity_streams"),
-        None,
-        "{purged:?}"
+        purged.removed_from("activity_streams"),
+        1,
+        "only the samples WHOOP pushed: {purged:?}"
     );
     assert_eq!(
         still_held().await,
@@ -1551,5 +1548,770 @@ async fn a_provider_purge_takes_only_the_samples_it_pushed() {
         still_held().await,
         ["uploaded-1", "archived-1"],
         "termination"
+    );
+}
+
+/// A session's history walk whose API phase reads `grant`, filed under the
+/// session's key for `user` in `tenant`: recorded, then handed off.
+async fn walk_reading_grant(repos: &RepositoryRegistry, user: Uuid, tenant: TenantId, grant: &str) {
+    let now = Utc::now().timestamp_millis();
+    let token = Uuid::new_v4().to_string();
+    let row = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: tenant,
+        user_id: user,
+        provider: "sciotte".to_owned(),
+        kind: BackfillJobKind::HistoryWalk,
+        after_ts: Some(946_684_800),
+        before_ts: None,
+        fetch_limit: Some(500),
+        conversation_id: None,
+        created_at_ms: now,
+        leased_until_ms: now + 600_000,
+        attempts: 1,
+        lease_token: Some(token.clone()),
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
+        walk_backend: None,
+        walk_sport: None,
+    };
+    assert!(
+        repos
+            .activity_backfill_jobs
+            .record_backfill_job(&row)
+            .await
+            .unwrap(),
+        "the walk's row is recorded"
+    );
+    assert!(
+        repos
+            .activity_backfill_jobs
+            .hand_off_history_walk(
+                &JobLease {
+                    id: row.id.clone(),
+                    token,
+                },
+                &WalkHandOff {
+                    backend: grant.to_owned(),
+                    before_ts: Some(1_700_000_000),
+                    units_done: 24,
+                    rows_landed: 2,
+                    fetch_limit: 200,
+                },
+            )
+            .await
+            .unwrap(),
+        "the walk is handed off to the grant"
+    );
+}
+
+/// What the ledger holds for `user`'s walk filed under the session's key.
+async fn session_walk(
+    repos: &RepositoryRegistry,
+    user: Uuid,
+    tenant: TenantId,
+) -> Option<HistoryWalkRowState> {
+    repos
+        .activity_backfill_jobs
+        .history_walk_row(user, tenant, "sciotte")
+        .await
+        .unwrap()
+}
+
+/// A grant's purge takes what a session walk's API phase brought in under
+/// the grant's key, so that walk no longer claims the phase: it is owed the
+/// reopen of the phase, below the session's own rows, once no step holds it.
+/// Only the purged user's walk in the purged tenant is released, a walk
+/// reading another grant stays, and the release is not counted as a removal.
+#[tokio::test]
+async fn a_grants_purge_releases_only_its_users_walk_through_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let (athlete, teammate, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    walk_reading_grant(repos, teammate, tenant, "strava").await;
+    walk_reading_grant(repos, other_grant, tenant, "wahoo").await;
+
+    let elsewhere = repos
+        .provider_data
+        .purge_user_provider_data(
+            athlete,
+            &TenantId::from_uuid(Uuid::new_v4()),
+            "strava",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        elsewhere.total(),
+        0,
+        "bug: a purge under another tenant released the athlete's walk"
+    );
+    let api_phase = HistoryWalkRowState {
+        state: BackfillJobState::Owed,
+        walk_backend: Some("strava".to_owned()),
+    };
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(api_phase.clone()),
+        "bug: a purge in another tenant released the athlete's walk"
+    );
+
+    let purge = repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        purge.total(),
+        0,
+        "bug: releasing a walk is counted as a removal: {purge:?}"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava")),
+        "bug: a walk still claims the API phase of a purged grant"
+    );
+    assert_eq!(
+        session_walk(repos, teammate, tenant).await,
+        Some(api_phase),
+        "bug: the purge released a teammate's walk"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant)
+            .await
+            .and_then(|row| row.walk_backend),
+        Some("wahoo".to_owned()),
+        "bug: the purge released a walk reading another grant"
+    );
+}
+
+/// What a walk reading `grant` reads as before any purge: its API phase owed.
+fn reading(grant: &str) -> HistoryWalkRowState {
+    HistoryWalkRowState {
+        state: BackfillJobState::Owed,
+        walk_backend: Some(grant.to_owned()),
+    }
+}
+
+/// What a walk whose owed API phase a purge took reads as: owed the reopen
+/// of that phase, still the walk of the pair through `grant`, so no other
+/// walk of the grant starts beside a step that may still page it.
+fn purged(grant: &str) -> HistoryWalkRowState {
+    HistoryWalkRowState {
+        state: BackfillJobState::PhasePurged,
+        walk_backend: Some(grant.to_owned()),
+    }
+}
+
+/// What a walk released with no reopen owed reads as: a session walked
+/// alone, which the next ask for the walk reopens while a grant is live.
+fn walked_alone() -> HistoryWalkRowState {
+    HistoryWalkRowState {
+        state: BackfillJobState::Walked,
+        walk_backend: None,
+    }
+}
+
+/// The operator's whole-provider purge takes every athlete's rows of the
+/// provider, in every tenant: every walk whose API phase read it is
+/// released as a session walked alone — never owed a reopen through a
+/// terminated provider, which would ask every athlete to reconnect it — and
+/// a walk reading another provider stays as it was.
+#[tokio::test]
+async fn the_whole_provider_purge_releases_every_walk_through_it_and_no_other() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let (tenant, other_tenant) = (
+        TenantId::from_uuid(Uuid::new_v4()),
+        TenantId::from_uuid(Uuid::new_v4()),
+    );
+    let (athlete, elsewhere, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    walk_reading_grant(repos, elsewhere, other_tenant, "strava").await;
+    walk_reading_grant(repos, other_grant, tenant, "wahoo").await;
+
+    repos
+        .provider_data
+        .purge_provider_data("strava")
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(walked_alone()),
+        "bug: the whole-provider purge left a walk claiming its API phase, or owed a reopen through a terminated provider"
+    );
+    assert_eq!(
+        session_walk(repos, elsewhere, other_tenant).await,
+        Some(walked_alone()),
+        "bug: the whole-provider purge left another tenant's walk claiming its API phase"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant).await,
+        Some(reading("wahoo")),
+        "bug: the whole-provider purge released a walk reading another provider"
+    );
+}
+
+/// A grant's purge left the walk owed a reopen, and the operator terminates
+/// the provider before anything resolved it. The termination settles that
+/// walk too, as a session walked alone: the resume sweep no longer lists it,
+/// and the purged walk's resolution reopens nothing through the terminated
+/// provider, even one that had listed it before the termination committed.
+#[tokio::test]
+async fn a_whole_provider_purge_settles_a_walk_a_grants_purge_left_owed() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let ledger = &repos.activity_backfill_jobs;
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava")),
+        "the grant's purge left the walk owed a reopen"
+    );
+
+    repos
+        .provider_data
+        .purge_provider_data("strava")
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(walked_alone()),
+        "bug: a walk a grant's purge left owed a reopen survives the whole-provider purge still owed"
+    );
+    let lapsed = Utc::now().timestamp_millis() + 700_000;
+    assert!(
+        ledger
+            .purged_history_walks(lapsed, 10)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the sweep lists a walk the whole-provider purge settled"
+    );
+    assert!(
+        !ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                ReopenFrom::PhasePurged,
+                &reconnect_below_session(),
+                lapsed,
+            )
+            .await
+            .unwrap(),
+        "bug: the purged walk's resolution reopened a walk the whole-provider purge settled"
+    );
+}
+
+/// A purge of one athlete's activities alone (a consent withdrawn, an
+/// account's activities dropped) takes what the walk's API phase brought
+/// in, so it releases that athlete's walk in that tenant, and nobody else's.
+#[tokio::test]
+async fn an_activity_purge_releases_only_its_users_walk_through_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let (athlete, teammate, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    walk_reading_grant(repos, teammate, tenant, "strava").await;
+    walk_reading_grant(repos, other_grant, tenant, "wahoo").await;
+
+    repos
+        .provider_data
+        .purge_user_provider_activities(
+            athlete,
+            &TenantId::from_uuid(Uuid::new_v4()),
+            "strava",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(reading("strava")),
+        "bug: an activity purge in another tenant released the athlete's walk"
+    );
+
+    repos
+        .provider_data
+        .purge_user_provider_activities(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava")),
+        "bug: an activity purge left the walk claiming the purged API phase"
+    );
+    assert_eq!(
+        session_walk(repos, teammate, tenant).await,
+        Some(reading("strava")),
+        "bug: an activity purge released a teammate's walk"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant).await,
+        Some(reading("wahoo")),
+        "bug: an activity purge released a walk reading another provider"
+    );
+}
+
+/// Garmin's disconnect purges only what its API delivered
+/// (`purge_user_provider_source_data`), activities included: it releases
+/// the athlete's walk through Garmin in that tenant, and nobody else's.
+#[tokio::test]
+async fn a_source_purge_releases_only_its_users_walk_through_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let (athlete, teammate, other_grant) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+    walk_reading_grant(repos, athlete, tenant, "garmin").await;
+    walk_reading_grant(repos, teammate, tenant, "garmin").await;
+    walk_reading_grant(repos, other_grant, tenant, "strava").await;
+
+    repos
+        .provider_data
+        .purge_user_provider_source_data(
+            athlete,
+            &TenantId::from_uuid(Uuid::new_v4()),
+            "garmin",
+            "garmin_api",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(reading("garmin")),
+        "bug: a source purge in another tenant released the athlete's walk"
+    );
+
+    repos
+        .provider_data
+        .purge_user_provider_source_data(
+            athlete,
+            &tenant,
+            "garmin",
+            "garmin_api",
+            PurgeReason::AthleteDisconnect,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("garmin")),
+        "bug: a source purge left the walk claiming the purged API phase"
+    );
+    assert_eq!(
+        session_walk(repos, teammate, tenant).await,
+        Some(reading("garmin")),
+        "bug: a source purge released a teammate's walk"
+    );
+    assert_eq!(
+        session_walk(repos, other_grant, tenant).await,
+        Some(reading("strava")),
+        "bug: a source purge released a walk reading another provider"
+    );
+}
+
+/// The walk below the session a reconnect owes, as `reopen_for_grant` asks.
+fn reconnect_below_session() -> WalkHandOff {
+    WalkHandOff {
+        backend: "strava".to_owned(),
+        before_ts: Some(1_700_000_000),
+        units_done: 24,
+        rows_landed: 0,
+        fetch_limit: 200,
+    }
+}
+
+/// A purge lands while a step of the walk's API phase is running. The purge
+/// releases the phase but never the step's lease: the step keeps renewing
+/// it, and its next write finds the phase reset. While it holds the lease a
+/// reconnect cannot reopen the walk, the sweep neither claims it nor lists
+/// it to resolve, so no second step pages the grant beside the running one;
+/// once the step gives the lease up, the sweep lists it and a reconnect
+/// reopens the walk, its retry due at once.
+#[tokio::test]
+async fn a_purge_mid_step_leaves_the_step_its_lease_and_reopens_only_after_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let ledger = &repos.activity_backfill_jobs;
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    let now = Utc::now().timestamp_millis();
+    let claim = |now_ms: i64| BackfillJobClaim {
+        now_ms,
+        queued_older_than_ms: 0,
+        lease_ms: 600_000,
+        max_attempts: 3,
+        limit: 10,
+    };
+    let running = ledger
+        .claim_stale_backfill_jobs(claim(now + 1))
+        .await
+        .unwrap();
+    assert_eq!(running.len(), 1, "a sweep runs the API phase's step");
+    let lease = JobLease {
+        id: running[0].id.clone(),
+        token: running[0].lease_token.clone().unwrap(),
+    };
+
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava")),
+        "bug: the purge mid-step did not leave the walk owed a reopen"
+    );
+    assert!(
+        ledger
+            .purged_history_walks(Utc::now().timestamp_millis(), 10)
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: the sweep resolves a purged walk whose step still holds the lease"
+    );
+    assert!(
+        !ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                ReopenFrom::PhasePurged,
+                &reconnect_below_session(),
+                Utc::now().timestamp_millis(),
+            )
+            .await
+            .unwrap(),
+        "bug: a reconnect reopened the walk while a step of its purged phase still runs"
+    );
+    assert!(
+        ledger
+            .claim_stale_backfill_jobs(claim(now + 2))
+            .await
+            .unwrap()
+            .is_empty(),
+        "bug: a second step can page the grant beside the running one"
+    );
+    assert!(
+        ledger
+            .renew_backfill_job_lease(&lease, now + 600_000)
+            .await
+            .unwrap(),
+        "bug: the purge took the lease off a running step"
+    );
+    let step = JobProgressStep {
+        before_ts: 1_600_000_000,
+        units_done: 12,
+        rows_landed: 1,
+        secs_per_unit: None,
+        floor: None,
+    };
+    assert!(
+        !ledger.record_job_progress(&lease, step).await.unwrap(),
+        "bug: the running step records progress on a phase the purge reset"
+    );
+
+    assert!(
+        !ledger.end_backfill_job_incomplete(&lease).await.unwrap(),
+        "bug: a step that failed through the purge ended the released walk incomplete"
+    );
+    assert!(
+        !ledger
+            .release_backfill_job_lease(&lease, now + 600_000)
+            .await
+            .unwrap(),
+        "bug: a step that failed through the purge gave a retry to the released walk"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava")),
+        "bug: the purged walk no longer reads as owed a reopen, so nothing reopens it"
+    );
+
+    assert!(
+        ledger.renew_backfill_job_lease(&lease, 0).await.unwrap(),
+        "the step still holds its lease"
+    );
+    assert_eq!(
+        ledger
+            .purged_history_walks(Utc::now().timestamp_millis(), 10)
+            .await
+            .unwrap(),
+        vec![PurgedHistoryWalk {
+            user_id: athlete,
+            tenant_id: tenant,
+            provider: "sciotte".to_owned(),
+        }],
+        "bug: once its step stopped, the sweep does not list the purged walk to resolve"
+    );
+    assert!(
+        ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                ReopenFrom::PhasePurged,
+                &reconnect_below_session(),
+                Utc::now().timestamp_millis(),
+            )
+            .await
+            .unwrap(),
+        "bug: once the step gave its lease up, a reconnect cannot reopen the walk"
+    );
+    assert_eq!(
+        ledger
+            .claim_stale_backfill_jobs(claim(Utc::now().timestamp_millis() + 1))
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "bug: the reopened walk is not claimable at once"
+    );
+}
+
+/// A walk ask recorded straight into the ledger — the path a walk takes when
+/// the pair's walks could not be read first — never replaces a walk a purge
+/// left owed a reopen: its step may still hold the lease and be paging the
+/// grant, and a fresh walk beside it would page the pair twice.
+#[tokio::test]
+async fn a_new_walk_ask_never_replaces_a_purged_walk() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    let now = Utc::now().timestamp_millis();
+    let ask = ActivityBackfillJobRow {
+        id: Uuid::new_v4().to_string(),
+        tenant_id: tenant,
+        user_id: athlete,
+        provider: "sciotte".to_owned(),
+        kind: BackfillJobKind::HistoryWalk,
+        after_ts: Some(946_684_800),
+        before_ts: None,
+        fetch_limit: Some(500),
+        conversation_id: None,
+        created_at_ms: now,
+        leased_until_ms: now + 600_000,
+        attempts: 1,
+        lease_token: Some(Uuid::new_v4().to_string()),
+        progress: JobProgress::default(),
+        turn_id: None,
+        asked_message_id: None,
+        walk_backend: None,
+        walk_sport: None,
+    };
+    assert!(
+        !repos
+            .activity_backfill_jobs
+            .record_backfill_job(&ask)
+            .await
+            .unwrap(),
+        "bug: a new walk ask replaced a walk a purge left owed a reopen"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(purged("strava")),
+        "bug: the purged walk no longer stands in the way of a second walk of the pair"
+    );
+}
+
+/// A purged phase with no grant live to reopen it through is kept as a
+/// session walked alone, once no step holds it — never while one does — and
+/// a grant connected later reopens it as any walked session.
+#[tokio::test]
+async fn a_purged_walk_with_no_grant_settles_as_walked_once_no_step_holds_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let ledger = &repos.activity_backfill_jobs;
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let athlete = Uuid::new_v4();
+    walk_reading_grant(repos, athlete, tenant, "strava").await;
+    let now = Utc::now().timestamp_millis();
+    let running = ledger
+        .claim_stale_backfill_jobs(BackfillJobClaim {
+            now_ms: now + 1,
+            queued_older_than_ms: 0,
+            lease_ms: 600_000,
+            max_attempts: 3,
+            limit: 10,
+        })
+        .await
+        .unwrap();
+    assert_eq!(
+        running.len(),
+        1,
+        "the sweep claims the walk through the grant"
+    );
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "strava", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+
+    assert!(
+        !ledger
+            .settle_purged_history_walk(athlete, tenant, "sciotte", now + 2)
+            .await
+            .unwrap(),
+        "bug: a purged walk was settled under a step still holding it"
+    );
+    assert!(
+        !ledger
+            .settle_purged_history_walk(
+                athlete,
+                TenantId::from_uuid(Uuid::new_v4()),
+                "sciotte",
+                now + 700_000
+            )
+            .await
+            .unwrap(),
+        "bug: another tenant settled the athlete's purged walk"
+    );
+    assert!(
+        ledger
+            .settle_purged_history_walk(athlete, tenant, "sciotte", now + 700_000)
+            .await
+            .unwrap(),
+        "bug: a purged walk no step holds cannot be settled"
+    );
+    assert_eq!(
+        session_walk(repos, athlete, tenant).await,
+        Some(HistoryWalkRowState {
+            state: BackfillJobState::Walked,
+            walk_backend: None,
+        }),
+        "bug: a settled purged walk does not read as a session walked alone"
+    );
+    assert!(
+        ledger
+            .reopen_history_walk(
+                athlete,
+                tenant,
+                "sciotte",
+                ReopenFrom::WalkedAlone,
+                &reconnect_below_session(),
+                now + 700_000,
+            )
+            .await
+            .unwrap(),
+        "bug: a grant connected later cannot reopen the settled walk"
+    );
+}
+
+/// The reasons of the purges of `provider` the repository reads as having
+/// reached `who` since `since`, sorted.
+async fn reasons_since(
+    world: &World,
+    who: (Uuid, TenantId),
+    provider: &str,
+    since: DateTime<Utc>,
+) -> Vec<String> {
+    let mut reasons = world
+        .repos()
+        .provider_data
+        .purge_reasons_since(who.0, &who.1, provider, since)
+        .await
+        .unwrap();
+    reasons.sort_unstable();
+    reasons
+}
+
+/// The purges that reached an athlete since a moment are theirs, in that
+/// tenant, of that provider, and the operator's whole-provider purge, which
+/// names no athlete: never a teammate's, the athlete's own in another
+/// tenant, another provider's, or one that committed before the moment.
+#[tokio::test]
+async fn the_purges_since_a_moment_are_the_athletes_own_and_the_operators() {
+    let world = world().await;
+    let repos = world.repos();
+    let (athlete, tenant) = world.athlete;
+    let (teammate, team) = world.teammate;
+    let (_, elsewhere) = world.athlete_elsewhere;
+
+    repos
+        .provider_data
+        .expire_provider_activities(athlete, &tenant, "whoop", &["before"])
+        .await
+        .unwrap();
+    sleep(StdDuration::from_millis(25)).await;
+    let since = Utc::now();
+    sleep(StdDuration::from_millis(25)).await;
+    assert_eq!(
+        reasons_since(&world, world.athlete, "whoop", since).await,
+        Vec::<String>::new(),
+        "bug: a purge committed before the moment is read as one since"
+    );
+
+    repos
+        .provider_data
+        .purge_user_provider_data(teammate, &team, "whoop", PurgeReason::AthleteDisconnect)
+        .await
+        .unwrap();
+    repos
+        .provider_data
+        .purge_user_provider_data(
+            athlete,
+            &elsewhere,
+            "whoop",
+            PurgeReason::OperatorDisconnect,
+        )
+        .await
+        .unwrap();
+    repos
+        .provider_data
+        .purge_user_provider_data(athlete, &tenant, "garmin", PurgeReason::ProviderRevoked)
+        .await
+        .unwrap();
+    assert_eq!(
+        reasons_since(&world, world.athlete, "whoop", since).await,
+        Vec::<String>::new(),
+        "bug: a teammate's purge, the athlete's in another tenant, or another provider's reached the athlete"
+    );
+
+    repos
+        .provider_data
+        .expire_provider_activities(athlete, &tenant, "whoop", &["since"])
+        .await
+        .unwrap();
+    repos
+        .provider_data
+        .purge_provider_data("whoop")
+        .await
+        .unwrap();
+    assert_eq!(
+        reasons_since(&world, world.athlete, "whoop", since).await,
+        ["cache_expired", "termination"],
+        "bug: the athlete's own purge or the operator's termination is not read"
+    );
+    assert_eq!(
+        reasons_since(&world, world.teammate, "whoop", since).await,
+        ["athlete_disconnect", "termination"],
+        "the teammate reads their own purge and the termination"
+    );
+    assert_eq!(
+        reasons_since(&world, world.athlete_elsewhere, "whoop", since).await,
+        ["operator_disconnect", "termination"],
+        "the athlete's other tenant reads its own purge and the termination"
     );
 }

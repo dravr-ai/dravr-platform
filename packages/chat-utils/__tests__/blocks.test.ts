@@ -92,6 +92,25 @@ describe('transcriptBlocks', () => {
     ]);
   });
 
+  it('draws a stored envelope notice after the plan card, as the live turn did', () => {
+    const notice = {
+      heading: 'Saved as written, outside what the evidence supports:',
+      lines: ['2026-07-14 Tue: The average of work and float is about 72% of maximal aerobic intensity.'],
+    };
+    const blocks = transcriptBlocks(
+      assistantRow({ scene_blocks: JSON.stringify([PLAN]), envelope_notice: notice }),
+    );
+    const kinds = blocks.map((block) => block.type);
+    expect(kinds.indexOf('envelope_notice')).toBe(kinds.indexOf('workout_plan') + 1);
+    expect(blocks.find((block) => block.type === 'envelope_notice')).toEqual({
+      type: 'envelope_notice',
+      ...notice,
+    });
+
+    const empty = transcriptBlocks(assistantRow({ envelope_notice: { heading: notice.heading, lines: [] } }));
+    expect(empty.some((block) => block.type === 'envelope_notice')).toBe(false);
+  });
+
   it('turns the conversation\'s verdict rows into the reply\'s verdicts block', () => {
     const blocks = transcriptBlocks(assistantRow(), [
       verdictRow(),

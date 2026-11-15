@@ -9,21 +9,28 @@ use pierre_core::models::GearRef;
 
 /// The activity's elapsed and moving time, in the platform's meaning:
 /// `duration_seconds` is elapsed time, as every API provider reports it,
-/// and moving time is `Some` only when the page showed both.
+/// and moving time is `Some` only when the page stated it.
 ///
-/// A detail page carries the moving time in `duration_seconds` and the
-/// elapsed time beside it in `elapsed_time_seconds`. A list row carries
-/// elapsed time alone, sometimes copied into both fields. Only when the
-/// elapsed time is the longer of the two is the pair split; otherwise
-/// `duration_seconds` stands and no moving time is claimed, since equal
-/// figures cannot tell a non-stop activity from a copied one.
+/// A page states it two ways. Strava's list and detail name it outright
+/// (`moving_time_seconds`, sciotte 2.0), and that figure stands as long as it
+/// fits in the elapsed time. Otherwise a detail page carries the moving time
+/// in `duration_seconds` and the elapsed time beside it in
+/// `elapsed_time_seconds`, while a list row carries elapsed time alone,
+/// sometimes copied into both fields. Only when the elapsed time is the
+/// longer of the two is that pair split; otherwise `duration_seconds` stands
+/// and no moving time is claimed, since equal figures cannot tell a non-stop
+/// activity from a copied one.
 pub(super) fn elapsed_and_moving(sciotte: &SciotteActivity) -> (u64, Option<u64>) {
-    match sciotte.elapsed_time_seconds {
+    let (elapsed, paired) = match sciotte.elapsed_time_seconds {
         Some(elapsed) if elapsed > sciotte.duration_seconds && sciotte.duration_seconds > 0 => {
             (elapsed, Some(sciotte.duration_seconds))
         }
         _ => (sciotte.duration_seconds, None),
-    }
+    };
+    let stated = sciotte
+        .moving_time_seconds
+        .filter(|moving| *moving > 0 && *moving <= elapsed);
+    (elapsed, stated.or(paired))
 }
 
 /// The recording device the page named, trimmed; `None` when it named none.
@@ -91,6 +98,31 @@ mod tests {
             activity.device_name(),
             Some("Garmin fēnix 6S Pro"),
             "bug: device name not trimmed or dropped"
+        );
+    }
+
+    #[test]
+    fn a_stated_moving_time_stands_beside_the_elapsed_duration() {
+        let mut row = scraped(13_320, None);
+        row.moving_time_seconds = Some(4_080);
+        let activity = convert_activity(&row, SciotteTarget::Strava);
+        assert_eq!(
+            activity.duration_seconds(),
+            13_320,
+            "duration is elapsed time"
+        );
+        assert_eq!(
+            activity.moving_time_seconds(),
+            Some(4_080),
+            "bug: a list row's stated moving time is dropped"
+        );
+
+        row.moving_time_seconds = Some(20_000);
+        let activity = convert_activity(&row, SciotteTarget::Strava);
+        assert_eq!(
+            activity.moving_time_seconds(),
+            None,
+            "bug: a moving time longer than the elapsed time is claimed"
         );
     }
 

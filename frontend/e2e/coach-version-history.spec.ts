@@ -175,7 +175,8 @@ test.describe('Agent version history', () => {
 
     // Revert asks first; the confirmation is the dialog's primary action.
     await history.getByTestId('agent-version-revert-1').click();
-    const dialog = page.getByRole('dialog');
+    // The edit form is a dialog too; the confirm over it is named by its heading.
+    const dialog = page.getByRole('dialog', { name: 'Revert to version 1?' });
     await expect(dialog).toBeVisible();
     expect(mocks.reverts).toEqual([]);
     await dialog.getByRole('button').last().click();

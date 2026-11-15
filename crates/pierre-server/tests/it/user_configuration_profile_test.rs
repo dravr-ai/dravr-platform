@@ -17,6 +17,7 @@ use anyhow::Result;
 use pierre_core::config::profiles::{ConfigProfile, FitnessLevel, ProfileTemplates};
 use pierre_core::models::SportType;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
 use serde_json::{json, Value};
 use std::sync::Arc;
@@ -29,7 +30,11 @@ async fn create_executor() -> Result<Arc<UniversalToolExecutor>> {
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
     Ok(Arc::new(
-        UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant()),
+        // Dravr's own app: `get_user_configuration` runs only there
+        // (carnet#1565).
+        UniversalToolExecutor::new(resources)
+            .with_scopes(OAuthScope::self_grant())
+            .with_transport(Transport::WebApp),
     ))
 }
 

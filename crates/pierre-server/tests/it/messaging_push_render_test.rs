@@ -22,7 +22,7 @@ use pierre_core::models::messaging::MessageContent;
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_tool_runtime::runtime::BackfillNotifier;
+use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier};
 
 // Shared messaging fixtures + channel fakes live in a helpers subdir (not a
 // top-level test binary), pulled in via `#[path]` so this render test reuses the
@@ -127,14 +127,14 @@ async fn push_warmed_list_renders_sport_display_and_localized_header() {
     // `[after_ts, now]` warmed window the notifier reads.
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             2,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -226,14 +226,14 @@ async fn push_empty_cache_nudge_honors_default_locale() {
 
     let after_ts = (Utc::now() - Duration::days(30)).timestamp();
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             after_ts,
             9,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();
@@ -371,14 +371,14 @@ async fn push_warmed_list_dates_activities_on_the_athletes_calendar() {
         BASE_URL.to_owned(),
     );
     notifier
-        .push_backfill_complete(
+        .push_backfill_complete(BackfillCompletion::backfill(
             user_uuid,
             tenant_id,
             &conversation_id,
             "strava",
             (Utc::now() - Duration::days(30)).timestamp(),
             1,
-        )
+        ))
         .await;
 
     let sent = channel.sent.lock().unwrap();

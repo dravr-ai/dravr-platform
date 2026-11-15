@@ -20,19 +20,24 @@
 /// single-writer `SQLite`. `$begin` is the statement a slot decision's
 /// transaction opens with: `BEGIN IMMEDIATE` on `SQLite`, which takes the
 /// write lock up front, and a plain `BEGIN` on `PostgreSQL`, where the row
-/// lock does that job.
+/// lock does that job. `$row_lock` is the clause that locks a conversation
+/// row before it is deleted only while empty (see `chat_delete`'s
+/// `conversation_row_lock_sql!`): `FOR UPDATE` on `PostgreSQL`, `""` on
+/// `SQLite`.
 ///
 /// The body names its consts, helpers and types unqualified, so the invoking
 /// shell must `use` every one of them.
 macro_rules! impl_chat_repository {
-    ($ty:ty, $row:ty, $ids:ident, $lock:literal, $begin:literal) => {
+    ($ty:ty, $row:ty, $ids:ident, $lock:literal, $begin:literal, $row_lock:literal) => {
         $crate::repositories::chat_rows::impl_chat_row_parsers!($row, $ids);
         $crate::repositories::chat_subject::impl_chat_subject_open!($ty, $ids, $begin);
         $crate::repositories::chat_windows::impl_chat_windows!($ty, $ids);
         $crate::repositories::chat_member_rows::impl_chat_member_rows!($ty, $ids);
+        $crate::repositories::chat_stop_notice::impl_chat_stop_notice!($ty, $ids);
         $crate::repositories::chat_feedback::impl_chat_feedback!($ty, $ids);
         $crate::repositories::chat_participants::impl_chat_participants!($ty, $ids);
         $crate::repositories::chat_archive::impl_chat_archive!($ty, $ids);
+        $crate::repositories::chat_delete::impl_chat_delete!($ty, $row, $ids, $begin, $row_lock);
 
         impl $ty {
             /// Open the transaction every decision that can take one of a
@@ -372,6 +377,24 @@ macro_rules! impl_chat_repository {
                 Ok(true)
             }
 
+            async fn has_read_message(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+                message_id: &str,
+            ) -> AppResult<bool> {
+                let is_read: Option<bool> = sqlx::query_scalar(MESSAGE_READ_SQL)
+                    .bind(conversation_id)
+                    .bind($ids::bind_text(user_id)?)
+                    .bind(tenant_id.to_string())
+                    .bind(message_id)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to read marker: {e}")))?;
+                Ok(is_read.unwrap_or(false))
+            }
+
             async fn clear_conversation_read_marker(
                 &self,
                 conversation_id: &str,
@@ -435,37 +458,18 @@ macro_rules! impl_chat_repository {
                 user_id: &str,
                 tenant_id: TenantId,
             ) -> AppResult<bool> {
-                let task_key = Uuid::parse_str(user_id)
-                    .map(user_task_key)
-                    .map_err(|e| AppError::invalid_input(format!("Invalid user id: {e}")))?;
-                let mut tx = self.pool().begin_with($begin).await.map_err(|e| {
-                    AppError::database(format!("Failed to delete conversation: {e}"))
-                })?;
-                let result = sqlx::query(DELETE_CONVERSATION_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .execute(&mut *tx)
+                self.delete_owned_conversation(conversation_id, user_id, tenant_id)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete conversation: {e}"))
-                    })?;
-                if result.rows_affected() == 0 {
-                    // Dropping the transaction rolls it back; nothing was written.
-                    return Ok(false);
-                }
-                sqlx::query(DELETE_CONVERSATION_TASKS_SQL)
-                    .bind(conversation_id)
-                    .bind(task_key)
-                    .execute(&mut *tx)
+            }
+
+            async fn delete_conversation_if_empty(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<bool> {
+                self.delete_owned_conversation_if_empty(conversation_id, user_id, tenant_id)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to delete conversation tasks: {e}"))
-                    })?;
-                tx.commit().await.map_err(|e| {
-                    AppError::database(format!("Failed to delete conversation: {e}"))
-                })?;
-                Ok(true)
             }
 
             async fn add_message(&self, params: &AddMessageParams<'_>) -> AppResult<MessageRecord> {
@@ -569,24 +573,18 @@ macro_rules! impl_chat_repository {
                 limit: i64,
                 readable: TransportPolicy,
             ) -> AppResult<Vec<MessageRecord>> {
-                let rows = sqlx::query(GET_RECENT_MESSAGES_SQL)
-                    .bind(conversation_id)
-                    .bind($ids::bind_text(user_id)?)
-                    .bind(tenant_id.to_string())
-                    .bind(limit)
-                    .bind(readable.is_first_party_only())
-                    .fetch_all(self.pool())
+                self.recent_messages(conversation_id, user_id, tenant_id, limit, readable)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to get recent messages: {e}"))
-                    })?;
-                // Newest first from the statement; chronological for the caller.
-                let mut messages = rows
-                    .iter()
-                    .map(message_from_row)
-                    .collect::<AppResult<Vec<_>>>()?;
-                messages.reverse();
-                Ok(messages)
+            }
+
+            async fn latest_user_message_id(
+                &self,
+                conversation_id: &str,
+                user_id: &str,
+                tenant_id: TenantId,
+            ) -> AppResult<Option<String>> {
+                self.latest_user_message(conversation_id, user_id, tenant_id)
+                    .await
             }
 
             async fn get_recent_prompt_messages(
@@ -616,6 +614,18 @@ macro_rules! impl_chat_repository {
                 tenant_id: TenantId,
             ) -> AppResult<Vec<Uuid>> {
                 self.message_subjects(conversation_id, user_id, tenant_id)
+                    .await
+            }
+
+            async fn set_stopped_notice_blocks(
+                &self,
+                id: &str,
+                conversation: &str,
+                user: &str,
+                tenant: TenantId,
+                blocks: &str,
+            ) -> AppResult<bool> {
+                self.replace_stopped_notice_blocks(id, conversation, user, tenant, blocks)
                     .await
             }
 

@@ -58,6 +58,8 @@ pub mod claim_verdicts;
 pub mod coach_access_requests;
 /// A coach's "Traité" on Coach Home attention reasons (Postgres)
 pub mod coach_attention_dismissals;
+/// The athlete's record of their human coach's reads (`PostgreSQL`)
+pub mod coach_data_reads;
 /// A coach's review of the agent's group replies (Postgres)
 pub mod coach_reply_reviews;
 /// Coaching group repository implementation (group CRUD, membership, invites)

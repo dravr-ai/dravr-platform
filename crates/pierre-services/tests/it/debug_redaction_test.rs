@@ -10,7 +10,7 @@
 use std::fmt::Debug;
 
 use chrono::Utc;
-use pierre_core::models::{Pillar, SignupCode, TenantId};
+use pierre_core::models::{InvitationKind, Pillar, SignupCode, TenantId};
 use pierre_core::transport::TransportPolicy;
 use pierre_memory::{FactKind, FactSource};
 use pierre_services::invitation::IssuedInvitation;
@@ -37,6 +37,7 @@ fn an_issued_invitation_never_prints_its_token() {
         email: "invitee@example.com".to_owned(),
         token: "sentinel-selector.sentinel-verifier-7f3a".to_owned(),
         expires_at: Utc::now(),
+        kind: InvitationKind::CoachSeat,
     };
     let printed = printed_without(
         &invitation,

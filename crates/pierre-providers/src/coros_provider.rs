@@ -53,8 +53,8 @@ use crate::activity_paging::pages_for;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
+use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
-use crate::models::StatsCoverage;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
@@ -486,6 +486,7 @@ impl FitnessProvider for CorosProvider {
         let profile: CorosUserProfile = self.api_request("user/profile").await?;
 
         Ok(Athlete {
+            created_at: None,
             id: profile.user_id,
             username: profile
                 .nickname
@@ -659,7 +660,7 @@ impl FitnessProvider for CorosProvider {
             .await?;
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 }
@@ -681,5 +682,38 @@ impl ProviderFactory for CorosProviderFactory {
 
     fn supported_providers(&self) -> &'static [&'static str] {
         &[oauth_providers::COROS]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{CorosProvider, CorosWorkout};
+    use crate::field_support::tests::assert_mapper_fills;
+    use crate::spi::{CorosDescriptor, ProviderDescriptor};
+
+    #[test]
+    fn the_coros_mapper_fills_what_its_descriptor_declares() {
+        let workout: CorosWorkout = serde_json::from_value(serde_json::json!({
+            "id": "c1",
+            "name": "Tempo",
+            "start_time": "2026-10-07T14:00:00Z",
+            "end_time": "2026-10-07T15:00:00Z",
+            "duration": 3_600,
+            "sport_type": 100,
+            "distance": 12_000.0,
+            "calories": 780,
+            "avg_heart_rate": 151,
+            "max_heart_rate": 178,
+            "avg_cadence": 176,
+            "avg_power": 260
+        }))
+        .unwrap();
+        let activity = CorosProvider::convert_workout(&workout).unwrap();
+        assert_mapper_fills(
+            "coros",
+            CorosDescriptor.activity_fields(),
+            &activity,
+            &activity,
+        );
     }
 }

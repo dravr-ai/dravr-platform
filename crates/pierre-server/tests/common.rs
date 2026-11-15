@@ -25,6 +25,7 @@
 use anyhow::Result;
 use dravr_barrage::blob::memory::MemoryBlobStore;
 use dravr_barrage::blob::BlobStore;
+use dravr_barrage::store::ActivityRecordStore;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::api_keys::{ApiKey, ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::{AuthManager, DelegatedGrant};
@@ -54,6 +55,7 @@ use pierre_mcp_server::{
 };
 use pierre_middleware::McpAuthMiddleware;
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
 use pierre_tool_runtime::RuntimeTool;
 use rand::Rng;
@@ -353,6 +355,36 @@ pub(crate) async fn generate_test_token(resources: &Arc<ServerContext>, user: &U
         .auth_manager
         .generate_token_with_tenant(user, &resources.auth.jwks_manager, tenant_id)
         .unwrap()
+}
+
+/// Run `call`, a tool call `user` makes in `tenant`, as a turn of Dravr's web
+/// app: the conversation `CONVERSATION_ID` scopes is read by `user` alone
+/// when its row carries no group, as the chat route says it
+/// (`TurnRequest::is_direct_message`). Outside a conversation, or under an
+/// audience the caller already scoped, `call` runs as it is.
+///
+/// A messaging group chat whose binding failed carries no group either, so a
+/// test of that chat scopes its audience itself (carnet#1422).
+pub(crate) async fn in_web_turn<F: Future>(
+    resources: &ServerContext,
+    user: Uuid,
+    tenant: TenantId,
+    call: F,
+) -> F::Output {
+    let stated = TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten();
+    let conversation = CONVERSATION_ID.try_with(Clone::clone).ok().flatten();
+    let (None, Some(conversation)) = (stated, conversation) else {
+        return call.await;
+    };
+    let direct_message = resources
+        .common
+        .repos
+        .chat
+        .get_conversation(&conversation, &user.to_string(), tenant)
+        .await
+        .unwrap()
+        .is_none_or(|row| row.group_id.is_none());
+    TURN_DIRECT_MESSAGE.scope(Some(direct_message), call).await
 }
 
 /// Mint the credential an MCP or A2A client holds for a test user: an OAuth
@@ -1106,6 +1138,32 @@ pub(crate) async fn create_test_server_resources_with_blobs(
     .await
 }
 
+/// A test context on `config` whose live provider reads are kept in
+/// `records`, so a test reads back what the activity store holds beside the
+/// cache it projects.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub(crate) async fn create_test_server_resources_with_config_and_records(
+    config: ServerConfig,
+    records: Arc<dyn ActivityRecordStore>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        Some(config),
+        None,
+        ContextParts {
+            live_records: Some(records),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
 /// The pieces a test context takes in place of the ones its database and
 /// the environment would select; `None` keeps the default.
 #[derive(Default)]
@@ -1118,6 +1176,9 @@ struct ContextParts {
     archive_imports: Option<ArchiveImports>,
     /// Where uploaded files are kept, in place of the imports' blob store.
     blobs: Option<BlobChoice>,
+    /// The record store live provider reads are kept in, in place of a
+    /// memory store of the context's own.
+    live_records: Option<Arc<dyn ActivityRecordStore>>,
 }
 
 async fn create_test_server_resources_over(
@@ -1133,6 +1194,7 @@ async fn create_test_server_resources_over(
         billing_provider,
         archive_imports,
         blobs,
+        live_records,
     } = parts;
     // As deployed, uploaded files share the imports' blob store; without
     // imports the context keeps them in a memory store of its own, since no
@@ -1182,6 +1244,7 @@ async fn create_test_server_resources_over(
                 billing_provider,
                 turn_runner,
                 archive_imports,
+                live_records,
                 blobs,
             },
         )

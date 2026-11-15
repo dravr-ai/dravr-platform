@@ -1,5 +1,5 @@
 // ABOUTME: Provider connection rows for onboarding — one hairline row per provider: its glyph in its scheme's ink, name, one line, status, action
-// ABOUTME: Each row follows the card's connect plan: connect, reconnect, the move to the official connection, or the sign-in that copies its history
+// ABOUTME: Each row follows the card's connect plan: connect, reconnect, or the sign-in that copies its history
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,13 +12,10 @@ import { track } from '../services/analytics';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
   HISTORY_ACTION_KEYS,
-  HISTORY_IMPORTING_REFRESH_MS,
-  HISTORY_LINE_KEYS,
   PROVIDER_LINK_POLL_INTERVAL_MS,
+  cardForSlug,
   cardStatus,
   connectPlan,
-  historyActionKey,
-  historyImporting,
   noticeRequired,
   oauthFallbackTarget,
   providerGlyphInk,
@@ -53,22 +50,20 @@ const ROW_CLASS =
 const ROW_WRAPPER_CLASS = 'border-t ghost-border-faint first:border-t-0';
 
 /**
- * The account sign-in that copies `card`'s history now, or `null`: its history
- * is still needed or did not finish and the server names the sign-in. With
- * none, the row offers no history action.
+ * The account sign-in that brings `card`'s history in now, or `null`: its
+ * history is still needed and the server names the sign-in. With none, the
+ * row offers no history action.
  */
 function historySignInNow(card: ProviderStatus, status: CardStatus): SciotteTarget | null {
-  if (status !== 'history_needed' && status !== 'history_incomplete') return null;
+  if (status !== 'history_needed') return null;
   return connectPlan(card).history.signIn;
 }
 
-/** The card states a tap acts on; the others (connected, copying, copied) leave the row inert. */
+/** The card states a tap acts on; the others (connected, history in) leave the row inert. */
 const ACTIONABLE: ReadonlySet<CardStatus> = new Set<CardStatus>([
   'authorize_owed',
   'reconnect',
-  'migrate',
   'history_needed',
-  'history_incomplete',
   'connect',
 ]);
 
@@ -143,21 +138,38 @@ interface ProviderConnectionCardsProps {
   onSkip?: () => void;
   isSkipPending?: boolean;
   /**
-   * Shows only these providers (by `provider` name), in the server's order.
-   * The connect step of a coach who does not train passes the coaching
-   * platforms; every other caller shows the full served list.
+   * Shows only these providers (by `provider` name), in this order.
+   * The coach-seat step passes the coaching platforms; every other
+   * caller shows the full served list, in the server's order.
    */
   onlyProviders?: readonly string[];
+  /**
+   * Each row is the glyph, the name and its action, nothing else: no
+   * description, no export link, and no import-your-own-data link under the
+   * list. Where a coaching platform is one route to the coach seat, beside
+   * another, every route reads the same.
+   */
+  plain?: boolean;
+  /**
+   * Lead with these cards (by served id, in this order) and fold every other
+   * card, and the import-your-own-data link, behind « Plus de services » —
+   * onboarding's Tes données. The folded rows keep every action, and open by
+   * themselves when one of them is connected.
+   */
+  leadProviders?: readonly string[];
 }
 
 export default function ProviderConnectionCards({
   onSkip,
   isSkipPending,
   onlyProviders,
+  plain = false,
+  leadProviders,
 }: ProviderConnectionCardsProps) {
   const { t } = useTranslation();
   const { scheme } = useTheme();
   const [signIn, setSignIn] = useState<SignInWindow | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   // The card whose grant came back refused: its row says so and its tap tries again.
   const [refusedCard, setRefusedCard] = useState<string | null>(null);
   // The Intervals.icu dialog, and whether it leads with the authorization
@@ -186,14 +198,12 @@ export default function ProviderConnectionCards({
   // screen does not see — the hosted connect page a chat link opens, on
   // another device — so it asks while no connection has landed yet, and stops
   // the moment one arrives rather than ticking for as long as the screen is
-  // mounted. A card copying its history is read again until the copy settles.
-  // A connect started here returns to this tab, which reloads the status.
+  // mounted. A connect started here returns to this tab, which reloads the status.
   const { data: providersData, isLoading, refetch } = useQuery({
     queryKey: QUERY_KEYS.providers.status(),
     queryFn: () => providersApi.getProvidersStatus(),
     refetchInterval: query => {
       const cards = query.state.data?.providers ?? [];
-      if (historyImporting(cards)) return HISTORY_IMPORTING_REFRESH_MS;
       return cards.some(p => p.connected) ? false : PROVIDER_LINK_POLL_INTERVAL_MS;
     },
   });
@@ -307,15 +317,15 @@ export default function ProviderConnectionCards({
   // A tap follows what the card shows (`cardStatus`) and how it connects
   // (`connectPlan`): a connected WHOOP that owes its owner authorization asks
   // for the notice; a card still needing its history opens the sign-in that
-  // copies it; any card to connect, reconnect or move to its official
-  // connection follows its plan's primary way in. Connected cards are inert.
+  // copies it; any card to connect or reconnect follows its plan's primary
+  // way in. Connected cards are inert.
   const handleConnect = (provider: ProviderStatus) => {
     const status = cardStatus(provider);
     if (status === 'authorize_owed') {
       setNoticeProvider(provider.provider);
       return;
     }
-    if (status === 'history_needed' || status === 'history_incomplete') {
+    if (status === 'history_needed') {
       const target = historySignInNow(provider, status);
       if (target) openSignIn(provider, target, true);
       return;
@@ -351,7 +361,7 @@ export default function ProviderConnectionCards({
   if (isLoading) {
     return (
       <div className="w-full">
-        {[1, 2, 3, 4, 5].map((i) => (
+        {Array.from({ length: onlyProviders?.length ?? 5 }, (_, i) => i).map((i) => (
           <div key={i} className="flex animate-pulse items-center gap-3 border-t ghost-border-faint py-3 first:border-t-0">
             <div className="h-6 w-6 flex-shrink-0 rounded bg-surface-container-high" />
             <div className="h-3 w-40 rounded bg-surface-container-high" />
@@ -368,12 +378,20 @@ export default function ProviderConnectionCards({
   // one narrowing here is by audience (`onlyProviders`), never by backend.
   const served = providersData?.providers ?? [];
   const providers = onlyProviders
-    ? served.filter((p) => onlyProviders.includes(p.provider))
+    ? served
+        .filter((p) => onlyProviders.includes(p.provider))
+        .sort((a, b) => onlyProviders.indexOf(a.provider) - onlyProviders.indexOf(b.provider))
     : served;
+  // Tes données leads with a few cards and folds the rest (`leadProviders`).
+  const lead = leadProviders
+    ? providers
+        .filter((p) => leadProviders.includes(p.provider))
+        .sort((a, b) => leadProviders.indexOf(a.provider) - leadProviders.indexOf(b.provider))
+    : providers;
+  const more = leadProviders ? providers.filter((p) => !leadProviders.includes(p.provider)) : [];
+  const showMore = moreOpen || more.some((p) => p.connected);
 
-  return (
-    <div className="w-full">
-      {providers.map((provider) => {
+  const renderRow = (provider: ProviderStatus) => {
         // The brand colour is carried by the glyph, not by a tile (DESIGN.md
         // §5), and only in a scheme where it clears the 3:1 icon floor on the
         // canvas; elsewhere — and for a provider with no brand colour — the
@@ -383,10 +401,10 @@ export default function ProviderConnectionCards({
         const isNonOAuth = connectPlan(provider).primary.kind === 'none';
         const offersHistory = historySignInNow(provider, status) !== null;
         // A card whose history has no sign-in to copy it is connected and inert.
-        const historyWithoutSignIn = (status === 'history_needed' || status === 'history_incomplete') && !offersHistory;
+        const historyWithoutSignIn = status === 'history_needed' && !offersHistory;
         const actionable = ACTIONABLE.has(status) && !historyWithoutSignIn;
         const refused =
-          refusedCard === provider.provider && (status === 'connect' || status === 'reconnect' || status === 'migrate');
+          refusedCard === provider.provider && (status === 'connect' || status === 'reconnect');
         const name = { provider: provider.display_name };
         const historyHintId = `provider-history-hint-${provider.provider}`;
 
@@ -398,15 +416,15 @@ export default function ProviderConnectionCards({
               disabled={!actionable}
               className={`${ROW_CLASS} flex-wrap disabled:cursor-default sm:flex-nowrap`}
               data-status={status}
-              // A row offering its history, or the move to the official
-              // connection, is named by what it shows — the provider, its
-              // state and the action's words — so the spoken name carries the
-              // visible label (WCAG 2.5.3); the history hint describes it.
+              // A row offering its history, or a reconnect, is named by what
+              // it shows — the provider, its state and the action's words —
+              // so the spoken name carries the visible label (WCAG 2.5.3);
+              // the history hint describes it.
               aria-describedby={offersHistory ? historyHintId : undefined}
               aria-label={
                 status === 'authorize_owed'
                   ? t('providers.authorizeToKeepSyncing', name)
-                  : offersHistory || status === 'migrate' || status === 'reconnect' || status === 'history_importing' || refused
+                  : offersHistory || status === 'reconnect' || refused
                   ? undefined
                   : provider.connected
                   ? t('providers.isConnectedAria', name)
@@ -425,7 +443,7 @@ export default function ProviderConnectionCards({
               </span>
               <span className={`flex min-w-[60%] flex-1 flex-wrap items-baseline gap-x-2 sm:min-w-0 ${isNonOAuth ? 'opacity-60' : ''}`}>
                 <span className="text-sm font-medium text-on-surface">{provider.display_name}</span>
-                <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>
+                {!plain && <span className="min-w-0 truncate text-xs text-on-surface-variant">{provider.description}</span>}
               </span>
               <RowStatus status={status} provider={provider.provider} displayName={provider.display_name} refused={refused} />
               {isNonOAuth && !provider.connected && (
@@ -434,12 +452,10 @@ export default function ProviderConnectionCards({
               {actionable && status !== 'authorize_owed' && !isNonOAuth && (
                 <span className="flex-shrink-0 text-sm font-medium text-primary transition-colors group-hover:text-primary-hover">
                   {offersHistory
-                    ? t(historyActionKey(provider))
-                    : status === 'migrate'
-                      ? t('app.connectProvider', name)
-                      : status === 'reconnect'
-                        ? t('app.reconnect')
-                        : t('providers.connect')}
+                    ? t(HISTORY_ACTION_KEYS.add)
+                    : status === 'reconnect'
+                      ? t('app.reconnect')
+                      : t('providers.connect')}
                 </span>
               )}
               {offersHistory && (
@@ -448,15 +464,49 @@ export default function ProviderConnectionCards({
                 </span>
               )}
             </button>
-            <div className="pb-2 pl-9 empty:hidden">
-              <ProviderExportLink provider={provider} />
-            </div>
+            {!plain && (
+              <div className="pb-2 pl-9 empty:hidden">
+                <ProviderExportLink provider={provider} />
+              </div>
+            )}
           </div>
         );
-      })}
+  };
+
+  return (
+    <div className="w-full">
+      {lead.map(renderRow)}
+
+      {/* « Plus de services »: every card Tes données does not lead with, and the file import */}
+      {more.length > 0 && (
+        <div className={ROW_WRAPPER_CLASS}>
+          <button
+            type="button"
+            onClick={() => setMoreOpen((open) => !open)}
+            aria-expanded={showMore}
+            className={ROW_CLASS}
+            data-testid="provider-more-services"
+          >
+            <span aria-hidden="true" className="flex h-6 w-6 flex-shrink-0 items-center justify-center text-on-surface-variant">
+              <svg className={`h-4 w-4 transition-transform ${showMore ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </span>
+            <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+              <span className="text-sm font-medium text-on-surface">{t('onboarding.connect.moreServices')}</span>
+              {!showMore && (
+                <span className="min-w-0 truncate text-xs text-on-surface-variant">
+                  {[...more.filter((p) => connectPlan(p).primary.kind !== 'none').slice(0, 3).map((p) => p.display_name), t('onboarding.connect.moreServicesFile')].join(', ')}
+                </span>
+              )}
+            </span>
+          </button>
+        </div>
+      )}
+      {showMore && more.map(renderRow)}
 
       {/* Import your own data (Apple Health has no card): below the providers, never one of them */}
-      <ImportOwnDataLink />
+      {!plain && (leadProviders === undefined || showMore) && <ImportOwnDataLink />}
 
       {/* Skip and start chatting - last row */}
       {onSkip && (
@@ -492,7 +542,7 @@ export default function ProviderConnectionCards({
       <SciotteLoginModal
         isOpen={signIn !== null}
         onClose={() => setSignIn(null)}
-        onConnected={() => {
+        onConnected={(followOn) => {
           refetch();
           // The sign-in completes in-process (no OAuth callback URL), so we have to
           // explicitly bust the onboarding-status cache here. Without this, the
@@ -500,8 +550,10 @@ export default function ProviderConnectionCards({
           // next poll tick (5s), stranding the user on the connected card.
           queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() });
           setSignIn(null);
+          // Garmin signs in first and authorizes its grant, which pushes
+          // workouts, right after (carnet#1494).
+          if (followOn) connectViaOAuth(followOn, cardForSlug(followOn, served));
         }}
-        onPlanChanged={() => void refetch()}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}
@@ -587,12 +639,7 @@ function RowStatus({
       return line('bg-warning', t('providers.authorizeToKeepSyncing', name), `provider-authorization-owed-${provider}`);
     case 'reconnect':
       return line('bg-warning', t('providers.reconnectNeeded'), `provider-reconnect-needed-${provider}`);
-    case 'migrate':
-      return line('bg-warning', t('providers.migration.oauthRequired', name), `provider-migrate-${provider}`);
-    case 'history_importing':
-      return line(null, t(HISTORY_LINE_KEYS.importing, name), `provider-history-importing-${provider}`, true);
     case 'history_needed':
-    case 'history_incomplete':
     case 'history_imported':
     case 'connected':
       return line('bg-success', t('providers.connected'));

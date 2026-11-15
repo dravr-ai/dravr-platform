@@ -39,6 +39,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{ArchiveErasureRepository, PendingArchiveErasure};
 use pierre_providers::originals::OriginalsStore;
 use pierre_services::account_reset::{AccountArchiveEraser, ArchiveErasure};
+use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::periodic::spawn_periodic;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -164,12 +165,13 @@ pub async fn erase_deleted_accounts(resources: &Arc<ServerContext>) -> AppResult
         .ok()
         .map(|wiring| ops::importer(resources, wiring));
     let originals = resources.common.originals.as_ref();
+    let live = resources.common.live_activities.as_ref();
     let outbox = resources.common.repos.archive_erasures.as_ref();
     let now = Utc::now();
     let mut erased = 0;
     let due = outbox.due(now, ERASURES_PER_PASS).await?;
     for pending in due {
-        if erase_one(importer.as_ref(), originals, outbox, &pending, now).await? {
+        if erase_one(importer.as_ref(), live, originals, outbox, &pending, now).await? {
             erased += 1;
         }
     }
@@ -180,6 +182,7 @@ pub async fn erase_deleted_accounts(resources: &Arc<ServerContext>) -> AppResult
 /// with the time of the next attempt.
 async fn erase_one(
     importer: Option<&Importer>,
+    live: &dyn LiveActivityStore,
     originals: &OriginalsStore,
     outbox: &dyn ArchiveErasureRepository,
     pending: &PendingArchiveErasure,
@@ -190,7 +193,7 @@ async fn erase_one(
         outbox.complete(&pending.erased_account_id).await?;
         return Ok(false);
     };
-    match erase_account(importer, originals, account).await {
+    match erase_account(importer, live, originals, account).await {
         Ok((records, jobs, blobs)) => {
             outbox.complete(&pending.erased_account_id).await?;
             info!(
@@ -206,12 +209,18 @@ async fn erase_one(
     }
 }
 
-/// Erase what barrage holds for `account` (when imports run here), then
-/// every blob left under the account (its uploaded files): the records,
-/// jobs and blobs removed. Both are idempotent, so a retry after a failure
-/// part-way finishes the job.
+/// Erase what barrage holds for `account` — its imports (when imports run
+/// here), then every live provider read the activity store kept, imports or
+/// not — then every blob left under the account (its uploaded files): the
+/// records, jobs and blobs removed. Each is idempotent, so a retry after a
+/// failure part-way finishes the job.
+///
+/// Where the imports and the live store share one record store (a deployed
+/// database), the importer's delete already took the live records and the
+/// store's own delete finds none left; elsewhere each holds its own.
 async fn erase_account(
     importer: Option<&Importer>,
+    live: &dyn LiveActivityStore,
     originals: &OriginalsStore,
     account: Uuid,
 ) -> Result<(u64, u64, u64), String> {
@@ -225,6 +234,7 @@ async fn erase_account(
         }
         None => (0, 0, 0),
     };
+    let records = records + live.delete_user(account).await.map_err(|e| e.to_string())?;
     blobs += originals
         .erase_user(account)
         .await
@@ -235,8 +245,9 @@ async fn erase_account(
 /// The account reset's erasure, run at once for an account that stays live.
 ///
 /// It erases what the sweep erases for a deleted account: barrage's records,
-/// jobs, originals and spools in every tenant (where imports run here) and
-/// every file the account uploaded.
+/// jobs, originals and spools in every tenant (where imports run here), the
+/// live provider reads the activity store kept (imports or not) and every
+/// file the account uploaded.
 #[derive(Debug)]
 pub struct ServerArchiveEraser {
     /// The server's shared context, held for its importer wiring and
@@ -262,10 +273,14 @@ impl AccountArchiveEraser for ServerArchiveEraser {
             .wiring()
             .ok()
             .map(|wiring| ops::importer(&self.resources, wiring));
-        let (records, jobs, blobs) =
-            erase_account(importer.as_ref(), &self.resources.common.originals, user_id)
-                .await
-                .map_err(|e| AppError::internal(format!("erasing the imported history: {e}")))?;
+        let (records, jobs, blobs) = erase_account(
+            importer.as_ref(),
+            self.resources.common.live_activities.as_ref(),
+            &self.resources.common.originals,
+            user_id,
+        )
+        .await
+        .map_err(|e| AppError::internal(format!("erasing the imported history: {e}")))?;
         Ok(ArchiveErasure {
             records,
             jobs,

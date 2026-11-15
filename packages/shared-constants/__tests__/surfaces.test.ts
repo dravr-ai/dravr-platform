@@ -19,6 +19,7 @@ import { destinationRoutes } from '../src/surfaces';
 /** Every pane's route on each platform, written out so a moved route fails here. */
 const PANE_ROUTES: ReadonlyArray<[SettingsPaneId, string | null, string]> = [
   ['profile', 'settings/profile', '/(app)/(tabs)/(settings)/profile'],
+  ['physiology', 'settings/physiology', '/(app)/(tabs)/(settings)/physiology'],
   ['connections', 'settings/connections', '/(app)/(tabs)/(settings)/connections'],
   ['gear', 'settings/gear', '/(app)/(tabs)/(settings)/gear'],
   ['tokens', 'settings/tokens', '/(app)/(tabs)/(settings)/tokens'],

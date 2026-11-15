@@ -56,6 +56,7 @@ use pierre_commands::{
     group_consent::GroupConsentHandler,
     group_invite::GroupInviteHandler,
     group_membership::{GroupCreateHandler, GroupJoinHandler},
+    group_reads::GroupReadsHandler,
     help::HelpHandler,
     language::LanguageHandler,
     onboarding::PillarsHandler,
@@ -74,6 +75,8 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
+use pierre_services::barrage_live_store::live_store;
+use pierre_services::provider_purge::ProviderPurgeService;
 
 /// One `setMyCommands` call: the entries, the scope and the `language_code` they are for.
 #[cfg(feature = "client-messaging")]
@@ -118,6 +121,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
 use pierre_providers::sciotte_provider::startup_client;
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
+use pierre_services::coach_read_retention::start_coach_read_retention_task;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
 #[cfg(feature = "client-messaging")]
@@ -232,6 +236,10 @@ impl ServerContext {
         let blobs = options
             .blobs
             .unwrap_or_else(|| blob_store_when_unset(&config.database.url));
+        // One live store over the same blob store, and the one purge over it
+        // every disconnect takes.
+        let live_activities = live_store(options.live_records, blobs.clone().ok(), &repos);
+        let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
         let originals = Arc::new(OriginalsStore::new(
             blobs,
             Arc::clone(&repos.uploaded_activity_files),
@@ -369,6 +377,13 @@ impl ServerContext {
         // Hourly sweep of expired API keys, on the shared worker ledger.
         start_api_key_cleanup_task(Arc::clone(&repos.api_keys), Arc::clone(&repos.worker_runs));
 
+        // Hourly purge of the athletes' records of their human coach's reads
+        // past their 12 months, on the shared worker ledger (carnet#1445).
+        start_coach_read_retention_task(
+            Arc::clone(&repos.coach_data_reads),
+            Arc::clone(&repos.worker_runs),
+        );
+
         // Create tool selection service for per-tenant tool filtering
         let tool_selection = Arc::new(ToolSelectionService::new(&repos));
 
@@ -380,7 +395,7 @@ impl ServerContext {
         #[cfg(feature = "tools-groups")]
         let group_service = Arc::new(pierre_groups::GroupService::new(
             repos.groups.clone(),
-            Arc::new(DelegationStore::new(&repos)),
+            Arc::new(DelegationStore::new(&repos, Arc::clone(&provider_purge))),
             tier_strategy_for("professional"),
             Arc::new(AthleteBilling::new(
                 Arc::clone(&repos.groups),
@@ -593,6 +608,8 @@ impl ServerContext {
                 .turn_runner
                 .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
             archive_imports,
+            live_activities,
+            provider_purge,
             originals,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
             photograveur: Arc::new(PhotograveurClient::from_env()),
@@ -693,7 +710,6 @@ impl ServerContext {
             platform_post.clone(),
             admin_jwt_secret.into(),
             base_url,
-            common.config.oauth.clone(),
             // The in-app arm's ping. Cloned from the already-assembled common
             // slice, the same handle the commitment sweep is given.
             #[cfg(feature = "client-notifications")]
@@ -796,6 +812,7 @@ impl ServerContext {
             ("group-digest", Arc::new(GroupDigestHandler)),
             ("group-leave", Arc::new(GroupLeaveHandler)),
             ("group-consent", Arc::new(GroupConsentHandler)),
+            ("group-reads", Arc::new(GroupReadsHandler)),
             ("group-create", Arc::new(GroupCreateHandler)),
             ("group-join", Arc::new(GroupJoinHandler)),
             ("discover", Arc::new(DiscoverHandler)),

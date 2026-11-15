@@ -229,6 +229,17 @@ pub trait ChatRepository: Send + Sync {
         tenant_id: TenantId,
         up_to_message_id: Option<&str>,
     ) -> AppResult<bool>;
+    /// Whether `user_id`'s read marker on the conversation covers message
+    /// `message_id` — the same rule the list's unread badge counts by.
+    /// `false` when the caller is not a participant or the message is not in
+    /// this conversation.
+    async fn has_read_message(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        message_id: &str,
+    ) -> AppResult<bool>;
     /// Clear `user_id`'s read marker — "mark unread": every `user`/`assistant`
     /// row counts as unread again. Returns `false` when the caller is not a
     /// participant.
@@ -266,6 +277,20 @@ pub trait ChatRepository: Send + Sync {
     /// own copy of the question and the reply, keyed by `context_id`, so no
     /// foreign key takes it along.
     async fn delete_conversation(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<bool>;
+    /// [`Self::delete_conversation`], only while no message is in the
+    /// conversation: a thread opened for a write that then failed goes, and
+    /// one somebody wrote into meanwhile stays, with what they wrote.
+    ///
+    /// The check and the delete are one decision: a message insert racing
+    /// it either commits first and keeps the conversation, or waits and
+    /// then finds it gone. Returns `false`, deleting nothing, when a message
+    /// is in it or when `user_id` does not own it in `tenant_id`.
+    async fn delete_conversation_if_empty(
         &self,
         conversation_id: &str,
         user_id: &str,
@@ -312,6 +337,17 @@ pub trait ChatRepository: Send + Sync {
         readable: TransportPolicy,
     ) -> AppResult<Vec<MessageRecord>>;
 
+    /// The id of the newest message the athlete asked in a conversation they
+    /// take part in: a `user` row that is not a slash command. `None` when the
+    /// thread holds none. A live read that outran its turn compares it with
+    /// the message that asked it, to tell whether the athlete has moved on.
+    async fn latest_user_message_id(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+    ) -> AppResult<Option<String>>;
+
     /// [`Self::get_recent_messages`] for a turn's prompt: a row about a group
     /// member ([`MessageRecord::about_user_id`]) is returned only when that
     /// member is in `readable_about` (carnet#1174). Both rules are in the
@@ -336,6 +372,18 @@ pub trait ChatRepository: Send + Sync {
         user_id: &str,
         tenant_id: TenantId,
     ) -> AppResult<Vec<Uuid>>;
+
+    /// Replace the `content_blocks` of the stopped notice `message_id`, for a participant:
+    /// the one rewrite a stored row takes, so the envelope notice a stopped turn's writes
+    /// earned reaches the notice the stop request wrote (carnet#1519). `false` when none matches.
+    async fn set_stopped_notice_blocks(
+        &self,
+        message_id: &str,
+        conversation_id: &str,
+        user_id: &str,
+        tenant_id: TenantId,
+        content_blocks: &str,
+    ) -> AppResult<bool>;
 
     /// Every assistant message in `tenant_id`, oldest first, from `since`
     /// on and past the `after_message_id` cursor when it names a stored
@@ -722,6 +770,15 @@ macro_rules! message_columns {
 }
 pub(crate) use message_columns;
 
+/// Whether message `m` is unread for participant `p`: written after their read
+/// marker, or they have never read the thread. The one definition of unread,
+/// shared by the list's badge and the single-message check.
+macro_rules! message_unread {
+    () => {
+        "(p.last_read_at IS NULL OR m.created_at > p.last_read_at)"
+    };
+}
+
 /// The membership predicate every participant-scoped read shares: the
 /// caller has a participant row on the conversation in the conversation's
 /// tenant, and the conversation is either in the caller's tenant or a
@@ -798,7 +855,8 @@ pub(crate) const GET_CONVERSATION_SQL: &str = concat!(
 /// row names its group by: their display name and email come back for the
 /// row parser to apply the roster naming rule to, so a page of athlete
 /// threads costs no read per row.
-pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
+pub(crate) const LIST_CONVERSATIONS_SQL: &str = concat!(
+    r"
     SELECT c.id, c.title, c.model, c.total_tokens, c.agent_id, c.channel_type,
            c.created_at, c.updated_at, c.group_id, c.archived_at,
            c.personal, c.subject_user_id, c.subject_group_id,
@@ -810,7 +868,9 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
            (SELECT COUNT(*) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
                AND (m.first_party_only = FALSE OR $6)
-               AND (p.last_read_at IS NULL OR m.created_at > p.last_read_at)) AS unread_count,
+               AND ",
+    message_unread!(),
+    r") AS unread_count,
            (SELECT SUBSTR(m.content, 1, $5) FROM chat_messages m
              WHERE m.conversation_id = c.id AND m.role IN ('user', 'assistant')
                AND (m.first_party_only = FALSE OR $6)
@@ -840,7 +900,8 @@ pub(crate) const LIST_CONVERSATIONS_SQL: &str = r"
         WHERE l.conversation_id = c.id AND l.first_party_only = TRUE
       ))
     ORDER BY c.updated_at DESC, c.id DESC
-    LIMIT $3 OFFSET $4";
+    LIMIT $3 OFFSET $4",
+);
 
 /// The participant's total — the same membership and readability predicates
 /// as the page.
@@ -870,6 +931,21 @@ pub(crate) const READ_TARGET_SQL: &str = concat!(
      ) AS target \
      FROM conversation_participants p \
      JOIN chat_conversations c ON c.id = p.conversation_id \
+     WHERE p.conversation_id = $1 AND ",
+    participant_scope!()
+);
+
+/// Whether participant `$2` has read message `$4` of conversation `$1`.
+///
+/// No row when the caller is not a participant or the message is not in this
+/// conversation; the caller reads either as unread.
+pub(crate) const MESSAGE_READ_SQL: &str = concat!(
+    "SELECT NOT ",
+    message_unread!(),
+    " AS is_read \
+     FROM conversation_participants p \
+     JOIN chat_conversations c ON c.id = p.conversation_id \
+     JOIN chat_messages m ON m.conversation_id = p.conversation_id AND m.id = $4 \
      WHERE p.conversation_id = $1 AND ",
     participant_scope!()
 );
@@ -919,18 +995,6 @@ pub(crate) const SET_CHANNEL_SQL: &str = r"
         SELECT 1 FROM conversation_participants p
         WHERE p.conversation_id = chat_conversations.id AND p.user_id = $3 AND p.tenant_id = $4
       )";
-
-/// Delete a conversation; owner-only, the messages cascade.
-pub(crate) const DELETE_CONVERSATION_SQL: &str = r"
-    DELETE FROM chat_conversations
-    WHERE id = $1 AND user_id = $2 AND tenant_id = $3";
-
-/// The A2A tasks a deleted conversation's owner ran in it. `a2a_tasks` has no
-/// tenant, and a tool task may name any `contextId`, so the owner's task key
-/// (`user_task_key`) is what holds this to their rows.
-pub(crate) const DELETE_CONVERSATION_TASKS_SQL: &str = r"
-    DELETE FROM a2a_tasks
-    WHERE context_id = $1 AND session_token = $2";
 
 /// Insert a message only when the caller is a participant of the
 /// conversation in this tenant.

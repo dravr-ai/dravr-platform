@@ -41,6 +41,7 @@
 
 use std::sync::Arc;
 
+use chrono::Utc;
 use pierre_core::errors::AppResult;
 use pierre_core::models::ConnectionType;
 use pierre_database::repositories::{
@@ -142,6 +143,7 @@ pub async fn record_connect_step(
         step_id: STEP_CONNECT_PROVIDER.to_owned(),
         status: STATUS_COMPLETE.to_owned(),
         chosen_channel: None,
+        updated_at: Some(Utc::now()),
     });
     Ok(())
 }

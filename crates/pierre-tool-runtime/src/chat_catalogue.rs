@@ -776,6 +776,12 @@ mod tests {
     /// holding `usda_key`, over the A2A door a text turn comes in through.
     #[cfg(feature = "tools-nutrition")]
     fn offered_nutrition(usda_key: Option<&str>) -> Vec<String> {
+        offered_nutrition_over(usda_key, Transport::A2a)
+    }
+
+    /// [`offered_nutrition`] for a turn served over `transport`.
+    #[cfg(feature = "tools-nutrition")]
+    fn offered_nutrition_over(usda_key: Option<&str>, transport: Transport) -> Vec<String> {
         use secrecy::SecretString;
 
         use crate::implementations::nutrition::create_nutrition_tools;
@@ -792,7 +798,7 @@ mod tests {
             &registry,
             TurnSeat::Subject,
             &SwitchedOff::default(),
-            Some(Transport::A2a),
+            Some(transport),
             &OAuthScope::self_grant(),
             &deployment,
         )
@@ -828,11 +834,21 @@ mod tests {
                     "bug: a chat turn on a deployment with no USDA key ({key:?}) is offered {food_tool}, which can only fail"
                 );
             }
+            // `calculate_daily_nutrition` calls no food database, so the key
+            // never decides it; it runs only on Dravr's own surfaces
+            // (carnet#1565), so the in-app turn is where it stays offered.
+            let in_app = offered_nutrition_over(key, Transport::WebApp);
             assert!(
-                offered
+                in_app
                     .iter()
                     .any(|name| name == "calculate_daily_nutrition"),
-                "bug: a nutrition tool that calls no food database stays offered: {offered:?}"
+                "bug: a nutrition tool that calls no food database stays offered: {in_app:?}"
+            );
+            assert!(
+                !offered
+                    .iter()
+                    .any(|name| name == "calculate_daily_nutrition"),
+                "bug: an A2A turn is offered a tool kept to Dravr's own surfaces: {offered:?}"
             );
         }
     }

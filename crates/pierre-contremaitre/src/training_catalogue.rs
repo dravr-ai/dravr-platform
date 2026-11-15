@@ -745,7 +745,7 @@ cycle = [
 ]
 
 [presets.run]
-badge = { status = "transposed" }
+badge = { status = "transposed", basis = "Cycling: Rønnestad 2015 [RCT]" }
 cycle = [
   { label = "30 s fast", target = "100-105% vVO2max" },
   { label = "15 s jog", target = "50% vVO2max" },
@@ -759,7 +759,7 @@ readiness_min = "p3"
 params = { reps = { min = 10, max = 25, default = 15 }, sets = { min = 1, max = 3, default = 1 }, work_seconds = { min = 30, max = 30, default = 30 }, rest_seconds = { min = 30, max = 30, default = 30 } }
 
 [presets.ride]
-badge = { status = "transposed" }
+badge = { status = "transposed", basis = "Running: Billat 2000 [acute]" }
 cycle = [
   { label = "30 s hard", target = "115-125% MAP" },
   { label = "30 s float", target = "50% MAP" },

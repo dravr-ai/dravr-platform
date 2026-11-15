@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { AVATAR_SLOT_HUES, AVATAR_SLOTS, buildConversationRow } from '@pierre/chat-utils';
 
 /** The words the row cannot spell itself, as the English client resolves them. */
@@ -13,6 +14,7 @@ const LABELS = { locale: 'en-US', you: 'You', coach: 'Coach', untitled: 'Untitle
 import type { Conversation } from '@pierre/shared-types';
 import { i18n } from '@pierre/i18n';
 import ConversationItem from '../ConversationItem';
+import { Sheet } from '../../ui/Sheet';
 import { AVATAR_SLOT_CLASSES, avatarSlotClass } from '../avatarSlots';
 
 const NOW = new Date('2026-08-27T12:00:00');
@@ -40,13 +42,14 @@ function renderRow(
     onDelete: () => void;
     onStartRename: () => void;
   }> = {},
-  state: { isSelected?: boolean; isEditing?: boolean; editedTitleValue?: string } = {},
+  state: { isSelected?: boolean; isEditing?: boolean; editedTitleValue?: string; seatLine?: string | null } = {},
 ) {
   return render(
     <ul>
       <ConversationItem
         row={buildConversationRow(conv, LABELS, NOW)}
         isSelected={state.isSelected ?? false}
+        seatLine={state.seatLine ?? null}
         isEditing={state.isEditing ?? false}
         editedTitleValue={state.editedTitleValue ?? ''}
         onSelect={handlers.onSelect ?? noop}
@@ -69,6 +72,15 @@ describe('ConversationItem anatomy', () => {
     expect(screen.getByTestId('conversation-title')).toHaveTextContent('Sunday long run');
     expect(screen.getByTestId('conversation-preview')).toHaveTextContent('Keep the cadence high');
     expect(screen.getByTestId('conversation-timestamp')).toHaveTextContent('09:50');
+  });
+
+  it('says where the coach seat stands in place of the last words while it moves (carnet#1521)', () => {
+    renderRow(conversation(), {}, { seatLine: 'Coach access pending · requested Nov 12, 2026' });
+
+    expect(screen.getByTestId('conversation-seat-line')).toHaveTextContent(
+      'Coach access pending · requested Nov 12, 2026',
+    );
+    expect(screen.queryByTestId('conversation-preview')).toBeNull();
   });
 
   it('labels an archived thread, and only an archived one', () => {
@@ -244,10 +256,98 @@ describe('ConversationItem actions', () => {
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
+  it('opens the same menu on a right-click, and walks it from the keyboard back to its trigger', () => {
+    const onMarkUnread = vi.fn();
+    renderRow(conversation(), { onMarkUnread });
+
+    fireEvent.contextMenu(screen.getByTestId('conversation-row'));
+    const menu = screen.getByRole('menu', { name: 'Conversation actions' });
+    expect(menu).toHaveAttribute('data-testid', 'conversation-actions-menu');
+    // The first action takes focus; the arrows move through the three.
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Rename conversation' }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Mark conversation unread' }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp' });
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Delete conversation' }));
+
+    // Escape closes it and hands focus back to the trigger.
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
+    expect(screen.queryByRole('menu')).toBeNull();
+    expect(document.activeElement).toBe(screen.getByTestId('conversation-actions-trigger'));
+    expect(onMarkUnread).not.toHaveBeenCalled();
+  });
+
   it('marks the selected row as current', () => {
     renderRow(conversation(), {}, { isSelected: true });
 
     expect(screen.getByRole('button', { name: /Sunday long run/ })).toHaveAttribute('aria-current', 'true');
+  });
+
+  it('closes its menu on Escape and leaves the history sheet it sits in open', async () => {
+    const user = userEvent.setup();
+    const onSheetClose = vi.fn();
+    render(
+      <Sheet side="left" title="History" onClose={onSheetClose}>
+        <ul>
+          <ConversationItem
+            row={buildConversationRow(conversation(), LABELS, NOW)}
+            isSelected={false}
+            isEditing={false}
+            editedTitleValue=""
+            onSelect={noop}
+            onStartRename={noop}
+            onMarkUnread={noop}
+            onDelete={noop}
+            onTitleChange={noop}
+            onSaveRename={noop}
+            onCancelRename={noop}
+          />
+        </ul>
+      </Sheet>,
+    );
+
+    await user.click(screen.getByTestId('conversation-actions-trigger'));
+    expect(screen.getByRole('menu', { name: 'Conversation actions' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    // carnet#1553: the menu and the sheet both listened on `document`.
+    expect(screen.queryByRole('menu', { name: 'Conversation actions' })).toBeNull();
+    expect(onSheetClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(onSheetClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('cancels a rename on Escape without closing the history sheet', async () => {
+    const user = userEvent.setup();
+    const onSheetClose = vi.fn();
+    const onCancelRename = vi.fn();
+    render(
+      <Sheet side="left" title="History" onClose={onSheetClose}>
+        <ul>
+          <ConversationItem
+            row={buildConversationRow(conversation(), LABELS, NOW)}
+            isSelected={false}
+            isEditing
+            editedTitleValue="Sunday tempo"
+            onSelect={noop}
+            onStartRename={noop}
+            onMarkUnread={noop}
+            onDelete={noop}
+            onTitleChange={noop}
+            onSaveRename={noop}
+            onCancelRename={onCancelRename}
+          />
+        </ul>
+      </Sheet>,
+    );
+
+    screen.getByLabelText('Conversation title').focus();
+    await user.keyboard('{Escape}');
+
+    expect(onCancelRename).toHaveBeenCalledTimes(1);
+    expect(onSheetClose).not.toHaveBeenCalled();
   });
 
   it('renames through a design-system input, not a raw field', () => {

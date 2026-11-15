@@ -42,8 +42,8 @@ use pierre_services::athlete_clock;
 use pierre_services::coached_athlete::CoachedAthleteAccess;
 use pierre_tools_core::ToolResult;
 
+use super::call_room::{call_room, CallRoom};
 use super::coach_scope::refusal;
-use super::group_roster::{call_room, CallRoom};
 use super::plan_scope::{coached_plan_read_access, CoachedPlanRefusal};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
@@ -308,11 +308,14 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
                 Ok(found) => found,
                 Err(miss) => return Ok(miss_refusal(&miss, query)),
             };
+            // The gates record the read on the athlete's own record before
+            // their plan is read (carnet#1445).
             let access = match coached_plan_read_access(
                 &context.resources,
                 requester,
                 found.user_id,
                 found.group.id,
+                "get_group_member_plan_status",
             )
             .await?
             {

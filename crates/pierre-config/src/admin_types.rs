@@ -8,6 +8,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::activity_retention::shape_error;
 use crate::admin_definitions::ParameterDefinition;
 
 /// Data type for configuration parameters
@@ -385,6 +386,9 @@ pub fn validate_parameter_value(
         ConfigDataType::String => {
             if !value.is_string() {
                 return Err(err("Expected a string".to_owned(), None));
+            }
+            if let Some(message) = shape_error(&def.key, value) {
+                return Err(err(message, None));
             }
         }
         ConfigDataType::Enum => {

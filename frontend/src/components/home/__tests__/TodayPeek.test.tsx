@@ -26,9 +26,16 @@ vi.mock('../../../services/api', () => ({
 
 const TODAY = '2026-10-05';
 
-/** Getting started with two of five done, as the server answers it. */
+/** A first arrival's Getting started, two of five done, as the server answers it: the lead's welcome is still to answer. */
 function progress(overrides: Record<string, unknown> = {}) {
-  return { rows: [], done_count: 2, total: 5, folded_at: null, hidden: false, ...overrides };
+  return {
+    rows: [{ id: 'meet_team', order: 4, eligible: true, done: false, current: false, postback: 'gs:3:meet_team' }],
+    done_count: 2,
+    total: 5,
+    folded_at: null,
+    hidden: false,
+    ...overrides,
+  };
 }
 
 /** A balanced form with no Garmin data behind it, as the status route answers it. */
@@ -191,6 +198,21 @@ describe('TodayPeek', () => {
 
   it('drops the count once Getting started is hidden, folded or gone', async () => {
     api.getHomePreferences.mockResolvedValue({ plan_suggestion_hidden: false, getting_started_hidden: true });
+    renderPeek();
+    await screen.findByText('Easy trail · 45 min');
+    await waitFor(() => expect(api.getGettingStarted).toHaveBeenCalled());
+    expect(screen.queryByTestId('home-today-peek-progress')).toBeNull();
+  });
+
+  // carnet#1528: a returning athlete reads the count on the meter under the
+  // header, so the line does not repeat it.
+  it('leaves the count to the meter once the athlete has answered the welcome', async () => {
+    api.getGettingStarted.mockResolvedValue(
+      progress({
+        rows: [{ id: 'meet_team', order: 4, eligible: true, done: true, current: false, postback: null }],
+        done_count: 3,
+      }),
+    );
     renderPeek();
     await screen.findByText('Easy trail · 45 min');
     await waitFor(() => expect(api.getGettingStarted).toHaveBeenCalled());

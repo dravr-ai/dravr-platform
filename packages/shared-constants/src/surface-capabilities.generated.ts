@@ -1,9 +1,9 @@
 // ABOUTME: Auto-generated catalogue of what every chat surface renders, from the running server
 // ABOUTME: Generated from GET /api/surfaces/capabilities - DO NOT EDIT MANUALLY
 //
-// Surfaces: 7 · Reply-block kinds: 9 · Notification screens: 5
-// capability-digest: 6100756fdd790e2f
-// content-digest: 9bdf9ac827983f56
+// Surfaces: 7 · Reply-block kinds: 10 · Notification screens: 5
+// capability-digest: 325bc5f6c9a2ab1f
+// content-digest: a4451466699624c6
 // To regenerate: bun run generate (from packages/shared-constants)
 
 /**
@@ -18,6 +18,7 @@ export const REPLY_BLOCK_KINDS = [
   'prose',
   'activity_list',
   'workout_plan',
+  'envelope_notice',
   'scene',
   'scene_image',
   'verdicts',
@@ -76,7 +77,7 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'delta_channel',
     streams_text_deltas: true,
     max_tool_iterations: null,
-    blocks: ['prose', 'activity_list', 'workout_plan', 'scene', 'verdicts', 'reconnect', 'actions', 'notice'],
+    blocks: ['prose', 'activity_list', 'workout_plan', 'envelope_notice', 'scene', 'verdicts', 'reconnect', 'actions', 'notice'],
   },
   'mobile_chat': {
     id: 'mobile_chat',
@@ -87,7 +88,7 @@ export const SURFACE_CAPABILITIES: Record<SurfaceCapabilityId, SurfaceCapabiliti
     progressive: 'delta_channel',
     streams_text_deltas: true,
     max_tool_iterations: null,
-    blocks: ['prose', 'activity_list', 'workout_plan', 'scene', 'verdicts', 'reconnect', 'actions', 'notice'],
+    blocks: ['prose', 'activity_list', 'workout_plan', 'envelope_notice', 'scene', 'verdicts', 'reconnect', 'actions', 'notice'],
   },
   'telegram': {
     id: 'telegram',

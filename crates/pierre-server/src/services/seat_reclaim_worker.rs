@@ -12,10 +12,12 @@ use pierre_runtime_context::AdminConfigLookup;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::strava_seat_reclaim::{start_strava_seat_reclaimer, StravaSeatReclaimer};
 use pierre_services::user_removal::ProviderDisconnector;
+use pierre_tool_runtime::runtime::ToolRuntime;
 use tracing::warn;
 
 use crate::config::admin::AdminConfigService;
 use crate::mcp::resources::ServerContext;
+use crate::services::grant_withdrawal::GrantWithdrawal;
 
 /// Start the Strava seat reclaimer.
 ///
@@ -34,9 +36,11 @@ pub fn start_seat_reclaim_worker(resources: &Arc<ServerContext>) {
         return;
     };
     let config: Arc<dyn AdminConfigLookup> = Arc::<AdminConfigService>::clone(admin_config);
-    let disconnector: Arc<dyn ProviderDisconnector> = Arc::new(OAuthService::new(
-        resources.data(),
-        Arc::clone(&resources.common.config),
+    // A reclaimed grant-only athlete is told to sign in again (carnet#1494).
+    let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(resources);
+    let disconnector: Arc<dyn ProviderDisconnector> = Arc::new(GrantWithdrawal::new(
+        OAuthService::new(resources.data(), Arc::clone(&resources.common.config)),
+        runtime,
     ));
     #[cfg(feature = "client-notifications")]
     let notifications = resources.common.notification_service.clone();

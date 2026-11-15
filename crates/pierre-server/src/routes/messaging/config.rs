@@ -22,7 +22,7 @@ use uuid::Uuid;
 use super::linking::can_complete_a_link;
 use crate::mcp::resources::ServerContext;
 use pierre_auth::auth::AuthResult;
-use pierre_core::errors::{AppError, ErrorCode};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_middleware::extract_auth_from_headers;
 use pierre_runtime_context::{resolve_tenant, tenant::require, TenantMode};
 
@@ -147,32 +147,25 @@ const ALL_CHANNELS: [ChannelType; 5] = [
     ChannelType::Messenger,
 ];
 
-/// GET /api/messaging/channels/available
+/// The channels a person in `tenant_id` can link, in picker order.
 ///
-/// Secret-free list of channels the caller can connect to, for the onboarding
-/// channel-picker and Settings. Reads only each config's `is_active` flag and
-/// the presence of its linking credentials, and never returns credentials —
-/// unlike `list_channel_configs`, which is the admin surface. Requires a valid
-/// session.
-///
-/// Each channel's config is the one that serves the caller's tenant, per
+/// Each channel's config is the one that serves the tenant, per
 /// `MessagingRepository::resolve_channel_config`: the tenant's own bot when it
 /// configured one, otherwise the deployment's platform-scope bot. An athlete in
 /// a personal tenant is offered the deployment bot the same way an admin is.
+/// Reads only each config's `is_active` flag and the presence of its linking
+/// credentials — never a credential's value. The one rule behind the picker
+/// (`GET /api/messaging/channels/available`) and Getting started's chat-app
+/// row, so the row is listed exactly when the sheet it opens has an app.
 ///
 /// # Errors
 ///
-/// Returns `AppError` when authentication fails, no tenant can be resolved, or a
-/// channel-config read errors.
-pub(super) async fn list_available_channels(
-    State(resources): State<Arc<ServerContext>>,
-    headers: HeaderMap,
-) -> Result<impl IntoResponse, AppError> {
-    let auth = extract_auth_from_headers(&headers, &resources).await?;
-    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
-    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
-
-    let mut available = Vec::new();
+/// Propagates a channel-config read error.
+pub(crate) async fn connectable_channels(
+    db: &dyn MessagingRepository,
+    tenant_id: TenantId,
+) -> AppResult<Vec<ChannelType>> {
+    let mut connectable = Vec::new();
     for channel in ALL_CHANNELS {
         let channel_str = channel.to_string();
         // Connectable = a config serves this tenant and is not explicitly
@@ -204,17 +197,46 @@ pub(super) async fn list_available_channels(
         }
         // A channel whose adapter this build did not compile can take no
         // turn, so it is not offered; `client-messaging` compiles every one.
-        let Some(descriptor) = descriptor_for(channel) else {
+        if descriptor_for(channel).is_none() {
             continue;
-        };
-
-        available.push(AvailableChannel {
-            channel: channel_str,
-            display_name: descriptor.display_name().to_owned(),
-            method: channel.linking_method().to_string(),
-            recommended: channel == ChannelType::Telegram,
-        });
+        }
+        connectable.push(channel);
     }
+    Ok(connectable)
+}
+
+/// GET /api/messaging/channels/available
+///
+/// Secret-free list of channels the caller can connect to, for the chat-app
+/// sheet and Settings, as [`connectable_channels`] decides them — never
+/// credentials, unlike `list_channel_configs`, which is the admin surface.
+/// Requires a valid session.
+///
+/// # Errors
+///
+/// Returns `AppError` when authentication fails, no tenant can be resolved, or a
+/// channel-config read errors.
+pub(super) async fn list_available_channels(
+    State(resources): State<Arc<ServerContext>>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, AppError> {
+    let auth = extract_auth_from_headers(&headers, &resources).await?;
+    let tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+
+    let available: Vec<AvailableChannel> = connectable_channels(db, tenant_id)
+        .await?
+        .into_iter()
+        .filter_map(|channel| {
+            let descriptor = descriptor_for(channel)?;
+            Some(AvailableChannel {
+                channel: channel.to_string(),
+                display_name: descriptor.display_name().to_owned(),
+                method: channel.linking_method().to_string(),
+                recommended: channel == ChannelType::Telegram,
+            })
+        })
+        .collect();
 
     Ok((StatusCode::OK, Json(available)))
 }

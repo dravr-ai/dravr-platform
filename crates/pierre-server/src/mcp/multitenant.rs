@@ -426,6 +426,7 @@ impl ProviderToolRouter {
             use crate::routes::admin::diagnostics::{
                 routes as diagnostics_routes, DiagnosticsContext,
             };
+            use crate::routes::coach_access::coach_access_notices;
             use crate::services::archive_import::sweeps::ServerArchiveEraser;
             use pierre_routes_admin::tool_selection::{ToolSelectionContext, ToolSelectionRoutes};
             let admin_api_key_limit = resources
@@ -471,6 +472,9 @@ impl ProviderToolRouter {
                 .website_base_url
                 .clone_from(&resources.common.config.website_base_url);
             admin_context.background = resources.common.turns.tracker();
+            // The console's coach-access decisions reach the coach the way the
+            // Slack card's do: the room line, the in-app notice and the email.
+            admin_context.coach_access_notices = Some(Arc::new(coach_access_notices(resources)));
             admin_context.human_check_configured = resources.auth.human_check.is_some();
             #[cfg(feature = "client-messaging")]
             {
@@ -486,6 +490,11 @@ impl ProviderToolRouter {
             // with the same body the deleted-account sweep runs.
             admin_context.archive_eraser =
                 Some(Arc::new(ServerArchiveEraser::new(Arc::clone(resources))));
+            // The termination purge deletes the activity store's records too.
+            admin_context.provider_purge = Some(Arc::clone(&resources.common.provider_purge));
+            // The cache adoption copies the rows cached before every read
+            // went through the activity store into that same store.
+            admin_context.live_activities = Some(Arc::clone(&resources.common.live_activities));
             // An account reset asked to delete the groups the account owns
             // archives each through the owner's own delete.
             admin_context.group_service = Some(Arc::clone(&resources.common.group_service));
@@ -762,10 +771,11 @@ impl ProviderToolRouter {
         #[cfg(feature = "client-groups")]
         let app = {
             use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
-            use pierre_routes_groups::{DelegatedConnectionRoutes, GroupRoutes};
+            use pierre_routes_groups::{CoachReadRoutes, DelegatedConnectionRoutes, GroupRoutes};
             app.merge(GroupRoutes::routes(Arc::clone(resources)))
                 .merge(GroupAnalyticsRoutes::routes(Arc::clone(resources)))
                 .merge(DelegatedConnectionRoutes::routes(Arc::clone(resources)))
+                .merge(CoachReadRoutes::routes(Arc::clone(resources)))
         };
 
         // ═══════════════════════════════════════════════════════════════

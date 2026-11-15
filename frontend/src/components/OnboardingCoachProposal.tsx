@@ -121,7 +121,7 @@ export default function OnboardingCoachProposal({
     >
       <div className="mx-auto max-w-[560px]">
         <p className="mt-2 text-center font-serif text-lg italic text-on-surface-variant">
-          {t(withoutProvider ? 'onboarding.team.sublineNoProvider' : 'onboarding.team.subline')}
+          {t(withoutProvider ? 'onboarding.team.sublineNoProvider' : 'onboarding.team.sublineTraining')}
         </p>
         <div className="mt-7">
           <TeamPicker proposal={data} withoutProvider={withoutProvider} onSubmit={handleSubmit} />

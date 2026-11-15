@@ -310,6 +310,7 @@ impl World {
             registry: &self.res.fitness.provider_registry,
             cache: &self.res.common.cache,
             notifications: None,
+            purge: &self.res.common.provider_purge,
         }
     }
 

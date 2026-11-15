@@ -31,6 +31,14 @@ impl GroupService {
     /// Every surface that shows one member's training to another reads this
     /// rule: the agent's group context, `/stats`, the weekly report, the
     /// health flags and each manager's copy of the weekly digest.
+    ///
+    /// For the group's human coach it is the first cut, from the membership
+    /// rows alone. Each of those surfaces then asks every member it lets
+    /// through the coach-read gate every other coach read asks (the coach
+    /// attachment, a live membership, the consent, one home tenant) and
+    /// records the read on the member's own record before reading them
+    /// (`pierre_tool_runtime::coach_group_view`, carnet#1445). That gate reads
+    /// repositories, which this pure rule does not.
     #[must_use]
     pub fn visible_member_ids(
         group: &CoachingGroup,

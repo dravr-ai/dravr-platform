@@ -18,10 +18,13 @@ import type {
   MemoryFactStatus,
   OAuthApp,
   OAuthAppCredentials,
+  ParqAnswer,
+  ParqQuestion,
   RedeemSignupCodeResponse,
   ThemePreference,
   User,
 } from '@pierre/shared-types';
+import { parseCoachSetupResponse, type CoachSetupResponse } from '@pierre/shared-types';
 import { ENDPOINTS } from '../core/endpoints';
 
 // Re-export types for consumers
@@ -111,6 +114,12 @@ export interface OnboardingStatusResponse {
   chosen_channel: string | null;
   /** The user answered "I coach others" — the group step is part of their journey. */
   coaches_others: boolean;
+  /**
+   * A team-issued coach-seat invitation settled the role question and the
+   * seat before onboarding began: the bar shows both as settled by it.
+   * Absent from an older server, which reads as false.
+   */
+  settled_by_invite?: boolean;
 }
 
 /**
@@ -311,6 +320,32 @@ export function createUserApi(axios: AxiosInstance) {
       return response.data;
     },
 
+    /**
+     * Withdraw the coach-access request waiting (carnet#1522). The request is
+     * deleted, so the coach may ask again at once; the answer is their latest
+     * request left — an earlier decided one, or `null`.
+     */
+    async cancelCoachAccessRequest(): Promise<CoachAccessRequestResponse> {
+      const response = await axios.delete<CoachAccessRequestResponse>(
+        ENDPOINTS.USER.COACH_ACCESS_REQUEST,
+      );
+      return response.data;
+    },
+
+    /**
+     * The pending coach's checklist (carnet#1529): the seat, the athlete
+     * invited, a coaching platform linked — each done from server state —
+     * with the groups, the athlete who joined and the platform it read.
+     */
+    async getCoachSetup(): Promise<CoachSetupResponse> {
+      const response = await axios.get<unknown>(ENDPOINTS.USER.COACH_SETUP);
+      const parsed = parseCoachSetupResponse(response.data);
+      if (parsed === null) {
+        throw new Error(`Unexpected response shape from ${ENDPOINTS.USER.COACH_SETUP}`);
+      }
+      return parsed;
+    },
+
     // ==================== MCP TOKENS ====================
 
     /**
@@ -469,10 +504,8 @@ export function createUserApi(axios: AxiosInstance) {
     },
 
     /** The seven PAR-Q+ pre-participation questions. */
-    async getParqQuestions(): Promise<{ questions: Array<{ id: string; text: string }> }> {
-      const response = await axios.get<{ questions: Array<{ id: string; text: string }> }>(
-        ENDPOINTS.USER.PARQ,
-      );
+    async getParqQuestions(): Promise<{ questions: ParqQuestion[] }> {
+      const response = await axios.get<{ questions: ParqQuestion[] }>(ENDPOINTS.USER.PARQ);
       return response.data;
     },
 
@@ -480,9 +513,7 @@ export function createUserApi(axios: AxiosInstance) {
      * Submit PAR-Q answers. Each "yes" raises a coach-visible medical flag with a
      * 12-month freshness horizon; a "yes" never blocks sign-up.
      */
-    async submitParq(
-      answers: Array<{ id: string; yes: boolean }>,
-    ): Promise<{ flags_raised: number }> {
+    async submitParq(answers: ParqAnswer[]): Promise<{ flags_raised: number }> {
       const response = await axios.post<{ flags_raised: number }>(ENDPOINTS.USER.PARQ, {
         answers,
       });
@@ -523,10 +554,10 @@ export function createUserApi(axios: AxiosInstance) {
     /**
      * Persist an onboarding step's completion status so the flow is durable and
      * follows the user across devices (rather than living only in localStorage).
-     * `chosenChannel` is set only for the messaging-channel step. `agentId` is
-     * set only for the coach-proposal step: the agent the athlete picked (or the
-     * first proposed one on Skip), which the server makes their selected agent
-     * and binds their personal thread to. Absent, the server changes neither.
+     * `agentId` is set only for the coach-proposal step: the agent the athlete
+     * picked (or the first proposed one on Skip), which the server makes their
+     * selected agent and binds their personal thread to. Absent, the server
+     * changes neither.
      * `teamAgentIds` is also the coach-proposal step's: every agent the athlete
      * starts with (the lead included), each joined to their team before the
      * lead is selected; an id the athlete cannot be given refuses the whole
@@ -536,13 +567,12 @@ export function createUserApi(axios: AxiosInstance) {
     async setOnboardingStep(
       stepId: string,
       status: 'complete' | 'skipped' | 'not_applicable',
-      options?: { chosenChannel?: string; agentId?: string; teamAgentIds?: string[] },
+      options?: { agentId?: string; teamAgentIds?: string[] },
     ): Promise<void> {
       // An undefined field is dropped by JSON serialization, so a step that
       // carries neither sends `{ status }` alone.
       await axios.put(ENDPOINTS.USER.ONBOARDING_STEP(stepId), {
         status,
-        chosen_channel: options?.chosenChannel,
         agent_id: options?.agentId,
         team_agent_ids: options?.teamAgentIds,
       });

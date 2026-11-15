@@ -36,9 +36,12 @@ use chrono_tz::Tz;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::oauth_providers::{self, GarminContribution};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::repositories::CachedRowsQuery;
 use pierre_middleware::extractors::AuthenticatedUser;
-use pierre_services::plan_card::{try_load_plan_weeks_between, WeekCard};
-use pierre_tool_runtime::activity_fetch::activity_cache_retention_days;
+use pierre_services::locale::user_locale;
+use pierre_services::personas::resolve_persona_locale;
+use pierre_services::plan_card::{try_load_plan_weeks_between, PlanSpan, WeekCard};
+use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
@@ -63,6 +66,11 @@ pub struct CalendarQuery {
     /// The last day, `YYYY-MM-DD`, included; at most
     /// [`MAX_CALENDAR_DAYS`] days after `from`, counting both.
     pub to: NaiveDate,
+    /// The locale a plan day's evidence chip and relabel line render in; an
+    /// unsupported or absent value falls back to the athlete's stored locale,
+    /// then to the default, as the training plan's does.
+    #[serde(default)]
+    pub locale: Option<String>,
 }
 
 /// One cached workout, on the athlete's day it belongs to.
@@ -103,7 +111,7 @@ pub(super) async fn get_calendar(
     auth: AuthenticatedUser,
     Query(query): Query<CalendarQuery>,
 ) -> AppResult<Json<CalendarResponse>> {
-    let CalendarQuery { from, to } = query;
+    let CalendarQuery { from, to, locale } = query;
     check_span(from, to)?;
     let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
@@ -112,7 +120,7 @@ pub(super) async fn get_calendar(
     let zone = resolve_zone(user.as_ref().and_then(|u| u.timezone.as_deref()));
     let now = Utc::now();
     let today = clock_date(now, zone);
-    let history_start = history_start(now, zone, activity_cache_retention_days());
+    let history_start = history_start(now, zone, CACHED_ACTIVITY_LOOKBACK_DAYS);
 
     let connections = repos
         .provider_connections
@@ -122,7 +130,11 @@ pub(super) async fn get_calendar(
     let limit = row_limit(from, to, connections.len());
     let rows = repos
         .activity_cache
-        .get_cached_activity_rows(user_id, &tenant_id, read_from, read_to, limit)
+        .get_cached_activity_rows(
+            user_id,
+            &tenant_id,
+            &CachedRowsQuery::window(read_from, read_to, limit),
+        )
         .await?;
     if usize::try_from(limit).is_ok_and(|limit| rows.len() >= limit) {
         warn!(
@@ -139,8 +151,16 @@ pub(super) async fn get_calendar(
         activities.iter().map(|day| day.activity.garmin_recorded),
     );
 
-    let plan_weeks =
-        try_load_plan_weeks_between(repos, tenant_id, user_id, today, from, to).await?;
+    let locale = resolve_persona_locale(locale.as_deref(), Some(&user_locale(user.as_ref())));
+    let plan_weeks = try_load_plan_weeks_between(
+        repos,
+        tenant_id,
+        user_id,
+        PlanSpan { today, from, to },
+        &resources.mcp.messaging_strings_registry,
+        &locale,
+    )
+    .await?;
     Ok(Json(CalendarResponse {
         today,
         from,

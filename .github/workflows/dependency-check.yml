@@ -47,7 +47,9 @@ jobs:
         run: cargo install cargo-edit --locked
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
 
       - name: Check compatible upgrades
         id: compatible

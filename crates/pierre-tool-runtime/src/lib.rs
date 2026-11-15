@@ -79,6 +79,12 @@ pub mod capabilities;
 pub mod capture_sweep;
 /// The tool declarations a chat turn sends, and their wire size (carnet#1196).
 pub mod chat_catalogue;
+/// Whose training a group view built from every member's shows its viewer:
+/// for the group's coach, each member gated and on their record (carnet#1445)
+#[cfg(feature = "tools-groups")]
+pub mod coach_group_view;
+/// The coach-only arguments and tools an external listing offers a group's human coach alone (carnet#1426).
+pub mod coach_listing;
 /// The coach roster both the agent tool and the coach REST read project from.
 #[cfg(feature = "tools-groups")]
 pub mod coach_roster;
@@ -93,6 +99,8 @@ pub mod decorators;
 pub mod deployment_tools;
 /// Holds a thread opened from an activity to that activity's terms (carnet#769)
 pub mod derived_content;
+/// The envelope findings a turn's writes reported, and their per-turn store (carnet#1495).
+pub mod envelope_notices;
 /// Tools only Dravr's own surfaces list and run, kept off MCP and A2A.
 pub mod first_party_tools;
 /// Stale-while-revalidate activity cache backing the group member snapshots
@@ -107,10 +115,6 @@ pub mod guardian;
 /// Streaming Copilot ACP turn execution, feeding the turn-event sink.
 #[cfg(feature = "client-chat")]
 pub mod headless_stream;
-/// The one-time history import a usr/pwd sign-in beside a Garmin grant runs on
-/// the backfill rail, and the session retirement that ends it (carnet#1386).
-#[cfg(feature = "tools-data")]
-pub mod history_import;
 pub mod implementations;
 /// The incomplete-window signal and its per-turn store (carnet#1481).
 pub mod incomplete_window;
@@ -149,6 +153,8 @@ pub mod task_cancellation;
 pub mod tool_progress;
 /// Daily CTL/ATL/TSB rollup, sourced from the durable activity cache.
 pub mod training_history_compute;
+/// The per-turn store a headless turn's signals leave the ACP loopback through.
+mod turn_store;
 
 /// Request construction and the provider call for the text-simulation CLI tool loop
 #[cfg(feature = "client-chat")]

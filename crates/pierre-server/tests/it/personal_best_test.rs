@@ -88,11 +88,7 @@ async fn fixture(email: &str) -> Fixture {
         .unwrap()
         .id;
     let service = notification_service(&resources);
-    let bests = PersonalBests::new(
-        Arc::clone(&resources.common.repos.personal_bests),
-        Some(Arc::clone(&service)),
-        Arc::clone(&resources.common.repos.worker_runs),
-    );
+    let bests = PersonalBests::new(&resources.common.repos, Some(Arc::clone(&service)));
     Fixture {
         resources,
         service,

@@ -756,17 +756,6 @@ pub trait ProviderConnectionRepository: Send + Sync {
     /// pool across every tenant that signs with it.
     async fn count_server_level_grants(&self, provider: &str) -> AppResult<u32>;
 
-    /// Every user in `tenant_id` whose own `mirror` session (a connection or
-    /// token row) stands beside a token row for `grant` in that tenant: the
-    /// usr/pwd sessions a grant left serving nothing (carnet#1386). A
-    /// delegated connection is someone else's account and is not listed.
-    async fn list_sessions_beside_grant(
-        &self,
-        tenant_id: TenantId,
-        mirror: &str,
-        grant: &str,
-    ) -> AppResult<Vec<Uuid>>;
-
     /// Every user in `tenant_id` whose own `provider` connection is `active`:
     /// the grants a periodic refresh keeps alive (Garmin's daily token
     /// refresh, carnet#1454). A delegated connection is someone else's
@@ -776,18 +765,5 @@ pub trait ProviderConnectionRepository: Send + Sync {
         &self,
         tenant_id: TenantId,
         provider: &str,
-    ) -> AppResult<Vec<Uuid>>;
-
-    /// Every user in `tenant_id` whose own `mirror` session (a connection or
-    /// token row) stands with no token row for `grant` beside it in that
-    /// tenant: the athletes served by usr/pwd alone, who have yet to move to
-    /// the provider's OAuth (carnet#1454). A delegated connection is someone
-    /// else's account and is not listed; a user holding the grant is not
-    /// listed, whatever session stands beside it.
-    async fn list_mirror_only_users(
-        &self,
-        tenant_id: TenantId,
-        mirror: &str,
-        grant: &str,
     ) -> AppResult<Vec<Uuid>>;
 }

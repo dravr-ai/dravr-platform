@@ -59,6 +59,8 @@ export { dashboardApi } from './dashboard';
 export { a2aApi } from './a2a';
 export { adminApi } from './admin';
 export { coachAccessAdminApi } from './coachAccessAdmin';
+// Coach-seat invitations, the console's invite-before-sign-up (carnet#1524).
+export { coachSeatInvitationsApi } from './coachSeatInvitations';
 // Accepting a mailed invitation: its link opens the web app only.
 export { invitationsApi } from './invitations';
 // Confirming an address from its mailed link, which opens the web app only.

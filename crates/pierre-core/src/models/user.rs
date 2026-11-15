@@ -21,7 +21,10 @@ use dravr_cageux::algorithms::lthr::LthrAlgorithm;
 use dravr_cageux::nutrition_calculator::Gender;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
-use super::{AnchorProvenance, EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance};
+use super::{
+    AnchorProvenance, EncryptedToken, ProvenancedValue, SportType, ThresholdProvenance,
+    ThresholdStatedOn,
+};
 
 /// Type-safe wrapper for user identifiers.
 ///
@@ -835,6 +838,12 @@ pub struct UserPhysiologicalProfile {
     /// touched reads exactly as before.
     #[serde(default, skip_serializing_if = "ThresholdProvenance::is_empty")]
     pub threshold_provenance: ThresholdProvenance,
+    /// The day the athlete stated each of those four thresholds, for the ones
+    /// that are their own and were stated since the day was recorded: what
+    /// dates an athlete-set anchor, which [`Self::threshold_provenance`]
+    /// cannot without reading as an import. Left out when none is recorded.
+    #[serde(default, skip_serializing_if = "ThresholdStatedOn::is_empty")]
+    pub threshold_stated_on: ThresholdStatedOn,
     /// Where [`Self::resting_hr`], [`Self::vo2_max`] and [`Self::weight`] came
     /// from: the athlete, an import, an estimate, or the weekly promotion from
     /// the athlete's own measurements (DECISION 5). An anchor not listed is
@@ -881,6 +890,7 @@ impl UserPhysiologicalProfile {
             critical_speed_mps: None,
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::NONE,
+            threshold_stated_on: ThresholdStatedOn::NONE,
             anchor_provenance: AnchorProvenance::NONE,
             sex: None,
             transport_policy: TransportPolicy::AnyTransport,
@@ -949,44 +959,6 @@ impl UserPhysiologicalProfile {
         .estimate_lthr()
         .ok()
     }
-}
-
-/// A standing per-email pre-approval recorded by an operator before the person
-/// has an account.
-///
-/// The registration approval decision consults this allow-list so an allowed
-/// address lands [`UserStatus::Active`] without the pending queue, and
-/// `allowed_by` feeds the new account's `approved_by` for audit attribution.
-/// Managed by `pierre-cli user allow / disallow / list-allowed`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PreApprovedEmail {
-    /// The allowed address, stored lowercase.
-    pub email: String,
-    /// The operator who recorded the allow, when known (`None` pre-bootstrap).
-    pub allowed_by: Option<Uuid>,
-    /// Operator note (cohort, reason).
-    pub note: Option<String>,
-    /// When the allow was recorded.
-    pub created_at: DateTime<Utc>,
-}
-
-/// A single-use invitation an operator mailed to an address with no account.
-///
-/// The token behind it is never part of this record: only its selector and
-/// the SHA-256 of its verifier are stored, and both stay inside the
-/// repository. Redeeming the invitation creates the account
-/// [`UserStatus::Active`], with the invitee's own password and `approved_by`
-/// set to `invited_by` while that operator's account still exists.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct UserInvitation {
-    /// The invited address, stored lowercase.
-    pub email: String,
-    /// The operator who sent it, when attributable (`None` for a service token).
-    pub invited_by: Option<Uuid>,
-    /// When the link stops working.
-    pub expires_at: DateTime<Utc>,
-    /// When it was sent.
-    pub created_at: DateTime<Utc>,
 }
 
 /// What kind of row still points at a user, blocking the account's deletion.

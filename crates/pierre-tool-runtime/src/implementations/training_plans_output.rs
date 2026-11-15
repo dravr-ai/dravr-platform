@@ -19,10 +19,10 @@ use std::collections::BTreeSet;
 use pierre_core::models::periodization::{
     DaySubstitution, EnvelopeFinding, ReadinessLevel, SpacingCheck, TrainingAlert, WorkoutPurpose,
 };
-use pierre_core::models::CalendarEventSource;
+use pierre_core::models::{CalendarEventSource, TargetAnchor};
 use pierre_memory::training_plans::{GoalRace, PlanWeek, PlannedDay, TrainingPlan};
 use pierre_services::coach_plan_draft::DraftState;
-use pierre_services::plan_calendar_push::PushPreview;
+use pierre_services::plan_calendar_push::{PushPreview, PushReport};
 use pierre_services::plan_fueling::WithheldFueling;
 use pierre_services::ramp_check::RampVerdict;
 use serde::Serialize;
@@ -50,10 +50,10 @@ pub struct GetTrainingPlanResult {
     /// again with `all_weeks` to read them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weeks_omitted: Option<usize>,
-    /// Present when a medical/PAR-Q flag is on file: the athlete's clinician
-    /// sets their fuelling amounts, so no day in `weeks` carries `fueling`
-    /// rates, `dates` names the days whose stored rates were withheld, and a
-    /// save carrying `fueling` is refused. Describe fuelling in words.
+    /// Present when fuelling amounts are withheld (`figures_withheld` says
+    /// why): no day in `weeks` carries `fueling` rates, `dates` names the days
+    /// whose stored rates were withheld, and a save carrying `fueling` is
+    /// refused. Describe fuelling in words.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling_withheld: Option<WithheldFueling>,
     /// The agents that wrote this season: the one that laid it, and each one
@@ -92,8 +92,8 @@ pub struct DraftSection {
     pub drafted_weeks: Vec<String>,
     /// Where the draft stands: what publishing it now would overwrite.
     pub state: DraftState,
-    /// Present when a medical/PAR-Q flag is on file: fuelling rates are
-    /// withheld from `weeks` as they are from the live ones.
+    /// Present when fuelling amounts are withheld: rates are withheld from
+    /// `weeks` as they are from the live ones.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fueling_withheld: Option<WithheldFueling>,
 }
@@ -164,8 +164,12 @@ pub struct PublishTrainingPlanResult {
     /// that went live.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub envelope: Option<PlanEnvelopeReport>,
-    /// On `published`: what a push would now change, when the athlete's
-    /// calendar already carries the plan. Publishing never writes it.
+    /// On `published`: the plan put on the athlete's chosen calendar, or why
+    /// it was not.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_push: Option<CalendarPushOutcome>,
+    /// On `published`, when the push did not run: what one would change,
+    /// when the athlete's calendar already carries the plan.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarPreview>,
 }
@@ -190,6 +194,7 @@ impl PublishTrainingPlanResult {
             conflict: None,
             safety: None,
             envelope: None,
+            calendar_push: None,
             calendar: None,
         }
     }
@@ -407,8 +412,12 @@ impl PlanSafetyReport {
 /// What the envelope check found on the days a save or publish wrote.
 ///
 /// It sits beside `safety`: each templated session measured against its
-/// family's evidence envelope. Structured, never prose — the athlete-facing
-/// wording is the agent's, under the same framing rules as `safety`.
+/// family's evidence envelope. In Dravr's chat the platform shows every
+/// finding and relabel under your reply in its own sentences, so do not
+/// restate them there; explain or disagree with one only when asked. Where a
+/// client shows the athlete only your words, relay them yourself, as plain
+/// words about the work. A day with `not_generated` has no steps until you
+/// write them or shorten the day.
 ///
 /// Every finding warns; a relabel also names the purpose the session now
 /// trains, which is what compliance and readiness read for that day. Absent
@@ -435,6 +444,13 @@ pub struct DayEnvelopeNotice {
     pub relabelled_purpose: Option<WorkoutPurpose>,
     /// What the check found.
     pub findings: Vec<EnvelopeFinding>,
+    /// The athlete's anchor the day's targets are written on, with its
+    /// origin, day and confidence: name it with the finding ("against your
+    /// FTP of 285 W from intervals.icu"), as a range or an estimate when its
+    /// confidence is low. Absent when the targets name no anchor the athlete
+    /// holds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub anchor: Option<TargetAnchor>,
     /// Why the save could not build the day's steps from its preset; the day
     /// carries no steps until the agent writes them or shortens the day.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -459,6 +475,7 @@ impl PlanEnvelopeReport {
                     preset: envelope.preset.clone(),
                     relabelled_purpose: envelope.relabelled_purpose,
                     findings: envelope.findings.clone(),
+                    anchor: envelope.anchor.clone(),
                     not_generated: envelope.not_generated.clone(),
                 })
             })
@@ -530,9 +547,14 @@ pub struct SaveTrainingPlanResult {
     pub weeks_saved: usize,
     /// Each week, and whether it replaced an earlier version of itself.
     pub weeks: Vec<SavedWeek>,
-    /// What a push would change now, when the calendar already carries this
-    /// plan. Absent when the athlete has never pushed — an athlete who does
-    /// not use the calendar is not nagged about it.
+    /// The athlete's own save put on their chosen calendar, or why it was
+    /// not. Absent on a draft save, when the athlete holds no calendar Dravr
+    /// writes, and when their tenant switched `push_training_plan` off — what
+    /// would repeat on every save is not said on every save.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub calendar_push: Option<CalendarPushOutcome>,
+    /// When the push did not run: what one would change, when the calendar
+    /// already carries this plan. Absent when the athlete has never pushed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarPreview>,
     /// `true` when a group's human coach saved for a coached athlete: the
@@ -639,4 +661,46 @@ pub struct CalendarPreview {
     /// [`CalendarBlock::calendar_note`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar_note: Option<String>,
+}
+
+/// The `reason` of a [`CalendarPushOutcome::NotPushed`] whose athlete holds
+/// no calendar Dravr writes: there was nowhere to push.
+pub(super) const NO_CALENDAR: &str = "no_calendar";
+
+/// The `reason` of a [`CalendarPushOutcome::NotPushed`] whose push passed its
+/// gates and then failed.
+pub(super) const PUSH_FAILED: &str = "push_failed";
+
+/// What a save or a publish did to the athlete's calendar on its own
+/// (carnet#1492): the plan reconciled onto their chosen calendar, or why
+/// nothing was written there.
+///
+/// The write it follows never fails because of it. A gate that refuses the
+/// push, or a push that fails, is reported here beside a plan that landed.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum CalendarPushOutcome {
+    /// The plan was reconciled onto the athlete's calendar.
+    Pushed {
+        /// What the push created, updated and removed, and what it left
+        /// alone or failed to write.
+        report: PushReport,
+    },
+    /// Nothing on the athlete's calendar was written.
+    NotPushed {
+        /// Why, as a code a client branches on: the refusing gate's own
+        /// reason, `no_calendar` when the athlete holds no calendar Dravr
+        /// writes, or `push_failed` when the push itself failed.
+        reason: String,
+        /// Why, in words to relay.
+        message: String,
+    },
+}
+
+impl CalendarPushOutcome {
+    /// Whether nothing was pushed for the reason `code` names.
+    #[must_use]
+    pub(super) fn refused_for(&self, code: &str) -> bool {
+        matches!(self, Self::NotPushed { reason, .. } if reason == code)
+    }
 }

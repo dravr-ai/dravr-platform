@@ -34,6 +34,14 @@
 //! replays into later prompts like any assistant row — the model sees its own
 //! greeting — but the starters live only in the row's actions block, and the
 //! first-turn prefetch, group adoption and agent generation count around it.
+//!
+//! The lead's first welcome in the athlete's personal thread — the first-run
+//! Meet your team turn Home opens on — says more (carnet#1099, carnet#1528):
+//! what it read of the athlete's synced history, their goal and why from
+//! About you, and the rest of the team (the `first_welcome` module). It
+//! asks nothing: Getting started is where the goal is asked.
+
+mod first_welcome;
 
 use chrono::Utc;
 use pierre_contremaitre::messaging_strings::{
@@ -56,10 +64,15 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::RepositoryRegistry;
 use pierre_services::agents::meets_prerequisites;
 use pierre_services::first_run::{FirstRun, MEET_TEAM};
+use pierre_services::units::resolve_user_units;
 use pierre_services::use_case_rank::{rank_for_athlete, rotation_for, worded, MAX_STARTERS};
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use self::first_welcome::{
+    first_sync_spoke, first_welcome_lines, read_about_you, read_history, FirstWelcomeLines,
+    FirstWelcomeTemplates, Wording,
+};
 use crate::envelope::{ActionKind, TurnAction};
 use crate::stages::command_persistence::actions_content_blocks;
 use crate::stages::introduction::{
@@ -244,7 +257,12 @@ impl WelcomeText {
             reach.cloned(),
             Some(templates.discover_line.clone()),
         ];
-        for line in lines.into_iter().flatten() {
+        self.push_paragraphs(lines.into_iter().flatten());
+    }
+
+    /// Add each of `lines` as a paragraph of its own; a blank one is left out.
+    fn push_paragraphs(&mut self, lines: impl IntoIterator<Item = String>) {
+        for line in lines {
             let line = line.trim();
             if !line.is_empty() {
                 self.content.push_str("\n\n");
@@ -316,10 +334,80 @@ fn team_line(templates: &WelcomeTemplates, members: &[String]) -> String {
     }
 }
 
+/// What the lead's first welcome says beyond the greeting.
+struct FirstWelcome {
+    /// Its own lines: the history and the goal under the greeting, the Garmin
+    /// line last.
+    lines: FirstWelcomeLines,
+    /// The rest of the team.
+    team: TeamIntro,
+    /// What the figures were read from must be stamped with.
+    policy: TransportPolicy,
+}
+
+/// Whether a welcome on `surface` reads the athlete's history back.
+///
+/// Only in Dravr's own apps: the figures are provider data, and a provider's
+/// terms may keep its data there. A messaging DM that shares the personal
+/// thread gets the same welcome without them.
+const fn reads_history_on(surface: SurfaceId) -> bool {
+    matches!(surface, SurfaceId::Web | SurfaceId::Mobile)
+}
+
+/// What the lead's welcome adds when this is the first-run Meet your team
+/// turn — the athlete's own personal thread, and the flow still open: the
+/// history it read when it has synced, the goal and the why, and the team
+/// (carnet#1099, carnet#1528). `None` otherwise, and when the first run or the
+/// team cannot be read (logged) — the welcome then goes out as it always has.
+///
+/// The history is not read when carnet#831's first post already spoke about
+/// it in this thread: the figures are left to that post. History that cannot
+/// be read is logged and left out.
+async fn first_welcome(
+    repos: &RepositoryRegistry,
+    strings: &MessagingStringsRegistry,
+    target: &WelcomeTarget<'_>,
+    user: Uuid,
+) -> Option<FirstWelcome> {
+    let team = first_welcome_team(repos, target, user).await?;
+    let templates = FirstWelcomeTemplates::resolve(strings, target.locale);
+    let in_app = reads_history_on(target.surface);
+    let spoke = in_app
+        && first_sync_spoke(
+            repos,
+            target.agent_tenant_id,
+            user,
+            target.conversation,
+            target.conversation_tenant_id,
+        )
+        .await;
+    let (history, policy) = if in_app && !spoke {
+        read_history(repos, target.agent_tenant_id, user, Utc::now())
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "synced history unreadable; the welcome says no figures");
+                (None, TransportPolicy::AnyTransport)
+            })
+    } else {
+        (None, TransportPolicy::AnyTransport)
+    };
+    let about = read_about_you(repos, target.agent_tenant_id, target.user_id).await;
+    let wording = Wording {
+        strings,
+        locale: target.locale,
+        units: resolve_user_units(repos.unit_preferences.as_ref(), user).await,
+    };
+    Some(FirstWelcome {
+        lines: first_welcome_lines(&templates, history.as_ref(), spoke, &about, &wording),
+        team,
+        policy,
+    })
+}
+
 /// The team the lead's welcome introduces, when this is the first-run Meet
 /// your team turn: the athlete's own personal thread, and the flow still
 /// open. `None` otherwise, and when the first run or the team cannot be read
-/// (logged) — the welcome then goes out as it always has.
+/// (logged).
 async fn first_welcome_team(
     repos: &RepositoryRegistry,
     target: &WelcomeTarget<'_>,
@@ -559,7 +647,7 @@ async fn welcome_text(
         );
         return Ok(None);
     };
-    let (starters, transport_policy) =
+    let (starters, mut transport_policy) =
         choose_starters(repos, strings, target, &canonical, &localized, user).await;
     let templates = WelcomeTemplates::resolve(strings, target.locale);
     // Said to one athlete about their own data; a room's welcome speaks to
@@ -577,8 +665,11 @@ async fn welcome_text(
         capability,
         starters,
     );
-    if let Some(team) = first_welcome_team(repos, target, user).await {
-        text.introduce_team(&templates, &team);
+    if let Some(first) = first_welcome(repos, strings, target, user).await {
+        text.push_paragraphs(first.lines.opening);
+        text.introduce_team(&templates, &first.team);
+        text.push_paragraphs(first.lines.closing);
+        transport_policy = transport_policy.strictest(first.policy);
     }
     if text.content.trim().is_empty() {
         // The catalogue lacks the greeting in every locale: an instance whose

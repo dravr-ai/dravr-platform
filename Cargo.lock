@@ -1330,10 +1330,11 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.15.4"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.15.4#b073b0ae8d95595d83c7a97e94bf96df3ea549fa"
+version = "0.21.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.21.0#3acbe2eabd3320c51454303c90455a618800297c"
 dependencies = [
  "async-trait",
+ "base64 0.22.1",
  "bytes",
  "chrono",
  "crc32fast",
@@ -1374,8 +1375,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.48.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.48.0#2e11c3447b88160645868ee45b8213b593df2214"
+version = "0.49.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.49.0#8b76fb183b2dc0eb4e02c42f5d28adc614762280"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1419,8 +1420,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-commere"
-version = "0.8.0"
-source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.8.0#cab0115dd8b40d55f3ab4c3f99ac30116881714e"
+version = "0.9.0"
+source = "git+https://github.com/dravr-ai/dravr-commere.git?tag=v0.9.0#50984907fac6e6cf7a2c5ded844491067c45c180"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1439,12 +1440,12 @@ dependencies = [
 [[package]]
 name = "dravr-contremaitre"
 version = "0.1.0"
-source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=9c96702ae28d126e72326454f5ecdf06226556c8#9c96702ae28d126e72326454f5ecdf06226556c8"
+source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=706a6102f702708c8b21c102147dfbc40d9af4ca#706a6102f702708c8b21c102147dfbc40d9af4ca"
 
 [[package]]
 name = "dravr-enforme"
-version = "0.17.1"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.17.1#9a0ff158f9b61c7190bfbed05e8680107b1512df"
+version = "0.18.0"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.18.0#7715acf1a0a7ea7214dbbbc7e9da2fdb73a7fc4c"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1507,8 +1508,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "1.4.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v1.4.0#1300da115fb08da19d15bcabc46cd0b96c18b971"
+version = "2.0.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v2.0.0#5d191daababce5fae9fabbcfbc4c0e3e52eacdae"
 dependencies = [
  "async-trait",
  "chrono",
@@ -1545,9 +1546,9 @@ dependencies = [
 
 [[package]]
 name = "dravr-tronc"
-version = "6.7.0"
+version = "6.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "26aa1dfa3e442107d7ef6a73d79d4b913a9877f6470e1c3d821b5ae5c231f648"
+checksum = "d975bdc1581749ae556e1fbab7e5314b48df1d97ee88452f881460eafab489c0"
 dependencies = [
  "async-trait",
  "axum",
@@ -1565,16 +1566,19 @@ dependencies = [
  "percent-encoding",
  "reqwest 0.12.28",
  "ring",
+ "rustls",
  "serde",
  "serde_json",
  "subtle",
  "tokio",
+ "tokio-tungstenite",
  "tokio-util",
  "tower",
  "tracing",
  "tracing-subscriber",
  "url",
  "uuid",
+ "webpki-roots 1.0.11",
 ]
 
 [[package]]
@@ -1662,9 +1666,9 @@ dependencies = [
 
 [[package]]
 name = "embacle"
-version = "0.44.0"
+version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f2835a86e8ca7da028ce59f2ea659fe7af207cba8f04878273591022a2ff77ca"
+checksum = "b210824e36dc39040674a8721eefd9d8a464ce8cfe95788dcc1787ae2a5380a5"
 dependencies = [
  "agent-client-protocol-schema",
  "async-trait",
@@ -1685,9 +1689,9 @@ dependencies = [
 
 [[package]]
 name = "embacle-tool-host"
-version = "0.44.0"
+version = "0.45.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6081c1b32e0fcfc4b9c3cdd704478ab2dae595fe7f6d244d8373a0a59db42b0e"
+checksum = "ac153a92f81cebbdf308d7a26c40b0eeedbde4c7cc61e71a3e2b42c4390e8216"
 dependencies = [
  "async-trait",
  "axum",
@@ -3942,6 +3946,7 @@ dependencies = [
  "tracing",
  "tracing-opentelemetry",
  "tracing-subscriber",
+ "unicode-normalization",
  "uuid",
 ]
 
@@ -4175,6 +4180,7 @@ dependencies = [
  "tower-http",
  "tracing",
  "tracing-opentelemetry",
+ "urlencoding",
  "uuid",
 ]
 
@@ -4314,6 +4320,8 @@ dependencies = [
  "chrono",
  "dravr-enforme",
  "dravr-sciotte",
+ "dravr-tronc",
+ "futures",
  "hex",
  "hmac",
  "pierre-auth",
@@ -4550,6 +4558,7 @@ dependencies = [
  "serde-saphyr",
  "serde_json",
  "sha2",
+ "sqlx",
  "tokio",
  "tokio-util",
  "tracing",
@@ -4602,6 +4611,7 @@ dependencies = [
  "async-trait",
  "bitflags 2.13.2",
  "chrono",
+ "chrono-tz",
  "dravr-cageux",
  "dravr-enforme",
  "dravr-meteo",

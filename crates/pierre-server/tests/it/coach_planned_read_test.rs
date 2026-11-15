@@ -40,7 +40,7 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::Utc;
-use common::{create_test_server_resources, create_test_user_with_plan};
+use common::{create_test_server_resources, create_test_user_with_plan, in_web_turn};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
 use pierre_core::models::groups::{
@@ -57,7 +57,7 @@ use pierre_providers::ai_scope::serve_over;
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_test_support::delegation::create_group_agent;
-use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -444,7 +444,12 @@ impl World {
             .with_auth_method("jwt_bearer");
         let response = serve_over(
             Transport::WebApp,
-            GetPlannedWorkoutsTool.execute(&runtime, &ctx, args),
+            in_web_turn(
+                &self.res,
+                who.id,
+                who.tenant,
+                GetPlannedWorkoutsTool.execute(&runtime, &ctx, args),
+            ),
         )
         .await;
         (
@@ -671,6 +676,21 @@ async fn every_refusal_is_named_and_reaches_no_athletes_calendar() {
         )
         .await;
     assert!(refused);
+    assert_eq!(reason(&refusal), "group_room", "{refusal}");
+
+    // carnet#1422: a row under the coach's own tenant with no group, on a
+    // turn other people read — a messaging group chat whose binding failed.
+    let shared = w.coach_dm().await;
+    let (refusal, refused) = TURN_DIRECT_MESSAGE
+        .scope(
+            Some(false),
+            CONVERSATION_ID.scope(Some(shared), w.call(w.coach, week_of("Alex"))),
+        )
+        .await;
+    assert!(
+        refused,
+        "the calendar was read into a shared chat: {refusal}"
+    );
     assert_eq!(reason(&refusal), "group_room", "{refusal}");
 
     assert!(

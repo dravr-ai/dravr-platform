@@ -5,6 +5,12 @@
 export * from './onboarding';
 export * from './brands';
 
+// The chat-app offer outside the wizard (Getting started row, group card)
+export { CHAT_APP_OFFER_STEP_ID, chatAppOfferAnswered, offeredChatApp } from './chat-app';
+
+// The team-issued coach-seat invitation's settled steps on the progress bar
+export { settledByInviteLine, settledByInviteSegments } from './coach-invite';
+
 // Agent tuning bounds (mirrors the server-side range checks)
 export {
   MIN_MAX_TOOL_ITERATIONS,
@@ -14,6 +20,8 @@ export {
   coachCategoryLabelKey,
   COACH_TOOL_TAG,
   isCoachFacing,
+  groupAgentChoices,
+  defaultGroupAgent,
 } from './coaches';
 
 // Design system (Boreal Editorial colors, typography, spacing, effects)
@@ -170,7 +178,6 @@ export {
 export {
   AI_CONSENT_KEYS,
   HISTORY_ACTION_KEYS,
-  HISTORY_IMPORTING_REFRESH_MS,
   HISTORY_LINE_KEYS,
   PROVIDER_NOTICES,
   PROVIDER_SCOPES,
@@ -179,10 +186,10 @@ export {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  SCIOTTE_TAKEOVER_ENDED,
+  SCIOTTE_TAKEOVER_MAX_TEXT_BYTES,
   aiConsentCards,
   cardHistoryState,
-  historyActionKey,
-  historyImporting,
   intervalsConnectPath,
   loginIdentifierField,
   noticeRequired,
@@ -202,17 +209,17 @@ export type {
 } from './providers';
 
 // What a provider card offers — its connect or reconnect, the sign-in its
-// history needs, the move to the official connection, where a refused grant
-// goes, and the OAuth a failed sign-in falls back to
+// history needs, where a refused grant goes, and the OAuth a failed sign-in
+// falls back to
 export {
   OAUTH_NO_SEAT,
-  SIGN_IN_OAUTH_REQUIRED,
   SIGN_IN_UNAVAILABLE,
   cardForSlug,
   cardStatus,
   connectPlan,
   credentialFallbackOnRefusal,
   oauthFallbackTarget,
+  oauthFollowOn,
   refusalReloadsCards,
   refusalReturnsToCard,
   signInFallsBackToOAuth,
@@ -317,6 +324,12 @@ export {
   COACH_CONSENTS_KEYS,
 } from './delegation';
 export type { DelegationConsent, ConsentChangeConfirmKeys } from './delegation';
+export {
+  COACH_READ_LOG_ALL_KEYS,
+  COACH_READ_LOG_KEYS,
+  coachReadClassKey,
+  coachReadSourceKey,
+} from './coach-reads';
 
 // The map layers both route cards draw over, and the ink the track is drawn in
 export {
@@ -362,6 +375,14 @@ export {
   weekMinutesSeconds,
 } from './training-volume';
 
+// Settings › Physiology: each anchor's label, each sport family's heading, each confidence (carnet#1516)
+export {
+  ANCHOR_CONFIDENCE_LABEL_KEY,
+  PHYSIOLOGY_ANCHOR_LABEL_KEY,
+  PHYSIOLOGY_KEY,
+  SPORT_FAMILY_LABEL_KEY,
+} from './physiology';
+
 // What every unread and notification badge prints for a count
 export { badgeLabel } from './badge';
 
@@ -392,6 +413,8 @@ export {
   IMPORT_HISTORY_ON_CARD_KEYS,
   IMPORT_STOPPED_KEYS,
   INSTALL_COUNT_KEYS,
+  INVITE_EXPIRY_DAY_KEYS,
+  INVITE_USE_LIMIT_KEYS,
   MEMORY_FACT_COUNT_KEYS,
   NOTIFICATIONS_BELL_UNREAD_KEYS,
   NOTIFICATIONS_UNREAD_KEYS,
@@ -428,3 +451,29 @@ export {
   COACH_SEASON_STATE_KEY,
   COACH_UNVERIFIED_KEYS,
 } from './coach-home';
+
+// The coach seat: who may ask for coach access from a group, where the request stands, what the
+// onboarding seat step says (server state only), and its words
+export {
+  COACH_ACCESS_WAIT_POLL_MS,
+  COACH_SEAT_CHECK_POLL_MS,
+  COACH_SEAT_CHECK_WINDOW_MS,
+  COACH_SEAT_KEYS,
+  COACH_SEAT_SUBTITLE_KEY,
+  canRequestCoachAccess,
+  canRequestCoachAccessWithoutGroup,
+  coachSeatDeclineReason,
+  coachSeatListLine,
+  coachSeatMoment,
+  coachSeatState,
+  coachSeatStepState,
+} from './coach-seat';
+export type {
+  CoachSeatInputs,
+  CoachSeatListLine,
+  CoachSeatProvider,
+  CoachSeatState,
+  CoachSeatStepState,
+} from './coach-seat';
+// The pending coach's Home: who lands on it, whether they train too, and its words (carnet#1529)
+export { COACH_SETUP_KEYS, coachTrainsToo, landsOnPendingCoachHome } from './coach-setup';

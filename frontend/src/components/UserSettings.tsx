@@ -39,21 +39,21 @@ import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
 import CoachingPersonaTab from './CoachingPersonaTab';
+import { CoachAccessSettings } from './CoachAccessPanel';
 import type { SettingsTab } from './settings/settingsTabs';
 import { visibleSettingsTabs } from './settings/visibleSettingsTabs';
 import ApiKeysSettings from './settings/ApiKeysSettings';
 import GearSettings from './settings/GearSettings';
+import PhysiologySettings from './settings/PhysiologySettings';
 import MessagingSettingsTab from './MessagingSettingsTab';
 import NotificationSettingsTab from './NotificationSettingsTab';
 import PrivacySettingsTab from './PrivacySettingsTab';
 import MemoryPanel from './memory/MemoryPanel';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import {
-  HISTORY_IMPORTING_REFRESH_MS,
   cardStatus,
   connectPlan,
   oauthFallbackTarget,
-  historyImporting,
   intervalsConnectPath,
   noticeRequired,
 } from '@pierre/shared-constants';
@@ -220,9 +220,6 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
     // elsewhere (onboarding/chat OAuth, which uses a different query key) would
     // otherwise show stale t('app.connect') here until a manual reconnect.
     refetchOnMount: 'always',
-    // A card copying its history is read again until the copy settles.
-    refetchInterval: (query) =>
-      historyImporting(query.state.data?.providers ?? []) ? HISTORY_IMPORTING_REFRESH_MS : false,
   });
 
   // The cards render as the server serves them: it withholds the raw rows a
@@ -1017,6 +1014,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           </>
         )}
 
+        {activeTab === 'physiology' && <PhysiologySettings />}
+
         {activeTab === 'gear' && <GearSettings />}
 
         {activeTab === 'api-keys' && <ApiKeysSettings />}
@@ -1245,7 +1244,12 @@ Authorization: Bearer <your-token-here>`}
           </>
         )}
 
-        {activeTab === 'coaching' && <CoachingPersonaTab />}
+        {activeTab === 'coaching' && (
+          <>
+            <CoachingPersonaTab />
+            <CoachAccessSettings />
+          </>
+        )}
 
         {activeTab === 'messaging' && <MessagingSettingsTab />}
 
@@ -1697,7 +1701,6 @@ Authorization: Bearer <your-token-here>`}
           refetchProviders();
           setSignIn(null);
         }}
-        onPlanChanged={() => void refetchProviders()}
         target={signIn?.target ?? 'strava'}
         consentRequired={signIn?.consentRequired ?? false}
         historyMode={signIn?.historyMode ?? false}

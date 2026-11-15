@@ -578,6 +578,6 @@ pub fn create_fitness_config_tools() -> Vec<Box<dyn RuntimeTool>> {
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(DeleteFitnessConfigTool => IRREVERSIBLE);
-crate::declare_security!(GetFitnessConfigTool => empty);
-crate::declare_security!(ListFitnessConfigsTool => empty);
+crate::declare_security!(GetFitnessConfigTool => empty; first_party_only);
+crate::declare_security!(ListFitnessConfigsTool => empty; first_party_only);
 crate::declare_security!(SetFitnessConfigTool => empty);

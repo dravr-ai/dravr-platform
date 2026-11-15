@@ -157,6 +157,12 @@ export const ENDPOINTS = {
     INTERVALS_ICU_DISCONNECT: '/api/providers/intervals_icu/disconnect',
     /** Give (PUT) or withdraw (DELETE) the consent to AI use of a provider's data */
     AI_CONSENT: (provider: string) => `/api/providers/${provider}/ai-consent`,
+    /**
+     * WebSocket of a sign-in parked at a provider's robot check (ADR-034),
+     * opened with `?token=` (the takeover token). Under `/ws`, which the web
+     * app's nginx and Vite proxy carry as an upgrade.
+     */
+    SCIOTTE_TAKEOVER_SOCKET: '/ws/providers/sciotte/takeover',
   },
 
   // ==================== STORE ====================
@@ -210,6 +216,8 @@ export const ENDPOINTS = {
     MY_CONSENT: (id: string) => `/api/groups/${id}/members/me/consent`,
     /** The caller's own coach sharing: read it (GET), stop or resume it (PUT) */
     MY_COACH_SHARING: (id: string) => `/api/groups/${id}/members/me/coach-sharing`,
+    /** The caller's own record of their human coach's reads of their data */
+    MY_COACH_READS: (id: string) => `/api/groups/${id}/members/me/coach-reads`,
     /** The shared room transcript (membership-gated, consent-filtered) */
     TRANSCRIPT: (id: string) => `/api/chat/groups/${id}/transcript`,
     /** List/create invites */
@@ -309,6 +317,8 @@ export const ENDPOINTS = {
     ONBOARDING_STEP: (stepId: string) => `/api/me/onboarding/steps/${encodeURIComponent(stepId)}`,
     /** The caller's coach-access request: GET where it stands, POST to ask in one tap */
     COACH_ACCESS_REQUEST: '/api/me/coach-access-request',
+    /** The pending coach's « Préparer ton coaching » checklist (carnet#1529). */
+    COACH_SETUP: '/api/me/coach-setup',
     /** IANA timezone setter — clients PUT this right after login so the chat prompt can render {{CURRENT_DATE}} in the user's local calendar */
     TIMEZONE: '/api/users/me/timezone',
   },
@@ -378,6 +388,8 @@ export const ENDPOINTS = {
     /** Home's Getting started list: connect, then the first-run flows, done or not (`GET`) */
     /** The athlete's units, metric unless they chose imperial (`GET`, `PUT`) */
     UNITS: '/api/me/units',
+    /** The athlete's own anchors per sport family, with range, source and date (`GET`, `?locale=`) */
+    PHYSIOLOGY: '/api/me/physiology',
     /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */
     CHECK_IN: '/api/me/check-in',
     /** The connected calendar Dravr's pushes go to, chosen in Connections (`GET`, `PUT`, `DELETE`) */

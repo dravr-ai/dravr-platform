@@ -20,6 +20,11 @@
 //! activity record, built by
 //! [`pierre_services::athlete_claim_context`] — and not against the
 //! literature alone (carnet#852).
+//!
+//! Served outside Dravr's own surfaces, the tool judges and answers but files
+//! nothing: the claim is a sentence the caller's assistant wrote, part of that
+//! conversation, and Dravr keeps no copy of it (carnet#1565). On Dravr's own
+//! surfaces the verdict row is written as before.
 
 use crate::annotations::{annotations, Effect, Reach};
 use pierre_providers::ai_scope;
@@ -137,16 +142,28 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
         );
         answers_with::<VerifyClaimResult>(tool_definition(
             "verify_claim",
-            "Check a factual claim against the claim-verification pipeline (rhetoric → deterministic bounds → the athlete's own physiology → the athlete's own activity record → evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply an MCP client or agent writes from this server's data is checked only through this tool. Call it on every figure about the athlete (category athlete_data) before stating it, and on any physiological, nutrition, training, or supplement claim you are not certain about.",
+            "Check a factual claim against the claim-verification pipeline (rhetoric, deterministic bounds, the athlete's own physiology and activity record, evidence corpus) and return a structured verdict with evidence strength and optional citations. Dravr checks the replies it writes in its own app and messaging; a reply written elsewhere from this server's data is checked only through this tool, and a call from outside Dravr's apps stores nothing.",
             schema,
-            annotations("Verify factual claim", Effect::AdditiveWrite, Reach::Internal),
+            // Read-only to the caller. On Dravr's own surfaces the one row it
+            // writes is its own verdict, in Dravr's claim-review log (the
+            // admin "flagged claims" surface, and the conversation's verdict
+            // list when the caller names a `conversation_id`); outside them it
+            // writes nothing (carnet#1565). It never changes the athlete's
+            // training, profile or settings.
+            annotations("Verify factual claim", Effect::ReadOnly, Reach::Internal),
         ))
     }
 
     fn capabilities(&self) -> ToolCapabilities {
+        // It reads the athlete's activity record and physiology to judge the
+        // claim, so a read grant is what it needs. The server instructions
+        // and every data result's `_reply_verification` tell an external
+        // client to call it, and the directory listing holds only a read
+        // grant: declared as a write, it would be hidden from exactly those
+        // clients (carnet#1510).
         ToolCapabilities::REQUIRES_AUTH
             | ToolCapabilities::REQUIRES_TENANT
-            | ToolCapabilities::WRITES_DATA
+            | ToolCapabilities::READS_DATA
     }
 
     async fn execute(
@@ -176,6 +193,22 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
             let conversation_id = optional_string_field(&args, "conversation_id");
             let agent_id = optional_string_field(&args, "agent_id");
             let user_id = context.user_id.to_string();
+            // A verdict filed under a conversation shows in that
+            // conversation's verdict list, so the caller may name only a
+            // conversation of their own.
+            if let Some(conversation) = conversation_id.as_deref() {
+                let owned = context
+                    .resources
+                    .repos()
+                    .chat
+                    .get_conversation(conversation, &user_id, tenant_id)
+                    .await?;
+                if owned.is_none() {
+                    return Err(AppError::invalid_input(
+                        "conversation_id is not one of your conversations",
+                    ));
+                }
+            }
 
             let extracted = ExtractedClaim {
                 text: claim_text.clone(),
@@ -226,31 +259,38 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
                 athlete_record.as_ref(),
             );
 
-            let params = InsertClaimVerdictParams {
-                tenant_id,
-                user_id: &user_id,
-                agent_id: agent_id.as_deref(),
-                conversation_id: conversation_id.as_deref(),
-                message_id: None,
-                claim_text: &claim_text,
-                category,
-                status: outcome.status,
-                evidence_strength: outcome.evidence_strength,
-                confidence: outcome.confidence,
-                layer_fired: outcome.layer_fired,
-                explanation: Some(&outcome.explanation),
-                evidence_refs: outcome.evidence_refs.as_deref(),
-                transport_policy: ai_scope::derived_policy(),
+            // Outside Dravr's own surfaces the claim is the caller's
+            // assistant's sentence, and no copy of it is kept (carnet#1565).
+            let verdict_id = if ai_scope::serving_external() {
+                None
+            } else {
+                let params = InsertClaimVerdictParams {
+                    tenant_id,
+                    user_id: &user_id,
+                    agent_id: agent_id.as_deref(),
+                    conversation_id: conversation_id.as_deref(),
+                    message_id: None,
+                    claim_text: &claim_text,
+                    category,
+                    status: outcome.status,
+                    evidence_strength: outcome.evidence_strength,
+                    confidence: outcome.confidence,
+                    layer_fired: outcome.layer_fired,
+                    explanation: Some(&outcome.explanation),
+                    evidence_refs: outcome.evidence_refs.as_deref(),
+                    transport_policy: ai_scope::derived_policy(),
+                };
+                let verdict = context
+                    .resources
+                    .repos()
+                    .claim_verdicts
+                    .insert_claim_verdict(&params)
+                    .await?;
+                Some(verdict.id)
             };
-            let verdict = context
-                .resources
-                .repos()
-                .claim_verdicts
-                .insert_claim_verdict(&params)
-                .await?;
 
             let payload = VerifyClaimResult {
-                verdict_id: verdict.id,
+                verdict_id,
                 status: matches_status(outcome.status).to_owned(),
                 evidence_strength: outcome.evidence_strength.as_str().to_owned(),
                 layer_fired: outcome.layer_fired.as_str().to_owned(),
@@ -275,8 +315,10 @@ impl McpTool<dyn ToolRuntime> for VerifyClaimTool {
 /// and removing one stops compiling.
 #[derive(Debug, Serialize, JsonSchema)]
 pub struct VerifyClaimResult {
-    /// Stable identifier of the persisted verdict.
-    pub verdict_id: String,
+    /// Stable identifier of the persisted verdict. Absent when the call came
+    /// from outside Dravr's own apps, where nothing is stored.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub verdict_id: Option<String>,
     /// Whether the claim was supported, contradicted, or left unverified.
     pub status: String,
     /// How strong the supporting evidence is.

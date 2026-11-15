@@ -14,10 +14,10 @@
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{
-    envelope_check, EnvelopeInput, FlavourInputs, FlavourVerdict, InstanceRequest, PresetParams,
-    PresetShape, Share, WorkoutTemplate,
+    envelope_check, AthleteAnchors, EnvelopeInput, FlavourInputs, FlavourVerdict, InstanceRequest,
+    PresetParams, PresetShape, Share, WorkoutTemplate,
 };
-use pierre_core::models::{SportType, TenantId};
+use pierre_core::models::{sport_anchors, SportType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
     DayEnvelope, FlavourSelection, PlanPhase, PlannedDay, SelectedBy, TemplateParams,
@@ -339,6 +339,7 @@ pub(super) fn resolve_flavour(
 pub(super) fn instantiate_template_days(
     catalogue: &PackagedCatalogue<'_>,
     weeks: &mut [WeekPayload],
+    anchors: Option<&AthleteAnchors>,
 ) -> AppResult<()> {
     for day in weeks.iter_mut().flat_map(|w| &mut w.days) {
         day.envelope = None;
@@ -363,7 +364,7 @@ pub(super) fn instantiate_template_days(
         let sport = plan_sport(&day.sport);
         let stated = day.template_params.map(|p| p.preset_params());
         if day.steps.is_empty() {
-            generate_day(day, template, preset.clone(), sport, stated);
+            generate_day(day, template, preset.clone(), &sport, stated, anchors);
         } else {
             let report = envelope_check(&EnvelopeInput {
                 template,
@@ -372,9 +373,11 @@ pub(super) fn instantiate_template_days(
                 steps: &day.steps,
                 params: stated.as_ref(),
                 generated: false,
-                anchors: None,
+                anchors,
             });
-            day.envelope = Some(DayEnvelope::from_report(report, false));
+            let anchor =
+                anchors.and_then(|held| sport_anchors::target_anchor(&day.steps, &sport, held));
+            day.envelope = Some(DayEnvelope::from_report(report, false, anchor));
         }
         // Record the preset the day resolved to — its key, not the legacy
         // slug that named it — so later reads need no alias table.
@@ -391,8 +394,9 @@ fn generate_day(
     day: &mut PlannedDay,
     template: &WorkoutTemplate,
     preset: Option<String>,
-    sport: SportType,
+    sport: &SportType,
     stated: Option<PresetParams>,
+    anchors: Option<&AthleteAnchors>,
 ) {
     let mut params = stated.unwrap_or_default();
     let sized_by_duration = preset
@@ -406,10 +410,10 @@ fn generate_day(
     let instance = template.instantiate(
         &InstanceRequest {
             preset,
-            sport: Some(sport),
+            sport: Some(sport.clone()),
             params,
         },
-        None,
+        anchors,
     );
     let steps_ok = instance.generated.steps.len() <= MAX_SESSION_STEPS
         && instance.generated.duration_minutes <= MAX_DURATION_MIN
@@ -430,6 +434,7 @@ fn generate_day(
             badge: None,
             generated: false,
             findings: Vec::new(),
+            anchor: None,
             not_generated: Some(format!(
                 "the steps built from these values leave a session's bounds ({} min, {} steps; \
                  at most {MAX_DURATION_MIN} min and {MAX_SESSION_STEPS} steps): write the steps, \
@@ -440,9 +445,11 @@ fn generate_day(
         });
         return;
     }
+    let anchor = anchors
+        .and_then(|held| sport_anchors::target_anchor(&instance.generated.steps, sport, held));
     day.steps = instance.generated.steps;
     day.duration_min = Some(instance.generated.duration_minutes);
-    day.envelope = Some(DayEnvelope::from_report(instance.report, true));
+    day.envelope = Some(DayEnvelope::from_report(instance.report, true, anchor));
 }
 
 /// Every `template_slug` a day names must be a template of the agent's
@@ -538,7 +545,7 @@ mod tests {
             { "date": "2026-11-20", "sport": "ride", "workout": "Plain", "template_slug": plain,
               "envelope": { "generated": true, "relabelled_purpose": "threshold" } },
         ]));
-        instantiate_template_days(&catalogue, &mut weeks).unwrap();
+        instantiate_template_days(&catalogue, &mut weeks, None).unwrap();
         let days = &weeks[0].days;
 
         // Warm-up, 3 × (work, float), two set rests, cool-down: 61 minutes.
@@ -583,7 +590,7 @@ mod tests {
             { "date": "2026-11-16", "sport": "ride", "workout": "30/15",
               "template_slug": FAMILY_SLUG, "template_params": { "work_seconds": 21_600 } },
         ]));
-        instantiate_template_days(&catalogue, &mut weeks).unwrap();
+        instantiate_template_days(&catalogue, &mut weeks, None).unwrap();
         let day = &weeks[0].days[0];
         assert!(day.steps.is_empty(), "{:?}", day.steps);
         let envelope = day.envelope.as_ref().expect("the agent is told why");
@@ -608,7 +615,7 @@ mod tests {
             { "date": "2026-11-16", "sport": "ride", "workout": "x",
               "template_slug": plain, "template_preset": "fx_30_15" },
         ]));
-        let refused = instantiate_template_days(&catalogue, &mut weeks)
+        let refused = instantiate_template_days(&catalogue, &mut weeks, None)
             .unwrap_err()
             .to_string();
         assert!(refused.contains("has no presets"), "{refused}");

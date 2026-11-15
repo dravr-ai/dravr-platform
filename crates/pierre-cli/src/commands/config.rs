@@ -76,7 +76,8 @@ pub(crate) enum ConfigCommand {
         /// Config key, e.g. `usage_quotas.daily_message_cap`
         key: String,
 
-        /// New value. Parsed as JSON when possible, else taken as a string
+        /// New value. A JSON number or boolean is sent as one; anything else,
+        /// a JSON object such as `{"strava":30}` included, as its text
         value: String,
 
         /// Write the tenant-scoped row instead of the system-wide one
@@ -240,6 +241,19 @@ fn flatten_catalog(body: &Value, category: Option<&str>) -> Vec<Param> {
     rows
 }
 
+/// The value `config set` sends for what the operator typed.
+///
+/// A bare `500` is a number and `true` a boolean. Anything that is not valid
+/// JSON is the operator typing a plain string. No parameter takes an object or
+/// an array as such: a map-valued parameter holds the map as its text (e.g.
+/// `activity_retention.provider_days`), so those are sent as typed too.
+fn parse_set_value(value: &str) -> Value {
+    match serde_json::from_str(value) {
+        Ok(Value::Object(_) | Value::Array(_)) | Err(_) => Value::String(value.to_owned()),
+        Ok(parsed) => parsed,
+    }
+}
+
 fn render(value: &Value) -> String {
     value
         .as_str()
@@ -331,10 +345,7 @@ pub(crate) async fn dispatch(command: ConfigCommand) -> AppResult<()> {
             reason,
         } => {
             let scope = Scope::resolve(&client, tenant, user, true).await?;
-            // A bare `500` is a number and `true` a boolean; anything that is
-            // not valid JSON is the operator typing a plain string.
-            let parsed: Value =
-                serde_json::from_str(&value).unwrap_or_else(|_| Value::String(value.clone()));
+            let parsed = parse_set_value(&value);
 
             let payload = json!({
                 "parameters": { key.clone(): parsed },
@@ -448,5 +459,39 @@ pub(crate) async fn dispatch(command: ConfigCommand) -> AppResult<()> {
             }
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn set_sends_scalars_typed_and_maps_as_their_text() {
+        assert_eq!(
+            parse_set_value("500"),
+            json!(500),
+            "bug: a number is not sent as a number"
+        );
+        assert_eq!(
+            parse_set_value("true"),
+            json!(true),
+            "bug: a boolean is not sent as a boolean"
+        );
+        assert_eq!(
+            parse_set_value("observe"),
+            json!("observe"),
+            "bug: a word is not sent as a string"
+        );
+        assert_eq!(
+            parse_set_value(r#"{"strava":30}"#),
+            json!(r#"{"strava":30}"#),
+            "bug: a map is not sent as its text"
+        );
+        assert_eq!(
+            parse_set_value("[1,2]"),
+            json!("[1,2]"),
+            "bug: a list is not sent as its text"
+        );
     }
 }

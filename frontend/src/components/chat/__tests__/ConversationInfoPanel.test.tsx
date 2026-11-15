@@ -2,10 +2,11 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Tests for the header info drawer's four shapes — Group info, a plan thread's athlete, Agent info, and a plain thread
-// ABOUTME: Pins that the shape is read off the conversation and that Remove sends the /agent remove command
+// ABOUTME: Pins the shape read off the conversation, /agent remove, the sheet's trap, scrim and focus return, and a confirm taking Escape first
 
+import { useState } from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { Conversation } from '@pierre/shared-types';
@@ -27,11 +28,32 @@ vi.mock('../../../services/api', () => ({
   groupsApi: { getGroup: (...a: unknown[]) => getGroup(...a) },
 }));
 
-vi.mock('../../groups/GroupInfoPanel', () => ({
-  default: ({ groupId }: { groupId: string }) => (
-    <div data-testid="group-info-panel">group {groupId}</div>
-  ),
-}));
+// The real panel opens a ConfirmDialog over the drawer (leave, remove a
+// member); the stand-in keeps one so the stack can be exercised.
+vi.mock('../../groups/GroupInfoPanel', async () => {
+  const { useState } = await import('react');
+  const { ConfirmDialog } = await vi.importActual<typeof import('../../ui')>('../../ui');
+  return {
+    default: function GroupInfoPanel({ groupId }: { groupId: string }) {
+      const [confirming, setConfirming] = useState(false);
+      return (
+        <div data-testid="group-info-panel">
+          group {groupId}
+          <button type="button" onClick={() => setConfirming(true)}>
+            Leave group
+          </button>
+          <ConfirmDialog
+            isOpen={confirming}
+            onClose={() => setConfirming(false)}
+            onConfirm={() => setConfirming(false)}
+            title="Leave the group?"
+            message="You stop seeing its threads."
+          />
+        </div>
+      );
+    },
+  };
+});
 
 const COACH = {
   id: 'coach-1',
@@ -185,8 +207,73 @@ describe('ConversationInfoPanel', () => {
     await user.click(screen.getByTestId('conversation-info-rename'));
     expect(handlers.onRename).toHaveBeenCalledWith('Track night');
 
-    await user.click(screen.getByTestId('conversation-info-delete'));
+    // Delete is a quiet row: it asks first, and the danger is drawn in the confirm.
+    const deleteRow = screen.getByTestId('conversation-info-delete');
+    expect(deleteRow).not.toHaveClass('btn-danger');
+    await user.click(deleteRow);
+    expect(handlers.onDelete).not.toHaveBeenCalled();
+    const dialogs = await screen.findAllByRole('dialog');
+    const confirm = dialogs[dialogs.length - 1];
+    expect(confirm).toHaveTextContent('Delete this chat?');
+    await user.click(within(confirm).getByRole('button', { name: 'Delete' }));
     expect(handlers.onDelete).toHaveBeenCalledTimes(1);
+  });
+
+  it('draws the drawer as a sheet over the scrim, with a close target of at least 32px', async () => {
+    renderPanel(conversation());
+
+    const sheet = await screen.findByRole('dialog', { name: 'Chat info' });
+    expect(sheet).toHaveAttribute('aria-modal', 'true');
+    expect(document.querySelector('.bg-scrim\\/60')).not.toBeNull();
+    expect(document.querySelector('.bg-black\\/60')).toBeNull();
+    // h-11 w-11: 44px, over the 32px desktop floor (DESIGN.md §8).
+    expect(within(sheet).getByRole('button', { name: 'Close' })).toHaveClass('h-11', 'w-11');
+  });
+
+  it('keeps Tab inside the drawer, and gives focus back to the thread title on Escape', async () => {
+    const user = userEvent.setup();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <QueryClientProvider client={queryClient}>
+          <ToastProvider>
+            <button type="button" onClick={() => setOpen(true)}>
+              Sunday long run
+            </button>
+            <button type="button">behind the drawer</button>
+            {open && (
+              <ConversationInfoPanel
+                conversation={conversation()}
+                onClose={() => setOpen(false)}
+                onSendCommand={vi.fn()}
+                onEditCoach={vi.fn()}
+                onRename={vi.fn()}
+                onDelete={vi.fn()}
+                onThreadGone={vi.fn()}
+              />
+            )}
+          </ToastProvider>
+        </QueryClientProvider>
+      );
+    }
+    render(<Host />);
+
+    const title = screen.getByRole('button', { name: 'Sunday long run' });
+    await user.click(title);
+    const sheet = await screen.findByRole('dialog', { name: 'Chat info' });
+    await screen.findByTestId('conversation-info-title');
+
+    // However far the keyboard walks, it never reaches the page behind.
+    for (let step = 0; step < 12; step += 1) {
+      await user.tab();
+      expect(sheet).toContainElement(document.activeElement as HTMLElement);
+    }
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Chat info' })).toBeNull();
+    expect(document.activeElement).toBe(title);
   });
 
   it('refuses a rename that changes nothing', async () => {
@@ -201,6 +288,22 @@ describe('ConversationInfoPanel', () => {
     await waitFor(() => expect(list).toHaveTextContent('owner-1 · owner'));
   });
 
+  it('folds a participants list it opened with on the first Escape, and closes on the next', async () => {
+    const user = userEvent.setup();
+    // The panel and the list inside it mount in the same render, and the
+    // list's effect runs first: by push order alone the panel would take the
+    // Escape.
+    const handlers = renderPanel(conversation(), { openParticipants: true });
+    await screen.findByRole('list', { name: 'Participant list' });
+
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('list', { name: 'Participant list' })).not.toBeInTheDocument();
+    expect(handlers.onClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(handlers.onClose).toHaveBeenCalledTimes(1);
+  });
+
   it('closes on Escape', async () => {
     const user = userEvent.setup();
     const handlers = renderPanel(conversation());
@@ -209,5 +312,23 @@ describe('ConversationInfoPanel', () => {
     await user.keyboard('{Escape}');
 
     expect(handlers.onClose).toHaveBeenCalled();
+  });
+
+  it('stays open under a confirm dialog that Escape closes', async () => {
+    const user = userEvent.setup();
+    const handlers = renderPanel(conversation({ group_id: 'group-7', group_name: 'Sunday Riders', agent_id: 'coach-1' }));
+
+    await user.click(await screen.findByRole('button', { name: 'Leave group' }));
+    expect(screen.getByRole('dialog', { name: 'Leave the group?' })).toBeInTheDocument();
+
+    await user.keyboard('{Escape}');
+    // carnet#1553: the panel listened on `window` and closed with the
+    // confirm dialog over it.
+    expect(screen.queryByRole('dialog', { name: 'Leave the group?' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('conversation-info-panel')).toBeInTheDocument();
+    expect(handlers.onClose).not.toHaveBeenCalled();
+
+    await user.keyboard('{Escape}');
+    expect(handlers.onClose).toHaveBeenCalledTimes(1);
   });
 });

@@ -173,6 +173,7 @@ async fn read_and_store(
         Ok(detailed) => {
             activity_detail_store::store_detail(
                 runtime.repos(),
+                runtime.live_activities().as_ref(),
                 tenant_id,
                 user_id,
                 cached.provider,

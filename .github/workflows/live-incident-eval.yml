@@ -206,7 +206,7 @@ jobs:
       # (carnet#1114). The workflow env above carries exactly ci-backend.yml's
       # CARGO_*, which rust-cache hashes into the key.
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: test-dev
           cache-save: 'false'

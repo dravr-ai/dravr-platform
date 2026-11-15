@@ -170,6 +170,7 @@ mod tests {
             pending_provider_auth_required: None,
             served_without_provider: None,
             window_incomplete: false,
+            envelope_days: Vec::new(),
             guardian_denied: denied,
             capability_claim_unverified: false,
             provider_warnings: Vec::new(),

@@ -360,15 +360,6 @@ export interface ExtendedProviderStatus {
    */
   connected_backend?: string;
   /**
-   * The move the card asks of an athlete connected by usr/pwd alone:
-   * `'oauth_required'` on the Garmin card of an athlete whose own usr/pwd
-   * session serves it, with no Garmin grant, while a seat is free on Garmin's
-   * OAuth client. The card offers Garmin's official connection; the athlete
-   * keeps their session until they move. Absent otherwise, and always with
-   * the pool full.
-   */
-  migration?: 'oauth_required';
-  /**
    * How the connection behind a connected card was made: `"oauth"` for a
    * provider authorization, `"manual"` for a pasted credential (an
    * Intervals.icu API key), `"delegated"` for a card read through a group
@@ -460,13 +451,11 @@ export interface ExtendedProviderStatus {
 
 /**
  * Where a provider card's history stands: `needed` while the grant serves and
- * nothing from before it is held, `importing` while a one-time copy runs,
- * `incomplete` when the last copy ended before the history landed,
- * `imported` once a sign-in's copy or an imported export is held (the
- * grant's own pushes never count), `not_applicable` for a card whose ongoing
+ * nothing from before it is held, `imported` once rows a sign-in stored or an
+ * imported export are held (the grant's own pushes never count), `not_applicable` for a card whose ongoing
  * source reads history itself.
  */
-export type HistoryState = 'needed' | 'importing' | 'incomplete' | 'imported' | 'not_applicable';
+export type HistoryState = 'needed' | 'imported' | 'not_applicable';
 
 /** A provider card's history: where it stands and how it can be brought in. */
 export interface HistoryStatus {
@@ -518,6 +507,15 @@ export type SciotteLoginResponse =
       provider: string;
       /** Set when a recent stored session answered without a new login */
       short_circuit?: boolean;
+      /**
+       * The provider's own authorization this sign-in goes on to, while the
+       * grant that writes what the session cannot (Garmin's, which pushes
+       * workouts) is still owed and a seat is there for it: sign-in first,
+       * then the grant. `authorization_url` only for the hosted sign-in a
+       * provider's own link opens, and for a hosted sign-in a takeover
+       * concluded on `/sign-in-check`. Absent or `null` otherwise.
+       */
+      oauth_follow_on?: { provider: string; authorization_url?: string } | null;
     }
   | {
       status: 'two_factor_choice';
@@ -542,7 +540,90 @@ export type SciotteLoginResponse =
       status: 'failed';
       /** The provider's own refusal, in English; clients word their own message */
       error: string;
+    }
+  | {
+      /**
+       * The provider stopped the sign-in at a robot check, and the browser it
+       * runs in is parked for the athlete to answer it (ADR-034). Only a login
+       * that named its window's `attempt_id` gets this answer.
+       */
+      status: 'takeover_required';
+      /** Backend provider the sign-in is for (e.g. `sciotte_garmin`) */
+      provider: string;
+      /**
+       * The web app's takeover page, `/sign-in-check#token=…`: the takeover
+       * token rides in the fragment, read with the token-link parser.
+       */
+      takeover_url: string;
     };
+
+/**
+ * One input message a takeover viewer sends on
+ * `/ws/providers/sciotte/takeover`, as JSON text. Mirrors sciotte's
+ * `wire::TakeoverInput`; anything else is dropped by the server. Coordinates
+ * are the frame's own pixels, which are the page viewport's CSS pixels.
+ */
+export type SciotteTakeoverInput =
+  | { type: 'pointer'; action: 'down' | 'up' | 'move'; x: number; y: number }
+  | { type: 'wheel'; x: number; y: number; dx: number; dy: number }
+  | { type: 'key'; action: 'down' | 'up'; key: SciotteTakeoverKey }
+  /** Typed or pasted text, at most 1024 UTF-8 bytes (`SCIOTTE_TAKEOVER_MAX_TEXT_BYTES`). */
+  | { type: 'text'; text: string }
+  /** The viewer's area in whole CSS pixels; the server clamps it to 320–1920 × 480–1920. */
+  | { type: 'resize'; width: number; height: number };
+
+/** The non-printing keys a takeover forwards; printable text goes as `text`. */
+export type SciotteTakeoverKey =
+  | 'Backspace'
+  | 'Tab'
+  | 'Enter'
+  | 'Escape'
+  | 'Delete'
+  | 'ArrowLeft'
+  | 'ArrowUp'
+  | 'ArrowRight'
+  | 'ArrowDown';
+
+/**
+ * The step answer a takeover ends with: what `POST
+ * /api/providers/sciotte/login` would have answered, with its HTTP status. A
+ * status below 400 carries a {@link SciotteLoginResponse}; any other carries
+ * the platform's error body (`details.reason`, e.g. `takeover_ended`), or
+ * `null` when there was none to read.
+ */
+export interface SciotteTakeoverOutcome {
+  type: 'outcome';
+  status_code: number;
+  body: unknown;
+}
+
+/**
+ * One JSON text event a takeover sends. Frames are not events: each is a
+ * binary message holding one JPEG of the page. Mirrors sciotte's
+ * `wire::TakeoverEvent`; the outcome is always the last, then the socket
+ * closes.
+ */
+export type SciotteTakeoverEvent =
+  /** The page streams and takes input; its viewport, which is the frames' size. */
+  | { type: 'status'; state: 'ready'; width: number; height: number }
+  /** The page tried to open a window, which a takeover never follows. */
+  | { type: 'popup_refused' }
+  /** The page left the provider's sign-in and was sent back to it. */
+  | { type: 'navigation_reset' }
+  | SciotteTakeoverOutcome;
+
+/**
+ * What the `/sign-in-check` page posts to the React Native app that loaded it
+ * in a WebView (`window.ReactNativeWebView.postMessage`, as JSON): the
+ * sign-in connected, or the takeover is over without connecting. `closed`
+ * carries the step answer the takeover ended with, when one arrived, so the
+ * app words it as it words the same answer to an HTTP step. `connected`
+ * carries `follow_on`, the provider whose own authorization the sign-in goes
+ * on to (the answer's `oauth_follow_on`, carnet#1494), when it has one.
+ */
+export type SciotteTakeoverBridgeMessage =
+  | { type: 'connected'; follow_on?: string }
+  | { type: 'closed'; outcome?: SciotteTakeoverOutcome };
 
 /**
  * Answer of `POST /api/providers/sciotte/cancel`: whether the cancel ended a

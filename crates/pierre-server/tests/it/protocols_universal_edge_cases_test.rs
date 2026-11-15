@@ -145,6 +145,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -180,6 +181,7 @@ async fn create_executor_no_oauth() -> Result<UniversalToolExecutor> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -240,8 +242,10 @@ async fn test_oauth_configuration_errors() -> Result<()> {
         .execute_tool(request)
         .await
         .expect_err("get_activities without OAuth credentials must short-circuit as auth-required");
+    // Holding no Strava credential, the athlete is sent to Strava's hosted
+    // sign-in, its mirror (carnet#1494).
     assert!(
-        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "strava"),
+        matches!(err, ProtocolError::ProviderAuthRequired { ref provider } if provider == "sciotte"),
         "unexpected error shape: {err:?}"
     );
 

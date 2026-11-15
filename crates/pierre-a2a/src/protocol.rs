@@ -34,6 +34,7 @@ use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
+use pierre_tool_runtime::coach_listing;
 use pierre_tool_runtime::deployment_tools;
 use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::{
@@ -43,7 +44,7 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use std::fmt;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Value};
-use std::future::{ready, Future};
+use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::broadcast;
@@ -241,8 +242,8 @@ impl A2AServer {
             // The authenticated extended card: the public card enriched with
             // the live tool registry as skills.
             "GetExtendedAgentCard" => {
-                self.require_auth_then(request, |s, req, _principal| {
-                    Box::pin(ready(s.handle_extended_card(req)))
+                self.require_auth_then(request, |s, req, principal| {
+                    Box::pin(s.handle_extended_card(req, principal))
                 })
                 .await
             }
@@ -448,7 +449,14 @@ impl A2AServer {
     /// live tool registry exposed as additional skills. This is the
     /// authenticated, dynamic variant of the discovery card (the public
     /// card's skills are the curated static subset).
-    fn handle_extended_card(&self, request: A2ARequest) -> A2AResponse {
+    ///
+    /// Listed per caller: a tool only a group's human coach can use is a skill
+    /// for a coach alone (carnet#1426).
+    async fn handle_extended_card(
+        &self,
+        request: A2ARequest,
+        principal: AuthPrincipal,
+    ) -> A2AResponse {
         let Some(resources) = &self.resources else {
             return Self::server_not_configured_error(request.id);
         };
@@ -458,6 +466,9 @@ impl A2AServer {
             card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
         let registry = resources.tool_runtime.tool_registry();
         let mut schemas = registry.user_visible_schemas();
+        let is_coach =
+            coach_listing::is_human_coach(resources.ctx.repos(), principal.user_id).await;
+        coach_listing::retain_for_audience(registry, &mut schemas, is_coach);
         // An A2A agent is outside Dravr's own surfaces: a tool kept on them is
         // not offered as a skill, and is refused if the agent names it anyway.
         first_party_tools::retain_served_over(registry, &mut schemas, Transport::A2a);

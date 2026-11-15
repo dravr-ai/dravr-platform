@@ -33,12 +33,18 @@ pub mod advice_capture;
 pub mod api_key_cleanup;
 /// Archetype aggregation: roll per-user playbooks into k-anonymous cold-start priors
 pub mod archetype_aggregation;
+/// Adopting the activity cache into the activity store, once per environment (carnet#1482)
+pub mod cache_adoption;
 /// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
 pub mod coach_access;
 /// An Intervals.icu key whose roster coaches active athletes files its owner's coach-access request, never a grant
 pub mod coach_access_evidence;
+/// A decided coach-access request told to its coach: the room line, the in-app notice, the email (carnet#1521)
+pub mod coach_access_notice;
 /// Coach Home's attention reasons and season state, from one roster row's signals (carnet#1252, #1250)
 pub mod coach_attention;
+/// Hourly purge of the athletes' records of their human coach's reads past 12 months (carnet#1445)
+pub mod coach_read_retention;
 /// A coach's after-the-fact review of the agent's group replies: flags, corrections, the weekly count (carnet#847)
 pub mod coach_replies;
 /// The human coach's roster from the database: access, members, consent, order (carnet#1251)
@@ -53,6 +59,9 @@ pub mod auth;
 
 /// Product analytics (`PostHog`) for messaging funnel, tool usage, and command tracking
 pub mod analytics;
+
+/// The anchors an athlete's workout families resolve on, from their stored physiology.
+pub mod athlete_anchors;
 
 /// The athlete's civil date, from the timezone on their user row.
 pub mod athlete_clock;
@@ -136,6 +145,10 @@ pub mod agent_package_repair;
 pub mod fortnight;
 pub mod plan_card;
 
+/// Stored plan cards read back from history: a day's outside-the-evidence
+/// mark worded as a live card words it (carnet#1552)
+pub mod plan_card_history;
+
 /// Agent-selection recording — the one emit site for `agent.selected`
 pub mod agent_selection;
 
@@ -169,15 +182,27 @@ pub mod default_agent;
 /// (carnet#1097).
 pub mod team_rules;
 
+/// The one write path of every provider's activities: kept in the activity store (carnet#1482)
+pub mod live_activities;
+
+/// The activity store over dravr-barrage, its record store opener and its projection into the cache (carnet#1482)
+pub mod barrage_live_store;
+
+/// The activity store's projection into the activity cache: the cache's one writer (carnet#1482)
+pub mod activity_cache_sink;
+
+/// A deleted activity's gear released, and the workout merge the gear ledger reads (carnet#711)
+pub mod gear_release;
+
+/// The one provider data purge: the tables and the activity store's live records (carnet#1482)
+pub mod provider_purge;
+
 /// Garmin push ingest: each stored batch's records written to Dravr's stores (carnet#1155)
 pub mod garmin_push;
 
 /// Health data sync adapter bridging dravr-enforme store traits to pierre-database
 #[cfg(feature = "health-sync")]
 pub mod health_sync;
-
-/// The seam that runs and retires a usr/pwd session's one-time history import
-pub mod history_import;
 
 /// The one writer of wellness rows: every ingress writes nights, days, sources and series through it
 pub mod wellness_store;
@@ -301,8 +326,11 @@ mod oauth_state_redeem;
 /// Upstream grant revocation + provider-data purge for the disconnect chokepoint
 pub mod provider_revocation;
 
-/// Cache TTL sweep: evicts provider data held past the cap its terms declare
-pub mod provider_cache_sweeper;
+/// The one retention policy of provider data, from `activity_retention.*` runtime config
+pub mod retention_policy;
+
+/// The hourly retention sweep: provider activities in barrage, wellness in the platform's tables
+pub mod retention_sweep;
 
 /// The Firebase identity deletion outbox: settles each attempt, sweeps the rest
 pub mod firebase_identity_outbox;

@@ -23,10 +23,10 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Shared server/MCP foundation. From crates.io; every consumer moves in lockstep
 # because two tronc versions in the lockfile hard-fail the duplicate gate.
-dravr-tronc = "6.7.0"
+dravr-tronc = "6.8.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
-dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.48.0" }
+dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.49.0" }
 
 # Messaging types and channel adapters.
 dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.9.2" }
@@ -34,18 +34,18 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.9
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
 # stanza): the two move in one commit or Cargo.lock holds two.
-dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.15.4", default-features = false }
+dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.21.0", default-features = false }
 
 # Notification transport.
-dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.8.0" }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.9.0" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
-dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "9c96702ae28d126e72326454f5ecdf06226556c8" }
+dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git", rev = "706a6102f702708c8b21c102147dfbc40d9af4ca" }
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.17.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.17.1", default-features = false }
+dravr-enforme = { version = "0.18.0", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.18.0", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.9.0" }
@@ -62,7 +62,7 @@ dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "
 
 # Provider capture. Moves with dravr-enforme, which pins it too -- see its
 # companions stanza in satellites.toml for why the two pins can never move apart.
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v1.4.0", default-features = false }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v2.0.0", default-features = false }
 
 # Billing capability, gated behind the billing-stripe feature.
 dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.10.0" }
@@ -70,6 +70,11 @@ dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0
 # Secret-holding config fields: Debug prints a redaction and reading the value
 # takes an explicit expose_secret(), so no format of a config struct leaks one.
 secrecy = { version = "0.10.3", features = ["serde"] }
+
+# Canonical decomposition (NFD) for pierre_core::text_fold, the one fold a typed
+# name is matched through. Already in the graph through stringprep; named here
+# so the version every consumer sees is the one the workspace pins.
+unicode-normalization = "0.1.26"
 
 # ============================================================================
 # Build Profiles

@@ -7,13 +7,17 @@
 use chrono::NaiveDate;
 use photograveur::{resolve_all, Locale};
 use pierre_chat_pipeline::stages::viz_blocks::strip_markers;
+use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::models::messaging::rich_text::{parse_markdown, render_plain};
 use pierre_core::models::{
     is_turn_marker_block, ConversationParticipant, ConversationRecord, InputSource,
-    ParticipantRole, PersistedReplyBlock, RoomQuote, ACTIONS_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
+    ParticipantRole, PersistedReplyBlock, RoomQuote, ACTIONS_BLOCK_TYPE,
+    ENVELOPE_NOTICE_BLOCK_TYPE, ROOM_QUOTE_BLOCK_TYPE,
 };
 use pierre_services::coach_plan_draft::DraftState;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
+use pierre_services::plan_card_history::word_stored_outside_evidence;
+use pierre_tool_runtime::implementations::training_plans_output::CalendarPushOutcome;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tracing::warn;
@@ -26,6 +30,8 @@ pub(super) struct StoredBlocks {
     pub scene_blocks: Option<String>,
     /// The controls a persisted command reply carried.
     pub actions: Option<MessageActionsResponse>,
+    /// The envelope notice the reply carried.
+    pub envelope_notice: Option<EnvelopeNoticeResponse>,
 }
 
 /// Resolve a stored `content_blocks` column into what a client renders.
@@ -43,11 +49,20 @@ pub(super) struct StoredBlocks {
 /// the message: one malformed chart must never cost the athlete the reply
 /// carrying it. Absent parts are `None`, so the fields are omitted from the
 /// response entirely.
+///
+/// A stored plan card's outside-the-evidence mark is worded in `locale` from
+/// `registry` first, as a live card words it: snapshots saved from 079ffba87
+/// until carnet#1552 store it as a bool ([`word_stored_outside_evidence`]).
 #[must_use]
-pub(super) fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> StoredBlocks {
-    let Some(entries) = stored.and_then(parse_stored_specs) else {
+pub(super) fn resolve_stored_blocks(
+    stored: Option<&str>,
+    registry: &MessagingStringsRegistry,
+    locale: &str,
+) -> StoredBlocks {
+    let Some(mut entries) = stored.and_then(parse_stored_specs) else {
         return StoredBlocks::default();
     };
+    word_stored_outside_evidence(&mut entries, registry, locale);
     let block_type = |entry: &Value| entry.get("type").and_then(Value::as_str).map(str::to_owned);
     // Turn markers — who wrote a question, which question a stopped notice
     // closed — are bookkeeping about the row and reach no client here; a room
@@ -59,9 +74,17 @@ pub(super) fn resolve_stored_blocks(stored: Option<&str>, locale: &str) -> Store
                 .is_some_and(|kind| is_turn_marker_block(&kind) || kind == ROOM_QUOTE_BLOCK_TYPE)
         })
         .partition(|entry| block_type(entry).as_deref() == Some(ACTIONS_BLOCK_TYPE));
+    // The envelope notice is the platform's text, not a chart: photograveur
+    // must never be handed it, and the client draws it from its own field.
+    let (notices, specs): (Vec<Value>, Vec<Value>) = specs
+        .into_iter()
+        .partition(|entry| block_type(entry).as_deref() == Some(ENVELOPE_NOTICE_BLOCK_TYPE));
     StoredBlocks {
         scene_blocks: resolve_visual_specs(&specs, locale),
         actions: actions.into_iter().find_map(decode_actions_entry),
+        envelope_notice: notices
+            .into_iter()
+            .find_map(|entry| serde_json::from_value::<EnvelopeNoticeResponse>(entry).ok()),
     }
 }
 
@@ -371,6 +394,9 @@ pub(super) struct PublishedSubjectPlanResponse {
     /// publish changed no day, or the room is not the coach's and the
     /// athlete's alone.
     pub posted_in_room: bool,
+    /// The published plan put on the athlete's chosen calendar, or why it
+    /// was not (carnet#1492).
+    pub calendar_push: CalendarPushOutcome,
 }
 
 /// `POST …/subject-plan/publish` answered 409: the athlete's plan moved
@@ -609,6 +635,16 @@ impl From<ClientInputSource> for InputSource {
     }
 }
 
+/// What the envelope check found on a reply's sessions, as the platform wrote
+/// it: a heading and one line per session.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EnvelopeNoticeResponse {
+    /// The notice's heading.
+    pub heading: String,
+    /// One line per session.
+    pub lines: Vec<String>,
+}
+
 /// Response for a message
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MessageResponse {
@@ -642,6 +678,10 @@ pub struct MessageResponse {
     /// ride the block list instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub actions: Option<MessageActionsResponse>,
+    /// The envelope notice a reply carried (carnet#1495), so a reload draws
+    /// it again. Absent on a live turn, whose notice rides the block list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope_notice: Option<EnvelopeNoticeResponse>,
     /// The channel the turn that wrote this row came over (`web`, `mobile`,
     /// `telegram`, …). The personal thread is shared with the athlete's
     /// messaging DM, so a client tags the rows that came from a messaging app.

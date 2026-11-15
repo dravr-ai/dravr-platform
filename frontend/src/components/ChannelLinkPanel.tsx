@@ -1,5 +1,5 @@
 // ABOUTME: The body of a chat-app link in progress — QR + deep-link button (Telegram/WhatsApp) or an OAuth connect button
-// ABOUTME: Shared by the onboarding connect step and Settings → Messaging, so both hand the athlete the same link
+// ABOUTME: Shared by the chat-app sheet and Settings → Messaging, so both hand the athlete the same link
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -12,17 +12,21 @@ import { Button } from './ui';
  * Render a started channel link.
  *
  * Deep-link channels show a QR — the primary path on desktop, where the athlete
- * runs the chat app on their phone — plus a tap button (the primary path on a
- * phone). OAuth channels show a single connect button that redirects. The
- * caller owns the wait: it polls the linked channels and moves on when this
- * one appears, which is why the panel ends on a "waiting" line.
+ * runs the chat app on their phone — plus a tap button (the only path on a
+ * phone, where the caller passes `showQr={false}`: nobody can scan the screen
+ * they are holding). OAuth channels show a single connect button that
+ * redirects. The caller owns the wait: it polls the linked channels and moves
+ * on when this one appears, which is why the panel ends on a "waiting" line.
  */
 export default function ChannelLinkPanel({
   link,
   displayName,
+  showQr = true,
 }: {
   link: LinkInitResponse;
   displayName: string;
+  /** Offer a deep link as a QR too. On by default; off on a phone. */
+  showQr?: boolean;
 }) {
   const { t } = useTranslation();
   const isDeepLink = link.method === 'deep_link';
@@ -33,7 +37,7 @@ export default function ChannelLinkPanel({
 
   return (
     <div className="flex flex-col items-center gap-5" data-testid="channel-link-panel">
-      {isDeepLink && link.qr_svg ? (
+      {isDeepLink && showQr && link.qr_svg ? (
         <>
           {/* White plate so the black-on-white QR stays scannable in any theme. */}
           <div className="rounded-xl bg-white p-3">

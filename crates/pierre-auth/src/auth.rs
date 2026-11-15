@@ -539,7 +539,7 @@ impl AuthManager {
     }
 
     /// Validate a token as the athlete's own session: a first-party credential,
-    /// minted with the whole self grant.
+    /// minted with the whole self grant, held by the athlete themselves.
     ///
     /// A delegated OAuth access token is refused however valid its signature.
     /// It is a third party's credential, as narrow as the athlete consented
@@ -547,16 +547,28 @@ impl AuthManager {
     /// all, where a session approves new grants — would otherwise act on it
     /// with the athlete's whole authority.
     ///
+    /// An impersonation token is refused too. It is an operator acting as the
+    /// athlete for an hour at most, and only the auth middleware checks that
+    /// its session is still live. Taken as a session here, it would approve
+    /// grants and mint first-party sessions in the athlete's name that outlive
+    /// the hour and the impersonation's end (carnet#909, carnet#1560).
+    ///
     /// # Errors
     ///
-    /// Everything [`Self::validate_token`] refuses, and a token whose grant is
-    /// narrower than [`OAuthScope::self_grant`].
+    /// Everything [`Self::validate_token`] refuses, a token whose grant is
+    /// narrower than [`OAuthScope::self_grant`], and an impersonation token.
     pub fn validate_session_token(
         &self,
         token: &str,
         jwks_manager: &JwksManager,
     ) -> AppResult<Claims> {
-        Self::require_self_grant(self.validate_token(token, jwks_manager)?)
+        let claims = Self::require_self_grant(self.validate_token(token, jwks_manager)?)?;
+        if claims.impersonation_session_id.is_some() {
+            return Err(AppError::auth_invalid(
+                "An impersonation token is not a session",
+            ));
+        }
+        Ok(claims)
     }
 
     /// Validate the authorization server's own sign-in token, minted by

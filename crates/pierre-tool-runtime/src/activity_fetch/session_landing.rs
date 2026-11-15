@@ -12,7 +12,7 @@ use pierre_services::notification_digest_scheduler::session_landed;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::activity_cache_retention_days;
+use super::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use crate::runtime::ToolRuntime;
 
 /// Whether writing `activities` through lands a training session: one that
@@ -42,7 +42,7 @@ pub(super) async fn lands_a_session(
         return false;
     };
     let now = Utc::now();
-    let window_start = now - Duration::days(activity_cache_retention_days());
+    let window_start = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     match runtime
         .repos()
         .activity_cache

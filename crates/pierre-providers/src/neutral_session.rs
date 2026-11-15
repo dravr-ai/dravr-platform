@@ -15,7 +15,10 @@
 //!   clause of the agent's prescription and can carry a reason;
 //! - each step is named by its class ([`StepClass`]), read off its label
 //!   against a closed vocabulary or off its target, so a step's label or note
-//!   never leaves Dravr.
+//!   never leaves Dravr;
+//! - a step's zone, where one is written out, is the step grammar's own
+//!   rendering of the parsed target (`Z3`, `88-94% FTP`, `RPE 6-7`), never
+//!   the label it was parsed from (carnet#1532).
 
 use dravr_cageux::periodization::{band_coordinates, AnchorRatios, SportFamily, ThresholdBasis};
 use dravr_cageux::zones::COGGAN_POWER_ZONE_UPPER_FRACTIONS;
@@ -58,8 +61,10 @@ fn format_duration(seconds: u64) -> String {
 }
 
 /// A step's extent as a title shows it: `8 min`, `30 s`, `400 m`, `2 km`.
-fn format_extent(step: &WorkoutStep) -> String {
-    if let Some(distance) = step.distance_meters {
+/// A distance of zero is no distance, as it is to the calendars, so the step
+/// shows its time.
+pub(crate) fn format_extent(step: &WorkoutStep) -> String {
+    if let Some(distance) = step.distance_meters.filter(|meters| *meters > 0.0) {
         if distance >= 1000.0 {
             let km = format!("{:.1}", distance / 1000.0);
             return format!("{} km", km.trim_end_matches('0').trim_end_matches('.'));
@@ -132,6 +137,22 @@ pub(crate) enum StepClass {
 }
 
 impl StepClass {
+    /// What a neutral calendar's text calls a step of this class.
+    pub(crate) const fn label(self) -> &'static str {
+        match self {
+            Self::Warmup => "Warm-up",
+            Self::Cooldown => "Cool-down",
+            Self::Recover => "Recovery",
+            Self::Rest => "Rest",
+            Self::Active => "Steady",
+            Self::Tempo => "Tempo",
+            Self::Threshold => "Threshold",
+            Self::Vo2Max => "VO2max",
+            Self::Anaerobic => "Anaerobic",
+            Self::Neuromuscular => "Sprint",
+        }
+    }
+
     /// The class of a training zone 1–7.
     const fn of_zone(zone: u8) -> Self {
         match zone {
@@ -303,5 +324,21 @@ mod tests {
             steps: vec![step("w", 15, "Z2", 1), step("i", 3, "Z5", 5)],
         };
         assert_eq!(neutral_title(&session), "Run 30 min · 5×3 min");
+    }
+
+    #[test]
+    fn a_step_shows_its_distance_and_falls_back_to_its_time_when_the_distance_is_zero() {
+        let mut lengths = step("s", 0, "Z3", 1);
+        lengths.distance_meters = Some(400.0);
+        assert_eq!(format_extent(&lengths), "400 m");
+        lengths.distance_meters = Some(2500.0);
+        assert_eq!(format_extent(&lengths), "2.5 km");
+        let mut timed = step("s", 8, "Z3", 1);
+        timed.distance_meters = Some(0.0);
+        assert_eq!(
+            format_extent(&timed),
+            "8 min",
+            "a zero distance is no distance"
+        );
     }
 }

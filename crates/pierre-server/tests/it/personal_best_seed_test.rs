@@ -1,5 +1,5 @@
-// ABOUTME: carnet#582 — the one-time walk of a Strava athlete's history seeds their all-time bests before any record is told
-// ABOUTME: Drives the real seed pass and StravaProvider against a Strava-shaped mock serving per-athlete histories and streams
+// ABOUTME: carnet#582 — the one-time walk of a Strava athlete's stored history seeds their all-time bests before any record is told
+// ABOUTME: Drives the real seed pass over a walked store, with StravaProvider's streams from a Strava-shaped mock that counts each request
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,11 +13,14 @@
 //
 // A personal record is announced only against the athlete's whole running
 // history, so each Strava athlete's history is walked once, paced by the
-// server's shared Strava budget, before any record is told. These tests point
-// the real Strava provider at a local mock (`PIERRE_STRAVA_API_BASE_URL`, the
-// registry seam) that serves each athlete's history by their access token,
-// pages it at a few activities so a short history spans several pages, and
-// counts every listing and every streams request.
+// server's shared Strava budget, before any record is told. The history is
+// the one a history walk copied into the activity store (carnet#1482): each
+// athlete here holds theirs in the store under `strava` with the walk ended,
+// and the seed never lists it at Strava. These tests point the real Strava
+// provider at a local mock (`PIERRE_STRAVA_API_BASE_URL`, the registry seam)
+// that serves each athlete's runs' streams by their access token and counts
+// every request: a listing, which the seed must never make, every streams
+// request, and every profile read.
 #![cfg(all(
     feature = "health-sync",
     feature = "provider-strava",
@@ -27,6 +30,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::helpers::history_walk_ledger::walked_history;
 use secrecy::SecretString;
 
 use std::cmp::Reverse;
@@ -42,7 +46,7 @@ use chrono::{TimeZone, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId, UserOAuthToken};
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::personal_best_seed::{
-    run_personal_best_seed_pass, strava_provider, SeedPassReport,
+    exact_provider, run_personal_best_seed_pass, SeedPassReport,
 };
 use pierre_notifications::events::event_params;
 use pierre_notifications::TenantId as CommereTenantId;
@@ -58,7 +62,7 @@ use tokio::time::sleep;
 use uuid::Uuid;
 
 /// The most activities the mock returns per listing, whatever `per_page`
-/// asks for, so a history of a few activities spans several pages.
+/// asks for.
 const PAGE_CAP: usize = 3;
 
 /// Seconds in a day.
@@ -66,8 +70,8 @@ const DAY: i64 = 86_400;
 
 /// One activity of a mocked history.
 #[derive(Debug, Clone, Copy)]
-struct MockActivity {
-    id: u64,
+pub(crate) struct MockActivity {
+    pub(crate) id: u64,
     sport: &'static str,
     start: i64,
     seconds_per_km: u32,
@@ -76,7 +80,7 @@ struct MockActivity {
 
 /// A 6 km run at `seconds_per_km`, `days_ago` days before now: its 5 km best
 /// effort is exactly `5 × seconds_per_km`.
-fn run(id: u64, days_ago: i64, seconds_per_km: u32) -> MockActivity {
+pub(crate) fn run(id: u64, days_ago: i64, seconds_per_km: u32) -> MockActivity {
     MockActivity {
         id,
         sport: "Run",
@@ -99,13 +103,15 @@ fn ride(id: u64, days_ago: i64) -> MockActivity {
 
 /// What the Strava-shaped mock serves and saw.
 #[derive(Default)]
-struct MockStrava {
+pub(crate) struct MockStrava {
     /// Each athlete's history, by the access token that reads it.
     histories: Mutex<HashMap<String, Vec<MockActivity>>>,
     /// Listing requests, by access token.
     list_hits: Mutex<HashMap<String, usize>>,
     /// Streams requests, by activity id.
     streams_hits: Mutex<HashMap<u64, usize>>,
+    /// Profile reads, all tokens.
+    profile_hits: Mutex<usize>,
     /// Activities whose streams request answers 500.
     failing: Mutex<HashSet<u64>>,
     /// How long a streams request takes to answer.
@@ -146,7 +152,7 @@ impl MockStrava {
             .unwrap_or(0)
     }
 
-    fn streams_hits(&self, id: u64) -> usize {
+    pub(crate) fn streams_hits(&self, id: u64) -> usize {
         self.streams_hits
             .lock()
             .unwrap()
@@ -155,13 +161,19 @@ impl MockStrava {
             .unwrap_or(0)
     }
 
-    fn total_streams_hits(&self) -> usize {
+    pub(crate) fn total_streams_hits(&self) -> usize {
         self.streams_hits.lock().unwrap().values().sum()
     }
 
-    /// Every request the mock answered: listings and streams, all tokens.
-    fn total_requests(&self) -> usize {
-        self.list_hits.lock().unwrap().values().sum::<usize>() + self.total_streams_hits()
+    /// Every listing the mock answered, all tokens.
+    pub(crate) fn total_list_hits(&self) -> usize {
+        self.list_hits.lock().unwrap().values().sum()
+    }
+
+    /// Every request the mock answered: listings, streams and profile
+    /// reads, all tokens.
+    pub(crate) fn total_requests(&self) -> usize {
+        self.total_list_hits() + self.total_streams_hits() + *self.profile_hits.lock().unwrap()
     }
 
     fn max_in_flight(&self, token: &str) -> usize {
@@ -237,6 +249,13 @@ async fn list_activities(
     ))
 }
 
+/// `GET /athlete`: the reader's profile.
+async fn athlete_profile(State(mock): State<Arc<MockStrava>>, headers: HeaderMap) -> Json<Value> {
+    *mock.profile_hits.lock().unwrap() += 1;
+    let token = bearer(&headers);
+    Json(json!({ "id": token.len(), "username": "seeded", "firstname": "Seed" }))
+}
+
 /// `GET /activities/{id}/streams`: one sample a second with the cumulative
 /// distance, as Strava sends a run recorded by a watch.
 async fn activity_streams(
@@ -275,9 +294,10 @@ async fn activity_streams(
     })))
 }
 
-async fn mock_strava() -> (String, Arc<MockStrava>) {
+pub(crate) async fn mock_strava() -> (String, Arc<MockStrava>) {
     let mock = Arc::new(MockStrava::default());
     let app = Router::new()
+        .route("/athlete", get(athlete_profile))
         .route("/athlete/activities", get(list_activities))
         .route("/activities/{id}/streams", get(activity_streams))
         .with_state(Arc::clone(&mock));
@@ -290,7 +310,7 @@ async fn mock_strava() -> (String, Arc<MockStrava>) {
 }
 
 /// A server context whose Strava provider talks to `api_base`.
-async fn context_pointed_at(api_base: &str, per_window: u32) -> Arc<ServerContext> {
+pub(crate) async fn context_pointed_at(api_base: &str, per_window: u32) -> Arc<ServerContext> {
     let mut config = common::test_server_config_with_api_base("strava", api_base);
     common::set_server_app(&mut config, "strava", "test_client", "test_secret");
     let resources = common::create_test_server_resources_with_config(config)
@@ -319,14 +339,36 @@ fn with_strava_window(resources: &Arc<ServerContext>, per_window: u32) -> Arc<Se
 }
 
 /// An OAuth-connected Strava athlete.
-struct Athlete {
-    user_id: Uuid,
-    tenant_id: TenantId,
+pub(crate) struct Athlete {
+    pub(crate) user_id: Uuid,
+    pub(crate) tenant_id: TenantId,
     token: String,
 }
 
-/// Connect an athlete to Strava with `history` as what Strava holds for them.
+/// Connect an athlete to Strava with `history` as what Strava holds for them,
+/// already copied into the store by a history walk that reached its end.
 async fn linked_athlete(
+    resources: &ServerContext,
+    mock: &MockStrava,
+    email: &str,
+    owner_id: u64,
+    history: Vec<MockActivity>,
+) -> Athlete {
+    let athlete = connected_athlete(resources, mock, email, owner_id, history.clone()).await;
+    store(resources, &athlete, &history).await;
+    walked_history(
+        &resources.common.repos,
+        athlete.user_id,
+        athlete.tenant_id,
+        "strava",
+    )
+    .await;
+    athlete
+}
+
+/// Connect an athlete to Strava with `history` as what Strava holds for
+/// them, with nothing of it in the store and no walk recorded.
+pub(crate) async fn connected_athlete(
     resources: &ServerContext,
     mock: &MockStrava,
     email: &str,
@@ -372,11 +414,36 @@ async fn linked_athlete(
     }
 }
 
+/// Land `activities` in the athlete's store under `strava`, as a walk or a
+/// sync writes them.
+async fn store(resources: &ServerContext, athlete: &Athlete, activities: &[MockActivity]) {
+    let rows: Vec<Activity> = activities.iter().copied().map(synced).collect();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(athlete.user_id, &athlete.tenant_id, "strava", &rows)
+        .await
+        .unwrap();
+}
+
+/// An activity the athlete uploads now: Strava holds it, and the sync that
+/// lists it lands it in the store.
+async fn upload(
+    resources: &ServerContext,
+    mock: &MockStrava,
+    athlete: &Athlete,
+    activity: MockActivity,
+) {
+    mock.upload(&athlete.token, activity);
+    store(resources, athlete, &[activity]).await;
+}
+
 /// Open a fresh Strava window: the windows are counted in the database, so
 /// opening one clears the counted buckets. The window is a day long, so a
 /// test never straddles one of its boundaries the way it could a 15-minute
 /// one.
-async fn open_window(resources: &Arc<ServerContext>) {
+pub(crate) async fn open_window(resources: &Arc<ServerContext>) {
     resources
         .common
         .repos
@@ -403,7 +470,7 @@ async fn walk_to_completion(resources: &Arc<ServerContext>) {
             .common
             .repos
             .personal_bests
-            .list_personal_best_seed_candidates("strava", 10)
+            .list_personal_best_seed_candidates("strava", Some("sciotte"), 10)
             .await
             .unwrap();
         if owed.is_empty() {
@@ -413,7 +480,7 @@ async fn walk_to_completion(resources: &Arc<ServerContext>) {
     panic!("the walk did not complete in 30 passes");
 }
 
-async fn walk_complete(resources: &ServerContext, athlete: &Athlete) -> bool {
+pub(crate) async fn walk_complete(resources: &ServerContext, athlete: &Athlete) -> bool {
     resources
         .personal_bests()
         .is_seed_complete(athlete.user_id, athlete.tenant_id, "strava")
@@ -465,24 +532,45 @@ async fn record_notices(resources: &ServerContext, athlete: &Athlete) -> Vec<(Va
 }
 
 /// The activity a sync lists for `mocked`, as the Strava mapper builds it.
-fn synced(mocked: MockActivity) -> Activity {
+pub(crate) fn synced(mocked: MockActivity) -> Activity {
+    recorded(mocked, "strava", None)
+}
+
+/// `mocked` as the backend `provider` stores it, naming `source` as the
+/// service it read when that backend is a mirror.
+pub(crate) fn recorded(mocked: MockActivity, provider: &str, source: Option<&str>) -> Activity {
+    let sport = if mocked.sport == "Run" {
+        SportType::Run
+    } else {
+        SportType::Ride
+    };
     ActivityBuilder::new(
         mocked.id.to_string(),
         "Morning activity".to_owned(),
-        SportType::Run,
+        sport,
         Utc.timestamp_opt(mocked.start, 0).unwrap(),
         u64::from(mocked.seconds_per_km * mocked.km),
-        "strava".to_owned(),
+        provider.to_owned(),
     )
+    .source_opt(source.map(str::to_owned))
     .distance_meters(f64::from(mocked.km) * 1000.0)
     .build()
 }
 
 /// A sync scanning `activities` for the athlete, as the webhook does.
-async fn sync_scan(resources: &Arc<ServerContext>, athlete: &Athlete, activities: &[Activity]) {
-    let provider = strava_provider(resources, athlete.user_id, &athlete.tenant_id.to_string())
-        .await
-        .expect("the athlete's Strava provider");
+pub(crate) async fn sync_scan(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    activities: &[Activity],
+) {
+    let provider = exact_provider(
+        resources,
+        "strava",
+        athlete.user_id,
+        &athlete.tenant_id.to_string(),
+    )
+    .await
+    .expect("the athlete's Strava provider");
     resources
         .personal_bests()
         .scan_new_runs(
@@ -497,8 +585,8 @@ async fn sync_scan(resources: &Arc<ServerContext>, athlete: &Athlete, activities
 
 /// A walk the budget stops part-way is picked up by a restarted process
 /// from the cursor it saved: every past run's streams are requested exactly
-/// once across both, rides never, the stored 5 km is the fastest of the whole
-/// history, and nothing is told.
+/// once across both, rides never, nothing is ever listed, the stored 5 km is
+/// the fastest of the whole history, and nothing is told.
 #[tokio::test]
 async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     let (api_base, mock) = mock_strava().await;
@@ -514,8 +602,8 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     history.extend([ride(201, 350), ride(202, 50)]);
     let athlete = linked_athlete(&resources, &mock, "seed_restart@example.com", 11, history).await;
 
-    // Sixteen requests a window, four of them the walk's: one listing, then
-    // runs 105 and 104 from the first page, then the second listing.
+    // Sixteen requests a window, four of them the walk's: the streams of runs
+    // 105, 104, 103 and 102, newest first, the rides passed over.
     open_window(&resources).await;
     let report = run_personal_best_seed_pass(&resources).await.unwrap();
     assert_eq!(
@@ -524,12 +612,15 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
             completed: 0,
             paused: 1,
             held: 0,
+            awaiting_history: 0,
+            walks_started: 0,
             budget_spent: true
         }
     );
-    assert_eq!(mock.streams_hits(105), 1);
-    assert_eq!(mock.streams_hits(104), 1);
-    assert_eq!(mock.total_streams_hits(), 2, "the budget stopped the walk");
+    for measured in [105, 104, 103, 102] {
+        assert_eq!(mock.streams_hits(measured), 1, "run {measured}");
+    }
+    assert_eq!(mock.total_streams_hits(), 4, "the budget stopped the walk");
     assert!(!walk_complete(&resources, &athlete).await);
 
     let resumed = another_instance(&resources, 16);
@@ -546,6 +637,11 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     assert_eq!(mock.streams_hits(201), 0, "a ride is never measured");
     assert_eq!(mock.streams_hits(202), 0, "a ride is never measured");
     assert_eq!(mock.total_streams_hits(), runs.len());
+    assert_eq!(
+        mock.total_list_hits(),
+        0,
+        "the store is read, Strava never listed"
+    );
     assert!(walk_complete(&resumed, &athlete).await);
     assert_eq!(
         stored_5k(&resumed, &athlete).await,
@@ -581,23 +677,22 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
     )
     .await;
 
-    // Twelve requests a window, three of them the walk's.
+    // Twelve requests a window, three of them the walk's: three runs' streams.
     open_window(&resources).await;
     let first = run_personal_best_seed_pass(&resources).await.unwrap();
     assert!(first.budget_spent);
-    assert_eq!(mock.list_hits(&athlete.token), 1);
-    assert_eq!(mock.total_streams_hits(), 2);
+    assert_eq!(mock.list_hits(&athlete.token), 0, "the store is read");
+    assert_eq!(
+        mock.total_streams_hits(),
+        3,
+        "bug: the first pass streamed other than the three runs its window's budget allows"
+    );
 
     let second = run_personal_best_seed_pass(&resources).await.unwrap();
     assert!(second.budget_spent, "the window's share is still spent");
     assert_eq!(
-        mock.list_hits(&athlete.token),
-        1,
-        "no listing in a spent window"
-    );
-    assert_eq!(
         mock.total_streams_hits(),
-        2,
+        3,
         "no streams request in a spent window"
     );
     // The walk's requests are signed by the server's app; a live request
@@ -618,6 +713,7 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
     for measured in runs {
         assert_eq!(mock.streams_hits(measured.id), 1, "run {}", measured.id);
     }
+    assert_eq!(mock.list_hits(&athlete.token), 0, "never a listing");
     assert!(walk_complete(&resources, &athlete).await);
 }
 
@@ -644,7 +740,7 @@ async fn no_record_is_told_while_the_walk_is_incomplete() {
     assert_eq!(stored_5k(&resources, &athlete).await, Some(1450.0));
 
     let fast = run(403, 0, 270);
-    mock.upload(&athlete.token, fast);
+    upload(&resources, &mock, &athlete, fast).await;
     sync_scan(&resources, &athlete, &[synced(fast)]).await;
     assert_eq!(
         stored_5k(&resources, &athlete).await,
@@ -686,7 +782,7 @@ async fn after_the_walk_only_a_run_beating_the_all_time_best_is_told_once() {
     assert_eq!(record_notices(&resources, &athlete).await, []);
 
     let recent_best = run(503, 1, 290);
-    mock.upload(&athlete.token, recent_best);
+    upload(&resources, &mock, &athlete, recent_best).await;
     sync_scan(&resources, &athlete, &[synced(recent_best)]).await;
     assert!(
         record_notices(&resources, &athlete).await.is_empty(),
@@ -695,7 +791,7 @@ async fn after_the_walk_only_a_run_beating_the_all_time_best_is_told_once() {
     assert_eq!(stored_5k(&resources, &athlete).await, Some(1400.0));
 
     let record = run(504, 0, 270);
-    mock.upload(&athlete.token, record);
+    upload(&resources, &mock, &athlete, record).await;
     sync_scan(&resources, &athlete, &[synced(record)]).await;
     assert_eq!(
         record_notices(&resources, &athlete).await,
@@ -706,8 +802,7 @@ async fn after_the_walk_only_a_run_beating_the_all_time_best_is_told_once() {
 }
 
 /// Each athlete's walk requests the streams of each of their runs once, so
-/// their streams requests equal their runs, plus one listing per page and the
-/// empty one that ends the walk.
+/// their streams requests equal their runs, and lists nothing.
 #[tokio::test]
 async fn each_athletes_streams_requests_equal_their_runs() {
     let (api_base, mock) = mock_strava().await;
@@ -734,6 +829,8 @@ async fn each_athletes_streams_requests_equal_their_runs() {
             completed: 2,
             paused: 0,
             held: 0,
+            awaiting_history: 0,
+            walks_started: 0,
             budget_spent: false
         }
     );
@@ -747,18 +844,16 @@ async fn each_athletes_streams_requests_equal_their_runs() {
         first_runs.len() + second_runs.len(),
         "no ride is measured"
     );
-    // Five activities: pages of three and two, then the empty page; four:
-    // three and one, then the empty page.
-    assert_eq!(mock.list_hits(&first.token), 3);
-    assert_eq!(mock.list_hits(&second.token), 3);
+    assert_eq!(mock.list_hits(&first.token), 0, "the store is read");
+    assert_eq!(mock.list_hits(&second.token), 0, "the store is read");
     assert!(walk_complete(&resources, &first).await);
     assert!(walk_complete(&resources, &second).await);
 }
 
 /// A run whose streams request fails while the provider answers the next
-/// request — the next run's streams, or the listing past the oldest
-/// activity — failed on its own: it is recorded unmeasured and asked for
-/// once, and the walk goes on to complete.
+/// request — the next run's streams or, past the oldest activity the store
+/// holds, the profile read — failed on its own: it is recorded unmeasured and
+/// asked for once, and the walk goes on to complete.
 #[tokio::test]
 async fn a_run_failing_alone_is_recorded_unmeasured_and_the_walk_completes() {
     let (api_base, mock) = mock_strava().await;
@@ -771,7 +866,7 @@ async fn a_run_failing_alone_is_recorded_unmeasured_and_the_walk_completes() {
         run(805, 10, 300),
     ];
     // 803 fails between two runs that answer; 801, the oldest, fails with
-    // only the final listing after it.
+    // only the profile read after it.
     mock.failing.lock().unwrap().extend([803, 801]);
     let athlete = linked_athlete(
         &resources,
@@ -788,6 +883,12 @@ async fn a_run_failing_alone_is_recorded_unmeasured_and_the_walk_completes() {
         assert_eq!(mock.streams_hits(asked.id), 1, "run {}", asked.id);
     }
     assert!(walk_complete(&resources, &athlete).await);
+    assert_eq!(
+        *mock.profile_hits.lock().unwrap(),
+        1,
+        "the profile is read once, to resolve the oldest run"
+    );
+    assert_eq!(mock.total_list_hits(), 0, "never a listing");
     let repo = &resources.common.repos.personal_bests;
     for unmeasured in ["803", "801"] {
         assert!(
@@ -830,6 +931,8 @@ async fn two_runs_failing_in_a_row_pause_the_walk_until_strava_answers() {
             completed: 0,
             paused: 1,
             held: 0,
+            awaiting_history: 0,
+            walks_started: 0,
             budget_spent: false
         }
     );
@@ -916,11 +1019,7 @@ async fn two_seed_workers_never_walk_the_same_athlete_at_once() {
     for walked in runs {
         assert_eq!(mock.streams_hits(walked.id), 1, "run {}", walked.id);
     }
-    assert_eq!(
-        mock.list_hits(&athlete.token),
-        3,
-        "two pages and the empty one"
-    );
+    assert_eq!(mock.list_hits(&athlete.token), 0, "the store is read");
 }
 
 /// While another instance holds the athlete's lease a pass leaves them alone;
@@ -996,8 +1095,8 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
     // Sixteen requests a window, four of them the walk's.
     open_window(&resources).await;
     let uploads = [run(5_101, 1, 290), run(5_102, 0, 280)];
-    for upload in uploads {
-        mock.upload(&athlete.token, upload);
+    for uploaded in uploads {
+        upload(&resources, &mock, &athlete, uploaded).await;
     }
     sync_scan(&resources, &athlete, &uploads.map(synced)).await;
     assert_eq!(
@@ -1010,9 +1109,10 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
     assert!(report.budget_spent);
     let walked: usize = history.iter().map(|r| mock.streams_hits(r.id)).sum();
     assert_eq!(
-        walked, 1,
-        "the scan's two requests left the walk one listing and one run"
+        walked, 2,
+        "the scan's two requests left the walk two runs, the uploads already scanned"
     );
+    assert_eq!(mock.total_list_hits(), 0, "never a listing");
     let counted = resources
         .common
         .repos

@@ -62,6 +62,14 @@ impl Transport {
         )
     }
 
+    /// Whether the call is served to one of Dravr's own apps, web or mobile —
+    /// a surface that advances the conversation read marker itself once a
+    /// reply is on the athlete's screen.
+    #[must_use]
+    pub const fn is_app_session(self) -> bool {
+        matches!(self, Self::WebApp | Self::MobileApp)
+    }
+
     /// The app an athlete's session is signed in to, as the client's
     /// [`CLIENT_PLATFORM_HEADER`] names it: the mobile app when it says so,
     /// the web app otherwise. Both are first-party; the header only labels
@@ -195,6 +203,16 @@ mod tests {
             Transport::app_session(Some("mcp")),
             Transport::WebApp,
             "a header claiming anything else is still only a session"
+        );
+    }
+
+    #[test]
+    fn only_the_two_apps_are_app_sessions() {
+        let apps: Vec<Transport> = ALL.into_iter().filter(|t| t.is_app_session()).collect();
+        assert_eq!(
+            apps,
+            vec![Transport::WebApp, Transport::MobileApp],
+            "a messaging channel or a job is first-party but shows no thread on screen"
         );
     }
 

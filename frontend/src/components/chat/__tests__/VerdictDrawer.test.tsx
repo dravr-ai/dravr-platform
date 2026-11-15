@@ -6,6 +6,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import VerdictDrawer from '../VerdictDrawer';
 import type { VerdictSource } from '../VerdictDrawer';
 import type { ClaimVerdict } from '@pierre/shared-types';
@@ -272,11 +273,33 @@ describe('VerdictDrawer athlete card', () => {
     const onClose = vi.fn();
     render(<VerdictDrawer verdicts={[SUPPORTED]} onClose={onClose} onCopyReference={vi.fn()} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Verdict actions' }));
-    fireEvent.keyDown(document, { key: 'Escape' });
+    const trigger = screen.getByRole('button', { name: 'Verdict actions' });
+    fireEvent.click(trigger);
+    // The menu's one action has focus, so Escape reaches the menu first.
+    expect(document.activeElement).toBe(screen.getByRole('menuitem', { name: 'Copy reference for support' }));
+    fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Escape' });
 
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
     expect(onClose).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(trigger);
+
+    // The menu was the layer on top; the next Escape is the drawer's.
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Tab inside the drawer and freezes the page behind it', async () => {
+    const user = userEvent.setup();
+    render(<VerdictDrawer verdicts={[SUPPORTED]} onClose={vi.fn()} onCopyReference={vi.fn()} />);
+    const drawer = screen.getByRole('dialog');
+    expect(document.body.style.overflow).toBe('hidden');
+
+    // Opens on the first control, and a full lap of Tab never leaves it.
+    expect(drawer).toContainElement(document.activeElement as HTMLElement);
+    for (let step = 0; step < 12; step += 1) {
+      await user.tab();
+      expect(drawer).toContainElement(document.activeElement as HTMLElement);
+    }
   });
 
   it('offers no actions menu when the surface cannot copy', () => {

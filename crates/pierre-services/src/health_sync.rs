@@ -53,8 +53,8 @@ use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, Welln
 
 mod push_fed;
 
-pub use push_fed::{history_import_scope, wellness_pull_stands_down};
-use push_fed::{history_import_writes, history_import_writes_night, wellness_fed_by_push};
+pub use push_fed::{history_walk_scope, wellness_pull_stands_down};
+use push_fed::{history_walk_writes, history_walk_writes_night, wellness_fed_by_push};
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
 ///
@@ -93,14 +93,14 @@ use push_fed::{history_import_writes, history_import_writes_night, wellness_fed_
 /// time-series store receives none of its data.
 ///
 /// Every row it writes carries its sync time, refreshed on each re-sync, so
-/// a provider whose terms cap how long a copy is held has its copies evicted
-/// past that cap by the cache TTL sweep (`provider_cache_sweeper`). Athletes
+/// the one retention policy (`activity_retention.*`) expires a copy only
+/// once that many days pass with no re-sync (`retention_sweep`). Athletes
 /// connected to WHOOP are left out of the cross-athlete archetype priors
 /// (`archetype_aggregation`).
 ///
 /// LIMITATION(registre#539): `PierreSyncStorage` persists WHOOP-classified physiology (HRV rMSSD, sleep
 /// stage durations) instead of holding it in memory within WHOOP's cache header: what that header allows
-/// awaits WHOOP's answer (W1) and the lawyer's read of HRV (W8), so WHOOP declares no cache TTL. Derived
+/// awaits WHOOP's answer (W1) and the lawyer's read of HRV (W8), so no WHOOP retention is set. Derived
 /// rows with no provider column (`training_history`, `user_facts`, playbooks) cannot be attributed to
 /// WHOOP, by a purge or by the cross-athlete exclusion, which goes by current connection (carnet#769).
 pub struct PierreSyncStorage {
@@ -531,7 +531,7 @@ impl SleepStore for PierreSyncStorage {
         let mut writes = WellnessStore::new(&self.registry).writes("sleep");
         let mut count = 0u64;
         for session in sessions {
-            if !history_import_writes_night(&session.user_id, session.end_datetime) {
+            if !history_walk_writes_night(&session.user_id, session.end_datetime) {
                 continue;
             }
             let tenant_id = self
@@ -582,7 +582,7 @@ impl RecoveryStore for PierreSyncStorage {
         let mut writes = WellnessStore::new(&self.registry).writes("recovery");
         let mut count = 0u64;
         for metric in metrics {
-            if !history_import_writes(&metric.user_id, metric.date) {
+            if !history_walk_writes(&metric.user_id, metric.date) {
                 continue;
             }
             let tenant_id = self
@@ -632,7 +632,7 @@ impl HealthStore for PierreSyncStorage {
         let mut writes = WellnessStore::new(&self.registry).writes("health");
         let mut count = 0u64;
         for snapshot in snapshots {
-            if !history_import_writes(&snapshot.user_id, snapshot.date) {
+            if !history_walk_writes(&snapshot.user_id, snapshot.date) {
                 continue;
             }
             let tenant_id = self
@@ -684,7 +684,7 @@ impl DailyActivityStore for PierreSyncStorage {
             // A link files only what the member's consent names: sleep,
             // recovery and weight. A day's activity totals are none of them.
             if delegated_private_of_row(&day.user_id).is_some()
-                || !history_import_writes(&day.user_id, day.date)
+                || !history_walk_writes(&day.user_id, day.date)
             {
                 continue;
             }

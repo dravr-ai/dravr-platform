@@ -89,7 +89,9 @@ pub use consent::{
 };
 pub use governed::AiGovernedProvider;
 pub use human_coach::for_human_coach;
-pub use provenance::{derived_member, note_member_read, reading_members, sole, Provenance};
+pub use provenance::{
+    derived_member, note_member_read, reading_about, reading_members, sole, Provenance,
+};
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
 tokio::task_local! {
@@ -127,9 +129,7 @@ pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
         if provenance.served_provider_data() {
             enclosing.mark_provider_data();
         }
-        for attribution in provenance.attributions() {
-            enclosing.attribute(attribution);
-        }
+        provenance.attribute_to(&enclosing);
         for member in provenance.members_read() {
             enclosing.note_member(member);
         }
@@ -208,7 +208,8 @@ fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>)
 pub fn note_attribution(attribution: Option<&'static str>) {
     if let Some(attribution) = attribution {
         if !flag(&UNFILTERED) {
-            let _ = PROVENANCE.try_with(|provenance| provenance.attribute(attribution));
+            let owner = provenance::read_about();
+            let _ = PROVENANCE.try_with(|provenance| provenance.attribute(owner, attribution));
         }
     }
 }
@@ -1019,11 +1020,14 @@ mod tests {
             )
             .await;
             assert!(served.is_ok(), "the relay serves its sessions");
-            assert_eq!(inner.attributions(), BTreeSet::from(["Garmin"]));
+            assert_eq!(
+                inner.attributions_owed(|_| true),
+                BTreeSet::from(["Garmin"])
+            );
         })
         .await;
         assert_eq!(
-            outer.attributions(),
+            outer.attributions_owed(|_| true),
             BTreeSet::from(["Garmin"]),
             "a nested derivation's attributions reach its parent"
         );
@@ -1036,7 +1040,7 @@ mod tests {
         .await;
         assert!(written.is_ok(), "the relay serves its sessions");
         assert!(
-            cache_write.attributions().is_empty(),
+            cache_write.attributions_owed(|_| true).is_empty(),
             "a cache write serves no one"
         );
     }

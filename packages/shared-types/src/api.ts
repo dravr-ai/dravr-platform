@@ -166,6 +166,11 @@ export interface Message {
    */
   actions?: MessageActions;
   /**
+   * The envelope notice a reply carried, so a reload draws it again. Absent
+   * on a live turn, whose notice rides the block list instead.
+   */
+  envelope_notice?: EnvelopeNotice;
+  /**
    * The channel the turn that wrote this row came over (`web`, `mobile`,
    * `telegram`, …). The personal thread is shared with the athlete's
    * messaging DM, so a row from a messaging app is tagged with it. Absent on
@@ -248,6 +253,19 @@ export interface RoomAttribution {
    * coach; `null` on every other row and when that coach's account is gone.
    */
   corrector_name?: string | null;
+}
+
+/**
+ * What the envelope check found on a reply's sessions, as the platform wrote it.
+ *
+ * Mirrors `EnvelopeNoticeResponse` in `routes/chat/dto.rs`; the same shape a
+ * live turn's `envelope_notice` reply block carries.
+ */
+export interface EnvelopeNotice {
+  /** The notice's heading, in the athlete's locale. */
+  heading: string;
+  /** One line per session. */
+  lines: string[];
 }
 
 /**

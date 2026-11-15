@@ -139,6 +139,19 @@ export interface OAuthStartOptions {
 }
 
 /**
+ * The takeover socket's URL on the origin of `base` (an absolute http(s) URL
+ * of the API): `ws://` under `http://`, `wss://` under `https://`, with the
+ * takeover token as its `token` query parameter. `null` when `base` is not an
+ * absolute http(s) URL.
+ */
+export function sciotteTakeoverSocketUrl(base: string, token: string): string | null {
+  const match = /^(https?):\/\/([^/?#]+)/i.exec(base);
+  if (!match) return null;
+  const scheme = match[1].toLowerCase() === 'https' ? 'wss' : 'ws';
+  return `${scheme}://${match[2]}${ENDPOINTS.PROVIDERS.SCIOTTE_TAKEOVER_SOCKET}?token=${encodeURIComponent(token)}`;
+}
+
+/**
  * Creates the OAuth API methods bound to an axios instance.
  */
 export function createOAuthApi(axios: AxiosInstance) {
@@ -313,6 +326,17 @@ export function createOAuthApi(axios: AxiosInstance) {
         { timeout: 1_200_000, signal: options.signal },
       );
       return response.data;
+    },
+
+    /**
+     * The URL of the takeover socket of a sign-in a provider's robot check
+     * parked, for its takeover token, on the API's own origin — or on
+     * `fallbackOrigin` when the client's base URL is relative (a web app
+     * served beside its API). `null` when neither is an absolute http(s) URL.
+     */
+    sciotteTakeoverSocketUrl(token: string, fallbackOrigin?: string): string | null {
+      const base = axios.defaults.baseURL ?? '';
+      return sciotteTakeoverSocketUrl(base, token) ?? (fallbackOrigin ? sciotteTakeoverSocketUrl(fallbackOrigin, token) : null);
     },
 
     /**

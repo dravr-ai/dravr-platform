@@ -263,13 +263,20 @@ pub fn render_training_plan_block(
          athlete's activities before saying whether that session happened, and \
          never report a prescribed session as completed.\n\n",
     );
-    if fueling.withheld().is_some() {
-        out.push_str(
+    if let Some(withheld) = fueling.withheld() {
+        // Outside Dravr's own surfaces the words name no flag: they read the
+        // same for every athlete (carnet#1565).
+        out.push_str(if withheld.names_clinician() {
             "Fuelling amounts: a medical/PAR-Q flag is on file, so this athlete's clinician \
              sets their carbohydrate, fluid and sodium amounts. Describe fuelling in words — \
              what to take and when, never a rate — and leave `fueling` off every saved day: \
-             a save carrying it is refused, and stored rates show here as withheld.\n\n",
-        );
+             a save carrying it is refused, and stored rates show here as withheld.\n\n"
+        } else {
+            "Fuelling amounts are not given outside Dravr's own apps and channels. Describe \
+             fuelling in words — what to take and when, never a rate — and leave `fueling` off \
+             every saved day: a save carrying it is refused, and stored rates show here as \
+             withheld.\n\n"
+        });
     }
 
     // Goal line with countdown when the race date parses.

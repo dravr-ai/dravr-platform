@@ -56,6 +56,7 @@ pub(crate) fn spawn_login_probe(
         |ticket| Some(ticket.wait()),
     );
     let repos = Arc::clone(&resources.repos);
+    let purge = resources.data.provider_purge().map(Arc::clone);
     let registry = Arc::clone(&resources.provider_registry);
     let cache = Arc::clone(&resources.cache);
     let session = session.clone();
@@ -64,9 +65,20 @@ pub(crate) fn spawn_login_probe(
     let persist_rotated = persist_rotated(resources, stored);
     tokio::spawn(async move {
         let tenant = TenantId::from_uuid(tenant_id);
-        match probe_trainingpeaks_role(&repos, &registry, &session, &read_from, user_id, tenant)
+        let probed = async {
+            let purge = purge?;
+            probe_trainingpeaks_role(
+                &repos,
+                purge.as_ref(),
+                &registry,
+                &session,
+                &read_from,
+                user_id,
+                tenant,
+            )
             .await
-        {
+        };
+        match probed.await {
             Ok(ProviderAccountRole::Coach) => {
                 info!(
                     user_id = %user_id,
@@ -118,6 +130,7 @@ pub(crate) fn spawn_role_probe_if_unread(
     read_from: StoredTokenRow,
 ) {
     let repos = Arc::clone(&resources.repos);
+    let purge = resources.data.provider_purge().map(Arc::clone);
     let registry = Arc::clone(&resources.provider_registry);
     tokio::spawn(async move {
         let tenant = TenantId::from_uuid(tenant_id);
@@ -143,9 +156,20 @@ pub(crate) fn spawn_role_probe_if_unread(
         if !unread {
             return;
         }
-        match probe_trainingpeaks_role(&repos, &registry, &session, &read_from, user_id, tenant)
+        let probed = async {
+            let purge = purge?;
+            probe_trainingpeaks_role(
+                &repos,
+                purge.as_ref(),
+                &registry,
+                &session,
+                &read_from,
+                user_id,
+                tenant,
+            )
             .await
-        {
+        };
+        match probed.await {
             Ok(role) => info!(
                 user_id = %user_id,
                 role = %role,

@@ -9,7 +9,7 @@
 
 use crate::common;
 
-use pierre_core::models::StatsCoverage;
+use pierre_core::models::coverage::Coverage;
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
@@ -32,8 +32,8 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, AddMessageParams, AnchorProvenance, Athlete, ConnectionType,
-    ConversationTurnId, SportType, Stats, TenantId, ThresholdProvenance, User, UserOAuthToken,
-    UserPhysiologicalProfile,
+    ConversationTurnId, SportType, Stats, TenantId, ThresholdProvenance, ThresholdStatedOn, User,
+    UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -169,6 +169,7 @@ impl FitnessProvider for Relay {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Ok(Athlete {
+            created_at: None,
             id: "relay-athlete".to_owned(),
             username: "relay_rider".to_owned(),
             firstname: Some("Relay".to_owned()),
@@ -206,7 +207,7 @@ impl FitnessProvider for Relay {
             total_distance: 9_876_000.0,
             total_duration: 1_234_567,
             total_elevation_gain: 54_321.0,
-            coverage: StatsCoverage::Lifetime,
+            coverage: Coverage::lifetime(412),
             year_to_date: None,
         })
     }
@@ -794,6 +795,7 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
                 critical_speed_mps: None,
                 d_prime_meters: None,
                 threshold_provenance: ThresholdProvenance::default(),
+                threshold_stated_on: ThresholdStatedOn::default(),
                 anchor_provenance: AnchorProvenance::default(),
                 transport_policy: TransportPolicy::AnyTransport,
                 sex: None,
@@ -849,6 +851,45 @@ async fn derived_training_status_leaves_the_relay_out_of_an_api_key_answer() {
         "over an API key the status is computed without the relay's rows: {external}"
     );
     assert!(external["form"].is_null(), "{external}");
+}
+
+#[tokio::test]
+async fn physiology_written_from_a_first_party_only_relay_is_withheld_over_an_api_key() {
+    let resources = server_with_relay().await;
+    let rider = athlete_with_relay(&resources).await;
+    // A profile written from the relay's data carries its stamp (carnet#769):
+    // the one anchors reader reads it only on Dravr's own surfaces.
+    let mut profile = UserPhysiologicalProfile::new(rider.user_id, SportType::Ride);
+    profile.ftp_watts = Some(280);
+    profile.transport_policy = TransportPolicy::FirstPartyOnly;
+    resources
+        .common
+        .repos
+        .user_physiological_profile
+        .upsert_user_physiological_profile(rider.tenant, rider.user_id, &profile)
+        .await
+        .unwrap();
+    let app = ProviderToolRouter::build_http_app(&resources);
+    let session = format!(
+        "Bearer {}",
+        common::generate_test_token(&resources, &rider.user).await
+    );
+    let key = api_key(&resources, rider.user_id).await;
+
+    let (status, own_app) = get(&app, "/api/me/physiology", &session).await;
+    assert_eq!(status, StatusCode::OK, "{own_app}");
+    assert_eq!(
+        own_app["sports"][0]["anchors"][0]["anchor"], "ftp",
+        "the athlete's app reads the anchors: {own_app}"
+    );
+
+    let (status, external) = get(&app, "/api/me/physiology", &key).await;
+    assert_eq!(status, StatusCode::OK, "{external}");
+    assert_eq!(
+        external["sports"].as_array().map(Vec::len),
+        Some(0),
+        "over an API key a first-party-only profile yields no anchor: {external}"
+    );
 }
 
 // ── Derived content: transcripts, facts, plans, a chat turn ──────────────
@@ -2034,6 +2075,7 @@ mod scraped {
 
         async fn get_athlete(&self) -> AppResult<Athlete> {
             Ok(Athlete {
+                created_at: None,
                 id: "scraped-athlete".to_owned(),
                 username: "scraped_runner".to_owned(),
                 firstname: Some("Scraped".to_owned()),
@@ -2071,7 +2113,7 @@ mod scraped {
                 total_distance: 20_000.0,
                 total_duration: 5_400,
                 total_elevation_gain: 300.0,
-                coverage: StatsCoverage::Lifetime,
+                coverage: Coverage::lifetime(2),
                 year_to_date: None,
             })
         }

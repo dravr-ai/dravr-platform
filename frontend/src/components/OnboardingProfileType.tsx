@@ -6,8 +6,11 @@
 
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
+import type { OnboardingStatusResponse } from '@pierre/api-client';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import { userApi } from '../services/api';
 import OnboardingShell from './OnboardingShell';
+import { Button } from './ui';
 import { useTranslation } from '@pierre/i18n';
 
 /** The three answers the step offers. */
@@ -30,6 +33,9 @@ type ProfileChoice = 'athlete' | 'coach' | 'coach_and_athlete';
  * is not asked about their own training or screened with the PAR-Q — those
  * steps leave the flow (`completeProfileType({ trains: false })`). Someone who
  * coaches and trains gets the coach tools and the athlete steps.
+ *
+ * A tap selects; the answer registers on Continue, so a mis-tap is corrected
+ * by tapping another card rather than by a journey started in error.
  */
 export default function OnboardingProfileType({
   userDisplayName,
@@ -40,12 +46,28 @@ export default function OnboardingProfileType({
 }) {
   const { t } = useTranslation();
   const queryClient = useQueryClient();
+  const [selected, setSelected] = useState<ProfileChoice | null>(null);
   const [choosing, setChoosing] = useState<ProfileChoice | null>(null);
   const [saveFailed, setSaveFailed] = useState(false);
 
+  // The onboarding status carries `coaches_others`, which puts the coach
+  // steps in the journey: it is read again before the step advances, so the
+  // flow never decides the next step on the answer before this one.
   const setCoachingRole = useMutation({
     mutationFn: (coachesOthers: boolean) => userApi.setCoachingRole(coachesOthers),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['user'] }),
+    onSuccess: (_role, coachesOthers) => {
+      // The role picks the journey, and the progress bar's segments with it:
+      // the cached status carries it the moment the role is registered, and
+      // the status is then read again before the step advances.
+      queryClient.setQueryData<OnboardingStatusResponse>(
+        QUERY_KEYS.user.onboardingStatus(),
+        (cached) => cached && { ...cached, coaches_others: coachesOthers },
+      );
+      return Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['user'] }),
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.user.onboardingStatus() }),
+      ]);
+    },
   });
 
   const choose = async (choice: ProfileChoice) => {
@@ -76,27 +98,31 @@ export default function OnboardingProfileType({
       <p className="mt-3 text-sm text-on-surface-variant text-center">
         {t('onboarding.profileTypeIntro')}
       </p>
-      <div className="mt-8 grid gap-4 sm:grid-cols-3">
+      <div
+        role="radiogroup"
+        aria-label={t('onboarding.profileTypeIntro')}
+        className="mt-8 grid gap-4 sm:grid-cols-3"
+      >
         <ChoiceCard
           title={t('onboarding.imAnAthlete')}
           description={t('onboarding.athleteCardDescription')}
-          busy={choosing === 'athlete'}
+          checked={selected === 'athlete'}
           disabled={choosing !== null}
-          onSelect={() => void choose('athlete')}
+          onSelect={() => setSelected('athlete')}
         />
         <ChoiceCard
           title={t('humanCoach.iCoachOthers')}
           description={t('humanCoach.cardDescription')}
-          busy={choosing === 'coach'}
+          checked={selected === 'coach'}
           disabled={choosing !== null}
-          onSelect={() => void choose('coach')}
+          onSelect={() => setSelected('coach')}
         />
         <ChoiceCard
           title={t('humanCoach.iCoachAndTrain')}
           description={t('humanCoach.coachAndTrainCardDescription')}
-          busy={choosing === 'coach_and_athlete'}
+          checked={selected === 'coach_and_athlete'}
           disabled={choosing !== null}
-          onSelect={() => void choose('coach_and_athlete')}
+          onSelect={() => setSelected('coach_and_athlete')}
         />
       </div>
       {saveFailed ? (
@@ -104,40 +130,52 @@ export default function OnboardingProfileType({
           {t('onboarding.profileTypeSaveFailed')}
         </p>
       ) : null}
+      <div className="mx-auto mt-8 max-w-md">
+        <Button
+          variant="primary"
+          onClick={() => {
+            if (selected) void choose(selected);
+          }}
+          disabled={selected === null || choosing !== null}
+          className="w-full"
+          data-testid="profile-type-continue"
+        >
+          {choosing ? t('onboarding.settingUp') : t('onboarding.continueButton')}
+        </Button>
+      </div>
     </OnboardingShell>
   );
 }
 
-/** A single selectable profile option, rendered as a full-height button. */
+/** A single selectable profile option: one radio of the group, a full-height card. */
 function ChoiceCard({
   title,
   description,
-  busy,
+  checked,
   disabled,
   onSelect,
 }: {
   title: string;
   description: string;
-  busy: boolean;
+  checked: boolean;
   disabled: boolean;
   onSelect: () => void;
 }) {
-  const { t } = useTranslation();
   return (
     <button
       type="button"
+      role="radio"
+      aria-checked={checked}
       onClick={onSelect}
       disabled={disabled}
-      className="flex flex-col items-start gap-2 rounded-xl border ghost-border-strong bg-surface-container-lowest px-5 py-5 text-left transition-colors hover:border-primary hover:bg-primary-container/40 disabled:cursor-not-allowed disabled:opacity-60"
+      className={`flex flex-col items-start gap-2 rounded-xl border px-5 py-5 text-left transition-colors hover:border-primary disabled:cursor-not-allowed disabled:opacity-60 ${
+        checked
+          ? 'border-primary bg-primary-container/40'
+          : 'ghost-border-strong bg-surface-container-lowest hover:bg-primary-container/40'
+      }`}
     >
       <span className="font-display font-semibold text-base text-on-surface">{title}</span>
       <span className="text-sm text-on-surface-variant">{description}</span>
-      {busy ? (
-        <span className="mt-1 flex items-center gap-2 text-xs text-on-surface-variant">
-          <span className="pierre-spinner w-4 h-4 border-on-surface border-t-transparent" />
-          {t('onboarding.settingUp')}
-        </span>
-      ) : null}
     </button>
   );
 }

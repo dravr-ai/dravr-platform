@@ -23,8 +23,8 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::activity::utc_offset_seconds_if_civil;
+use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
-use crate::models::StatsCoverage;
 use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
@@ -396,6 +396,7 @@ impl FitnessProvider for WhoopProvider {
         let profile: WhoopUserProfile = self.api_request("user/profile/basic").await?;
 
         Ok(Athlete {
+            created_at: None,
             id: profile.user_id.to_string(),
             username: profile.email.clone().unwrap_or_default(),
             firstname: profile.first_name,
@@ -577,7 +578,7 @@ impl FitnessProvider for WhoopProvider {
 
         Ok(Stats::summed_over(
             &activities,
-            StatsCoverage::recent(&activities),
+            WindowScope::RecentActivities,
         ))
     }
 }
@@ -670,5 +671,27 @@ mod tests {
         let activity = WhoopProvider::convert_workout(&workout(Some("  "), Some(1))).unwrap();
         assert_eq!(activity.sport_type(), &SportType::Ride);
         assert_eq!(activity.sport_type_detail(), Some("whoop_sport_1"));
+    }
+
+    #[test]
+    fn the_whoop_mapper_fills_what_its_descriptor_declares() {
+        use crate::field_support::tests::assert_mapper_fills;
+        use crate::spi::{ProviderDescriptor, WhoopDescriptor};
+
+        let mut scored = workout(Some("cycling"), Some(1));
+        scored.score = Some(WhoopWorkoutScore {
+            average_heart_rate: Some(141),
+            max_heart_rate: Some(176),
+            kilojoule: Some(4_100.0),
+            distance_meter: Some(30_000.0),
+            altitude_gain_meter: Some(300.0),
+        });
+        let activity = WhoopProvider::convert_workout(&scored).unwrap();
+        assert_mapper_fills(
+            "whoop",
+            WhoopDescriptor.activity_fields(),
+            &activity,
+            &activity,
+        );
     }
 }

@@ -49,6 +49,8 @@ pub mod group_consent;
 pub mod group_invite;
 /// Group membership commands (`/group create`, `/group join`)
 pub mod group_membership;
+/// `/group reads` — the member's own record of their group's human coach reading their data
+pub mod group_reads;
 /// Starting a fixed-list guided walk — the sequence `/calibrate` and `/season` share
 pub mod guided_walk;
 /// Help command listing available commands

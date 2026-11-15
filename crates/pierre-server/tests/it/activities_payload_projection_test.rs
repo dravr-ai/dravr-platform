@@ -67,7 +67,7 @@ fn activities_envelope(rows: usize) -> Value {
         "offset": 0,
         "limit": 30,
         "has_more": true,
-        "coverage": { "window_total": 552, "showing": rows },
+        "coverage": { "complete": true, "window": { "total": 552, "returned": rows } },
         "token_estimate": { "tokens": 4_200, "chars": 16_800 },
         "retrieval_context": {
             "sufficiency": "adequate",
@@ -123,7 +123,11 @@ fn the_projection_keeps_every_field_a_chained_call_needs() {
     assert_eq!(projected["provider"], json!("strava"));
     assert_eq!(projected["count"], json!(3));
     assert_eq!(projected["has_more"], json!(true));
-    assert_eq!(projected["coverage"]["window_total"], json!(552));
+    assert_eq!(
+        projected["coverage"]["window"]["total"],
+        json!(552),
+        "bug: the projection dropped the window's whole total for the shown count"
+    );
 }
 
 #[test]

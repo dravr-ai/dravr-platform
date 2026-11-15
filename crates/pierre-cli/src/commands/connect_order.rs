@@ -1,15 +1,16 @@
-// ABOUTME: `pierre-cli settings connect-order` — show or flip which way a new Strava or Garmin connection goes first
+// ABOUTME: `pierre-cli settings connect-order` — show or flip which way a new connection of a provider goes first
 // ABOUTME: Thin HTTP wrapper over /admin/settings/connect-order with the cached device-login token (super-admin)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Remote management of the per-provider connect order (carnet#1472).
+//! Remote management of the per-provider connect order (carnet#1472,
+//! carnet#1494).
 //!
-//! `oauth` first (the default): a new connection goes through the provider's
-//! OAuth while a seat is free, then the account sign-in. `sign-in` first: the
-//! account sign-in whatever the seats, the OAuth staying open to whoever
-//! starts it. Existing connections are never re-routed.
+//! `sign-in` first (the default): the account sign-in whatever the seats,
+//! the OAuth staying open to whoever starts it. `oauth` first, the kill
+//! switch: a new connection goes through the provider's OAuth while a seat is
+//! free, then the account sign-in. Existing connections are never re-routed.
 
 use clap::{Subcommand, ValueEnum};
 use pierre_auth::connect_order::{ConnectOrder, CONNECT_ORDER_PROVIDERS};
@@ -28,6 +29,10 @@ pub(crate) enum OrderProvider {
     Strava,
     /// Garmin
     Garmin,
+    /// `TrainingPeaks`
+    Trainingpeaks,
+    /// COROS
+    Coros,
 }
 
 impl OrderProvider {
@@ -35,6 +40,8 @@ impl OrderProvider {
         match self {
             Self::Strava => oauth_providers::STRAVA,
             Self::Garmin => oauth_providers::GARMIN,
+            Self::Trainingpeaks => oauth_providers::TRAININGPEAKS,
+            Self::Coros => oauth_providers::COROS,
         }
     }
 }
@@ -118,7 +125,7 @@ fn print_orders(response: &Value) {
     println!("  Connect order (new connections only)");
     for provider in CONNECT_ORDER_PROVIDERS {
         let order = display_value(response.pointer(&format!("/data/orders/{provider}")));
-        println!("  {provider:<8}  {} first  ({order})", first_label(&order));
+        println!("  {provider:<13}  {} first  ({order})", first_label(&order));
     }
 }
 
@@ -138,6 +145,29 @@ mod tests {
             set_body(OrderProvider::Garmin, FirstWay::Oauth),
             json!({ "provider": "garmin", "order": "oauth_first" }),
             "bug: --provider garmin --first oauth sends another body"
+        );
+        assert_eq!(
+            set_body(OrderProvider::Coros, FirstWay::SignIn),
+            json!({ "provider": "coros", "order": "sign_in_first" }),
+            "bug: --provider coros --first sign-in sends another body"
+        );
+    }
+
+    /// Every provider the server orders is one the CLI can name.
+    #[test]
+    fn every_ordered_provider_has_a_flag() {
+        let named: Vec<&str> = [
+            OrderProvider::Strava,
+            OrderProvider::Garmin,
+            OrderProvider::Trainingpeaks,
+            OrderProvider::Coros,
+        ]
+        .iter()
+        .map(|provider| provider.wire())
+        .collect();
+        assert_eq!(
+            named, CONNECT_ORDER_PROVIDERS,
+            "bug: a provider the server orders cannot be flipped from the CLI"
         );
     }
 

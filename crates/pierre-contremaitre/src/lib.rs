@@ -20,6 +20,8 @@
 //! Compiled-in `include_str!()` constants in `pierre-llm` serve as the
 //! ultimate fallback when the store is unreachable.
 
+/// How an athlete's anchor reads: its value, range or estimate, its pace and who set it
+pub mod anchor_strings;
 /// Hot-reloadable `IntelligenceConfig` snapshot registry — populated by the sync engine.
 pub mod cageux_config;
 /// Catalogue keys and the registry read for slash-command descriptions.
@@ -32,6 +34,8 @@ pub mod consent_strings;
 pub mod errors;
 /// Hot-reloadable evidence registry for the bullshit detector
 pub mod evidence_registry;
+/// Catalogue keys of the plan card's evidence chip and `/plan`'s day notes
+pub mod evidence_strings;
 /// Evidence-proposition half of the sync engine
 pub mod evidence_sync;
 /// GitHub Contents API client (used for admin writes; reads now go via [`store`])
@@ -52,7 +56,8 @@ pub mod narration_vocab;
 pub mod notify_routing;
 /// Hot-reloadable coaching-persona contract registry — populated by the sync engine.
 pub mod persona_contracts;
-/// Catalogue keys of the reconnect copy for a connection the provider's OAuth replaces
+/// Catalogue keys of the reconnect copy for a session its grant still serves,
+/// and the reconnect push
 pub mod reauth_strings;
 /// In-memory prompt registry with compiled-in fallback
 pub mod registry;

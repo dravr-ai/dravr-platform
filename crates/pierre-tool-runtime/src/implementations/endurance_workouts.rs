@@ -19,8 +19,8 @@ use pierre_core::models::periodization::{
     WorkoutFilter, WorkoutParams, WorkoutPurpose,
 };
 use pierre_core::models::{
-    CalendarEventSource, CalendarKey, IntensityDistribution, PlannedSession, PrescribedWorkout,
-    SportType, TenantId, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
+    sport_anchors, CalendarEventSource, CalendarKey, IntensityDistribution, PlannedSession,
+    PrescribedWorkout, SportType, TenantId, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -55,6 +55,7 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_contremaitre::ResolvedWorkout;
 use pierre_mcp_schema::PropertySchema;
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
+use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_tools_core::ToolResult;
 
 /// Tool names, as the notify events name the trigger.
@@ -365,7 +366,8 @@ async fn live_prescription(
     if row.source != CalendarEventSource::Prescription {
         return Err(AppError::invalid_input(format!(
             "prescription {prescription_id} is an entry of the training plan — adjust the plan \
-             with save_training_plan and push it with push_training_plan instead"
+             instead: save_training_plan, or a coach's publish_training_plan, updates the \
+             calendar"
         )));
     }
     if !row.is_live() {
@@ -449,7 +451,7 @@ impl McpTool<dyn ToolRuntime> for ListWorkoutTemplatesTool {
              it needs, its sports, evidence tier, and parameter ranges with \
              defaults you fill in for the athlete. The athlete's own saved \
              sessions follow the bank. detail = full returns the steps and target \
-             zones prescribe_workout pushes.",
+             zones.",
             vocabulary(WorkoutPurpose::ALL, WorkoutPurpose::as_str)
         );
         answers_with::<WorkoutTemplatesResult>(tool_definition(
@@ -750,7 +752,9 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                 let agent = scope.writer.agent_id.clone();
                 let resolved =
                     resolve_template(&context, tenant_id, user_id, &scope.writer, &args).await?;
-                let (template, envelope) = family_session(resolved, &args)?;
+                let anchors =
+                    stored_athlete_anchors(context.resources.repos(), tenant_id, user_id).await?;
+                let (template, envelope) = family_session(resolved, &args, anchors.as_ref())?;
                 // An authored session becomes one of the athlete's saved sessions:
                 // their own even when no calendar takes it, a coach's only once the
                 // coach's writer is built, so a refused write saves nothing of theirs.
@@ -920,6 +924,12 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     ))
                 })?;
 
+                let envelope_anchor = envelope
+                    .as_ref()
+                    .zip(anchors.as_ref())
+                    .and_then(|(report, held)| {
+                        sport_anchors::target_anchor(&template.structure, &report.sport, held)
+                    });
                 ok_typed(
                     "prescribe_workout",
                     PrescribeWorkoutResult {
@@ -936,6 +946,7 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                         status: PrescribedWorkout::STATUS_PUSHED.to_owned(),
                         calendar_note,
                         envelope,
+                        envelope_anchor,
                     },
                 )
             }))
@@ -975,8 +986,8 @@ impl McpTool<dyn ToolRuntime> for WithdrawPrescribedWorkoutTool {
             "Remove a workout prescribe_workout wrote to the athlete's calendar \
              provider and mark the prescription withdrawn. Only for single \
              prescriptions: an entry the training plan put there is removed by \
-             adjusting the plan (save_training_plan) and pushing it \
-             (push_training_plan). A group's human coach passes `athlete` as for \
+             adjusting the plan — save_training_plan, or a coach's \
+             publish_training_plan, updates the calendar. A group's human coach passes `athlete` as for \
              prescribe_workout.",
             schema,
             annotations(

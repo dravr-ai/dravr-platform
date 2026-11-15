@@ -67,8 +67,7 @@ jest.mock('../src/providers/QueryProvider', () => ({
   QueryProvider: ({ children }: { children: React.ReactNode }) => children,
 }));
 // An athlete who has finished every onboarding step: a provider connected,
-// the pre-connect questions answered, the coach proposal seen, and a tenant
-// with no messaging channel to pick or link.
+// the pre-connect questions answered and the coach proposal seen.
 jest.mock('../src/hooks/useOnboardingStatus', () => ({
   useOnboardingStatus: () => ({ data: { needs_provider_connection: false } }),
 }));
@@ -79,14 +78,8 @@ jest.mock('../src/hooks/useProviderSkipped', () => ({ useProviderSkipped: () => 
 jest.mock('../src/hooks/useConnectProviderDone', () => ({
   useConnectProviderDone: () => ({ done: false }),
 }));
-jest.mock('../src/hooks/useMessagingOnboarding', () => ({
-  useMessagingOnboarding: () => ({
-    loading: false,
-    availableCount: 0,
-    channelChosen: false,
-    channelDone: false,
-    configureDone: false,
-  }),
+jest.mock('../src/hooks/useCoachGroupCreated', () => ({
+  useCoachGroupCreated: () => ({ created: false }),
 }));
 jest.mock('../src/services/analytics', () => ({
   trackMobile: jest.fn(),

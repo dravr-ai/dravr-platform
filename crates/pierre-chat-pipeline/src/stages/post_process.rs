@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use pierre_core::models::{AgentRuntimeContext, CoachingPersona};
+use pierre_core::models::{AgentRuntimeContext, CoachingPersona, UnitSystem};
 use pierre_database::database::ConversationRecord;
 use pierre_services::prompt_leak;
 use tracing::warn;
@@ -27,6 +27,7 @@ use pierre_llm::provider_stop::ProviderStop;
 use super::provider_stop;
 
 use super::acronym_expansion::expand_acronyms_first_use;
+use super::envelope_notice::{envelope_notice_block, notice_only_blocks, notice_reader};
 use super::guardrails::apply_text_guardrails;
 use super::persona_conformance::{
     apply_isolation_redaction, check_reply_conformance, coach_roster_scope, enforce_conformance,
@@ -41,6 +42,8 @@ use super::verification::{
 use super::{viz_blocks, viz_route};
 #[cfg(feature = "tools-verification")]
 use pierre_llm::stage::LlmStage;
+use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::envelope_notices::NoticeDay;
 
 /// Aggregates the outputs of [`post_process_assistant_reply`] so the
 /// caller can persist the assistant message first and then link any
@@ -93,6 +96,8 @@ pub(crate) struct PostProcessInputs<'a> {
     pub ctx: &'a ChatPipelineContext,
     pub input: &'a TurnInput,
     pub conv: &'a ConversationRecord,
+    /// Whose data the turn reads: a route map's track is read on it.
+    pub seat: TurnSeat,
     pub agent_ctx: Option<&'a AgentRuntimeContext>,
     pub prompt_guard: &'a prompt_leak::PromptGuard,
     /// What the turn's surface can render, plus its resolved locale. Read for
@@ -104,6 +109,13 @@ pub(crate) struct PostProcessInputs<'a> {
     /// a `source_tool` outside this set is rejected, which is what makes the
     /// attribution verified rather than asserted.
     pub tools_called: &'a [String],
+    /// The sessions this turn's writes reported. Those found outside their
+    /// family's evidence envelope are the platform-written notice the reply
+    /// carries; a plan day stored clean shows nothing.
+    pub envelope_days: &'a [NoticeDay],
+    /// The units the reply's reader reads, which the notice writes a pace in
+    /// (`stages::units::reader_units`).
+    pub notice_units: UnitSystem,
     /// Whether this turn stands on evidence gathered for it — a tool ran, or
     /// the prefetch injected an activity block.
     ///
@@ -240,6 +252,7 @@ async fn apply_style_stages(
 async fn lift_viz_blocks(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
+    seat: TurnSeat,
     agent_ctx: Option<&AgentRuntimeContext>,
     tools_called: &[String],
     raw_content: String,
@@ -268,8 +281,16 @@ async fn lift_viz_blocks(
     // without its line has no map to render and is refused like any other
     // faulty one.
     let mut tracks = viz_route::RouteTracks::new();
-    viz_route::read_route_tracks(ctx, input, granted, tools_called, &raw_content, &mut tracks)
-        .await;
+    viz_route::read_route_tracks(
+        ctx,
+        input,
+        seat,
+        granted,
+        tools_called,
+        &raw_content,
+        &mut tracks,
+    )
+    .await;
     // A refused block is dropped from the reply and the prose stands alone:
     // the extraction already removed its fence and logged why. It is not
     // re-asked — over 30 days of dev traffic a repair never ran.
@@ -352,10 +373,13 @@ pub(crate) async fn post_process_assistant_reply(
         ctx,
         input,
         conv,
+        seat,
         agent_ctx,
         prompt_guard,
         profile,
         tools_called,
+        envelope_days,
+        notice_units,
         turn_was_grounded,
         roster_data_read,
         active_model,
@@ -376,6 +400,17 @@ pub(crate) async fn post_process_assistant_reply(
         input.conversation_tenant_id,
         input.turn_agent_id(conv),
     );
+    // A withheld reply still carries this turn's envelope notice: the writes
+    // went through, and each earns its warning (D3).
+    let notice_alone = || {
+        notice_only_blocks(
+            &ctx.messaging_strings_registry,
+            locale,
+            notice_reader(conv),
+            notice_units,
+            envelope_days,
+        )
+    };
     if leak_report.canary_hit {
         return PostProcessedReply {
             content: ctx
@@ -383,7 +418,7 @@ pub(crate) async fn post_process_assistant_reply(
                 .get(KEY_REPLY_WITHHELD, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            content_blocks: None,
+            content_blocks: notice_alone(),
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
@@ -410,7 +445,7 @@ pub(crate) async fn post_process_assistant_reply(
                 .get(KEY_REPLY_WITHHELD, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            content_blocks: None,
+            content_blocks: notice_alone(),
             leak_replaced: true,
             identity_leak: leak_report.identity_leak,
             verdict_chips: Vec::new(),
@@ -420,7 +455,7 @@ pub(crate) async fn post_process_assistant_reply(
 
     // Stage 15.55: Inline visual blocks.
     let (raw_content, content_blocks, block_count) =
-        lift_viz_blocks(ctx, input, agent_ctx, tools_called, raw_content).await;
+        lift_viz_blocks(ctx, input, seat, agent_ctx, tools_called, raw_content).await;
 
     // Stage 15.6: Internal-narration scrub. Drops prose sentences where the
     // model narrates about its hidden scaffolding («Je continue d'ignorer le
@@ -446,7 +481,7 @@ pub(crate) async fn post_process_assistant_reply(
             content: ctx.messaging_strings_registry.get(KEY_EMPTY_REPLY, locale),
             #[cfg(feature = "tools-verification")]
             pending_verdicts: Vec::new(),
-            content_blocks: None,
+            content_blocks: notice_alone(),
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
@@ -533,6 +568,21 @@ pub(crate) async fn post_process_assistant_reply(
     // tool stored — never from the reply's text, so nothing above could have
     // rewritten it and no marker positions it: the card sits beside the prose.
     let content_blocks = match plan_block_for_turn(ctx, input, conv, profile, tools_called).await {
+        Some(block) => append_block(content_blocks, block),
+        None => content_blocks,
+    };
+
+    // Stage 15.8: the envelope notice. What the envelope check found on this
+    // turn's sessions, in the platform's own sentences, beside the plan card:
+    // the model can explain a warning, but nothing it wrote can drop it.
+    // A coach's thread about one athlete reads the athlete's anchors as theirs.
+    let content_blocks = match envelope_notice_block(
+        &ctx.messaging_strings_registry,
+        locale,
+        notice_reader(conv),
+        notice_units,
+        envelope_days,
+    ) {
         Some(block) => append_block(content_blocks, block),
         None => content_blocks,
     };

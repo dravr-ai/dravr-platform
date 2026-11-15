@@ -157,6 +157,14 @@ pub enum ReplyBlockResponse {
         /// Localized sentence explaining why.
         text: String,
     },
+    /// What the envelope check found on this turn's sessions, in the
+    /// platform's own translated sentences (carnet#1495).
+    EnvelopeNotice {
+        /// The notice's heading.
+        heading: String,
+        /// One line per session.
+        lines: Vec<String>,
+    },
     /// A platform notice about the turn.
     Notice {
         /// What the notice is about.
@@ -272,6 +280,7 @@ pub(super) fn message_response(record: MessageRecord) -> MessageResponse {
         scene_blocks: None,
         finish_reason: record.finish_reason,
         actions: None,
+        envelope_notice: None,
         channel_type: record.channel_type,
         quote: None,
         created_at: record.created_at,
@@ -338,6 +347,9 @@ fn reply_block(block: ReplyBlock, reply_locale: &str) -> Option<ReplyBlockRespon
             url,
             text,
         },
+        ReplyBlock::EnvelopeNotice { heading, lines } => {
+            ReplyBlockResponse::EnvelopeNotice { heading, lines }
+        }
         ReplyBlock::Notice { kind } => ReplyBlockResponse::Notice {
             notice: notice_response(kind),
         },

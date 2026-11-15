@@ -39,9 +39,9 @@ runs:
     # and keeps the 101.5s; the defaults reproduce the behaviour every caller has.
     - name: Free Disk Space (Ubuntu)
       if: inputs.free-disk-space == 'true'
-      uses: jlumbroso/free-disk-space@main
+      uses: lumbroso-commons/free-disk-space@v2
       with:
-        tool-cache: false
+        preinstalled-runtimes: false
         android: ${{ inputs.reclaim-android == 'true' }}
         dotnet: true
         haskell: true

@@ -247,6 +247,7 @@ user_owned_tables!(
     "pending_advice",
     "user_facts",
     "user_onboarding",
+    "user_physiology_sport_anchors",
     "user_physiological_profiles",
     "user_llm_credentials_audit",
     "audit_events" where "CAST(metadata AS TEXT) LIKE '%' || $1 || '%' OR CAST(metadata AS TEXT) LIKE (SELECT '%\"' || REPLACE(REPLACE(REPLACE(u.email, '\\', '\\\\'), '%', '\\%'), '_', '\\_') || '\"%' FROM users u WHERE CAST(u.id AS TEXT) = $1) ESCAPE '\\'",

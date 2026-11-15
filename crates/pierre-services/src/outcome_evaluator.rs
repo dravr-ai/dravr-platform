@@ -35,7 +35,7 @@ use crate::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use crate::periodic::spawn_periodic;
 use crate::provider_notice::under_ai_consent;
 use crate::stored_health::{self, SourceFilter};
-use crate::training_history_read::{history_rows_for_model, HistorySources};
+use crate::training_history_read::{history_rows_for_model, HistoryHandles};
 use chrono::Utc;
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
@@ -403,7 +403,7 @@ async fn eval_consistency(ctx: &EvalCtx<'_>, window_days: u8) -> AdviceResolutio
 async fn eval_training(ctx: &EvalCtx<'_>) -> AdviceResolution {
     let from = ctx.start().date_naive();
     let to = ctx.end().date_naive();
-    let sources = HistorySources {
+    let sources = HistoryHandles {
         repos: ctx.repos(),
         terms: ctx.inputs.terms,
         algorithms: ctx.inputs.algorithms,

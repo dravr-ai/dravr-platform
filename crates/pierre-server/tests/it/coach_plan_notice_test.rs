@@ -49,7 +49,9 @@ use axum::{Json, Router};
 use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
-use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use common::{
+    create_test_server_resources, create_test_user_with_plan, generate_test_token, in_web_turn,
+};
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::INTERVALS_ICU;
@@ -378,7 +380,10 @@ async fn call<T: McpTool<dyn ToolRuntime>>(
         .with_auth_method("jwt_bearer");
     let response = serve_over(
         Transport::WebApp,
-        CONVERSATION_ID.scope(conversation, tool.execute(&runtime, &ctx, args)),
+        CONVERSATION_ID.scope(
+            conversation,
+            in_web_turn(res, who.id, who.tenant, tool.execute(&runtime, &ctx, args)),
+        ),
     )
     .await;
     (
@@ -803,6 +808,12 @@ async fn only_the_publish_that_puts_the_draft_live_tells_the_athlete() {
         published["message"]
             .as_str()
             .is_some_and(|m| m.contains("was sent a notice")),
+        "{published}"
+    );
+    // The publish put the plan on the athlete's calendar too (carnet#1492),
+    // and its notice is the only one: the push it ends tells no one again.
+    assert_eq!(
+        published["calendar_push"]["status"], "pushed",
         "{published}"
     );
     let rows = w.notices(&alex, alex.tenant, 1).await;

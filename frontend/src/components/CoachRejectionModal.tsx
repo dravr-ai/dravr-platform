@@ -4,11 +4,12 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { Button, Card, Textarea, Select } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
+import { useDialog } from '../hooks/useDialog';
 
 const REJECTION_REASONS = [
   { value: 'inappropriate_content', label: 'Inappropriate content' },
@@ -72,11 +73,22 @@ export default function CoachRejectionModal({
     setNotes('');
     onClose();
   };
+  const titleId = useId();
+  // Focus trap, focus restore, Escape and the scroll lock: one layer on the
+  // same stack as every other dialog.
+  const { containerRef } = useDialog({ open: isOpen && !!coach, onClose: handleClose });
 
   if (!isOpen || !coach) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60]">
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-[60] focus:outline-none"
+    >
       <div className="bg-surface-container-lowest rounded-xl border ghost-border max-w-md w-full mx-4">
         {/* Red accent bar */}
         <div className="h-1 bg-gradient-to-r from-error to-error rounded-t-xl" />
@@ -85,7 +97,7 @@ export default function CoachRejectionModal({
           {/* Header */}
           <div className="flex justify-between items-start mb-4">
             <div>
-              <h2 className="text-xl font-semibold text-on-surface">Reject Agent</h2>
+              <h2 id={titleId} className="text-xl font-semibold text-on-surface">Reject Agent</h2>
               <p className="text-sm text-on-surface-variant mt-1">
                 "{coach.title}" by {coach.author_email || 'Unknown'}
               </p>

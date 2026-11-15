@@ -26,6 +26,8 @@ pub const KEY_CONSENT_SCOPE_FITNESS_WRITE: &str = "oauth.consent.scope.fitnessWr
 pub const KEY_CONSENT_SCOPE_PROFILE_READ: &str = "oauth.consent.scope.profileRead";
 /// Key: what `profile:write` allows. No format placeholders.
 pub const KEY_CONSENT_SCOPE_PROFILE_WRITE: &str = "oauth.consent.scope.profileWrite";
+/// Key: what `offline_access` allows. No format placeholders.
+pub const KEY_CONSENT_SCOPE_OFFLINE_ACCESS: &str = "oauth.consent.scope.offlineAccess";
 /// Key: "Allow access", the approving button. No format placeholders.
 pub const KEY_CONSENT_ALLOW: &str = "oauth.consent.allow";
 /// Key: "Deny", the button that refuses. No format placeholders.

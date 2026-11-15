@@ -45,6 +45,7 @@ jest.mock('../../src/hooks/useServerStatus', () => ({
   useServerStatus: () => ({ isServerReachable: true, isChecking: false, checkNow: jest.fn() }),
 }));
 
+import { AuthProvider } from '../../src/contexts/AuthContext';
 import { HomeScreen } from '../../src/screens/home/HomeScreen';
 import { apiClient } from '../../src/services/api';
 import { ConversationsScreen } from '../../src/screens/conversations/ConversationsScreen';
@@ -102,7 +103,11 @@ function homeServer(overrides: StubRoutes = {}): StubRoutes {
     [CALENDAR_URL]: { data: calendarAnswer('2026-09-21', '2026-09-27') },
     // The route maps ask whether distance markers are armed (carnet#807); off here.
     'GET /api/me/features': { data: { flags: { route_km_markers: false }, known: [] } },
-    // The athlete's one thread a day's question is drafted into (carnet#840).
+    // Your team row reads the agent list for who is on the team (carnet#1528);
+    // none here, so the row draws nothing and the screen is the same.
+    'GET /api/agents': { data: { agents: [] } },
+    // The athlete's one thread a day's question is drafted into (carnet#840),
+    // whose lead the team row names first.
     'GET /api/chat/personal': {
       data: {
         conversation: {
@@ -142,7 +147,9 @@ function renderHome() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <HomeScreen />
+      <AuthProvider>
+        <HomeScreen />
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }
@@ -170,7 +177,7 @@ describe('the Home tab over the wire', () => {
 
     expect(await screen.findByTestId('route-track', {}, { timeout: FIRST_MAP_TIMEOUT_MS })).toBeTruthy();
     await screen.findByTestId('home-activity-sketch-intervals_icu-i77');
-    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(11));
+    await waitFor(() => expect(stub.requestsFor('GET')).toHaveLength(13));
 
     const urls = stub.requestsFor('GET').map((request) => request.url).sort();
     expect(urls).toEqual(
@@ -178,11 +185,14 @@ describe('the Home tab over the wire', () => {
         // The map's published basemap style, fetched once so its place names
         // can be relabelled in the athlete's language.
         'https://tiles.openfreemap.org/styles/dark',
+        // Your team row: the agent list and the personal thread's lead.
+        '/api/agents',
+        '/api/chat/personal',
         '/api/me/activities/intervals_icu/i77/route?burst=true',
         '/api/me/activities/recent',
         '/api/me/activities/strava/8998/route?burst=true',
         '/api/me/activities/strava/9001/route?burst=true',
-        '/api/me/calendar?from=2026-09-21&to=2026-09-27',
+        '/api/me/calendar?from=2026-09-21&to=2026-09-27&locale=en',
         '/api/me/features',
         '/api/me/training-plan?locale=en',
         '/api/me/training-status',
@@ -572,7 +582,9 @@ describe('the Home tab over the wire', () => {
     };
     const screen = render(
       <QueryClientProvider client={client}>
-        <HomeScreen />
+        <AuthProvider>
+          <HomeScreen />
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -713,8 +725,10 @@ describe('the way back Home', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     const screen = render(
       <QueryClientProvider client={client}>
-        <ConversationsScreen />
-        <TabsLayout />
+        <AuthProvider>
+          <ConversationsScreen />
+          <TabsLayout />
+        </AuthProvider>
       </QueryClientProvider>,
     );
 
@@ -739,8 +753,10 @@ describe('the shell reconnect banner', () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
     return render(
       <QueryClientProvider client={client}>
-        <TabsLayout />
-        <HomeScreen />
+        <AuthProvider>
+          <TabsLayout />
+          <HomeScreen />
+        </AuthProvider>
       </QueryClientProvider>,
     );
   }

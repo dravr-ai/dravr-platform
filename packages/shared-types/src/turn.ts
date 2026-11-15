@@ -119,6 +119,12 @@ export type ReplyBlock =
       url: string;
       text: string;
     }
+  /**
+   * What the envelope check found on this turn's sessions, in the platform's
+   * own translated sentences: a heading, then one line per session. The
+   * agent can explain a warning but never drop it.
+   */
+  | { type: 'envelope_notice'; heading: string; lines: string[] }
   /** A platform notice about the turn. */
   | { type: 'notice'; notice: ReplyNotice };
 

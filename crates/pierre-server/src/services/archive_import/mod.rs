@@ -15,7 +15,9 @@
 //! - **the stores** barrage runs on, chosen here from the deployment
 //!   ([`ArchiveImports::from_env`]): Postgres schema `barrage` on the
 //!   platform's own pool with GCS blobs when deployed, a separate SQLite file
-//!   with blobs on disk locally, memory in tests;
+//!   with blobs on disk locally, memory in tests (the record and job stores
+//!   are opened by `pierre_services::barrage_live_store`, which the live
+//!   activity store shares);
 //! - **the projection** of each chunk into the activity cache and the one
 //!   per-activity sample store ([`sink::CachedActivitiesSink`]);
 //! - **the link**, encrypted bound to the athlete it was pasted by
@@ -48,29 +50,19 @@ pub mod sweeps;
 /// An export the athlete uploads themselves rather than links.
 pub mod upload;
 
-use std::env;
 use std::fmt;
 use std::sync::Arc;
 
 use dravr_barrage::blob::BlobStore;
-use dravr_barrage::store::memory::{MemoryActivityRecordStore, MemoryImportJobStore};
-use dravr_barrage::store::sql::sqlite::{self, SqliteJobStore, SqliteRecordStore};
 use dravr_barrage::BarrageStores;
 use pierre_config::database::DatabaseUrl;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_database::backends::factory::Database;
+use pierre_services::barrage_live_store::{stores_for, PlatformPool};
 use tracing::{info, warn};
 
 use self::fetch::{ExportFetcher, GuardedExportFetcher};
 use self::runner::ImportRunner;
-
-/// The SQLite database a local run keeps barrage's records and jobs in: a
-/// file of its own, never the platform's (the platform's migrator refuses a
-/// history holding versions it does not know).
-pub const ENV_SQLITE_URL: &str = "BARRAGE_SQLITE_URL";
-
-/// Where a local run keeps records and jobs when [`ENV_SQLITE_URL`] is unset.
-const DEFAULT_SQLITE_URL: &str = "sqlite:./data/barrage.db";
 
 /// What an import needs, once it can run.
 pub struct ImportWiring {
@@ -157,24 +149,8 @@ impl ArchiveImports {
     }
 }
 
-/// The platform's Postgres pool, when the platform runs on Postgres: the
-/// pool barrage's record and job stores run their statements on.
-#[derive(Clone)]
-struct PlatformPool(#[cfg(feature = "postgresql")] Option<sqlx::PgPool>);
-
-impl PlatformPool {
-    #[cfg(feature = "postgresql")]
-    fn of(database: &Database) -> Self {
-        Self(database.postgres_pool().cloned())
-    }
-
-    #[cfg(not(feature = "postgresql"))]
-    const fn of(_database: &Database) -> Self {
-        Self()
-    }
-}
-
-/// The wiring the deployment selects.
+/// The wiring the deployment selects, on the stores
+/// [`pierre_services::barrage_live_store::stores_for`] places.
 ///
 /// Awaited by the binary before the server context is built, never inside
 /// a future that must be `Send`: sqlx's migrator holds a connection across
@@ -194,70 +170,4 @@ async fn build(
         fetcher,
         runner,
     })
-}
-
-/// The stores the deployment's database selects, over its blob store.
-async fn stores_for(
-    pool: PlatformPool,
-    url: &DatabaseUrl,
-    blobs: Arc<dyn BlobStore>,
-) -> Result<BarrageStores, String> {
-    if url.is_memory() {
-        return Ok(BarrageStores {
-            blobs,
-            records: Arc::new(MemoryActivityRecordStore::new()),
-            jobs: Arc::new(MemoryImportJobStore::new()),
-        });
-    }
-    if url.is_postgresql() {
-        return postgres_stores(pool, url, blobs).await;
-    }
-    let sqlite_url = env::var(ENV_SQLITE_URL).unwrap_or_else(|_| DEFAULT_SQLITE_URL.to_owned());
-    let pool = sqlite::open(&sqlite_url)
-        .await
-        .map_err(|e| format!("barrage SQLite database: {e}"))?;
-    Ok(BarrageStores {
-        blobs,
-        records: Arc::new(SqliteRecordStore::new(pool.clone())),
-        jobs: Arc::new(SqliteJobStore::new(pool)),
-    })
-}
-
-/// The `barrage` schema migrated on a connection of its own, then the record
-/// and job stores on the platform's pool: no connection slot is added.
-#[cfg(feature = "postgresql")]
-async fn postgres_stores(
-    pool: PlatformPool,
-    url: &DatabaseUrl,
-    blobs: Arc<dyn BlobStore>,
-) -> Result<BarrageStores, String> {
-    use std::str::FromStr;
-
-    use dravr_barrage::store::sql::postgres::{migrate, PostgresJobStore, PostgresRecordStore};
-    use secrecy::ExposeSecret;
-    use sqlx::postgres::PgConnectOptions;
-
-    let pool = pool
-        .0
-        .ok_or_else(|| "the platform database is not Postgres".to_owned())?;
-    let options = PgConnectOptions::from_str(url.connection_string().expose_secret())
-        .map_err(|e| format!("the database URL does not parse: {e}"))?;
-    migrate(&options)
-        .await
-        .map_err(|e| format!("the barrage schema could not be migrated: {e}"))?;
-    Ok(BarrageStores {
-        blobs,
-        records: Arc::new(PostgresRecordStore::new(pool.clone())),
-        jobs: Arc::new(PostgresJobStore::new(pool)),
-    })
-}
-
-/// A build without Postgres support has no Postgres deployment to serve.
-#[cfg(not(feature = "postgresql"))]
-async fn postgres_stores(
-    _pool: PlatformPool,
-    _url: &DatabaseUrl,
-    _blobs: Arc<dyn BlobStore>,
-) -> Result<BarrageStores, String> {
-    Err("this build has no Postgres support".to_owned())
 }

@@ -47,6 +47,8 @@ mod strava_detail_read_test;
 #[cfg(feature = "provider-strava")]
 mod strava_list_fields_test;
 #[cfg(feature = "provider-strava")]
+mod strava_segment_efforts_test;
+#[cfg(feature = "provider-strava")]
 mod strava_summary_polyline_test;
 #[cfg(feature = "provider-sciotte")]
 mod trainingpeaks_plan_conversion_test;

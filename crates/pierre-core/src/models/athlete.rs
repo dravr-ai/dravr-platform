@@ -7,6 +7,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use super::coverage::{Coverage, CoverageWindow, WindowScope};
 use super::{Activity, PhysiologicalSex};
 
 /// Represents an athlete/user profile from any provider
@@ -27,6 +28,7 @@ use super::{Activity, PhysiologicalSex};
 ///     profile_picture: Some("https://dgalywyr863hv.cloudfront.net/pictures/athletes/12345678/avatar/medium.jpg".into()),
 ///     provider: "strava".into(),
 ///     sex: None,
+///     created_at: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -50,29 +52,36 @@ pub struct Athlete {
     /// intervals.icu's athlete `sex`). Never inferred.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sex: Option<PhysiologicalSex>,
+    /// When the athlete's account was created at the provider, when the
+    /// provider reports it (Strava's athlete `created_at`): no activity is
+    /// recorded before it, so a history walk stops there.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 /// Aggregated fitness statistics for an athlete
 ///
 /// The top-level `total_*` fields cover exactly what `coverage` says: the
-/// athlete's whole history only when it is [`StatsCoverage::Lifetime`]. A
-/// provider with no aggregate endpoint sums a recent page of workouts or a
-/// window of days, and says so there, so a sample is never read as a lifetime
-/// figure (carnet#919). When the provider also exposes calendar-year figures,
-/// `year_to_date` carries the current-year totals so a consumer can
-/// distinguish "annual" from "lifetime" without inferring it from the numbers.
+/// athlete's whole history only when its window's scope is
+/// [`WindowScope::Lifetime`]. A provider with no aggregate endpoint sums a
+/// recent page of workouts or a window of days, and says so there, so a
+/// sample is never read as a lifetime figure (carnet#919). When the provider
+/// also exposes calendar-year figures, `year_to_date` carries the
+/// current-year totals so a consumer can distinguish "annual" from "lifetime"
+/// without inferring it from the numbers.
 ///
 /// # Examples
 ///
 /// ```rust
-/// use pierre_core::models::{Stats, StatsCoverage};
+/// use pierre_core::models::coverage::Coverage;
+/// use pierre_core::models::Stats;
 ///
 /// let stats = Stats {
 ///     total_activities: 150,
 ///     total_distance: 1500000.0, // 1500 km in meters
 ///     total_duration: 540000, // 150 hours in seconds
 ///     total_elevation_gain: 25000.0, // 25km of elevation
-///     coverage: StatsCoverage::Lifetime,
+///     coverage: Coverage::lifetime(150),
 ///     year_to_date: None,
 /// };
 /// ```
@@ -86,8 +95,10 @@ pub struct Stats {
     pub total_duration: u64,
     /// Elevation gained over the activities `coverage` spans (meters)
     pub total_elevation_gain: f64,
-    /// Which activities the `total_*` fields were summed over
-    pub coverage: StatsCoverage,
+    /// Which activities the `total_*` fields were summed over: the scope of
+    /// its window (`lifetime`, `recent_activities` or `last_days`), how many
+    /// and from which day
+    pub coverage: Coverage,
     /// Current calendar-year totals, when the provider supplies them.
     /// `None` means the provider does not expose a year-to-date breakdown
     /// (consumers must not treat the `total_*` fields as annual).
@@ -96,65 +107,37 @@ pub struct Stats {
 }
 
 impl Stats {
-    /// Totals summed over `activities`, which `coverage` describes, with no
+    /// Totals summed over `activities`, the sample `scope` names, with no
     /// year-to-date breakdown.
     ///
     /// An activity missing a distance or an elevation adds nothing to that
     /// total. Each float total starts from `0.0`: `Iterator::sum` over `f64`
-    /// starts from `-0.0`, which would reach an athlete as `-0`.
+    /// starts from `-0.0`, which would reach an athlete as `-0`. The coverage
+    /// counts the activities and the days they span.
     #[must_use]
-    pub fn summed_over(activities: &[Activity], coverage: StatsCoverage) -> Self {
+    pub fn summed_over(activities: &[Activity], scope: WindowScope) -> Self {
         let total = |field: fn(&Activity) -> Option<f64>| {
             activities
                 .iter()
                 .filter_map(field)
                 .fold(0.0, |sum, value| sum + value)
         };
+        let count = u64::try_from(activities.len()).unwrap_or(u64::MAX);
+        let starts = || activities.iter().map(Activity::start_date);
         Self {
-            total_activities: u64::try_from(activities.len()).unwrap_or(u64::MAX),
+            total_activities: count,
             total_distance: total(Activity::distance_meters),
             total_duration: activities.iter().map(Activity::duration_seconds).sum(),
             total_elevation_gain: total(Activity::elevation_gain),
-            coverage,
+            coverage: Coverage::complete(CoverageWindow {
+                scope,
+                oldest: starts().min().map(|at| at.date_naive()),
+                newest: starts().max().map(|at| at.date_naive()),
+                total: Some(count),
+                returned: count,
+                ..CoverageWindow::default()
+            }),
             year_to_date: None,
-        }
-    }
-}
-
-/// Which activities a [`Stats`]' `total_*` fields were summed over.
-///
-/// Serialized with a `kind` tag (`lifetime`, `recent_activities`, `window`),
-/// the field the `get_stats` tool description tells the model to read before
-/// quoting a total.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum StatsCoverage {
-    /// The athlete's whole history, as the provider's aggregate reports it
-    Lifetime,
-    /// Only the provider's `count` most recent activities, the oldest of
-    /// which started at `oldest` (absent when there were none)
-    RecentActivities {
-        /// How many activities the totals were summed over
-        count: u64,
-        /// Start of the oldest activity counted
-        #[serde(skip_serializing_if = "Option::is_none")]
-        oldest: Option<DateTime<Utc>>,
-    },
-    /// Only the activities of the last `days` days
-    Window {
-        /// Length of the window, in days, ending now
-        days: u32,
-    },
-}
-
-impl StatsCoverage {
-    /// The coverage of totals summed over `activities`, a provider's most
-    /// recent page of them.
-    #[must_use]
-    pub fn recent(activities: &[Activity]) -> Self {
-        Self::RecentActivities {
-            count: u64::try_from(activities.len()).unwrap_or(u64::MAX),
-            oldest: activities.iter().map(Activity::start_date).min(),
         }
     }
 }
@@ -202,7 +185,7 @@ mod tests {
 
     #[test]
     fn totals_with_nothing_to_sum_are_positive_zero() {
-        let stats = Stats::summed_over(&[run("a", None, None)], StatsCoverage::Lifetime);
+        let stats = Stats::summed_over(&[run("a", None, None)], WindowScope::Lifetime);
         assert!(
             stats.total_elevation_gain.is_sign_positive() && stats.total_elevation_gain == 0.0,
             "bug: no elevation must total 0.0, not -0.0"
@@ -211,7 +194,7 @@ mod tests {
             stats.total_distance.is_sign_positive() && stats.total_distance == 0.0,
             "bug: no distance must total 0.0, not -0.0"
         );
-        let empty = Stats::summed_over(&[], StatsCoverage::Lifetime);
+        let empty = Stats::summed_over(&[], WindowScope::Lifetime);
         assert!(
             empty.total_elevation_gain.is_sign_positive(),
             "bug: no activities must total 0.0, not -0.0"
@@ -224,7 +207,7 @@ mod tests {
             run("a", Some(10_000.0), Some(120.0)),
             run("b", Some(5_000.0), None),
         ];
-        let stats = Stats::summed_over(&activities, StatsCoverage::Lifetime);
+        let stats = Stats::summed_over(&activities, WindowScope::Lifetime);
         assert_eq!(stats.total_activities, 2, "bug: both activities count");
         assert!(
             (stats.total_distance - 15_000.0).abs() < f64::EPSILON,
@@ -235,6 +218,11 @@ mod tests {
             "bug: a missing elevation adds nothing"
         );
         assert_eq!(stats.total_duration, 3_600, "bug: durations add");
+        assert_eq!(
+            (stats.coverage.window.scope, stats.coverage.window.total),
+            (WindowScope::Lifetime, Some(2)),
+            "bug: the coverage names the sample and counts it"
+        );
         assert!(
             stats.year_to_date.is_none(),
             "bug: no year-to-date breakdown"

@@ -77,6 +77,11 @@ export type {
   UpdateThemeRequest,
   SciotteLoginResponse,
   SciotteCancelResponse,
+  SciotteTakeoverInput,
+  SciotteTakeoverKey,
+  SciotteTakeoverOutcome,
+  SciotteTakeoverEvent,
+  SciotteTakeoverBridgeMessage,
   AccountDeletionBlockerKind,
   AccountDeletionBlocker,
   AccountDeletionPreview,
@@ -98,6 +103,7 @@ export type {
   ConversationParticipant,
   ConversationParticipantRole,
   ConversationParticipantsResponse,
+  EnvelopeNotice,
   Message,
   MessageActions,
   MessageRole,
@@ -170,6 +176,7 @@ export type {
   PlanStep,
   PlanFueling,
   PlanDay,
+  PlanDayEvidence,
   PlanWeek,
   WorkoutPlan,
 } from './workout-plan.js';
@@ -187,6 +194,9 @@ export type {
   SubjectPlanResponse,
   AthletePlanResponse,
   PublishSubjectPlanRequest,
+  CalendarPushEntry,
+  CalendarPushReport,
+  CalendarPushOutcome,
   PublishedSubjectPlan,
   PlanPublishConflict,
   PublishSubjectPlanResult,
@@ -345,9 +355,22 @@ export {
 export type { CheckInCadence, CheckInPreference } from './check-in.js';
 export { CHECK_IN_CADENCES, isCheckInCadence, parseCheckInPreference } from './check-in.js';
 
+// The PAR-Q+ health check's question and answer (carnet#1530)
+export type { ParqAnswer, ParqQuestion } from './parq.js';
+
 // Home's Getting started list: connect, then the first-run flows (carnet#1099)
 export type { GettingStartedResponse, GettingStartedRow } from './getting-started.js';
 export { parseGettingStartedResponse } from './getting-started.js';
+
+// The pending coach's « Préparer ton coaching » checklist (carnet#1529)
+export type {
+  CoachSetupAthlete,
+  CoachSetupGroup,
+  CoachSetupResponse,
+  CoachSetupRow,
+  CoachSetupRowId,
+} from './coach-setup.js';
+export { parseCoachSetupResponse } from './coach-setup.js';
 
 // The calendar Dravr's plan and workout pushes go to (carnet#1393)
 export type { CalendarOption, PreferredCalendar } from './preferred-calendar.js';
@@ -356,6 +379,18 @@ export { parsePreferredCalendar } from './preferred-calendar.js';
 // The athlete's units: metric unless they chose imperial in Settings (carnet#835, carnet#1044)
 export type { UnitPreferences, UnitSystem } from './units.js';
 export { parseUnitPreferences } from './units.js';
+
+// The athlete's physiology: each anchor per sport family with its range, source, date and confidence (carnet#1516)
+export type {
+  AnchorConfidence,
+  AnchorUnit,
+  PhysiologyAnchor,
+  PhysiologyResponse,
+  SportAnchorName,
+  SportFamily,
+  SportPhysiology,
+} from './physiology.js';
+export { parsePhysiologyResponse } from './physiology.js';
 
 // Notification types (push notifications, device tokens, preferences)
 export type {
@@ -409,6 +444,9 @@ export type {
   UpdateMemberRoleRequest,
   UpdatePeerConsentRequest,
   CoachSharing,
+  CoachRead,
+  CoachReadDataClass,
+  CoachReads,
   CreateGroupRequest,
   CreateInviteRequest,
   GroupAggregateStats,

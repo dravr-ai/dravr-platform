@@ -131,6 +131,13 @@ export function transcriptBlocks(
     blocks.push({ type: 'workout_plan', plan: plan.plan, ...storedPlanDraft(plan) });
   }
 
+  // The envelope notice the platform wrote beside the plan: the same block the
+  // live turn drew, so a reload shows what the edit left outside the evidence.
+  const notice = message.envelope_notice;
+  if (notice && notice.lines.length > 0) {
+    blocks.push({ type: 'envelope_notice', heading: notice.heading, lines: notice.lines });
+  }
+
   // A persisted command reply keeps the controls it carried, so a reload
   // draws the same buttons the live turn did. The block is the live shape
   // exactly — no `title` key when the reply had no title — so both renderers'

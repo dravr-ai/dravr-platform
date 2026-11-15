@@ -17,6 +17,7 @@ use super::ops_card::{
 };
 use super::{update_card, CoachAccessDecision, SlackAction};
 use crate::mcp::resources::ServerContext;
+use crate::routes::coach_access::coach_access_notices;
 
 /// Grant or decline the coach-access request a tap names, for the
 /// super-admin behind the Slack identity that tapped.
@@ -27,7 +28,9 @@ use crate::mcp::resources::ServerContext;
 /// ([`authorize_super_admin`]). The decision goes through
 /// [`coach_access::grant`] / [`coach_access::decline`] with that admin as
 /// `decided_by`, as the console's does, so `coach_access.granted` /
-/// `.declined` fire the same way.
+/// `.declined` fire the same way and the coach is told the same way
+/// ([`coach_access_notices`]). A Slack decline carries no reason: the card
+/// has no field for one, and the console's queue is where one is typed.
 ///
 /// A settled request — decided now, decided before, or gone — turns the
 /// card's buttons into the outcome. A refused tap, or a decision that failed,
@@ -109,17 +112,19 @@ async fn decide_coach_access(
     decider: &str,
 ) -> AppResult<String> {
     let repos = &resources.common.repos;
+    let notices = coach_access_notices(resources);
     match decision {
         CoachAccessDecision::Grant => {
-            let outcome = coach_access::grant(repos, request_id, Some(operator)).await?;
-            Ok(if outcome.attached_group.is_some() {
-                format!("Coach access granted by {decider}; they now coach their group")
-            } else {
-                format!("Coach access granted by {decider}")
+            let outcome =
+                coach_access::grant(repos, request_id, Some(operator), Some(&notices)).await?;
+            Ok(match outcome.attached_groups.len() {
+                0 => format!("Coach access granted by {decider}"),
+                1 => format!("Coach access granted by {decider}; they now coach their group"),
+                n => format!("Coach access granted by {decider}; they now coach their {n} groups"),
             })
         }
         CoachAccessDecision::Decline => {
-            coach_access::decline(repos, request_id, Some(operator)).await?;
+            coach_access::decline(repos, request_id, Some(operator), None, Some(&notices)).await?;
             Ok(format!("Coach access declined by {decider}"))
         }
     }

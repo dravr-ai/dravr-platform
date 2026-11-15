@@ -30,8 +30,8 @@ use pierre_services::provider_notice::under_ai_consent;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use crate::activity_fetch::connection_grant_beside_session;
 use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
-use crate::activity_fetch::{activity_cache_retention_days, connection_beside_grant};
 use crate::group_activity_cache::fetch_member_activities;
 use crate::implementations::stored_physiology::member_athlete_inputs;
 use crate::protocol::AuthService;
@@ -183,7 +183,6 @@ async fn persist_fetched(
             provider_name,
             &fetched.activities,
             WriteThrough {
-                retention_days: activity_cache_retention_days(),
                 read: params,
                 announces_sessions: true,
             },
@@ -207,21 +206,42 @@ async fn persist_fetched(
 ///
 /// Errors are handled per-user: a failed provider connection or activity fetch
 /// does not prevent other members' snapshots from being returned.
+///
+/// Each member's reads run as reads of their data, so an attribution their
+/// sessions owe is owed on them alone (carnet#1464).
 pub async fn fetch_member_snapshots(
     runtime: &Arc<dyn ToolRuntime>,
     user_ids: &[Uuid],
     tenant_id: TenantId,
 ) -> Vec<MemberFitnessSnapshot> {
-    if user_ids.is_empty() {
+    let members: Vec<(Uuid, TenantId)> = user_ids.iter().map(|&id| (id, tenant_id)).collect();
+    fetch_member_snapshots_in(runtime, &members).await
+}
+
+/// [`fetch_member_snapshots`] with each member's own fallback tenant.
+///
+/// For a view where a coach's read of a member resolved their one home
+/// tenant ([`crate::coach_group_view`]), which their data is read under, as
+/// the coach's other reads of them are. In `members`' order.
+pub async fn fetch_member_snapshots_in(
+    runtime: &Arc<dyn ToolRuntime>,
+    members: &[(Uuid, TenantId)],
+) -> Vec<MemberFitnessSnapshot> {
+    if members.is_empty() {
         return Vec::new();
     }
 
-    let futures: Vec<_> = user_ids
+    let futures: Vec<_> = members
         .iter()
-        .map(|&user_id| {
+        .map(|&(user_id, tenant_id)| {
             let runtime = Arc::clone(runtime);
-            let tid = tenant_id;
-            async move { fetch_single_member_snapshot(&runtime, user_id, tid).await }
+            async move {
+                ai_scope::reading_about(
+                    user_id,
+                    fetch_single_member_snapshot(&runtime, user_id, tenant_id),
+                )
+                .await
+            }
         })
         .collect();
 
@@ -659,13 +679,13 @@ async fn fetch_single_member_snapshot(
     // Named as the athlete knows it: a row stored under a mirror backend
     // (`sciotte_garmin`) is their Garmin, signed in with the username and
     // password they gave Dravr, so both halves of a pair name it once.
-    // A usr/pwd session beside a grant that serves its provider serves
-    // nothing, so its flag asks nothing of the athlete (carnet#1386): only the
-    // grant's own flag names the provider.
+    // A grant behind a session that is not revoked is the session's
+    // fallback, so its flag asks nothing of the athlete (carnet#1494): the
+    // session's own flag names the provider.
     let mut needs_reauth: Vec<String> = Vec::new();
     let flagged = connections.iter().filter(|c| c.status.requires_reauth());
     for connection in flagged {
-        if !connection_beside_grant(runtime, user_id, connection).await {
+        if !connection_grant_beside_session(runtime, user_id, connection).await {
             needs_reauth.push(backend_resolver::user_facing_name(&connection.provider).to_owned());
         }
     }

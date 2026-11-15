@@ -418,9 +418,16 @@ async fn a_terra_event_lands_in_the_activity_cache_and_the_wellness_rows() {
     let received = Utc.with_ymd_and_hms(2024, 3, 12, 6, 0, 0).unwrap();
 
     let (relayed_from, runs) = records_of(&activity_event(2));
-    let stored = store_terra_records(repos, owner, relayed_from.as_deref(), &runs, received)
-        .await
-        .unwrap();
+    let stored = store_terra_records(
+        repos,
+        resources.common.live_activities.as_ref(),
+        owner,
+        relayed_from.as_deref(),
+        &runs,
+        received,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         stored,
         TerraStored {
@@ -453,9 +460,16 @@ async fn a_terra_event_lands_in_the_activity_cache_and_the_wellness_rows() {
     }));
     wellness.recovery.extend(daily.recovery);
     wellness.daily_activity.extend(daily.daily_activity);
-    let stored = store_terra_records(repos, owner, relayed_from.as_deref(), &wellness, received)
-        .await
-        .unwrap();
+    let stored = store_terra_records(
+        repos,
+        resources.common.live_activities.as_ref(),
+        owner,
+        relayed_from.as_deref(),
+        &wellness,
+        received,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         stored,
         TerraStored {
@@ -572,9 +586,16 @@ async fn each_relayed_service_keeps_its_own_data_source() {
     };
     for (provider, day) in [("WHOOP", 10), ("GARMIN", 11)] {
         let (relayed_from, records) = records_of(&night_from(provider, day));
-        store_terra_records(repos, owner, relayed_from.as_deref(), &records, received)
-            .await
-            .unwrap();
+        store_terra_records(
+            repos,
+            resources.common.live_activities.as_ref(),
+            owner,
+            relayed_from.as_deref(),
+            &records,
+            received,
+        )
+        .await
+        .unwrap();
     }
 
     let nights = repos
@@ -680,6 +701,7 @@ async fn the_terra_provider_reads_what_terra_pushed() {
     let (_, runs) = records_of(&activity_event(5));
     store_terra_records(
         &resources.common.repos,
+        resources.common.live_activities.as_ref(),
         owner,
         Some("GARMIN"),
         &runs,

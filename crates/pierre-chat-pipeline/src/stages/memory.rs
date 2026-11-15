@@ -375,8 +375,12 @@ async fn recent_activity_sports(
         return HashSet::new();
     };
     // The sports seed the prompt's archetype priors: a session a provider's
-    // terms deny to AI does not name the athlete's sport (carnet#723).
-    let activities = ai_scope::filter_activities(global_registry().as_ref(), activities);
+    // terms deny to AI does not name the athlete's sport (carnet#723). Their
+    // own sessions: what they owe is owed on them (carnet#1464).
+    let activities = ai_scope::reading_about(user_uuid, async {
+        ai_scope::filter_activities(global_registry().as_ref(), activities)
+    })
+    .await;
     activities
         .iter()
         .filter_map(|a| sport_slug(a.sport_type()))

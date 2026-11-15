@@ -86,4 +86,25 @@ describe('useSignInAttempt', () => {
 
     expect(cancel).toHaveBeenCalledTimes(1);
   });
+
+  it('starts a new attempt in the same opening once the server ended the last one, and cancels only the new one', () => {
+    const { result, rerender, cancel } = setup({ open: true, active: true });
+    const first = result.current();
+    result.current.renew();
+    const second = result.current();
+    expect(second).not.toBe(first);
+    expect(cancel).not.toHaveBeenCalled();
+
+    rerender({ open: false, active: true });
+    expect(cancel.mock.calls).toEqual([[second]]);
+  });
+
+  it('starts nothing while the window is closed', () => {
+    const { result, rerender, mintAttemptId } = setup({ open: true, active: false });
+    rerender({ open: false, active: false });
+    const minted = mintAttemptId.mock.calls.length;
+    result.current.renew();
+    expect(result.current()).toBeUndefined();
+    expect(mintAttemptId.mock.calls.length).toBe(minted);
+  });
 });

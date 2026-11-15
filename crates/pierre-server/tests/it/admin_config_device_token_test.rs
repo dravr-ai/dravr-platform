@@ -31,7 +31,7 @@ const KEY: &str = "usage_quotas.max_active_conversations";
 
 /// The config routes exactly as the server mounts them, with the admin-token
 /// validator the admin routes share.
-fn router(resources: &Arc<ServerContext>) -> Router {
+pub(crate) fn router(resources: &Arc<ServerContext>) -> Router {
     let service = resources
         .agent
         .admin_config
@@ -50,7 +50,7 @@ fn router(resources: &Arc<ServerContext>) -> Router {
 }
 
 /// An active user with `role` and a tenant of their own.
-async fn user_with_role(resources: &Arc<ServerContext>, role: UserRole) -> User {
+pub(crate) async fn user_with_role(resources: &Arc<ServerContext>, role: UserRole) -> User {
     let email = format!("cfg-{}@dravr.test", Uuid::new_v4());
     let mut user = User::new(
         email.clone(),
@@ -95,7 +95,7 @@ async fn user_with_role(resources: &Arc<ServerContext>, role: UserRole) -> User 
 /// Mint an admin token the way the device grant does (`super_admin` = true,
 /// acting as `operator`) or the way `token generate` does (no operator), and
 /// return its `Bearer` header.
-async fn admin_token(
+pub(crate) async fn admin_token(
     resources: &Arc<ServerContext>,
     service: &str,
     super_admin: bool,

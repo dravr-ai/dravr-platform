@@ -55,7 +55,25 @@ use crate::common;
 /// `template_params`, and `save_training_plan`'s `template_preset` plus three
 /// `template_params` keys (`set_rest_seconds`, `pacing`, `anchor`), each cut to
 /// a few words before measuring. Measured 93,810 (~440 bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 93_850;
+///
+/// 2026-11-11: 93,850 → 95,000 for per-sport physiology anchors
+/// (carnet#1496): `set_physiology`'s `sport_anchors`, one array of objects
+/// whose ten fields carry the value, its range, kind, method (MAP's
+/// definition), source, day and confidence the workout families resolve on.
+/// Every field was cut to a few words before measuring, which saved 231
+/// bytes. Measured 94,967 (~1,160 bytes).
+///
+/// 2026-11-13: 95,000 → 95,450 for the history walk (carnet#1482):
+/// `get_stats` and `get_training_history` read one stored window behind one
+/// `Coverage`, and their arguments now say what an incomplete window means.
+/// Measured 95,022 (~55 bytes).
+///
+/// 2026-11-14: 95,450 → 95,900 for `get_segment_history` (carnet#1483), one
+/// segment's efforts across the athlete's activities: five string arguments
+/// cut to a few words each, and a description that says how to read its
+/// coverage, whose first draft was cut by 202 bytes. Measured 95,871 (~849
+/// bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 95_900;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

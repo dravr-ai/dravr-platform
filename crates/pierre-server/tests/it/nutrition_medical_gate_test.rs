@@ -1,5 +1,5 @@
-// ABOUTME: A medical/PAR-Q flag withholds prescriptive nutrition figures in code, on every transport
-// ABOUTME: Flagged athletes get guidance plus figures_withheld; unflagged athletes get the figures unchanged
+// ABOUTME: A medical/PAR-Q flag withholds prescriptive nutrition figures in code; outside Dravr every athlete gets none
+// ABOUTME: Flagged athletes get guidance plus figures_withheld; over MCP/A2A the answer never differs by flag
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,14 +8,17 @@
 #![allow(missing_docs)]
 
 //! The agent prompt already tells the model to give no amounts to an athlete
-//! with a medical flag. A direct MCP client and a prompt-less agent call the
-//! same tools, so these drive the tools themselves: a flagged athlete's answer
-//! carries `figures_withheld` and no amount, an unflagged athlete's answer is
-//! the tool's own shape.
+//! with a medical flag. A prompt-less agent calls the same tools, so these
+//! drive the tools themselves: on Dravr's own surfaces a flagged athlete's
+//! answer carries `figures_withheld` and no amount, an unflagged athlete's
+//! answer is the tool's own shape. Outside them (an MCP client, an A2A agent)
+//! every athlete's answer withholds the amounts and names no flag, so the
+//! answer cannot tell that caller whether one is on file (carnet#1565).
 
 use crate::common;
 
-use pierre_core::transport::TransportPolicy;
+use pierre_core::transport::{Transport, TransportPolicy};
+use pierre_providers::ai_scope;
 use std::sync::Arc;
 
 use anyhow::Result;
@@ -81,8 +84,27 @@ async fn raise_parq_flag(resources: &ServerContext, athlete: &Athlete) -> Result
     Ok(())
 }
 
+/// A call from Dravr's own app, where the flag decides. The prescriptive tools
+/// run only there (carnet#1565).
 fn executor(resources: Arc<ServerContext>) -> UniversalToolExecutor {
-    UniversalToolExecutor::new(resources).with_scopes(OAuthScope::self_grant())
+    UniversalToolExecutor::new(resources)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp)
+}
+
+/// A call from an MCP client, outside Dravr's own surfaces.
+fn external_executor(resources: Arc<ServerContext>) -> UniversalToolExecutor {
+    UniversalToolExecutor::new(resources)
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::McpHttp)
+}
+
+/// Whether `text` says anything that would only be true of a flagged athlete.
+fn names_a_flag(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    ["clinician", "medical", "par-q", "parq"]
+        .iter()
+        .any(|word| lower.contains(word))
 }
 
 fn request(
@@ -510,6 +532,194 @@ async fn get_recipe_constraints_withholds_targets_for_a_flagged_athlete() -> Res
     assert!(guidance.contains("20 minutes"), "{guidance}");
     assert!(guidance.contains("Post-training"), "{guidance}");
     Ok(())
+}
+
+// ============================================================================
+// Outside Dravr's own surfaces (carnet#1565)
+// ============================================================================
+
+#[tokio::test]
+async fn outside_dravr_recipe_constraints_read_the_same_whatever_is_on_file() -> Result<()> {
+    let resources = resources().await?;
+    let flagged = athlete(&resources, "recipe-ext-flagged@example.com").await?;
+    raise_parq_flag(&resources, &flagged).await?;
+    let clear = athlete(&resources, "recipe-ext-clear@example.com").await?;
+    let executor = external_executor(resources);
+
+    let flagged_answer = call(
+        &executor,
+        request(
+            "get_recipe_constraints",
+            &flagged,
+            Some(flagged.tenant),
+            recipe_params(),
+        ),
+    )
+    .await;
+    let clear_answer = call(
+        &executor,
+        request(
+            "get_recipe_constraints",
+            &clear,
+            Some(clear.tenant),
+            recipe_params(),
+        ),
+    )
+    .await;
+
+    assert_eq!(
+        flagged_answer, clear_answer,
+        "an outside caller can tell the two athletes apart"
+    );
+    for key in [
+        "calories",
+        "protein_g",
+        "carbs_g",
+        "fat_g",
+        "prompt_hint",
+        "tdee",
+    ] {
+        assert!(clear_answer.get(key).is_none(), "{key}: {clear_answer:#}");
+    }
+    for line in clear_answer["guidance"].as_array().unwrap() {
+        assert!(!states_an_amount(line.as_str().unwrap()), "{line}");
+    }
+    assert_eq!(
+        clear_answer["figures_withheld"]["reason"], "external_transport",
+        "bug: an outside caller is not told the amounts are withheld for everyone: {clear_answer:#}"
+    );
+    assert_eq!(
+        clear_answer["figures_withheld"]["set_by"], "not_stated",
+        "bug: an outside caller is told who sets this athlete's amounts: {clear_answer:#}"
+    );
+    assert!(!names_a_flag(&clear_answer.to_string()), "{clear_answer:#}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn outside_dravr_the_prescriptive_tools_are_not_offered() -> Result<()> {
+    let resources = resources().await?;
+    let clear = athlete(&resources, "prescriptive-ext@example.com").await?;
+    let executor = external_executor(resources);
+
+    for (tool, params) in [
+        ("calculate_daily_nutrition", daily_params()),
+        ("get_nutrient_timing", timing_params()),
+    ] {
+        let response = executor
+            .execute_tool(request(tool, &clear, Some(clear.tenant), params))
+            .await
+            .unwrap_or_else(|e| panic!("{tool} dispatch failed: {e}"));
+        assert!(!response.success, "{tool} ran outside Dravr: {response:?}");
+        assert_eq!(
+            response.result.as_ref().unwrap()["error_code"],
+            "first_party_surface",
+            "{tool}: {response:?}"
+        );
+    }
+    Ok(())
+}
+
+#[tokio::test]
+async fn outside_dravr_the_gate_withholds_for_every_athlete_without_reading_the_flag() -> Result<()>
+{
+    let resources = resources().await?;
+    let repos = resources.common.repos.as_ref();
+    let flagged = athlete(&resources, "gate-ext-flagged@example.com").await?;
+    raise_parq_flag(&resources, &flagged).await?;
+    let clear = athlete(&resources, "gate-ext-clear@example.com").await?;
+
+    for who in [&flagged, &clear] {
+        let gate = ai_scope::serve_over(
+            Transport::McpHttp,
+            nutrition_figures_gate(repos, Some(who.tenant), who.user_id),
+        )
+        .await?;
+        assert_eq!(
+            gate,
+            Some(FiguresWithheld::external_transport()),
+            "bug: over MCP the gate answers per athlete"
+        );
+        let athlete = ai_scope::serve_over(
+            Transport::A2a,
+            load_nutrition_athlete(repos, Some(who.tenant), who.user_id),
+        )
+        .await?;
+        assert_eq!(
+            athlete.figures_withheld,
+            Some(FiguresWithheld::external_transport()),
+            "bug: over A2A the recommendations arm loads a per-athlete gate"
+        );
+    }
+
+    // On Dravr's own surfaces the flag still decides.
+    let in_app = ai_scope::serve_over(
+        Transport::WebApp,
+        nutrition_figures_gate(repos, Some(flagged.tenant), flagged.user_id),
+    )
+    .await?;
+    assert_eq!(
+        in_app,
+        Some(FiguresWithheld::medical_flag()),
+        "bug: in the app a flagged athlete's figures are not withheld for the flag"
+    );
+    let in_app = ai_scope::serve_over(
+        Transport::WebApp,
+        nutrition_figures_gate(repos, Some(clear.tenant), clear.user_id),
+    )
+    .await?;
+    assert_eq!(
+        in_app, None,
+        "bug: in the app an unflagged athlete's figures are withheld"
+    );
+    Ok(())
+}
+
+#[test]
+fn outside_dravr_nutrition_recommendations_name_no_flag() {
+    let zones = riders_zones();
+    let answer = generate_nutrition_recommendations(
+        &hard_long_ride(),
+        Some(&zones),
+        &NutritionAthlete {
+            weight_kg: Some(70.0),
+            figures_withheld: Some(FiguresWithheld::external_transport()),
+            ..NutritionAthlete::default()
+        },
+    );
+    assert!(
+        answer.macronutrient_targets.is_none(),
+        "bug: macro targets left Dravr: {:?}",
+        answer.macronutrient_targets
+    );
+    assert!(
+        answer.meal_suggestions.is_empty(),
+        "bug: gram-counted meals left Dravr: {:?}",
+        answer.meal_suggestions
+    );
+    assert_eq!(
+        answer.recommendations.len(),
+        4,
+        "the four foods-and-timing lines: {:?}",
+        answer.recommendations
+    );
+    for line in &answer.recommendations {
+        assert!(!states_an_amount(line), "an amount left Dravr: {line}");
+        assert!(!names_a_flag(line), "a flag-only line left Dravr: {line}");
+    }
+    let value = serde_json::to_value(&answer).unwrap();
+    assert_eq!(
+        value["figures_withheld"]["reason"], "external_transport",
+        "bug: the statement does not say the amounts are withheld for everyone: {value:#}"
+    );
+    assert_eq!(
+        value["figures_withheld"]["set_by"], "not_stated",
+        "bug: the statement says who sets this athlete's amounts: {value:#}"
+    );
+    assert!(
+        !names_a_flag(&value["figures_withheld"].to_string()),
+        "bug: the statement names a flag: {value:#}"
+    );
 }
 
 // ============================================================================

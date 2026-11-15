@@ -41,6 +41,8 @@ use super::dto::{
     preview_text, resolve_stored_blocks, AwaitingReply, MessageFeedbackEntry, MessageResponse,
     MessagesListResponse, TopicResponse, TopicsListResponse,
 };
+#[cfg(feature = "client-notifications")]
+use super::read_marker::clear_thread_notifications;
 use super::room_quote::quote_reading;
 
 /// Messages served when the caller names no window size.
@@ -119,10 +121,11 @@ pub(super) async fn get_messages(
     // the caller (carnet#1249).
     let quotes = quote_reading(&resources.common.repos, &conversation, auth.user_id).await;
 
+    let registry = &resources.mcp.messaging_strings_registry;
     let messages_list: Vec<MessageResponse> = messages
         .into_iter()
         .map(|m| {
-            let blocks = resolve_stored_blocks(m.content_blocks.as_deref(), &locale);
+            let blocks = resolve_stored_blocks(m.content_blocks.as_deref(), registry, &locale);
             let quote = quotes.quote_of(&m);
             MessageResponse {
                 id: m.id,
@@ -132,6 +135,7 @@ pub(super) async fn get_messages(
                 scene_blocks: blocks.scene_blocks,
                 finish_reason: m.finish_reason,
                 actions: blocks.actions,
+                envelope_notice: blocks.envelope_notice,
                 channel_type: m.channel_type,
                 quote,
                 created_at: m.created_at,
@@ -142,6 +146,8 @@ pub(super) async fn get_messages(
 
     if before.is_none() {
         mark_read(chat, &conversation_id, &user_id_str, tenant_id).await;
+        #[cfg(feature = "client-notifications")]
+        clear_thread_notifications(&resources, auth.user_id, tenant_id, &conversation_id).await;
     }
 
     // The caller's own thumbs up/down feedback for this conversation, so the

@@ -370,6 +370,17 @@ pub trait CoachingGroupRepository: Send + Sync {
     /// agent attachment is the access key.
     async fn list_groups_coached_by(&self, coach_user_id: Uuid) -> AppResult<Vec<CoachingGroup>>;
 
+    /// Every active group `owner_id` owns in `tenant_id` that has no human
+    /// coach yet, oldest first. A coach-access grant attaches its requester as
+    /// the coach of each (carnet#1521), within the coach's own tenant only:
+    /// the tenant of the group the request names, else the coach's home
+    /// tenant. A coachless group they own in another tenant is left as it is.
+    async fn list_coachless_groups_owned_by(
+        &self,
+        owner_id: Uuid,
+        tenant_id: TenantId,
+    ) -> AppResult<Vec<CoachingGroup>>;
+
     /// The athletes a human coach coaches: every live member of every active
     /// group whose `coach_user_id` is `coach_user_id`, each user once. No
     /// tenant filter, for the same reason as [`Self::list_groups_coached_by`].

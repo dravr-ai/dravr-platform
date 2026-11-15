@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A coach's Home on the phone — "Mes athlètes": À traiter, the team list and the season, behind the switch to their own training
+// ABOUTME: A coach's Home on the phone — "Mes athlètes": À traiter, the team list and the season, behind the switch to their own training when they train
 // ABOUTME: One roster read feeds the three views; every figure states its scope, form is the server's band, and a non-sharer shows status only
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -14,6 +14,7 @@ import { BrandLockup, EmptyState, Row, TextTabs } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
 import { coachAthleteHref, coachRepliesHref } from '../../navigation/routes';
+import { CoachPendingInvites } from './CoachPendingInvites';
 import { CoachQueueView } from './CoachQueueView';
 import { CoachRosterList } from './CoachRosterList';
 import { CoachSeasonList } from './CoachSeasonList';
@@ -24,8 +25,12 @@ import { useTreatment } from './useTreatment';
 export type CoachView = 'queue' | 'roster' | 'season';
 
 interface CoachHomeScreenProps {
-  /** The "Mes athlètes / Mon entraînement" switch, drawn first on the page. */
-  scopeSwitch: React.ReactNode;
+  /**
+   * The "Mes athlètes / Mon entraînement" switch, drawn first on the page,
+   * for a coach who trains too; one who does not has no other Home, so the
+   * page's name stands in its place (carnet#1529).
+   */
+  scopeSwitch?: React.ReactNode;
 }
 
 const VIEW_LABEL_KEY: Record<CoachView, string> = {
@@ -101,7 +106,9 @@ export function CoachHomeScreen({ scopeSwitch }: CoachHomeScreenProps) {
       </EmptyState>
     );
   } else if (roster.athletes.length === 0) {
-    body = <EmptyState testID="coach-home-empty">{t('coachHome.noAthletes')}</EmptyState>;
+    // Nobody has joined yet: the athletes the coach invited wait as rows, or
+    // the empty state stands when no invite still works.
+    body = <CoachPendingInvites groups={roster.groups} />;
   } else if (view === 'queue') {
     body = <CoachQueueView athletes={roster.athletes} onOpen={open} onSeeAll={() => setView('roster')} undo={undo} />;
   } else if (view === 'roster') {
@@ -129,7 +136,13 @@ export function CoachHomeScreen({ scopeSwitch }: CoachHomeScreenProps) {
       >
         {/* The athlete Home insets its switch the same 16 from the top, so the
             pill stays under the coach's finger when they flip between the two. */}
-        <View className="px-4 pb-2 pt-4">{scopeSwitch}</View>
+        <View className="px-4 pb-2 pt-4">
+          {scopeSwitch ?? (
+            <Text className="text-xl font-semibold text-text-primary" testID="coach-home-title">
+              {t('coachHome.switch.athletes')}
+            </Text>
+          )}
+        </View>
         <TextTabs
           items={VIEWS.map((id) => ({ key: id, label: t(VIEW_LABEL_KEY[id]), count: id === 'queue' ? toHandle : undefined }))}
           value={view}

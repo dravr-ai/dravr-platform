@@ -24,12 +24,16 @@ use dravr_meteo::{
 };
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{
     AnchorProvenance, AnchorStamp, MeasurementKind, Merged, MetricProvenance, ProvenancedValue,
-    SportType, StoredDailyActivity, ThresholdProvenance,
+    SportAnchor, SportAnchorName, SportType, StoredDailyActivity, ThresholdProvenance,
+    ThresholdStatedOn,
 };
 use pierre_fitness_compute::weather::WeatherDifficulty;
+use pierre_providers::field_support::FieldMode;
 use pierre_providers::precedence::wellness_source;
+use pierre_providers::ProviderRegistry;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
@@ -112,6 +116,7 @@ use pierre_tool_runtime::implementations::endurance_workouts::{
 use pierre_tool_runtime::implementations::endurance_workouts_output::{
     PrescribeWorkoutResult, WithdrawWorkoutResult, WorkoutTemplatesResult,
 };
+use pierre_tool_runtime::implementations::field_dictionary::dictionary;
 use pierre_tool_runtime::implementations::fitness_config::{
     DeleteFitnessConfigResult, DeleteFitnessConfigTool, GetFitnessConfigResult,
     GetFitnessConfigTool, ListFitnessConfigsResult, ListFitnessConfigsTool, SetFitnessConfigResult,
@@ -155,12 +160,13 @@ use pierre_tool_runtime::implementations::nutrition::{
     PreWorkoutTiming, ProteinDistribution, SearchFoodResult, SearchFoodTool,
 };
 use pierre_tool_runtime::implementations::nutrition_gate::{FiguresWithheld, NutritionAnswer};
-use pierre_tool_runtime::implementations::physiology::{
-    PhysiologyProfile, SetPhysiologyResult, SetPhysiologyTool,
-};
+use pierre_tool_runtime::implementations::physiology::SetPhysiologyTool;
 use pierre_tool_runtime::implementations::physiology_import::{
     ImportProviderThresholdsResult, ImportProviderThresholdsTool, ThresholdImport,
     ThresholdImports, WPrimeImport,
+};
+use pierre_tool_runtime::implementations::physiology_output::{
+    PhysiologyProfile, SetPhysiologyResult,
 };
 use pierre_tool_runtime::implementations::plan_flavour_output::PlanFlavourResult;
 use pierre_tool_runtime::implementations::planned_workouts::{
@@ -183,6 +189,10 @@ use pierre_tool_runtime::implementations::recipes::{
 use pierre_tool_runtime::implementations::routes::{
     DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
 };
+use pierre_tool_runtime::implementations::segments::answer::{
+    AnsweredBy, MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult, SegmentSummary,
+};
+use pierre_tool_runtime::implementations::segments::GetSegmentHistoryTool;
 use pierre_tool_runtime::implementations::sleep::output::{
     RecoveryScoreResult, RestDayResult, SleepQualityResult, SleepScheduleResult, SleepTrendsResult,
 };
@@ -233,7 +243,7 @@ fn declared_schema() -> serde_json::Value {
 
 fn sample() -> VerifyClaimResult {
     VerifyClaimResult {
-        verdict_id: "verdict-1".to_owned(),
+        verdict_id: Some("verdict-1".to_owned()),
         status: "supported".to_owned(),
         evidence_strength: "strong".to_owned(),
         layer_fired: "corpus".to_owned(),
@@ -260,8 +270,8 @@ fn the_schema_rejects_a_payload_missing_a_required_field() {
     // Without this the first test would pass against an empty schema, which is
     // exactly the failure mode a hand-written schema decays into.
     let validator = jsonschema::validator_for(&declared_schema()).expect("compiles");
-    let missing_verdict_id = json!({
-        "status": "supported",
+    let missing_status = json!({
+        "verdict_id": "verdict-1",
         "evidence_strength": "strong",
         "layer_fired": "corpus",
         "confidence": 0.82,
@@ -270,8 +280,26 @@ fn the_schema_rejects_a_payload_missing_a_required_field() {
     });
 
     assert!(
-        !validator.is_valid(&missing_verdict_id),
-        "a schema that accepts a payload with no verdict_id is not describing anything"
+        !validator.is_valid(&missing_status),
+        "a schema that accepts a payload with no status is not describing anything"
+    );
+}
+
+#[test]
+fn a_verdict_stored_nowhere_is_still_valid() {
+    // Outside Dravr's own surfaces the tool files nothing, so the payload has
+    // no verdict_id (carnet#1565): the schema must accept that shape.
+    let validator = jsonschema::validator_for(&declared_schema()).expect("compiles");
+    let unstored = VerifyClaimResult {
+        verdict_id: None,
+        ..sample()
+    };
+    let payload = serde_json::to_value(unstored).expect("serializes");
+
+    assert!(payload.get("verdict_id").is_none(), "{payload:#}");
+    assert!(
+        validator.is_valid(&payload),
+        "a verdict with no stored row must still conform: {payload:#}"
     );
 }
 
@@ -1021,8 +1049,11 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                 status: "connected".to_owned(),
                 connected: true,
                 needs_reauth: false,
-                backend: "native".to_owned(),
+                backend: "mirror".to_owned(),
                 delegated_by: None,
+                // The real dictionary, both modes, so the schema is checked
+                // against what the tool sends.
+                fields: dictionary(&ProviderRegistry::new(), "strava", Some(FieldMode::Mirror)),
             },
         ),
         (
@@ -1034,6 +1065,7 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                 needs_reauth: false,
                 backend: "delegated".to_owned(),
                 delegated_by: Some("Casey Coach".to_owned()),
+                fields: None,
             },
         ),
         (
@@ -1062,6 +1094,7 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                             needs_reauth: false,
                             backend: "native".to_owned(),
                             delegated_by: None,
+                            fields: None,
                         },
                     ),
                     (
@@ -1072,6 +1105,11 @@ fn get_connection_status_declares_one_schema_that_accepts_all_three_shapes() {
                             needs_reauth: false,
                             backend: "delegated".to_owned(),
                             delegated_by: Some("Casey Coach".to_owned()),
+                            fields: dictionary(
+                                &ProviderRegistry::new(),
+                                "trainingpeaks",
+                                Some(FieldMode::Mirror),
+                            ),
                         },
                     ),
                 ]),
@@ -1303,6 +1341,102 @@ fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
         &windows,
         "get_heart_rate_series",
     );
+}
+
+/// Every coverage a segments answer carries: complete from the live
+/// listing, still being read with the walk's progress, and short of what
+/// could not be read, its reason an object.
+#[test]
+fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
+    use std::collections::BTreeMap;
+
+    use pierre_core::models::coverage::{
+        Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, WindowScope,
+    };
+
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let effort = |provider: &str| SegmentHistoryEffort {
+        provider: provider.to_owned(),
+        source: provider.to_owned(),
+        activity_id: "16101".to_owned(),
+        activity_name: Some("Morning ride".to_owned()),
+        start_date: "2026-11-07T13:10:00+00:00".to_owned(),
+        elapsed_time: 412,
+        moving_time: Some(410),
+        distance: 1_820.5,
+        average_heart_rate: Some(161),
+        average_watts: None,
+        pr_rank: Some(1),
+        kom_rank: None,
+        segment_id: Some("611413".to_owned()),
+        segment_name: "La Bête".to_owned(),
+    };
+    let coverage = |completeness, total, pending| Coverage {
+        completeness,
+        window: CoverageWindow {
+            scope: WindowScope::SegmentsRead,
+            asked_from: Some(day(2016, 11, 14)),
+            asked_to: Some(day(2026, 11, 14)),
+            total,
+            returned: 12,
+            ..CoverageWindow::default()
+        },
+        trustworthy_from: None,
+        pending,
+    };
+    let declared =
+        <GetSegmentHistoryTool as McpTool<dyn ToolRuntime>>::definition(&GetSegmentHistoryTool)
+            .output_schema;
+    for (answered_by, coverage) in [
+        (
+            AnsweredBy::LiveSegmentHistory,
+            coverage(Completeness::Complete, None, None),
+        ),
+        (
+            AnsweredBy::StoredDetails,
+            coverage(
+                Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
+                Some(40),
+                Some(Pending::detail_walk_running(12, Some(40), Some(1_728.0))),
+            ),
+        ),
+        (
+            AnsweredBy::StoredDetails,
+            coverage(
+                Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
+                Some(15),
+                None,
+            ),
+        ),
+    ] {
+        let sample = SegmentHistoryResult {
+            efforts: vec![effort("strava")],
+            // A trimmed list names the whole count.
+            efforts_total: Some(120),
+            segments: vec![MatchedSegment {
+                provider: "strava".to_owned(),
+                id: Some("611413".to_owned()),
+                name: "La Bête".to_owned(),
+            }],
+            summary: vec![SegmentSummary {
+                provider: "strava".to_owned(),
+                segment_id: Some("611413".to_owned()),
+                segment_name: "La Bête".to_owned(),
+                count: 1,
+                by_year: BTreeMap::from([("2026".to_owned(), 1)]),
+                best_elapsed_time: 412,
+                best_start_date: "2026-11-07T13:10:00+00:00".to_owned(),
+            }],
+            answered_by,
+            coverage,
+        };
+        assert_declares_and_accepts(
+            declared.clone(),
+            &output_schema_for::<SegmentHistoryResult>(),
+            &sample,
+            "get_segment_history",
+        );
+    }
 }
 
 /// The TOON arm is a different shape entirely, and it is the arm nobody would
@@ -4293,12 +4427,23 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
                     needs_reconnect: Vec::new(),
                     stale: false,
                 }),
+                not_read: None,
             },
             RosterOverviewAthlete {
                 name: "Bruno".to_owned(),
                 groups: vec!["Tuesday Track".to_owned()],
                 status: RosterAthleteStatus::NoCoachConsent,
                 training: None,
+                not_read: None,
+            },
+            // A sharer the coaching gates refuse (carnet#1425): no training,
+            // and why, in the words a scoped read of them is refused with.
+            RosterOverviewAthlete {
+                name: "Chloe".to_owned(),
+                groups: vec!["Tuesday Track".to_owned()],
+                status: RosterAthleteStatus::Shared,
+                training: None,
+                not_read: Some("Chloe belongs to several tenants.".to_owned()),
             },
         ],
         truncated: false,
@@ -4308,6 +4453,16 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
     assert!(
         value["athletes"][1].get("training").is_none(),
         "a withheld athlete must carry no training key at all"
+    );
+    assert!(
+        value["athletes"][0].get("not_read").is_none()
+            && value["athletes"][1].get("not_read").is_none(),
+        "bug: an athlete the gates let through, or one who stopped sharing, carries no not_read"
+    );
+    assert!(
+        value["athletes"][2].get("training").is_none()
+            && value["athletes"][2]["not_read"].is_string(),
+        "bug: a sharer the gates refuse carries why, and no training"
     );
 }
 
@@ -4828,7 +4983,9 @@ fn an_almost_empty_physiology_profile_still_validates() {
             critical_speed_mps: None,
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
+            threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance::default(),
+            sport_anchors: Vec::new(),
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4890,7 +5047,22 @@ fn a_critical_power_reaches_the_agent_with_its_kind_beside_it() {
             )),
             d_prime_meters: None,
             threshold_provenance: ThresholdProvenance::default(),
+            threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance::default(),
+            sport_anchors: vec![SportAnchor {
+                sport: SportFamily::Ride,
+                anchor: SportAnchorName::Map,
+                kind: MeasurementKind::Measured,
+                value: AnchorValue {
+                    value: 380.0,
+                    low: Some(365.0),
+                    high: Some(395.0),
+                    origin: Some("lab".to_owned()),
+                    as_of: NaiveDate::from_ymd_opt(2026, 11, 2),
+                    method: Some("ramp peak".to_owned()),
+                    confidence: AnchorConfidence::High,
+                },
+            }],
         },
         training_history: HistoryRefresh::Unaffected,
     })
@@ -4969,10 +5141,12 @@ fn an_import_names_each_outcome_and_which_values_the_provider_supplied() {
                 }),
                 ..ThresholdProvenance::default()
             },
+            threshold_stated_on: ThresholdStatedOn::default(),
             anchor_provenance: AnchorProvenance {
                 resting_hr: NaiveDate::from_ymd_opt(2026, 10, 30).map(AnchorStamp::promoted),
                 ..AnchorProvenance::default()
             },
+            sport_anchors: Vec::new(),
         }),
         training_history: HistoryRefresh::NothingStored,
     })
@@ -5693,6 +5867,7 @@ fn prescribing_reports_the_calendar_entry_it_created() {
         status: "pushed".to_owned(),
         calendar_note: None,
         envelope: None,
+        envelope_anchor: None,
     })
     .expect("serializes");
     assert!(

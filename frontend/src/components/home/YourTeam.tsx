@@ -1,17 +1,17 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Today's Your team — the agent leading the athlete's thread, then the other agents on their team, and the way to Discover
+// ABOUTME: Today's Your team — one folded row of avatars and names whose Manage unfolds the lead, the other agents and the way to Discover (carnet#1528)
 // ABOUTME: A row reopens the athlete's latest chat with that agent, else a new one; an athlete with no team is offered the onboarding picker, never a silent backfill (carnet#1098)
 
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { clsx } from 'clsx';
 import { Plus } from 'lucide-react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { Agent } from '@pierre/shared-types';
-import { avatarSlot, initialsFor } from '@pierre/chat-utils';
+import { avatarSlot, formatList, initialsFor } from '@pierre/chat-utils';
 import { coachesApi, userApi } from '../../services/api';
 import { usePersonalConversation } from '../../hooks/useConversationList';
 import { avatarShapeClass, avatarSlotClass } from '../chat/avatarSlots';
@@ -53,12 +53,13 @@ function orderTeam(agents: readonly Agent[], leadId: string | null): { lead: Age
   return { lead, members };
 }
 
-function AgentAvatar({ agent }: { agent: Agent }) {
+function AgentAvatar({ agent, className = 'h-8 w-8' }: { agent: Agent; className?: string }) {
   return (
     <span
       aria-hidden="true"
       className={clsx(
-        'flex h-8 w-8 shrink-0 items-center justify-center text-xs font-semibold',
+        'flex shrink-0 items-center justify-center text-xs font-semibold',
+        className,
         avatarShapeClass('circle'),
         avatarSlotClass(avatarSlot({ id: agent.id, agent_id: agent.id, group_id: null, subject_user_id: null })),
       )}
@@ -68,16 +69,23 @@ function AgentAvatar({ agent }: { agent: Agent }) {
   );
 }
 
+/** The most avatars the folded row stacks; the names line still names everyone. */
+const ROW_AVATARS = 3;
+
 const ROW_CLASS =
   'flex w-full items-center gap-3 rounded-lg px-2 py-1.5 text-left transition-colors hover:bg-surface-container-low focus-ring disabled:opacity-60';
 
 export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const queryClient = useQueryClient();
   const personal = usePersonalConversation();
   // What a refused row says: the active-conversation cap, or that the chat
   // could not be opened.
   const [openError, setOpenError] = useState<string | null>(null);
+  // The folded row unfolds into the team's rows on « Manage ».
+  const [managing, setManaging] = useState(false);
+  const headingId = useId();
+  const listId = useId();
   const agentsQuery = useQuery({
     queryKey: QUERY_KEYS.coaches.list(),
     queryFn: () => coachesApi.list(),
@@ -125,16 +133,59 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
 
   const team = lead === null ? members : [lead, ...members];
 
-  return (
-    <Section title={t('home.team.title')} headingLevel={3} actions={findMore} data-testid="home-team">
-      {team.length === 0 ? (
+  if (team.length === 0) {
+    return (
+      <Section title={t('home.team.title')} headingLevel={3} actions={findMore} data-testid="home-team">
         <EmptyState
           data-testid="home-team-empty"
           action={{ label: t('home.team.pick'), onClick: onPickTeam, 'data-testid': 'home-team-pick' }}
         >
           {t('home.team.empty')}
         </EmptyState>
-      ) : (
+      </Section>
+    );
+  }
+
+  // One row, folded (carnet#1528, P5·C): the team's avatars, everyone's
+  // names and « Manage », which unfolds the rows that open a chat with each
+  // agent, Add an agent and Find more.
+  return (
+    <section aria-labelledby={headingId} data-testid="home-team">
+      <div className="flex items-center gap-3">
+        <span aria-hidden="true" className="flex shrink-0 items-center">
+          {team.slice(0, ROW_AVATARS).map((agent, index) => (
+            <AgentAvatar
+              key={agent.id}
+              agent={agent}
+              className={clsx('h-7 w-7 ring-2 ring-surface', index > 0 && '-ml-2')}
+            />
+          ))}
+        </span>
+        <div className="min-w-0 flex-1">
+          <h3 id={headingId} className="text-sm font-semibold text-on-surface">
+            {t('home.team.title')}
+          </h3>
+          <p data-testid="home-team-names" className="truncate text-xs text-on-surface-variant">
+            {formatList(
+              team.map((agent) => agent.title),
+              i18n.language,
+            )}
+          </p>
+        </div>
+        <button
+          type="button"
+          data-testid="home-team-manage"
+          aria-label={t('home.team.manageAria')}
+          aria-expanded={managing}
+          aria-controls={listId}
+          onClick={() => setManaging((open) => !open)}
+          className="shrink-0 rounded px-0.5 text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+        >
+          {t('home.team.manage')}
+        </button>
+      </div>
+      {managing && (
+        <div id={listId} className="mt-3">
         <ul className="-mx-2 space-y-0.5">
           {team.map((agent) => {
             const isLead = agent === lead;
@@ -179,13 +230,15 @@ export function YourTeam({ actions, onNavigate, onPickTeam }: YourTeamProps) {
             </button>
           </li>
         </ul>
+        <div className="mt-1">{findMore}</div>
+        </div>
       )}
       {openError && (
         <p role="alert" className="mt-2 text-sm text-error">
           {openError}
         </p>
       )}
-    </Section>
+    </section>
   );
 }
 

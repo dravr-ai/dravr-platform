@@ -108,7 +108,9 @@ async fn a_successful_call_carries_its_payload() {
     let tenant = TenantId::from_uuid(Uuid::new_v4());
 
     let surface = surface_for(&resources, user_id, tenant);
-    let outcome = surface.call("list_fitness_configs", &json!({})).await;
+    // A library read every transport runs: this executor declares none, so a
+    // tool kept to Dravr's own surfaces would be refused.
+    let outcome = surface.call("list_yoga_poses", &json!({})).await;
 
     assert!(
         !outcome.is_error,

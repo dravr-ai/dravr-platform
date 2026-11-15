@@ -15,6 +15,7 @@ use std::sync::Arc;
 use crate::services::archive_import::ArchiveImports;
 use crate::services::turn_runner::TurnRunner;
 use dravr_barrage::blob::BlobStore;
+use dravr_barrage::store::ActivityRecordStore;
 
 /// Optional initialization parameters for `ServerContext`
 ///
@@ -69,6 +70,10 @@ pub struct ServerContextOptions {
     /// database and environment select, a test its own stores and fetcher.
     /// Unset, imports are not available.
     pub archive_imports: Option<ArchiveImports>,
+    /// The activity record store live provider reads are kept in: the binary
+    /// passes the one its database selects. Unset, records are kept in
+    /// memory, as a test wants; their projection is the cache either way.
+    pub live_records: Option<Arc<dyn ActivityRecordStore>>,
     /// The deployment's blob store, which keeps uploaded files and an
     /// import's originals (`services::originals::blob_store_from_env`), or
     /// why there is none. Unset, uploads are kept in memory, as a test wants.
@@ -98,6 +103,7 @@ impl ServerContextOptions {
             billing_provider: None,
             turn_runner: None,
             archive_imports: None,
+            live_records: None,
             blobs: None,
         }
     }
@@ -114,6 +120,7 @@ impl ServerContextOptions {
             billing_provider: None,
             turn_runner: None,
             archive_imports: None,
+            live_records: None,
             blobs: None,
         }
     }

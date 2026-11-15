@@ -690,7 +690,7 @@ store_routes_test	26.7
 store_translations_test	1.9
 strava_access_token_validation_test	0.0
 strava_app_switch_test	49.6
-strava_cache_ttl_sweep_test	0.0
+retention_sweep_test	0.0
 strava_get_activities_roundtrip_test	0.0
 strava_oauth_freshness_test	1.1
 strava_pool_admin_test	0.6

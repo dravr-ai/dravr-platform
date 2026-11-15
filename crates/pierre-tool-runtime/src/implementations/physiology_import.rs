@@ -65,9 +65,8 @@ use tracing::{info, warn};
 
 use crate::context::ToolExecutionContext;
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
-use crate::implementations::physiology::{
-    profile_for_write, profile_payload, store_profile, validate_merged, PhysiologyProfile,
-};
+use crate::implementations::physiology::{profile_for_write, store_profile, validate_merged};
+use crate::implementations::physiology_output::{profile_payload, PhysiologyProfile};
 use crate::protocol::{auth_required_provider, UniversalExecutor};
 use crate::runtime::ToolRuntime;
 use crate::training_history_compute::HistoryRefresh;
@@ -556,6 +555,20 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
                     "imported athlete thresholds from a provider"
                 );
 
+                // The import never writes a per-sport anchor; the echo still
+                // carries the stored ones, so it describes the whole profile.
+                let profile = match shown {
+                    Some(shown) => {
+                        let anchors = context
+                            .resources
+                            .repos()
+                            .user_physiological_profile
+                            .list_sport_anchors(tenant_id, user_id)
+                            .await?;
+                        Some(profile_payload(&shown, anchors))
+                    }
+                    None => None,
+                };
                 ok_typed(
                     TOOL,
                     ImportProviderThresholdsResult {
@@ -563,7 +576,7 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
                         saved,
                         thresholds,
                         sex_recorded,
-                        profile: shown.as_ref().map(profile_payload),
+                        profile,
                         training_history,
                     },
                 )

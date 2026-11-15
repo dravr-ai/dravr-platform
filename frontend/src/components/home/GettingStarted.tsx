@@ -1,44 +1,59 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Today's Getting started — five first steps, done, current or open, read from the server so web and phone agree
-// ABOUTME: A row sends its flow's starter into the thread; Hide is a server preference, and the section folds then goes once done (carnet#1098)
+// ABOUTME: Getting started — the whole list in a first arrival's Today, the slim meter under a returning athlete's header (carnet#1528)
+// ABOUTME: A row opens its sheet, Settings, or sends its flow's starter into the thread; Hide is a server preference, and the section folds then goes once done (carnet#1098)
 
-import { useMemo, type ReactNode } from 'react';
+import { useId, useMemo, type ReactNode } from 'react';
 import { clsx } from 'clsx';
-import { Check } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { useQuery } from '@tanstack/react-query';
-import { Trans, useTranslation } from '@pierre/i18n';
+import { useTranslation } from '@pierre/i18n';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import type { CheckInCadence, GettingStartedRow } from '@pierre/shared-types';
 import { formatDuration } from '@pierre/domain-utils';
-import { athleteApi, coachesApi, providersApi, userApi } from '../../services/api';
+import { athleteApi, coachesApi, messagingLinkApi, providersApi } from '../../services/api';
 import { recentActivitiesQuery } from '../../hooks/useHome';
+import { useAvailableChannels } from '../../hooks/useAvailableChannels';
 import { useGettingStarted } from './gettingStartedState';
 import { usePersonalConversation } from '../../hooks/useConversationList';
 import { Section } from '../ui/Section';
 import type { TodayActions } from './personalToday';
+import type { FirstStep, FirstStepRequest } from './FirstStepSheet';
 
 /** Each row's strings, keyed by the server's row id. */
 const ROW_KEY: Record<string, string> = {
+  health_check: 'healthCheck',
+  about_me_more: 'goalWhy',
+  check_in: 'checkIn',
+  chat_app: 'chatApp',
   connect: 'connect',
   meet_team: 'meetTeam',
   last_workout: 'lastWorkout',
-  about_me_more: 'profile',
-  check_in: 'checkIn',
 };
 
-const CHECK_IN_HINT: Record<CheckInCadence, string> = {
+/**
+ * The rows that complete in a small sheet over the page (carnet#1530): the
+ * health check put off at onboarding, the goal and the why, the check-in
+ * cadence — each once a screen of the wizard.
+ */
+const SHEET_OF_ROW: Record<string, FirstStep> = {
+  health_check: 'health_check',
+  about_me_more: 'goal_why',
+  check_in: 'check_in',
+};
+
+const CHECK_IN_HINT: Record<Exclude<CheckInCadence, 'off'>, string> = {
   daily: 'home.gettingStarted.rows.checkIn.hintDaily',
   three_per_week: 'home.gettingStarted.rows.checkIn.hintThreePerWeek',
   weekly: 'home.gettingStarted.rows.checkIn.hintWeekly',
-  off: 'home.gettingStarted.rows.checkIn.hintOff',
 };
 
 /**
  * The supporting reads a row's hint names: the provider, the lead, the latest
- * activity, the profile, the cadence. Only read while the rows are on screen,
- * so an athlete whose Getting started is gone costs no extra request.
+ * activity, the profile, the cadence, the chat apps. Only read while the rows
+ * are on screen, so an athlete whose Getting started is gone costs no extra
+ * request.
  */
 function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
   const { t, language } = useTranslation();
@@ -55,14 +70,16 @@ function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
     staleTime: 5 * 60_000,
   });
   const recent = useQuery({ ...recentActivitiesQuery(), enabled });
-  const onboarding = useQuery({
-    queryKey: QUERY_KEYS.user.onboardingStatus(),
-    queryFn: () => userApi.getOnboardingStatus(),
-    enabled,
-  });
   const checkIn = useQuery({
     queryKey: QUERY_KEYS.user.checkIn(),
     queryFn: () => athleteApi.getCheckIn(),
+    enabled,
+  });
+  // The chat-app sheet and Settings read the same two entries.
+  const { channels } = useAvailableChannels({ enabled });
+  const links = useQuery({
+    queryKey: ['messaging-links'],
+    queryFn: () => messagingLinkApi.listLinks(),
     enabled,
   });
 
@@ -75,9 +92,24 @@ function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
     const at = new Date(2000, 0, 1, localHour, 0);
     return new Intl.DateTimeFormat(language, { hour: 'numeric', minute: '2-digit' }).format(at);
   }, [language, localHour]);
+  // « Telegram ou WhatsApp »: the apps on offer, in the reader's own "or".
+  const apps = useMemo(
+    () =>
+      channels.length === 0
+        ? null
+        : new Intl.ListFormat(language, { type: 'disjunction' }).format(channels.map((c) => c.display_name)),
+    [channels, language],
+  );
+  const linkedChannel = Array.isArray(links.data) ? links.data[0]?.channel : undefined;
+  const linkedApp =
+    linkedChannel === undefined
+      ? null
+      : (channels.find((c) => c.channel === linkedChannel)?.display_name ?? null);
 
   return (row) => {
     switch (row.id) {
+      case 'health_check':
+        return row.done ? null : t('home.gettingStarted.rows.healthCheck.hint');
       case 'connect':
         if (row.done) return provider ? t('home.gettingStarted.rows.connect.doneHint', { provider }) : null;
         return t('home.gettingStarted.rows.connect.hint');
@@ -88,22 +120,15 @@ function useRowHints(enabled: boolean): (row: GettingStartedRow) => ReactNode {
         if (row.done || latest === null) return null;
         return `${latest.name} · ${formatDuration(t, Math.round(latest.duration_seconds / 60) * 60)}`;
       case 'about_me_more':
-        if (row.done || onboarding.data === undefined) return null;
-        if (typeof onboarding.data.pillars_covered !== 'number' || typeof onboarding.data.pillars_total !== 'number') {
-          return null;
-        }
-        return (
-          <Trans
-            i18nKey="home.gettingStarted.rows.profile.hint"
-            values={{ covered: onboarding.data.pillars_covered, total: onboarding.data.pillars_total }}
-            components={{ num: <span className="font-mono" /> }}
-          />
-        );
+        return row.done ? null : t('home.gettingStarted.rows.goalWhy.hint');
       case 'check_in':
-        if (!row.eligible) return t('home.gettingStarted.rows.checkIn.needsData');
-        if (row.done || checkIn.data === undefined) return null;
-        if (checkIn.data.cadence === null || checkIn.data.cadence === 'off') return t(CHECK_IN_HINT.off);
+        // Open, the row says what it sets; answered, the rhythm it set.
+        if (!row.done) return t('home.gettingStarted.rows.checkIn.hint');
+        if (checkIn.data === undefined || checkIn.data.cadence === null || checkIn.data.cadence === 'off') return null;
         return time === null ? null : t(CHECK_IN_HINT[checkIn.data.cadence], { time });
+      case 'chat_app':
+        if (row.done) return linkedApp === null ? null : t('home.gettingStarted.rows.chatApp.doneHint', { app: linkedApp });
+        return apps;
       default:
         return null;
     }
@@ -114,26 +139,80 @@ interface GettingStartedProps {
   actions: TodayActions;
   /** Dashboard route navigator, `tab[/subview]`. */
   onNavigate: (route: string) => void;
+  /** Open the chat-app sheet over the page — the « Écris-moi aussi ailleurs » row. */
+  onOpenChatApp: () => void;
+  /** Open a first step's sheet over the page — the health check, the goal and the why, the cadence. */
+  onOpenFirstStep: (request: FirstStepRequest) => void;
+}
+
+/** The rows the client draws, in the server's order. */
+function listedRows(rows: readonly GettingStartedRow[]): GettingStartedRow[] {
+  return rows.filter((row) => row.id in ROW_KEY).sort((a, b) => a.order - b.order);
 }
 
 /**
- * Getting started (carnet#1098): connect your data, then the four first-run
- * flows (carnet#1099), in the server's order and with its verdicts — done,
- * current, and whether a row's prerequisite is met. A done row is plain text
- * with a check; the current row sits on the `surface-container-low` tint
- * with `aria-current`; an open row is an ink link. Nothing here is a filled
- * button: these are offers.
- *
- * A tap on row 1 goes to Settings › Connections; one on a flow sends its
- * starter postback (`gs:<pos>:<id>`) into the Home thread, the same send the
- * empty thread's starters make, so the server records it as a tap from this
- * surface (carnet#1100). Once the last flow is done the section folds to one
- * line naming the way back, and is gone seven days later.
+ * What a row is called and what a tap on it does, for the list and the meter
+ * alike: Connect goes to Settings › Connections, the chat-app row opens its
+ * sheet, a question opens its sheet, and a first-run flow sends its starter
+ * into the thread. A done row, or one whose prerequisite is missing, does
+ * nothing.
  */
-export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
+function useRowActions({ actions, onNavigate, onOpenChatApp, onOpenFirstStep }: GettingStartedProps) {
   const { t } = useTranslation();
-  const { query, home, state } = useGettingStarted();
-  const hintFor = useRowHints(state === 'open');
+  const titleOf = (row: GettingStartedRow) => t(`home.gettingStarted.rows.${ROW_KEY[row.id]}.title`);
+  const opensItsOwnPlace = (row: GettingStartedRow) =>
+    row.id === 'connect' || row.id === 'chat_app' || row.id in SHEET_OF_ROW;
+  const actionable = (row: GettingStartedRow) =>
+    !row.done && (opensItsOwnPlace(row) || (row.eligible && row.postback !== null));
+  const open = (row: GettingStartedRow) => {
+    if (row.id === 'connect') {
+      onNavigate('settings/connections');
+      return;
+    }
+    if (row.id === 'chat_app') {
+      onOpenChatApp();
+      return;
+    }
+    const sheet = SHEET_OF_ROW[row.id];
+    if (sheet) {
+      onOpenFirstStep({ step: sheet });
+      return;
+    }
+    if (row.postback) actions.send(row.postback, titleOf(row));
+  };
+  return { titleOf, actionable, open };
+}
+
+/**
+ * Getting started (carnet#1098), in the server's order and with its verdicts
+ * — done, current, and whether a row's prerequisite is met. A done row is
+ * plain text with a check; the current row sits on the
+ * `surface-container-low` tint with `aria-current`; an open row is an ink
+ * link. Nothing here is a filled button: these are offers.
+ *
+ * "Connect your data" comes first and goes to Settings › Connections. Then
+ * the questions the onboarding wizard no longer asks, each completing in a
+ * small sheet over the page (carnet#1530): the health check when it was put
+ * off, the goal and the why, the check-in cadence. The chat-app row, listed
+ * by the server only when the workspace offers an app and the list is still
+ * open, opens the chat-app sheet (carnet#1525). Then the first-run flows,
+ * whose tap sends the starter postback (`gs:<pos>:<id>`)
+ * into the Home thread, the same send the empty thread's starters make, so
+ * the server records it as a tap from this surface (carnet#1100). Closing a
+ * sheet ticks nothing; once the last row is done the section folds to one
+ * line naming the way back, and is gone seven days later.
+ *
+ * The whole list is a first arrival's (carnet#1528): once the athlete has
+ * answered the lead's welcome, Today leads with today's session and the list
+ * becomes the slim meter under the conversation's header
+ * ([`GettingStartedMeter`]). The folded line stays here either way.
+ */
+export function GettingStarted(props: GettingStartedProps) {
+  const { t } = useTranslation();
+  const { query, home, state, stage } = useGettingStarted();
+  const listed = state === 'open' && stage === 'first_arrival';
+  const hintFor = useRowHints(listed);
+  const { titleOf, actionable, open } = useRowActions(props);
 
   if (state === null || state === 'gone' || query.data === undefined) return null;
   const data = query.data;
@@ -145,16 +224,7 @@ export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
       </p>
     );
   }
-
-  const titleOf = (row: GettingStartedRow) => t(`home.gettingStarted.rows.${ROW_KEY[row.id]}.title`);
-
-  const open = (row: GettingStartedRow) => {
-    if (row.id === 'connect') {
-      onNavigate('settings/connections');
-      return;
-    }
-    if (row.postback) actions.send(row.postback, titleOf(row));
-  };
+  if (!listed) return null;
 
   const title = (
     <>
@@ -177,7 +247,7 @@ export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
     </button>
   );
 
-  const rows = data.rows.filter((row) => row.id in ROW_KEY).sort((a, b) => a.order - b.order);
+  const rows = listedRows(data.rows);
 
   return (
     <Section title={title} headingLevel={3} actions={hide} data-testid="home-getting-started">
@@ -219,7 +289,6 @@ export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
             row.current && !row.done && 'bg-surface-container-low',
           );
           // A done row, or one whose prerequisite is missing, is not a link.
-          const actionable = !row.done && (row.id === 'connect' || (row.eligible && row.postback !== null));
           return (
             <li
               key={row.id}
@@ -227,7 +296,7 @@ export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
               data-state={row.done ? 'done' : row.current ? 'current' : 'open'}
               aria-current={row.current && !row.done ? 'step' : undefined}
             >
-              {actionable ? (
+              {actionable(row) ? (
                 <button
                   type="button"
                   className={clsx(rowClass, 'transition-colors hover:bg-surface-container-low focus-ring')}
@@ -247,5 +316,84 @@ export function GettingStarted({ actions, onNavigate }: GettingStartedProps) {
         })}
       </ol>
     </Section>
+  );
+}
+
+/**
+ * Getting started as a returning athlete meets it (carnet#1528, P5·C): one
+ * slim line under the conversation's header, in the transcript's column —
+ * a segment per step, the count, the next step and « Continue », which does
+ * what a tap on that row of the list does, and the Hide the list carries.
+ * Gone once every step is done or the athlete hides it; a first arrival gets
+ * the whole list in Today instead.
+ */
+export function GettingStartedMeter(props: GettingStartedProps) {
+  const { t } = useTranslation();
+  const headingId = useId();
+  const { query, home, state, stage } = useGettingStarted();
+  const { titleOf, actionable, open } = useRowActions(props);
+
+  if (state !== 'open' || stage !== 'returning' || query.data === undefined) return null;
+  const data = query.data;
+  const rows = listedRows(data.rows);
+  const next = rows.find((row) => row.current && !row.done) ?? null;
+
+  return (
+    <section
+      aria-labelledby={headingId}
+      data-testid="home-getting-started-meter"
+      className="shrink-0 border-b ghost-border bg-surface"
+    >
+      <div className="mx-auto flex h-11 w-full max-w-[720px] items-center gap-2.5 px-4 md:px-6">
+        <span aria-hidden="true" className="hidden shrink-0 gap-[3px] sm:flex">
+          {rows.map((row) => (
+            <span
+              key={row.id}
+              className={clsx('h-1 w-3.5 rounded-sm', row.done ? 'bg-primary' : 'bg-outline-variant')}
+            />
+          ))}
+        </span>
+        <h2 id={headingId} className="shrink-0 whitespace-nowrap text-sm font-medium text-on-surface">
+          {t('home.gettingStarted.title')}{' '}
+          <span aria-hidden="true" className="font-mono text-xs font-normal text-outline">
+            {t('home.gettingStarted.count', { done: data.done_count, total: data.total })}
+          </span>
+          <span className="sr-only">{t('home.gettingStarted.countAria', { done: data.done_count, total: data.total })}</span>
+        </h2>
+        {next !== null ? (
+          <>
+            <span aria-hidden="true" className="hidden text-outline sm:inline">
+              ·
+            </span>
+            <span className="hidden min-w-0 flex-1 truncate text-sm text-on-surface-variant sm:block">
+              {t('home.gettingStarted.meterNext', { step: titleOf(next) })}
+            </span>
+          </>
+        ) : (
+          <span className="flex-1" />
+        )}
+        {next !== null && actionable(next) && (
+          <button
+            type="button"
+            data-testid="home-getting-started-meter-continue"
+            onClick={() => open(next)}
+            className="ml-auto shrink-0 rounded px-1 text-sm font-medium text-primary transition-colors hover:text-primary-hover focus-ring touch-target"
+          >
+            {t('home.gettingStarted.meterContinue')}
+            <span className="sr-only"> — {titleOf(next)}</span>
+          </button>
+        )}
+        <button
+          type="button"
+          data-testid="home-getting-started-meter-hide"
+          aria-label={t('home.gettingStarted.hideAria')}
+          title={t('home.gettingStarted.hideAria')}
+          onClick={() => home.update({ getting_started_hidden: true })}
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-on-surface-variant transition-colors hover:bg-surface-container-low hover:text-on-surface focus-ring touch-target"
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+    </section>
   );
 }

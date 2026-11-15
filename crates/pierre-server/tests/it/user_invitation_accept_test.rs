@@ -29,7 +29,7 @@ use pierre_config::environment::{
     AppBehaviorConfig, BackupConfig, DatabaseConfig, DatabaseUrl, Environment, SecurityConfig,
     SecurityHeadersConfig, ServerConfig,
 };
-use pierre_core::models::UserStatus;
+use pierre_core::models::{InvitationKind, UserStatus};
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
 use pierre_services::invitation::{
@@ -96,6 +96,7 @@ async fn setup() -> Arc<ServerContext> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -118,7 +119,7 @@ async fn operator(resources: &Arc<ServerContext>, email: &str) -> Uuid {
 
 /// Issue an invitation through the service the admin route calls.
 async fn invite(resources: &Arc<ServerContext>, email: &str, by: Option<Uuid>) -> IssuedInvitation {
-    match invitation::issue(&resources.common.repos, email, by)
+    match invitation::issue(&resources.common.repos, email, by, InvitationKind::Account)
         .await
         .expect("issuing must succeed")
     {
@@ -336,6 +337,7 @@ async fn an_expired_invitation_creates_nothing() {
             &generated.selector,
             &generated.verifier_hash,
             Utc::now() - Duration::minutes(1),
+            InvitationKind::Account,
         )
         .await
         .unwrap();
@@ -446,9 +448,14 @@ async fn an_address_that_registered_meanwhile_keeps_its_own_account() {
 
     // Once the account exists there is nothing left to invite it to.
     assert!(matches!(
-        invitation::issue(&resources.common.repos, email, None)
-            .await
-            .unwrap(),
+        invitation::issue(
+            &resources.common.repos,
+            email,
+            None,
+            InvitationKind::Account
+        )
+        .await
+        .unwrap(),
         InviteOutcome::AccountExists
     ));
 }
@@ -522,9 +529,14 @@ async fn an_address_is_sent_a_bounded_number_of_invitations_per_hour() {
 
     assert!(
         matches!(
-            invitation::issue(&resources.common.repos, email, None)
-                .await
-                .unwrap(),
+            invitation::issue(
+                &resources.common.repos,
+                email,
+                None,
+                InvitationKind::Account
+            )
+            .await
+            .unwrap(),
             InviteOutcome::BudgetSpent
         ),
         "the send past the hourly budget must be refused"

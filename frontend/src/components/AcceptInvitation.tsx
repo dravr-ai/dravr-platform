@@ -10,12 +10,18 @@ import { Button, Input, RevealButton } from './ui';
 import { DravrLogo } from './DravrLogo';
 import AnalyticsConsentOptIn from './AnalyticsConsentOptIn';
 import { useTranslation } from '@pierre/i18n';
+import type { InvitationLinkKind } from '../utils/tokenLink';
 
 type Stage = 'form' | 'invalid' | 'accepted';
 
 interface AcceptInvitationProps {
   /** The token from the link, or `null` when the link carried none. */
   token: string | null;
+  /**
+   * What the link says it is: a team-issued coach seat words the page for a
+   * coach. The server decides what the account is granted, never this.
+   */
+  kind?: InvitationLinkKind;
   /** Go to the sign-in form. */
   onSignIn: () => void;
   /** Go to the create-account form, the way in when the invitation is spent. */
@@ -30,9 +36,15 @@ interface AcceptInvitationProps {
  * A link that no longer works (expired, used, replaced by a newer one) is the
  * common failure, and it leads to the create-account form: the operator's
  * pre-approval stands, so signing up there still lands the account active.
+ *
+ * A coach-seat link (carnet#1524) carries the coach's seat: the page says so
+ * before the account is made, and the done screen says the seat is already
+ * active. One that no longer works says so plainly and that the Dravr team
+ * sends a new one; a plain sign-up would carry no seat.
  */
-export default function AcceptInvitation({ token, onSignIn, onRegister }: AcceptInvitationProps) {
+export default function AcceptInvitation({ token, kind = 'account', onSignIn, onRegister }: AcceptInvitationProps) {
   const { t } = useTranslation();
+  const coachSeat = kind === 'coach_seat';
   const [stage, setStage] = useState<Stage>(token ? 'form' : 'invalid');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
@@ -92,6 +104,9 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
 
   if (stage !== 'form') {
     const accepted = stage === 'accepted';
+    const title = accepted
+      ? t(coachSeat ? 'humanCoach.seatInvite.doneTitle' : 'auth.registrationSuccess')
+      : t(coachSeat ? 'humanCoach.seatInvite.expiredTitle' : 'auth.linkExpired');
     return (
       <div className="min-h-dvh flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8 bg-surface pad-safe-top">
         <div className="max-w-md w-full">
@@ -99,9 +114,7 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
             <div className="px-8 py-10">
               <div className="flex flex-col items-center text-center">
                 <DravrLogo size={64} />
-                <h1 className="mt-6 text-xl font-bold text-on-surface tracking-tight">
-                  {accepted ? t('auth.registrationSuccess') : t('auth.linkExpired')}
-                </h1>
+                <h1 className="mt-6 text-xl font-bold text-on-surface tracking-tight">{title}</h1>
                 {accepted && email && (
                   <p className="mt-3 text-sm text-on-surface" data-testid="accepted-email">
                     <span className="text-on-surface-variant">{t('auth.emailAddressLabel')} </span>
@@ -110,19 +123,24 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
                 )}
                 {accepted && (
                   <p className="mt-3 text-sm text-on-surface-variant max-w-sm">
-                    {t('auth.thenConnectService')}
+                    {t(coachSeat ? 'humanCoach.seatInvite.doneBody' : 'auth.thenConnectService')}
+                  </p>
+                )}
+                {!accepted && coachSeat && (
+                  <p className="mt-3 text-sm text-on-surface-variant max-w-sm" data-testid="invite-expired-body">
+                    {t('humanCoach.seatInvite.expiredBody')}
                   </p>
                 )}
               </div>
               <div className="mt-8 space-y-3">
-                {!accepted && (
+                {!accepted && !coachSeat && (
                   <Button size="lg" variant="primary" onClick={onRegister} className="w-full">
                     {t('auth.createAccount')}
                   </Button>
                 )}
                 <Button
                   size="lg"
-                  variant={accepted ? 'primary' : 'secondary'}
+                  variant={accepted || coachSeat ? 'primary' : 'secondary'}
                   onClick={onSignIn}
                   className="w-full"
                 >
@@ -144,9 +162,16 @@ export default function AcceptInvitation({ token, onSignIn, onRegister }: Accept
             <div className="flex flex-col items-center">
               <DravrLogo size={64} />
               <h1 className="mt-4 text-xl font-bold text-on-surface tracking-tight">
-                {t('auth.createAccountTitle')}
+                {t(coachSeat ? 'humanCoach.seatInvite.title' : 'auth.createAccountTitle')}
               </h1>
-              <p className="mt-1 text-sm text-on-surface-variant">{t('auth.joinDravr')}</p>
+              <p className="mt-1 text-sm text-on-surface-variant text-center">
+                {t(coachSeat ? 'humanCoach.seatInvite.subtitle' : 'auth.joinDravr')}
+              </p>
+              {coachSeat && (
+                <p className="mt-3 text-xs text-on-surface-variant text-center" data-testid="invite-email-locked">
+                  {t('humanCoach.seatInvite.emailLocked')}
+                </p>
+              )}
             </div>
 
             <form className="space-y-5" onSubmit={handleSubmit}>

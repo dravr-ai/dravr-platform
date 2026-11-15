@@ -16,6 +16,7 @@ use crate::common;
 use crate::helpers;
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use axum::http::StatusCode;
 use common::create_test_server_resources;
@@ -33,8 +34,10 @@ use pierre_mcp_server::routes::chat::{
     MessagesListResponse, OpenTopicResponse, PersonalThreadResponse, TurnResponse,
 };
 use pierre_services::personal_thread::{resolve_dm_thread, resolve_personal_thread, PersonalForge};
+use pierre_test_support::db::create_concurrent_test_db;
 use serde_json::json;
 use tokio::task::spawn_blocking;
+use tokio::time;
 use uuid::Uuid;
 
 /// An Active athlete with their own tenant, a provider that clears the
@@ -380,36 +383,86 @@ async fn looking_forges_nothing_and_a_first_chat_forges_one_thread_outside_the_c
     );
 }
 
+/// Rounds of the race below, each a first request for the athlete again.
+const RACE_ROUNDS: u32 = 20;
+
+/// How much later than the round before the last racer arrives. Across the
+/// rounds it lands everywhere in the first ones' forge, including the window
+/// between a forged thread's insert and its designation, where it finds that
+/// thread and adopts it: the forging request then keeps the thread it was
+/// refused, rather than removing it as a losing forge from under the racer
+/// that adopted it (carnet#1557).
+const RACE_STAGGER_STEP: Duration = Duration::from_millis(1);
+
 #[tokio::test]
 async fn first_requests_racing_each_other_settle_on_one_thread() {
-    let resources = create_test_server_resources().await.unwrap();
-    let (user_id, tenant_id, _) = seed_athlete(&resources, "race@test.com").await;
+    // Connections that overlap in the engine, as a deployed pool's do: the
+    // default one-connection SQLite pool queues the racers one statement at a
+    // time and never reaches the window above.
+    let database = create_concurrent_test_db().await.unwrap();
+    let (user_id, _, tenant_id) = common::create_test_user_with_plan(
+        &database,
+        &format!("race-{}@test.com", Uuid::new_v4()),
+        "professional",
+    )
+    .await
+    .unwrap();
     let user = user_id.to_string();
-    let repos = &resources.common.repos;
+    let repos = database.repositories();
+    let llm_chain = common::placeholder_llm_chain();
 
     let forge = PersonalForge {
         title_fallback: "Fallback",
         guided_flow: false,
-        llm_chain: &resources.common.config.llm_chain,
+        llm_chain: &llm_chain,
     };
-    let (a, b, c) = tokio::join!(
-        resolve_personal_thread(repos, &user, tenant_id, forge),
-        resolve_personal_thread(repos, &user, tenant_id, forge),
-        resolve_personal_thread(repos, &user, tenant_id, forge),
-    );
-    let ids = [
-        a.unwrap().conversation.id,
-        b.unwrap().conversation.id,
-        c.unwrap().conversation.id,
-    ];
-    assert!(ids.iter().all(|id| id == &ids[0]), "{ids:?}");
-    let listed = repos
-        .chat
-        .list_conversations(&user, tenant_id, 50, 0, TransportPolicy::FirstPartyOnly)
-        .await
-        .unwrap()
-        .items;
-    assert_eq!(listed.len(), 1, "the losing forges were removed");
+    for round in 0..RACE_ROUNDS {
+        let raced: [_; 3] = tokio::join!(
+            resolve_personal_thread(repos, &user, tenant_id, forge),
+            resolve_personal_thread(repos, &user, tenant_id, forge),
+            async {
+                time::sleep(RACE_STAGGER_STEP * round).await;
+                resolve_personal_thread(repos, &user, tenant_id, forge).await
+            },
+        )
+        .into();
+        let threads = raced
+            .map(|thread| thread.unwrap_or_else(|e| panic!("round {round}: a racer failed: {e}")));
+        let ids = threads.each_ref().map(|thread| &thread.conversation.id);
+        assert!(
+            ids.iter().all(|id| *id == ids[0]),
+            "round {round}: every racer is given the one personal thread: {ids:?}"
+        );
+        assert!(
+            threads.iter().filter(|thread| thread.forged).count() <= 1,
+            "round {round}: only the request whose forge became the thread may treat it as its own"
+        );
+        let listed = repos
+            .chat
+            .list_conversations(&user, tenant_id, 50, 0, TransportPolicy::FirstPartyOnly)
+            .await
+            .unwrap()
+            .items;
+        assert_eq!(
+            listed.len(),
+            1,
+            "round {round}: the losing forges were removed"
+        );
+        assert_eq!(
+            listed[0].id, *ids[0],
+            "round {round}: the thread left is the one every racer was given"
+        );
+        // The athlete is back to no thread at all, so the next round is a
+        // first request again.
+        assert!(
+            repos
+                .chat
+                .delete_conversation(ids[0], &user, tenant_id)
+                .await
+                .unwrap(),
+            "round {round}: the athlete owns their thread"
+        );
+    }
 }
 
 #[tokio::test]

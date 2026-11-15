@@ -143,7 +143,10 @@ pub struct PersonalForge<'a> {
 pub struct PersonalThread {
     /// The conversation.
     pub conversation: ConversationRecord,
-    /// Whether this call forged it, so it holds nothing yet.
+    /// Whether this call forged it and its own designation made it the
+    /// personal thread, so it holds nothing yet. A thread this call forged
+    /// that a racing request adopted first reads as found: that request was
+    /// handed it too.
     pub forged: bool,
 }
 
@@ -381,16 +384,39 @@ async fn forge_personal(
             forged: true,
         });
     }
-    // A racing request designated its own thread first. This one was forged
-    // for nothing and nobody was sent to it, so it goes.
-    if let Err(e) = chat
-        .delete_conversation(&forged_id, user_id, tenant_id)
+    settle_refused_forge(repos, &forged_id, user_id, tenant_id).await
+}
+
+/// The athlete's thread after a racing request designated one before the
+/// thread this call forged, `forged_id`, could be.
+async fn settle_refused_forge(
+    repos: &RepositoryRegistry,
+    forged_id: &str,
+    user_id: &str,
+    tenant_id: TenantId,
+) -> AppResult<PersonalThread> {
+    let winner = designated(repos, user_id, tenant_id).await?;
+    // The racing request found this thread between its insert and its
+    // designation, and adopted it: it is the athlete's thread, and that
+    // request was handed it too, so it stays and is not this call's alone.
+    if winner.id == forged_id {
+        info!(user_id, conversation_id = %forged_id, "personal thread: forged, and adopted first by a racing request");
+        return Ok(PersonalThread {
+            conversation: winner,
+            forged: false,
+        });
+    }
+    // Another thread won. This one was forged for nothing and nobody was sent
+    // to it, so it goes.
+    if let Err(e) = repos
+        .chat
+        .delete_conversation(forged_id, user_id, tenant_id)
         .await
     {
         warn!(error = %e, conversation_id = %forged_id, "personal thread: removing the losing forge failed");
     }
     Ok(PersonalThread {
-        conversation: designated(repos, user_id, tenant_id).await?,
+        conversation: winner,
         forged: false,
     })
 }

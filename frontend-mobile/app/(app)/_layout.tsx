@@ -9,6 +9,7 @@ import { Stack } from 'expo-router';
 import { useTranslation } from '@pierre/i18n';
 import { settingsPane } from '@pierre/shared-constants';
 import { HeaderCloseButton } from '../../src/components/ui/HeaderCloseButton';
+import { useCoachAccessGrantRefresh } from '../../src/hooks/coachAccessHooks';
 import { usePushNotifications } from '../../src/hooks/usePushNotifications';
 import { useStackScreenOptions } from '../../src/navigation/stackOptions';
 import { UnitsProvider } from '../../src/providers/UnitsProvider';
@@ -18,6 +19,9 @@ export default function AppLayout() {
   // This group renders only for a signed-in athlete past onboarding, which is
   // when the push permission sheet is first allowed to appear.
   usePushNotifications();
+  // A coach-access grant shows on the next visit to Home, without signing out
+  // and in again (carnet#1521).
+  useCoachAccessGrantRefresh();
   const closeButton = () => <HeaderCloseButton />;
   const screenOptions = useStackScreenOptions();
   // Every screen in the signed-in app prints distances in the athlete's units (carnet#835).

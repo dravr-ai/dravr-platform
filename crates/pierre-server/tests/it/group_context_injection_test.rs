@@ -25,8 +25,9 @@ mod inject_tests {
         MemberFitnessSnapshot, OvertrainingRiskLevel, GROUP_CONTEXT_FOOTER,
     };
     use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+    use pierre_groups::service::MemberCards;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use std::collections::HashMap;
+    use std::collections::{BTreeSet, HashMap};
     use tokio::task::spawn_blocking;
     use uuid::Uuid;
 
@@ -226,10 +227,14 @@ mod inject_tests {
                 user_id,
                 tenant_id,
                 None,
-                &[],
+                MemberCards {
+                    snapshots: &[],
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
 
         assert_eq!(
             out, BASE_PROMPT,
@@ -255,10 +260,14 @@ mod inject_tests {
                 user_id,
                 tenant_id,
                 Some(&unknown_group),
-                &[],
+                MemberCards {
+                    snapshots: &[],
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
 
         assert_eq!(out, BASE_PROMPT);
     }
@@ -285,10 +294,14 @@ mod inject_tests {
                 user_id,
                 tenant_id,
                 None,
-                &[],
+                MemberCards {
+                    snapshots: &[],
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
 
         assert!(
             out.starts_with(BASE_PROMPT),
@@ -366,10 +379,14 @@ mod inject_tests {
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
-                &snapshots,
+                MemberCards {
+                    snapshots: &snapshots,
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
 
         assert!(out.starts_with(BASE_PROMPT));
         assert!(
@@ -379,6 +396,98 @@ mod inject_tests {
         assert!(
             !out.contains("PeerBob"),
             "non-consenting peer must be filtered out, got: {out}"
+        );
+    }
+
+    /// Cards scoped to some members (a coach's message about one athlete,
+    /// carnet#1464): only those members' cards render, and only those who
+    /// share with the requester, while the group's active count still covers
+    /// every snapshot. The members carried are exactly the cards rendered.
+    #[tokio::test]
+    async fn inject_renders_only_the_shown_members_cards() {
+        let resources = create_test_server_resources().await.unwrap();
+        let (requester, tenant_id) = seed_user(&resources, "scopereq").await;
+        let agent_id = seed_agent(&resources, requester, tenant_id).await;
+        let shown_peer = seed_bare_user(&resources, "scopeshown").await;
+        let other_peer = seed_bare_user(&resources, "scopeother").await;
+        let private_peer = seed_bare_user(&resources, "scopeprivate").await;
+
+        let gid = create_group(
+            &resources,
+            tenant_id,
+            agent_id,
+            requester,
+            "Scope Squad",
+            true,
+        )
+        .await;
+        add_member(
+            &resources,
+            gid,
+            requester,
+            tenant_id,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+        for peer in [shown_peer, other_peer] {
+            add_member(&resources, gid, peer, tenant_id, GroupRole::Member, true).await;
+        }
+        add_member(
+            &resources,
+            gid,
+            private_peer,
+            tenant_id,
+            GroupRole::Member,
+            false,
+        )
+        .await;
+
+        let snapshots = vec![
+            snapshot(requester, "RequesterRunner"),
+            snapshot(shown_peer, "PeerShown"),
+            snapshot(other_peer, "PeerOther"),
+            snapshot(private_peer, "PeerPrivate"),
+        ];
+        let shown = BTreeSet::from([requester, shown_peer, private_peer]);
+
+        let injected = resources
+            .group_service()
+            .inject_group_context(
+                BASE_PROMPT,
+                &agent_id.to_string(),
+                requester,
+                tenant_id,
+                Some(&gid.to_string()),
+                MemberCards {
+                    snapshots: &snapshots,
+                    shown: Some(&shown),
+                },
+            )
+            .await
+            .unwrap();
+        let out = &injected.prompt;
+
+        assert!(
+            out.contains("PeerShown"),
+            "the shown member's card renders, got: {out}"
+        );
+        assert!(
+            !out.contains("PeerOther"),
+            "a member left out of the scope gets no card, got: {out}"
+        );
+        assert!(
+            !out.contains("PeerPrivate"),
+            "a member in scope who shares nothing with the requester gets no card, got: {out}"
+        );
+        assert!(
+            out.contains("Group has 4 active members"),
+            "the active count still covers every member, got: {out}"
+        );
+        assert_eq!(
+            injected.cards_carried,
+            BTreeSet::from([requester, shown_peer]),
+            "the members carried are the cards rendered, never a hidden one in scope"
         );
     }
 
@@ -424,10 +533,14 @@ mod inject_tests {
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
-                &snapshots,
+                MemberCards {
+                    snapshots: &snapshots,
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
 
         assert!(
             out.contains("Connection alerts"),
@@ -496,10 +609,14 @@ mod inject_tests {
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
-                &snapshots,
+                MemberCards {
+                    snapshots: &snapshots,
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
 
         let stale_section = out
             .split("## Stale snapshots")
@@ -574,10 +691,14 @@ mod inject_tests {
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
-                &snapshots,
+                MemberCards {
+                    snapshots: &snapshots,
+                    shown: None,
+                },
             )
             .await
-            .unwrap();
+            .unwrap()
+            .prompt;
 
         assert!(
             !out.contains("PeerAlice"),
@@ -601,10 +722,14 @@ mod inject_tests {
                 requester,
                 tenant_id,
                 Some(&gid.to_string()),
-                snapshots,
+                MemberCards {
+                    snapshots,
+                    shown: None,
+                },
             )
             .await
             .unwrap()
+            .prompt
     }
 
     /// The group's human coach reads the roster by coach consent (ADR-002:

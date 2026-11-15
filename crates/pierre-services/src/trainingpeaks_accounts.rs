@@ -42,7 +42,7 @@ use dravr_sciotte::models::{AccountRole, AthleteProfile, AuthSession};
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{normalize_email, DelegatedConnection, ProviderAccountRole, TenantId};
-use pierre_database::repositories::OAuthTokenRepository;
+use pierre_database::repositories::{OAuthTokenRepository, ProviderPurge, PurgeReason};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_error::to_app_error_for;
@@ -195,6 +195,7 @@ pub struct AccountReading {
 /// the grant or the purge cannot be written.
 pub async fn record_trainingpeaks_profile(
     repos: &RepositoryRegistry,
+    purge: &dyn ProviderPurge,
     user_id: Uuid,
     tenant: TenantId,
     profile: &AthleteProfile,
@@ -209,7 +210,7 @@ pub async fn record_trainingpeaks_profile(
     } else {
         None
     };
-    record_trainingpeaks_role(repos, user_id, tenant, role).await?;
+    record_trainingpeaks_role(repos, purge, user_id, tenant, role).await?;
     Ok(AccountReading { role, binding })
 }
 
@@ -261,6 +262,7 @@ pub async fn coach_binding(
 /// be written.
 pub async fn record_trainingpeaks_role(
     repos: &RepositoryRegistry,
+    purge: &dyn ProviderPurge,
     user_id: Uuid,
     tenant: TenantId,
     role: ProviderAccountRole,
@@ -270,7 +272,7 @@ pub async fn record_trainingpeaks_role(
     // a failure before it leaves the role unread and the whole step runs
     // again.
     if role == ProviderAccountRole::Coach {
-        purge_misfiled_activities(repos, user_id, tenant).await?;
+        purge_misfiled_activities(repos, purge, user_id, tenant).await?;
     } else if recorded_role(repos, user_id, tenant).await? == Some(ProviderAccountRole::Coach) {
         // The connection that earned the grant now signs in as an athlete.
         revoke_roster_for_coach_connection(repos, user_id, tenant).await?;
@@ -360,26 +362,42 @@ async fn grant_roster(repos: &RepositoryRegistry, user_id: Uuid) -> AppResult<()
     Ok(())
 }
 
-/// Delete the cached `TrainingPeaks` activities filed under a coach account:
-/// it has no calendar of its own, so each one is another athlete's workout a
-/// read before sciotte 0.14 misfiled.
+/// Delete the `TrainingPeaks` activities filed under a coach account: it has
+/// no calendar of its own, so each one is another athlete's workout a read
+/// before sciotte 0.14 misfiled.
+///
+/// They go through the provider purge, as every deletion of a provider's
+/// activities does: the cached rows and what was kept beside them, the sync
+/// state describing them and the activity store's records, attested once as
+/// [`PurgeReason::MisfiledActivities`]. An account holding none is left
+/// alone, so a role recorded again attests nothing.
 async fn purge_misfiled_activities(
     repos: &RepositoryRegistry,
+    purge: &dyn ProviderPurge,
     user_id: Uuid,
     tenant: TenantId,
 ) -> AppResult<()> {
-    let removed = repos
+    let filed = repos
         .activity_cache
-        .delete_provider_activities(user_id, &tenant, SCIOTTE_TRAININGPEAKS)
+        .get_stored_activity_rows(user_id, &tenant, SCIOTTE_TRAININGPEAKS)
         .await?;
-    if removed > 0 {
-        info!(
-            user_id = %user_id,
-            tenant_id = %tenant,
-            removed,
-            "Deleted cached TrainingPeaks activities filed under a coach account"
-        );
+    if filed.is_empty() {
+        return Ok(());
     }
+    let purged = purge
+        .purge_user_provider_activities(
+            user_id,
+            &tenant,
+            SCIOTTE_TRAININGPEAKS,
+            PurgeReason::MisfiledActivities,
+        )
+        .await?;
+    info!(
+        user_id = %user_id,
+        tenant_id = %tenant,
+        removed = purged.total(),
+        "Deleted TrainingPeaks activities filed under a coach account"
+    );
     Ok(())
 }
 
@@ -451,6 +469,7 @@ pub fn account_role(profile: &AthleteProfile) -> ProviderAccountRole {
 /// recorded then), or the repository error when recording fails.
 pub async fn probe_trainingpeaks_role(
     repos: &RepositoryRegistry,
+    purge: &dyn ProviderPurge,
     registry: &ProviderRegistry,
     session: &AuthSession,
     read_from: &StoredTokenRow,
@@ -459,7 +478,7 @@ pub async fn probe_trainingpeaks_role(
 ) -> AppResult<ProviderAccountRole> {
     let profile = trainingpeaks_profile(registry, &*repos.oauth_tokens, read_from, session).await?;
     Ok(
-        record_trainingpeaks_profile(repos, user_id, tenant, &profile)
+        record_trainingpeaks_profile(repos, purge, user_id, tenant, &profile)
             .await?
             .role,
     )

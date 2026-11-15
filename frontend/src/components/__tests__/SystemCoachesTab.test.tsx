@@ -78,4 +78,19 @@ describe('SystemCoachesTab edit form', () => {
       ['category', 'description', 'system_prompt', 'tags', 'title'],
     );
   });
+
+  it('closes the assign-users dialog on Escape and hands focus back to its button', async () => {
+    renderTab();
+    fireEvent.click(await screen.findByText('Marathon Agent'));
+    const assign = await screen.findByRole('button', { name: /Assign Users/ });
+    assign.focus();
+    fireEvent.click(assign);
+
+    const dialog = screen.getByRole('dialog', { name: 'Assign Users to Agent' });
+    expect(dialog).toContainElement(document.activeElement as HTMLElement);
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    expect(screen.queryByRole('dialog', { name: 'Assign Users to Agent' })).not.toBeInTheDocument();
+    expect(assign).toHaveFocus();
+  });
 });

@@ -24,8 +24,9 @@
 #      EXPECTED_TOOLS (contremaitre_test), the hardcoded count assertion
 #      (configuration_mcp_integration_test), and the generated TS SDK types
 #      (packages/mcp-types/src/tools.ts, whose staleness reds CI: Server E2E's SDK Types Up-to-Date).
-#   4. Framing — the shipped tool descriptions and coach prompts carry no
-#      retired ACWR-as-injury-risk or absolute-TSB framing.
+#   4. Framing — the shipped tool descriptions, coach prompts and every string
+#      in strings/*.json carry no retired ACWR-as-injury-risk or absolute-TSB
+#      framing.
 #   5. Tool overlays — every tools/<name>.yaml in the pinned rev names a tool the
 #      registry actually registers, so no overlay is keyed to nothing.
 #   6. String copy — packages/i18n/src/locales/<l>/translation.json is
@@ -295,6 +296,7 @@ EXPECTED_FILE="crates/pierre-server/tests/it/contremaitre_test.rs"
 COUNT_FILE="crates/pierre-server/tests/it/configuration_mcp_integration_test.rs"
 TS_FILE="packages/mcp-types/src/tools.ts"
 SERVED_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_admin.json"
+PUBLIC_FIXTURE="crates/pierre-server/tests/fixtures/mcp_surface/tools_list_public_names.json"
 
 # Whether SRC_TOOLS below holds the complete registered set. Checks 5 and 7
 # compare against it and must not run on a truncated scan.
@@ -386,11 +388,14 @@ else
         fi
 
         # 3c. generated TS SDK types — stale types red CI: Server E2E (SDK Types Up-to-Date)
-        # The SDK is generated from what /mcp serves, which is the registry minus
-        # the tools kept to Dravr's own surfaces (declare_security! first_party_only).
-        # The admin tools/list fixture is that served set, and
-        # mcp_surface_fixture_test pins it to the live wire, so the types are
-        # compared against it, and it against src.
+        # /mcp serves the registry minus the tools kept to Dravr's own surfaces
+        # (declare_security! first_party_only). The admin tools/list fixture is
+        # that whole set as a group's coach is offered it, checked against src.
+        # The SDK is generated from the public profile: what a caller who coaches
+        # no group is offered, a global admin included, which leaves out the
+        # coach-only tools (carnet#1426). mcp_surface_fixture_test pins both
+        # fixtures to the live wire, and the types are compared against the
+        # public one.
         if [[ ! -f "$TS_FILE" ]]; then
             echo -e "${RED}❌ ${TS_FILE} not found — this check is stale.${NC}"
             TOOL_DRIFT=true
@@ -408,7 +413,6 @@ else
             TOOL_DRIFT=true
         else
             SERVED_TOOLS="$(printf '%s\n' "$SERVED_SCAN" | sort -u)"
-            SERVED_COUNT="$(printf '%s\n' "$SERVED_TOOLS" | grep -c . || true)"
             PHANTOM_SERVED="$(comm -13 <(printf '%s\n' "$SRC_TOOLS") <(printf '%s\n' "$SERVED_TOOLS") || true)"
             if [[ -n "$PHANTOM_SERVED" ]]; then
                 echo -e "${RED}❌ ${SERVED_FIXTURE} serves tools src does not register:${NC}"
@@ -417,9 +421,18 @@ else
             fi
             TS_TOOLS="$(grep -oE '"[a-z0-9_]+"' "$TS_FILE" | tr -d '"' | sort -u || true)"
             TS_HEADER="$(grep -oE '^// Tool count: [0-9]+' "$TS_FILE" | grep -oE '[0-9]+' || true)"
-            TS_DIFF="$(comm -3 <(printf '%s\n' "$SERVED_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
-            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$SERVED_COUNT" ]]; then
-                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${SERVED_COUNT} tools /mcp serves (header says '${TS_HEADER}').${NC}"
+            if ! PUBLIC_SCAN="$(python3 -c 'import json,sys; print("\n".join(json.load(open(sys.argv[1]))))' "$PUBLIC_FIXTURE")" \
+                || [[ -z "${PUBLIC_SCAN//[[:space:]]/}" ]]; then
+                # Fail closed, as for the served set above.
+                echo -e "${RED}❌ Could not read the public profile's tool names in ${PUBLIC_FIXTURE}.${NC}"
+                TOOL_DRIFT=true
+                PUBLIC_SCAN=""
+            fi
+            PUBLIC_TOOLS="$(printf '%s\n' "$PUBLIC_SCAN" | sort -u)"
+            PUBLIC_COUNT="$(printf '%s\n' "$PUBLIC_TOOLS" | grep -c . || true)"
+            TS_DIFF="$(comm -3 <(printf '%s\n' "$PUBLIC_TOOLS") <(printf '%s\n' "$TS_TOOLS") || true)"
+            if [[ -n "$TS_DIFF" || "$TS_HEADER" != "$PUBLIC_COUNT" ]]; then
+                echo -e "${RED}❌ SDK type drift: ${TS_FILE} does not match the ${PUBLIC_COUNT} tools /mcp offers the public profile (header says '${TS_HEADER}').${NC}"
                 [[ -n "$TS_DIFF" ]] && printf '%s\n' "$TS_DIFF" | sed 's/^/   /'
                 echo -e "${YELLOW}   Regenerate against a running server: cd packages/mcp-types && bun run generate${NC}"
                 TOOL_DRIFT=true
@@ -431,7 +444,7 @@ else
             echo -e "${YELLOW}   and regenerated SDK types in the SAME change — else main reds post-merge.${NC}"
             FAILED=true
         else
-            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS and the count assertion; the SDK types match the ${SERVED_COUNT} /mcp serves.${NC}"
+            echo -e "${GREEN}✅ MCP tool list: ${SRC_COUNT} tools match EXPECTED_TOOLS and the count assertion; the SDK types match the ${PUBLIC_COUNT} tools of the public profile.${NC}"
         fi
     fi
 fi
@@ -453,6 +466,11 @@ else
     # citing Lauersen on resistance training reducing injury risk, and a mobility
     # coach on warm-ups, are unrelated to the ratio. Lines that *forbid* the
     # framing ("never present it as an injury risk") are excluded too.
+    #
+    # Every single quote in the Python below is paired: stock macOS bash (3.2),
+    # which runs this script through its shebang at pre-push, reads an unpaired
+    # one (an apostrophe in a comment) as an open quote inside $( ) and rejects
+    # the rest of the file as a syntax error.
     FRAMING_HITS="$(python3 - "$CM_ROOT" <<'PYCHECK'
 import json, pathlib, re, sys
 root = pathlib.Path(sys.argv[1])
@@ -515,22 +533,32 @@ for sub in ("tools", "prompts/personas", *PERSONAS):
             if why:
                 hits.append(f"{f}:{n}: [{why}] {line.strip()[:160]}")
 
-# The label and prompt of a use case are offered to the athlete as their own words
-# and sent to the model as their question (carnet#828), so they answer to the
-# same framing as a prompt -- in every locale.
+# Every string the catalogue ships reaches the athlete: the label and prompt of
+# a use case are offered as their own words and sent to the model as their
+# question (carnet#828), and the messaging strings are what the platform writes
+# in its own voice -- the envelope notice under an edited session among them
+# (carnet#1495). So the whole catalogue answers to the same framing as a
+# prompt, in every locale.
 def leaves(node, path):
     if isinstance(node, dict):
         for key, value in node.items():
-            yield from leaves(value, f"{path}.{key}")
+            yield from leaves(value, f"{path}.{key}" if path else key)
     elif isinstance(node, str):
         yield path, node
 
+scanned = 0
 for f in sorted((root / "strings").glob("*.json")):
     catalogue = json.loads(f.read_text(encoding="utf-8"))
-    for key, value in leaves(catalogue.get("use_cases", {}), "use_cases"):
+    for key, value in leaves(catalogue, ""):
+        scanned += 1
         why = classify(value)
         if why:
             hits.append(f"{f}:{key}: [{why}] {value.strip()[:160]}")
+# A scan that read no string reports the same green as one that read them
+# all and found nothing.
+if scanned == 0:
+    print(f"SCAN-INCOMPLETE: no string read from {root / 'strings'}/*.json", file=sys.stderr)
+    sys.exit(2)
 print("\n".join(hits))
 PYCHECK
 )"

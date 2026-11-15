@@ -8,10 +8,12 @@ import type { ReactNode } from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { currentOnboardingStep } from '../../onboarding/steps';
+import { currentOnboardingStep, onboardingProgress } from '../../onboarding/steps';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 
 const getOnboardingStatus = vi.fn();
 const setOnboardingStep = vi.fn();
+const setCoachingRole = vi.fn();
 const updateAnalyticsConsent = vi.fn();
 const updateUser = vi.fn();
 
@@ -32,6 +34,7 @@ vi.mock('../../services/api', () => ({
   userApi: {
     getOnboardingStatus: (...args: unknown[]) => getOnboardingStatus(...args),
     setOnboardingStep: (...args: unknown[]) => setOnboardingStep(...args),
+    setCoachingRole: (...args: unknown[]) => setCoachingRole(...args),
     updateAnalyticsConsent: (...args: unknown[]) => updateAnalyticsConsent(...args),
   },
 }));
@@ -46,9 +49,7 @@ function connectedStatus(steps: { step_id: string; status: string }[]) {
     chosen_channel: null,
     steps: [
       { step_id: 'profile_type', status: 'complete' },
-      { step_id: 'about_you', status: 'complete' },
       { step_id: 'parq', status: 'complete' },
-      { step_id: 'check_in', status: 'complete' },
       ...steps,
     ],
   };
@@ -183,6 +184,121 @@ describe('useOnboardingState — the team step writes the team and waits for it 
   });
 });
 
+describe('useOnboardingState — a step put off reads skipped on the bar at once', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setOnboardingStep.mockResolvedValue(undefined);
+    localStorage.clear();
+    client.clear();
+  });
+
+  it('« Continuer sans connecter » is saved: the PAR-Q is next and Connect draws skipped', async () => {
+    localStorage.setItem('dravr.profile_type_chosen.u1', '1');
+    getOnboardingStatus.mockResolvedValue({
+      needs_provider_connection: true,
+      coaches_others: false,
+      chosen_channel: null,
+      steps: [{ step_id: 'profile_type', status: 'complete' }],
+    });
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('connect_provider'));
+
+    act(() => result.current.skipProvider());
+
+    expect(currentOnboardingStep(result.current.ctx)?.id).toBe('parq');
+    expect(setOnboardingStep).toHaveBeenCalledWith('connect_provider', 'skipped');
+    await waitFor(() => expect(result.current.ctx.skippedSteps).toEqual(['connect_provider']));
+    expect(onboardingProgress(result.current.ctx).map((s) => s.status)).toEqual([
+      'done',
+      'skipped',
+      'current',
+      'upcoming',
+    ]);
+  });
+
+  it('a skip saved in an earlier session keeps Connect away at the next sign-in', async () => {
+    localStorage.setItem('dravr.profile_type_chosen.u1', '1');
+    localStorage.setItem('dravr.parq_done.u1', '1');
+    localStorage.setItem('dravr.coach_proposal_done.u1', '1');
+    getOnboardingStatus.mockResolvedValue({
+      needs_provider_connection: true,
+      coaches_others: false,
+      chosen_channel: null,
+      steps: [
+        { step_id: 'profile_type', status: 'complete' },
+        { step_id: 'connect_provider', status: 'skipped' },
+        { step_id: 'parq', status: 'complete' },
+        { step_id: 'coach_proposal', status: 'complete' },
+      ],
+    });
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(true));
+
+    expect(result.current.ctx.skippedProvider).toBe(true);
+    expect(currentOnboardingStep(result.current.ctx)).toBeNull();
+  });
+
+  it('a skipped team is cached once its write lands', async () => {
+    getOnboardingStatus.mockResolvedValue(connectedStatus([]));
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(result.current.ctx.needsProviderConnection).toBe(false));
+
+    await act(() => result.current.persistCoachProposal({ status: 'skipped', leadAgentId: 'agent-endurance' }));
+
+    // The cache notifies its readers on the next tick.
+    await waitFor(() => expect(result.current.ctx.skippedSteps).toEqual(['coach_proposal']));
+  });
+});
+
+describe('useOnboardingState — an invite link records the athlete role', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setOnboardingStep.mockResolvedValue(undefined);
+    setCoachingRole.mockResolvedValue({ coaches_others: false });
+    localStorage.clear();
+    client.clear();
+    sessionUser = SESSION_USER;
+  });
+
+  const NEW_ACCOUNT = {
+    needs_provider_connection: true,
+    coaches_others: false,
+    chosen_channel: null,
+    steps: [],
+  };
+
+  it('opens on Tes données with Profil done, because the role is recorded', async () => {
+    getOnboardingStatus.mockResolvedValue(NEW_ACCOUNT);
+    const { result } = renderHook(() => useOnboardingState({ invitedAsAthlete: true }), { wrapper });
+
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('connect_provider'));
+    expect(setCoachingRole).toHaveBeenCalledWith(false);
+    expect(setOnboardingStep).toHaveBeenCalledWith('profile_type', 'complete');
+    expect(onboardingProgress(result.current.ctx).map((s) => [s.id, s.status])).toEqual([
+      ['profile_type', 'done'],
+      ['connect_provider', 'current'],
+      ['parq', 'upcoming'],
+      ['coach_proposal', 'upcoming'],
+    ]);
+  });
+
+  it('records nothing without an invite: the role question is asked', async () => {
+    getOnboardingStatus.mockResolvedValue(NEW_ACCOUNT);
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('profile_type'));
+    expect(setCoachingRole).not.toHaveBeenCalled();
+  });
+
+  it('never overrides a role already given', async () => {
+    getOnboardingStatus.mockResolvedValue({ ...NEW_ACCOUNT, coaches_others: true });
+    const { result } = renderHook(() => useOnboardingState({ invitedAsAthlete: true }), { wrapper });
+
+    await waitFor(() => expect(result.current.ctx.coachesOthers).toBe(true));
+    expect(setCoachingRole).not.toHaveBeenCalled();
+  });
+});
+
 describe('useOnboardingState — the usage-analytics question (carnet#1366)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -235,5 +351,118 @@ describe('useOnboardingState — the usage-analytics question (carnet#1366)', ()
 
     await expect(result.current.answerAnalyticsConsent(false)).rejects.toThrow('503');
     expect(updateUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('useOnboardingState — the coach path: seat, group, invite', () => {
+  /** A coach who does not train, past profile_type, with nothing connected. */
+  const coachStatus = {
+    needs_provider_connection: true,
+    coaches_others: true,
+    chosen_channel: null,
+    steps: [
+      { step_id: 'profile_type', status: 'complete' },
+      { step_id: 'about_you', status: 'not_applicable' },
+      { step_id: 'parq', status: 'not_applicable' },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    sessionUser = SESSION_USER;
+    setOnboardingStep.mockResolvedValue(undefined);
+    getOnboardingStatus.mockResolvedValue(coachStatus);
+    localStorage.clear();
+    client.clear();
+  });
+
+  it('opens on the seat, moves to the group once past it, and remembers it on this device', async () => {
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_seat'));
+
+    act(() => result.current.completeCoachSeat());
+
+    expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_group');
+    expect(localStorage.getItem('dravr.coach_seat_done.u1')).toBe('1');
+    // The seat itself is server state: no step row is written for it.
+    expect(setOnboardingStep).not.toHaveBeenCalled();
+  });
+
+  it('a seat passed on this device is not shown again, not even for a frame', async () => {
+    localStorage.setItem('dravr.coach_seat_done.u1', '1');
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    expect(result.current.ctx.coachSeatDone).toBe(true);
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_group'));
+  });
+
+  it('the group made moves to the invite; the step is recorded only once the invite is behind', async () => {
+    localStorage.setItem('dravr.coach_seat_done.u1', '1');
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_group'));
+
+    act(() => result.current.markCoachGroupCreated());
+    expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_invite');
+    expect(setOnboardingStep).not.toHaveBeenCalled();
+
+    act(() => result.current.completeCoachGroup('complete'));
+    expect(currentOnboardingStep(result.current.ctx)).toBeNull();
+    expect(setOnboardingStep).toHaveBeenCalledWith('coach_group', 'complete');
+  });
+
+  it('a coach whose invitation settled the role and the seat starts on the group, both settled on the bar', async () => {
+    getOnboardingStatus.mockResolvedValue({
+      ...coachStatus,
+      settled_by_invite: true,
+      steps: [...coachStatus.steps, { step_id: 'coach_seat', status: 'complete' }],
+    });
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_group'));
+    expect(result.current.settledByInvite).toBe(true);
+    const bar = onboardingProgress(result.current.ctx);
+    expect(bar.map((s) => [s.id, s.status])).toEqual([
+      ['profile_type', 'done'],
+      ['coach_seat', 'done'],
+      ['coach_group', 'current'],
+      ['coach_invite', 'upcoming'],
+    ]);
+    // Nothing was written from this device: the server recorded both.
+    expect(localStorage.getItem('dravr.coach_seat_done.u1')).toBeNull();
+    expect(setOnboardingStep).not.toHaveBeenCalled();
+  });
+
+  it('a coach the server says no invitation settled is not told otherwise', async () => {
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('coach_seat'));
+    expect(result.current.settledByInvite).toBe(false);
+  });
+});
+
+describe('useOnboardingState — an admin never meets the flow', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    localStorage.clear();
+    client.clear();
+  });
+  afterEach(() => {
+    sessionUser = SESSION_USER;
+  });
+
+  it('a status another surface cached for the admin opens no step', () => {
+    sessionUser = { user_id: 'u1', role: 'admin', user_status: 'active' };
+    // The dashboard reads the shared status for every account, an admin's too.
+    client.setQueryData(QUERY_KEYS.user.onboardingStatus(), {
+      needs_provider_connection: true,
+      coaches_others: false,
+      chosen_channel: null,
+      steps: [],
+    });
+
+    const { result } = renderHook(() => useOnboardingState(), { wrapper });
+
+    expect(result.current.ctx.onboardingActive).toBe(false);
+    expect(result.current.ctx.needsProviderConnection).toBeUndefined();
+    expect(currentOnboardingStep(result.current.ctx)).toBeNull();
+    expect(getOnboardingStatus).not.toHaveBeenCalled();
   });
 });

@@ -35,7 +35,8 @@ use axum::extract::{Path, State};
 use axum::Json;
 use pierre_chat_pipeline::stages::persistence::persist_assistant_response;
 use pierre_chat_pipeline::turn_stop::{
-    latest_question_by, question_state, recent_rows, stop_marker, QuestionState,
+    latest_question_by, question_state, recent_rows, stop_marker, wait_for_the_stop_to_settle,
+    QuestionState,
 };
 use pierre_contremaitre::messaging_strings::KEY_TURN_STOPPED;
 use pierre_core::errors::AppError;
@@ -70,6 +71,11 @@ pub struct StopTurnResponse {
 /// the write are back to back: the reply landing between the two is the one
 /// way a notice can be written beside a reply, and the turn closes its side
 /// of that window by looking for the notice immediately before it stores.
+///
+/// A `stopped: true` answer comes once the turn has settled the notice —
+/// added the envelope notice its writes earned, when they earned one — or
+/// once no turn is left to settle it, so the transcript read after it is the
+/// final one.
 ///
 /// # Errors
 ///
@@ -142,5 +148,17 @@ pub(super) async fn stop_turn(
         question_id = question.id.as_str(),
         "the athlete stopped a chat turn"
     );
+    // The turn settles the notice it reads: it adds the envelope notice for
+    // the writes it made before the stop (carnet#1519). Answering only then
+    // lets a client with no stream re-read right after the stop and read the
+    // notice whole.
+    wait_for_the_stop_to_settle(
+        repos.chat.as_ref(),
+        &conversation_id,
+        &user_id,
+        tenant_id,
+        &question.id,
+    )
+    .await;
     Ok(Json(StopTurnResponse { stopped: true }))
 }

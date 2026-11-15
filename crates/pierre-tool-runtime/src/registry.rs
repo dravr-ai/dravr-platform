@@ -252,6 +252,14 @@ impl ToolRegistry {
         self.tools.get(name).map(|tool| tool.transport_policy())
     }
 
+    /// Whether the tool named `name` serves a group's human coach and no one
+    /// else, as it declares through [`RuntimeTool::coach_only`]. An unknown
+    /// name is not.
+    #[must_use]
+    pub fn is_coach_only(&self, name: &str) -> bool {
+        self.tools.get(name).is_some_and(|tool| tool.coach_only())
+    }
+
     /// Whether the tool named `name` can only fail with no USDA key configured.
     /// A name the registry does not resolve needs nothing.
     #[must_use]

@@ -188,6 +188,7 @@ export type SettingsSectionId =
 /** The settings panes, by id. */
 export type SettingsPaneId =
   | 'profile'
+  | 'physiology'
   | 'connections'
   | 'gear'
   | 'tokens'
@@ -259,6 +260,17 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
     hintKey: 'settingsTabs.profileHint',
     web: 'profile',
     mobile: '/(app)/(tabs)/(settings)/profile',
+    flag: null,
+  },
+  {
+    // The anchors the athlete's workouts are set on, per sport family, each
+    // with its range, source and date (carnet#1516). Read-only: the agent's
+    // set_physiology is the one writer. Athlete-only, like the gear ledger.
+    id: 'physiology',
+    nameKey: 'settingsTabs.physiology',
+    hintKey: 'settingsTabs.physiologyHint',
+    web: 'physiology',
+    mobile: '/(app)/(tabs)/(settings)/physiology',
     flag: null,
   },
   {
@@ -367,13 +379,14 @@ export const SETTINGS_PANES: readonly SettingsPane[] = [
 ];
 
 /**
- * Panes an operator does not get: provider connections, the gear ledger,
- * messaging, About, coaching style, notification preferences, memory and
- * privacy all describe an athlete's own account. Profile and Account stay:
+ * Panes an operator does not get: provider connections, physiology, the gear
+ * ledger, messaging, About, coaching style, notification preferences, memory
+ * and privacy all describe an athlete's own account. Profile and Account stay:
  * Account holds security and sign-out. Gated on `role`, as the Dashboard gates.
  */
 export const ADMIN_HIDDEN_PANES: ReadonlySet<SettingsPaneId> = new Set([
   'connections',
+  'physiology',
   'gear',
   'about',
   'messaging',

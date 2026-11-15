@@ -70,22 +70,19 @@ function routeForStep(id: OnboardingStepId) {
       return '/(onboarding)/analytics-consent' as const;
     case 'profile_type':
       return '/(onboarding)/profile-type' as const;
-    case 'about_you':
-      return '/(onboarding)/about-you' as const;
     case 'parq':
       return '/(onboarding)/parq' as const;
-    case 'check_in':
-      return '/(onboarding)/check-in' as const;
     case 'connect_provider':
       return '/(onboarding)/connect' as const;
     case 'coach_proposal':
       return '/(onboarding)/agent-proposal' as const;
+    case 'coach_seat':
+      return '/(onboarding)/coach-seat' as const;
+    // One screen for the group and its invite: the group just made and its
+    // link live in that screen, so the step changing must not replace it.
     case 'coach_group':
+    case 'coach_invite':
       return '/(onboarding)/coach-group' as const;
-    case 'messaging_channel':
-      return '/(onboarding)/messaging-channel' as const;
-    case 'messaging_configure':
-      return '/(onboarding)/messaging-configure' as const;
   }
 }
 

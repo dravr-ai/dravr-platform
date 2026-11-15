@@ -75,8 +75,10 @@ impl DetailPlan<'_> {
 pub(crate) struct Promoted {
     /// Every activity, the wanted ones with their detail where it was had.
     pub activities: Vec<Activity>,
-    /// The details read from the provider by this call.
-    pub fresh: Vec<Activity>,
+    /// The details read from the provider by this call, each with the
+    /// provider its summary was listed by (`Activity::provider`), which
+    /// names the cached row the detail belongs beside.
+    pub fresh: Vec<(String, Activity)>,
     /// The ids of the activities that carry their detail.
     pub detailed_ids: HashSet<String>,
 }
@@ -130,7 +132,7 @@ pub(crate) async fn promote_to_detail(
             // recording of the session; the detail row keeps its own values
             // and gains those.
             Ok(mut detail) => {
-                fresh.push(detail.clone());
+                fresh.push((activity.provider().to_owned(), detail.clone()));
                 detail.fill_missing_from(activity);
                 detailed_ids.insert(activity.id().to_owned());
                 activities.push(detail);

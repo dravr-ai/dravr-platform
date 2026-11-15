@@ -676,6 +676,11 @@ mod group_digest_room_tests {
         let withdrew = h.person("Wanda Withdrew", "fr", None).await;
         let coach_only = h.person("Cyril CoachOnly", "fr", None).await;
         let tenant = h.tenant(coach).await;
+        // Each member has one home tenant, which the coach's reads of them ask
+        // for (carnet#1425).
+        for member in [admin, withdrew, coach_only] {
+            h.tenant(member).await;
+        }
         let group = h
             .group(
                 tenant,
@@ -753,6 +758,179 @@ mod group_digest_room_tests {
             !admin_copy.contains("Cyril"),
             "shares with the coach alone, so absent from the admin's copy: {admin_copy}"
         );
+    }
+
+    /// The coach's copy of the digest is a coach read of every member it
+    /// covers (carnet#1445): each member the coach-read gate lets through gets
+    /// one `weekly_digest` row on their record before their training is read.
+    /// A member the gate refuses (two home tenants) gets no row and is not in
+    /// the copy; a member whose row cannot be written is left out of the copy
+    /// with a warning, counted as an error, and the digest goes out to the
+    /// coach and the admin for everyone else.
+    #[tokio::test]
+    async fn the_coachs_digest_records_each_member_it_reads_and_leaves_out_one_it_cannot() {
+        use pierre_database::repositories::CoachReadClass;
+
+        let h = Harness::new().await;
+        let coach = h
+            .person("Coralie Coach", "fr", Some("America/Toronto"))
+            .await;
+        let admin = h.person("Adam Admin", "fr", None).await;
+        let read = h.person("Rita Recorded", "fr", None).await;
+        let unrecorded = h.person("Ulysse Unrecorded", "fr", None).await;
+        let two_homes = h.person("Tom TwoHomes", "fr", None).await;
+        let tenant = h.tenant(coach).await;
+        let mut homes = Vec::new();
+        for member in [admin, read, unrecorded, two_homes] {
+            homes.push(h.tenant(member).await);
+        }
+        h.tenant(two_homes).await;
+        let group = h
+            .group(
+                tenant,
+                "Club Consigné",
+                GroupDigestMode::Managers,
+                None,
+                &[
+                    (coach, GroupRole::Owner, true),
+                    (admin, GroupRole::Admin, true),
+                    (read, GroupRole::Member, true),
+                    (unrecorded, GroupRole::Member, true),
+                    (two_homes, GroupRole::Member, true),
+                ],
+            )
+            .await;
+        let repos = &h.resources.common.repos;
+        assert!(
+            repos
+                .groups
+                .set_group_coach_user(&group.to_string(), Some(coach), tenant)
+                .await
+                .unwrap(),
+            "test setup bug: the group takes its human coach"
+        );
+        refuse_reads_of(&h.resources, unrecorded).await;
+
+        let outcome = h.tick(monday_morning_montreal()).await;
+        assert_eq!(outcome.groups_reported, 1, "{outcome:?}");
+        assert_eq!(
+            outcome.dispatched, 2,
+            "bug: one member's record does not cost the coach or the admin their copy: \
+             {outcome:?}"
+        );
+        assert_eq!(
+            outcome.errors, 1,
+            "bug: the read that could not be recorded is counted: {outcome:?}"
+        );
+
+        let rows_of = |member: Uuid, home: TenantId| async move {
+            repos
+                .coach_data_reads
+                .list_coach_reads(home, member, group, 10)
+                .await
+                .unwrap()
+        };
+        let recorded = rows_of(read, homes[1]).await;
+        assert_eq!(
+            recorded.len(),
+            1,
+            "bug: the member the coach's copy reads has one row: {recorded:?}"
+        );
+        assert_eq!(
+            recorded[0].tool, "weekly_digest",
+            "bug: the row names the coach's copy of the digest as its source"
+        );
+        assert_eq!(
+            recorded[0].coach,
+            Some(coach),
+            "bug: the row names the coach the copy went to"
+        );
+        assert_eq!(
+            recorded[0].class,
+            CoachReadClass::Training,
+            "bug: the digest reads the member's training"
+        );
+        assert!(
+            rows_of(unrecorded, homes[2]).await.is_empty(),
+            "test setup bug: the trigger refused the member's row"
+        );
+        assert_eq!(
+            rows_of(admin, homes[0]).await.len(),
+            1,
+            "bug: the admin shares with the coach, so the coach's copy reads them too"
+        );
+        assert!(
+            rows_of(two_homes, homes[3]).await.is_empty(),
+            "bug: a member the coach-read gate refuses has no row"
+        );
+
+        let coach_rows = h.digest_rows(coach, tenant).await;
+        assert_eq!(coach_rows.len(), 1, "one in-app digest for the coach");
+        let copy = &coach_rows[0];
+        assert!(
+            copy.contains("Rita"),
+            "the recorded read is in the copy: {copy}"
+        );
+        assert!(
+            !copy.contains("Ulysse"),
+            "bug: a member whose read could not be recorded is not read: {copy}"
+        );
+        assert!(
+            !copy.contains("Tom"),
+            "bug: a member the coach-read gate refuses is not read: {copy}"
+        );
+        let admin_copy = &h.digest_rows(admin, tenant).await[0];
+        assert!(
+            admin_copy.contains("Ulysse") && admin_copy.contains("Tom"),
+            "the admin's copy reads the peer rule, which no coach record gates: {admin_copy}"
+        );
+    }
+
+    /// Make every insert of a coach read of `member` fail, as a database
+    /// refusing the write would: a trigger refuses each row whose athlete is
+    /// listed in a table of its own.
+    async fn refuse_reads_of(resources: &ServerContext, member: Uuid) {
+        match resources.agent.database.backend() {
+            DatabaseBackend::SQLite(sqlite) => {
+                for statement in [
+                    "CREATE TABLE IF NOT EXISTS refused_coach_reads (user_id TEXT NOT NULL)",
+                    "CREATE TRIGGER IF NOT EXISTS refuse_coach_read BEFORE INSERT ON coach_data_reads \
+                     WHEN NEW.user_id IN (SELECT user_id FROM refused_coach_reads) \
+                     BEGIN SELECT RAISE(ABORT, 'coach read refused by the test'); END",
+                ] {
+                    sqlx::query(statement)
+                        .execute(sqlite.pool())
+                        .await
+                        .unwrap();
+                }
+                sqlx::query("INSERT INTO refused_coach_reads (user_id) VALUES ($1)")
+                    .bind(member.to_string())
+                    .execute(sqlite.pool())
+                    .await
+                    .unwrap();
+            }
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(pg) => {
+                for statement in [
+                    "CREATE TABLE IF NOT EXISTS refused_coach_reads (user_id TEXT NOT NULL)",
+                    "CREATE OR REPLACE FUNCTION refuse_coach_read() RETURNS trigger AS $$ \
+                     BEGIN IF EXISTS (SELECT 1 FROM refused_coach_reads \
+                     WHERE user_id = NEW.user_id::text) THEN \
+                     RAISE EXCEPTION 'coach read refused by the test'; END IF; \
+                     RETURN NEW; END $$ LANGUAGE plpgsql",
+                    "DROP TRIGGER IF EXISTS refuse_coach_read ON coach_data_reads",
+                    "CREATE TRIGGER refuse_coach_read BEFORE INSERT ON coach_data_reads \
+                     FOR EACH ROW EXECUTE FUNCTION refuse_coach_read()",
+                ] {
+                    sqlx::query(statement).execute(pg.pool()).await.unwrap();
+                }
+                sqlx::query("INSERT INTO refused_coach_reads (user_id) VALUES ($1)")
+                    .bind(member.to_string())
+                    .execute(pg.pool())
+                    .await
+                    .unwrap();
+            }
+        }
     }
 
     /// A group with no chat, or bound where a proactive message bounces, keeps

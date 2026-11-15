@@ -635,6 +635,7 @@ impl World {
                 registry: &self.res.fitness.provider_registry,
                 cache: &self.res.common.cache,
                 notifications: None,
+                purge: &self.res.common.provider_purge,
             },
             who.id,
             INTERVALS_ICU,
@@ -914,6 +915,7 @@ async fn the_pass_spends_only_the_background_share_of_the_coach_key() {
             registry: &w.res.fitness.provider_registry,
             cache: &w.res.common.cache,
             notifications: None,
+            purge: &w.res.common.provider_purge,
         },
         platform.as_ref(),
         w.coach.id,
@@ -1161,6 +1163,7 @@ async fn withdrawing_the_consent_or_ending_the_link_purges_and_stops() {
 
     set_coach_consents(
         w.repos(),
+        &w.res.common.provider_purge,
         &w.res.fitness.provider_registry,
         &w.group().await,
         withdrawn_link.member_user_id,
@@ -1172,7 +1175,7 @@ async fn withdrawing_the_consent_or_ending_the_link_purges_and_stops() {
     .await
     .unwrap();
     assert_eq!(w.rows(&withdraws, withdraws.tenant).await, NO_ROWS);
-    DelegationStore::new(w.repos())
+    DelegationStore::new(w.repos(), Arc::clone(&w.res.common.provider_purge))
         .end_one(
             ended_link.id,
             ends.id,

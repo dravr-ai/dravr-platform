@@ -12,6 +12,8 @@
 
 mod config;
 pub(crate) mod linking;
+/// The channels a tenant's people can link — Getting started's chat-app row reads it too.
+pub(crate) use config::connectable_channels;
 /// The OAuth code-for-identity exchange and its endpoint pairing.
 ///
 /// Re-exported (rather than opening the whole module) so the integration suite

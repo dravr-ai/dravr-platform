@@ -1,5 +1,5 @@
-// ABOUTME: First-run onboarding screen that forces a provider connection before the user reaches chat
-// ABOUTME: Mirrors the web OnboardingConnectProvider flow: each card's connect plan, the history sign-in after a grant, BYO for Whoop, awaiting-consent overlay
+// ABOUTME: First-run onboarding screen that forces a provider connection before the user reaches chat — and, in seat mode, the coach-seat step
+// ABOUTME: Mirrors the web OnboardingConnectProvider / OnboardingCoachSeat: each card's connect plan, the history sign-in after a grant, BYO for Whoop, awaiting-consent overlay
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,16 +10,17 @@ import {
   Text,
   ScrollView,
   StyleSheet,
-  TouchableOpacity,
+  Pressable,
   ActivityIndicator,
   Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Feather } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useThemeColors } from '../../constants/theme';
-import { Button, StatusDot } from '../../components/ui';
+import { Button } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
@@ -35,23 +36,22 @@ import type { ExtendedProviderStatus } from '../../types';
 import { useProviderSkipped } from '../../hooks/useProviderSkipped';
 import { useConnectProviderDone } from '../../hooks/useConnectProviderDone';
 import { useOnboardingProgress } from '../../hooks/useOnboardingProgress';
-import { useOnboardingContext } from '../../hooks/useOnboardingContext';
 import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
+import { COACH_SEAT_DONE_PREFIX, useOnboardingFlag } from '../../hooks/useOnboardingFlag';
+import { CoachSeatPanel } from '../../components/CoachSeatPanel';
 import { useSignInModal } from '../../hooks/useSignInModal';
 import { importRouteFor, refusedConnectLine, type RefusedConnect } from '../../utils/connectFlow';
-import { ConnectPreview } from '../../components/ConnectPreview';
 import { useTranslation } from '@pierre/i18n';
 import type { SciotteTarget } from '@pierre/shared-types';
 import {
   COACH_PLATFORM_PROVIDERS,
   HISTORY_ACTION_KEYS,
   OAUTH_NO_SEAT,
-  SIGN_IN_OAUTH_REQUIRED,
+  ONBOARDING_LEAD_PROVIDERS,
   cardForSlug,
   cardStatus,
   connectPlan,
   credentialFallbackOnRefusal,
-  historyActionKey,
   noticeRequired,
   refusalReloadsCards,
   refusalReturnsToCard,
@@ -76,32 +76,46 @@ import { ownAppDevPortal } from '@pierre/domain-utils';
  * `needs_provider_connection: true`, and stepping backwards would land them on a
  * step they already finished.
  *
- * There IS a skip, matching web. This screen used to have none, which meant the
- * same account met a soft wall on a laptop and a hard one on a phone — the
- * harder wall being the surface people actually onboard on. The skip is
- * session-only (see `useProviderSkipped`), so the nudge returns next launch, and
- * the backend `NoProviderConnected` 403 still refuses any turn that would need
- * provider data. Skipping defers the ask; it does not buy access.
+ * Tes données, the athlete's second screen (carnet#1530): « Connecte ton
+ * entraînement », Garmin, Strava and Intervals.icu, the rest and the file
+ * import behind « Plus de services ». « Continuer sans connecter » is a
+ * visible secondary, matching web, and saved on the server (see
+ * `useProviderSkipped`), so the screen never comes back at sign-in; the
+ * backend `NoProviderConnected` 403 still refuses any turn that would need
+ * provider data. Skipping defers the ask; it does not buy access. Sign out
+ * sits quiet at the bottom.
  *
- * A coach who does not train is offered only the coaching platforms, with no
- * preview of athlete coaching: nothing reads their own training, and skipping
- * moves them on to their group.
+ * In `seat` mode it is the coach-seat step (web `OnboardingCoachSeat`): the
+ * two coaching platforms as plain rows, in seat order, through the same
+ * connect flows, with the link to ask the Dravr team and the seat as the
+ * server has it below them (`CoachSeatPanel`). No activity-data line, import
+ * or preview: these are accounts that decide coach access, not data to bring
+ * in. A coach who already holds the seat when the step comes up is stepped
+ * past without a screen.
  */
-export function OnboardingConnectScreen() {
+export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect' | 'seat' } = {}) {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const queryClient = useQueryClient();
   const { isAuthenticated, user, logout } = useAuth();
   const { skip } = useProviderSkipped(user?.id);
   const { complete: continuePastConnect } = useConnectProviderDone(user?.id);
-  const progress = useOnboardingProgress('connect_provider');
-  const coachOnly = useOnboardingContext().context.athleteStepsWaived;
+  const seat = mode === 'seat';
+  const progress = useOnboardingProgress(seat ? 'coach_seat' : 'connect_provider');
+  const { mark: markSeatDone } = useOnboardingFlag(COACH_SEAT_DONE_PREFIX, user?.id);
+  // Held before the step came up: nothing to get. Read once, so a seat
+  // granted on this screen is shown rather than skipped.
+  const heldOnArrival = useRef(seat && user?.manages_roster === true);
+  useEffect(() => {
+    if (heldOnArrival.current) void markSeatDone();
+  }, [markSeatDone]);
   const router = useRouter();
   const { data: onboardingStatus } = useOnboardingStatus(isAuthenticated);
   const [providers, setProviders] = useState<ExtendedProviderStatus[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [moreOpen, setMoreOpen] = useState(false);
   // The provider sign-in window: the account, the notice its row owes, and
   // whether it copies the history of a row already connected.
   const signIn = useSignInModal();
@@ -157,6 +171,15 @@ export function OnboardingConnectScreen() {
     }
   }, [isAuthenticated, loadStatus]);
 
+  // The seat panel's re-read while a connection settles the seat: the cards
+  // again, for the account role, without the list's loading state.
+  const reloadProviders = useCallback(() => {
+    oauthApi
+      .getProvidersStatus()
+      .then((response) => setProviders(response.providers || []))
+      .catch(() => {});
+  }, []);
+
   // Back from the import of an export, the step may be done without a
   // connection (an import started): the onboarding status is read again.
   useFocusEffect(
@@ -174,28 +197,26 @@ export function OnboardingConnectScreen() {
   }, [queryClient, loadStatus]);
 
   /**
-   * Tell the row `cardKey` its connect did not go through, and why when the
-   * server named it (`reason`). When the refusal says the row's plan changed
-   * under the athlete (a seat went or came back), the rows are read again
-   * first, and a row that now signs in opens its sign-in at once when
-   * `signInAllowed` — never after a sign-in the server just refused, which
-   * would only be refused again.
+   * Tell the row `cardKey` its connect did not go through. When the
+   * refusal says the row's plan changed under the athlete (the seat it was
+   * shown went), the rows are read again first, and a row that now signs in
+   * opens its sign-in at once.
    */
   const showRefusal = useCallback(
     async (
       cardKey: string,
-      { reload, signInAllowed, reason }: { reload: boolean; signInAllowed: boolean; reason?: string },
+      { reload }: { reload: boolean },
     ) => {
       if (reload) {
         const served = await loadStatus();
         const card = served.find((p) => p.provider === cardKey);
         const primary = card ? connectPlan(card).primary : null;
-        if (signInAllowed && card && primary?.kind === 'sign_in') {
+        if (card && primary?.kind === 'sign_in') {
           openSignIn(primary.target, card);
           return;
         }
       }
-      setRefusedCard({ card: cardKey, reason });
+      setRefusedCard({ card: cardKey });
     },
     [loadStatus, openSignIn],
   );
@@ -261,7 +282,7 @@ export function OnboardingConnectScreen() {
             if (fallback) {
               openSignInFor(fallback, providers);
             } else if (refusalReturnsToCard(providerId)) {
-              await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT, signInAllowed: true });
+              await showRefusal(cardKey, { reload: error === OAUTH_NO_SEAT });
             } else {
               setConnectError(t('app.failedConnectProviderReason', { provider: providerName, reason: error }));
             }
@@ -287,8 +308,7 @@ export function OnboardingConnectScreen() {
           return;
         }
         if (refusalReturnsToCard(providerId)) {
-          const reason = refusalReason(err);
-          await showRefusal(cardKey, { reload: refusalReloadsCards(reason), signInAllowed: true, reason });
+          await showRefusal(cardKey, { reload: refusalReloadsCards(refusalReason(err)) });
           return;
         }
         setConnectError(message);
@@ -359,23 +379,29 @@ export function OnboardingConnectScreen() {
   // The server withholds the raw `strava` / `garmin` rows a mirror card
   // covers and coalesces a card's two backends (carnet#255, carnet#574).
   // Onboarding offers only what an athlete connects themselves: the OAuth,
-  // scrape and API-key cards, not the synthetic dev providers. A coach who does
-  // not train is offered the coaching platforms alone.
-  const visibleProviders = providers.filter((p) =>
-    coachOnly
-      ? COACH_PLATFORM_PROVIDERS.includes(p.provider)
-      : p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu',
-  );
+  // scrape and API-key cards, not the synthetic dev providers. The seat step
+  // offers the coaching platforms alone, in seat order.
+  const visibleProviders = seat
+    ? COACH_PLATFORM_PROVIDERS.flatMap((name) => providers.filter((p) => p.provider === name))
+    : providers.filter(
+        (p) => p.requires_oauth || p.provider.startsWith('sciotte') || p.provider === 'intervals_icu',
+      );
+  // Tes données leads with Garmin, Strava and Intervals.icu and folds the rest,
+  // with the file import, behind « Plus de services » (carnet#1530); a folded
+  // row that is connected opens the fold by itself.
+  const leadProviders = seat
+    ? visibleProviders
+    : ONBOARDING_LEAD_PROVIDERS.flatMap((name) => visibleProviders.filter((p) => p.provider === name));
+  const moreProviders = seat ? [] : visibleProviders.filter((p) => !ONBOARDING_LEAD_PROVIDERS.includes(p.provider));
+  const showMore = moreOpen || moreProviders.some((p) => p.connected);
 
   const renderProvider = (provider: ExtendedProviderStatus, last: boolean) => {
     const isConnecting = connectingProvider === provider.provider;
     const isConnected = provider.connected;
     const status = cardStatus(provider);
-    // A connected grant whose history is still needed, or whose copy did not
-    // finish, opens the sign-in that copies it (carnet#1472); a row served by
-    // a sign-in alone asks to move to the official connection.
-    const historySignIn =
-      status === 'history_needed' || status === 'history_incomplete' ? connectPlan(provider).history.signIn : null;
+    // A connected grant whose history is still needed opens the sign-in that
+    // brings it in (carnet#1472).
+    const historySignIn = status === 'history_needed' ? connectPlan(provider).history.signIn : null;
     const exportSource = cardExportSource(provider);
 
     return (
@@ -390,15 +416,15 @@ export function OnboardingConnectScreen() {
         >
           <View className="flex-1 min-w-0 py-2 mr-3">
             <Text className="text-base text-text-primary">{provider.display_name}</Text>
-            <Text
-              className="text-sm text-text-secondary mt-0.5"
-              numberOfLines={status === 'migrate' ? 2 : 1}
-              testID={`provider-subtitle-${provider.provider}`}
-            >
-              {status === 'migrate'
-                ? t('providers.migration.oauthRequired', { provider: provider.display_name })
-                : provider.description}
-            </Text>
+            {seat ? null : (
+              <Text
+                className="text-sm text-text-secondary mt-0.5"
+                numberOfLines={1}
+                testID={`provider-subtitle-${provider.provider}`}
+              >
+                {provider.description}
+              </Text>
+            )}
             {refusedCard?.card === provider.provider && (
               <Text
                 className="text-sm text-error"
@@ -407,10 +433,10 @@ export function OnboardingConnectScreen() {
                 accessibilityLiveRegion="polite"
                 testID={`provider-error-${provider.provider}`}
               >
-                {refusedConnectLine(t, refusedCard, provider.display_name)}
+                {refusedConnectLine(t, provider.display_name)}
               </Text>
             )}
-            {exportSource && !coachOnly && (
+            {exportSource && !seat && (
               <Text
                 className="text-sm font-medium text-primary self-start"
                 onPress={() => router.push(importRouteFor(exportSource, true))}
@@ -423,18 +449,6 @@ export function OnboardingConnectScreen() {
           </View>
           {isConnecting ? (
             <ActivityIndicator size="small" color={colors.tokens.primary} testID={`provider-action-${provider.provider}`} />
-          ) : status === 'migrate' ? (
-            <View className="flex-row items-center gap-2">
-              <StatusDot tone="warning" />
-              <Text
-                className="text-md font-medium text-primary"
-                onPress={() => handleConnect(provider)}
-                accessibilityRole="button"
-                testID={`provider-action-${provider.provider}`}
-              >
-                {t('app.connectProvider', { provider: provider.display_name })}
-              </Text>
-            </View>
           ) : isConnected ? (
             <View className="flex-row items-center gap-2">
               <View className="w-2 h-2 rounded-full bg-success" />
@@ -449,7 +463,7 @@ export function OnboardingConnectScreen() {
                   accessibilityHint={t(HISTORY_ACTION_KEYS.explainer, { provider: provider.display_name })}
                   testID={`provider-action-${provider.provider}`}
                 >
-                  {t(historyActionKey(provider))}
+                  {t(HISTORY_ACTION_KEYS.add)}
                 </Text>
               )}
             </View>
@@ -468,6 +482,8 @@ export function OnboardingConnectScreen() {
       </View>
     );
   };
+
+  if (heldOnArrival.current) return null;
 
   // Awaiting OAuth consent — covers the gap between
   // openAuthSessionAsync starting and the user returning from the in-app
@@ -502,10 +518,10 @@ export function OnboardingConnectScreen() {
             className="mt-4 text-3xl font-display text-left text-text-primary mb-3"
             accessibilityRole="header"
           >
-            {user?.display_name ? t('onboarding.welcomeNamed', { name: user.display_name }) : t('app.welcomeToDravr')}
+            {seat ? t('humanCoach.seatHeading') : t('onboarding.connect.heading')}
           </Text>
           <Text className="text-base text-text-secondary leading-6">
-            {coachOnly ? t('onboarding.connectCoachPlatformIntro') : t('onboarding.connectProviderIntro')}
+            {seat ? t('humanCoach.seatIntro') : t('onboarding.connect.intro')}
           </Text>
         </View>
 
@@ -515,10 +531,37 @@ export function OnboardingConnectScreen() {
           </View>
         ) : (
           <View>
-            {visibleProviders.map((provider, index) =>
-              renderProvider(provider, index === visibleProviders.length - 1),
+            {leadProviders.map((provider, index) =>
+              renderProvider(provider, index === leadProviders.length - 1 && moreProviders.length === 0),
             )}
-            {!coachOnly && <ImportOwnDataRow onboarding />}
+            {moreProviders.length > 0 ? (
+              <Pressable
+                onPress={() => setMoreOpen((open) => !open)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: showMore }}
+                className="flex-row items-center px-4 min-h-[52px]"
+                testID="provider-more-services"
+              >
+                <View className="w-6 items-center mr-3.5">
+                  <Feather name={showMore ? 'chevron-down' : 'chevron-right'} size={18} color={colors.text.secondary} />
+                </View>
+                <View className="flex-1 min-w-0 py-2">
+                  <Text className="text-base text-text-primary">{t('onboarding.connect.moreServices')}</Text>
+                  {showMore ? null : (
+                    <Text className="text-sm text-text-secondary mt-0.5" numberOfLines={1}>
+                      {[
+                        ...moreProviders.slice(0, 3).map((p) => p.display_name),
+                        t('onboarding.connect.moreServicesFile'),
+                      ].join(', ')}
+                    </Text>
+                  )}
+                </View>
+              </Pressable>
+            ) : null}
+            {showMore
+              ? moreProviders.map((provider, index) => renderProvider(provider, index === moreProviders.length - 1))
+              : null}
+            {!seat && (showMore || moreProviders.length === 0) && <ImportOwnDataRow onboarding />}
           </View>
         )}
 
@@ -531,60 +574,64 @@ export function OnboardingConnectScreen() {
           </View>
         )}
 
-        <Text className="text-xs text-text-tertiary text-center mt-6">
-          {t('app.credsEncrypted')}
-        </Text>
+        {seat ? (
+          <CoachSeatPanel
+            providers={providers}
+            onReloadProviders={reloadProviders}
+            onDone={() => void markSeatDone()}
+          />
+        ) : null}
 
-        {!coachOnly && <ConnectPreview />}
-
-        {anyConnected ? (
-          <View className="mt-6 items-center" testID="onboarding-connect-continue">
+        {seat ? null : anyConnected ? (
+          <View className="mt-6" testID="onboarding-connect-continue">
             <Text className="text-sm text-text-secondary text-center mb-3">
               {t('onboarding.connectAnotherOrContinue')}
             </Text>
             <Button title={t('onboarding.continueAfterConnect')} onPress={continuePastConnect} />
           </View>
         ) : (
-          <View className="mt-6 items-center">
-            <TouchableOpacity onPress={skip} accessibilityRole="button">
-              <Text className="text-sm font-medium text-text-secondary underline">
-                {t('app.continueWithoutConnecting')}
-              </Text>
-            </TouchableOpacity>
-            <Text className="text-xs text-text-tertiary text-center mt-1">
-              {coachOnly ? t('onboarding.connectCoachPlatformLaterHint') : t('app.connectAnytime')}
-            </Text>
+          <View className="mt-6">
+            {/* A visible secondary, saved on the server: the screen never comes back. */}
+            <Button
+              title={t('onboarding.connect.continueWithout')}
+              variant="secondary"
+              onPress={skip}
+              testID="onboarding-connect-skip"
+            />
           </View>
         )}
 
-        <View className="mt-8 items-center">
-          <Button
-            title={t('common.logout')}
-            variant="ghost"
-            onPress={() => void logout()}
-            testID="onboarding-logout-link"
-          />
-        </View>
+        {seat ? null : (
+          <>
+            <Text className="text-xs text-text-tertiary text-center mt-6">
+              {t('app.credsEncrypted')}
+            </Text>
+            <Pressable
+              onPress={() => void logout()}
+              accessibilityRole="button"
+              className="mt-4 min-h-11 items-center justify-center self-center px-4"
+              testID="onboarding-logout-link"
+            >
+              <Text className="text-sm text-text-secondary">{t('common.logout')}</Text>
+            </Pressable>
+          </>
+        )}
       </ScrollView>
 
       <SciotteLoginModal
         visible={signIn.target !== null}
         onClose={signIn.close}
-        onConnected={() => {
+        onConnected={(followOn) => {
           signIn.close();
           void finalizeConnection();
+          // Garmin signs in first and authorizes its grant, which pushes
+          // workouts, right after (carnet#1494).
+          if (followOn) void launchOAuth(followOn, cardForSlug(followOn, providers)?.display_name ?? followOn);
         }}
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}
         historyMode={signIn.historyMode}
         onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
-        onOAuthRequired={() => {
-          const target = signIn.target;
-          const card = target ? providers.find((p) => sciotteTargetForBackend(p.provider) === target) : undefined;
-          if (card) {
-            void showRefusal(card.provider, { reload: true, signInAllowed: false, reason: SIGN_IN_OAUTH_REQUIRED });
-          }
-        }}
       />
 
       <IntervalsIcuLinkModal

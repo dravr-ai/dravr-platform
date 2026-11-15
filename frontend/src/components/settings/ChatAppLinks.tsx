@@ -15,7 +15,7 @@ import { ConfirmDialog, EmptyState, Modal, Section } from '../ui';
 import ChannelLinkPanel from '../ChannelLinkPanel';
 import { useAvailableChannels } from '../../hooks/useAvailableChannels';
 
-// The same cache entries the onboarding steps read, so a link made in either
+// The same cache entries the chat-app sheet reads, so a link made in either
 // place is already known to the other.
 const LINKS_QUERY_KEY = ['messaging-links'] as const;
 
@@ -51,7 +51,7 @@ const INK_ACTION_CLASS =
  * are not linked yet.
  *
  * A linked app can be unlinked after a confirmation; an available one can be
- * connected. Connecting opens the link panel the onboarding step uses — a QR
+ * connected. Connecting opens the link panel the chat-app sheet uses — a QR
  * plus the deep link, since on a desktop the chat app is on the athlete's
  * phone — and the pane polls the linked channels until that link lands or its
  * code expires. The poll outlives the panel: closing it does not stop the

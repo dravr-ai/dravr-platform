@@ -1,5 +1,5 @@
-// ABOUTME: The seam a provider connect reports to once the athlete's first data has landed
-// ABOUTME: Installed post-Arc by the composition root, whose implementation has the coach speak first
+// ABOUTME: The seam a provider connect reports to: the connection landing, and the athlete's first data landing
+// ABOUTME: Installed post-Arc by the composition root, whose implementation walks the history and has the coach speak first
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,7 +16,14 @@
 //! is the hook's business, and telling them runs a chat-pipeline turn this
 //! crate cannot reach, so the hook is a trait the composition root installs
 //! once its own `Arc` exists.
+//!
+//! A connection landing is reported too, whatever it lands: a usr/pwd sign-in
+//! that stored a session, or an OAuth grant. The hook starts the provider's
+//! history walk on it (carnet#1482), once what the connect started on the
+//! session let go of it ([`spawn_connection_report`]).
 
+#[cfg(feature = "health-sync")]
+use std::future::Future;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
@@ -29,6 +36,7 @@ use pierre_providers::connect_prefetch::PrefetchWait;
 use pierre_services::provider_refresh::token_tenant;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::health_sync_failure_is_told;
+use tokio::task::JoinHandle;
 use uuid::Uuid;
 
 use crate::AuthRoutesContext;
@@ -55,7 +63,8 @@ pub const CONNECT_RECENT_DAYS: u32 = 30;
 pub trait FirstSyncHook: Send + Sync {
     /// The backfill or pre-fetch a connect started landed `provider`'s data
     /// for the athlete, whose token lives in `tenant_id`. The implementation
-    /// also asks for the history depth the athlete's training status needs.
+    /// also asks for the history depth the athlete's training status needs,
+    /// and starts the provider's history walk.
     async fn data_landed(&self, user_id: Uuid, tenant_id: TenantId, provider: &str);
 
     /// The athlete connected `provider` over OAuth, which the platform reads
@@ -63,6 +72,12 @@ pub trait FirstSyncHook: Send + Sync {
     /// implementation reads the provider's activity list now and treats what
     /// it lands as the first data.
     async fn connected_on_demand(&self, user_id: Uuid, provider: &str);
+
+    /// The athlete connected `backend` in `tenant_id`: a usr/pwd sign-in
+    /// stored its session, or an OAuth grant landed. The implementation
+    /// starts the provider's history walk, which is idempotent with a walk
+    /// already owed, running or done (carnet#1482).
+    async fn connected(&self, user_id: Uuid, tenant_id: TenantId, backend: &str);
 }
 
 /// The slot the composition root installs the hook into once its `Arc`
@@ -114,23 +129,22 @@ pub(crate) fn backfill_verdict(
 /// Report a scrape pre-fetch that lands activities as the athlete's data
 /// landing, for a provider the health sync does not backfill — the Strava
 /// mirror, whose pre-fetch is the only read a connect makes.
+///
+/// Returns the task that waits on the pre-fetch, for what must wait for it
+/// too; `None` when no hook is installed to report to.
 #[cfg(feature = "health-sync")]
 pub(crate) fn spawn_prefetch_landing(
     resources: &AuthRoutesContext,
     user_id: &str,
     provider: &str,
     prefetch: PrefetchWait,
-) {
+) -> Option<JoinHandle<()>> {
     let first_sync = Arc::clone(&resources.first_sync);
-    if first_sync.get().is_none() {
-        return;
-    }
-    let Ok(user_uuid) = Uuid::parse_str(user_id) else {
-        return;
-    };
+    first_sync.get()?;
+    let user_uuid = Uuid::parse_str(user_id).ok()?;
     let provider = provider.to_owned();
     let auth_repos = resources.repos.auth_repos();
-    tokio::spawn(async move {
+    Some(tokio::spawn(async move {
         let landed = prefetch
             .finished()
             .await
@@ -149,30 +163,66 @@ pub(crate) fn spawn_prefetch_landing(
                 return;
             }
         }
+    }))
+}
+
+/// Report the connection of `backend` that just landed to the
+/// [`FirstSyncHook`], once `after` has finished.
+///
+/// `after` is what the connect started on the connection: a scrape's
+/// pre-fetch and health backfill, an on-demand provider's first read, and the
+/// first post either leads to. The walk the hook starts may read the session
+/// those read, and the post's turn reads it too, so it waits for them, as the
+/// backfill waits for the pre-fetch (carnet#736). The tenant is the one the
+/// connection's token row lives in. Only a build with the health sync
+/// installs a hook to report to.
+#[cfg(feature = "health-sync")]
+pub(crate) fn spawn_connection_report<F>(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    backend: &str,
+    after: F,
+) where
+    F: Future<Output = ()> + Send + 'static,
+{
+    let first_sync = Arc::clone(&resources.first_sync);
+    if first_sync.get().is_none() {
+        return;
+    }
+    let backend = backend.to_owned();
+    let auth_repos = resources.repos.auth_repos();
+    tokio::spawn(async move {
+        after.await;
+        let Some(tenant) = token_tenant(&auth_repos, user_id, &backend).await else {
+            return;
+        };
+        if let Some(hook) = first_sync.get() {
+            hook.connected(user_id, tenant, &backend).await;
+        }
     });
 }
 
 /// Report an OAuth connect of a provider the health sync does not backfill —
 /// Strava and Wahoo are read on demand — so its first read can be made now
 /// rather than whenever the athlete next asks.
+///
+/// Returns the task the read and the first post it leads to run on, for what
+/// must wait for them: the connection's history walk
+/// ([`spawn_connection_report`]); `None` when no hook is installed.
 pub(crate) fn spawn_on_demand_first_read(
     resources: &AuthRoutesContext,
     user_id: &str,
     provider: &str,
-) {
+) -> Option<JoinHandle<()>> {
     let first_sync = Arc::clone(&resources.first_sync);
-    if first_sync.get().is_none() {
-        return;
-    }
-    let Ok(user_uuid) = Uuid::parse_str(user_id) else {
-        return;
-    };
+    first_sync.get()?;
+    let user_uuid = Uuid::parse_str(user_id).ok()?;
     let provider = provider.to_owned();
-    tokio::spawn(async move {
+    Some(tokio::spawn(async move {
         if let Some(hook) = first_sync.get() {
             hook.connected_on_demand(user_uuid, &provider).await;
         }
-    });
+    }))
 }
 
 #[cfg(all(test, feature = "health-sync"))]

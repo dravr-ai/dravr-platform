@@ -16,7 +16,10 @@ interface ThreadConnectBannerProps {
  * The banner exists to send the athlete to the connections pane, so it is
  * shown only where there is a router to send them with, and only over an open
  * thread: the empty pane already carries the provider line and the link, so
- * the banner there said it twice.
+ * the banner there said it twice. The thread decides who is asked
+ * (`showConnectBanner`): never a coach over an athlete's plan thread, and
+ * never a coach who does not train, in a group room or anywhere else
+ * (carnet#1529).
  */
 export default function ThreadConnectBanner({ thread, onNavigate }: ThreadConnectBannerProps) {
   if (!thread.showConnectBanner || !onNavigate || !thread.conversationId) return null;

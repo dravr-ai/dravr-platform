@@ -11,8 +11,9 @@ use pierre_core::models::{
     ConnectionType, ProviderConnection, RelativeIntensity, TenantId, WorkoutStep,
 };
 use pierre_mcp_schema::PropertySchema;
-use pierre_providers::backend_resolver::{self, resolve_backend};
+use pierre_providers::backend_resolver::{self, write_backend};
 use pierre_providers::core::FitnessProvider;
+use pierre_providers::spi::ProviderCapabilities;
 use pierre_providers::ProviderRegistry;
 use pierre_services::plan_calendar_push::{
     calendar_read_target, chosen_calendar, connected_calendars, named_calendar,
@@ -21,6 +22,7 @@ use pierre_services::plan_calendar_push::{
 use serde_json::Value;
 use uuid::Uuid;
 
+use super::oauth_authorize::with_grant_link;
 use crate::context::ToolExecutionContext;
 use crate::protocol::auth::AuthService;
 
@@ -257,9 +259,7 @@ pub(super) async fn calendar_target(
 ) -> AppResult<CalendarResolution> {
     let registry = context.resources.provider_registry();
     let requested = match requested {
-        Some(name) => {
-            Some(resolve_backend(context.resources.repos(), user_id, Some(tenant_id), name).await)
-        }
+        Some(name) => Some(named_write_backend(context, tenant_id, user_id, name).await?),
         None => None,
     };
     let rows = connections(context, tenant_id, user_id).await?;
@@ -279,7 +279,7 @@ pub(super) async fn calendar_target(
     } else {
         (None, Vec::new())
     };
-    resolve_calendar_target(
+    let resolution = resolve_calendar_target(
         registry,
         &CalendarCandidates {
             connected: &backends,
@@ -287,7 +287,45 @@ pub(super) async fn calendar_target(
             preferred: preferred.as_deref(),
         },
         requested.as_deref(),
+    )?;
+    refuse_an_owed_grant(context, tenant_id, user_id, resolution).await
+}
+
+/// `resolution`, unless it targets a pair's grant the athlete still owes (a
+/// Garmin grant that is not live, its connection kept beside the session):
+/// that write is refused with the grant's authorization link
+/// ([`with_grant_link`], JF's directive 8), as a write naming the provider
+/// is, rather than sent to a grant that cannot take it.
+///
+/// # Errors
+///
+/// The grant-owed refusal for such a target.
+async fn refuse_an_owed_grant(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    resolution: CalendarResolution,
+) -> AppResult<CalendarResolution> {
+    let CalendarResolution::Target(target) = &resolution else {
+        return Ok(resolution);
+    };
+    let resources = context.resources.as_ref();
+    let registry = resources.provider_registry();
+    let owed = backend_resolver::grant_owed(
+        resources.repos(),
+        registry,
+        user_id,
+        tenant_id,
+        &target.backend,
     )
+    .await;
+    match owed {
+        Some(grant) if grant == target.backend => {
+            let refused = backend_resolver::grant_owed_refusal(registry, grant);
+            Err(with_grant_link(resources, user_id, tenant_id, refused).await)
+        }
+        _ => Ok(resolution),
+    }
 }
 
 /// Whether any of `user_id`'s connections, of whatever kind, is the one
@@ -440,6 +478,35 @@ pub(super) async fn calendars_held(
         .collect())
 }
 
+/// The backend a calendar write to `name` goes to ([`write_backend`]).
+///
+/// # Errors
+///
+/// The refusal of a write only the provider's own grant makes while the
+/// athlete's grant is not live, carrying that grant's authorization link
+/// ([`with_grant_link`]).
+async fn named_write_backend(
+    context: &ToolExecutionContext,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    name: &str,
+) -> AppResult<String> {
+    let resources = context.resources.as_ref();
+    match write_backend(
+        resources.repos(),
+        resources.provider_registry(),
+        user_id,
+        tenant_id,
+        name,
+        ProviderCapabilities::CALENDAR_WRITE,
+    )
+    .await
+    {
+        Ok(backend) => Ok(backend),
+        Err(refused) => Err(with_grant_link(resources, user_id, tenant_id, refused).await),
+    }
+}
+
 /// What recording `name`, as the athlete or their coach names it, as the
 /// athlete's calendar resolves to among `which`.
 ///
@@ -455,8 +522,7 @@ pub(super) async fn calendar_to_record(
     which: CalendarConnections,
 ) -> AppResult<CalendarToRecord> {
     let registry = context.resources.provider_registry();
-    let requested =
-        resolve_backend(context.resources.repos(), user_id, Some(tenant_id), name).await;
+    let requested = named_write_backend(context, tenant_id, user_id, name).await?;
     let rows = connections(context, tenant_id, user_id).await?;
     let backends = backends_among(registry, &rows, which);
     let backend = named_calendar(registry, &backends, &requested)?;
@@ -529,8 +595,12 @@ pub(super) async fn calendar_ledger_target(
     })
 }
 
-/// Build the athlete's authenticated provider for the calendar `backend`, or
-/// the refusal an athlete who has not connected it gets.
+/// Build the athlete's authenticated provider for exactly the calendar
+/// `backend`, or the refusal an athlete who has not connected it gets.
+///
+/// The backend was chosen by capability ([`write_backend`]), so it is
+/// authenticated as named: resolving it again would send a Garmin workout to
+/// the session that serves the athlete's reads (carnet#1494).
 pub(super) async fn calendar_provider(
     context: &ToolExecutionContext,
     tenant_id: TenantId,
@@ -539,7 +609,7 @@ pub(super) async fn calendar_provider(
 ) -> AppResult<Box<dyn FitnessProvider>> {
     let tenant_str = tenant_id.to_string();
     AuthService::new(context.resources.clone())
-        .create_authenticated_provider(backend, user_id, Some(tenant_str.as_str()))
+        .create_exact_provider(backend, user_id, Some(tenant_str.as_str()))
         .await
         .map_err(|resp| {
             AppError::invalid_input(resp.error.unwrap_or_else(|| {

@@ -33,7 +33,32 @@ export function gettingStartedState(
   return Number.isFinite(folded) && now - folded > FOLDED_FOR_MS ? 'gone' : 'folded';
 }
 
-/** The Getting started read, shared by the section and the Today line. */
+/**
+ * Which Home the athlete is shown (carnet#1528).
+ *
+ * - `first_arrival`: Getting started is open and the athlete has not yet
+ *   answered the lead's welcome — the Meet your team row is still to do. Today
+ *   leads with the whole Getting started list.
+ * - `returning`: everyone else. Today leads with today's session, and Getting
+ *   started, while open, is a slim meter under the conversation's header.
+ */
+export type HomeStage = 'first_arrival' | 'returning';
+
+/** The Getting started row that is done once the athlete answers the lead's welcome. */
+const MEET_TEAM_ROW = 'meet_team';
+
+/** The Home `data` and `state` call for; `null` while either is unknown. */
+export function homeStage(
+  data: GettingStartedResponse | undefined,
+  state: GettingStartedState | null,
+): HomeStage | null {
+  if (data === undefined || state === null) return null;
+  if (state !== 'open') return 'returning';
+  const meetTeam = data.rows.find((row) => row.id === MEET_TEAM_ROW);
+  return meetTeam !== undefined && !meetTeam.done ? 'first_arrival' : 'returning';
+}
+
+/** The Getting started read, shared by the section, the meter and the Today line. */
 export function useGettingStarted() {
   const query = useQuery({
     queryKey: QUERY_KEYS.home.gettingStarted(),
@@ -46,5 +71,6 @@ export function useGettingStarted() {
     : home.isError
       ? false
       : null;
-  return { query, home, state: gettingStartedState(query.data, hidden) };
+  const state = gettingStartedState(query.data, hidden);
+  return { query, home, state, stage: homeStage(query.data, state) };
 }

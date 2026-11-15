@@ -206,7 +206,7 @@ async function reachTeamStep(page: Page) {
 
   await page.goto('/');
   await signInThroughHostedPage(page);
-  await expect(page.getByRole('heading', { name: /welcome, fresh user/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /connect your training/i })).toBeVisible();
 
   // The provider lands: the status flips once its cache is stale and the tab
   // regains focus. The connect step stays up to offer a second service, and

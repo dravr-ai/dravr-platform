@@ -168,6 +168,34 @@ export interface CoachSharing {
   consent: boolean;
 }
 
+/** What a read of the athlete by their human coach read (carnet#1445). */
+export type CoachReadDataClass = 'training' | 'wellness';
+
+/**
+ * One read of the caller's data by the group's human coach, through their
+ * agent: who read, which kind of data, through which tool, and when.
+ */
+export interface CoachRead {
+  /** The coach who read, by display name; null once their account is gone. */
+  coach_name: string | null;
+  /** The tool the coach's agent read the data through. */
+  tool: string;
+  /** Which kind of the athlete's data the read reached. */
+  data_class: CoachReadDataClass;
+  /** When the coach read it (RFC 3339). */
+  read_at: string;
+}
+
+/**
+ * The caller's own record of their human coach's reads in a group, read
+ * under `/members/me/coach-reads`, newest first. A read is listed for
+ * `retention_months`, then purged.
+ */
+export interface CoachReads {
+  reads: CoachRead[];
+  retention_months: number;
+}
+
 /** Request to create an invite */
 export interface CreateInviteRequest {
   expires_in_days?: number;

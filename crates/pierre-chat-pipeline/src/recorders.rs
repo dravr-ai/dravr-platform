@@ -28,8 +28,10 @@ use pierre_llm::call_record::LlmCallRecorder;
 use pierre_services::llm_usage_recorder::{LlmUsageSink, UsageRepoCallRecorder};
 use pierre_tool_runtime::tool_execution as chat_tool_loop;
 use pierre_tool_runtime::tool_loop_io::{ToolMessageRecorder, ToolRoundRecord};
+use tokio::runtime::Handle;
 use tracing::{info, warn};
 
+use crate::supervised::{spawn_supervised, TaskOwner};
 use crate::{ChatPipelineContext, TurnInput};
 
 /// `call_type` of a completion that re-asks a reply which claimed its data
@@ -154,7 +156,8 @@ impl ToolMessageRecorder for ChatRepoToolMessageRecorder {
             return;
         }
         let rows = self.rows.clone();
-        tokio::spawn(async move {
+        let owner = TaskOwner::Conversation(rows.conversation_id.clone());
+        spawn_supervised(&Handle::current(), "tool_round_write", owner, async move {
             rows.write(&record, transport_policy).await;
         });
     }

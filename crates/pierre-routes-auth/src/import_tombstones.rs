@@ -71,7 +71,7 @@ pub(crate) async fn handle_clear_import_tombstone(
     headers: HeaderMap,
     body: Option<Json<ClearTombstoneRequest>>,
 ) -> AppResult<Response> {
-    let user = session_account(&resources, &headers, "clear the account's tombstones").await?;
+    let user = session_account(&resources, &headers).await?;
     let request = body.map(|Json(request)| request).unwrap_or_default();
 
     // An email is held by whoever proved the inbox, not by whoever typed it

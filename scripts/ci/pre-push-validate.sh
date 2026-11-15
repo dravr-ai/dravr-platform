@@ -832,6 +832,42 @@ if [[ -x "$PROJECT_ROOT/scripts/ci/check-unused-deps.sh" ]] \
 fi
 
 # ----------------------------------------------------------------------------
+# Tier 1q: workflow lockfile (compile-free, network, ~5s)
+# ----------------------------------------------------------------------------
+#
+# .github/workflows/actions.lock records the commit every workflow's actions
+# resolved to, and the runner rejects a job whose `uses:` the lock does not
+# record. A push that changes a workflow or composite without relocking would
+# land a lane that fails at "Set up job", and so would a symlink the repository
+# archive cannot hold, which every `$/` step extracts (.gitattributes decides
+# what the archive leaves out). `gh actions-lock --verify` is the
+# same check the "Guard: actions lockfile" lane runs; it needs gh and the
+# pinned extension, and fails with the install command when they are missing.
+# A remote session has neither provisioned, so it defers to that lane, the way
+# the disk hooks stand down there. Not existence-guarded: a missing gate fails.
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^\.github/(workflows|actions)/|^\.gitattributes$|^scripts/ci/check-actions-lock(\.test)?\.sh$'; then
+    echo "Tier 1q: Workflow lockfile"
+    echo "--------------------------"
+    if [[ -n "${CLAUDE_CODE_REMOTE_SESSION_ID:-}" || "${CLAUDE_CODE_REMOTE:-}" == "true" ]]; then
+        echo "Remote session: gh-actions-lock is not provisioned here; the 'Guard: actions"
+        echo "lockfile' workflow runs this check on the push."
+    else
+        if ! "$PROJECT_ROOT/scripts/ci/check-actions-lock.test.sh"; then
+            echo ""
+            echo "FAIL: the workflow lockfile gate no longer catches what its self-test plants!"
+            exit 1
+        fi
+        if ! "$PROJECT_ROOT/scripts/ci/check-actions-lock.sh"; then
+            echo ""
+            echo "FAIL: .github/workflows/actions.lock does not cover the workflows as they stand!"
+            exit 1
+        fi
+    fi
+    echo ""
+fi
+
+# ----------------------------------------------------------------------------
 # Tier 1o: Merge-Risk one-way doors (compile-free, instant, every push)
 # ----------------------------------------------------------------------------
 #
@@ -860,6 +896,38 @@ if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
     fi
 fi
 echo ""
+
+# Tier 1 runs check-activity-writers.sh inside architectural-validation.sh;
+# an edit to the gate itself also runs its self-test, which plants a direct
+# cache writer and a by-date prune and expects both to fail (carnet#1482).
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^scripts/ci/check-activity-writers(\.test)?\.sh$'; then
+    echo "Tier 1o-writers: activity writers gate self-test"
+    echo "-------------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-activity-writers.test.sh"; then
+        echo ""
+        echo "FAIL: the activity writers gate no longer catches what its self-test plants!"
+        exit 1
+    fi
+    echo ""
+fi
+
+# Tier 1 runs check-history-walk-single-source.sh inside
+# architectural-validation.sh; an edit to the gate itself also runs its
+# self-test, which plants a spawn in the budgeted read, a history_import and a
+# history_keys symbol, a stray coverage type and a second source or read
+# order, and expects each to fail (carnet#1482).
+if git diff --name-only "$BASE_REF"...HEAD 2>/dev/null \
+    | grep -qE '^scripts/ci/check-history-walk-single-source(\.test)?\.sh$'; then
+    echo "Tier 1o-history-walk: history walk single-source gate self-test"
+    echo "----------------------------------------------------------------"
+    if ! "$PROJECT_ROOT/scripts/ci/check-history-walk-single-source.test.sh"; then
+        echo ""
+        echo "FAIL: the history walk single-source gate no longer catches what its self-test plants!"
+        exit 1
+    fi
+    echo ""
+fi
 
 # ============================================================================
 # REMOVED: Heavy compilation tiers (per-crate clippy, schema test, targeted

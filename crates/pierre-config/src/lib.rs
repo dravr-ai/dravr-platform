@@ -17,6 +17,8 @@
 //! Re-exported back into `pierre_mcp_server::config::*` via shim modules so
 //! existing call sites and integration tests keep their import paths.
 
+/// Provider data retention as admin parameters (`activity_retention.*`) and the per-provider map's grammar
+pub mod activity_retention;
 /// Admin configuration parameter catalog (per-category builders + `ParameterDefinition`)
 pub mod admin_definitions;
 /// Environment pins for admin config parameters (typed, range-validated, captured once)

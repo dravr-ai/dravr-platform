@@ -173,11 +173,13 @@ impl PeerFetchOutcome {
 }
 
 /// The `reason` codes the peer tool stamps on a refusal that an athlete may be
-/// told about. Anything else — `no_match`, `ambiguous`, `self` — is a
+/// told about; a coach's read is refused with the coaching gates' reasons,
+/// as any coach read of a coached athlete is (carnet#1425). Anything else —
+/// `no_match`, `ambiguous`, `self`, a gate's tenancy refusal — is a
 /// resolution failure whose text names members the room may not know.
 const RELAYABLE_DECLINE_REASONS: [&str; 5] = [
     "no_consent",
-    "no_coach_consent",
+    "coach_sharing_revoked",
     "sharing_disabled",
     "no_source",
     "fetch_failed",

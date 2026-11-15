@@ -3071,10 +3071,11 @@ async fn a_family_day_without_steps_gets_its_presets_ride_session() -> Result<()
     Ok(())
 }
 
-#[tokio::test]
-async fn an_edited_family_day_warns_and_is_relabelled() -> Result<()> {
-    // Zwift's "Tabata Style": 3 × 8 × 20/10 at 119/50 % FTP. On reps this
-    // short the body follows the average, about 72 % of MAP: threshold work.
+/// A plan whose 2026-07-14 is Zwift's "Tabata Style" written over the
+/// short-interval family: 3 × 8 × 20/10 at 119/50 % FTP. On reps this short
+/// the body follows the average, about 72 % of MAP: threshold work, so the save
+/// warns on the day and relabels it.
+pub(crate) fn tabata_style_plan() -> Value {
     let mut payload = full_plan_payload();
     let day = &mut payload["weeks"][0]["days"][1];
     day["template_slug"] = json!("vo2max_short");
@@ -3092,8 +3093,12 @@ async fn an_edited_family_day_warns_and_is_relabelled() -> Result<()> {
     }
     steps.push(json!({"label": "Cool-down", "duration_seconds": 600, "target_zone": "Z1"}));
     day["steps"] = json!(steps);
+    payload
+}
 
-    let (saved, fetched) = save_and_read(payload).await?;
+#[tokio::test]
+async fn an_edited_family_day_warns_and_is_relabelled() -> Result<()> {
+    let (saved, fetched) = save_and_read(tabata_style_plan()).await?;
     let notice = &saved["envelope"]["days"][0];
     assert_eq!(
         notice["date"], "2026-07-14",

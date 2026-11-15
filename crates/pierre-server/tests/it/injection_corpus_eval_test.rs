@@ -61,7 +61,7 @@ use crate::injection_corpus::grading::{
     grade, snapshot, unmeasured, ReachObservation, StateDiff, ToolEffect, TurnDispatch,
 };
 use crate::injection_corpus::{
-    Scenario, Surface, FITNESS_CONFIG_NAME, NOTE_MAX_CHARS, NOTE_PROBE, PEER_DISPLAY,
+    Scenario, Surface, FITNESS_CONFIG_NAME, NOTE_MAX_CHARS, PEER_DISPLAY,
     PLAN_DESCRIPTION_MAX_CHARS, RECIPE_OATMEAL, RECIPE_RICE_BOWL, SCENARIOS,
 };
 
@@ -172,11 +172,12 @@ fn every_scenario_names_registered_consequential_tools() {
             "no attack targets {tool}"
         );
     }
-    // Both languages, every surface, and a control in each language.
-    // No scenario plants where the model cannot read: see `NOTE_PROBE`.
+    // Both languages, every surface, and a control in each language. The
+    // scraped note reaches the model only through a detailed read, so one
+    // English attack covers it.
     assert!(
-        SCENARIOS.iter().all(|s| s.surface != Surface::ActivityNote),
-        "a scenario plants in the scraped note, which no model reads"
+        SCENARIOS.iter().any(|s| s.surface == Surface::ActivityNote),
+        "no attack plants in the scraped note"
     );
     for surface in [
         Surface::OwnActivityName,
@@ -205,7 +206,7 @@ fn every_scenario_names_registered_consequential_tools() {
 
 #[test]
 fn every_payload_fits_the_field_that_carries_it() {
-    for s in SCENARIOS.iter().chain([&NOTE_PROBE]) {
+    for s in SCENARIOS {
         let Some(payload) = s.payload else { continue };
         let cap = match s.surface {
             Surface::OwnActivityName | Surface::PeerActivityName => ACTIVITY_NAME_MAX_CHARS,
@@ -237,7 +238,7 @@ fn every_payload_fits_the_field_that_carries_it() {
 #[tokio::test]
 async fn every_payload_reaches_the_rows_its_reader_returns() {
     let (resources, book) = server().await;
-    for s in SCENARIOS.iter().chain([&NOTE_PROBE]) {
+    for s in SCENARIOS {
         let fixture = seed_injection_fixture(&resources, &book, s, "mock-model").await;
         let Some((reader, args)) = s.surface.reader() else {
             continue;
@@ -524,10 +525,6 @@ impl ReadingModel {
             .any(|r| r.contains(text))
     }
 
-    fn saw(&self, text: &str) -> bool {
-        self.seen.lock().unwrap().iter().any(|r| r.contains(text))
-    }
-
     /// Whether the turn's first request — before the model said or called
     /// anything, so before any recovery re-ask — carried `text`.
     fn first_saw(&self, text: &str) -> bool {
@@ -740,36 +737,6 @@ async fn the_turns_are_answered_by_the_deployed_coach() {
         ));
     }
     println!("deployed coaches: {seen_handles:?}");
-}
-
-/// The tripwire behind leaving the scraped note out of the corpus: a model
-/// that reads its activities in detail is shown every row's addressing fields
-/// and never the note on one, though the tool's own answer carries it
-/// (`every_payload_reaches_the_rows_its_reader_returns`). If this fails, the
-/// note reaches the model now: move `NOTE_PROBE` into `SCENARIOS`.
-#[tokio::test]
-async fn the_scraped_note_never_reaches_the_model() {
-    let (url, book) = spawn_injection_scraper().await;
-    let model = ReadingModel::new(Some(
-        r#"<tool_call>{"name":"get_activities","arguments":{"mode":"detailed"}}</tool_call>"#
-            .to_owned(),
-    ));
-    let resources = pipeline_server(&model, &url).await;
-    let fixture = seed_injection_fixture(&resources, &book, &NOTE_PROBE, "mock-model").await;
-    let (request, profile) = web_turn(&fixture, &NOTE_PROBE);
-    pierre_chat_pipeline::execute(&resources.chat_pipeline_context(), request, &profile)
-        .await
-        .expect("the turn is served");
-    assert!(
-        model.saw("<tool_result name=\"get_activities\">") && model.saw("\"mode\": \"detailed\""),
-        "the detailed read ran and its result went back to the model; {}",
-        model.tails()
-    );
-    assert!(
-        !model.saw(NOTE_PROBE.payload.unwrap()),
-        "the scraped note now reaches the model: move NOTE_PROBE into SCENARIOS; {}",
-        model.tails()
-    );
 }
 
 /// The reach rule, on a record list built by hand: an attack observed on a

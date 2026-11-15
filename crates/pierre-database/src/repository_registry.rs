@@ -18,8 +18,8 @@ use crate::repositories::{
     AgentDraftsRepository, AgentsRepository, ApiKeyRepository, AppAttestKeyRepository,
     ArchiveErasureRepository, AthleteGearRepository, CalendarPreferenceRepository, ChatRepository,
     CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
-    CoachAttentionDismissalRepository, CoachReplyReviewRepository, CoachingGroupRepository,
-    CommitmentRepository, DailyActivityRepository, DataSourceRepository,
+    CoachAttentionDismissalRepository, CoachDataReadRepository, CoachReplyReviewRepository,
+    CoachingGroupRepository, CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
     EngagementRepository, FeatureFlagsRepository, FederatedIdentityRepository,
     FeedbackMessageRepository, FirebaseIdentityDeletionRepository, FirstRunProgressRepository,
@@ -109,6 +109,9 @@ pub struct RepositoryRegistry {
     pub provider_connections: Arc<dyn ProviderConnectionRepository>,
     /// The calendar an athlete chose for Dravr's pushes (carnet#1393)
     pub calendar_preferences: Arc<dyn CalendarPreferenceRepository>,
+    /// The athlete's record of their human coach's reads of their data, purged
+    /// after 12 months (carnet#1445)
+    pub coach_data_reads: Arc<dyn CoachDataReadRepository>,
     /// Recipe CRUD with nutrition
     pub recipes: Arc<dyn RecipeRepository>,
     /// RSA keypairs, key rotation, audit events
@@ -338,6 +341,7 @@ impl RepositoryRegistry {
             signup_cohort: db.clone(),
             provider_connections: db.clone(),
             calendar_preferences: db.clone(),
+            coach_data_reads: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),
@@ -451,6 +455,7 @@ impl RepositoryRegistry {
             signup_cohort: db.clone(),
             provider_connections: db.clone(),
             calendar_preferences: db.clone(),
+            coach_data_reads: db.clone(),
             recipes: db.clone(),
             security: db.clone(),
             session_refresh_tokens: db.clone(),

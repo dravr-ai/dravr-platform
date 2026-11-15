@@ -11,7 +11,8 @@
 //!
 //! - **In the app**: the athlete's personal thread ([`personal_thread`]); one
 //!   is forged for the post when they have none, and removed again when
-//!   nothing was posted into it.
+//!   nothing was posted into it, unless the athlete wrote into it while the
+//!   post ran.
 //! - **On a DM**: the messaging DM they last wrote from, among those whose
 //!   channel may be written to unprompted right now
 //!   ([`channel_allows_proactive`] — Meta's 24-hour window on `WhatsApp` and
@@ -109,7 +110,9 @@ pub(crate) struct LinkedDms {
 struct InAppThread {
     /// The conversation id.
     id: String,
-    /// Whether it was forged for this post, and so is empty without it.
+    /// Whether it was forged for this post, and so held nothing before it.
+    /// It is already the athlete's personal thread, so they can write into
+    /// it while the post runs.
     forged: bool,
 }
 
@@ -139,19 +142,35 @@ pub(crate) async fn post_in_app(
         .await
         .is_some();
     if !posted && thread.forged {
-        // The thread was opened to hold this post alone; left behind it is an
-        // empty row in the athlete's list.
-        if let Err(e) = resources
-            .common
-            .repos
-            .chat
-            .delete_conversation(&thread.id, &athlete.user_id.to_string(), athlete.tenant_id)
-            .await
-        {
+        remove_unused_forge(resources, athlete, &thread.id).await;
+    }
+    Some(posted)
+}
+
+/// Remove the thread `thread_id` forged for a post that posted nothing.
+///
+/// Left behind empty it is a blank row in the athlete's list. But it is their
+/// personal thread from the moment it was forged, and their own first message
+/// can land in it during the post's model call: then it is theirs, and it
+/// stays.
+async fn remove_unused_forge(resources: &ServerContext, athlete: PostAthlete, thread_id: &str) {
+    match resources
+        .common
+        .repos
+        .chat
+        .delete_conversation_if_empty(thread_id, &athlete.user_id.to_string(), athlete.tenant_id)
+        .await
+    {
+        Ok(true) => {
+            info!(conversation_id = %thread_id, "Platform post: removed the empty thread forged for it");
+        }
+        Ok(false) => {
+            info!(conversation_id = %thread_id, "Platform post: left the thread forged for it: a message landed in it, or it is gone");
+        }
+        Err(e) => {
             warn!(error = %e, "Platform post: removing the thread forged for it failed");
         }
     }
-    Some(posted)
 }
 
 /// Post into `dm` and send the reply there, with the instruction `prompt`

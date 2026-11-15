@@ -84,8 +84,6 @@ pub const KEY_HOSTED_COMMON_SIGN_IN_REJECTED: &str = "hosted.common.signInReject
 pub const KEY_HOSTED_COMMON_SIGN_IN_UNAVAILABLE: &str = "hosted.common.signInUnavailable";
 /// Key: "`{0}` asked for an extra security check we can't complete automatically right now. Please try again in a little while."
 pub const KEY_HOSTED_COMMON_SIGN_IN_CHALLENGED: &str = "hosted.common.signInChallenged";
-/// Key: "`{0}` now connects through its official sign-in. Go back and choose `{0}`."
-pub const KEY_HOSTED_COMMON_SIGN_IN_OAUTH_REQUIRED: &str = "hosted.common.signInOauthRequired";
 /// Key: "This sign-in is no longer active. Please start the sign-in again." No format placeholders.
 pub const KEY_HOSTED_COMMON_SIGN_IN_EXPIRED: &str = "hosted.common.signInExpired";
 /// Key: "Try Again" No format placeholders.
@@ -122,12 +120,6 @@ pub const KEY_HOSTED_PICKER_TAG_EMAIL_OR_USERNAME_PASSWORD: &str =
     "hosted.picker.tagEmailOrUsernamePassword";
 /// Key: "Import my history" No format placeholders.
 pub const KEY_HOSTED_PICKER_TAG_IMPORT_HISTORY: &str = "hosted.picker.tagImportHistory";
-/// Key: "Copying history…" No format placeholders.
-pub const KEY_HOSTED_PICKER_TAG_HISTORY_IMPORTING: &str = "hosted.picker.tagHistoryImporting";
-/// Key: "Try again" No format placeholders.
-pub const KEY_HOSTED_PICKER_TAG_HISTORY_INCOMPLETE: &str = "hosted.picker.tagHistoryIncomplete";
-/// Key: "Move to `{0}`'s official connection"
-pub const KEY_HOSTED_PICKER_TAG_MOVE_TO_OFFICIAL: &str = "hosted.picker.tagMoveToOfficial";
 /// Key: "`{0}` didn't connect. Try again."
 pub const KEY_HOSTED_PICKER_OAUTH_RETRY: &str = "hosted.picker.oauthRetry";
 /// Key: "Have an export? Import it" No format placeholders.

@@ -212,10 +212,11 @@ jobs:
         # The PAT path was abandoned: DRAVR_PRIVATE_DEPS_TOKEN is read-only on
         # this repo.
         #
-        # BOTH lanes, not just ci-backend. A bump touches Cargo.toml, Cargo.lock
-        # and crates/**, which matches ci-postgres's push paths exactly — the
-        # only reason it does not run is the suppressed push, the same reason
-        # ci-backend is dispatched here. Dispatching one and not the other left
+        # Every lane the bump's files reach, not just ci-backend. A bump
+        # touches Cargo.toml, Cargo.lock and crates/**, which matches
+        # ci-postgres's push paths exactly — the only reason it does not run
+        # is the suppressed push, the same reason ci-backend is dispatched
+        # here. Dispatching one and not the other left
         # main's per-push verdict lane blind to every bump: 0927f04f8 moved a
         # pinned catalogue count, ci-backend caught it on dispatch, and the
         # PostgreSQL lane never saw that tree at all. Its last green on main was
@@ -241,6 +242,11 @@ jobs:
           # mocked e2e suite finds controls by those labels, so a renamed string
           # reddens web tests. No scope input: this lane always runs in full.
           gh workflow run frontend-tests.yml --ref main || rc=1
+          # The mobile app reads the same copies (@pierre/i18n is a file: dep),
+          # and its lane's push paths include packages/**, so a bump is a push
+          # it should judge. Undispatched, e87a0d80f dropped 41 strings per
+          # locale under mobile and this lane started no mobile run for it.
+          gh workflow run mobile-unit-tests.yml --ref main || rc=1
           exit $rc
 
       - name: Run the messaging eval asserters on the bumped prompts

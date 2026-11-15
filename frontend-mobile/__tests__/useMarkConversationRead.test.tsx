@@ -161,6 +161,18 @@ describe('useMarkConversationRead', () => {
     await waitFor(() => expect(mockMarkConversationRead).toHaveBeenCalledWith('c1'));
   });
 
+  it("refetches the bell once the marker lands: the thread's notifications were read", async () => {
+    const client = makeClient();
+    seedList(client, 2);
+    const invalidate = jest.spyOn(client, 'invalidateQueries');
+
+    renderMarker(client, { conversationId: 'c1', lastMessageId: 'm9' });
+
+    await waitFor(() =>
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: QUERY_KEYS.notifications.unreadCount() }),
+    );
+  });
+
   it('does nothing for a composer with no conversation yet', () => {
     const client = makeClient();
     renderMarker(client, { conversationId: null, lastMessageId: null });

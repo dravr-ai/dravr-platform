@@ -1,20 +1,19 @@
-// ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy, TransportPolicy and cache TTL
-// ABOUTME: WHOOP keeps scores out of prompts; Strava and WHOOP stay first-party; Strava caches 30 days, Nolio 7
+// ABOUTME: What each provider's terms allow for its data — the declared AI SourcePolicy and TransportPolicy
+// ABOUTME: WHOOP keeps scores out of prompts; Strava and WHOOP stay first-party; retention is runtime config, not code
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 //! Declared provider terms.
 //!
-//! An AI policy for each provider whose terms restrict AI use, a transport
-//! policy for each whose terms keep its data inside Dravr's own surfaces, and
-//! a cache TTL for each whose terms cap how long a copy may be held.
+//! An AI policy for each provider whose terms restrict AI use, and a
+//! transport policy for each whose terms keep its data inside Dravr's own
+//! surfaces.
 //!
 //! A descriptor returns them from
-//! [`ProviderDescriptor::ai_policy`](crate::spi::ProviderDescriptor::ai_policy),
-//! [`ProviderDescriptor::transport_policy`](crate::spi::ProviderDescriptor::transport_policy)
+//! [`ProviderDescriptor::ai_policy`](crate::spi::ProviderDescriptor::ai_policy)
 //! and
-//! [`ProviderDescriptor::cache_ttl`](crate::spi::ProviderDescriptor::cache_ttl);
+//! [`ProviderDescriptor::transport_policy`](crate::spi::ProviderDescriptor::transport_policy);
 //! a provider absent here has no restriction. Adding a provider's terms is a
 //! policy here and one descriptor line — no tool changes.
 //!
@@ -28,12 +27,27 @@
 //! over every transport and settles the Garmin-recorded data it relays by its
 //! own terms (carnet#767; read: dravr-vault `Work Log/2026-10/Provider
 //! Transport Terms — Garmin, COROS, TrainingPeaks, intervals.icu
-//! (2026-10-07).md`). Strava's descriptors declare the one shipped cache TTL,
-//! 30 days ([`STRAVA_CACHE_TTL`], carnet#950) — longer than the 7 days its
-//! API Policy §6.2 states, by product decision. WHOOP's tier-1–2 measurements
-//! are kept under the athlete's owner authorization (carnet#539).
-
-use std::time::Duration;
+//! (2026-10-07).md`). WHOOP's tier-1–2 measurements are kept under the
+//! athlete's owner authorization (carnet#539).
+//!
+//! # Retention
+//!
+//! No code here, or anywhere, declares how long a provider's data is held.
+//! One retention policy governs every provider: `activity_retention.default_days`
+//! and `activity_retention.provider_days`, runtime configuration set with
+//! `pierre-cli config set` and applied by the one retention sweep. Both start
+//! unset, so nothing expires for anyone (JF, 2026-11-10, carnet#1482 D9).
+//! What the terms say, for whoever sets an override:
+//!
+//! - Strava API Policy (effective 2026-06-01) §6.2: Strava Data "may not"
+//!   stay in a cache "for longer than seven (7) days". carnet#950 chose 30
+//!   days on 2026-10-14; D9 reverses that to no expiry, and
+//!   `pierre-cli config set activity_retention.provider_days '{"strava":30}'`
+//!   restores it. Read: the same terms read as [`STRAVA_TRANSPORT`], Part 2
+//!   (Policy §6.2) and Part 5 B2.
+//! - Nolio API terms v1.0, §7.1: a transient copy of Nolio data, any cache
+//!   included, is held at most seven days (`{"nolio":7}`). Read: the same
+//!   terms read as [`NOLIO`], Part 3 E4.
 
 use pierre_core::ai_policy::{AiUse, SourcePolicy};
 use pierre_core::transport::TransportPolicy;
@@ -75,23 +89,6 @@ pub const WHOOP: SourcePolicy = SourcePolicy {
 /// Read and Action Plan (2026-08-16).md`, Part 2.
 #[cfg(any(feature = "provider-strava", feature = "provider-sciotte"))]
 pub const STRAVA_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
-
-/// How long a copy of Strava data is held: 30 days, the product decision of
-/// 2026-10-14 (carnet#950).
-///
-/// Strava API Policy (effective 2026-06-01) §6.2 says Strava Data "may not"
-/// stay in a cache "for longer than seven (7) days". This cap is longer than
-/// that on purpose: Strava copies are held up to 23 days past §6.2 by the
-/// owner's decision, not by oversight, and a shorter cap is a one-constant
-/// change here. Both the `strava` API provider and the sciotte
-/// Strava backend declare it, so the cache TTL sweep evicts every Strava copy
-/// last synced more than 30 days ago, with the sync state describing it.
-/// Other providers keep only the 180-day activity cache prune.
-///
-/// Read: the same terms read as [`STRAVA_TRANSPORT`], Part 2 (Policy §6.2)
-/// and Part 5 B2.
-#[cfg(any(feature = "provider-strava", feature = "provider-sciotte"))]
-pub const STRAVA_CACHE_TTL: Duration = Duration::from_hours(30 * 24);
 
 /// WHOOP API Terms (effective 2026-10-06): WHOOP data stays inside Dravr's
 /// own surfaces.
@@ -158,14 +155,6 @@ pub const NOLIO: SourcePolicy = SourcePolicy {
 // LIMITATION(registre#657): `NOLIO_TRANSPORT` is returned by no descriptor — no Nolio provider
 // exists, so only tests exercise this policy.
 pub const NOLIO_TRANSPORT: TransportPolicy = TransportPolicy::FirstPartyOnly;
-
-/// Nolio API terms v1.0, §7.1: a transient copy of Nolio data, any cache
-/// included, is held at most seven days.
-///
-/// Read: the same terms read as [`NOLIO`], Part 3 E4.
-// LIMITATION(registre#657): `NOLIO_CACHE_TTL` is returned by no descriptor — no Nolio provider
-// exists, so only tests exercise this cap.
-pub const NOLIO_CACHE_TTL: Duration = Duration::from_hours(7 * 24);
 
 /// Garmin Connect Developer Program Agreement (Garmin International, form
 /// FRM-0952 Rev. B): Garmin data stays inside Dravr's own surfaces.
@@ -365,23 +354,6 @@ mod tests {
             &["whoop"]
         };
         assert_eq!(registry.cross_athlete_learning_barred(), barred);
-    }
-
-    /// Strava's two descriptors — the API and the sciotte scraper of
-    /// strava.com — cap a copy at 30 days, and no other shipped provider
-    /// declares a cap (carnet#950).
-    #[cfg(feature = "provider-strava")]
-    #[test]
-    fn strava_copies_are_capped_at_thirty_days_and_no_other_provider_is() {
-        let registry = ProviderRegistry::new();
-        let mut expected = vec![("strava", STRAVA_CACHE_TTL)];
-        if cfg!(feature = "provider-sciotte") {
-            expected.push(("sciotte", STRAVA_CACHE_TTL));
-        }
-        expected.sort_unstable();
-        let mut declared = registry.cache_ttls();
-        declared.sort_unstable();
-        assert_eq!(declared, expected);
     }
 
     /// The sciotte Strava backend is registered as `sciotte`, and every
@@ -615,13 +587,6 @@ mod tests {
             TransportPolicy::FirstPartyOnly,
             "bug: the descriptor default must fail closed to Dravr's own surfaces"
         );
-    }
-
-    /// Pinned on purpose: seven days is fixed by Nolio's API terms §7.1, a
-    /// value this codebase does not control.
-    #[test]
-    fn a_nolio_copy_is_held_at_most_seven_days() {
-        assert_eq!(NOLIO_CACHE_TTL.as_secs(), 7 * 86_400);
     }
 
     #[test]

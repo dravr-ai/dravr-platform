@@ -360,6 +360,25 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
   }
 
   /**
+   * The caller's own record of the group's human coach reading their data
+   * through their agent, newest first (carnet#1445). Read only while
+   * `enabled`: for a member of a group with a human coach.
+   */
+  function useCoachReads(groupId: string, enabled: boolean) {
+    const query = useQuery({
+      queryKey: QUERY_KEYS.groups.coachReads(groupId),
+      queryFn: () => groupsApi.getCoachReads(groupId),
+      enabled: !!groupId && enabled,
+    });
+
+    return {
+      coachReads: query.data,
+      isLoading: query.isLoading,
+      isError: query.isError,
+    };
+  }
+
+  /**
    * The caller stops or resumes sharing their training with the group's human
    * coach. Their own membership row only; the answer is shown at once.
    */
@@ -693,6 +712,7 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
     useUpdateMemberRole,
     useUpdatePeerConsent,
     useCoachSharing,
+    useCoachReads,
     useSetCoachSharing,
     useGroupPermissions,
     useGroupWeeklyReport,

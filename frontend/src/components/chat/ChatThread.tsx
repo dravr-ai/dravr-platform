@@ -36,6 +36,11 @@ export interface ChatThreadProps {
   /** Drawn under the usage banner, above the transcript — the host's connect nudge. */
   banner?: ReactNode;
   /**
+   * Drawn at the end of the transcript, in the agent's voice — the host's
+   * one-time offer, such as a coach's chat-app card in their group.
+   */
+  offer?: ReactNode;
+  /**
    * Whether the transcript scrolls to its latest message when a thread
    * opens. An embedded thread leaves the page where the athlete put it.
    */
@@ -73,6 +78,7 @@ export default function ChatThread({
   thread,
   conversationTitle,
   banner,
+  offer,
   followOnOpen,
   focusComposerOnOpen,
   onTranscriptScroll,
@@ -206,8 +212,8 @@ export default function ChatThread({
   // A coach's own threads — the plan thread on an athlete, the group's room —
   // say whom the line goes to; an athlete's keep the app's own words; one not
   // yet known says nothing.
-  const { planSubjectName, coachRoomName, composerPending } = thread;
-  const coachPlaceholder = coachComposerPlaceholder(t, { planSubjectName, coachRoomName, pending: composerPending });
+  const { planSubjectName, coachRoomName, roomName, composerPending } = thread;
+  const coachPlaceholder = coachComposerPlaceholder(t, { planSubjectName, coachRoomName, roomName, pending: composerPending });
 
   // The coach's open draft on the plan thread's athlete, drawn whenever no
   // card in the thread shows it: "Review the draft" lands on a thread whose
@@ -325,7 +331,16 @@ export default function ChatThread({
             privateLane={transcriptLane}
             liveAudience={thread.liveAudience}
             opening={opening}
-            tail={draftCard}
+            tail={
+              offer ? (
+                <>
+                  {draftCard}
+                  {offer}
+                </>
+              ) : (
+                draftCard
+              )
+            }
           />
         </div>
       </div>

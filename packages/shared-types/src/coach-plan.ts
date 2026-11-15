@@ -66,6 +66,38 @@ export interface PublishSubjectPlanRequest {
   overwrite_athlete_changes: boolean;
 }
 
+/** One calendar entry a push left alone or failed to write. */
+export interface CalendarPushEntry {
+  /** The entry's day, `YYYY-MM-DD`. */
+  date: string;
+  /** The entry's title. */
+  name: string;
+}
+
+/** What a push wrote to the athlete's calendar. */
+export interface CalendarPushReport {
+  /** The calendar provider written, as the server names it (`intervals_icu`). */
+  provider: string;
+  created: number;
+  updated: number;
+  removed: number;
+  /** Entries left alone because the athlete changed them on their calendar. */
+  skipped: CalendarPushEntry[];
+  /** Entries the calendar or the ledger refused. */
+  failed: CalendarPushEntry[];
+}
+
+/**
+ * What a publish did to the athlete's calendar (carnet#1492): the plan put on
+ * their chosen calendar, or why nothing was written there. `reason` is the
+ * refusing gate's code (`no_calendar`, `no_calendar_write_consent`,
+ * `choose_calendar`, `push_failed`, …) and `message` the server's English
+ * words for it.
+ */
+export type CalendarPushOutcome =
+  | { status: 'pushed'; report: CalendarPushReport }
+  | { status: 'not_pushed'; reason: string; message: string };
+
 /** `POST …/subject-plan/publish` answered 200: the draft is the athlete's live plan. */
 export interface PublishedSubjectPlan {
   plan_id: string;
@@ -81,6 +113,11 @@ export interface PublishedSubjectPlan {
    * line carries none; the parser keeps it out rather than inventing one.
    */
   posted_in_room?: boolean;
+  /**
+   * The published plan put on the athlete's calendar, or why it was not.
+   * Optional for the same reason as `posted_in_room`.
+   */
+  calendar_push?: CalendarPushOutcome;
 }
 
 /** The `error_code` of a publish refused because the athlete's plan moved under the draft. */
@@ -199,6 +236,52 @@ export function parseAthletePlanResponse(body: unknown): AthletePlanResponse | n
   return { athlete, today: body.today, live };
 }
 
+/** The entries of a push report's `skipped` or `failed`, or `null` when one breaks its shape. */
+function pushEntries(value: unknown): CalendarPushEntry[] | null {
+  if (!Array.isArray(value)) return null;
+  const entries: CalendarPushEntry[] = [];
+  for (const entry of value) {
+    if (!isRecord(entry) || typeof entry.date !== 'string' || typeof entry.name !== 'string') return null;
+    entries.push({ date: entry.date, name: entry.name });
+  }
+  return entries;
+}
+
+/** A publish's `calendar_push`, or `null` when it breaks its contract. */
+function parseCalendarPushOutcome(value: unknown): CalendarPushOutcome | null {
+  if (!isRecord(value)) return null;
+  if (value.status === 'not_pushed') {
+    return typeof value.reason === 'string' && typeof value.message === 'string'
+      ? { status: 'not_pushed', reason: value.reason, message: value.message }
+      : null;
+  }
+  if (value.status !== 'pushed' || !isRecord(value.report)) return null;
+  const { report } = value;
+  const skipped = pushEntries(report.skipped);
+  const failed = pushEntries(report.failed);
+  if (
+    typeof report.provider !== 'string' ||
+    typeof report.created !== 'number' ||
+    typeof report.updated !== 'number' ||
+    typeof report.removed !== 'number' ||
+    skipped === null ||
+    failed === null
+  ) {
+    return null;
+  }
+  return {
+    status: 'pushed',
+    report: {
+      provider: report.provider,
+      created: report.created,
+      updated: report.updated,
+      removed: report.removed,
+      skipped,
+      failed,
+    },
+  };
+}
+
 /** A publish's 200 body, or `null` when it breaks its contract. */
 export function parsePublishedSubjectPlan(body: unknown): PublishedSubjectPlan | null {
   if (
@@ -210,11 +293,14 @@ export function parsePublishedSubjectPlan(body: unknown): PublishedSubjectPlan |
   ) {
     return null;
   }
+  const calendarPush = body.calendar_push === undefined ? undefined : parseCalendarPushOutcome(body.calendar_push);
+  if (calendarPush === null) return null;
   return {
     plan_id: body.plan_id,
     superseded_plan_id: body.superseded_plan_id,
     athlete_notified: body.athlete_notified,
     ...(typeof body.posted_in_room === 'boolean' ? { posted_in_room: body.posted_in_room } : {}),
+    ...(calendarPush === undefined ? {} : { calendar_push: calendarPush }),
   };
 }
 

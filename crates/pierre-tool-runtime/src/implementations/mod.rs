@@ -98,6 +98,9 @@ pub mod configuration_output;
 #[cfg(feature = "tools-config")]
 pub mod configuration_document;
 
+/// The field dictionary as `get_connection_status` and `get_activities` carry it.
+pub mod field_dictionary;
+
 /// Provider connection tools: `connect_provider`, `get_connection_status`,
 /// `disconnect_provider` (`tools-connection` feature).
 #[cfg(feature = "tools-connection")]
@@ -136,6 +139,11 @@ pub mod stored_data;
 #[cfg(feature = "tools-data")]
 pub mod continuous_series;
 
+/// `get_segment_history` — every effort the athlete made on one segment,
+/// from the live listing or the stored details (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+pub mod segments;
+
 /// Endurance Phase 5 workout tools: `list_workout_templates`, `prescribe_workout`
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]
@@ -165,6 +173,16 @@ pub mod fitness_config;
 /// estimate its own, [`vo2max_estimate`].
 #[cfg(feature = "tools-config")]
 pub mod physiology;
+
+/// `set_physiology`'s per-sport anchors: each one parsed and range-checked,
+/// and a twin mirrored onto the profile field it stands for (carnet#1496).
+#[cfg(feature = "tools-config")]
+pub(crate) mod physiology_anchors;
+
+/// What the physiology tools echo back: the stored profile with its
+/// per-sport anchors (`tools-config` feature).
+#[cfg(feature = "tools-config")]
+pub mod physiology_output;
 
 /// `import_provider_thresholds` — the athlete's FTP, heart-rate thresholds
 /// and threshold pace from a provider's settings, filled only where the
@@ -243,6 +261,8 @@ pub mod provider_roster;
 pub mod calendar;
 /// `set_preferred_calendar` — the calendar Dravr's plan and workout pushes go to (carnet#1393).
 pub mod calendar_preference;
+/// Who reads a tool call's reply: the one room classifier (carnet#1422).
+mod call_room;
 /// Whose calendar the calendar-write tools write: the caller's own, or a coached athlete's.
 mod coach_scope;
 /// Athlete commitment tools: `commitment_create`, `commitment_cancel` (`tools-memory` feature).
@@ -253,6 +273,9 @@ pub mod guided_flow;
 /// Memory tools: agent-authored fact recall (`tools-memory` feature).
 #[cfg(feature = "tools-memory")]
 pub mod memory;
+/// The provider authorization URL tools mint, and the link a write refused
+/// for an owed grant carries.
+pub mod oauth_authorize;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
 /// recommend_plan_flavour — the profile through the selection rule, and the season it implies.
 pub mod plan_flavour;
@@ -428,7 +451,7 @@ cycle = [
 ]
 
 [presets.run]
-badge = { status = "transposed" }
+badge = { status = "transposed", basis = "Cycling: Rønnestad 2015 [RCT]" }
 cycle = [
   { label = "30 s fast", target = "100-105% vVO2max" },
   { label = "15 s jog", target = "50% vVO2max" },
@@ -442,7 +465,7 @@ readiness_min = "p3"
 params = { reps = { min = 10, max = 25, default = 15 }, sets = { min = 1, max = 3, default = 1 }, work_seconds = { min = 30, max = 30, default = 30 }, rest_seconds = { min = 30, max = 30, default = 30 } }
 
 [presets.ride]
-badge = { status = "transposed" }
+badge = { status = "transposed", basis = "Running: Billat 2000 [acute]" }
 cycle = [
   { label = "30 s hard", target = "115-125% MAP" },
   { label = "30 s float", target = "50% MAP" },

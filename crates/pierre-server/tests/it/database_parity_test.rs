@@ -762,6 +762,13 @@ async fn test_parity_user_onboarding() {
             profile.chosen_channel, None,
             "{backend}: NULL chosen_channel round-trips as None"
         );
+        let written = profile
+            .updated_at
+            .unwrap_or_else(|| panic!("{backend}: updated_at reads as an instant"));
+        assert!(
+            (Utc::now() - written).num_minutes().abs() < 5,
+            "{backend}: updated_at is the engine clock at the write, in UTC: {written}"
+        );
 
         // Isolation: a different user_id (never inserted) sees none of these rows.
         let other_user = Uuid::new_v4().to_string();

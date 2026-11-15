@@ -1,4 +1,4 @@
-// ABOUTME: Admin routes for the per-provider connect order: Strava and Garmin, OAuth first or the account sign-in first
+// ABOUTME: Admin routes for the per-provider connect order: the account sign-in first (default) or the provider's OAuth first
 // ABOUTME: Super-admin only, audited, every order read before a write; `pierre-cli settings connect-order` reaches them
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,8 @@
 
 //! `GET` / `PUT /admin/settings/connect-order` (carnet#1472).
 //!
-//! The order decides which way a NEW Strava or Garmin connection goes first
+//! The order decides which way a NEW connection of each provider with an
+//! account sign-in goes first
 //! ([`pierre_auth::connect_order`]); every replica reads it on the next
 //! provider list, so a flip needs no deploy.
 
@@ -39,7 +40,8 @@ const CONNECT_ORDER_DESCRIPTION: &str = "Which way a NEW connection of each prov
 /// Request to set one provider's connect order.
 #[derive(Debug, Deserialize)]
 pub struct UpdateConnectOrderRequest {
-    /// The provider: `strava` or `garmin`
+    /// The provider: one of `CONNECT_ORDER_PROVIDERS` (`strava`, `garmin`,
+    /// `trainingpeaks`, `coros`)
     pub provider: String,
     /// `oauth_first` or `sign_in_first`
     pub order: String,
@@ -128,7 +130,7 @@ pub(crate) async fn handle_set_connect_order(
     let before = after
         .orders
         .insert(request.provider.clone(), order)
-        .unwrap_or(ConnectOrder::OAuthFirst);
+        .unwrap_or(ConnectOrder::SignInFirst);
     info!(
         provider = %request.provider,
         before = before.as_str(),

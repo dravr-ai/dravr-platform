@@ -15,6 +15,7 @@ import type {
 } from '@pierre/shared-types';
 
 import { useTranslation } from '@pierre/i18n';
+import { EvidenceChip } from './EvidenceChip';
 
 interface WorkoutPlanCardProps {
   plan: WorkoutPlan;
@@ -219,6 +220,17 @@ export function DayRow({ day }: { day: PlanDay }) {
             </Text>
           </Text>
         )}
+        {day.outside_evidence ? (
+          <View className="mt-1 self-start rounded-full bg-warning/15 px-3 py-1">
+            <Text className="text-xs font-medium text-on-warning-container">{day.outside_evidence}</Text>
+          </View>
+        ) : null}
+        {day.evidence ? <EvidenceChip evidence={day.evidence} /> : null}
+        {day.counts_as ? (
+          <Text className="text-sm text-text-secondary mt-0.5" testID="plan-day-counts-as">
+            {day.counts_as}
+          </Text>
+        ) : null}
         {steps.length > 0 ? (
           <Text className="text-sm text-text-secondary mt-0.5">
             <Text className="font-semibold text-text-primary">{t('plan.card.steps')}</Text>{' '}

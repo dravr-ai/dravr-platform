@@ -35,6 +35,7 @@ use axum::{Json, Router};
 use chrono::{Duration, Utc};
 use pierre_auth::api_keys::{ApiKeyManager, ApiKeyTier, CreateApiKeyRequest};
 use pierre_auth::auth::DelegatedGrant;
+use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -486,6 +487,16 @@ async fn the_launch_route_refuses_another_athletes_identity() {
 async fn the_connect_provider_tool_mints_a_delegated_bridges_flow_for_its_athlete_only() {
     let strava = mock_strava().await;
     let (resources, service, executor) = dravr(&strava).await;
+    // An oauth-mode bridge connects through the authorization: the operator's
+    // kill switch puts Strava's OAuth first (the default signs in,
+    // carnet#1494).
+    set_connect_order(
+        resources.common.repos.system_settings.as_ref(),
+        "strava",
+        ConnectOrder::OAuthFirst,
+    )
+    .await
+    .unwrap();
     let (owner_id, owner_tenant, _) = athlete(&resources).await;
     let (other_id, other_tenant, _) = athlete(&resources).await;
 

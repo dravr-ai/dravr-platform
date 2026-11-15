@@ -8,12 +8,11 @@ import React from 'react';
 import { View, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
-import { MENTION_PREFIX } from '@pierre/shared-constants';
+import { COACH_SEAT_KEYS, MENTION_PREFIX, type CoachSeatState } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
 import { InitialsAvatar } from '../../components/ui/InitialsAvatar';
 import { RosterRow } from './RosterRow';
-import { CoachAccessRequest } from '../../components/CoachAccessRequest';
 import type { CoachingGroup } from '../../types';
 
 export interface GroupLeadRowsProps {
@@ -27,11 +26,13 @@ export interface GroupLeadRowsProps {
   /** No member row follows: the coach line draws no hairline under itself. */
   last?: boolean;
   /**
-   * The caller owns this coachless group, coaches others and holds no coach
-   * access: the no-coach line offers the one-tap coach-access request
-   * (carnet#738), whose grant makes them this group's coach.
+   * Where the caller's coach seat stands, when they are offered it
+   * (`canRequestCoachAccess`): the coach line then names them, not yet the
+   * coach or waiting on the team, instead of telling the person who will be
+   * the coach that the group has none. The request itself is Group info's
+   * first block.
    */
-  canRequestCoachAccess?: boolean;
+  seatState?: CoachSeatState | null;
 }
 
 /**
@@ -50,7 +51,7 @@ export function GroupLeadRows({
   onRemoveCoach,
   isRemovingCoach,
   last = false,
-  canRequestCoachAccess = false,
+  seatState = null,
 }: GroupLeadRowsProps) {
   const { t } = useTranslation();
   const colors = useThemeColors();
@@ -83,6 +84,21 @@ export function GroupLeadRows({
           isRemoving={isRemovingCoach}
           last={last}
         />
+      ) : seatState ? (
+        <RosterRow
+          avatar={
+            <View className="w-10 h-10 items-center justify-center">
+              <Feather
+                name={seatState === 'pending' ? 'clock' : 'user'}
+                size={18}
+                color={seatState === 'pending' ? colors.ink.warning : colors.text.tertiary}
+              />
+            </View>
+          }
+          name={seatState === 'pending' ? t(COACH_SEAT_KEYS.rosterPending) : t(COACH_SEAT_KEYS.rosterNotYet)}
+          last={last}
+          testID="group-info-coach-seat"
+        />
       ) : (
         <RosterRow
           // A muted glyph in the avatar column, so the line starts where the
@@ -95,15 +111,10 @@ export function GroupLeadRows({
           // An admin can bring a coach in from the Invites section; a member
           // cannot, so they are told only that there is none.
           name={isAdmin ? t('humanCoach.none') : t('humanCoach.noneMember')}
-          last={last && !canRequestCoachAccess}
+          last={last}
           testID="group-info-no-coach"
         />
       )}
-      {!group.coach_user_id && canRequestCoachAccess ? (
-        <View className="px-4 pb-3" testID="group-info-coach-access">
-          <CoachAccessRequest groupId={group.id} />
-        </View>
-      ) : null}
     </>
   );
 }

@@ -95,6 +95,8 @@ pub mod coach_replies;
 /// The human coach's roster read for Coach Home (carnet#1251)
 #[cfg(feature = "tools-groups")]
 pub mod coach_roster;
+/// A coach's « Préparer ton coaching » checklist while coach access is pending (carnet#1529)
+pub mod coach_setup;
 /// The athlete's in-app feedback thread with the Dravr team (carnet#1235)
 #[cfg(feature = "client-chat")]
 pub mod feedback;

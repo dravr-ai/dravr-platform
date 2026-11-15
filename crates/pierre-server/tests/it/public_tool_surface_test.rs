@@ -43,8 +43,10 @@ use tower::ServiceExt;
 use uuid::Uuid;
 
 /// Design §7's tools kept on Dravr's own surfaces, beyond the coach family:
-/// agent store and CRUD, memory and self-steering.
-pub(crate) const HIDDEN_TOOLS: [&str; 15] = [
+/// agent store and CRUD, memory and self-steering; and the Claude directory
+/// pre-submission set (carnet#1565): the agent reads, the playbook list, the
+/// configuration reads and the two prescriptive nutrition tools.
+pub(crate) const HIDDEN_TOOLS: [&str; 29] = [
     "create_agent",
     "update_agent",
     "activate_agent",
@@ -60,6 +62,20 @@ pub(crate) const HIDDEN_TOOLS: [&str; 15] = [
     "commitment_cancel",
     "remember_fact",
     "forget_playbook",
+    "list_agents",
+    "get_agent",
+    "search_agents",
+    "get_active_agent",
+    "list_hidden_agents",
+    "list_coaching_playbooks",
+    "get_configuration_catalog",
+    "get_configuration_profiles",
+    "get_user_configuration",
+    "validate_configuration",
+    "get_fitness_config",
+    "list_fitness_configs",
+    "calculate_daily_nutrition",
+    "get_nutrient_timing",
 ];
 
 /// The refusals the external client read beside uploaded activities.
@@ -605,7 +621,8 @@ async fn a_short_upload_history_explains_its_empty_training_history() {
     assert_eq!(answer["result"]["isError"], false, "{answer}");
     let result = &answer["result"]["structuredContent"];
     assert_eq!(result["days"], json!([]), "{answer}");
-    let note = result["coverage_note"].as_str().expect("the reason");
+    assert_eq!(result["coverage"]["complete"], false, "{answer}");
+    let note = result["coverage"]["note"].as_str().expect("the reason");
     assert!(note.contains("Stored history only reaches back"), "{note}");
 }
 
@@ -634,5 +651,6 @@ async fn a_deep_upload_history_reads_its_rows_over_mcp() {
             .is_some_and(|days| !days.is_empty()),
         "{answer}"
     );
-    assert!(result["coverage_note"].is_null(), "{answer}");
+    assert_eq!(result["coverage"]["complete"], true, "{answer}");
+    assert!(result["coverage"]["note"].is_null(), "{answer}");
 }

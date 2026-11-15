@@ -41,6 +41,7 @@ use pierre_memory::training_plans::{
     parse_plan_date, GoalRace, PlanPhase, PlanWeek, PlannedDay, WeekStatus, MAX_DAYS_PER_WEEK,
 };
 use pierre_services::agent_package::{load_agent_package, PackagedCatalogue};
+use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::CoachDraftTarget;
 use pierre_services::plan_fueling::FuelingDisclosure;
@@ -58,7 +59,7 @@ use super::training_plan_authorship::{
     agent_title, load_conversation, plan_authors, season_held_refusal,
 };
 use super::training_plan_drafts::{draft_section, save_into_draft, DraftSave};
-use super::training_plan_push::{calendar_block, calendar_preview_after_save};
+use super::training_plan_push::{calendar_after_own_save, calendar_block};
 use super::training_plan_rails::{run_live_plan_rails, LivePlanWrite};
 use super::training_plan_schema::{
     athlete_prop, outline_schema, parse_payload_part, replace_season_prop, string_prop,
@@ -613,7 +614,7 @@ async fn read_plan(
         // — and plan entries of a plan since abandoned, which the
         // block's `pending.remove` counts. A coach may hold a draft of
         // the athlete's first season.
-        let calendar = calendar_block(context, scope, &[], today, &fueling).await?;
+        let calendar = calendar_block(context, scope, &[], today).await?;
         let draft = draft_section(repos, scope, &[], &fueling).await?;
         let message = if draft.is_some() {
             "no live training plan yet — your draft below is not published; the \
@@ -655,13 +656,15 @@ async fn read_plan(
         .filter(|week| week.status == WeekStatus::Active)
         .cloned()
         .collect();
-    let calendar = calendar_block(context, scope, &active_weeks, today, &fueling).await?;
+    let calendar = calendar_block(context, scope, &active_weeks, today).await?;
 
     // Both rails have measured every save since they shipped and
     // reported into a log line no agent reads. Asked for, the same
     // verdict comes back to the agent that has to act on it. A coach's read
-    // takes the athlete's wellness grant to include their recovery.
+    // takes the athlete's wellness grant, and goes on their record (carnet#1445).
     let state = if include_state {
+        let recorded = scope.record_wellness_read(repos, "get_training_plan");
+        recorded.await?;
         Some(plan_state_block(state, repos, scope, &plan, &active_weeks, today).await)
     } else {
         None
@@ -704,7 +707,8 @@ async fn read_plan(
 ///
 /// A coach's `athlete=` save lands in the coach's draft for that athlete,
 /// which the athlete never reads; `publish_training_plan` makes it their live
-/// season and notifies them (carnet#1069).
+/// season and notifies them (carnet#1069). The athlete's own save goes onto
+/// their chosen calendar as it lands (carnet#1492).
 #[derive(Debug)]
 pub struct SaveTrainingPlanTool;
 
@@ -734,9 +738,11 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
         let schema = object_schema(properties, None);
         answers_with::<SaveTrainingPlanResult>(tool_definition(
             "save_training_plan",
-            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving never writes the calendar: when the reply's calendar.stale is true, tell the athlete their calendar no longer matches the plan, and offer push_training_plan only when calendar.pushed_by is absent — when it is human_coach, their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
+            "Persist the plan you agreed with the athlete — the outline and/or day-by-day weeks — in the SAME turn you state it; an unsaved plan is forgotten. The plan is the athlete's one season, shared by every agent they use: weeks saved without an outline attach to it whoever laid it. Send an outline only for a season you laid, or with replace_season when the athlete asked you to re-lay one another agent laid; re-save a week another agent wrote only when the athlete asks. Adjustments re-save only the changed weeks and supersede prospectively; past weeks are immutable. Saving also puts the plan on the athlete's chosen calendar: relay calendar_push when it is not_pushed, and any day it skipped or failed; calendar.pushed_by human_coach means their human coach updates that calendar. A group's human coach saving for a consenting athlete (see `athlete`) writes a draft: the reply says draft: true, and the athlete sees none of it until the coach publishes it with publish_training_plan.",
             schema,
-            annotations("Save training plan", Effect::AdditiveWrite, Reach::Internal),
+            // The athlete's own save reconciles their calendar, removing the
+            // days Dravr put there that the plan dropped (carnet#1492).
+            annotations("Save training plan", Effect::Destructive, Reach::AthleteAccount),
         ))
     }
 
@@ -960,7 +966,10 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                 .map_or(0, Vec::len);
             check_phase_indexes(&weeks, phase_count)?;
             check_template_slugs(&catalogue, repos, tenant, scope.user_id, &mut weeks).await?;
-            instantiate_template_days(&catalogue, &mut weeks)?;
+            // Measured on the athlete's own anchors, a coach's save included:
+            // the plan is the athlete's, so are the numbers its targets sit on.
+            let anchors = stored_athlete_anchors(repos, tenant, scope.user_id).await?;
+            instantiate_template_days(&catalogue, &mut weeks, anchors.as_ref())?;
             let envelope = PlanEnvelopeReport::from_days(weeks.iter().flat_map(|w| &w.days));
             let fueling = FuelingDisclosure::for_athlete(repos, tenant, scope.user_id).await?;
             fueling.refuse_figures(weeks.iter().flat_map(|week| &week.days))?;
@@ -1078,16 +1087,14 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
             )
             .await;
 
-            // The save is committed; if the calendar already carries this
-            // plan, say what a push would now change so the athlete learns
-            // the calendar is behind — without pushing on anyone's behalf.
-            let calendar = calendar_preview_after_save(
+            // The save is committed, and goes onto the athlete's chosen
+            // calendar; the save stands whatever the push comes to.
+            let (calendar_push, calendar) = Box::pin(calendar_after_own_save(
                 &context,
                 &scope,
                 &bundle.plan.id,
                 rails.today,
-                &fueling,
-            )
+            ))
             .await;
 
             let week_ids = saved_weeks(&bundle.weeks);
@@ -1107,6 +1114,7 @@ impl McpTool<dyn ToolRuntime> for SaveTrainingPlanTool {
                     goal_fact_id,
                     weeks_saved: week_ids.len(),
                     weeks: week_ids,
+                    calendar_push,
                     calendar,
                     draft: false,
                     message: None,
@@ -1128,7 +1136,11 @@ pub fn create_training_plan_tools() -> Vec<Box<dyn RuntimeTool>> {
 }
 
 crate::declare_security!(GetTrainingPlanTool => empty);
-crate::declare_security!(SaveTrainingPlanTool => empty);
+// The athlete's own save deletes on the provider the entries the plan dropped
+// (carnet#1492), so it spends the per-turn destructive budget as a push does:
+// the cap keeps a save loop off the calendar. A refused save refunds it; a
+// coach's draft save spends one too, since the label is the tool's.
+crate::declare_security!(SaveTrainingPlanTool => IRREVERSIBLE);
 
 #[cfg(test)]
 mod tests {

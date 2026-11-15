@@ -159,6 +159,7 @@ async fn test_email_validation() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -356,6 +357,7 @@ async fn test_password_validation() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -525,6 +527,7 @@ async fn test_duplicate_user_registration() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -684,6 +687,7 @@ async fn test_login_with_correct_credentials() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -899,6 +903,7 @@ async fn test_login_with_wrong_password() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1066,6 +1071,7 @@ async fn test_login_with_non_existent_user() {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

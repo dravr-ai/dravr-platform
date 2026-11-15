@@ -9,6 +9,7 @@ import { AppState, type AppStateStatus } from 'react-native';
 import { useIsFocused } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
+import { invalidateNotificationReads } from '@pierre/ui-logic';
 import { chatApi } from '../../services/api';
 import { patchCachedConversation } from '../conversations/useConversationList';
 
@@ -75,7 +76,11 @@ export function useMarkConversationRead({
         markedRef.current = null;
         console.error('Failed to mark conversation read:', err);
       }
-      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() });
+      // Reading the thread also marked its notifications read on the server.
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: QUERY_KEYS.chat.conversations() }),
+        invalidateNotificationReads(queryClient),
+      ]);
     },
     [queryClient],
   );

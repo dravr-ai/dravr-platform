@@ -51,12 +51,14 @@ use pierre_core::constants::oauth::providers::{
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthToken};
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::backend_resolver;
 use pierre_providers::sciotte_session;
 use pierre_providers::token_writeback::StoredTokenRow;
 use secrecy::SecretString;
 use std::fmt;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
@@ -82,6 +84,7 @@ const CLONEABLE_BACKENDS: [&str; 2] = [SCIOTTE, SCIOTTE_GARMIN];
 /// written.
 pub async fn persist_sciotte_session(
     repos: &RepositoryRegistry,
+    purge: &Arc<dyn ProviderPurge>,
     cache: &Cache,
     user_id: Uuid,
     tenant_id: TenantId,
@@ -108,7 +111,7 @@ pub async fn persist_sciotte_session(
     };
 
     if provider_name == SCIOTTE_TRAININGPEAKS {
-        supersede_delegated_link(repos, user_id, tenant_id, provider_name).await?;
+        supersede_delegated_link(repos, purge, user_id, tenant_id, provider_name).await?;
     }
 
     repos.oauth_tokens.upsert_token(&token).await?;

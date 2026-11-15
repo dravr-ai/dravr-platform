@@ -24,7 +24,7 @@ vi.mock('../../services/api', () => ({
 }));
 vi.mock('../OAuthAppSetupModal', () => ({ default: () => null }));
 
-function renderModal(props: { historyMode?: boolean; onPlanChanged?: () => void } = {}) {
+function renderModal(props: { historyMode?: boolean } = {}) {
   return render(
     <ThemeProvider>
       <SciotteLoginModal isOpen onClose={vi.fn()} onConnected={vi.fn()} target="garmin" {...props} />
@@ -68,31 +68,14 @@ describe('SciotteLoginModal — the one-time history copy', () => {
     expect(screen.queryByText(i18n.t('providers.history.modalCopying'))).not.toBeInTheDocument();
   });
 
-  it('words an oauth_required refusal and reloads the cards, so the next tap takes the authorization', async () => {
-    sciotteLogin.mockRejectedValue({
-      response: { status: 403, data: { code: 'PermissionDenied', message: 'x', details: { reason: 'oauth_required' } } },
-    });
-    const onPlanChanged = vi.fn();
-    renderModal({ onPlanChanged });
-
-    await signIn();
-
-    expect(
-      await screen.findByText(i18n.t('hosted.common.signInOauthRequired').split('{0}').join('Garmin')),
-    ).toBeInTheDocument();
-    expect(onPlanChanged).toHaveBeenCalledTimes(1);
-  });
-
-  it('reloads nothing on any other refusal', async () => {
+  it('shows a refused sign-in in the window, for another try', async () => {
     sciotteLogin.mockRejectedValue({
       response: { status: 401, data: { code: 'AuthInvalid', message: 'bad', details: { reason: 'rejected' } } },
     });
-    const onPlanChanged = vi.fn();
-    renderModal({ onPlanChanged });
+    renderModal();
 
     await signIn();
 
     expect(await screen.findByRole('button', { name: /try again|retry/i })).toBeInTheDocument();
-    expect(onPlanChanged).not.toHaveBeenCalled();
   });
 });

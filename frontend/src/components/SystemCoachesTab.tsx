@@ -4,7 +4,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { Agent, User } from '../types/api';
@@ -13,6 +13,7 @@ import { clsx } from 'clsx';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { useDialog } from '../hooks/useDialog';
 
 // The select submits the slug the API stores, so an edited agent's own
 // category matches an option.
@@ -64,6 +65,14 @@ export default function SystemCoachesTab() {
   const [formData, setFormData] = useState<AgentFormData>(defaultFormData);
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const closeAssignModal = () => {
+    setShowAssignModal(false);
+    setSelectedUserIds([]);
+  };
+  const assignTitleId = useId();
+  // Focus trap, focus restore, Escape and the scroll lock: one layer on the
+  // same stack as every other dialog.
+  const { containerRef: assignModalRef } = useDialog({ open: showAssignModal, onClose: closeAssignModal });
 
   // Fetch system agents
   const { data: coachesData, isLoading: coachesLoading } = useQuery({
@@ -586,10 +595,17 @@ export default function SystemCoachesTab() {
 
       {/* Assign Users Modal */}
       {showAssignModal && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+        <div
+          ref={assignModalRef}
+          tabIndex={-1}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby={assignTitleId}
+          className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 focus:outline-none"
+        >
           <div className="bg-surface-container-low rounded-xl max-w-lg w-full mx-4 max-h-[80vh] flex flex-col border ghost-border">
             <div className="p-6 border-b ghost-border">
-              <h3 className="text-lg font-semibold text-on-surface">Assign Users to Agent</h3>
+              <h3 id={assignTitleId} className="text-lg font-semibold text-on-surface">Assign Users to Agent</h3>
               <p className="text-sm text-on-surface-variant mt-1">
                 Select users to give access to "{selectedCoach.title}"
               </p>
@@ -647,13 +663,7 @@ export default function SystemCoachesTab() {
                 {selectedUserIds.length} user{selectedUserIds.length !== 1 ? 's' : ''} selected
               </span>
               <div className="flex items-center gap-3">
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setShowAssignModal(false);
-                    setSelectedUserIds([]);
-                  }}
-                >
+                <Button variant="secondary" onClick={closeAssignModal}>
                   Cancel
                 </Button>
                 <Button

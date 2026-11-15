@@ -226,14 +226,16 @@ pub fn render_reply(
             ReplyBlock::Notice {
                 kind: NoticeKind::QuotaWarning(warning),
             } => prose.push(quota_warning_line(registry, locale, warning)),
-            // An inline Scene, a plan card, an activity panel and verdict
-            // chips are all gated on a `BlockSupport` field that is false for
-            // every messaging surface, so the pipeline folded their content
-            // into the prose above rather than emitting them.
+            // An inline Scene, a plan card, an activity panel, verdict chips
+            // and the envelope notice are all gated on a `BlockSupport` field
+            // that is false for every messaging surface, so the pipeline
+            // folded their content into the prose above rather than emitting
+            // them.
             ReplyBlock::Scene { .. }
             | ReplyBlock::WorkoutPlan { .. }
             | ReplyBlock::ActivityList { .. }
-            | ReplyBlock::Verdicts { .. } => {}
+            | ReplyBlock::Verdicts { .. }
+            | ReplyBlock::EnvelopeNotice { .. } => {}
         }
     }
 

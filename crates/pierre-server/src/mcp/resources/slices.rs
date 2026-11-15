@@ -83,6 +83,7 @@ use pierre_contremaitre::{
 };
 use pierre_core::billing::BillingProvider;
 use pierre_database::backends::factory::Database;
+use pierre_database::repositories::ProviderPurge;
 use pierre_database::views::{AgentRepos, AuthRepos, FitnessRepos, UsageRepos};
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
@@ -101,6 +102,7 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
+use pierre_services::live_activities::LiveActivityStore;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
@@ -149,6 +151,12 @@ pub struct CommonSlice {
     /// stores, the guarded fetcher and the step runner, or the reason imports
     /// are not available on this deployment. Chosen once at boot.
     pub archive_imports: ArchiveImports,
+    /// The one write path of every live provider read: barrage keeps the
+    /// record, the cache readers read its projection (carnet#1482).
+    pub live_activities: Arc<dyn LiveActivityStore>,
+    /// The one provider data purge: the tables, then the live store's
+    /// records of the provider (carnet#1482).
+    pub provider_purge: Arc<dyn ProviderPurge>,
     /// The files athletes uploaded, kept in the deployment's blob store
     /// (the one archive imports keep their originals in), or the reason no
     /// blob store is placed here. Chosen once at boot.

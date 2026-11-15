@@ -4,8 +4,6 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-use axum::response::{IntoResponse, Response};
-use axum::Json;
 use chrono::{Duration as ChronoDuration, Utc};
 use dravr_sciotte::models::AuthSession;
 use pierre_core::constants::oauth_providers::SCIOTTE_TRAININGPEAKS;
@@ -36,9 +34,10 @@ const SESSION_REUSE_WINDOW: ChronoDuration = ChronoDuration::minutes(2);
 /// What a credential login does with the session stored for its provider.
 pub(crate) enum StoredSessionUse {
     /// The session was written within [`SESSION_REUSE_WINDOW`] and is not
-    /// observed dead (see [`SessionHealth`]): the login is answered from it,
-    /// with this response.
-    Reused(Response),
+    /// observed dead (see [`SessionHealth`]): the login is answered from it
+    /// (`crate::sign_in_grant::connected_response`, `short_circuit`), with
+    /// the grant authorization it still goes on to.
+    Reused,
     /// The login signs in with the credentials submitted.
     SignIn {
         /// The caller's own stored session, sent to seed the login browser,
@@ -245,12 +244,5 @@ pub(crate) async fn stored_session_use(
             ),
         }
     }
-    Ok(StoredSessionUse::Reused(
-        Json(serde_json::json!({
-            "status": "connected",
-            "provider": provider_name,
-            "short_circuit": true,
-        }))
-        .into_response(),
-    ))
+    Ok(StoredSessionUse::Reused)
 }

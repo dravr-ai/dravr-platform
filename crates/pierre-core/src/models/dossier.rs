@@ -12,7 +12,7 @@ use serde_json::Value;
 use uuid::Uuid;
 
 use super::zones::{HrZoneSet, PowerZoneSet};
-use super::{Pillar, UserPhysiologicalProfile};
+use super::{Pillar, SportAnchor, UserPhysiologicalProfile};
 
 /// A single pillar-context fact projected onto the dossier.
 ///
@@ -79,6 +79,13 @@ pub struct Dossier {
     /// `threshold_provenance`.
     pub physiology: Option<UserPhysiologicalProfile>,
 
+    /// Per-sport anchors stored beside the profile, each with the range it
+    /// stands for, kind, origin, day, method and confidence (carnet#1496).
+    /// Read only beside a profile the caller may see; empty when none is
+    /// stored. Quote a low-confidence one as a range or an estimate.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sport_anchors: Vec<SportAnchor>,
+
     /// Heart-rate zone definitions.
     ///
     /// `None` until `set_physiology` derives them, which it does as soon as
@@ -130,6 +137,7 @@ impl Dossier {
             user_id,
             tenant_id,
             physiology: None,
+            sport_anchors: Vec::new(),
             hr_zones: None,
             power_zones: None,
             goals: Vec::new(),

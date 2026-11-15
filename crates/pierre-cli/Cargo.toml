@@ -26,7 +26,6 @@ tools-verification = ["dep:pierre-evals", "pierre-services/tools-verification", 
 # the pierre-cli it ships has no such command.
 e2e-seeded-sessions = [
     "dep:pierre-cache",
-    "dep:pierre-config",
     "dep:pierre-providers",
     "dep:pierre-runtime-context",
 ]
@@ -38,7 +37,9 @@ pierre-auth = { version = "0.3.0", path = "../pierre-auth" }
 # AuthService: its cache, configuration, provider registry and data context,
 # the way a booting server builds them.
 pierre-cache = { version = "0.3.0", path = "../pierre-cache", optional = true }
-pierre-config = { version = "0.3.0", path = "../pierre-config", optional = true }
+# Also the database URL `seed coach-home` opens the activity store's record
+# store on, as the server does.
+pierre-config = { version = "0.3.0", path = "../pierre-config" }
 pierre-providers = { version = "0.3.0", path = "../pierre-providers", optional = true }
 pierre-runtime-context = { version = "0.3.0", path = "../pierre-runtime-context", optional = true }
 pierre-agent-parser = { version = "0.3.0", path = "../pierre-agent-parser" }

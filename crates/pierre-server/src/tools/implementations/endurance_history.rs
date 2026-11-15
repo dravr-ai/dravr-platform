@@ -12,6 +12,7 @@ use async_trait::async_trait;
 use chrono::{Duration, NaiveDate, NaiveTime};
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow, IncompleteReason};
 use pierre_core::models::{
     DailyTrainingState, FormBand, FormInterpretation, FormReading, TenantId,
 };
@@ -32,8 +33,8 @@ use pierre_tool_runtime::conversions::{
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tool_runtime::training_history_compute::{
-    compute_and_persist_history, default_window, history_rows_for_model, read_history_from_cache,
-    HistoryCoverage, TrainingHistoryComputed, DEFAULT_BACKFILL_DAYS,
+    compute_and_persist_history, default_window, history_rows_for_model, history_walk_pending,
+    read_history_from_cache, TrainingHistoryComputed, DEFAULT_BACKFILL_DAYS,
 };
 use pierre_tools_core::ToolResult;
 
@@ -75,23 +76,25 @@ pub struct TrainingHistoryResult {
     pub days: Vec<TrainingHistoryDay>,
     /// Each service a session in the window came from, with the last day it
     /// delivered one there. Empty when no session in the window is readable.
-    pub sources: Vec<HistorySource>,
+    pub sources: Vec<DeliveringService>,
     /// The consecutive days ending on `to` whose form fell in deep fatigue,
     /// oldest first. Empty when `to` has no row or its form is not deep
     /// fatigue. A run describes accumulated fatigue relative to fitness, not
     /// overtraining.
     pub deep_fatigue_mornings: Vec<DeepFatigueMorning>,
-    /// Why `days` stops short of the window, when it does: the stored history
-    /// does not reach far enough to warm those days. `None` when the rows
-    /// answer the whole ask.
-    pub coverage_note: Option<String>,
+    /// How much of the window `days` answers: `complete` when the rows
+    /// answer the whole ask; otherwise why not (the stored history does not
+    /// reach far enough to warm the earlier days, or nothing is stored), the
+    /// first day the rows stand behind, the history walk still owed for the
+    /// missing depth (`pending`), and the `note` saying what may be cited.
+    pub coverage: Coverage,
     /// What the numbers mean and how they were computed.
     pub interpretation: FormInterpretation,
 }
 
 /// A service the rows' sessions came from.
 #[derive(Debug, Serialize, schemars::JsonSchema)]
-pub struct HistorySource {
+pub struct DeliveringService {
     /// The service's key, as `connect_provider` takes it.
     pub provider: String,
     /// The service as the athlete knows it.
@@ -110,20 +113,20 @@ pub struct DeepFatigueMorning {
     pub tsb_pct_of_ctl: Option<f64>,
 }
 
-/// Sessions read for [`history_sources`]: a window of daily rows holds far
+/// Sessions read for [`delivering_services`]: a window of daily rows holds far
 /// fewer, and only the newest of each service counts.
 const SOURCE_READ_LIMIT: i64 = 500;
 
 /// The services the window's sessions came from, newest delivery first, as
 /// the call may read them: a provider whose terms or the athlete's consent
 /// keep its sessions from the reader is not named.
-async fn history_sources(
+async fn delivering_services(
     resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
     from: NaiveDate,
     to: NaiveDate,
-) -> AppResult<Vec<HistorySource>> {
+) -> AppResult<Vec<DeliveringService>> {
     let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
     let start = (from - Duration::days(1))
         .and_time(NaiveTime::MIN)
@@ -146,9 +149,9 @@ async fn history_sources(
             .and_modify(|latest| *latest = (*latest).max(day))
             .or_insert(day);
     }
-    let mut sources: Vec<HistorySource> = last
+    let mut sources: Vec<DeliveringService> = last
         .into_iter()
-        .map(|(provider, day)| HistorySource {
+        .map(|(provider, day)| DeliveringService {
             brand: resources
                 .provider_registry()
                 .get_display_name(&provider)
@@ -205,11 +208,10 @@ pub struct ComputeTrainingHistoryResult {
     /// First day the caller asked for, as `YYYY-MM-DD`. Differs from `from`
     /// when stored history was too shallow to warm the whole window.
     pub requested_from: String,
-    /// Whether every requested day was backed by enough stored history.
-    pub complete: bool,
-    /// What the agent may and may not claim when coverage fell short. `None`
-    /// when the whole window was computed.
-    pub coverage_note: Option<String>,
+    /// Whether every requested day was backed by enough stored history, the
+    /// history walk still owed when not (`pending`), and the `note` saying
+    /// what the agent may and may not claim.
+    pub coverage: Coverage,
     /// Whether a background capture of the missing history was started.
     pub capture_requested: bool,
 }
@@ -221,44 +223,25 @@ impl From<TrainingHistoryComputed> for ComputeTrainingHistoryResult {
             to: c.to.format("%Y-%m-%d").to_string(),
             rows_upserted: c.rows_upserted,
             requested_from: c.requested_from.format("%Y-%m-%d").to_string(),
-            complete: c.is_complete(),
-            coverage_note: coverage_note(c.coverage, c.requested_from, c.to, c.capture_requested),
+            coverage: c.coverage,
             capture_requested: c.capture_requested,
         }
     }
 }
 
-/// The instruction an agent needs when the stored history could not cover the ask.
-///
-/// Says what is missing and forbids estimating it. A fitness number the athlete
-/// cannot trace to their own training is worse than an admission that it is
-/// still being fetched.
-fn coverage_note(
-    coverage: HistoryCoverage,
-    requested_from: NaiveDate,
-    to: NaiveDate,
-    capture_requested: bool,
-) -> Option<String> {
-    let fetching = if capture_requested {
-        " Their history is being fetched in the background; say so."
-    } else {
-        ""
-    };
-    match coverage {
-        HistoryCoverage::Complete => None,
-        HistoryCoverage::NoStoredActivities => Some(format!(
-            "No stored activities cover {requested_from} to {to}, so no CTL/ATL/TSB rows were \
-             computed and no fitness figure exists for this athlete yet. Do not \
-             estimate one and do not describe their chronic load. Answer from \
-             the activities you can actually see.{fetching}"
-        )),
-        HistoryCoverage::Partial { trustworthy_from } => Some(format!(
-            "Stored history only reaches back far enough to compute from {trustworthy_from} \
-             onward, so days between {requested_from} and {trustworthy_from} have no rows and no \
-             fitness figure. Cite CTL/ATL/TSB only for {trustworthy_from} onward, and do not \
-             infer values for the earlier part of the window.{fetching}"
-        )),
+/// `coverage` with the history walk still owed for it, when it falls short.
+async fn with_pending(
+    resources: &Arc<dyn ToolRuntime>,
+    (tenant_id, user_id): (TenantId, Uuid),
+    coverage: Coverage,
+) -> AppResult<Coverage> {
+    if coverage.is_complete() {
+        return Ok(coverage);
     }
+    Ok(Coverage {
+        pending: history_walk_pending(resources, tenant_id, user_id).await?,
+        ..coverage
+    })
 }
 
 fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
@@ -416,7 +399,11 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
              against the FTP and threshold heart rate saved with set_physiology; a save that \
              changes either recomputes the rows.",
             schema,
-            annotations("Get training history", Effect::ReadOnly, Reach::Internal),
+            annotations(
+                "Get training history",
+                Effect::ReadOnly,
+                Reach::AthleteAccount,
+            ),
         ))
     }
 
@@ -449,19 +436,50 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                 rows = history_rows_for_model(&context.resources, tenant_id, user_id, from, to)
                     .await?;
             }
-            // No persisted row: the read a page makes says why, and answers
-            // from the stored sessions when they do warm the window. It writes
-            // nothing and asks no capture, so a read-only grant stays one.
-            // Without it, an athlete with too short a history read `days: []`
-            // beside a fitness score computed from the same sessions.
-            let mut note = None;
-            if rows.is_empty() {
+            // No persisted row, or rows that start after `from`: the read a
+            // page makes says why, and answers from the stored sessions when
+            // they do warm the window. The rollup holds only the days some
+            // compute vouched for, so rows that start late cannot tell a
+            // history too short to warm the window from a window never
+            // computed; the stored sessions can, and the rows and their
+            // coverage then come from that one read, unless it warms no day
+            // the rollup does. It writes no row, so a read-only grant stays
+            // one. Without it, an athlete with too short a history read
+            // `days: []` beside a fitness score computed from the same
+            // sessions. A window short of history then reads the walk
+            // owed for it, and asks one where none ever ran: a background
+            // capture of the athlete's account, as `get_activities` asks for a
+            // deep window it does not hold.
+            let coverage = if rows.first().is_some_and(|row| row.date <= from) {
+                Coverage::complete(CoverageWindow {
+                    asked_from: Some(from),
+                    asked_to: Some(to),
+                    returned: u64::try_from(rows.len()).unwrap_or(u64::MAX),
+                    ..CoverageWindow::default()
+                })
+            } else {
                 let read =
                     read_history_from_cache(&context.resources, tenant_id, user_id, from, to)
                         .await?;
-                note = coverage_note(read.coverage, from, to, false);
-                rows = read.states;
-            }
+                // Rows the stored sessions do warm answer the window, with the
+                // read's coverage. When they warm none, what the rollup holds
+                // still answers, and the coverage says so: the window is short,
+                // and stands behind the rollup from its first row on — never
+                // that nothing was computed, nor a first day past those rows.
+                let mut coverage = match rows.first() {
+                    Some(first) if read.states.is_empty() => Coverage {
+                        completeness: Completeness::Incomplete(IncompleteReason::ShallowHistory),
+                        trustworthy_from: Some(first.date),
+                        ..read.coverage
+                    },
+                    _ => {
+                        rows = read.states;
+                        read.coverage
+                    }
+                };
+                coverage.window.returned = u64::try_from(rows.len()).unwrap_or(u64::MAX);
+                with_pending(&context.resources, (tenant_id, user_id), coverage).await?
+            };
 
             // Every row carries its own form reading, and the payload carries
             // the method that produced it. This is the tool the endurance agent
@@ -481,7 +499,8 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                 })
                 .collect();
             let deep_fatigue_mornings = deep_fatigue_run(&days, to);
-            let sources = history_sources(&context.resources, tenant_id, user_id, from, to).await?;
+            let sources =
+                delivering_services(&context.resources, tenant_id, user_id, from, to).await?;
 
             ok_typed(
                 "get_training_history",
@@ -491,7 +510,7 @@ impl McpTool<dyn ToolRuntime> for GetTrainingHistoryTool {
                     days,
                     sources,
                     deep_fatigue_mornings,
-                    coverage_note: note,
+                    coverage,
                     interpretation: FormReading::interpretation(
                         params.training_load_ctl_days,
                         params.training_load_atl_days,

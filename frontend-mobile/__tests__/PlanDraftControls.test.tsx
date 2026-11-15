@@ -180,6 +180,36 @@ describe("a coach's draft on the phone's plan card", () => {
     );
     expect(mockPublish).toHaveBeenCalledWith(CONVERSATION_ID, { overwrite_athlete_changes: false });
     expect(screen.queryByTestId('plan-draft-discard')).toBeNull();
+    expect(screen.queryByTestId('plan-draft-calendar-push')).toBeNull();
+  });
+
+  it('says whether the published plan reached the athlete’s calendar, in the coach’s words', async () => {
+    mockPublish.mockResolvedValue({
+      status: 'published',
+      published: {
+        plan_id: 'plan-2',
+        superseded_plan_id: null,
+        athlete_notified: true,
+        calendar_push: {
+          status: 'pushed',
+          report: {
+            provider: 'intervals_icu',
+            created: 2,
+            updated: 0,
+            removed: 0,
+            skipped: [{ date: '2026-11-15', name: 'Tempo' }],
+            failed: [],
+          },
+        },
+      },
+    });
+    const screen = renderThread();
+
+    fireEvent.press(await screen.findByTestId('plan-draft-publish'));
+
+    expect(await screen.findByTestId('plan-draft-calendar-push')).toHaveTextContent(
+      "It's on Alice Runner's calendar, except some days that were edited there or couldn't be written. Ask the agent here which.",
+    );
   });
 
   it('shows what a refused publish collided with, and publishes anyway on request', async () => {

@@ -1,5 +1,5 @@
-// ABOUTME: Tests for Group info inside chat — who runs the group, consent, roster, settings, the digest, the exits, the coach's view
-// ABOUTME: Carries over the GroupDetail cases: the caller's OWN consent row, and the tier-gated report
+// ABOUTME: Tests for Group info inside chat, ordered by its reader — the owner offered the seat, the coach, an athlete
+// ABOUTME: Consent bound to the caller's OWN row, autosaved settings, the folded week and room, quiet exits behind confirms
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,6 +10,7 @@ import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import GroupInfoPanel from '../GroupInfoPanel';
 import { ToastProvider } from '../../ui';
+import { ThemeProvider } from '../../../hooks/useTheme';
 import type {
   CoachConsentsResponse,
   CoachingGroup,
@@ -78,6 +79,7 @@ vi.mock('../../../services/api', () => ({
     updateGroup: vi.fn(),
     updatePeerConsent: vi.fn(),
     getCoachSharing: vi.fn(),
+    getCoachReads: vi.fn(),
     updateCoachSharing: vi.fn(),
     leaveGroup: vi.fn(),
     deleteGroup: vi.fn(),
@@ -96,6 +98,11 @@ vi.mock('../../../services/api', () => ({
     updateCoachConsents: vi.fn(),
     endDelegatedConnection: vi.fn(),
   },
+  // The seat block's coaching-platform rows reach these only when tapped.
+  oauthApi: {
+    sciotteCancel: vi.fn(),
+    authorizeUrl: vi.fn(),
+  },
   providersApi: {
     getProvidersStatus: vi.fn(),
   },
@@ -103,6 +110,7 @@ vi.mock('../../../services/api', () => ({
     getOnboardingStatus: vi.fn(),
     getCoachAccessRequest: vi.fn(),
     requestCoachAccess: vi.fn(),
+    cancelCoachAccessRequest: vi.fn(),
   },
   chatApi: {
     openAthleteThread: vi.fn(),
@@ -120,7 +128,7 @@ vi.mock('../../../hooks/useAuth', () => ({
   useAuth: () => ({ user: authUser }),
 }));
 
-const { chatApi, groupsApi, userApi } = await import('../../../services/api');
+const { chatApi, groupsApi, providersApi, userApi } = await import('../../../services/api');
 
 /** The onboarding status, answering whether the caller coaches others. */
 function onboardingStatus(coachesOthers: boolean) {
@@ -175,23 +183,27 @@ function member(overrides: Partial<GroupMember> = {}): GroupMember {
 function renderPanel(units: DistanceUnit = 'metric') {
   const onMembershipEnded = vi.fn();
   const onOpenConversation = vi.fn();
+  const onOpenCoachHome = vi.fn();
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   const utils = render(
     <QueryClientProvider client={queryClient}>
-      <UnitsContext.Provider value={units}>
-        <ToastProvider>
-          <GroupInfoPanel
-            groupId={GROUP_ID}
-            onMembershipEnded={onMembershipEnded}
-            onOpenConversation={onOpenConversation}
-          />
-        </ToastProvider>
-      </UnitsContext.Provider>
+      <ThemeProvider>
+        <UnitsContext.Provider value={units}>
+          <ToastProvider>
+            <GroupInfoPanel
+              groupId={GROUP_ID}
+              onMembershipEnded={onMembershipEnded}
+              onOpenConversation={onOpenConversation}
+              onOpenCoachHome={onOpenCoachHome}
+            />
+          </ToastProvider>
+        </UnitsContext.Provider>
+      </ThemeProvider>
     </QueryClientProvider>,
   );
-  return { ...utils, onMembershipEnded, onOpenConversation };
+  return { ...utils, onMembershipEnded, onOpenConversation, onOpenCoachHome };
 }
 
 describe('GroupInfoPanel', () => {
@@ -200,6 +212,7 @@ describe('GroupInfoPanel', () => {
     authUser.manages_roster = undefined;
     vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(false));
     vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: null });
+    vi.mocked(providersApi.getProvidersStatus).mockResolvedValue({ providers: [] } as never);
     vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.getCoachConsents).mockResolvedValue(coachConsents());
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
@@ -218,14 +231,14 @@ describe('GroupInfoPanel', () => {
     });
     vi.mocked(groupsApi.getStats).mockResolvedValue({
       stats: {
-        total_members: 2,
+        total_members: 3,
         active_members: 2,
         avg_weekly_volume_km: 41.5,
         avg_ctl: 55,
         flagged_members: 0,
         weekly_trend: 'stable',
       },
-      scope: { visible_members: 2, roster_members: 2 },
+      scope: { visible_members: 3, roster_members: 3 },
     });
     vi.mocked(groupsApi.getPermissions).mockResolvedValue({
       can_create: true,
@@ -268,6 +281,7 @@ describe('GroupInfoPanel', () => {
     });
     vi.mocked(groupsApi.updatePeerConsent).mockResolvedValue(undefined);
     vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true });
+    vi.mocked(groupsApi.getCoachReads).mockResolvedValue({ reads: [], retention_months: 12 });
     vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => request);
     vi.mocked(groupsApi.updateGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.deleteGroup).mockResolvedValue(undefined);
@@ -288,12 +302,67 @@ describe('GroupInfoPanel', () => {
     expect(await screen.findByText('Members: 2')).toBeInTheDocument();
   });
 
-  it('names the AI agent and the human coach above the members for a plain member', async () => {
+  describe('ordered by who reads it (carnet#1527)', () => {
+    it('leads the owner offered the seat with the block, then who is here, then the folded rows and the quiet exit', async () => {
+      renderPanel();
+
+      const block = await screen.findByTestId('coach-seat-block');
+      const people = screen.getByTestId('group-info-people');
+      const more = screen.getByTestId('group-info-more');
+      const exit = screen.getByTestId('group-info-delete');
+      expect(block.compareDocumentPosition(people) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(people.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(more.compareDocumentPosition(exit) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The invite link sits under who is here, not in the settings.
+      expect(within(people).getByTestId('invite-manager')).toBeInTheDocument();
+    });
+
+    it("leads the group's coach with their athlete, then the planning connections, then the agent", async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+      );
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({
+        members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' })],
+      });
+      vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+      renderPanel();
+
+      const athletes = await screen.findByTestId('group-info-athletes');
+      expect(within(athletes).getByRole('heading', { name: 'Your athlete' })).toBeInTheDocument();
+      const connections = await screen.findByTestId('delegation-section');
+      const agent = screen.getByTestId('group-info-agent-section');
+      expect(athletes.compareDocumentPosition(connections) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(connections.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      // The agent's section says how it replies, read in place.
+      expect(within(agent).getByTestId('group-info-agent-replies')).toHaveTextContent('Replies in the roomTo every message');
+      expect(screen.queryByTestId('group-info-people')).toBeNull();
+    });
+
+    it('leads an athlete with who is here and what they see, then their own sharing', async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+      );
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+      renderPanel();
+
+      const people = await screen.findByTestId('group-info-people');
+      const sharing = await screen.findByTestId('group-info-sharing');
+      expect(people.compareDocumentPosition(sharing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      expect(screen.queryByTestId('coach-seat-block')).toBeNull();
+      expect(screen.queryByTestId('group-info-athletes')).toBeNull();
+    });
+  });
+
+  it('names the AI agent and the human coach above the members for a plain member, and says what each sees', async () => {
     vi.mocked(groupsApi.getGroup).mockResolvedValue(
       sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
     );
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
-      members: [member({ role: 'member' })],
+      members: [
+        member({ role: 'member' }),
+        member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Other' }),
+      ],
     });
     renderPanel();
 
@@ -308,13 +377,39 @@ describe('GroupInfoPanel', () => {
     expect(screen.queryByTestId('group-info-no-coach')).toBeNull();
     // The header names the coach instead of only saying one is attached.
     expect(screen.getByTestId('group-info-coach-badge')).toHaveTextContent('Coach Casey Coach');
-    // Both rows lead the roster: they sit before the member table.
-    const table = await screen.findByRole('table');
-    expect(agent.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(coach.compareDocumentPosition(table) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Both rows lead the roster: they sit before the members.
+    const list = await screen.findByTestId('member-list');
+    expect(coach.compareDocumentPosition(agent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(agent.compareDocumentPosition(list) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // What each of them sees, as the group really is: sharing on, the agent replying to every message.
+    expect(await screen.findByTestId('who-sees-coach')).toHaveTextContent(
+      'Casey Coach sees your training, your plan and your messages here.',
+    );
+    expect(screen.getByTestId('who-sees-agent')).toHaveTextContent('Marathon Coach reads the room and replies to every message.');
+    expect(screen.getByTestId('who-sees-plan')).toHaveTextContent(
+      'Casey Coach prepares your plan with Marathon Coach in a private thread. You see what Casey Coach publishes.',
+    );
+  });
+
+  it("says what the coach stops seeing once the athlete's sharing is off, and how a mention-only agent answers", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID, coach_display_name: 'Casey Coach', respond_mode: 'mentions' }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: false });
+    renderPanel();
+
+    expect(await screen.findByTestId('who-sees-coach')).toHaveTextContent(
+      "Casey Coach doesn't see your training, your plan or your messages here while your sharing is off.",
+    );
+    expect(screen.getByTestId('who-sees-agent')).toHaveTextContent(
+      'Marathon Coach follows the room and replies when you mention it with @marathon-coach.',
+    );
   });
 
   it('says the group has no human coach yet when none is attached', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
     renderPanel();
 
     expect(await screen.findByTestId('group-info-no-coach')).toHaveTextContent(
@@ -322,9 +417,13 @@ describe('GroupInfoPanel', () => {
     );
     expect(screen.queryByTestId('group-info-coach-row')).toBeNull();
     expect(screen.queryByTestId('group-info-coach-badge')).toBeNull();
+    // With no coach there is nothing a coach sees and no plan thread to describe.
+    expect(screen.queryByTestId('who-sees-coach')).toBeNull();
+    expect(screen.queryByTestId('who-sees-plan')).toBeNull();
+    expect(screen.getByTestId('who-sees-agent')).toBeInTheDocument();
   });
 
-  describe('coach access request (carnet#738)', () => {
+  describe('coach seat (carnet#738, carnet#1520)', () => {
     const pending = {
       id: 'req-1',
       user_id: CALLER_ID,
@@ -335,56 +434,201 @@ describe('GroupInfoPanel', () => {
       decided_at: null,
       decided_by: null,
     };
+    const declined = {
+      ...pending,
+      status: 'declined' as const,
+      decided_at: '2026-10-08T09:00:00Z',
+      decided_by: 'admin-1',
+    };
 
-    it('offers the owner who coaches others a one-tap request naming this group', async () => {
+    /** The owner offered the seat: they coach others and hold no coach access. */
+    function offerSeat() {
       vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+    }
+
+    it('leads the drawer with the seat block, whose filled request names this group', async () => {
+      offerSeat();
       vi.mocked(userApi.requestCoachAccess).mockResolvedValue({ request: pending });
       renderPanel();
 
-      const row = await screen.findByTestId('group-info-no-coach');
-      const button = await within(row).findByTestId('coach-access-request');
+      const block = await screen.findByTestId('coach-seat-block');
+      expect(block).toHaveAttribute('data-state', 'to_request');
+      expect(within(block).getByRole('heading', { name: "You're not this group's coach yet" })).toBeInTheDocument();
+      // First in the drawer: before the consent and the roster.
+      const consent = screen.getByTestId('peer-consent-card');
+      expect(block.compareDocumentPosition(consent) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      const button = within(block).getByTestId('coach-access-request');
+      expect(button).toHaveClass('btn-primary');
       await userEvent.click(button);
 
       await waitFor(() => expect(userApi.requestCoachAccess).toHaveBeenCalledWith(GROUP_ID));
-      expect(await within(row).findByTestId('coach-access-pending')).toBeInTheDocument();
-      expect(within(row).queryByTestId('coach-access-request')).toBeNull();
+      // The block turns into the dated three-step timeline, with no button.
+      expect(await within(block).findByTestId('coach-access-pending')).toBeInTheDocument();
+      expect(block).toHaveAttribute('data-state', 'pending');
+      expect(within(block).getByTestId('coach-seat-step-sent')).toHaveTextContent('Request sent');
+      expect(within(block).getByTestId('coach-seat-step-review')).toHaveAttribute('aria-current', 'step');
+      // No wait time is promised; the answer comes here and by email (carnet#1521).
+      expect(within(block).getByTestId('coach-seat-step-review')).toHaveTextContent(/here and by email/i);
+      expect(block.textContent).not.toMatch(/24/);
+      expect(within(block).queryByTestId('coach-access-request')).toBeNull();
+      // The waiting request can be withdrawn from where it is shown.
+      expect(within(block).getByTestId('coach-access-cancel')).toHaveTextContent('Cancel request');
     });
 
-    it('shows a request already waiting instead of the button', async () => {
-      vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+    it('withdraws the waiting request and offers it again at once', async () => {
+      offerSeat();
+      vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: pending });
+      vi.mocked(userApi.cancelCoachAccessRequest).mockResolvedValue({ request: null });
+      renderPanel();
+
+      const block = await screen.findByTestId('coach-seat-block');
+      await waitFor(() => expect(block).toHaveAttribute('data-state', 'pending'));
+      await userEvent.click(within(block).getByTestId('coach-access-cancel'));
+
+      await waitFor(() => expect(userApi.cancelCoachAccessRequest).toHaveBeenCalled());
+      await waitFor(() => expect(block).toHaveAttribute('data-state', 'to_request'));
+      expect(within(block).getByTestId('coach-access-cancelled')).toHaveTextContent('Request cancelled');
+      expect(within(block).getByTestId('coach-access-request')).toBeEnabled();
+    });
+
+    it('shows the reason the team gave with a decline, beside "Ask again"', async () => {
+      offerSeat();
+      vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({
+        request: {
+          ...pending,
+          status: 'declined',
+          decided_at: '2026-11-13T09:00:00Z',
+          decline_reason: 'No coaching account we could verify.',
+        },
+      });
+      renderPanel();
+
+      const block = await screen.findByTestId('coach-seat-block');
+      await waitFor(() => expect(block).toHaveAttribute('data-state', 'declined'));
+      expect(within(block).getByTestId('coach-access-decline-reason')).toHaveTextContent(
+        'Reason: No coaching account we could verify.',
+      );
+      expect(within(block).getByTestId('coach-access-request')).toHaveTextContent('Ask again');
+    });
+
+    it("is the drawer's only filled button while it is offered, the settings included", async () => {
+      offerSeat();
+      const user = userEvent.setup();
+      renderPanel();
+
+      await screen.findByTestId('coach-seat-block');
+      const panel = screen.getByTestId('group-info-panel');
+      await within(panel).findByTestId('invite-new');
+      expect(panel.querySelectorAll('.btn-primary')).toHaveLength(1);
+      // The settings save as they change: opening them adds no Save button.
+      await user.click(within(panel).getByRole('button', { name: /Group settings/ }));
+      expect(await within(panel).findByTestId('group-info-settings')).toBeInTheDocument();
+      expect(panel.querySelectorAll('.btn-primary')).toHaveLength(1);
+      expect(within(panel).queryByRole('button', { name: /save/i })).toBeNull();
+    });
+
+    it('offers TrainingPeaks and Intervals.icu as identical plain rows', async () => {
+      offerSeat();
+      vi.mocked(providersApi.getProvidersStatus).mockResolvedValue({
+        providers: [
+          { provider: 'strava', display_name: 'Strava', description: 'Runs and rides', connected: false, requires_oauth: true },
+          { provider: 'sciotte_trainingpeaks', display_name: 'TrainingPeaks', description: 'Workouts and load', connected: false, requires_oauth: false },
+          { provider: 'intervals_icu', display_name: 'Intervals.icu', description: 'Activities and calendar', connected: false, requires_oauth: false },
+        ],
+      } as never);
+      renderPanel();
+
+      const routes = await screen.findByTestId('coach-seat-routes');
+      const tp = await within(routes).findByTestId('provider-card-sciotte_trainingpeaks');
+      const icu = within(routes).getByTestId('provider-card-intervals_icu');
+      expect(within(routes).queryByTestId('provider-card-strava')).toBeNull();
+      // Logo, name, Connect — no per-route line on either.
+      expect(tp).toHaveTextContent(/^TrainingPeaksConnect$/);
+      expect(icu).toHaveTextContent(/^Intervals\.icuConnect$/);
+    });
+
+    it('shows a request already waiting as the timeline and the roster line, never the button', async () => {
+      offerSeat();
       vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: pending });
       renderPanel();
 
       expect(await screen.findByTestId('coach-access-pending')).toBeInTheDocument();
       expect(screen.queryByTestId('coach-access-request')).toBeNull();
+      await waitFor(() =>
+        expect(screen.getByTestId('group-info-coach-seat')).toHaveTextContent('You · coach access pending'),
+      );
     });
 
-    it('offers nothing to an owner who does not coach others', async () => {
+    it('dates a declined request and offers to ask again', async () => {
+      offerSeat();
+      vi.mocked(userApi.getCoachAccessRequest).mockResolvedValue({ request: declined });
+      vi.mocked(userApi.requestCoachAccess).mockResolvedValue({ request: pending });
       renderPanel();
 
-      await screen.findByTestId('group-info-no-coach');
-      await waitFor(() => expect(userApi.getOnboardingStatus).toHaveBeenCalled());
-      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+      const block = await screen.findByTestId('coach-seat-block');
+      await waitFor(() => expect(block).toHaveAttribute('data-state', 'declined'));
+      expect(within(block).getByTestId('coach-access-declined')).toHaveTextContent(/Declined on .*2026\. You can ask again\./);
+      await userEvent.click(within(block).getByRole('button', { name: 'Ask again' }));
+      await waitFor(() => expect(userApi.requestCoachAccess).toHaveBeenCalledWith(GROUP_ID));
+    });
+
+    it('never tells the owner about to coach that the group has none, nor offers a coach invite or coach sharing', async () => {
+      offerSeat();
+      vi.mocked(groupsApi.listInvites).mockResolvedValue({ invites: [] });
+      renderPanel();
+
+      expect(await screen.findByTestId('group-info-coach-seat')).toHaveTextContent('You · not the coach yet');
+      expect(screen.queryByTestId('group-info-no-coach')).toBeNull();
+      const panel = screen.getByTestId('group-info-panel');
+      expect(panel).not.toHaveTextContent('No human coach');
+      expect(panel).not.toHaveTextContent('Create a Coach invite');
+      expect(screen.queryByTestId('coach-sharing-row')).toBeNull();
+      expect(panel).not.toHaveTextContent(/pending/i);
+      // The invite form offers member invites only.
+      await userEvent.click(await within(panel).findByRole('button', { name: /New invite/i }));
+      expect(within(panel).queryByLabelText('Invite type')).toBeNull();
+    });
+
+    it('asks the owner with nobody to coach yet to invite their athlete, right under who is here', async () => {
+      offerSeat();
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member()] });
+      renderPanel();
+
+      const people = await screen.findByTestId('group-info-people');
+      expect(await within(people).findByText('Invite your athlete')).toBeInTheDocument();
+      // The owner reads themselves in the coach slot, never twice.
+      expect(within(people).queryByTestId('member-list')).toBeNull();
+    });
+
+    it('offers the seat to an owner who never said they coach others (carnet#1522)', async () => {
+      // The onboarding answer is "athlete"; owning a coachless group without
+      // coach access is what offers the request.
+      renderPanel();
+
+      const block = await screen.findByTestId('coach-seat-block');
+      expect(block).toHaveAttribute('data-state', 'to_request');
+      expect(within(block).getByTestId('coach-access-request')).toBeEnabled();
+      expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
     });
 
     it('offers nothing to an owner who already holds coach access', async () => {
       authUser.manages_roster = true;
-      vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+      offerSeat();
       renderPanel();
 
       await screen.findByTestId('group-info-no-coach');
-      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+      expect(screen.queryByTestId('coach-seat-block')).toBeNull();
       expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
     });
 
     it('offers nothing to a plain member of a coachless group', async () => {
-      vi.mocked(userApi.getOnboardingStatus).mockResolvedValue(onboardingStatus(true));
+      offerSeat();
       vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
       vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
       renderPanel();
 
       await screen.findByTestId('group-info-no-coach');
-      expect(screen.queryByTestId('coach-access-request')).toBeNull();
+      expect(screen.queryByTestId('coach-seat-block')).toBeNull();
       expect(userApi.getOnboardingStatus).not.toHaveBeenCalled();
     });
   });
@@ -400,16 +644,25 @@ describe('GroupInfoPanel', () => {
     expect(within(agent).queryByTestId('group-info-agent-handle')).toBeNull();
   });
 
-  it('names the coach in the admin coach section and never prints their id', async () => {
+  it("names the coach in their row, never prints their id, and detaches them only from the row's menu and its confirm", async () => {
     vi.mocked(groupsApi.getGroup).mockResolvedValue(
       sampleGroup({ coach_user_id: COACH_UUID, coach_display_name: 'Casey Coach' }),
     );
+    vi.mocked(groupsApi.removeCoach).mockResolvedValue(undefined);
+    const user = userEvent.setup();
     renderPanel();
 
     expect(await screen.findByTestId('group-info-coach-name')).toHaveTextContent('Casey Coach');
-    expect(screen.getByTestId('group-info-remove-coach')).toBeInTheDocument();
     expect(screen.getByTestId('group-info-panel').textContent).not.toContain(COACH_UUID);
     expect(document.body.textContent).not.toContain(COACH_UUID);
+    // No filled red on the row: removing the coach is behind its ⋯.
+    expect(screen.queryByTestId('group-info-remove-coach')).toBeNull();
+    await user.click(screen.getByRole('button', { name: 'More actions for Casey Coach' }));
+    await user.click(screen.getByTestId('group-info-remove-coach'));
+    const confirm = await screen.findByRole('dialog');
+    expect(confirm).toHaveTextContent('Remove the coach?');
+    await user.click(within(confirm).getByRole('button', { name: 'Remove coach' }));
+    await waitFor(() => expect(groupsApi.removeCoach).toHaveBeenCalledWith(GROUP_ID));
   });
 
   it('binds the consent switch to the caller own membership row', async () => {
@@ -432,6 +685,15 @@ describe('GroupInfoPanel', () => {
     expect(groupsApi.updatePeerConsent).toHaveBeenCalledTimes(1);
   });
 
+  it('asks nobody about peer sharing while the group shares nothing', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID, peer_data_sharing: false }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-sharing-row')).toBeInTheDocument();
+    expect(screen.queryByTestId('peer-consent-card')).toBeNull();
+  });
+
   it("shows the caller's own coach sharing beside peer sharing, and stops it when flipped", async () => {
     vi.mocked(groupsApi.getGroup).mockResolvedValue(
       sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
@@ -449,48 +711,84 @@ describe('GroupInfoPanel', () => {
     await waitFor(() => expect(toggle.checked).toBe(false));
     // Peer sharing is a separate choice the flip leaves alone.
     expect(groupsApi.updatePeerConsent).not.toHaveBeenCalled();
+    // Beside it, the member's own record of what the coach read (carnet#1445).
+    expect(await screen.findByTestId('coach-read-log')).toBeInTheDocument();
+    expect(groupsApi.getCoachReads).toHaveBeenCalledWith(GROUP_ID);
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
     renderPanel();
 
     expect(await screen.findByTestId('coach-sharing-row')).toBeInTheDocument();
+    // No coach has read anything here, so there is no record to show.
+    expect(screen.queryByTestId('coach-read-log')).toBeNull();
+    expect(groupsApi.getCoachReads).not.toHaveBeenCalled();
   });
 
-  it('lists the roster with each member role', async () => {
+  it('lists the others with their role, the viewer marked, one row each', async () => {
+    // An owner who is not offered the seat (someone else's group to coach): the member view.
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
     renderPanel();
 
-    const roster = within(await screen.findByRole('table'));
-    expect(roster.getByText('Caller')).toBeInTheDocument();
-    expect(roster.getByText('Other')).toBeInTheDocument();
-    expect(roster.getByText('Owner')).toBeInTheDocument();
-    expect(roster.getByText('Member')).toBeInTheDocument();
+    const list = within(await screen.findByTestId('member-list'));
+    expect(list.getByText('Caller')).toBeInTheDocument();
+    expect(list.getByText('(you)')).toBeInTheDocument();
+    expect(list.getByText('Other')).toBeInTheDocument();
+    expect(list.getByText('Owner')).toBeInTheDocument();
+    expect(list.getByText('Member')).toBeInTheDocument();
+    expect(screen.queryByRole('table')).toBeNull();
   });
 
-  it('saves the group settings an admin edits', async () => {
+  it('folds settings, the week and the room history, and reads the room only once it is opened', async () => {
     const user = userEvent.setup();
     renderPanel();
 
-    const name = await screen.findByLabelText('Group Name');
+    const room = await screen.findByRole('button', { name: 'Room history' });
+    expect(room).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: /Group settings/ })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.getByRole('button', { name: 'This week' })).toHaveAttribute('aria-expanded', 'false');
+    expect(groupsApi.getTranscript).not.toHaveBeenCalled();
+
+    await user.click(room);
+    expect(room).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() => expect(groupsApi.getTranscript).toHaveBeenCalled());
+  });
+
+  it('saves the group name when the field is left, and only the name', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: /Group settings/ }));
+    const name = await screen.findByLabelText('Group name');
     await user.clear(name);
     await user.type(name, 'Harricana Squad');
-    await user.click(screen.getByTestId('group-info-save-settings'));
+    expect(groupsApi.updateGroup).not.toHaveBeenCalled();
+    await user.tab();
 
-    await waitFor(() =>
-      expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, {
-        name: 'Harricana Squad',
-        description: 'Sunday long runs',
-        peer_data_sharing: true,
-        respond_mode: 'all',
-        digest_mode: 'off',
-      }),
-    );
+    await waitFor(() => expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, { name: 'Harricana Squad' }));
+    expect(groupsApi.updateGroup).toHaveBeenCalledTimes(1);
   });
 
-  it('lets an admin choose where the weekly digest goes, with the chosen mode explained', async () => {
+  it('puts an emptied name back instead of saving it', async () => {
     const user = userEvent.setup();
     renderPanel();
 
+    await user.click(await screen.findByRole('button', { name: /Group settings/ }));
+    const name = await screen.findByLabelText<HTMLInputElement>('Group name');
+    await user.clear(name);
+    await user.tab();
+
+    expect(name.value).toBe('Marathon Squad');
+    expect(groupsApi.updateGroup).not.toHaveBeenCalled();
+  });
+
+  it('lets an admin choose where the weekly digest goes, saved the moment it changes, with the mode explained', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: /Group settings/ }));
     const select = await screen.findByTestId('group-digest-mode');
     expect(select).toHaveValue('off');
     expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
@@ -503,17 +801,21 @@ describe('GroupInfoPanel', () => {
     await user.selectOptions(select, 'managers');
     // Read from the catalogue: the hint's wording belongs to the corpus.
     expect(screen.getByText(i18n.getFixedT('en')('groups.digestManagersHint'))).toBeInTheDocument();
-    await user.click(screen.getByTestId('group-info-save-settings'));
+    await waitFor(() => expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, { digest_mode: 'managers' }));
+  });
 
-    await waitFor(() =>
-      expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, {
-        name: 'Marathon Squad',
-        description: 'Sunday long runs',
-        peer_data_sharing: true,
-        respond_mode: 'all',
-        digest_mode: 'managers',
-      }),
-    );
+  it('puts a refused setting back where the server still has it', async () => {
+    vi.mocked(groupsApi.updateGroup).mockRejectedValue(new Error('Request failed with status code 500'));
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: /Group settings/ }));
+    const sharing = await screen.findByTestId('group-settings-peer-sharing');
+    expect(sharing).toBeChecked();
+    await user.click(sharing);
+
+    await waitFor(() => expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, { peer_data_sharing: false }));
+    await waitFor(() => expect(sharing).toBeChecked());
   });
 
   it('gives the attached coach the digest select alone and sends only the digest mode', async () => {
@@ -523,17 +825,22 @@ describe('GroupInfoPanel', () => {
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
       members: [member({ role: 'member' })],
     });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
     const user = userEvent.setup();
     renderPanel();
 
+    const settings = await screen.findByRole('button', { name: /Group settings/ });
+    // The row says what is inside for this viewer: the weekly recap, nothing else.
+    expect(settings).toHaveTextContent('Weekly recap');
+    await user.click(settings);
     const select = await screen.findByTestId('group-digest-mode');
     expect(select).toHaveValue('chat');
     // The coach changes the digest and nothing else: no name, no respond mode.
-    expect(screen.queryByLabelText('Group Name')).toBeNull();
+    expect(screen.queryByLabelText('Group name')).toBeNull();
     expect(screen.queryByLabelText('Agent replies in the group chat')).toBeNull();
 
     await user.selectOptions(select, 'off');
-    await user.click(screen.getByTestId('group-info-save-settings'));
 
     await waitFor(() =>
       expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, { digest_mode: 'off' }),
@@ -549,23 +856,16 @@ describe('GroupInfoPanel', () => {
     const user = userEvent.setup();
     renderPanel();
 
-    await screen.findByTestId('group-insights-tier-locked');
+    await user.click(await screen.findByRole('button', { name: /Group settings/ }));
+    expect(await screen.findByLabelText('Group name')).toBeInTheDocument();
     expect(screen.queryByTestId('group-digest-mode')).toBeNull();
-    await user.click(screen.getByTestId('group-info-save-settings'));
-
-    await waitFor(() =>
-      expect(groupsApi.updateGroup).toHaveBeenCalledWith(GROUP_ID, {
-        name: 'Marathon Squad',
-        description: 'Sunday long runs',
-        peer_data_sharing: true,
-        respond_mode: 'all',
-      }),
-    );
   });
 
-  it('renders the weekly report and one health-flag row per flagged member', async () => {
+  it('renders the weekly report and one health-flag row per flagged member, once the week is opened', async () => {
+    const user = userEvent.setup();
     renderPanel();
 
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
     expect(await screen.findByTestId('group-report-summary')).toHaveTextContent(
       '2/2 members active this week, averaging 41.5 km each.',
     );
@@ -578,22 +878,23 @@ describe('GroupInfoPanel', () => {
       'Other: No activity for 11 days',
       'Caller: Weekly volume 35% below the group average',
     ]);
+    // The deep-fatigue members are a magnitude, never an overtraining risk (Methodology framing).
     const recommendations = screen.getAllByTestId('group-report-recommendation');
     expect(recommendations.map((r) => r.textContent)).toEqual([
-      'Members at high overtraining risk: 1. Consider adjusting their recovery.',
+      'Members in deep fatigue, with form below -30% of their chronic load: 1. Worth a look at their recovery.',
       'Group volume is steady compared with last week.',
     ]);
     const rows = screen.getAllByTestId('group-health-flag-row');
     expect(rows).toHaveLength(2);
     expect(within(rows[0]).getByText('No activity for 11 days')).toBeInTheDocument();
     expect(screen.getByText('Health flags (2)')).toBeInTheDocument();
-    expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
-    // Both members share with the reader: nothing to say about scope.
+    expect(within(screen.getByTestId('group-info-stats')).getByText('of 3 total')).toBeInTheDocument();
+    // Every member shares with the reader: nothing to say about scope.
     expect(screen.queryByTestId('group-info-scope')).toBeNull();
   });
 
-  it('says under the stats that they cover only the members who share with the reader, owner included', async () => {
-    vi.mocked(groupsApi.getStats).mockResolvedValueOnce({
+  it('keeps the averages away below three members sharing with the reader, the report still there', async () => {
+    vi.mocked(groupsApi.getStats).mockResolvedValue({
       stats: {
         total_members: 2,
         active_members: 2,
@@ -602,19 +903,64 @@ describe('GroupInfoPanel', () => {
         flagged_members: 0,
         weekly_trend: 'stable',
       },
-      scope: { visible_members: 2, roster_members: 4 },
+      scope: { visible_members: 2, roster_members: 2 },
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
+    expect(await screen.findByTestId('group-report-summary')).toBeInTheDocument();
+    expect(screen.queryByTestId('group-info-stats')).toBeNull();
+  });
+
+  it('shows a plain member no week at all while fewer than three share', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
+    vi.mocked(groupsApi.getStats).mockResolvedValue({
+      stats: {
+        total_members: 2,
+        active_members: 2,
+        avg_weekly_volume_km: 41.5,
+        avg_ctl: 55,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 2, roster_members: 2 },
     });
     renderPanel();
 
+    await screen.findByTestId('group-info-leave');
+    await waitFor(() => expect(groupsApi.getStats).toHaveBeenCalled());
+    expect(screen.queryByRole('button', { name: 'This week' })).toBeNull();
+  });
+
+  it('says under the stats that they cover only the members who share with the reader, owner included', async () => {
+    vi.mocked(groupsApi.getStats).mockResolvedValueOnce({
+      stats: {
+        total_members: 3,
+        active_members: 2,
+        avg_weekly_volume_km: 41.5,
+        avg_ctl: 55,
+        flagged_members: 0,
+        weekly_trend: 'stable',
+      },
+      scope: { visible_members: 3, roster_members: 5 },
+    });
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
     expect(await screen.findByTestId('group-info-scope')).toHaveTextContent(
-      'This report covers only the members who share their training with you (2 of 4).',
+      'This report covers only the members who share their training with you (3 of 5).',
     );
-    expect(within(screen.getByTestId('group-info-stats')).getByText('of 2 total')).toBeInTheDocument();
+    expect(within(screen.getByTestId('group-info-stats')).getByText('of 3 total')).toBeInTheDocument();
   });
 
   it('prints the group volume in miles for a reader on imperial units', async () => {
+    const user = userEvent.setup();
     renderPanel('imperial');
 
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
     expect(await screen.findByTestId('group-report-summary')).toHaveTextContent(
       '2/2 members active this week, averaging 25.8 mi each.',
     );
@@ -638,8 +984,13 @@ describe('GroupInfoPanel', () => {
     });
 
     it('phrases the flags, the report and the decimals in French', async () => {
+      // An admin of someone else's group: no seat to offer, so the coach slot
+      // reads the group's own line.
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ owner_id: OTHER_ID }));
+      const user = userEvent.setup();
       renderPanel();
 
+      await user.click(await screen.findByRole('button', { name: 'Cette semaine' }));
       expect(await screen.findByTestId('group-report-summary')).toHaveTextContent(
         '2/2 membres actifs cette semaine, 41,5 km en moyenne par membre.',
       );
@@ -653,11 +1004,13 @@ describe('GroupInfoPanel', () => {
         'Caller : forme fraîche (+12 % de sa charge chronique, TSB +9)',
       );
       const stats = within(screen.getByTestId('group-info-stats'));
-      expect(stats.getByText('sur 2 au total')).toBeInTheDocument();
+      expect(stats.getByText('sur 3 au total')).toBeInTheDocument();
       // The panel's own chrome reads French too: the member count, the
-      // caller's marker and the join dates.
+      // caller's marker and the folded rows.
       expect(screen.getByText('Membres : 2')).toBeInTheDocument();
       expect(screen.getByText('(toi)')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Historique du salon' })).toBeInTheDocument();
+      expect(screen.getByTestId('group-info-delete')).toHaveTextContent('Supprimer ce groupe…');
       expect(stats.getByText('41,5')).toBeInTheDocument();
       // Who runs the group reads French as well.
       expect(within(screen.getByTestId('group-info-agent')).getByText('Agent IA')).toBeInTheDocument();
@@ -673,29 +1026,37 @@ describe('GroupInfoPanel', () => {
       policy: 'everyone',
       weekly_digest: false,
     });
-
+    const user = userEvent.setup();
     renderPanel();
 
+    await user.click(await screen.findByRole('button', { name: 'This week' }));
     expect(await screen.findByTestId('group-insights-tier-locked')).toBeInTheDocument();
     expect(screen.queryByTestId('group-report-summary')).toBeNull();
     expect(groupsApi.getWeeklyReport).not.toHaveBeenCalled();
     expect(groupsApi.getHealthFlags).not.toHaveBeenCalled();
   });
 
-  it('offers Delete Group to the owner and archives it on confirm', async () => {
+  it('offers the owner a quiet "Delete this group…", and archives it only from the confirm', async () => {
     const user = userEvent.setup();
     const { onMembershipEnded } = renderPanel();
 
     expect(screen.queryByTestId('group-info-leave')).toBeNull();
-    await user.click(await screen.findByTestId('group-info-delete'));
+    const row = await screen.findByTestId('group-info-delete');
+    expect(row).toHaveTextContent('Delete this group…');
+    // No filled red anywhere in the drawer: the fill is the confirm's.
+    expect(screen.getByTestId('group-info-panel').querySelector('.btn-danger')).toBeNull();
+    await user.click(row);
     const confirm = await screen.findByRole('dialog');
-    await user.click(within(confirm).getByRole('button', { name: 'Delete Group' }));
+    expect(confirm).toHaveTextContent('Delete this group?');
+    const button = within(confirm).getByRole('button', { name: 'Delete group' });
+    expect(button).toHaveClass('btn-danger');
+    await user.click(button);
 
     await waitFor(() => expect(groupsApi.deleteGroup).toHaveBeenCalledWith(GROUP_ID));
     await waitFor(() => expect(onMembershipEnded).toHaveBeenCalledTimes(1));
   });
 
-  it('offers Leave to a member and drops the thread once they are out', async () => {
+  it('offers a member a quiet "Leave this group…", and drops the thread once they are out', async () => {
     vi.mocked(groupsApi.listMembers).mockResolvedValue({
       members: [member({ role: 'member', peer_sharing_consent: false })],
     });
@@ -703,15 +1064,16 @@ describe('GroupInfoPanel', () => {
     const user = userEvent.setup();
     const { onMembershipEnded } = renderPanel();
 
-    expect(await screen.findByTestId('group-info-leave')).toBeInTheDocument();
+    expect(await screen.findByTestId('group-info-leave')).toHaveTextContent('Leave this group…');
     expect(screen.queryByTestId('group-info-delete')).toBeNull();
-    // A plain member sees no settings form either, the digest select included.
-    expect(screen.queryByTestId('group-info-save-settings')).toBeNull();
+    // A plain member sees no settings either, the digest select included.
+    expect(screen.queryByRole('button', { name: /Group settings/ })).toBeNull();
     expect(screen.queryByTestId('group-digest-mode')).toBeNull();
 
     await user.click(screen.getByTestId('group-info-leave'));
     const confirm = await screen.findByRole('dialog');
-    await user.click(within(confirm).getByRole('button', { name: 'Leave Group' }));
+    expect(confirm).toHaveTextContent('Leave this group?');
+    await user.click(within(confirm).getByRole('button', { name: 'Leave group' }));
 
     await waitFor(() => expect(groupsApi.leaveGroup).toHaveBeenCalledWith(GROUP_ID));
     await waitFor(() => expect(onMembershipEnded).toHaveBeenCalledTimes(1));
@@ -752,7 +1114,7 @@ describe('GroupInfoPanel', () => {
         },
       ],
     });
-
+    const user = userEvent.setup();
     renderPanel();
 
     const section = await screen.findByTestId('delegation-section');
@@ -760,21 +1122,21 @@ describe('GroupInfoPanel', () => {
       'Alex Athlete',
     );
     expect(screen.getByTestId('group-info-coach-badge')).toHaveTextContent('You coach this group');
-    // The coach sees themself in the roster, marked as the viewer, under the agent.
-    const coachRow = screen.getByTestId('group-info-coach-row');
-    expect(within(coachRow).getByText('Caller Coach')).toBeInTheDocument();
-    expect(within(coachRow).getByText('(you)')).toBeInTheDocument();
-    expect(within(coachRow).getByText('Coach')).toBeInTheDocument();
     expect(within(screen.getByTestId('group-info-agent')).getByText('Marathon Coach')).toBeInTheDocument();
     expect(screen.queryByTestId('group-info-leave')).toBeNull();
     expect(screen.queryByTestId('group-info-delete')).toBeNull();
     expect(screen.queryByTestId('peer-consent-card')).toBeNull();
     expect(screen.queryByTestId('coach-sharing-row')).toBeNull();
     expect(groupsApi.getCoachSharing).not.toHaveBeenCalled();
+    // The record of a coach's reads is the athlete's, never the coach's.
+    expect(screen.queryByTestId('coach-read-log')).toBeNull();
+    expect(groupsApi.getCoachReads).not.toHaveBeenCalled();
+    // The group's numbers belong to its members; the coach reads their triage on coach Home.
+    expect(screen.queryByRole('button', { name: 'This week' })).toBeNull();
     // The coach sets where the weekly digest goes, and no other group setting.
+    await user.click(screen.getByRole('button', { name: /Group settings/ }));
     expect(await screen.findByTestId('group-digest-mode')).toHaveValue('off');
-    expect(screen.getByTestId('group-info-save-settings')).toBeInTheDocument();
-    expect(screen.queryByLabelText('Group Name')).toBeNull();
+    expect(screen.queryByLabelText('Group name')).toBeNull();
     expect(screen.queryByLabelText('Agent replies in the group chat')).toBeNull();
     expect(screen.queryByTestId('group-info-remove-coach')).toBeNull();
     // Stats and invites refuse a non-member, so the coach never asks for them.
@@ -782,7 +1144,7 @@ describe('GroupInfoPanel', () => {
     expect(groupsApi.listInvites).not.toHaveBeenCalled();
   });
 
-  it("offers the group coach a way into each member's plan, and opens that thread", async () => {
+  it("offers the group coach a way into each athlete's plan, in words, and opens that thread", async () => {
     // The caller is the group's human coach and holds no membership row.
     vi.mocked(groupsApi.getGroup).mockResolvedValue(
       sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
@@ -808,11 +1170,56 @@ describe('GroupInfoPanel', () => {
     const user = userEvent.setup();
     const { onOpenConversation } = renderPanel();
 
-    expect(await screen.findByRole('button', { name: "Work on Bob Cyclist's plan" })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: "Work on Alice Runner's plan" }));
+    expect(await screen.findByRole('heading', { name: 'Your athletes' })).toBeInTheDocument();
+    // The visible label leads the name, the athlete follows it (WCAG 2.5.3).
+    const bob = await screen.findByRole('button', { name: 'Open their plan thread · Bob Cyclist' });
+    // With two athletes, neither card claims the drawer's one filled button.
+    expect(bob).toHaveClass('btn-outline');
+    await user.click(screen.getByRole('button', { name: 'Open their plan thread · Alice Runner' }));
 
     await waitFor(() => expect(onOpenConversation).toHaveBeenCalledWith('conv-plan-alice'));
     expect(chatApi.openAthleteThread).toHaveBeenCalledWith(OTHER_ID, GROUP_ID);
+  });
+
+  it("makes a pilot coach's one athlete's plan thread the drawer's one filled button", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' })],
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    renderPanel();
+
+    const open = await screen.findByTestId(`member-work-on-plan-${OTHER_ID}`);
+    expect(open).toHaveClass('btn-primary');
+    expect(screen.getByTestId('group-info-panel').querySelectorAll('.btn-primary')).toHaveLength(1);
+    expect(screen.getByTestId(`member-view-plan-${OTHER_ID}`)).toHaveTextContent('View plan');
+  });
+
+  it('opens the athlete on coach Home for a coach who has one, and offers it to no one else', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' })],
+    });
+    vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+    vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    authUser.manages_roster = true;
+    const user = userEvent.setup();
+    const { onOpenCoachHome, unmount } = renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: 'See on coach Home · Alice Runner' }));
+    expect(onOpenCoachHome).toHaveBeenCalledWith(OTHER_ID);
+    unmount();
+
+    // A coach without coach Home has nowhere to go.
+    authUser.manages_roster = undefined;
+    renderPanel();
+    await screen.findByTestId(`member-work-on-plan-${OTHER_ID}`);
+    expect(screen.queryByTestId(`member-coach-home-${OTHER_ID}`)).toBeNull();
   });
 
   it("offers a coach who is also a member every other member's plan, never their own", async () => {
@@ -824,10 +1231,10 @@ describe('GroupInfoPanel', () => {
     vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
     renderPanel();
 
-    expect(await screen.findByRole('button', { name: "Work on Other's plan" })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Open their plan thread · Other' })).toBeInTheDocument();
     expect(screen.getByTestId(`member-work-on-plan-${OTHER_ID}`)).toBeInTheDocument();
     expect(screen.queryByTestId(`member-work-on-plan-${CALLER_ID}`)).toBeNull();
-    expect(screen.queryByRole('button', { name: "Work on Caller's plan" })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Open their plan thread · Caller' })).toBeNull();
   });
 
   describe("reading a member's live plan, read-only (carnet#1244)", () => {
@@ -866,7 +1273,7 @@ describe('GroupInfoPanel', () => {
       const user = userEvent.setup();
       const { onOpenConversation } = renderPanel();
 
-      await user.click(await screen.findByRole('button', { name: "View Alice Runner's plan" }));
+      await user.click(await screen.findByRole('button', { name: 'View plan · Alice Runner' }));
 
       expect(await screen.findByText('Read-only: the plan Alice Runner sees.')).toBeInTheDocument();
       expect(screen.getByText('Harricana 65K')).toBeInTheDocument();
@@ -887,7 +1294,7 @@ describe('GroupInfoPanel', () => {
       const user = userEvent.setup();
       renderPanel();
 
-      await user.click(await screen.findByRole('button', { name: "View Alice Runner's plan" }));
+      await user.click(await screen.findByRole('button', { name: 'View plan · Alice Runner' }));
 
       expect(await screen.findByText('Alice Runner has no published plan yet.')).toBeInTheDocument();
     });
@@ -902,7 +1309,7 @@ describe('GroupInfoPanel', () => {
       const user = userEvent.setup();
       renderPanel();
 
-      await user.click(await screen.findByRole('button', { name: "View Alice Runner's plan" }));
+      await user.click(await screen.findByRole('button', { name: 'View plan · Alice Runner' }));
 
       expect(
         await screen.findByText("Alice Runner stopped sharing with you, so their plan isn't shown."),
@@ -915,7 +1322,7 @@ describe('GroupInfoPanel', () => {
       renderPanel();
 
       expect(await screen.findByText('Other')).toBeInTheDocument();
-      expect(screen.queryByRole('button', { name: /View .* plan/ })).toBeNull();
+      expect(screen.queryByRole('button', { name: /View plan/ })).toBeNull();
       expect(chatApi.getAthletePlan).not.toHaveBeenCalled();
     });
   });
@@ -943,7 +1350,7 @@ describe('GroupInfoPanel', () => {
       const user = userEvent.setup();
       const { onOpenConversation } = renderPanel();
 
-      await user.click(await screen.findByRole('button', { name: "Work on Alice Runner's plan" }));
+      await user.click(await screen.findByRole('button', { name: 'Open their plan thread · Alice Runner' }));
 
       expect(
         await screen.findByText("Alice Runner stopped sharing with you, so their plan can't be changed."),
@@ -961,7 +1368,7 @@ describe('GroupInfoPanel', () => {
       const user = userEvent.setup();
       const { onOpenConversation } = renderPanel();
 
-      await user.click(await screen.findByRole('button', { name: "Work on Alice Runner's plan" }));
+      await user.click(await screen.findByRole('button', { name: 'Open their plan thread · Alice Runner' }));
 
       expect(await screen.findByText("We couldn't open this plan thread. Please try again.")).toBeInTheDocument();
       expect(onOpenConversation).not.toHaveBeenCalled();
@@ -975,7 +1382,7 @@ describe('GroupInfoPanel', () => {
     renderPanel();
 
     expect(await screen.findByText('Other')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Work on .* plan/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Open their plan thread/ })).toBeNull();
     expect(chatApi.openAthleteThread).not.toHaveBeenCalled();
   });
 
@@ -990,7 +1397,20 @@ describe('GroupInfoPanel', () => {
     renderPanel();
 
     expect(await screen.findByText('Other')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Work on .* plan/ })).toBeNull();
+    expect(screen.queryByRole('button', { name: /Open their plan thread/ })).toBeNull();
+  });
+
+  it('draws no filled red for an athlete either: every exit and removal is quiet until its confirm', async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.listMembers).mockResolvedValue({
+      members: [member({ role: 'admin' }), member({ id: 'membership-2', user_id: OTHER_ID, role: 'member', display_name: 'Other' })],
+    });
+    renderPanel();
+
+    await screen.findByTestId('group-info-leave');
+    expect(screen.getByTestId('group-info-panel').querySelector('.btn-danger')).toBeNull();
   });
 
   it('shows a coach who is also a member the TrainingPeaks section the server names them coach of', async () => {

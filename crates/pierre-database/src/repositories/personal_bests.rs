@@ -125,13 +125,32 @@ pub trait PersonalBestRepository: Send + Sync {
         seed: &PersonalBestSeed,
     ) -> AppResult<()>;
 
-    /// Up to `limit` athletes holding a `provider` token whose history walk
-    /// has not completed, and whose connection is not revoked or waiting on a
-    /// reconnect: those never started first, then the least recently
-    /// advanced, so passes share the budget among them in turn.
+    /// Up to `limit` athletes holding a `provider` token whose seed has not
+    /// completed, whose connection is not revoked or waiting on a reconnect,
+    /// and whose history a walk already copied into the activity store: a
+    /// [`BackfillJobKind::HistoryWalk`](crate::repositories::BackfillJobKind::HistoryWalk)
+    /// row in the token's tenant ended as walked, under `provider` itself or
+    /// under `paired`, the other half of its mirror pair. Those never started
+    /// first, then the least recently advanced, so passes share the budget
+    /// among them in turn.
     async fn list_personal_best_seed_candidates(
         &self,
         provider: &str,
+        paired: Option<&str>,
+        limit: i64,
+    ) -> AppResult<Vec<PersonalBestSeedCandidate>>;
+
+    /// Up to `limit` athletes holding a `provider` token whose seed has not
+    /// completed, whose connection is not revoked or waiting on a reconnect,
+    /// and whose history no walk was ever asked for: no
+    /// [`BackfillJobKind::HistoryWalk`](crate::repositories::BackfillJobKind::HistoryWalk)
+    /// row of any outcome in the token's tenant, under `provider` or under
+    /// `paired`. The seed asks their walk, which nothing else would until a
+    /// read of their history found depth missing.
+    async fn list_personal_best_seed_unwalked(
+        &self,
+        provider: &str,
+        paired: Option<&str>,
         limit: i64,
     ) -> AppResult<Vec<PersonalBestSeedCandidate>>;
 }
@@ -188,12 +207,16 @@ pub(crate) const SAVE_PERSONAL_BEST_SEED_SQL: &str = r"
                 updated_at = excluded.updated_at
             ";
 
-/// The token, connection and seed tables disagree on the id types on
-/// Postgres (`uuid` user and seed tenant, `VARCHAR` token tenant, `TEXT`
-/// connection ids), so each join compares the `uuid` side cast down to text.
-/// A connection row is optional — a token without one is usable — and the
-/// order puts athletes with no seed row first, then the least recently
-/// advanced, spelled with a `CASE` because the engines sort NULL differently.
+/// The token, connection, job and seed tables disagree on the id types on
+/// Postgres (`uuid` user and seed and job tenant, `VARCHAR` token tenant,
+/// `TEXT` connection and job user ids), so each join compares the `uuid` side
+/// cast down to text. A connection row is optional — a token without one is
+/// usable — and the order puts athletes with no seed row first, then the
+/// least recently advanced, spelled with a `CASE` because the engines sort
+/// NULL differently. The walk is filtered here, before the `LIMIT`, so
+/// athletes whose walk has not ended never crowd out those whose has.
+/// `$3`/`$4` are the history-walk kind and the walked outcome, `$5`/`$6` the
+/// keys a walk counts under (`$6` repeats `$5` when there is no pair).
 pub(crate) const LIST_PERSONAL_BEST_SEED_CANDIDATES_SQL: &str = r"
             SELECT t.user_id, t.tenant_id
             FROM user_oauth_tokens t
@@ -210,8 +233,48 @@ pub(crate) const LIST_PERSONAL_BEST_SEED_CANDIDATES_SQL: &str = r"
                     AND c.provider = t.provider
                     AND c.status IN ('revoked', 'needs_reauth')
               )
+              AND EXISTS (
+                  SELECT 1 FROM activity_backfill_jobs j
+                  WHERE j.user_id = CAST(t.user_id AS TEXT)
+                    AND CAST(j.tenant_id AS TEXT) = t.tenant_id
+                    AND j.kind = $3
+                    AND j.outcome = $4
+                    AND j.provider IN ($5, $6)
+              )
             ORDER BY CASE WHEN s.updated_at IS NULL THEN 0 ELSE 1 END,
                      s.updated_at, CAST(t.user_id AS TEXT), t.tenant_id
+            LIMIT $2
+            ";
+
+/// [`LIST_PERSONAL_BEST_SEED_CANDIDATES_SQL`]'s athletes whose history no walk
+/// was ever asked for, with the same casts: no history-walk row (`$3`) of any
+/// outcome under either key (`$4`/`$5`, `$5` repeating `$4` when there is no
+/// pair). The order is only a stable one: each is asked once, and leaves the
+/// list as its walk is recorded.
+pub(crate) const LIST_PERSONAL_BEST_SEED_UNWALKED_SQL: &str = r"
+            SELECT t.user_id, t.tenant_id
+            FROM user_oauth_tokens t
+            LEFT JOIN personal_best_seeds s
+              ON s.user_id = t.user_id
+             AND CAST(s.tenant_id AS TEXT) = t.tenant_id
+             AND s.provider = t.provider
+            WHERE t.provider = $1
+              AND s.completed_at IS NULL
+              AND NOT EXISTS (
+                  SELECT 1 FROM provider_connections c
+                  WHERE c.user_id = CAST(t.user_id AS TEXT)
+                    AND c.tenant_id = t.tenant_id
+                    AND c.provider = t.provider
+                    AND c.status IN ('revoked', 'needs_reauth')
+              )
+              AND NOT EXISTS (
+                  SELECT 1 FROM activity_backfill_jobs j
+                  WHERE j.user_id = CAST(t.user_id AS TEXT)
+                    AND CAST(j.tenant_id AS TEXT) = t.tenant_id
+                    AND j.kind = $3
+                    AND j.provider IN ($4, $5)
+              )
+            ORDER BY CAST(t.user_id AS TEXT), t.tenant_id
             LIMIT $2
             ";
 
@@ -365,11 +428,16 @@ macro_rules! impl_personal_best_repository {
             async fn list_personal_best_seed_candidates(
                 &self,
                 provider: &str,
+                paired: Option<&str>,
                 limit: i64,
             ) -> AppResult<Vec<PersonalBestSeedCandidate>> {
                 let rows = sqlx::query(LIST_PERSONAL_BEST_SEED_CANDIDATES_SQL)
                     .bind(provider)
                     .bind(limit)
+                    .bind($crate::repositories::BackfillJobKind::HistoryWalk.as_str())
+                    .bind($crate::repositories::activity_backfill_jobs::walked_outcome())
+                    .bind(provider)
+                    .bind(paired.unwrap_or(provider))
                     .fetch_all(self.pool())
                     .await
                     .map_err(|e| {
@@ -384,6 +452,41 @@ macro_rules! impl_personal_best_repository {
                             tenant_id: row.try_get("tenant_id").map_err(|e| {
                                 AppError::database(format!(
                                     "Failed to read a seed candidate's tenant: {e}"
+                                ))
+                            })?,
+                        })
+                    })
+                    .collect()
+            }
+
+            async fn list_personal_best_seed_unwalked(
+                &self,
+                provider: &str,
+                paired: Option<&str>,
+                limit: i64,
+            ) -> AppResult<Vec<PersonalBestSeedCandidate>> {
+                let rows = sqlx::query(
+                    $crate::repositories::personal_bests::LIST_PERSONAL_BEST_SEED_UNWALKED_SQL,
+                )
+                .bind(provider)
+                .bind(limit)
+                .bind($crate::repositories::BackfillJobKind::HistoryWalk.as_str())
+                .bind(provider)
+                .bind(paired.unwrap_or(provider))
+                .fetch_all(self.pool())
+                .await
+                .map_err(|e| {
+                    AppError::database(format!(
+                        "Failed to list athletes whose history no walk copied: {e}"
+                    ))
+                })?;
+                rows.iter()
+                    .map(|row| {
+                        Ok(PersonalBestSeedCandidate {
+                            user_id: $ids::read(row, "user_id")?,
+                            tenant_id: row.try_get("tenant_id").map_err(|e| {
+                                AppError::database(format!(
+                                    "Failed to read an unwalked athlete's tenant: {e}"
                                 ))
                             })?,
                         })

@@ -32,12 +32,15 @@ use axum::http::{Request, StatusCode};
 use axum::routing::get;
 use axum::Router;
 use chrono::{Duration as ChronoDuration, NaiveTime, Utc};
+use dravr_barrage::store::memory::MemoryActivityRecordStore;
+use dravr_barrage::store::ActivityRecordStore;
+use dravr_barrage::{ActivityId, LiveSource, Scope, SourceKey};
 use dravr_cageux::visitor::NormalizedPowerCalculator;
 use dravr_riviere::{SeriesType, TimeRange};
 use futures_util::stream::poll_fn;
 use pierre_core::models::{
-    Activity, ConnectionStatus, ConnectionType, DataSource, DeviceType, StoredRecoveryMetrics,
-    TenantId, UserOAuthToken,
+    Activity, ActivityBuilder, ConnectionStatus, ConnectionType, DataSource, DeviceType, SportType,
+    StoredRecoveryMetrics, TenantId, UserOAuthToken,
 };
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::WellnessWriteMode;
@@ -47,8 +50,10 @@ use pierre_mcp_server::routes::garmin_webhook::process_garmin_inbox;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_mcp_server::services::activity_upload::MAX_UPLOAD_BYTES;
 use pierre_notifications::{NotificationService, TenantId as CommereTenantId};
+use pierre_providers::spi::{GarminDescriptor, ProviderDescriptor};
 use pierre_providers::upload_provider::file_sha256;
 use pierre_routes_auth::AuthRoutes;
+use pierre_test_support::activity_fields::missing;
 use pierre_test_support::fit::{power as fit_power, FitWorkout};
 use pierre_tool_runtime::implementations::activity_summary::ActivitySummary;
 use serde_json::{json, Value};
@@ -84,6 +89,63 @@ async fn context(api_base: Option<&str>) -> Arc<ServerContext> {
     common::create_test_server_resources_with_config(config)
         .await
         .unwrap()
+}
+
+/// [`context`], its live reads kept in `records`.
+async fn context_over(
+    api_base: Option<&str>,
+    records: Arc<dyn ActivityRecordStore>,
+) -> Arc<ServerContext> {
+    let mut config = common::test_server_config();
+    common::set_server_app(&mut config, "garmin", CLIENT_ID, "garmin-test-secret");
+    config.webhooks.garmin_token = Some(SecretString::from(PATH_TOKEN));
+    if let Some(base) = api_base {
+        config.external_services.garmin_api.base_url = format!("{base}/wellness-api/rest");
+    }
+    common::create_test_server_resources_with_config_and_records(config, records)
+        .await
+        .unwrap()
+}
+
+/// [`context`] with a notification service over its own database, so the
+/// reconnect notices a test expects can be counted.
+async fn context_with_notices(
+    api_base: Option<&str>,
+) -> (Arc<ServerContext>, Arc<NotificationService>) {
+    let mut with_notices: ServerContext = (*context(api_base).await).clone();
+    let service = Arc::new(match with_notices.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => {
+            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
+        }
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => {
+            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
+        }
+    });
+    with_notices.common.notification_service = Some(Arc::clone(&service));
+    (Arc::new(with_notices), service)
+}
+
+/// How many reconnect notices `service` stored for the athlete.
+async fn reconnect_notices(
+    service: &NotificationService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+) -> usize {
+    let (rows, _, _) = service
+        .list_notifications(
+            user_id,
+            CommereTenantId(tenant_id.as_uuid()),
+            50,
+            0,
+            None,
+            false,
+        )
+        .await
+        .unwrap();
+    rows.iter()
+        .filter(|row| row.notification_type == "provider_needs_reauth")
+        .count()
 }
 
 /// Seed an athlete connected through the Garmin API: a `garmin` token that
@@ -389,6 +451,57 @@ async fn activities_land_in_the_cache_and_a_resend_replaces_the_row() {
     let cached = cached_garmin(&resources, user_id, &tenant_id).await;
     assert_eq!(cached.len(), 1, "a re-sent summary upserts the same row");
     assert_eq!(cached[0].name(), "Morning ride, renamed");
+}
+
+/// A pushed activity lands through the activity store every provider's
+/// activities are kept in (carnet#1482): the store holds it at the push's
+/// receipt, so an older copy is refused, and once the athlete deletes the
+/// workout a later push of it is refused too, which only the store knows.
+#[tokio::test]
+async fn a_pushed_activity_is_kept_in_the_activity_store() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let start = recent_start();
+    let ride = json!([activity("920001", "Morning ride", start, 3_600)]);
+
+    push(&resources, "activities", ride.clone()).await;
+    let cached = cached_garmin(&resources, user_id, &tenant_id).await;
+    assert_eq!(cached.len(), 1, "bug: the push is served from the cache");
+    let live = &resources.common.live_activities;
+    let older = live
+        .ingest_received(
+            user_id,
+            tenant_id,
+            "garmin",
+            &cached[0],
+            Utc::now() - ChronoDuration::days(1),
+        )
+        .await
+        .unwrap();
+    assert!(
+        !older,
+        "bug: the store does not hold the push at its receipt"
+    );
+
+    assert!(
+        live.erase(user_id, tenant_id, "garmin", "920001")
+            .await
+            .unwrap(),
+        "bug: the store does not hold the push"
+    );
+    assert!(
+        cached_garmin(&resources, user_id, &tenant_id)
+            .await
+            .is_empty(),
+        "bug: the erased push is still cached"
+    );
+    push(&resources, "activities", ride).await;
+    assert!(
+        cached_garmin(&resources, user_id, &tenant_id)
+            .await
+            .is_empty(),
+        "bug: a push of a workout the athlete deleted was kept"
+    );
 }
 
 #[tokio::test]
@@ -779,7 +892,7 @@ async fn a_dailies_push_lands_the_days_activity_totals() {
 /// export removes only the export's rows.
 #[tokio::test]
 async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
-    use dravr_barrage::{ProjectionSink, Scope, SourceKey, WellnessRecords};
+    use dravr_barrage::{ProjectionSink, RetractReason, Scope, SourceKey, WellnessRecords};
     use pierre_core::models::StoredDailyActivity;
     use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
     use pierre_providers::precedence::{Ingress, Service, Source};
@@ -907,9 +1020,14 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
         "the export's energy fills"
     );
 
-    sink.retract(&scope, SourceKey::GarminArchive, None)
-        .await
-        .unwrap();
+    sink.retract(
+        &scope,
+        SourceKey::GarminArchive,
+        None,
+        RetractReason::SourceDeleted,
+    )
+    .await
+    .unwrap();
     let rows = garmin_recovery(&resources, user_id, &tenant_id).await;
     assert_eq!(
         rows.iter()
@@ -938,7 +1056,7 @@ async fn the_same_garmin_day_by_push_and_by_export_is_one_record() {
 /// over the export; the export fills what the capture lacks.
 #[tokio::test]
 async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
-    use dravr_barrage::{ProjectionSink, Scope, SourceKey, WellnessRecords};
+    use dravr_barrage::{ProjectionSink, RetractReason, Scope, SourceKey, WellnessRecords};
     use pierre_core::models::{DataSource, DeviceType, StoredDailyActivity};
     use pierre_mcp_server::services::archive_import::sink::CachedActivitiesSink;
     use pierre_providers::precedence::{Ingress, Service, Source};
@@ -1114,9 +1232,14 @@ async fn the_same_garmin_day_by_capture_and_by_export_is_one_record() {
         "the export's energy fills"
     );
 
-    sink.retract(&scope, SourceKey::GarminArchive, None)
-        .await
-        .unwrap();
+    sink.retract(
+        &scope,
+        SourceKey::GarminArchive,
+        None,
+        RetractReason::SourceDeleted,
+    )
+    .await
+    .unwrap();
     let rows = garmin_recovery(&resources, user_id, &tenant_id).await;
     assert_eq!(
         rows.iter()
@@ -1214,6 +1337,127 @@ async fn a_deregistration_deletes_the_garmin_api_connection_but_not_the_usr_pwd_
         .unwrap();
     assert_eq!(purges.len(), 1);
     assert_eq!(purges[0].reason, "provider_revoked");
+}
+
+/// A deregistration withdraws the grant through the same chokepoint as a
+/// Strava deauthorization (carnet#1494): an athlete the grant served alone is
+/// told once to sign in again, however often Garmin redelivers it. One whose
+/// usr/pwd session serves beside the grant keeps the session and its rows,
+/// and is told once that the reads go on and only the grant's workout and
+/// calendar writes need it again (JF's directive 8), however often Garmin
+/// redelivers it.
+#[tokio::test]
+async fn a_deregistration_tells_a_grant_only_athlete_once_and_spares_a_session() {
+    let (resources, service) = context_with_notices(None).await;
+    let (alone, alone_tenant) = seed_athlete(&resources).await;
+    for _delivery in 0..2 {
+        push(
+            &resources,
+            "deregistrations",
+            json!([{ "userId": GARMIN_USER }]),
+        )
+        .await;
+    }
+    assert_eq!(
+        reconnect_notices(&service, alone, alone_tenant).await,
+        1,
+        "bug: a grant-only athlete Garmin deregistered is told other than once"
+    );
+    assert!(
+        resources
+            .common
+            .repos
+            .provider_connections
+            .get_for_user(alone, Some(alone_tenant))
+            .await
+            .unwrap()
+            .is_empty(),
+        "the grant's connection is deleted"
+    );
+
+    let (resources, service) = context_with_notices(None).await;
+    let (beside, beside_tenant) = seed_athlete(&resources).await;
+    store_token(&resources, beside, beside_tenant, "sciotte_garmin", None).await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(
+            beside,
+            beside_tenant,
+            "sciotte_garmin",
+            &ConnectionType::Manual,
+            None,
+        )
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .activity_cache
+        .upsert_activities(
+            beside,
+            &beside_tenant,
+            "sciotte_garmin",
+            &[ActivityBuilder::new(
+                "880001",
+                "Captured ride",
+                SportType::Ride,
+                Utc::now() - ChronoDuration::days(1),
+                3_600,
+                "sciotte",
+            )
+            .build()],
+        )
+        .await
+        .unwrap();
+    for _delivery in 0..2 {
+        push(
+            &resources,
+            "deregistrations",
+            json!([{ "userId": GARMIN_USER }]),
+        )
+        .await;
+    }
+    assert_eq!(
+        reconnect_notices(&service, beside, beside_tenant).await,
+        1,
+        "bug: an athlete whose session serves is not told once that Garmin's writes stopped"
+    );
+    let kept: Vec<String> = resources
+        .common
+        .repos
+        .provider_connections
+        .get_for_user(beside, Some(beside_tenant))
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|c| c.provider)
+        .collect();
+    assert_eq!(
+        kept,
+        ["sciotte_garmin"],
+        "bug: the session went with the grant"
+    );
+    let captured = resources
+        .common
+        .repos
+        .activity_cache
+        .get_cached_activities(
+            beside,
+            &beside_tenant,
+            Some("sciotte_garmin"),
+            Utc::now() - ChronoDuration::days(30),
+            Utc::now() + ChronoDuration::days(1),
+            100,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        captured.len(),
+        1,
+        "bug: the session's rows went with the grant"
+    );
 }
 
 #[tokio::test]
@@ -1599,7 +1843,8 @@ async fn a_long_rides_power_comes_from_its_file() {
     let start = Utc::now() - ChronoDuration::days(3);
     let file = FitWorkout::ride(start, 120).with_power().encode();
     let (base, _hits) = mock_garmin_files(file).await;
-    let resources = context(Some(&base)).await;
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(MemoryActivityRecordStore::new());
+    let resources = context_over(Some(&base), Arc::clone(&records)).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
     push(
         &resources,
@@ -1634,6 +1879,65 @@ async fn a_long_rides_power_comes_from_its_file() {
         Some(250),
         "bug: an activity longer than the details cover takes its highest power from its file"
     );
+
+    // The store's record takes the file's power too, and only the summary:
+    // the laps the file brought stand beside the row, never inside the
+    // record or the row's own content, where a later push could not replace
+    // them.
+    let record = records
+        .get(
+            &Scope::new(tenant_id.as_uuid(), user_id),
+            SourceKey::Live(LiveSource::Garmin),
+            &ActivityId::parse("991001").unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("the store keeps the ultra");
+    assert_eq!(
+        record.activity.normalized_power(),
+        Some(expected_np(120)),
+        "bug: the record's power does not come from the file"
+    );
+    assert_eq!(
+        record.activity.laps(),
+        None,
+        "bug: the amendment folded the stored laps into the record"
+    );
+    assert_eq!(
+        stored_data_laps(&resources, user_id, &tenant_id, "991001").await,
+        Value::Null,
+        "bug: the amendment folded the stored laps into the row's content"
+    );
+}
+
+/// The `laps` the cached row's own `data_json` carries for Garmin's
+/// `activity_id`, `Null` when it carries none.
+async fn stored_data_laps(
+    resources: &ServerContext,
+    user_id: Uuid,
+    tenant_id: &TenantId,
+    activity_id: &str,
+) -> Value {
+    let sql = "SELECT data_json FROM cached_activities \
+               WHERE user_id = $1 AND tenant_id = $2 AND provider = 'garmin' AND activity_id = $3";
+    let data: String = match resources.agent.database.backend() {
+        DatabaseBackend::SQLite(sqlite) => sqlx::query_scalar(sql)
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string())
+            .bind(activity_id)
+            .fetch_one(sqlite.pool())
+            .await
+            .unwrap(),
+        #[cfg(feature = "postgresql")]
+        DatabaseBackend::PostgreSQL(pg) => sqlx::query_scalar(sql)
+            .bind(user_id.to_string())
+            .bind(tenant_id.to_string())
+            .bind(activity_id)
+            .fetch_one(pg.pool())
+            .await
+            .unwrap(),
+    };
+    serde_json::from_str::<Value>(&data).unwrap()["laps"].clone()
 }
 
 #[tokio::test]
@@ -1954,7 +2258,8 @@ async fn an_older_push_retried_after_a_newer_one_leaves_the_newer_values() {
 
 #[tokio::test]
 async fn a_details_batch_retried_after_a_newer_summary_still_gives_the_ride_its_power() {
-    let resources = context(None).await;
+    let records: Arc<dyn ActivityRecordStore> = Arc::new(MemoryActivityRecordStore::new());
+    let resources = context_over(None, Arc::clone(&records)).await;
     let (user_id, tenant_id) = seed_athlete(&resources).await;
     let start = recent_start();
 
@@ -1997,6 +2302,33 @@ async fn a_details_batch_retried_after_a_newer_summary_still_gives_the_ride_its_
         ride.max_power(),
         Some(250),
         "bug: the standing summary takes the samples' highest power"
+    );
+
+    // The activity store's record is amended with the cached row: what the
+    // store keeps, and serves again on any later projection, has the power.
+    let record = records
+        .get(
+            &Scope::new(tenant_id.as_uuid(), user_id),
+            SourceKey::Live(LiveSource::Garmin),
+            &ActivityId::parse("992001").unwrap(),
+        )
+        .await
+        .unwrap()
+        .expect("the store keeps the ride");
+    assert_eq!(
+        record.activity.name(),
+        "Renamed tempo",
+        "bug: the record does not keep the newer summary's name"
+    );
+    assert_eq!(
+        record.activity.normalized_power(),
+        Some(expected_np(600)),
+        "bug: the store's record keeps the ride without the samples' power"
+    );
+    assert_eq!(
+        record.activity.max_power(),
+        Some(250),
+        "bug: the record lost the samples' max power"
     );
 }
 
@@ -2281,20 +2613,7 @@ async fn intraday_spo2_breathing_and_stress_are_not_stored() {
 async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     let start = Utc::now() - ChronoDuration::days(3);
     let (base, hits) = mock_garmin_files(FitWorkout::ride(start, 120).encode()).await;
-    // A notification service over the same database, so the notices the flag
-    // sends can be counted.
-    let mut with_notices: ServerContext = (*context(Some(&base)).await).clone();
-    let service = Arc::new(match with_notices.agent.database.backend() {
-        DatabaseBackend::SQLite(sqlite) => {
-            NotificationService::from_sqlite(sqlite.pool().clone(), TaskTracker::new())
-        }
-        #[cfg(feature = "postgresql")]
-        DatabaseBackend::PostgreSQL(pg) => {
-            NotificationService::from_postgres(pg.pool().clone(), TaskTracker::new())
-        }
-    });
-    with_notices.common.notification_service = Some(Arc::clone(&service));
-    let resources = Arc::new(with_notices);
+    let (resources, service) = context_with_notices(Some(&base)).await;
     let (user_id, user, tenant_id) = common::create_test_user_with_plan(
         &resources.agent.database,
         &format!("garmin-refused-{}@example.com", Uuid::new_v4()),
@@ -2358,23 +2677,9 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     );
 
     push(&resources, "activityFiles", file_push(2)).await;
-    let (rows, _, _) = service
-        .list_notifications(
-            user_id,
-            CommereTenantId(tenant_id.as_uuid()),
-            50,
-            0,
-            None,
-            false,
-        )
-        .await
-        .unwrap();
-    let notices = rows
-        .iter()
-        .filter(|row| row.notification_type == "provider_needs_reauth")
-        .count();
     assert_eq!(
-        notices, 1,
+        reconnect_notices(&service, user_id, tenant_id).await,
+        1,
         "bug: two refusals of one dead grant must send its reconnect notice once"
     );
 
@@ -2395,5 +2700,86 @@ async fn a_garmin_grant_nothing_can_renew_is_flagged_when_a_file_needs_it() {
     assert_eq!(
         card["needs_reauth"], true,
         "bug: the card must ask for a reconnect once the grant is dead: {card}"
+    );
+}
+
+/// Every field the Garmin descriptor declares reaches what Dravr stores
+/// (carnet#1494, the field dictionary): the summary's readings on the row an
+/// `activities` push lands, and the samples, laps and the power derived from
+/// them once the activity's `activityDetails` arrive.
+#[tokio::test]
+async fn pushed_activities_fill_every_field_the_garmin_descriptor_declares() {
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    let start = recent_start();
+    let summary = |id: &str| {
+        let mut summary = activity(id, "Tempo", start, 600);
+        summary["maxHeartRateInBeatsPerMinute"] = json!(171);
+        summary["averageBikeCadenceInRoundsPerMinute"] = json!(88);
+        summary["activeKilocalories"] = json!(410);
+        summary
+    };
+    push(&resources, "activities", json!([summary("960001")])).await;
+
+    let samples: Vec<Value> = (0..60_u32)
+        .map(|second| {
+            json!({
+                "startTimeInSeconds": start + i64::from(second),
+                "heartRate": 140,
+                "powerInWatts": fit_power(second),
+                "bikeCadenceInRPM": 88,
+                "speedMetersPerSecond": 8.0,
+                "elevationInMeters": 44.0,
+                "airTemperatureCelcius": 11.0,
+                "totalDistanceInMeters": f64::from(second) * 8.0,
+                "latitudeInDegree": 45.5,
+                "longitudeInDegree": -73.6,
+            })
+        })
+        .collect();
+    let details = json!([{
+        "userId": GARMIN_USER,
+        "summaryId": "960002-detail",
+        "activityId": 960_002,
+        "summary": summary("960002"),
+        "samples": samples,
+        "laps": [{ "startTimeInSeconds": start }, { "startTimeInSeconds": start + 300 }],
+    }]);
+    push(&resources, "activityDetails", details).await;
+
+    let cached = cached_garmin(&resources, user_id, &tenant_id).await;
+    let stored = |id: &str| {
+        cached
+            .iter()
+            .find(|activity| activity.id() == id)
+            .unwrap_or_else(|| panic!("{id} is stored: {cached:?}"))
+            .clone()
+    };
+    let streams = resources
+        .common
+        .repos
+        .activity_streams
+        .get_activity_streams(&tenant_id, user_id, "garmin", "960002")
+        .await
+        .unwrap()
+        .expect("the samples are stored");
+    let mut detailed = serde_json::to_value(stored("960002")).unwrap();
+    detailed["time_series_data"] = serde_json::to_value(streams).unwrap();
+    let detailed: Activity = serde_json::from_value(detailed).unwrap();
+
+    let declared = GarminDescriptor.activity_fields();
+    let on_list = missing(&stored("960001"), &declared.list.names(), &[]);
+    assert!(
+        on_list.is_empty(),
+        "bug: Garmin declares {on_list:?} on a pushed summary, and the push left them out"
+    );
+    let on_detail = missing(
+        &detailed,
+        &declared.supplied().names(),
+        &declared.streams.names(),
+    );
+    assert!(
+        on_detail.is_empty(),
+        "bug: Garmin declares {on_detail:?}, and its pushed details left them out"
     );
 }

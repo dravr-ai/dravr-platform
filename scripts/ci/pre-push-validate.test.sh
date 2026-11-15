@@ -50,7 +50,7 @@ require_fixture() {
 STUBS="check-inline-paths.sh architectural-validation.sh check-contremaitre-sync.sh \
 check-phantom-surfaces.sh check-turn-envelope.sh check-moved-symbols.sh check-backend-pairs.sh \
 pre-push-frontend-tests.sh design-system-validation.sh pre-push-mobile-tests.sh check-workflow-test-targets.sh \
-check-merge-risk.sh check-unused-deps.sh"
+check-merge-risk.sh check-unused-deps.sh check-actions-lock.sh check-actions-lock.test.sh"
 
 make_repo() {
   local dir
@@ -100,7 +100,10 @@ run_change() {
   printf '%s\n' "$body" >"$dir/$path"
   git -C "$dir" add -A
   git -C "$dir" commit -qm "change $path"
-  ( cd "$dir" && PATH="$dir/.stubbin:$PATH" "$UNDER_TEST" ) >"$OUT" 2>&1 || code=$?
+  # A remote session's markers would turn Tier 1q into its deferral, so every
+  # case runs as a local one unless it sets them itself.
+  ( cd "$dir" && env -u CLAUDE_CODE_REMOTE -u CLAUDE_CODE_REMOTE_SESSION_ID \
+      PATH="$dir/.stubbin:$PATH" "$UNDER_TEST" ) >"$OUT" 2>&1 || code=$?
   LAST_EXIT="$code"
 }
 
@@ -315,6 +318,43 @@ printf '#!/bin/sh\necho "unused dependency probe"\nexit 1\n' >"$dir/scripts/ci/c
 run_change "$dir" Cargo.toml "$(printf '[package]\nname = "probe"\nversion = "0.0.2"\nedition = "2021"')"
 expect_contains "an unused dependency names the failure" "FAIL: a crate declares a dependency its code never names"
 expect_exit "an unused dependency fails the push" 1
+
+# 16. A workflow or composite diff runs the lockfile tier; a client diff does
+# not. The tier must not read the developer's own session as remote.
+echo "  case 16: workflow and composite diffs"
+dir="$(make_repo)"
+run_change "$dir" .github/workflows/probe.yml "name: probe"
+expect_contains "workflow diff runs the lockfile tier" "Tier 1q: Workflow lockfile"
+expect_exit "workflow diff passes" 0
+dir="$(make_repo)"
+run_change "$dir" .github/actions/probe/action.yml "name: probe"
+expect_contains "composite diff runs the lockfile tier" "Tier 1q: Workflow lockfile"
+dir="$(make_repo)"
+run_change "$dir" .gitattributes ".claude/skills export-ignore"
+expect_contains ".gitattributes diff runs the lockfile tier" "Tier 1q: Workflow lockfile"
+dir="$(make_repo)"
+run_change "$dir" frontend/src/App.tsx "export const App = () => null;"
+expect_absent "frontend diff pays no lockfile tier" "Tier 1q: Workflow lockfile"
+
+# 17. The lockfile verdict reaches the push; a remote session defers to CI.
+echo "  case 17: workflow diff, the lockfile gate reports a finding"
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "not-pinned: probe"\nexit 1\n' >"$dir/scripts/ci/check-actions-lock.sh"
+run_change "$dir" .github/workflows/probe.yml "name: probe"
+expect_contains "an unlocked workflow names the failure" "FAIL: .github/workflows/actions.lock does not cover"
+expect_exit "an unlocked workflow fails the push" 1
+dir="$(make_repo)"
+printf '#!/bin/sh\necho "not-pinned: probe"\nexit 1\n' >"$dir/scripts/ci/check-actions-lock.sh"
+require_fixture "$dir"
+mkdir -p "$dir/.github/workflows"
+printf 'name: probe\n' >"$dir/.github/workflows/probe.yml"
+git -C "$dir" add -A
+git -C "$dir" commit -qm "change workflow"
+code=0
+( cd "$dir" && CLAUDE_CODE_REMOTE=true PATH="$dir/.stubbin:$PATH" "$UNDER_TEST" ) >"$OUT" 2>&1 || code=$?
+LAST_EXIT="$code"
+expect_contains "a remote session names the lane that checks instead" "runs this check on the push"
+expect_exit "a remote session does not fail on the missing tool" 0
 
 echo ""
 if [ "$failures" -ne 0 ]; then

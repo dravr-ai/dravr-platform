@@ -10,10 +10,11 @@ import {
   MAX_MAX_TOOL_ITERATIONS,
   DEFAULT_MAX_TOOL_ITERATIONS,
 } from '@pierre/shared-constants';
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import type { AgentFormData } from './coachForm';
 import { Select, Textarea, Radio } from '../ui';
 import { useTranslation } from '@pierre/i18n';
+import { useDialog } from '../../hooks/useDialog';
 import { estimatePromptTokens, PROMPT_TOKEN_ESTIMATE_KEY } from '@pierre/ui-logic';
 
 /**
@@ -54,6 +55,11 @@ export default function CoachFormModal({
   children,
 }: CoachFormModalProps) {
   const { t } = useTranslation();
+  const titleId = useId();
+  // Focus trap, focus restore, Escape and the scroll lock: one layer on the
+  // same stack as every other dialog.
+  // A delete confirm or a revert opened from inside closes first.
+  const { containerRef } = useDialog({ open: isOpen, onClose });
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -63,7 +69,14 @@ export default function CoachFormModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div
+      ref={containerRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby={titleId}
+      className="fixed inset-0 z-50 flex items-center justify-center focus:outline-none"
+    >
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"
@@ -89,7 +102,7 @@ export default function CoachFormModal({
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
             </div>
-            <h2 className="text-xl font-semibold text-on-surface mb-2">{t('chat.editAgentTitle')}</h2>
+            <h2 id={titleId} className="text-xl font-semibold text-on-surface mb-2">{t('chat.editAgentTitle')}</h2>
             <p className="text-on-surface-variant text-sm">{t('chat.agentFormEditHint')}</p>
           </div>
 

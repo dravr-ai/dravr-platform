@@ -28,12 +28,11 @@ use crate::implementations::activity_detail_promotion::{
 };
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
-use crate::implementations::data_helpers::{
-    activity_coverage_note, pagination_has_more, AskedWindow,
-};
+use crate::implementations::data_helpers::{activity_coverage, pagination_has_more, AskedWindow};
+use crate::implementations::field_dictionary::served_header;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use dravr_cageux::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
@@ -299,10 +298,12 @@ impl ActivityRetrievalContext {
         let advice = (mode_used == "summary").then(|| {
             format!(
                 "Summary mode: activities from the last {DETAIL_WINDOW_DAYS} days carry full \
-                 detail (description, device, splits, laps, segment efforts); older rows \
-                 carry scalar fields only (HR avg/max, elevation, cadence, power, \
-                 calories, suffer score, moving time). Pass mode=detailed to read \
-                 the detail of older rows (up to {EXPLICIT_DETAIL_CAP} per call)."
+                 detail (description, device, splits, laps; segment efforts where the \
+                 connection that read them returns any); older rows carry scalar fields \
+                 only (HR avg/max, elevation, cadence, power, calories, suffer score, \
+                 moving time). Pass mode=detailed to read the detail of older rows (up to \
+                 {EXPLICIT_DETAIL_CAP} per call). For one segment's efforts across \
+                 activities, call get_segment_history."
             )
         });
 
@@ -863,10 +864,10 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// total + span instead of the oldest shown row. `None` on paths with no
     /// distinct window total (e.g. the cached snapshot) — no `coverage` emitted.
     pub window_total: Option<usize>,
-    /// Oldest/newest activity date (`"YYYY-MM-DD"`) across that full pre-truncation
+    /// Oldest/newest activity day, in the athlete's zone, across that full pre-truncation
     /// window, paired with `window_total`. `None` leaves the `coverage` note
     /// count-only.
-    pub window_span: Option<(String, String)>,
+    pub window_span: Option<(NaiveDate, NaiveDate)>,
     /// Count, distance, duration and climb summed over that full window. Ride
     /// on the `coverage` sidecar, so totals and comparisons read the whole
     /// window rather than the shown slice. `None` adds nothing.
@@ -953,6 +954,10 @@ pub(crate) fn build_activities_success_response(
         page_merge.as_ref(),
     );
 
+    // What the connections behind these rows never supply, so the model reads
+    // an absent field as unknown rather than zero.
+    let field_support = served_header(activities);
+
     // One payload, three ways of filling it. The TOON key stays
     // `activities_toon` rather than the fixed `toon` the other typed tools
     // use: `prefetch.rs` reads `activity_list` and `count` at the top level
@@ -975,6 +980,7 @@ pub(crate) fn build_activities_success_response(
         // Calculate token estimate for context management
         token_estimate: TokenEstimate::from_activities(activities_len, mode_used),
         retrieval_context: retrieval_context.clone(),
+        field_support: field_support.clone(),
         coverage: None,
         reconnect_required: None,
         provider_unavailable: None,
@@ -994,28 +1000,19 @@ pub(crate) fn build_activities_success_response(
         OutputFormat::Json => (base(Some(data_value), None, "json"), "json"),
     };
 
-    // Surface honest window coverage when the served slice was truncated, so
-    // the LLM frames "N total in this window, showing the most recent M"
-    // instead of anchoring on the oldest shown activity. LLM-facing (tool
-    // result, not the input schema) → no SDK/contremaitre/locale drift.
-    payload.coverage = activity_coverage_note(
+    // Surface honest window coverage when the served slice was truncated, the
+    // window was asked by date, or it is incomplete, so the LLM frames "N total
+    // in this window, showing the most recent M" instead of anchoring on the
+    // oldest shown activity. LLM-facing (tool result, not the input schema) →
+    // no contremaitre/locale drift.
+    payload.coverage = activity_coverage(
         window_total,
         activities_len,
-        window_span.as_ref(),
+        window_span,
         asked,
         completeness,
+        window_totals,
     );
-    if let (Some(Value::Object(coverage)), Some(totals)) =
-        (payload.coverage.as_mut(), window_totals)
-    {
-        coverage.insert("window_totals".to_owned(), totals.to_json());
-        if let Some(Value::String(note)) = coverage.get_mut("note") {
-            note.push_str(
-                " For totals or a comparison between periods, use window_totals, which covers \
-                 the whole window.",
-            );
-        }
-    }
 
     let metadata = build_activities_metadata(
         activities.len(),

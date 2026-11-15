@@ -803,9 +803,9 @@ impl McpTool<dyn ToolRuntime> for GenerateRecommendationsTool {
             "generate_recommendations",
             "Generate personalized training recommendations. `training_plan`, `recovery` and \
              `all` advise on CTL, ATL and TSB as analyze_training_load reports them. In \
-             `nutrition` mode an athlete with a medical/PAR-Q flag on file gets foods and timing \
-             with no amounts, plus `figures_withheld` (their clinician sets those); the session \
-             is still described. Calories burned: the device's figure, else Keytel's heart-rate \
+             `nutrition` mode a medical/PAR-Q flag, or a call from outside Dravr's apps, gets \
+             foods and timing with no amounts, plus `figures_withheld`; the session is still \
+             described. Calories burned: the device's figure, else Keytel's heart-rate \
              estimate from the saved weight, age and sex, else null with `calories_unavailable` \
              saying why.",
             schema,

@@ -34,8 +34,8 @@ pub(crate) const TS_FETCH_RANGE_SQL: &str = r"
 
 /// Insert one point; a second insert at the same timestamp replaces the
 /// first (riviere's last-writer-wins on the unique key). `$6` is when the
-/// point was copied from its provider, refreshed on every re-copy: the age a
-/// provider's cache TTL judges the point by.
+/// point was copied from its provider, refreshed on every re-copy: the age
+/// the retention policy (`activity_retention.*`) judges the point by.
 pub(crate) const TS_INSERT_POINT_SQL: &str = r"
                 INSERT INTO data_point_series
                     (id, data_source_id, series_type_id, recorded_at, zone_offset, value, synced_at)

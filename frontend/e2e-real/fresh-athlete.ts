@@ -17,8 +17,6 @@ const ONBOARDING_STEPS = [
   'parq',
   'check_in',
   'coach_proposal',
-  'messaging_channel',
-  'messaging_configure',
 ] as const;
 
 /** Register a fresh athlete named `displayName`, approve them as the seeded admin, and return a bearer for them. */

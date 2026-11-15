@@ -20,6 +20,11 @@
 //! a consent revoked since the thread opened refuses the next one. Publish
 //! goes through [`publish_draft_live`], the entry point `publish_training_plan`
 //! calls, so the button and the tool publish the same way.
+//!
+//! The read and the publish read the athlete's plan (the publish also their
+//! load, for its rails), so each goes on the athlete's own record as a
+//! `coach_thread` read before anything of theirs is read (carnet#1445). The
+//! discard reads nothing of theirs: the draft is the coach's.
 
 use std::sync::Arc;
 
@@ -31,6 +36,7 @@ use axum::{
 };
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
+use pierre_database::repositories::{CoachReadClass, CoachReadSurface};
 use pierre_middleware::AuthenticatedUser;
 use pierre_services::athlete_clock::athlete_today;
 use pierre_services::coach_plan_draft::{
@@ -43,10 +49,16 @@ use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_fueling::FuelingDisclosure;
+use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
+use pierre_tool_runtime::implementations::plan_scope;
 use pierre_tool_runtime::implementations::training_plan_drafts::{
-    publish_draft_live, DraftPublishOutcome,
+    publish_draft_live, DraftPublish, DraftPublishOutcome, PublishedDraftReport,
 };
+use pierre_tool_runtime::read_subject::record_coach_read;
 
+use uuid::Uuid;
+
+use crate::mcp::host_seams::tool_auth_method;
 use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
@@ -60,6 +72,10 @@ use super::dto::{
 /// The code of a publish refused because the athlete's plan moved under the
 /// draft, in the 409 body's `error_code` and `details.reason`.
 const PLAN_PUBLISH_CONFLICT: &str = "plan_publish_conflict";
+
+/// What the calendar push's notify events name as its trigger when the
+/// coach's Publish button published.
+const PUBLISH_TRIGGER: &str = "subject_plan_publish";
 
 /// The 404 for a coach who holds no draft of the athlete's plan.
 fn no_draft() -> AppError {
@@ -108,6 +124,24 @@ async fn coached_subject(
     .map_err(CoachedAthleteRefusal::into_error)
 }
 
+/// Record on the athlete's own record that the coach's thread read their plan
+/// (carnet#1445). A row that cannot be written fails the request: no read
+/// goes unrecorded.
+async fn record_thread_read(
+    resources: &Arc<ServerContext>,
+    access: &CoachedAthleteAccess,
+    coach: Uuid,
+) -> Result<(), AppError> {
+    record_coach_read(
+        &resources.common.repos,
+        access,
+        coach,
+        CoachReadSurface::CoachThread.as_str(),
+        CoachReadClass::Training,
+    )
+    .await
+}
+
 /// `GET /api/chat/conversations/{id}/subject-plan`: the thread's athlete's
 /// live plan and the coach's draft over it, each projected on the athlete's
 /// today in the shape `GET /api/me/training-plan` returns, in the coach's
@@ -120,6 +154,7 @@ pub(super) async fn get_subject_plan(
 ) -> Result<Response, AppError> {
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let coach = auth.user_id;
+    record_thread_read(&resources, &access, coach).await?;
     let repos = &resources.common.repos;
     let athlete = access.athlete_user_id;
     let target = CoachDraftTarget::new(access.tenant, athlete, coach);
@@ -155,40 +190,82 @@ pub(super) async fn get_subject_plan(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
+/// A coach publishes or discards a coached athlete's plan only from Dravr's
+/// own apps and channels. An API-key or MCP client acting for the coach is
+/// outside the agreement the athlete made with their coach inside Dravr, and
+/// the plan tools refuse it the same write, in the same words (carnet#1533).
+fn refuse_external_plan_write(auth: &AuthResult) -> Result<(), AppError> {
+    match tool_auth_method(auth) {
+        AuthMethod::ApiKey | AuthMethod::McpClient | AuthMethod::OAuth2 => {
+            Err(plan_scope::external_write_error("plan"))
+        }
+        AuthMethod::JwtBearer | AuthMethod::ChannelLink => Ok(()),
+    }
+}
+
 /// `POST /api/chat/conversations/{id}/subject-plan/publish`: the coach's
-/// draft made the athlete's live plan.
+/// draft made the athlete's live plan, and put on the athlete's chosen
+/// calendar (carnet#1492).
 ///
 /// 409 `plan_publish_conflict` — with the weeks the athlete changed since the
 /// coach drafted them and whether their season was re-laid — when the
 /// athlete's plan moved under the draft and the body did not ask to
 /// overwrite it; nothing is written. 404 `no_draft` when the coach holds no
-/// draft.
+/// draft. A push a gate refuses or that fails leaves the publish standing:
+/// the 200 says why in `calendar_push`.
 pub(super) async fn publish_subject_plan(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
     Json(request): Json<PublishSubjectPlanRequest>,
 ) -> Result<Response, AppError> {
+    refuse_external_plan_write(&auth)?;
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
+    record_thread_read(&resources, &access, auth.user_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
+    // The push runs as the coach's own push_training_plan from this thread
+    // would: the thread names the athlete, the coach is the requester, and an
+    // API-key caller is refused it as an external transport. Only the coach
+    // reads this route's answer, and the thread is their own (checked by
+    // `coached_subject`), so the call is said to be a direct message: the
+    // room classifier takes a conversation with no group for private only
+    // then (carnet#1422).
+    let coach_tenant = get_tenant_id(&auth, &resources).await?;
+    let context = ToolExecutionContext::new(
+        auth.user_id,
+        Some(coach_tenant),
+        into_runtime(&resources),
+        tool_auth_method(&auth),
+    )
+    .with_conversation_id(conversation_id.clone())
+    .with_turn_direct_message(true);
     // The room the publish is said in is the group the thread acts under now:
     // reopening the thread from another group rebinds it there.
     let outcome = publish_draft_live(
-        &into_runtime(&resources),
-        &target,
-        access.group.id,
-        request.overwrite_athlete_changes,
+        &context,
+        &DraftPublish {
+            target: &target,
+            group_id: access.group.id,
+            overwrite: request.overwrite_athlete_changes,
+            athlete: None,
+            trigger: PUBLISH_TRIGGER,
+        },
     )
     .await?;
     match outcome {
         DraftPublishOutcome::Published(report) => {
-            let posted_in_room = report.room_post.in_room;
-            let published = report.published;
+            let PublishedDraftReport {
+                published,
+                room_post,
+                calendar_push,
+                ..
+            } = *report;
             let response = PublishedSubjectPlanResponse {
                 plan_id: published.plan.id,
                 superseded_plan_id: published.superseded_plan_id,
                 athlete_notified: published.athlete_notified,
-                posted_in_room,
+                posted_in_room: room_post.in_room,
+                calendar_push,
             };
             Ok((StatusCode::OK, Json(response)).into_response())
         }
@@ -219,6 +296,7 @@ pub(super) async fn discard_subject_plan_draft(
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
+    refuse_external_plan_write(&auth)?;
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
     match discard_coach_draft(&resources.common.repos, &target).await? {

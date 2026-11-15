@@ -184,7 +184,11 @@ WORKDIR /app
 # 2026-11-08: zlib 1:1.3.dfsg+really1.3.1-1+b1 -> +deb13u1 (CVE-2026-85091, HIGH,
 # heap overflow in gz_vacate()): the dev deploy of 363450ee7 was gated on it
 # with "apt security epoch: 2026-11-04" built.
-ARG APT_SECURITY_EPOCH=2026-11-08
+# 2026-11-13: libcares2 1.34.5-1+deb13u1 -> 1.34.9-1~deb13u1 (CVE-2026-33630,
+# CVE-2026-69184, CVE-2026-69186, HIGH: use-after-free and DNS denial of
+# service): the dev deploys of 9061a4e4d and 83efc283b were gated on them
+# with "apt security epoch: 2026-11-08" built.
+ARG APT_SECURITY_EPOCH=2026-11-13
 
 # Upgrade all system packages to patch CVEs, then install runtime dependencies
 # nodejs + npm: needed for copilot CLI and claude-code CLI (LLM providers via embacle)

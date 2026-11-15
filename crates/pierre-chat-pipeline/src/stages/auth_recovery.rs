@@ -57,22 +57,17 @@ use pierre_contremaitre::messaging_strings::{
     KEY_PROVIDER_REAUTH_SERVED, KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
 };
 use pierre_contremaitre::reauth_strings::{
-    KEY_PROVIDER_REAUTH_OAUTH_REQUIRED, KEY_PROVIDER_REAUTH_OAUTH_REQUIRED_NO_LINK,
-    KEY_PROVIDER_REAUTH_OAUTH_SERVED, KEY_PROVIDER_REAUTH_OAUTH_SERVED_NO_LINK,
+    KEY_PROVIDER_REAUTH_FALLBACK_SERVED, KEY_PROVIDER_REAUTH_FALLBACK_SERVED_NO_LINK,
 };
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::ConnectionType;
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
-use pierre_middleware::provider_link_token::{
-    mint_connect_link_token, mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH,
-};
+use pierre_middleware::provider_link_token::{mint_connect_link_token, mint_hosted_signin_url};
 use pierre_providers::{ai_scope, backend_resolver};
 use pierre_tool_runtime::implementations::connection::{
-    is_no_seat_refusal, is_notice_refusal, mint_oauth_authorize_url,
+    is_notice_refusal, mint_oauth_authorize_url,
 };
-use pierre_tool_runtime::protocol::reauth_notice::{
-    new_strava_sign_in_falls_back, reconnects_through_oauth,
-};
+use pierre_tool_runtime::protocol::reauth_notice::new_sign_in_falls_back;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
 
@@ -90,8 +85,9 @@ pub struct AuthRecoveryDeps<'a> {
     pub base_url: &'a str,
     /// Localized messaging strings used to render the user-facing reply.
     pub messaging_strings_registry: &'a Arc<MessagingStringsRegistry>,
-    /// Tool runtime used to mint a real OAuth authorization URL (WHOOP/Strava/…) for
-    /// non-sciotte providers — the sciotte mirror keeps its hosted-login mint above.
+    /// Tool runtime used to mint a real OAuth authorization URL (WHOOP, …) for
+    /// a provider with no mirror — a mirror's pair reconnects through its
+    /// hosted-login mint.
     pub tool_runtime: &'a Arc<dyn ToolRuntime>,
     /// URL shortener store — wraps the dotty hosted-login link in a dot-free
     /// `<base>/r/<code>` so `WhatsApp` linkifies the whole reconnect link.
@@ -169,11 +165,13 @@ impl ReconnectStanding {
     }
 
     /// The messaging key for this standing, with and without a minted URL.
-    /// `through_oauth` words the move to the provider's official connection
-    /// (a usr/pwd-only Garmin session while a seat is free, carnet#1454).
-    const fn keys(&self, through_oauth: bool) -> (&'static str, &'static str) {
-        match (self, through_oauth) {
-            (Self::Blank, false) => (
+    /// `grant_stands_in` words a served turn whose provider's own live grant
+    /// answered for its dead session: the provider still syncs for now
+    /// (carnet#1494), so the copy never says the answer came from the
+    /// athlete's other accounts.
+    const fn keys(&self, grant_stands_in: bool) -> (&'static str, &'static str) {
+        match (self, grant_stands_in) {
+            (Self::Blank, _) => (
                 KEY_PROVIDER_REAUTH_REQUIRED,
                 KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
             ),
@@ -181,13 +179,9 @@ impl ReconnectStanding {
                 KEY_PROVIDER_REAUTH_SERVED,
                 KEY_PROVIDER_REAUTH_SERVED_NO_LINK,
             ),
-            (Self::Blank, true) => (
-                KEY_PROVIDER_REAUTH_OAUTH_REQUIRED,
-                KEY_PROVIDER_REAUTH_OAUTH_REQUIRED_NO_LINK,
-            ),
             (Self::Served, true) => (
-                KEY_PROVIDER_REAUTH_OAUTH_SERVED,
-                KEY_PROVIDER_REAUTH_OAUTH_SERVED_NO_LINK,
+                KEY_PROVIDER_REAUTH_FALLBACK_SERVED,
+                KEY_PROVIDER_REAUTH_FALLBACK_SERVED_NO_LINK,
             ),
         }
     }
@@ -236,17 +230,17 @@ pub async fn apply_auth_recovery(
         backend_resolver::brand_name(deps.tool_runtime.provider_registry(), &provider_slug)
             .unwrap_or(&provider_slug)
             .to_owned();
-    // A usr/pwd-only Garmin session reconnects through Garmin's OAuth while a
-    // seat is free: its copy says so and its link is the connect picker,
-    // never the usr/pwd sign-in.
-    let through_oauth = reconnects_through_oauth(
-        deps.tool_runtime,
+    // A dead session its provider's live grant keeps syncing is worded as
+    // such: the answer is still that provider's.
+    let grant_stands_in = backend_resolver::fallback_grant(
+        deps.tool_runtime.repos(),
         user_id,
         input.tool_tenant_id,
         &provider_slug,
     )
-    .await;
-    let (linked_key, bare_key) = standing.keys(through_oauth);
+    .await
+    .is_some();
+    let (linked_key, bare_key) = standing.keys(grant_stands_in);
     let replaces_reply = standing.replaces_reply();
 
     // A shared room never receives the link. The minted URL is a hosted login
@@ -289,15 +283,7 @@ pub async fn apply_auth_recovery(
     // convenience, so its absence costs the link and not the message. On a
     // served turn it costs even less: the answer is already written, and this
     // only appends the sentence naming what dropped.
-    let minted = mint_offer_url(
-        &deps,
-        &provider_slug,
-        through_oauth,
-        user_id,
-        input,
-        profile,
-    )
-    .await;
+    let minted = mint_offer_url(&deps, &provider_slug, user_id, input, profile).await;
     let Some(url) = minted else {
         warn!(
             user_id = %user_id,
@@ -432,27 +418,24 @@ fn deliver(result: &mut ToolLoopResult, message: &str, replaces_reply: bool) {
 
 /// The URL the reconnect offer for `provider_slug` carries.
 ///
-/// The connect picker when the athlete moves to the provider's OAuth
-/// (`through_oauth`), or makes a new Strava connection whose sign-in falls
-/// back to the OAuth ([`new_strava_sign_in_falls_back`]) — the picker carries
-/// that fallback, the bare sign-in page does not — else the provider's own
+/// The connect picker for a new connection whose sign-in falls back to its
+/// provider's OAuth ([`new_sign_in_falls_back`]) — the picker carries that
+/// fallback, the bare sign-in page does not — else the provider's own
 /// reconnect ([`mint_reconnect_url`]).
 async fn mint_offer_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
-    through_oauth: bool,
     user_id: Uuid,
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
-    if through_oauth
-        || new_strava_sign_in_falls_back(
-            deps.tool_runtime,
-            user_id,
-            input.tool_tenant_id,
-            provider_slug,
-        )
-        .await
+    if new_sign_in_falls_back(
+        deps.tool_runtime,
+        user_id,
+        input.tool_tenant_id,
+        provider_slug,
+    )
+    .await
     {
         mint_connect_picker_url(deps, user_id, input, profile).await
     } else {
@@ -464,9 +447,8 @@ async fn mint_offer_url(
 /// logging why it could not be minted.
 ///
 /// Used for an OAuth provider whose notice is outstanding: the picker shows
-/// the notice and carries its acceptance onto the OAuth start. And for a
-/// usr/pwd-only Garmin session moving to Garmin's OAuth, whose card the
-/// picker offers as that move.
+/// the notice and carries its acceptance onto the OAuth start. And for a new
+/// connection whose sign-in falls back to its provider's OAuth.
 async fn mint_connect_picker_url(
     deps: &AuthRecoveryDeps<'_>,
     user_id: Uuid,
@@ -523,14 +505,15 @@ async fn mint_hosted_connect_url(
 
 /// Mint the reconnect URL for `provider_slug`.
 ///
-/// Scrape-mirror providers (every slug with a [`backend_resolver::hosted_login_target`]) use the Dravr-hosted login page
-/// (email + password) — the same short-TTL link-token mint the channel bots use. An
-/// Intervals.icu link made with a pasted API key gets the hosted Intervals.icu page,
-/// whose key form relinks it. OAuth providers (WHOOP, Strava, Garmin, an authorized
-/// Intervals.icu, …) get their real provider authorization URL plus a persisted CSRF
-/// state row, unless the provider's notice is outstanding for the account: then the
-/// hosted connect picker, which shows it. Returns `None` (fall back to the LLM path) on
-/// failure.
+/// Every provider with a mirror reconnects through the Dravr-hosted sign-in
+/// of that mirror ([`backend_resolver::reconnect_target`]): a dead session and
+/// a dead Strava or Garmin grant alike, never the grant's OAuth
+/// (carnet#1494). An Intervals.icu link made with a pasted API key gets the
+/// hosted Intervals.icu page, whose key form relinks it. Any other OAuth
+/// provider (WHOOP, an authorized Intervals.icu, …) gets its real
+/// authorization URL plus a persisted CSRF state row, unless its notice is
+/// outstanding for the account: then the hosted connect picker, which shows
+/// it. Returns `None` (fall back to the LLM path) on failure.
 async fn mint_reconnect_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
@@ -538,7 +521,7 @@ async fn mint_reconnect_url(
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
-    if let Some(target) = backend_resolver::hosted_login_target(provider_slug) {
+    if let Some(target) = backend_resolver::reconnect_target(provider_slug) {
         return mint_hosted_login_url(deps, provider_slug, target, user_id, input, profile).await;
     }
 
@@ -572,18 +555,15 @@ async fn mint_hosted_login_url(
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
-    let token = match mint_link_token(
-        &MintProviderLinkTokenArgs {
-            user_id,
-            tenant_id: input.tool_tenant_id.as_uuid(),
-            provider: "sciotte",
-            target,
-            channel: profile.surface.as_str(),
-            channel_thread: None,
-        },
+    let full_url = match mint_hosted_signin_url(
+        deps.base_url,
+        user_id,
+        input.tool_tenant_id.as_uuid(),
+        target,
+        profile.surface.as_str(),
         deps.admin_jwt_secret,
     ) {
-        Ok(t) => t,
+        Ok(url) => url,
         Err(e) => {
             warn!(
                 user_id = %user_id,
@@ -594,11 +574,6 @@ async fn mint_hosted_login_url(
             return None;
         }
     };
-    let full_url = format!(
-        "{}{HOSTED_SIGNIN_PATH}?token={}",
-        deps.base_url,
-        urlencoding::encode(&token)
-    );
     // Shorten to a dot-free `<base>/r/<code>` so WhatsApp keeps the whole
     // link tappable; degrades to the full URL if the store write fails.
     Some(
@@ -654,9 +629,9 @@ async fn relinks_with_api_key(
     }
 }
 
-/// The reconnect URL for an OAuth provider: its authorization URL, the
-/// hosted connect picker while the provider's notice is outstanding, or the
-/// provider's usr/pwd sign-in when its OAuth has no seat for the athlete.
+/// The reconnect URL for an OAuth provider with no mirror: its authorization
+/// URL, or the hosted connect picker while the provider's notice is
+/// outstanding.
 async fn mint_oauth_reconnect_url(
     deps: &AuthRecoveryDeps<'_>,
     provider_slug: &str,
@@ -686,11 +661,6 @@ async fn mint_oauth_reconnect_url(
             );
             mint_connect_picker_url(deps, user_id, input, profile).await
         }
-        // Garmin's pool is full and the athlete holds no grant to re-sign:
-        // its usr/pwd sign-in is the way back in.
-        Err(e) if is_no_seat_refusal(&e) => {
-            mint_no_seat_sign_in_url(deps, provider_slug, user_id, input, profile).await
-        }
         Err(e) => {
             warn!(
                 user_id = %user_id,
@@ -701,24 +671,4 @@ async fn mint_oauth_reconnect_url(
             None
         }
     }
-}
-
-/// The usr/pwd sign-in offered in place of `provider_slug`'s OAuth when it has
-/// no seat for the athlete: the hosted login of its mirror, or `None` for a
-/// provider with none.
-async fn mint_no_seat_sign_in_url(
-    deps: &AuthRecoveryDeps<'_>,
-    provider_slug: &str,
-    user_id: Uuid,
-    input: &TurnInput,
-    profile: &SurfaceProfile,
-) -> Option<String> {
-    info!(
-        user_id = %user_id,
-        provider = %provider_slug,
-        "auth_recovery: no seat on the provider's OAuth, offering its usr/pwd sign-in"
-    );
-    let target = backend_resolver::mirror_backend_for(provider_slug)
-        .and_then(backend_resolver::hosted_login_target)?;
-    mint_hosted_login_url(deps, provider_slug, target, user_id, input, profile).await
 }

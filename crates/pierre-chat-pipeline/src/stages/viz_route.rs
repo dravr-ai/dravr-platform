@@ -30,18 +30,19 @@
 
 use std::collections::BTreeMap;
 use std::fmt;
-use std::sync::Arc;
 
 use pierre_cache::Cache;
 use pierre_core::models::{TenantId, TimeSeriesData};
 use pierre_fitness_compute::route_track::RouteTrack;
 use pierre_providers::ai_scope;
+use pierre_tool_runtime::coach_seat::TurnSeat;
 use pierre_tool_runtime::protocol::{UniversalExecutor, UniversalRequest, UniversalResponse};
 use pierre_tool_runtime::route_store;
 use serde_json::{json, Map, Value};
 use tracing::warn;
 use uuid::Uuid;
 
+use super::tool_dispatch::turn_executor;
 use super::viz_blocks::{next_fence, validated_block, FENCE_INFO};
 use super::viz_schema::SchemaTexts;
 use crate::{ChatPipelineContext, TurnInput};
@@ -155,9 +156,14 @@ pub type RouteTracks = BTreeMap<RouteSubject, RouteTrackResult>;
 /// Nothing here fails the turn. A route that cannot be read leaves its reason
 /// in the map, the block that named it is refused during extraction, and the
 /// athlete gets the prose — the same outcome as any other refused block.
+///
+/// An activity's track is read on the turn's `seat`: in a coach's thread about
+/// one athlete it is the athlete's ride, read under the coaching gates, never
+/// the coach's (carnet#1448).
 pub async fn read_route_tracks(
     ctx: &ChatPipelineContext,
     input: &TurnInput,
+    seat: TurnSeat,
     granted: &[String],
     tools_called: &[String],
     reply: &str,
@@ -174,18 +180,12 @@ pub async fn read_route_tracks(
         return;
     }
     let (read_now, past_budget) = within_budget(wanted, tracks.len());
-    // Same construction as tool dispatch (stage 9) and the capability-recovery
-    // fetch: the turn's own grant, on the turn's Guardian budget.
-    let executor = UniversalExecutor::new(Arc::clone(&ctx.tool_runtime))
-        .with_scopes(input.grant.clone())
-        .with_conversation_id(input.conversation_id.clone())
-        .with_conversation_tenant(input.conversation_tenant_id.as_uuid())
-        .with_turn_token(input.turn_id.0.to_string());
+    let executor = turn_executor(ctx, input, seat);
 
     for subject in read_now {
         let outcome = match &subject {
             RouteSubject::Activity(activity_id) => {
-                read_one_track(&executor, input, activity_id).await
+                read_one_track(&executor, input, seat, activity_id).await
             }
             // Keyed as the tool call that stored the line keyed it: tool
             // dispatch runs every call under the turn's tool tenant and the
@@ -280,6 +280,7 @@ fn route_subjects(
 async fn read_one_track(
     executor: &UniversalExecutor,
     input: &TurnInput,
+    seat: TurnSeat,
     activity_id: &str,
 ) -> RouteTrackResult {
     let request = UniversalRequest {
@@ -289,9 +290,19 @@ async fn read_one_track(
         protocol: "chat".to_owned(),
         tenant_id: Some(input.tool_tenant_id.to_string()),
     };
-    // The track becomes a map the athlete sees; the model only ever reads the
-    // failure sentence below. Display, so no provider's AI policy applies.
-    let response = match ai_scope::for_display(executor.execute_tool(request)).await {
+    // The model only ever reads the failure sentence below. On the subject's
+    // seat the track becomes a map of their own ride that they see: display,
+    // so no provider's AI policy applies. Off it the map is a coach's view of
+    // the athlete, which never lifts the athlete's AI consents (carnet#1262):
+    // it is read as the agent's own reads are, under those consents and every
+    // provider's AI rules.
+    let read = executor.execute_tool(request);
+    let read = if seat.sender_is_subject() {
+        ai_scope::for_display(read).await
+    } else {
+        read.await
+    };
+    let response = match read {
         Ok(response) => response,
         Err(e) => {
             warn!(error = %e, activity_id, "viz-blocks: reading an activity's track failed");

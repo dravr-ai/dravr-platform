@@ -6,7 +6,7 @@
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{normalize_email, UserInvitation};
+use pierre_core::models::{normalize_email, InvitationKind, UserInvitation};
 use sqlx::Row;
 use uuid::Uuid;
 
@@ -15,7 +15,8 @@ use crate::repositories::link_token_consume::consume_link_token;
 use crate::repositories::user_invitations::{
     impl_user_invitation_repository, invitation_from_row, COUNT_RECENT_INVITATIONS_SQL,
     INSERT_INVITATION_SQL, INVITATION_LINK_TOKEN, LIST_LIVE_INVITATIONS_SQL,
-    REVOKE_LIVE_INVITATIONS_SQL,
+    LIST_OUTSTANDING_INVITATIONS_OF_KIND_SQL, REVOKE_LIVE_INVITATIONS_SQL,
+    REVOKE_LIVE_INVITATION_OF_KIND_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::UserInvitationRepository;

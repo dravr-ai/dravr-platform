@@ -25,6 +25,7 @@ use tracing::{info, warn};
 
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::AppResult;
+use pierre_core::models::InvitationKind;
 use pierre_middleware::redaction::mask_email;
 use pierre_services::invitation::{
     self, InviteOutcome, IssuedInvitation, INVITATIONS_PER_ADDRESS_PER_HOUR,
@@ -206,36 +207,45 @@ pub(super) async fn send_invite_if_eligible(
             Carrier::Notifier(notifier.as_ref())
         }
     };
-    issue_and_deliver(ctx, carrier, &result.email, admin_token).await
+    issue_and_deliver(
+        ctx,
+        carrier,
+        &result.email,
+        admin_token,
+        InvitationKind::Account,
+    )
+    .await
 }
 
 /// Who an issued invitation's token goes to.
-enum Carrier<'ctx> {
+pub(super) enum Carrier<'ctx> {
     /// The notifier, which mails it.
     Notifier(&'ctx dyn UserApprovalNotifier),
     /// The super-admin who asked, as a link on the web app at `frontend_url`.
     Operator { frontend_url: &'ctx str },
 }
 
-/// Issue the invitation and hand it to `carrier`.
+/// Issue an invitation of `kind` and hand it to `carrier`.
 ///
 /// # Errors
 ///
 /// Returns the repository's error when the invitation cannot be issued, or an
 /// undelivered one cannot be withdrawn.
-async fn issue_and_deliver(
+pub(super) async fn issue_and_deliver(
     ctx: &AdminApiContext,
     carrier: Carrier<'_>,
     email: &str,
     admin_token: &ValidatedAdminToken,
+    kind: InvitationKind,
 ) -> AppResult<InviteReport> {
-    match invitation::issue(&ctx.repos, email, admin_token.operator_user_id).await? {
+    match invitation::issue(&ctx.repos, email, admin_token.operator_user_id, kind).await? {
         InviteOutcome::Issued(issued) => match carrier {
             Carrier::Notifier(notifier) => mail(ctx, notifier, &issued, admin_token).await,
             Carrier::Operator { frontend_url } => {
                 info!(
                     recipient = %mask_email(email),
                     token_id = %admin_token.token_id,
+                    kind = kind.label(),
                     "Invitation link issued to the super-admin who asked, not mailed"
                 );
                 Ok(InviteReport::Link {
@@ -256,7 +266,8 @@ async fn issue_and_deliver(
 }
 
 /// Mail an issued invitation, raising `user.invited` for the operators'
-/// channel once it went out. A mailed token goes to the notifier and nowhere else,
+/// channel once it went out, with the invitation's `kind` so a coach-seat
+/// invitation reads as one. A mailed token goes to the notifier and nowhere else,
 /// so an invitation the notifier could not mail is withdrawn at once: nobody
 /// holds its link, and the listing must not show it as outstanding.
 ///
@@ -282,6 +293,7 @@ async fn mail(
         target: "notify",
         event = "user.invited",
         invited_by = %admin_token.service_name,
+        kind = issued.kind.label(),
         "user invited by address"
     );
     Ok(InviteReport::Sent {

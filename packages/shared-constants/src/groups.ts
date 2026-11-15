@@ -28,7 +28,7 @@ export const WEEKLY_REPORT_KEY = {
   summary: 'groups.report.summaryDistance',
   fresh: 'groups.report.fresh',
   concern: 'groups.report.concern',
-  reviewFlagged: 'groups.report.reviewFlagged',
+  reviewDeepFatigue: 'groups.report.reviewDeepFatigue',
   trendDeclining: 'groups.report.trendDeclining',
   trendImproving: 'groups.report.trendImproving',
   trendStable: 'groups.report.trendStable',
@@ -199,13 +199,18 @@ export function weeklyReportSummary(
 }
 
 /**
- * The weekly report's recommended actions: a review of the members at high
- * overtraining risk when there are any, then the group's volume trend.
+ * The weekly report's recommended actions: a look at the members in deep
+ * fatigue when there are any, then the group's volume trend.
+ *
+ * `flagged_members` counts the members whose form sits past -30% of their own
+ * chronic load (the deep-fatigue band, Methodology › Training Load). The line
+ * says so as a magnitude, never as an overtraining or injury risk: no load
+ * threshold predicts either (Impellizzeri et al., 2020).
  */
 export function weeklyReportRecommendations(t: Translate, stats: GroupAggregateStats): string[] {
   const lines: string[] = [];
   if (stats.flagged_members > 0) {
-    lines.push(t(WEEKLY_REPORT_KEY.reviewFlagged, { n: stats.flagged_members }));
+    lines.push(t(WEEKLY_REPORT_KEY.reviewDeepFatigue, { n: stats.flagged_members }));
   }
   lines.push(t(TREND_KEY[stats.weekly_trend]));
   return lines;

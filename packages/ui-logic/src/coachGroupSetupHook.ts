@@ -20,11 +20,12 @@ export interface CoachGroupSetupApis {
 export interface UseCoachGroupSetupResult {
   /**
    * Make the group named `name` with `agentId` as the agent its athletes talk
-   * to, open the coach's thread for it, and issue the athlete invite. Never
-   * rejects: a failure is read from `failed`, and calling it again resumes
-   * from the first call that did not land.
+   * to — `description` (the athlete's goal) when the coach gave one — open the
+   * coach's thread for it, and issue the athlete invite. Never rejects: a
+   * failure is read from `failed`, and calling it again resumes from the first
+   * call that did not land.
    */
-  create: (name: string, agentId: string) => Promise<void>;
+  create: (name: string, agentId: string, description?: string) => Promise<void>;
   working: boolean;
   /** The last attempt stopped on a failed call; the step says so and offers it again. */
   failed: boolean;
@@ -62,8 +63,9 @@ export function createCoachGroupSetupHook({ groupsApi, chatApi }: CoachGroupSetu
     const inFlight = useRef(false);
 
     const create = useCallback(
-      async (name: string, agentId: string) => {
+      async (name: string, agentId: string, description?: string) => {
         const trimmed = name.trim();
+        const goal = description?.trim();
         if (!trimmed || !agentId || inFlight.current) return;
         inFlight.current = true;
         setWorking(true);
@@ -71,7 +73,12 @@ export function createCoachGroupSetupHook({ groupsApi, chatApi }: CoachGroupSetu
         try {
           const madeGroup =
             made.current.group ??
-            (await groupsApi.createGroup({ name: trimmed, agent_id: agentId, coach_is_me: true }));
+            (await groupsApi.createGroup({
+              name: trimmed,
+              agent_id: agentId,
+              coach_is_me: true,
+              ...(goal ? { description: goal } : {}),
+            }));
           made.current.group = madeGroup;
           setGroup(madeGroup);
           const thread =

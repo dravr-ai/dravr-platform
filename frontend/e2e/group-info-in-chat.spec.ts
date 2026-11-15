@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: E2E for group management after the Groups tab: the group row, its header, and Group info
-// ABOUTME: Who runs the group, roster, invites, settings, consent, the digest gate, the exits, coaching-platform links, /groups/join
+// ABOUTME: Who runs the group, roster rows and their menu, invites, autosaved settings, consent, the folded week, quiet exits, links
 
 import { test, expect, type Page } from '@playwright/test';
 import type {
@@ -146,6 +146,28 @@ const mockInvites = {
   ],
 };
 
+/**
+ * The member's own record as `GET /api/groups/:id/members/me/coach-reads`
+ * serialises it: newest first, a tool by its name and each read made outside
+ * a tool call by the label the server records for it.
+ */
+const mockCoachReads = {
+  retention_months: 12,
+  reads: [
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z' },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z' },
+    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z' },
+    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z' },
+    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z' },
+    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z' },
+    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z' },
+    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z' },
+  ],
+};
+
 /** Health flags exactly as `GET /api/groups/:id/health` serialises them. */
 const mockHealthFlags: GroupHealthFlag[] = [
   {
@@ -195,6 +217,10 @@ interface SentTurn {
 async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Promise<SentTurn[]> {
   const { userGroupRole = 'owner', weeklyDigest = true } = options;
   const mockMembers = buildMockMembers(userGroupRole);
+  // The group's owner follows the viewer's role: ownership is what offers a
+  // coachless group's coach seat (carnet#1522), so a member viewer must not
+  // also be served as the owner.
+  const groupDetail = { ...mockGroupDetail, owner_id: userGroupRole === 'owner' ? 'user-123' : 'user-3' };
   const sent: SentTurn[] = [];
 
   // A hard navigation (the invite link is a real path, not a hash) remounts
@@ -234,14 +260,14 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(mockGroupDetail),
+        body: JSON.stringify(groupDetail),
       });
     } else if (route.request().method() === 'PUT') {
       const body = route.request().postDataJSON();
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ ...mockGroupDetail, ...body }),
+        body: JSON.stringify({ ...groupDetail, ...body }),
       });
     } else if (route.request().method() === 'DELETE') {
       await route.fulfill({ status: 204 });
@@ -268,6 +294,17 @@ async function setupGroupMocks(page: Page, options: GroupMockOptions = {}): Prom
     } else {
       await route.fallback();
     }
+  });
+
+  // The member's record of their human coach's reads (carnet#1445), shown in
+  // Group info once a coach is attached: a tool read and one read of each
+  // source the server records outside a tool call.
+  await page.route(`**/api/groups/${GROUP_ID}/members/me/coach-reads`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(mockCoachReads),
+    });
   });
 
   await page.route(`**/api/groups/${GROUP_ID}/invites`, async (route) => {
@@ -507,15 +544,18 @@ test.describe('Group info — roster', () => {
     );
   });
 
-  test('lists every member with their role', async ({ page }) => {
+  test('lists every member with their role, one row each', async ({ page }) => {
     await openGroupInfo(page);
 
-    const roster = page.getByRole('table');
-    await expect(roster.getByText('Test User')).toBeVisible();
+    // The owner waiting on the seat reads themselves in the coach slot, the others in the list.
+    await expect(page.getByTestId('group-info-coach-seat')).toHaveText('You · not the coach yet');
+    const roster = page.getByTestId('member-list');
     await expect(roster.getByText('Alice Runner')).toBeVisible();
     await expect(roster.getByText('Bob Cyclist')).toBeVisible();
-    await expect(roster.getByText('Owner')).toBeVisible();
-    await expect(roster.getByText('Admin')).toBeVisible();
+    await expect(roster.getByText('Admin', { exact: true })).toBeVisible();
+    await expect(roster.getByText('Member', { exact: true })).toBeVisible();
+    await expect(roster.getByText('Test User')).toHaveCount(0);
+    await expect(page.getByRole('table')).toHaveCount(0);
   });
 
   test('names the AI agent and the human coach above the members', async ({ page }) => {
@@ -559,11 +599,15 @@ test.describe('Group info — roster', () => {
   test('an owner can promote and remove a member', async ({ page }) => {
     await openGroupInfo(page, { userGroupRole: 'owner' });
 
-    await page.getByLabel(/Promote Alice Runner/).click();
+    // Role and removal sit behind the row's ⋯; nothing on the row is filled red.
+    await expect(page.getByTestId('group-info-panel').locator('.btn-danger')).toHaveCount(0);
+    await page.getByRole('button', { name: 'More actions for Alice Runner' }).click();
+    await page.getByRole('menuitem', { name: 'Promote to admin' }).click();
     await expect(page.getByText(/Role updated/i)).toBeVisible({ timeout: 5000 });
 
-    await page.getByLabel(/Remove Alice Runner/).click();
-    await expect(page.getByText('Remove Member')).toBeVisible();
+    await page.getByRole('button', { name: 'More actions for Alice Runner' }).click();
+    await page.getByRole('menuitem', { name: 'Remove from group…' }).click();
+    await expect(page.getByText('Remove Alice Runner?')).toBeVisible();
     await page.getByRole('button', { name: 'Remove' }).last().click();
     await expect(page.getByText('Member removed')).toBeVisible({ timeout: 5000 });
   });
@@ -571,8 +615,9 @@ test.describe('Group info — roster', () => {
   test('a plain member gets no roster actions and no settings form', async ({ page }) => {
     await openGroupInfo(page, { userGroupRole: 'member' });
 
-    await expect(page.getByText('Actions')).toHaveCount(0);
-    await expect(page.getByTestId('group-info-save-settings')).toHaveCount(0);
+    await expect(page.getByTestId('group-info-people')).toBeVisible();
+    await expect(page.getByRole('button', { name: /More actions for/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Group settings/ })).toHaveCount(0);
   });
 });
 
@@ -594,8 +639,8 @@ test.describe('Group info — invites', () => {
   test('creates a new invite', async ({ page }) => {
     await openGroupInfo(page, { userGroupRole: 'owner' });
 
-    await page.getByRole('button', { name: 'New Invite' }).click();
-    await expect(page.getByText('Create Invite Link')).toBeVisible();
+    await page.getByRole('button', { name: 'New invite link' }).click();
+    await expect(page.getByTestId('invite-create-form')).toBeVisible();
     await page.getByRole('button', { name: 'Create' }).click();
     await expect(page.getByText('Invite created')).toBeVisible({ timeout: 5000 });
   });
@@ -606,19 +651,36 @@ test.describe('Group info — invites', () => {
 // ============================================================================
 
 test.describe('Group info — settings and consent', () => {
-  test('an admin saves the group settings', async ({ page }) => {
+  test('an admin renames the group, saved as the field is left', async ({ page }) => {
+    const updates: Array<Record<string, unknown>> = [];
     await openGroupInfo(page, { userGroupRole: 'owner' });
+    page.on('request', (request) => {
+      if (request.method() === 'PUT' && request.url().endsWith(`/api/groups/${GROUP_ID}`)) {
+        updates.push(request.postDataJSON() as Record<string, unknown>);
+      }
+    });
 
-    const nameInput = page.getByLabel('Group Name', { exact: true });
+    await page.getByRole('button', { name: /Group settings/ }).click();
+    const nameInput = page.getByLabel('Group name', { exact: true });
     await nameInput.clear();
     await nameInput.fill('Renamed Group');
-    await page.getByTestId('group-info-save-settings').click();
+    await nameInput.press('Tab');
     await expect(page.getByText('Settings saved')).toBeVisible({ timeout: 5000 });
+    expect(updates).toEqual([{ name: 'Renamed Group' }]);
   });
 
   test('binds the peer-consent switch to the caller own membership row', async ({ page }) => {
     const consentBodies: Array<Record<string, unknown>> = [];
-    await openGroupInfo(page);
+    // The switch shows while the group shares at all.
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...mockGroupDetail, owner_id: 'user-3', peer_data_sharing: true }),
+        });
+      });
+    });
     await page.route('**/api/groups/group-*/members/me/consent', async (route) => {
       consentBodies.push(route.request().postDataJSON() as Record<string, unknown>);
       await route.fulfill({ status: 200, contentType: 'application/json', body: '{}' });
@@ -634,7 +696,8 @@ test.describe('Group info — settings and consent', () => {
 
   test('binds the coach-sharing switch to the caller own membership row', async ({ page }) => {
     const sharingBodies: Array<Record<string, unknown>> = [];
-    await openGroupInfo(page, {}, async (p) => {
+    // An athlete's switch: a member, whom the coachless group does not offer its coach seat.
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
       await p.route('**/api/groups/group-*/members/me/coach-sharing', async (route) => {
         if (route.request().method() === 'PUT') {
           const body = route.request().postDataJSON() as Record<string, unknown>;
@@ -660,8 +723,45 @@ test.describe('Group info — settings and consent', () => {
     await expect(toggle).not.toBeChecked();
   });
 
-  test('shows the weekly report and one row per flagged member', async ({ page }) => {
+  test("a member reads their coach's reads of them, each made outside a tool call in words (carnet#1445)", async ({
+    page,
+  }) => {
+    await openGroupInfo(page, { userGroupRole: 'member' }, async (p) => {
+      await p.route(`**/api/groups/${GROUP_ID}`, async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ ...mockGroupDetail, coach_user_id: 'user-coach', coach_display_name: 'Casey Coach' }),
+        });
+      });
+    });
+
+    const log = page.getByTestId('coach-read-log');
+    const rows = log.getByTestId('coach-read-row');
+    await expect(rows).toHaveCount(mockCoachReads.reads.length);
+    // A tool is named as it is.
+    await expect(rows.nth(2).getByTestId('coach-read-tool')).toHaveText('get_activities');
+    // A read the server records under a label of its own never shows the label.
+    for (const [index, label] of [
+      [0, 'coach_thread'],
+      [3, 'plan_view'],
+      [4, 'plan_command'],
+      [5, 'roster'],
+      [6, 'group_room'],
+      [7, 'group_stats'],
+      [8, 'group_report'],
+      [9, 'group_health'],
+      [10, 'weekly_digest'],
+    ] as const) {
+      await expect(rows.nth(index).getByTestId('coach-read-tool')).not.toHaveText(label);
+    }
+  });
+
+  test('shows the weekly report and one row per flagged member, folded under This week', async ({ page }) => {
     await openGroupInfo(page);
+
+    await expect(page.getByTestId('group-report-summary')).toHaveCount(0);
+    await page.getByRole('button', { name: 'This week' }).click();
 
     await expect(page.getByTestId('group-report-summary')).toHaveText(
       '4/5 members active this week, averaging 38.5 km each.',
@@ -675,7 +775,7 @@ test.describe('Group info — settings and consent', () => {
       'Bob Cyclist: No activity for 11 days',
     ]);
     await expect(page.getByTestId('group-report-recommendation')).toHaveText([
-      'Members at high overtraining risk: 1. Consider adjusting their recovery.',
+      'Members in deep fatigue, with form below -30% of their chronic load: 1. Worth a look at their recovery.',
       'Group volume is up on last week — make sure recovery keeps pace.',
     ]);
     await expect(page.getByTestId('group-health-flag-row')).toHaveCount(2);
@@ -695,6 +795,7 @@ test.describe('Group info — settings and consent', () => {
     });
 
     // 38.5 km is 23.9 mi.
+    await page.getByRole('button', { name: 'This week' }).click();
     await expect(page.getByTestId('group-report-summary')).toHaveText(
       '4/5 members active this week, averaging 23.9 mi each.',
     );
@@ -706,6 +807,7 @@ test.describe('Group info — settings and consent', () => {
   test('withholds the weekly report when the tenant tier does not include it', async ({ page }) => {
     await openGroupInfo(page, { weeklyDigest: false });
 
+    await page.getByRole('button', { name: 'This week' }).click();
     await expect(page.getByTestId('group-insights-tier-locked')).toBeVisible();
     await expect(page.getByTestId('group-report-summary')).toHaveCount(0);
   });
@@ -720,9 +822,10 @@ test.describe('Group info — exits', () => {
     await openGroupInfo(page, { userGroupRole: 'member' });
 
     await expect(page.getByTestId('group-info-delete')).toHaveCount(0);
+    await expect(page.getByTestId('group-info-leave')).toHaveText('Leave this group…');
     await page.getByTestId('group-info-leave').click();
     await expect(page.getByText('You will need a new invite to rejoin')).toBeVisible();
-    await page.getByRole('button', { name: 'Leave Group' }).last().click();
+    await page.getByRole('button', { name: 'Leave group' }).last().click();
     await expect(page.getByText('Left group')).toBeVisible({ timeout: 5000 });
   });
 
@@ -730,9 +833,10 @@ test.describe('Group info — exits', () => {
     await openGroupInfo(page, { userGroupRole: 'owner' });
 
     await expect(page.getByTestId('group-info-leave')).toHaveCount(0);
+    await expect(page.getByTestId('group-info-delete')).toHaveText('Delete this group…');
     await page.getByTestId('group-info-delete').click();
     await expect(page.getByText('This will permanently archive')).toBeVisible();
-    await page.getByRole('button', { name: 'Delete Group' }).last().click();
+    await page.getByRole('button', { name: 'Delete group' }).last().click();
     await expect(page.getByText('Group deleted')).toBeVisible({ timeout: 5000 });
   });
 });
@@ -840,18 +944,18 @@ test.describe('Group info — coaching-platform links', () => {
     const section = page.getByTestId('delegation-section');
     await expect(section).toBeVisible();
     await expect(page.getByTestId('group-info-coach-badge')).toHaveText('You coach this group');
-    // The coach finds themself in the roster, under the agent, marked as the viewer.
+    // The coach meets their athletes first, then these links, then the agent.
+    await expect(page.getByTestId('group-info-athletes')).toBeVisible();
     await expect(page.getByTestId('group-info-agent')).toContainText('Marathon Coach');
-    await expect(page.getByTestId('group-info-coach-row')).toContainText('Test Admin');
-    await expect(page.getByTestId('group-info-coach-row')).toContainText('(you)');
     // A coach holds no membership: nothing to leave, archive or consent to, and
     // of the settings only where the weekly digest goes.
     await expect(page.getByTestId('group-info-leave')).toHaveCount(0);
     await expect(page.getByTestId('group-info-delete')).toHaveCount(0);
     await expect(page.getByTestId('peer-consent-card')).toHaveCount(0);
     await expect(page.getByTestId('group-info-remove-coach')).toHaveCount(0);
+    await page.getByRole('button', { name: /Group settings/ }).click();
     await expect(page.getByTestId('group-digest-mode')).toBeVisible();
-    await expect(page.getByLabel('Group Name')).toHaveCount(0);
+    await expect(page.getByLabel('Group name')).toHaveCount(0);
 
     const row = section.getByTestId('delegation-roster-row-900001');
     await expect(row).toContainText('Alex Athlete');
@@ -1126,8 +1230,8 @@ test.describe('Group info — layout', () => {
     expect(describeLayoutFailures('chat/group', await measurePageLayout(page))).toEqual([]);
   });
 
-  test('a member row holds its join date and role apart on a phone', async ({ page }) => {
-    // French, where the join line is longest, so the English-labelled helper cannot open it.
+  test('a member row holds its role and sharing state apart on a phone', async ({ page }) => {
+    // French, where the detail line is longest, so the English-labelled helper cannot open it.
     await useFrench(page);
     await setupDashboardMocks(page, { role: 'user', language: 'fr' });
     await setupGroupMocks(page, { userGroupRole: 'owner' });
@@ -1144,6 +1248,8 @@ test.describe('Group info — layout', () => {
     await page.setViewportSize({ width: 390, height: 844 });
     const panel = page.getByTestId('group-info-panel');
     await expect(panel.getByTestId('member-detail-user-2')).toBeVisible({ timeout: 10000 });
+    // The owner's coach-seat block leads the panel, so the list starts below the fold.
+    await panel.getByTestId('member-list').scrollIntoViewIfNeeded();
     await expectNoCollidingText(page, 'member list', '[data-testid="member-list"]', 6);
   });
 });

@@ -4,18 +4,24 @@
 // ABOUTME: One row of the conversation list — avatar, kind glyph, title, archived label, preview, time, unread pill, messenger-style
 // ABOUTME: Bold while unread; a hover or right-click menu holds rename, mark-unread and delete; the rename is an inline ui Input
 
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useState } from 'react';
 import { clsx } from 'clsx';
-import { Clipboard, Mail, MoreVertical, Pencil, Send, Trash2, Users } from 'lucide-react';
+import { Clipboard, Mail, Pencil, Send, Trash2, Users } from 'lucide-react';
 import { PLAN_THREAD_KEYS, type ConversationRowModel } from '@pierre/chat-utils';
 import { badgeLabel, countKey, UNREAD_COUNT_ARIA_KEYS } from '@pierre/shared-constants';
-import { IconButton, Input } from '../ui';
+import { Input, OverflowMenu } from '../ui';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import { useTranslation } from '@pierre/i18n';
 
 interface ConversationItemProps {
   row: ConversationRowModel;
   isSelected: boolean;
+  /**
+   * The room's coach-seat line, shown in place of its last words while the
+   * viewer's seat moves: « Accès coach en attente · demandé le … », then
+   * « Tu es le coach · depuis … » (carnet#1521).
+   */
+  seatLine?: string | null;
   isEditing: boolean;
   editedTitleValue: string;
   onSelect: () => void;
@@ -35,7 +41,8 @@ interface ConversationItemProps {
  * pointer was on it, so the right half of every row stopped selecting the
  * conversation. One trigger leaves the row clickable, which is also how
  * Telegram and iMessage reach the same three actions; a right-click on the
- * row opens the same menu.
+ * row opens the same menu. The trigger shows on hover or focus, and stays
+ * while the menu is open.
  */
 function RowMenu({
   open,
@@ -51,81 +58,41 @@ function RowMenu({
   onDelete: () => void;
 }) {
   const { t } = useTranslation();
-  const rootRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onPointerDown = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) setOpen(false);
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setOpen(false);
-    };
-    document.addEventListener('mousedown', onPointerDown);
-    document.addEventListener('keydown', onKeyDown);
-    return () => {
-      document.removeEventListener('mousedown', onPointerDown);
-      document.removeEventListener('keydown', onKeyDown);
-    };
-  }, [open, setOpen]);
-
-  const choose = (action: () => void) => {
-    setOpen(false);
-    action();
-  };
-
-  const itemClass =
-    'w-full flex items-center gap-2.5 px-3 py-2 text-left text-sm text-on-surface hover:bg-surface-container-low rounded-lg transition-colors touch-target';
-
   return (
-    <div
-      ref={rootRef}
+    <OverflowMenu
+      label={t('chat.conversationActions')}
+      open={open}
+      onOpenChange={setOpen}
+      variant="tonal"
+      size="sm"
+      vertical
+      data-testid="conversation-actions-trigger"
+      data-menu-testid="conversation-actions-menu"
       className={clsx(
-        'absolute right-2 top-1/2 -translate-y-1/2',
+        '!absolute right-2 top-1/2 -translate-y-1/2',
         open
           ? 'opacity-100'
           : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto',
       )}
-    >
-      <IconButton
-        size="sm"
-        variant="tonal"
-        onClick={() => setOpen(!open)}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={t('chat.conversationActions')}
-        title={t('chat.conversationActions')}
-        data-testid="conversation-actions-trigger"
-      >
-        <MoreVertical className="w-4 h-4" aria-hidden="true" />
-      </IconButton>
-      {open && (
-        <div
-          role="menu"
-          aria-label={t('chat.conversationActions')}
-          data-testid="conversation-actions-menu"
-          className="absolute right-0 z-30 mt-1 w-48 rounded-xl border ghost-border bg-surface-container-lowest p-1.5 shadow-floating"
-        >
-          <button type="button" role="menuitem" onClick={() => choose(onStartRename)} className={itemClass}>
-            <Pencil className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-            <span>{t('chat.renameConversation')}</span>
-          </button>
-          <button type="button" role="menuitem" onClick={() => choose(onMarkUnread)} className={itemClass}>
-            <Mail className="w-4 h-4 text-primary flex-shrink-0" aria-hidden="true" />
-            <span>{t('chat.markUnread')}</span>
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => choose(onDelete)}
-            className={clsx(itemClass, 'hover:!text-error')}
-          >
-            <Trash2 className="w-4 h-4 text-error flex-shrink-0" aria-hidden="true" />
-            <span>{t('chat.deleteConversation')}</span>
-          </button>
-        </div>
-      )}
-    </div>
+      items={[
+        {
+          label: t('chat.renameConversation'),
+          icon: <Pencil className="w-4 h-4 flex-shrink-0 text-primary" aria-hidden="true" />,
+          onSelect: onStartRename,
+        },
+        {
+          label: t('chat.markUnread'),
+          icon: <Mail className="w-4 h-4 flex-shrink-0 text-primary" aria-hidden="true" />,
+          onSelect: onMarkUnread,
+        },
+        {
+          label: t('chat.deleteConversation'),
+          icon: <Trash2 className="w-4 h-4 flex-shrink-0" aria-hidden="true" />,
+          danger: true,
+          onSelect: onDelete,
+        },
+      ]}
+    />
   );
 }
 
@@ -180,6 +147,7 @@ function KindGlyph({ row }: { row: ConversationRowModel }) {
 const ConversationItem = memo(function ConversationItem({
   row,
   isSelected,
+  seatLine = null,
   isEditing,
   editedTitleValue,
   onSelect,
@@ -304,15 +272,24 @@ const ConversationItem = memo(function ConversationItem({
             </span>
           </div>
           <div className="flex items-center gap-2 min-w-0">
-            <p
-              className={clsx(
-                'min-w-0 flex-1 truncate text-sm',
-                unread ? 'text-on-surface-variant' : 'text-outline',
-              )}
-              data-testid="conversation-preview"
-            >
-              {row.preview || (row.agentHandle ? `@${row.agentHandle}` : ' ')}
-            </p>
+            {seatLine ? (
+              <p
+                className="min-w-0 flex-1 truncate text-sm text-on-surface-variant"
+                data-testid="conversation-seat-line"
+              >
+                {seatLine}
+              </p>
+            ) : (
+              <p
+                className={clsx(
+                  'min-w-0 flex-1 truncate text-sm',
+                  unread ? 'text-on-surface-variant' : 'text-outline',
+                )}
+                data-testid="conversation-preview"
+              >
+                {row.preview || (row.agentHandle ? `@${row.agentHandle}` : ' ')}
+              </p>
+            )}
             {unread && (
               <span
                 data-testid="conversation-unread-count"

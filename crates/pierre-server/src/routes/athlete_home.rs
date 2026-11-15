@@ -91,6 +91,9 @@
 //!   [`home_preferences`]).
 //! - `GET`/`PUT /api/me/units` — the unit system the athlete reads distances
 //!   in, chosen in Settings (see [`units`]).
+//! - `GET /api/me/physiology?locale=xx` — the athlete's own anchors per sport
+//!   family, each with its range, source and date, worded as the envelope
+//!   notice words an anchor.
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
@@ -98,6 +101,8 @@ pub mod activity_view;
 pub mod calendar;
 /// The athlete's Home preferences: what Home offers or holds back.
 pub mod home_preferences;
+/// The athlete's own anchors per sport family, as Settings shows them.
+mod physiology;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
 /// The athlete's units: metric unless they chose imperial in Settings.
@@ -125,7 +130,7 @@ use pierre_core::models::{
     Activity, ConnectionStatus, DataFreshness, ProviderConnection, TenantId,
 };
 use pierre_database::repositories::{
-    sport_type_string, ActivityFetchFailure, CachedActivityRow, StoredRouteOutcome,
+    sport_type_string, ActivityFetchFailure, CachedActivityRow, CachedRowsQuery, StoredRouteOutcome,
 };
 use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack, RouteTrackError};
 use pierre_middleware::extractors::AuthenticatedUser;
@@ -138,7 +143,7 @@ use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
 use pierre_tool_runtime::activity_fetch::sync_verdict::{record_sync_failure, sync_backoff_until};
-use pierre_tool_runtime::activity_fetch::{activity_cache_retention_days, refresh_head};
+use pierre_tool_runtime::activity_fetch::{refresh_head, CACHED_ACTIVITY_LOOKBACK_DAYS};
 use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
 use pierre_tool_runtime::revalidation::{revalidation_timeout, RevalidationRegistry};
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -542,6 +547,7 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
             get(home_preferences::get_home_preferences).put(home_preferences::put_home_preferences),
         )
         .route("/api/me/units", get(units::get_units).put(units::put_units))
+        .route("/api/me/physiology", get(physiology::get_physiology))
         .route("/api/me/calendar", get(calendar::get_calendar))
         .merge(upload::upload_routes())
 }
@@ -612,13 +618,17 @@ async fn recent_workouts(
     first_read: i64,
     sport: Option<&str>,
 ) -> AppResult<Vec<HomeActivity>> {
-    let since = now - Duration::days(activity_cache_retention_days());
+    let since = now - Duration::days(CACHED_ACTIVITY_LOOKBACK_DAYS);
     let mut read = first_read.max(1);
     loop {
         let rows = resources
             .repos()
             .activity_cache
-            .get_cached_activity_rows(user_id, tenant_id, since, now, read)
+            .get_cached_activity_rows(
+                user_id,
+                tenant_id,
+                &CachedRowsQuery::window(since, now, read),
+            )
             .await?;
         let exhausted = usize::try_from(read).is_ok_and(|asked| rows.len() < asked);
         let workouts = home_activities(&served_rows(resources, rows), limit, sport);
@@ -964,9 +974,11 @@ async fn activity_view(
         .get_cached_activity_rows(
             asked.user_id,
             &asked.tenant_id,
-            asked.start - window,
-            asked.start + window,
-            DETAIL_MERGE_ROW_LIMIT,
+            &CachedRowsQuery::window(
+                asked.start - window,
+                asked.start + window,
+                DETAIL_MERGE_ROW_LIMIT,
+            ),
         )
         .await?;
     let rows = served_rows(resources, rows);

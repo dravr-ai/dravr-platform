@@ -22,7 +22,8 @@ use crate::models::{Activity, ActivityBuilder, ActivityComment, SportType, TimeS
 /// Intervals.icu activity payload shape (subset we map to `Activity`).
 ///
 /// Carries the athlete's self-report alongside the sensor fields: `feel`,
-/// `icu_rpe` and the free-text `description`. `session_rpe` is not read — it
+/// `icu_rpe`, the free-text `description` and the `trainer` and `commute`
+/// flags. `session_rpe` is not read — it
 /// is `icu_rpe` × moving minutes, a load figure derived from two fields the
 /// activity already carries, not a separate report.
 #[derive(Debug, Deserialize)]
@@ -85,6 +86,13 @@ pub(super) struct IntervalsIcuActivity {
     /// The athlete's free-text notes on the activity.
     #[serde(default)]
     description: Option<String>,
+    /// Recorded on an indoor trainer or treadmill, as the athlete or the
+    /// relaying service flagged it.
+    #[serde(default)]
+    trainer: Option<bool>,
+    /// Flagged as a commute.
+    #[serde(default)]
+    commute: Option<bool>,
     /// Where intervals.icu got the activity: a connected service
     /// (`GARMIN_CONNECT`, `STRAVA`, …) or the athlete (`UPLOAD`, `MANUAL`).
     /// Read only through [`upstream_source`].
@@ -171,6 +179,8 @@ pub(super) fn map_activity(
         .feel_opt(raw.feel.and_then(feel_from_icu))
         .perceived_exertion_opt(raw.icu_rpe.and_then(rpe_from_icu))
         .description_opt(raw.description.filter(|d| !d.trim().is_empty()))
+        .trainer_opt(raw.trainer)
+        .commute_opt(raw.commute)
         // An empty thread is a thread with nothing to say; `None` keeps it
         // off the wire rather than serializing an empty list.
         .comments_opt(comments.filter(|c| !c.is_empty()))
@@ -352,5 +362,81 @@ mod tests {
             1,
             "bug: intervals.icu's copy must merge with Strava's, one ride, one session: {merged:?}"
         );
+    }
+
+    #[test]
+    fn the_intervals_icu_mapper_fills_what_its_descriptor_declares() {
+        use crate::field_support::tests::assert_mapper_fills;
+        use crate::intervals_icu_streams::{streams_to_time_series, IntervalsIcuStream};
+        use crate::models::ActivityComment;
+        use crate::spi::{IntervalsIcuDescriptor, ProviderDescriptor};
+
+        let row = json!({
+            "id": "i42",
+            "type": "Ride",
+            "start_date": "2026-09-20T21:00:00Z",
+            "start_date_local": "2026-09-20T17:00:00",
+            "elapsed_time": 5_400,
+            "moving_time": 5_100,
+            "distance": 45_000.0,
+            "average_heartrate": 141.0,
+            "max_heartrate": 176.0,
+            "average_watts": 196.0,
+            "weighted_average_watts": 214.0,
+            "calories": 980,
+            "average_cadence": 84.0,
+            "icu_rpe": 6,
+            "description": "Mal aux bras !",
+            "trainer": true,
+            "commute": false,
+            "device_name": "Garmin Edge 840"
+        });
+        let list_row = mapped(row.clone());
+        let streams: Vec<IntervalsIcuStream> = serde_json::from_value(json!([
+            { "type": "time", "data": [0.0, 1.0] },
+            { "type": "heartrate", "data": [120.0, 121.0] },
+            { "type": "watts", "data": [180.0, 190.0] },
+            { "type": "cadence", "data": [80.0, 82.0] },
+            { "type": "velocity_smooth", "data": [7.1, 7.2] },
+            { "type": "altitude", "data": [44.0, 44.2] },
+            { "type": "latlng", "data": [45.5, 45.5001], "data2": [-73.6, -73.6001] }
+        ]))
+        .unwrap();
+        let detailed = map_activity(
+            serde_json::from_value::<IntervalsIcuActivity>(row).unwrap(),
+            Some(streams_to_time_series(&streams)),
+            Some(vec![ActivityComment {
+                author: Some("Coach".to_owned()),
+                text: "Bien géré".to_owned(),
+                created_at: None,
+            }]),
+        )
+        .unwrap();
+
+        assert_mapper_fills(
+            "intervals_icu",
+            IntervalsIcuDescriptor.activity_fields(),
+            &list_row,
+            &detailed,
+        );
+    }
+
+    #[test]
+    fn trainer_and_commute_flags_are_carried_and_absent_ones_stay_absent() {
+        let base = json!({
+            "id": "i43",
+            "type": "Ride",
+            "start_date": "2026-09-20T21:00:00Z",
+            "start_date_local": "2026-09-20T17:00:00",
+        });
+        let mut flagged = base.clone();
+        flagged["trainer"] = json!(true);
+        flagged["commute"] = json!(true);
+        let flagged = mapped(flagged);
+        assert_eq!(flagged.trainer(), Some(true), "bug: trainer flag dropped");
+        assert_eq!(flagged.commute(), Some(true), "bug: commute flag dropped");
+        let unflagged = mapped(base);
+        assert_eq!(unflagged.trainer(), None, "bug: trainer flag invented");
+        assert_eq!(unflagged.commute(), None, "bug: commute flag invented");
     }
 }

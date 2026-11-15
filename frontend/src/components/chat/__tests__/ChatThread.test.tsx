@@ -419,13 +419,19 @@ describe("ChatThread in a coach's own threads", () => {
     expect(getSubjectPlan).not.toHaveBeenCalled();
   });
 
-  it("keeps a member's own words in the room they did not coach", async () => {
+  it("names the room in a member's composer too, and keeps the coach's empty line for the coach", async () => {
     getGroup.mockResolvedValue(group('coach-other'));
     renderThread({ initial: ROOM_ID, openThread });
 
     await waitFor(() => expect(getGroup).toHaveBeenCalledWith(GROUP_ID));
     await waitFor(() => expect(readRoom).toHaveBeenCalled());
     expect(screen.queryByTestId('chat-coach-room-empty')).not.toBeInTheDocument();
-    expect(composer()).toHaveAttribute('placeholder', i18n.t('chat.messageDravrPlaceholder'));
+    // Everyone in the room reads what is written there, so the composer says so (carnet#1531).
+    await waitFor(() =>
+      expect(composer()).toHaveAttribute(
+        'placeholder',
+        i18n.t('humanCoach.groupRoom.composerPlaceholder', { group: 'Tri — longue distance' }),
+      ),
+    );
   });
 });

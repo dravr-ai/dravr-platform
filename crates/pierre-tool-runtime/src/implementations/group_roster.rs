@@ -27,15 +27,20 @@
 //!    every member, so a call surfaced from one covers that group alone, and
 //!    a room whose group the caller does not coach — or a conversation that
 //!    does not resolve for them — is refused rather than guessed.
-//! 3. **Consent is the athlete's coach consent.** The rule
-//!    `get_group_member_activities` and the group context apply to a group's
-//!    coach: the member's own `coach_sharing_consent`, granted by joining
-//!    (ADR-002) and revoked with `/group consent coach no`. The group's peer
-//!    switch governs what members see of each other, never what their coach
-//!    sees, so it plays no part here. Only a `shared` athlete carries
-//!    training data; one who revoked is named with that status, so the coach
-//!    knows why, and nothing is inferred.
-//! 4. **Bounded.** At most [`MAX_ROSTER_ATHLETES`] snapshots are fetched per
+//! 3. **Consent is the athlete's coach consent.** The member's own
+//!    `coach_sharing_consent`, granted by joining (ADR-002) and revoked with
+//!    `/group consent coach no`, names who is listed as `shared`. The group's
+//!    peer switch governs what members see of each other, never what their
+//!    coach sees, so it plays no part here. One who revoked is named with
+//!    that status, so the coach knows why, and nothing is inferred.
+//! 4. **Each read is a coach read of a coached athlete.** Before a `shared`
+//!    athlete's training is read, the one answer every such read asks
+//!    ([`crate::read_subject::coached_read`], training class) is asked again
+//!    for them, and the read runs under the athlete's own home tenant, as a
+//!    scoped read of them does (carnet#1425). A sharer it refuses carries no
+//!    training and says why in `not_read`, in the words that read's refusal
+//!    uses.
+//! 5. **Bounded.** At most [`MAX_ROSTER_ATHLETES`] snapshots are fetched per
 //!    call, and `truncated` says when the roster was cut.
 
 use crate::annotations::{annotations, Effect, Reach};
@@ -53,7 +58,6 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::civil_time::{local_date, resolve_zone};
 use pierre_core::errors::AppResult;
 use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
-use pierre_core::models::TenantId;
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
@@ -62,13 +66,17 @@ use pierre_services::coach_roster::{
 };
 use pierre_tools_core::ToolResult;
 
+use super::call_room::{call_room, CallRoom};
 use super::coach_scope::refusal;
-use crate::coach_roster::{fetch_page_snapshots, read_snapshot};
+use crate::coach_roster::{fetch_page_snapshots, gate_page_reads, read_snapshot};
 use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, task_capable, tool_definition, tool_result_to_response,
 };
 use crate::runtime::ToolRuntime;
+
+/// The tool's name, as a refusal words it.
+const TOOL_NAME: &str = "get_roster_overview";
 
 /// Most athletes one call fetches training for, and most it names without.
 /// Each snapshot is a provider read, so the cap bounds both the turn's latency
@@ -140,6 +148,11 @@ pub struct RosterOverviewAthlete {
     /// Their training; present only when `status` is `shared`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub training: Option<RosterTraining>,
+    /// Why a `shared` athlete's training is not read, in the words a read of
+    /// them anywhere else is refused with: relay it, never infer their
+    /// numbers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub not_read: Option<String>,
 }
 
 /// One group the overview covers.
@@ -161,63 +174,6 @@ pub struct RosterOverviewResult {
     pub athletes: Vec<RosterOverviewAthlete>,
     /// True when the roster held more athletes than one call lists.
     pub truncated: bool,
-}
-
-/// Where a coach's call was made, as the tools that read their athletes see it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) enum CallRoom {
-    /// No conversation, or one private to the caller.
-    Private,
-    /// A group's room, read by every member: the group's id.
-    Group(String),
-    /// A conversation confirmed neither private to the caller nor a group's
-    /// room: one that does not resolve for them, which may be any room; a
-    /// chat other people read that no group is bound to — a messaging group
-    /// chat whose binding failed (carnet#1421); or a call that names a
-    /// conversation without saying who reads it. Nothing about an athlete is
-    /// published into it.
-    Unresolved,
-}
-
-/// The room `context`'s conversation is, resolved under the conversation's
-/// own tenant (a shared room's row lives under the bot tenant).
-///
-/// A row with no group is private only on a turn the caller alone reads
-/// ([`ToolExecutionContext::turn_direct_message`] is `Some(true)`): a
-/// messaging group chat keeps no group when its binding fails, and nothing on
-/// its row tells it from a direct message. A call that does not say is not
-/// taken for private, so an executor built outside a turn fails closed.
-///
-/// # Errors
-///
-/// Returns the repository error from the conversation lookup.
-pub(super) async fn call_room(context: &ToolExecutionContext) -> AppResult<CallRoom> {
-    let Some(conversation_id) = context.conversation_id.as_deref() else {
-        return Ok(CallRoom::Private);
-    };
-    let tenant = context
-        .conversation_ref()
-        .map(|(_, tenant)| tenant)
-        .or_else(|| context.tenant_id.map(TenantId::from_uuid));
-    let conversation = match tenant {
-        Some(tenant) => {
-            context
-                .resources
-                .repos()
-                .chat
-                .get_conversation(conversation_id, &context.user_id.to_string(), tenant)
-                .await?
-        }
-        None => None,
-    };
-    Ok(match conversation {
-        None => CallRoom::Unresolved,
-        Some(conversation) => match conversation.group_id {
-            Some(group) => CallRoom::Group(group),
-            None if context.turn_direct_message == Some(true) => CallRoom::Private,
-            None => CallRoom::Unresolved,
-        },
-    })
 }
 
 /// The groups the call covers, or the refusal that explains why it covers none.
@@ -334,6 +290,45 @@ fn attention_order(a: &RosterOverviewAthlete, b: &RosterOverviewAthlete) -> Orde
     days(b).cmp(&days(a)).then_with(|| a.name.cmp(&b.name))
 }
 
+/// Ask each sharer of `page` whether the coach may read their training now
+/// ([`gate_page_reads`]: each read it lets through is recorded on the
+/// athlete's own record under this tool's name, carnet#1445): the athletes it
+/// lets the coach read, each to be read under their own home tenant, and the
+/// others with the refusal's words.
+async fn gate_reads(
+    context: &ToolExecutionContext,
+    page: Vec<OrderedMember>,
+) -> AppResult<(Vec<OrderedMember>, Vec<(OrderedMember, String)>)> {
+    let gated =
+        gate_page_reads(context.resources.repos(), context.user_id, page, TOOL_NAME).await?;
+    let unread = gated
+        .refused
+        .into_iter()
+        .map(|(member, refused)| {
+            // The two gates that fail before the athlete is shown to be the
+            // coach's fail only when a membership changed since the roster
+            // was gathered.
+            let why = refused
+                .response(TOOL_NAME, |_| {
+                    format!(
+                        "{} is no longer an athlete of a group you coach, so their training is \
+                         not read.",
+                        member.name
+                    )
+                })
+                .error
+                .unwrap_or_default();
+            (member, why)
+        })
+        .collect();
+    let readable = gated
+        .readable
+        .into_iter()
+        .map(|(member, _)| member)
+        .collect();
+    Ok((readable, unread))
+}
+
 /// Build the overview for the athletes of `groups`.
 async fn build_overview(
     context: &ToolExecutionContext,
@@ -359,6 +354,7 @@ async fn build_overview(
     let truncated = readable.len() > MAX_ROSTER_ATHLETES || others.len() > MAX_ROSTER_ATHLETES;
     readable.truncate(MAX_ROSTER_ATHLETES);
     others.truncate(MAX_ROSTER_ATHLETES);
+    let (readable, unread) = gate_reads(context, readable).await?;
 
     // Each athlete whose training is read: what the round is about
     // (carnet#1174). The others are named with their status, no data.
@@ -374,6 +370,7 @@ async fn build_overview(
             name: m.name.clone(),
             groups: group_names(m),
             status: RosterAthleteStatus::Shared,
+            not_read: None,
         })
         .collect();
     shared.sort_by(attention_order);
@@ -386,11 +383,19 @@ async fn build_overview(
         truncated,
         "get_roster_overview: consent-gated roster read"
     );
+    shared.extend(unread.iter().map(|(m, why)| RosterOverviewAthlete {
+        name: m.name.clone(),
+        groups: group_names(m),
+        status: m.member.status,
+        training: None,
+        not_read: Some(why.clone()),
+    }));
     shared.extend(others.iter().map(|m| RosterOverviewAthlete {
         name: m.name.clone(),
         groups: group_names(m),
         status: m.member.status,
         training: None,
+        not_read: None,
     }));
     Ok(RosterOverviewResult {
         groups: summaries,
@@ -507,6 +512,7 @@ mod tests {
                 needs_reconnect: Vec::new(),
                 stale: false,
             }),
+            not_read: None,
         }
     }
 

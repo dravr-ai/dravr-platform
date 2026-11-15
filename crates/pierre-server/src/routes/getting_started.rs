@@ -6,8 +6,12 @@
 
 //! Getting started (carnet#1098, carnet#1099).
 //!
-//! Five rows at the top of Home's Today: connect your data, then the four
-//! first-run flows in the catalogue's `first_run:` order. Each row says
+//! The rows at the top of Home's Today. First connect your data, then the
+//! questions the onboarding wizard left to Home, each answered in a sheet
+//! (carnet#1530): the health check when it was put off, the goal and the why,
+//! the check-in cadence. Then link a chat app, when the workspace offers one
+//! and the list is still open (carnet#1525), and the other first-run flows in
+//! the catalogue's `first_run:` order. Each row says
 //! whether its prerequisites hold, whether it is done, and whether it is the
 //! current one; an open row carries the `gs:<slot>:<id>` postback a tap sends
 //! into the Home thread. The rows offered as links are reported shown
@@ -24,19 +28,25 @@ use chrono::{DateTime, Utc};
 use pierre_chat_pipeline::suggestions::report_getting_started_shown;
 use pierre_contremaitre::use_case_catalogue::UseCaseCatalogue;
 use pierre_core::errors::AppError;
+use pierre_core::models::TenantId;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_services::athlete_state::AthleteState;
-use pierre_services::first_run::{getting_started, observe_profile, FirstRun, GettingStartedRow};
+use pierre_services::first_run::{
+    getting_started, observe_profile, ChatApp, FirstRun, GettingStartedRow, SheetAnswers,
+};
 use serde::Serialize;
+use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
 use crate::routes::chat::{client_surface, get_tenant_id};
+use crate::routes::messaging::connectable_channels;
 
 /// One row of `GET /api/me/getting-started`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GettingStartedRowResponse {
-    /// `connect`, or the first-run flow's catalogue id.
+    /// `health_check`, `connect`, the first-run flow's catalogue id, or
+    /// `chat_app`.
     pub id: String,
     /// The row's place in the list, from 1.
     pub order: usize,
@@ -47,7 +57,9 @@ pub struct GettingStartedRowResponse {
     /// The first row neither done nor waiting.
     pub current: bool,
     /// What a tap sends into the Home thread; `null` for a done or waiting
-    /// row and for `connect`, which opens Settings › Connections.
+    /// row, for `connect`, which opens Settings › Connections, and for the
+    /// rows that open a sheet: `health_check`, `about_me_more`, `check_in`
+    /// and `chat_app`.
     pub postback: Option<String>,
 }
 
@@ -67,7 +79,8 @@ impl From<GettingStartedRow> for GettingStartedRowResponse {
 /// Body of `GET /api/me/getting-started`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct GettingStartedResponse {
-    /// Connect, then the first-run flows in flow order.
+    /// Connect, then the first-run flows in flow order, then the chat app
+    /// when the workspace offers one and the list is still open.
     pub rows: Vec<GettingStartedRowResponse>,
     /// Rows done.
     pub done_count: usize,
@@ -86,9 +99,9 @@ pub struct GettingStartedResponse {
 ///
 /// Returns the authentication error, a refusal for a caller outside Dravr's
 /// apps when the list was read from first-party-only data, and the
-/// repository error when the athlete's state, first run or Home preferences
-/// cannot be read: a list built on a partial read could tick a row that is
-/// not done.
+/// repository error when the athlete's state, first run, onboarding steps,
+/// chat-app links or Home preferences cannot be read: a list built on a
+/// partial read could tick a row that is not done.
 pub async fn get_getting_started(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,
@@ -111,7 +124,21 @@ pub async fn get_getting_started(
         observe_profile(repos, auth.user_id, tenant_id, &first_run, surface.as_str()).await;
         first_run = FirstRun::read(repos, tenant_id, auth.user_id).await?;
     }
-    let list = getting_started(UseCaseCatalogue::pinned(), &state, &first_run);
+    let chat_app = chat_app(&resources, tenant_id, auth.user_id).await?;
+    // The questions the wizard left to Home are read from the step rows the
+    // sheets write, as the wizard's screens did (carnet#1530).
+    let steps = repos
+        .user_onboarding
+        .get_onboarding_steps(&auth.user_id.to_string())
+        .await?;
+    let answers = SheetAnswers::from_steps(&steps);
+    let list = getting_started(
+        UseCaseCatalogue::pinned(),
+        &state,
+        &first_run,
+        &answers,
+        chat_app,
+    );
     let hidden = repos
         .home_preferences
         .get_home_preferences(auth.user_id)
@@ -134,4 +161,28 @@ pub async fn get_getting_started(
         folded_at: list.folded_at,
         hidden,
     }))
+}
+
+/// Where the caller stands on linking a chat app: not offered when the
+/// workspace has no app the chat-app sheet could link, else linked when any of
+/// their links exists, else not yet. The links are the caller's across
+/// tenants, as `GET /api/messaging/links` lists them: a link made through the
+/// deployment bot lives under the bot's tenant.
+async fn chat_app(
+    resources: &Arc<ServerContext>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> Result<ChatApp, AppError> {
+    let messaging = resources.common.repos.messaging.as_ref();
+    if connectable_channels(messaging, tenant_id).await?.is_empty() {
+        return Ok(ChatApp::NotOffered);
+    }
+    let links = messaging
+        .list_channel_links_for_user(&user_id.to_string())
+        .await?;
+    Ok(if links.is_empty() {
+        ChatApp::Unlinked
+    } else {
+        ChatApp::Linked
+    })
 }

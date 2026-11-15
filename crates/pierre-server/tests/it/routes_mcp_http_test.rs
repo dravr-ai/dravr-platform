@@ -105,6 +105,7 @@ impl McpTestSetup {
                     billing_provider: None,
                     turn_runner: None,
                     archive_imports: None,
+                    live_records: None,
                     blobs: None,
                 },
             )
@@ -1013,6 +1014,7 @@ async fn setup_with_admin_flag(
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

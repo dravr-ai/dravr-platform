@@ -16,6 +16,7 @@ use dravr_tronc::testkit::McpTestClient;
 use helpers::first_party_sign_in::{
     authorize_uri, callback_param, fresh_state, FirstPartyClient, Pkce,
 };
+use pierre_auth::connect_order::{set_connect_order, ConnectOrder};
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_auth::{auth::AuthManager, tenant::TenantOAuthCredentials};
 use pierre_cache::{Cache, CacheConfig};
@@ -591,12 +592,22 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
         .await
         .unwrap(),
     );
+    // The workflow connects Strava through its authorization: the operator's
+    // kill switch puts the OAuth first (the default signs in, carnet#1494).
+    set_connect_order(
+        resources.common.repos.system_settings.as_ref(),
+        "strava",
+        ConnectOrder::OAuthFirst,
+    )
+    .await
+    .unwrap();
     let server = ProviderToolRouter::new(resources);
     let server_handle = tokio::spawn(async move {
         tokio::select! {
@@ -821,6 +832,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -925,6 +937,7 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1017,6 +1030,7 @@ async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1115,6 +1129,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )
@@ -1236,6 +1251,7 @@ async fn test_multitenant_server_config() -> Result<()> {
                 billing_provider: None,
                 turn_runner: None,
                 archive_imports: None,
+                live_records: None,
                 blobs: None,
             },
         )

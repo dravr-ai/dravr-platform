@@ -26,7 +26,7 @@
 use crate::common;
 
 use chrono::Utc;
-use common::create_test_server_resources;
+use common::{create_test_server_resources, in_web_turn};
 use dravr_tronc::mcp::schema::ToolResponse;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
 use pierre_commands::plan::PlanShowHandler;
@@ -47,7 +47,7 @@ use pierre_database::repositories::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, RacePriority, TrainingPlan};
-use pierre_tool_runtime::context::CONVERSATION_ID;
+use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
@@ -348,9 +348,13 @@ async fn save_as(
     args: Value,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let response = SaveTrainingPlanTool
-        .execute(&runtime, &tool_context(user, tenant), args)
-        .await;
+    let response = in_web_turn(
+        resources,
+        user,
+        tenant,
+        SaveTrainingPlanTool.execute(&runtime, &tool_context(user, tenant), args),
+    )
+    .await;
     structured(&response)
 }
 
@@ -361,9 +365,13 @@ async fn get_as(
     args: Value,
 ) -> Value {
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
-    let response = GetTrainingPlanTool
-        .execute(&runtime, &tool_context(user, tenant), args)
-        .await;
+    let response = in_web_turn(
+        resources,
+        user,
+        tenant,
+        GetTrainingPlanTool.execute(&runtime, &tool_context(user, tenant), args),
+    )
+    .await;
     structured(&response)
 }
 
@@ -519,17 +527,20 @@ async fn coach_publishes(fx: &Fixture) -> Value {
     let conversation = coach_dm(fx).await;
     let runtime: Arc<dyn ToolRuntime> = fx.resources.clone();
     CONVERSATION_ID
-        .scope(Some(conversation), async {
-            structured(
-                &PublishTrainingPlanTool
-                    .execute(
-                        &runtime,
-                        &tool_context(fx.agent, fx.coach_tenant),
-                        json!({ "athlete": "phil", "action": "publish" }),
-                    )
-                    .await,
-            )
-        })
+        .scope(
+            Some(conversation),
+            in_web_turn(&fx.resources, fx.agent, fx.coach_tenant, async {
+                structured(
+                    &PublishTrainingPlanTool
+                        .execute(
+                            &runtime,
+                            &tool_context(fx.agent, fx.coach_tenant),
+                            json!({ "athlete": "phil", "action": "publish" }),
+                        )
+                        .await,
+                )
+            }),
+        )
         .await
 }
 
@@ -767,10 +778,13 @@ async fn the_coachs_outline_over_the_athletes_agents_season_is_refused_without_t
     );
 }
 
-/// A solo conversation under the agent's own tenant is a direct chat: the
-/// gate is about rooms, not about having a conversation at all.
+/// A solo conversation under the agent's own tenant is a direct chat on a
+/// turn only the coach reads: the gate is about rooms, not about having a
+/// conversation at all. The same row on a turn other people read is a
+/// messaging group chat whose binding failed, which keeps no group either:
+/// acting on the athlete's plan there would publish it (carnet#1422).
 #[tokio::test]
-async fn a_solo_conversation_under_the_coachs_tenant_is_a_direct_chat() {
+async fn a_solo_conversation_under_the_coachs_tenant_is_a_direct_chat_only_on_a_direct_message() {
     let fx = coached_athlete(Some("Phil Tremblay"), true).await;
     let conversation = fx
         .resources
@@ -787,19 +801,29 @@ async fn a_solo_conversation_under_the_coachs_tenant_is_a_direct_chat() {
         )
         .await
         .unwrap();
+    let fx = &fx;
+    let save_in = |direct_message: bool| {
+        TURN_DIRECT_MESSAGE.scope(
+            Some(direct_message),
+            CONVERSATION_ID.scope(Some(conversation.id.clone()), async move {
+                save_as(
+                    &fx.resources,
+                    fx.agent,
+                    fx.coach_tenant,
+                    save_payload("phil"),
+                )
+                .await
+            }),
+        )
+    };
 
-    let saved = CONVERSATION_ID
-        .scope(Some(conversation.id), async {
-            save_as(
-                &fx.resources,
-                fx.agent,
-                fx.coach_tenant,
-                save_payload("phil"),
-            )
-            .await
-        })
-        .await;
+    let shared = save_in(false).await;
+    assert!(
+        error_text(&shared).contains("direct chat"),
+        "a shared chat with no group is refused, got: {shared}"
+    );
 
+    let saved = save_in(true).await;
     assert!(
         saved.get("error").is_none(),
         "a solo thread is a direct chat, got: {saved}"

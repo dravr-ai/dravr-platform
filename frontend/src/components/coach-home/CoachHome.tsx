@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: A coach's Home — "Mes athlètes": À traiter, the team table and the season, behind the switch that returns to their own training
+// ABOUTME: A coach's Home — "Mes athlètes": À traiter, the team table and the season, behind the switch to their own training when they train too
 // ABOUTME: One roster read feeds the three views; every figure states its scope, form is the server's band, and a non-sharer shows status only
 
 import { useMemo, useState } from 'react';
@@ -13,6 +13,7 @@ import { useIsMobile } from '../../hooks/useBreakpoint';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
 import { EmptyState, SearchField, Select } from '../ui';
 import { CoachHomeSwitch } from './CoachHomeSwitch';
+import { CoachPendingInvites } from './CoachPendingInvites';
 import { CoachQueueView } from './CoachQueueView';
 import { CoachRosterTable } from './CoachRosterTable';
 import { CoachSeasonView } from './CoachSeasonView';
@@ -23,6 +24,12 @@ interface CoachHomeProps {
   route: Exclude<CoachHomeRoute, { view: 'me' }>;
   /** Dashboard route navigator, `tab[/subview]`. */
   onNavigate: (route: string) => void;
+  /**
+   * The coach trains too (`coachTrainsToo`): the switch to their own Home
+   * leads the header. One who does not train has no other Home, so the header
+   * names the page instead (carnet#1529).
+   */
+  trains?: boolean;
 }
 
 const VIEWS = [
@@ -31,7 +38,7 @@ const VIEWS = [
   { id: 'season', labelKey: 'coachHome.views.season', route: { view: 'season' } },
 ] as const satisfies readonly { id: string; labelKey: string; route: CoachHomeRoute }[];
 
-export default function CoachHome({ route, onNavigate }: CoachHomeProps) {
+export default function CoachHome({ route, onNavigate, trains = true }: CoachHomeProps) {
   const { t, language } = useTranslation();
   const isMobile = useIsMobile();
   const { roster, isLoading, isError, readAt, refetch } = useCoachRoster(true);
@@ -68,11 +75,9 @@ export default function CoachHome({ route, onNavigate }: CoachHomeProps) {
       </div>
     );
   } else if (roster.athletes.length === 0) {
-    body = (
-      <div className="px-6 py-6">
-        <EmptyState data-testid="coach-home-empty">{t('coachHome.noAthletes')}</EmptyState>
-      </div>
-    );
+    // Nobody has joined yet: the athletes the coach invited wait as rows, or
+    // the empty state stands when no invite still works.
+    body = <CoachPendingInvites groups={roster.groups} onNavigate={onNavigate} />;
   } else if (route.view === 'queue') {
     body = (
       <CoachQueueView
@@ -106,7 +111,14 @@ export default function CoachHome({ route, onNavigate }: CoachHomeProps) {
   return (
     <div className="flex h-full min-h-0 flex-col bg-surface" data-testid="coach-home" data-view={route.view}>
       <header className="flex min-h-[52px] shrink-0 flex-wrap items-center gap-x-3 gap-y-2 border-b ghost-border px-4 py-2">
-        <CoachHomeSwitch scope="athletes" onChange={() => onNavigate('home/me')} stretch={isMobile} />
+        {trains ? (
+          <CoachHomeSwitch scope="athletes" onChange={() => onNavigate('home/me')} stretch={isMobile} />
+        ) : (
+          // Not a heading: each view below opens on its own (À traiter, the table).
+          <p className="font-display text-lg font-semibold tracking-tight text-on-surface" data-testid="coach-home-title">
+            {t('coachHome.switch.athletes')}
+          </p>
+        )}
         {scopeLine !== '' && (
           <span className="text-xs text-on-surface-variant" data-testid="coach-scope">
             {scopeLine}

@@ -116,6 +116,8 @@ export interface ChatThreadProps {
    * Absent in every other thread; a lane that is not `available` draws nothing.
    */
   privateLane?: { lane: UsePrivateLaneResult; agentName: string } | null;
+  /** The host's one-time offer at the end of the transcript, in the agent's voice. */
+  offer?: React.ReactNode;
 }
 
 /** No plan thread, or its draft read still out. */
@@ -152,6 +154,7 @@ export function ChatThread({
   onScrollToBottom,
   conversationTitle,
   privateLane = null,
+  offer = null,
 }: ChatThreadProps) {
   const { t } = useTranslation();
   // The lane while it exists: the viewer is the group's coach and the room
@@ -607,6 +610,7 @@ export function ChatThread({
         planSubjectName={planSubjectName}
         coachRoomName={coachRoomName}
         planDraft={planDraft}
+        offer={offer}
         planStarter={planStarter}
         onStarter={handleStarter}
         hasEarlier={messagesHook.hasEarlier}
@@ -680,13 +684,15 @@ export function ChatThread({
         <SciotteLoginModal
           visible
           onClose={signIn.close}
-          onConnected={() => {
+          onConnected={(followOn) => {
             signIn.close();
             void providerStatus.refreshAfterLink();
+            // Garmin signs in first and authorizes its grant, which pushes
+            // workouts, right after (carnet#1494).
+            if (followOn) void providerStatus.handleConnectProvider(followOn);
           }}
           target={signIn.target}
           consentRequired={signIn.consentRequired}
-          onOAuthRequired={() => void providerStatus.refreshAfterLink()}
           onFallBackToOAuth={signIn.fallback ? fallBackToOAuth(signIn.fallback) : undefined}
         />
       )}

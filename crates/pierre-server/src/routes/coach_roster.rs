@@ -20,6 +20,12 @@
 //!   name, groups and status: no number, nothing inferred, for the others.
 //!   A shared row carries nothing from a provider whose AI use the athlete
 //!   withheld: the coach and the agent read one projection (carnet#1262).
+//! - **Each read is gated and recorded.** Before a sharer's training or plan
+//!   is read, the one coach-read gate is asked for them, as the agent's
+//!   roster asks it (`pierre_tool_runtime::coach_roster::gate_page_reads`,
+//!   carnet#1425), and the read goes on the athlete's own record as a
+//!   `roster` read (carnet#1445): one row per sharer on the page, per GET. A
+//!   sharer the gate refuses is listed with no training and no plan.
 //! - **Form** is the server's band on the athlete's own scale with the day it
 //!   was read, never a raw TSB.
 //! - **Bounded.** The roster is gathered and ordered from the database; the
@@ -52,6 +58,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::groups::MemberFitnessSnapshot;
 use pierre_core::models::TenantId;
 use pierre_database::repositories::training_plans::DraftOwner;
+use pierre_database::repositories::CoachReadSurface;
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{parse_plan_date, GoalRace, RacePriority, TrainingPlan};
 use pierre_memory::{ClaimStatus, PlanPhase};
@@ -68,11 +75,13 @@ use pierre_services::coach_roster::{
     gather_roster, order_roster, roster_access, OrderedMember, RosterAccess, RosterAthleteStatus,
     RosterGroupRef, RosterGroupSummary, ROSTER_LOOKUP_CONCURRENCY,
 };
-use pierre_services::coached_athlete::coached_athlete_access;
-use pierre_tool_runtime::coach_roster::{fetch_page_snapshots, read_snapshot, RosterReading};
+use pierre_services::coached_athlete::CoachedAthleteAccess;
+use pierre_tool_runtime::coach_roster::{
+    fetch_page_snapshots, gate_page_reads, read_snapshot, RosterReading,
+};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
@@ -301,10 +310,35 @@ pub async fn handle_roster(
     let end = offset.saturating_add(limit).min(ordered.len());
     let page = &ordered[offset..end];
 
+    // Each sharer on the page is asked the one coach-read gate before anything
+    // of theirs is read, and each read it lets through goes on the athlete's
+    // own record (carnet#1425, carnet#1445). A sharer it refuses is listed
+    // with no training and no plan.
+    let gated = gate_page_reads(
+        repos,
+        coach,
+        page.to_vec(),
+        CoachReadSurface::Roster.as_str(),
+    )
+    .await?;
+    let refused = gated.refused_athletes();
+    if !refused.is_empty() {
+        info!(
+            coach = %coach,
+            refused = ?refused,
+            "coach roster: the coach-read gate refused sharers; their training is not read"
+        );
+    }
     let runtime: Arc<dyn ToolRuntime> = Arc::<ServerContext>::clone(&resources);
     // A human coach's read: each athlete's AI consents apply to it as to the
     // agent's, and no other AI rule (carnet#1262, ADR-002 amendment 2026-10-30).
-    let snapshots = ai_scope::for_human_coach(fetch_page_snapshots(&runtime, page)).await;
+    let snapshots =
+        ai_scope::for_human_coach(fetch_page_snapshots(&runtime, &gated.readable_members())).await;
+    let readable: HashMap<Uuid, CoachedAthleteAccess> = gated
+        .readable
+        .into_iter()
+        .map(|(member, access)| (member.member.user_id, access))
+        .collect();
     // Only an athlete who shares can carry replies (their counts on a
     // `shared` row, an unmatched figure on any sharer's): a page with none
     // reads none.
@@ -320,6 +354,7 @@ pub async fn handle_roster(
     let dismissals = page_dismissals(repos, coach, page).await?;
     let read = PageRead {
         coach,
+        readable: &readable,
         snapshots: &snapshots,
         replies: &replies,
         dismissals: &dismissals,
@@ -356,6 +391,8 @@ pub async fn handle_roster(
 /// What one page read shares across its rows.
 struct PageRead<'a> {
     coach: Uuid,
+    /// The sharers the coach-read gate let through, with what it answered.
+    readable: &'a HashMap<Uuid, CoachedAthleteAccess>,
     snapshots: &'a HashMap<Uuid, MemberFitnessSnapshot>,
     replies: &'a WeekReplies,
     dismissals: &'a PageDismissals,
@@ -391,7 +428,14 @@ async fn row(
     let plan = if member.member.status == RosterAthleteStatus::Shared {
         row.training = snapshot.map(read_snapshot);
         row.agent_replies = Some(read.replies.for_athlete(athlete));
-        shared_plan(repos, read.coach, member, today, &mut row).await?
+        shared_plan(
+            repos,
+            read.coach,
+            read.readable.get(&athlete),
+            today,
+            &mut row,
+        )
+        .await?
     } else {
         SharedPlan::default()
     };
@@ -432,27 +476,21 @@ struct SharedPlan {
 
 /// Fill a sharer's plan and plan thread on `row`.
 ///
-/// The by-id coaching gate, run again: it resolves the athlete's own tenant,
-/// where their plan lives, and refuses anything consent no longer allows. A
-/// refusal here leaves the plan out rather than failing the page.
+/// `access` is what the page's coach-read gate answered for them: their own
+/// tenant, where their plan lives, and the read already on their record. A
+/// sharer the gate refused (`None`) has their plan left out rather than
+/// failing the page.
 async fn shared_plan(
     repos: &RepositoryRegistry,
     coach: Uuid,
-    member: &OrderedMember,
+    access: Option<&CoachedAthleteAccess>,
     today: NaiveDate,
     row: &mut RosterRow,
 ) -> AppResult<SharedPlan> {
-    let athlete = member.member.user_id;
-    let Some(group_id) = member.member.shared_via else {
+    let Some(access) = access else {
         return Ok(SharedPlan::default());
     };
-    let access = match coached_athlete_access(repos, coach, athlete, group_id).await? {
-        Ok(access) => access,
-        Err(refusal) => {
-            warn!(athlete = %athlete, reason = refusal.reason(), "roster row: no plan read");
-            return Ok(SharedPlan::default());
-        }
-    };
+    let athlete = access.athlete_user_id;
     let (plan, signals) = plan_summary(repos, access.tenant, athlete, today)
         .await?
         .unzip();

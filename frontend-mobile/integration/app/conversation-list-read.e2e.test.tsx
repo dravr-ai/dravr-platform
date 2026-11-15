@@ -31,6 +31,7 @@ jest.mock('../../src/hooks/useServerStatus', () => ({
   useServerStatus: () => ({ isServerReachable: true, isChecking: false, checkNow: jest.fn() }),
 }));
 
+import { AuthProvider } from '../../src/contexts/AuthContext';
 import { ConversationsScreen } from '../../src/screens/conversations/ConversationsScreen';
 import TabsLayout from '../../app/(app)/(tabs)/_layout';
 
@@ -53,8 +54,10 @@ function renderShell() {
   });
   return render(
     <QueryClientProvider client={client}>
-      <ConversationsScreen />
-      <TabsLayout />
+      <AuthProvider>
+        <ConversationsScreen />
+        <TabsLayout />
+      </AuthProvider>
     </QueryClientProvider>,
   );
 }

@@ -22,7 +22,7 @@ use chrono::{Duration, Utc};
 use common::{create_test_database, create_test_user_with_email};
 use futures_util::future::join_all;
 use pierre_core::errors::AppResult;
-use pierre_core::models::UserInvitation;
+use pierre_core::models::{InvitationKind, UserInvitation};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use sqlx::Row;
 use uuid::Uuid;
@@ -107,6 +107,7 @@ impl Fixture {
                         &selector,
                         hash,
                         Utc::now() + Duration::days(7),
+                        InvitationKind::Account,
                     )
                     .await
                     .unwrap();

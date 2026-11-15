@@ -47,9 +47,9 @@ use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::json;
 use uuid::Uuid;
 
-/// Answers from the platform's own rows, so spending the budget does not depend
-/// on a provider being reachable. The same tool the turn-token test uses.
-const PLATFORM_TOOL: &str = "list_agents";
+/// Answers from the platform's own library, so spending the budget does not
+/// depend on a provider being reachable, and runs on every transport.
+const PLATFORM_TOOL: &str = "list_yoga_poses";
 
 /// One call served; the next is refused. The smallest budget that still proves
 /// a served call and a refused call are reported differently.

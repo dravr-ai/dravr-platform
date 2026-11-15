@@ -387,6 +387,7 @@ async fn a_conflicted_publish_is_a_409_in_the_shape_the_clients_parse() {
         keys,
         vec![
             "athlete_notified",
+            "calendar_push",
             "plan_id",
             "posted_in_room",
             "superseded_plan_id"
@@ -394,6 +395,16 @@ async fn a_conflicted_publish_is_a_409_in_the_shape_the_clients_parse() {
         "the publish answer changed shape: {body}"
     );
     assert!(body["superseded_plan_id"].is_null(), "{body}");
+    // The athlete holds no calendar Dravr writes: the publish lands, and says
+    // why nothing reached a calendar (carnet#1492).
+    assert_eq!(body["calendar_push"]["status"], "not_pushed", "{body}");
+    assert_eq!(body["calendar_push"]["reason"], "no_calendar", "{body}");
+    assert!(
+        body["calendar_push"]["message"]
+            .as_str()
+            .is_some_and(|message| !message.is_empty()),
+        "{body}"
+    );
     // What the room was told is `private_lane_test`'s to pin: it turns on the
     // catalogue's strings, which this fixture does not seed.
     assert!(body["posted_in_room"].is_boolean(), "{body}");

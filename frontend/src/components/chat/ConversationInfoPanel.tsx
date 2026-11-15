@@ -2,18 +2,19 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The right drawer behind the thread header — Group info, Agent info, a plan thread's athlete, or a plain thread's own controls
-// ABOUTME: Tapping the header is how App Messaging reaches this, so nothing here needs a tab of its own
+// ABOUTME: A ui/Sheet: the scrim, the focus trap, Escape and the focus back on the thread title all come from it
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { clsx } from 'clsx';
-import { Trash2, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 import type { Conversation } from '@pierre/shared-types';
 import { avatarSlot, initialsFor, PLAN_THREAD_KEYS } from '@pierre/chat-utils';
-import { Button, Input } from '../ui';
+import { Button, ConfirmDialog, Input, Sheet } from '../ui';
 import { useCoachInfo } from '../../hooks/useCoachInfo';
 import { useGroup } from '../../hooks/useGroups';
 import { avatarShapeClass, avatarSlotClass } from './avatarSlots';
 import GroupInfoPanel from '../groups/GroupInfoPanel';
+import { QuietExitRow } from '../groups/GroupInfoParts';
 import CoachInfoPanel from './CoachInfoPanel';
 import ConversationParticipants from './ConversationParticipants';
 import { useTranslation } from '@pierre/i18n';
@@ -42,6 +43,8 @@ interface ConversationInfoPanelProps {
   onOpenConnections?: () => void;
   /** Open another conversation — where Group info sends a coach to an athlete's plan thread. */
   onOpenConversation?: (conversationId: string) => void;
+  /** Open one athlete on the coach's Home — Group info's way back there. */
+  onOpenCoachHome?: (athleteId: string) => void;
 }
 
 /** The shapes this drawer takes. */
@@ -130,135 +133,107 @@ export default function ConversationInfoPanel({
   openParticipants = false,
   onOpenConnections,
   onOpenConversation,
+  onOpenCoachHome,
 }: ConversationInfoPanelProps) {
   const { t } = useTranslation();
   const shape = shapeOf(conversation);
   const { coach } = useCoachInfo(shape === 'coach' ? conversation.agent_id : null);
   const [title, setTitle] = useState(conversation.title ?? '');
   const [participantsOpen, setParticipantsOpen] = useState(openParticipants);
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, [onClose]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const trimmed = title.trim();
   const renameDisabled = !trimmed || trimmed === (conversation.title ?? '');
 
+  // The sheet traps focus while it is open and hands it back to whatever
+  // opened it — the thread title — when Escape, the scrim or the close
+  // button dismisses it.
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-start justify-end bg-black/60"
-      role="dialog"
-      aria-modal="true"
-      aria-label={t(HEADING_KEYS[shape])}
-      onClick={onClose}
+    <Sheet
+      side="right"
+      width="lg"
+      title={t(HEADING_KEYS[shape])}
+      onClose={onClose}
+      data-testid="conversation-info-panel"
     >
-      <div
-        className="h-full w-full max-w-md overflow-y-auto bg-surface-container-lowest text-on-surface pad-safe-top"
-        onClick={(e) => e.stopPropagation()}
-        data-testid="conversation-info-panel"
-      >
-        <div className="sticky top-0 z-10 flex items-start justify-between border-b ghost-border bg-surface-container-lowest/90 px-5 py-4 backdrop-blur">
-          <h3 className="text-lg font-semibold text-on-surface">{t(HEADING_KEYS[shape])}</h3>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded p-1 text-on-surface-variant hover:bg-surface-container hover:text-on-surface"
-            aria-label={t('chat.close')}
-          >
-            <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M6 18L18 6M6 6l12 12"
-              />
-            </svg>
-          </button>
-        </div>
-
-        <div className="px-5 py-5">
-          {shape === 'group' && conversation.group_id ? (
-            <GroupInfoPanel
-              groupId={conversation.group_id}
-              onMembershipEnded={onThreadGone}
-              onOpenConnections={onOpenConnections}
-              onOpenConversation={onOpenConversation}
+      <div className="border-t ghost-border px-6 py-4">
+        {shape === 'group' && conversation.group_id ? (
+          <GroupInfoPanel
+            groupId={conversation.group_id}
+            onMembershipEnded={onThreadGone}
+            onOpenConnections={onOpenConnections}
+            onOpenConversation={onOpenConversation}
+            onOpenCoachHome={onOpenCoachHome}
+          />
+        ) : shape === 'subject' ? (
+          <SubjectInfo conversation={conversation} />
+        ) : shape === 'coach' ? (
+          coach ? (
+            <CoachInfoPanel
+              coach={coach}
+              onSendCommand={onSendCommand}
+              onEditCoach={onEditCoach}
             />
-          ) : shape === 'subject' ? (
-            <SubjectInfo conversation={conversation} />
-          ) : shape === 'coach' ? (
-            coach ? (
-              <CoachInfoPanel
-                coach={coach}
-                onSendCommand={onSendCommand}
-                onEditCoach={onEditCoach}
-              />
-            ) : (
-              <p className="py-6 text-center text-sm text-outline" data-testid="coach-info-missing">
-                {t('chat.agentInfoLoadFailed')}
-              </p>
-            )
           ) : (
-            <div className="space-y-6" data-testid="plain-info-panel">
-              <section className="space-y-2">
-                <Input
-                  label={t('chat.chatNameLabel')}
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  maxLength={200}
-                  data-testid="conversation-info-title"
-                />
-                <div className="flex justify-end">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={renameDisabled}
-                    onClick={() => onRename(trimmed)}
-                    data-testid="conversation-info-rename"
-                  >
-                    {t('chat.renameAction')}
-                  </Button>
-                </div>
-              </section>
+            <p className="py-6 text-center text-sm text-outline" data-testid="coach-info-missing">
+              {t('chat.agentInfoLoadFailed')}
+            </p>
+          )
+        ) : (
+          <div className="space-y-6" data-testid="plain-info-panel">
+            <section className="space-y-2">
+              <Input
+                label={t('chat.chatNameLabel')}
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                maxLength={200}
+                data-testid="conversation-info-title"
+              />
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={renameDisabled}
+                  onClick={() => onRename(trimmed)}
+                  data-testid="conversation-info-rename"
+                >
+                  {t('chat.renameAction')}
+                </Button>
+              </div>
+            </section>
 
-              <section>
-                <h4 className="mb-2 text-xs font-semibold text-outline">
-                  {t('chat.participantsHeading')}
-                </h4>
-                <ConversationParticipants
-                  conversationId={conversation.id}
-                  open={participantsOpen}
-                  onOpenChange={setParticipantsOpen}
-                />
-              </section>
+            <section>
+              <h4 className="mb-2 text-sm font-semibold text-on-surface">
+                {t('chat.participantsHeading')}
+              </h4>
+              <ConversationParticipants
+                conversationId={conversation.id}
+                open={participantsOpen}
+                onOpenChange={setParticipantsOpen}
+              />
+            </section>
 
-              <section className="space-y-3 rounded-lg border border-error/20 p-4">
-                <h4 className="text-xs font-semibold text-error">
-                  {t('chat.dangerZone')}
-                </h4>
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-sm text-on-surface">{t('chat.deleteChatHint')}</p>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={onDelete}
-                    data-testid="conversation-info-delete"
-                  >
-                    <span className="flex items-center gap-1.5">
-                      <Trash2 className="w-4 h-4" aria-hidden="true" />
-                      {t('chat.deleteAction')}
-                    </span>
-                  </Button>
-                </div>
-              </section>
-            </div>
-          )}
-        </div>
+            {/* Deleting is a quiet last row; the danger is drawn in the confirm. */}
+            <QuietExitRow
+              label={t('chat.deleteChatRow')}
+              onClick={() => setConfirmDelete(true)}
+              data-testid="conversation-info-delete"
+            />
+            <ConfirmDialog
+              isOpen={confirmDelete}
+              onClose={() => setConfirmDelete(false)}
+              onConfirm={() => {
+                setConfirmDelete(false);
+                onDelete();
+              }}
+              title={t('chat.deleteChatTitle')}
+              message={t('app.confirmDeleteConversation', { title: conversation.title ?? '' })}
+              confirmLabel={t('common.delete')}
+              variant="danger"
+            />
+          </div>
+        )}
       </div>
-    </div>
+    </Sheet>
   );
 }

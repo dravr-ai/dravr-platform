@@ -446,6 +446,74 @@ fn a_reconnect_prompt_becomes_a_block_not_prose() {
     );
 }
 
+/// A reply carrying the envelope notice the platform wrote beside its plan
+/// (carnet#1495).
+fn envelope_notice_state() -> TurnState {
+    const STORED: &str = r#"[{"type":"workout_plan","source_tool":"save_training_plan","plan":{"weeks":3}},
+         {"type":"envelope_notice","heading":"Saved as written, outside what the evidence supports:",
+          "lines":["2026-07-14 mar: The average of work and float is about 72% of maximal aerobic intensity, below 80%."]}]"#;
+    let mut state = turn_state();
+    state.assistant_message = message("msg-asst", "assistant", REPLY, Some(STORED));
+    state
+}
+
+/// In-app the notice is its own panel beside the plan card, and the agent's
+/// sentences stay exactly as written.
+#[test]
+fn an_envelope_notice_is_its_own_block_beside_the_plan_in_app() {
+    let envelope = build_envelope(&in_app_profile(), envelope_notice_state());
+    let blocks = &envelope.assistant.blocks;
+    let kinds: Vec<&str> = blocks.iter().map(|b| b.kind().as_str()).collect();
+    let plan = kinds.iter().position(|k| *k == "workout_plan");
+    let notice = kinds.iter().position(|k| *k == "envelope_notice");
+    assert!(
+        plan.zip(notice).is_some_and(|(p, n)| n == p + 1),
+        "the notice follows the plan card: {kinds:?}"
+    );
+    let lines = blocks
+        .iter()
+        .find_map(|b| match b {
+            ReplyBlock::EnvelopeNotice { lines, .. } => Some(lines.clone()),
+            _ => None,
+        })
+        .expect("an envelope notice block");
+    assert_eq!(lines.len(), 1, "bug: one line per stored session");
+    assert_eq!(
+        prose_of(blocks),
+        REPLY,
+        "the notice is not folded into the prose"
+    );
+    assert!(
+        !kinds.contains(&"scene"),
+        "the notice is never handed to the chart renderer as a visual"
+    );
+}
+
+/// A messaging channel has no panel for it, so the notice reaches the athlete
+/// folded into the reply text: under the agent's sentences, never instead.
+#[test]
+fn a_messaging_surface_reads_the_envelope_notice_in_the_reply() {
+    let envelope = build_envelope(&telegram_profile(), envelope_notice_state());
+    let blocks = &envelope.assistant.blocks;
+    assert!(
+        !blocks
+            .iter()
+            .any(|b| matches!(b, ReplyBlock::EnvelopeNotice { .. })),
+        "no block the channel cannot draw"
+    );
+    let prose = prose_of(blocks);
+    let reply = prose.find(REPLY);
+    let notice = prose.find("outside what the evidence supports");
+    assert!(
+        reply.zip(notice).is_some_and(|(r, n)| n > r),
+        "the notice follows the agent's sentences: {prose}"
+    );
+    assert!(
+        prose.contains("2026-07-14 mar: The average"),
+        "bug: the session's line is folded in whole: {prose}"
+    );
+}
+
 /// A soft quota hit reaches the athlete inside the reply they are already
 /// reading, with the counters the client renders.
 #[test]

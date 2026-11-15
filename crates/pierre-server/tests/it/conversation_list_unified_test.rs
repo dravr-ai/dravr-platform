@@ -681,8 +681,12 @@ async fn a_command_turn_is_read_by_its_author_and_new_to_the_other_participant()
     assert!(!messages[0].content.contains("/status"));
 }
 
-#[tokio::test]
-async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
+/// One coaching turn on a thread shared with a second member, served over
+/// `transport`; returns the fixture, the thread and the reply's text.
+async fn coaching_turn_over(
+    transport: Transport,
+    channel_type: &'static str,
+) -> (Fixture, ConversationResponse, String) {
     let fx = setup_on(
         create_test_server_resources_with_llm(Arc::new(ReplyingMockProvider))
             .await
@@ -712,8 +716,8 @@ async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
             turn_id: ConversationTurnId::new(),
             ambient_context: None,
             quote: None,
-            channel_type: "web",
-            transport: Transport::WebApp,
+            channel_type,
+            transport,
             is_direct_message: true,
             ambient_group_fallback: false,
             command_persistence: CommandPersistence::Always,
@@ -733,10 +737,22 @@ async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
         !reply.trim().is_empty(),
         "the turn carries the coach's reply"
     );
+    (fx, conv, reply)
+}
 
+#[tokio::test]
+async fn an_app_turn_leaves_its_reply_unread_until_the_app_shows_it() {
+    let (fx, conv, reply) = coaching_turn_over(Transport::WebApp, "web").await;
+
+    // The author's own message is read; the reply waits for the app to put it
+    // on screen, which advances the marker — the athlete may have left the
+    // thread before it landed.
     let owner_row = row(&fx, &fx.owner_auth, &conv.id).await;
     assert_eq!(owner_row.message_count, 2);
-    assert_eq!(owner_row.unread_count, 0, "the author's own turn is read");
+    assert_eq!(
+        owner_row.unread_count, 1,
+        "only the reply is new to the author until their app shows it"
+    );
     let newest = owner_row.last_message.as_ref().unwrap();
     assert_eq!(newest.role, "assistant");
     // The preview is the persisted reply's head, on one line.
@@ -752,6 +768,20 @@ async fn a_coaching_turn_reads_the_thread_for_its_author_only() {
         member_row.unread_count, 2,
         "both rows are new to the other participant"
     );
+}
+
+/// A messaging channel reports no reading, and the athlete read the reply
+/// where it was delivered: the author's whole turn is read.
+#[tokio::test]
+async fn a_messaging_turn_reads_its_reply_for_its_author() {
+    let (fx, conv, _) = coaching_turn_over(Transport::Messaging, "telegram").await;
+
+    let owner_row = row(&fx, &fx.owner_auth, &conv.id).await;
+    assert_eq!(
+        owner_row.message_count, 2,
+        "the turn stored the message and its reply"
+    );
+    assert_eq!(owner_row.unread_count, 0, "the author's own turn is read");
 }
 
 /// A list row is drawn as plain text on both clients — there is no markdown

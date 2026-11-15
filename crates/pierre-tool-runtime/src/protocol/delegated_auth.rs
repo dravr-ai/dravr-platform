@@ -41,6 +41,7 @@
 //! flags the coach's connection and tells the coach instead.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppError;
@@ -326,7 +327,8 @@ impl AuthService {
                 coach_reconnect_refusal(&self.coach_name(link).await, brand)
             }
             CoachReadRefusal::CoachDisconnected => {
-                if let Err(e) = DelegationStore::new(self.runtime().repos())
+                let purge = Arc::clone(self.runtime().provider_purge());
+                if let Err(e) = DelegationStore::new(self.runtime().repos(), purge)
                     .end_one(
                         link.id,
                         link.member_user_id,
@@ -362,7 +364,8 @@ impl AuthService {
     ) {
         let repos = self.runtime().repos();
         let backend = platform.backend();
-        let released = match DelegationStore::new(repos)
+        let purge = Arc::clone(self.runtime().provider_purge());
+        let released = match DelegationStore::new(repos, purge)
             .end_unbacked_for_member(member_user_id, tenant, backend)
             .await
         {
@@ -587,6 +590,7 @@ impl AuthService {
         let notifications = None;
         match end_off_roster(
             self.runtime().repos(),
+            self.runtime().provider_purge(),
             notifications,
             member_user_id,
             tenant,
@@ -613,6 +617,7 @@ impl AuthService {
     async fn record_coach_account(&self, user_id: Uuid, tenant: TenantId) {
         match record_trainingpeaks_role(
             self.runtime().repos(),
+            self.runtime().provider_purge().as_ref(),
             user_id,
             tenant,
             ProviderAccountRole::Coach,

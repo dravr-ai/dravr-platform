@@ -12,6 +12,7 @@ import { PLAN_DRAFT_KEYS, PLAN_THREAD_KEYS, type PlanDraftConflict, type Transla
 import {
   instantMs,
   type AthletePlanResponse,
+  type CalendarPushOutcome,
   type Conversation,
   type DraftState,
   type PlanPublishConflict,
@@ -96,10 +97,17 @@ export interface UseAthletePlanResult {
   refetch: () => void;
 }
 
+/**
+ * What a landed publish did to the athlete's calendar, as the card says it:
+ * `null` when the answer carried no word of it (an answer from before
+ * carnet#1492).
+ */
+export type PublishedCalendarPush = CalendarPushOutcome | null;
+
 /** What the last Publish or Discard on a card came to, as far as the card shows it. */
 export type PlanDraftOutcome =
   | { kind: 'none' }
-  | { kind: 'published' }
+  | { kind: 'published'; calendarPush: PublishedCalendarPush }
   | { kind: 'conflict'; conflict: PlanDraftConflict }
   | { kind: 'consentRevoked' };
 
@@ -111,14 +119,15 @@ export type PlanDraftOutcome =
  * - `draft`: the badge, Publish and Discard.
  * - `conflict`: a publish was refused over what the athlete changed — the
  *   badge, the conflict, Publish anyway and Discard.
- * - `published`: the publish landed and the athlete was told.
+ * - `published`: the publish landed and the athlete was told; what it did
+ *   to the athlete's calendar beside it.
  * - `consentRevoked`: the athlete stopped sharing; nothing can be published.
  */
 export type PlanDraftCardState =
   | { kind: 'hidden' }
   | { kind: 'draft' }
   | { kind: 'conflict'; conflict: PlanDraftConflict }
-  | { kind: 'published' }
+  | { kind: 'published'; calendarPush: PublishedCalendarPush }
   | { kind: 'consentRevoked' };
 
 /** What decides a card's draft controls. */
@@ -153,7 +162,7 @@ function isOpenDraft(open: DraftState, card: DraftState): boolean {
 export function planDraftCardState(input: PlanDraftCardInput): PlanDraftCardState {
   const { ownsThread, cardDraft, read, outcome } = input;
   if (ownsThread !== true) return { kind: 'hidden' };
-  if (outcome.kind === 'published') return { kind: 'published' };
+  if (outcome.kind === 'published') return { kind: 'published', calendarPush: outcome.calendarPush };
   if (outcome.kind === 'consentRevoked' || read?.status === 'consentRevoked') {
     return { kind: 'consentRevoked' };
   }
@@ -234,7 +243,7 @@ export interface UseOpenGroupRoomResult {
 
 /** A publish or discard the server answered with something the card states. */
 type DraftActionAnswer =
-  | { kind: 'published' }
+  | { kind: 'published'; calendarPush: PublishedCalendarPush }
   | { kind: 'conflict'; conflict: PlanDraftConflict }
   | { kind: 'consentRevoked' }
   | { kind: 'discarded' }
@@ -453,7 +462,7 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
           });
           return result.status === 'conflict'
             ? { kind: 'conflict', conflict: draftConflictOf(result.conflict) }
-            : { kind: 'published' };
+            : { kind: 'published', calendarPush: result.published.calendar_push ?? null };
         } catch (error) {
           const answer = refusedDraftAction(error);
           if (answer === undefined) throw error;
@@ -485,7 +494,7 @@ export function createCoachPlanHooks({ chatApi }: CoachPlanApis) {
             setOutcome({ kind: 'consentRevoked' });
             return { kind: 'shown' };
           case 'published':
-            setOutcome({ kind: 'published' });
+            setOutcome({ kind: 'published', calendarPush: answer.calendarPush });
             await settle();
             return { kind: 'shown' };
           case 'discarded':

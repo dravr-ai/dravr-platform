@@ -7,7 +7,9 @@
 //! A count stated from an incomplete activity window is not a fact.
 //!
 //! `get_activities` stamps `coverage.complete: false` into its own result
-//! when the window it served is partial (carnet#1481). The `ReAct` and text
+//! when the window it served is partial (carnet#1481), and
+//! `get_segment_history` does the same when the segment efforts of some of
+//! the window's activities were not read (carnet#1483). The `ReAct` and text
 //! loops hold the tool payloads and read that stamp straight off them. The
 //! Copilot-headless loop holds nothing: its tools run inside an ACP
 //! subprocess whose calls reach Dravr through the tool host on a separate
@@ -17,39 +19,36 @@
 //! [`incomplete_window_in_payload`] is the one reader both shapes go through,
 //! and [`IncompleteWindows`] is that store.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
-use std::time::Instant;
-
+use pierre_core::models::coverage::IncompleteReason;
 use serde_json::Value;
 
-use crate::guardian::state::TURN_TTL;
 use crate::guardian::TurnKey;
+use crate::turn_store::{Stamp, TurnStore};
 
-/// Hard cap on retained unconsumed marks. The tool loop takes a turn's mark
-/// when it returns, so an entry outlives its turn only when the loop failed.
-/// Overflow drops the entries past [`TURN_TTL`] first, every entry only if
-/// that was not enough; a dropped mark costs the re-ask, not the answer.
-const MARK_CAP: usize = 10_000;
+/// The tools whose result carries a window's coverage under `coverage`: a
+/// count stated over one that is short of the ask is re-asked.
+const COUNTED_WINDOW_TOOLS: [&str; 2] = ["get_activities", "get_segment_history"];
 
-/// Whether one tool payload is a `get_activities` window that says it is
-/// incomplete (`coverage.complete` false).
+/// Whether one tool payload is a `get_activities` or `get_segment_history`
+/// window that says it is incomplete (`coverage.complete` false).
 ///
 /// Keyed on the tool name so only the envelope that carries this contract can
 /// raise it — a nested field of some other tool's output cannot.
 #[must_use]
 pub fn incomplete_window_in_payload(tool_name: &str, payload: &Value) -> bool {
+    use serde::Deserialize;
+
     let Some(coverage) = payload
         .get("coverage")
-        .filter(|_| tool_name == "get_activities")
+        .filter(|_| COUNTED_WINDOW_TOOLS.contains(&tool_name))
     else {
         return false;
     };
     coverage.get("complete").and_then(Value::as_bool) == Some(false)
         && coverage
             .get("incomplete_reason")
-            .and_then(Value::as_str)
-            .is_some_and(|reason| COUNTED_SHORT.contains(&reason))
+            .and_then(|reason| IncompleteReason::deserialize(reason).ok())
+            .is_some_and(counted_short)
 }
 
 /// Mark `turn` in `store` when `payload`, a `tool_name` result, is an
@@ -66,18 +65,37 @@ pub fn mark_if_incomplete(
     }
 }
 
-/// The incomplete reasons whose window is short of the period asked. A
-/// provider that could not be read (`provider_unavailable`) is not one: the
-/// reconnect offer answers it, and re-asking every reply until the athlete
-/// reconnects would answer it twice.
-const COUNTED_SHORT: [&str; 2] = ["live_read_running", "read_capped"];
+/// Whether `reason` leaves the window short of the period asked. A provider
+/// that could not be read (`provider_unavailable`) does not: the reconnect
+/// offer answers it, and re-asking every reply until the athlete reconnects
+/// would answer it twice. Nor do segment efforts no backend the athlete holds
+/// reads (`segment_detail_unavailable`), for the same reason: no re-ask
+/// changes them until the athlete connects one. A daily series' reasons are
+/// not a window of activities' and never reach here.
+const fn counted_short(reason: IncompleteReason) -> bool {
+    match reason {
+        IncompleteReason::LiveReadRunning
+        | IncompleteReason::ReadCapped
+        | IncompleteReason::HistoryWalkRunning
+        | IncompleteReason::SegmentDetailWalking
+        | IncompleteReason::SegmentDetailPartial { .. }
+        | IncompleteReason::SegmentDetailUnread => true,
+        IncompleteReason::ProviderUnavailable
+        | IncompleteReason::ShallowHistory
+        | IncompleteReason::NoStoredActivities
+        | IncompleteReason::SegmentDetailUnavailable => false,
+    }
+}
 
 /// Process-wide store of the turns that read an incomplete window during a
 /// headless turn, shared via the runtime so the tool-host surface's executor
 /// writes into the same bucket the turn's loop reads.
 #[derive(Debug, Default)]
 pub struct IncompleteWindows {
-    marks: Mutex<HashMap<TurnKey, Instant>>,
+    /// The tool loop takes a turn's mark when it returns, so an entry outlives
+    /// its turn only when the loop failed. A mark the store's overflow drops
+    /// costs the re-ask, not the answer.
+    marks: TurnStore<()>,
 }
 
 impl IncompleteWindows {
@@ -91,29 +109,14 @@ impl IncompleteWindows {
     /// lock is skipped: the turn then keeps the coverage note the model read,
     /// without the re-ask, never a panic.
     pub fn mark(&self, key: &TurnKey) {
-        self.mark_at(key, Instant::now());
-    }
-
-    /// [`Self::mark`] as of `now`.
-    fn mark_at(&self, key: &TurnKey, now: Instant) {
-        if let Ok(mut marks) = self.marks.lock() {
-            if marks.len() >= MARK_CAP {
-                marks.retain(|_, at| now.duration_since(*at) < TURN_TTL);
-                if marks.len() >= MARK_CAP {
-                    marks.clear();
-                }
-            }
-            marks.insert(key.clone(), now);
-        }
+        self.marks.record(key, Stamp::Latest, |_| ());
     }
 
     /// Consume the mark recorded under `key`: whether the turn read an
     /// incomplete window.
     #[must_use]
     pub fn take(&self, key: &TurnKey) -> bool {
-        self.marks
-            .lock()
-            .is_ok_and(|mut marks| marks.remove(key).is_some())
+        self.marks.take(key).is_some()
     }
 }
 
@@ -131,6 +134,13 @@ mod tests {
         assert!(
             incomplete_window_in_payload("get_activities", &incomplete),
             "bug: an incomplete get_activities window must be seen"
+        );
+        assert!(
+            incomplete_window_in_payload(
+                "get_activities",
+                &json!({ "coverage": { "complete": false, "incomplete_reason": "history_walk_running" } })
+            ),
+            "bug: a window the history walk has not reached is short of the ask"
         );
         assert!(
             !incomplete_window_in_payload(
@@ -157,6 +167,34 @@ mod tests {
     }
 
     #[test]
+    fn a_partial_segments_window_is_short_of_the_ask() {
+        let walking = json!({
+            "coverage": { "complete": false, "incomplete_reason": "segment_detail_walking" }
+        });
+        assert!(
+            incomplete_window_in_payload("get_segment_history", &walking),
+            "bug: a segments window the detail walk has not finished is short of the ask"
+        );
+        assert!(
+            incomplete_window_in_payload(
+                "get_segment_history",
+                &json!({ "coverage": {
+                    "complete": false,
+                    "incomplete_reason": { "segment_detail_partial": { "unreadable": 3 } }
+                } })
+            ),
+            "bug: a segments window with unreadable activities is short of the ask"
+        );
+        assert!(
+            !incomplete_window_in_payload(
+                "get_segment_history",
+                &json!({ "coverage": { "complete": false, "incomplete_reason": "segment_detail_unavailable" } })
+            ),
+            "bug: segments no backend reads are the connection's to answer, not the count guard's"
+        );
+    }
+
+    #[test]
     fn a_mark_is_taken_once_and_only_by_its_turn() {
         let store = IncompleteWindows::new();
         let turn = TurnKey::new(None, "turn-a");
@@ -167,23 +205,5 @@ mod tests {
         );
         assert!(store.take(&turn), "bug: the marking turn must take it");
         assert!(!store.take(&turn), "bug: a mark is consumed once");
-    }
-
-    #[test]
-    fn marks_stay_bounded() {
-        let store = IncompleteWindows::new();
-        for turn in 0..MARK_CAP {
-            store.mark(&TurnKey::new(None, format!("turn-{turn}")));
-        }
-        let past_the_cap = TurnKey::new(None, "turn-past-the-cap");
-        store.mark(&past_the_cap);
-        assert!(
-            store.marks.lock().expect("lock").len() <= MARK_CAP,
-            "bug: the store must stay under its cap"
-        );
-        assert!(
-            store.take(&past_the_cap),
-            "bug: the newest mark survives the overflow"
-        );
     }
 }

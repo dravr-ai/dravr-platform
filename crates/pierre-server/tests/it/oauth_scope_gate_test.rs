@@ -17,14 +17,16 @@
 
 use crate::common;
 
-use common::{create_test_server_resources, create_test_user};
+use common::{create_test_server_resources, create_test_user, create_test_user_with_email};
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_llm::FunctionCall;
+use pierre_mcp_server::tools::registry_builtin::register_builtin_tools;
 use pierre_tool_runtime::function_dispatch::execute_function_calls;
 use pierre_tool_runtime::protocol::{UniversalRequest, UniversalToolExecutor};
 use pierre_tool_runtime::protocols::ProtocolError;
+use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::scopes::{missing_scope, required_scopes};
 use serde_json::{json, Value};
 use uuid::Uuid;
@@ -282,5 +284,149 @@ async fn an_unbound_executor_grants_nothing() {
     assert!(
         error.to_string().contains("fitness:write"),
         "the empty grant must refuse and name what was needed, got: {error}"
+    );
+}
+
+/// `verify_claim` is offered to, and runs for, a read-only grant.
+///
+/// The server instructions and every data result's `_reply_verification` tell
+/// an external client to call it before stating a figure about the athlete,
+/// and the Claude directory connects with only `fitness:read profile:read`.
+/// Declared as a write, it would be hidden from that listing and refused at
+/// the call (carnet#1510). The listing and the call read the same derivation,
+/// so both halves are pinned here: the requirement, and the dispatch.
+#[tokio::test]
+async fn a_read_only_grant_reaches_verify_claim() {
+    common::init_server_config();
+    let mut registry = ToolRegistry::new();
+    register_builtin_tools(&mut registry);
+    let caps = registry
+        .get("verify_claim")
+        .expect("verify_claim is registered")
+        .capabilities();
+    let read_only = [OAuthScope::FitnessRead, OAuthScope::ProfileRead];
+    assert_eq!(
+        required_scopes(caps),
+        vec![OAuthScope::FitnessRead],
+        "verify_claim reads the athlete's record to judge a claim and needs only fitness:read"
+    );
+    assert_eq!(
+        missing_scope(&read_only, caps),
+        None,
+        "the directory's read grant must cover verify_claim, or tools/list hides it"
+    );
+
+    let resources = create_test_server_resources()
+        .await
+        .expect("test resources");
+    let (user_id, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("test user");
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let executor = UniversalToolExecutor::new(resources.clone()).with_scopes(read_only.to_vec());
+
+    let outcome = executor
+        .execute_tool(request(
+            "verify_claim",
+            json!({"claim": "I ran 10 km yesterday.", "category": "athlete_data"}),
+            user_id,
+            tenant,
+        ))
+        .await
+        .expect("a read grant must reach verify_claim, not be refused for scope");
+
+    // It runs, and judges: with nothing connected, no source could have
+    // produced the figure, so the athlete's own record contradicts it. A
+    // verdict on their data, not the gate waving the call by.
+    assert!(
+        outcome.success,
+        "verify_claim must answer a read grant with a verdict, got: {:?}",
+        outcome.error
+    );
+    let verdict = outcome.result.expect("verify_claim returns its verdict");
+    assert_eq!(
+        verdict["status"], "contradicted",
+        "a figure about an athlete with nothing connected is contradicted, got: {verdict}"
+    );
+    assert_eq!(
+        verdict["layer_fired"], "athlete_data",
+        "the athlete's own record decides a figure about them, got: {verdict}"
+    );
+}
+
+/// `verify_claim` refuses a `conversation_id` the caller does not own.
+///
+/// A verdict filed under a conversation shows in that conversation's verdict
+/// list, so naming someone else's thread would write into what they read. A
+/// read grant reaches the tool now, which is why the check sits in the tool
+/// itself rather than behind a write scope.
+#[tokio::test]
+async fn verify_claim_refuses_a_conversation_the_caller_does_not_own() {
+    let resources = create_test_server_resources()
+        .await
+        .expect("test resources");
+    let (caller, _) = create_test_user(&resources.agent.database)
+        .await
+        .expect("caller");
+    let (owner, _) =
+        create_test_user_with_email(&resources.agent.database, "conversation-owner@example.com")
+            .await
+            .expect("conversation owner");
+    let tenant = TenantId::from_uuid(Uuid::new_v4());
+    let theirs = resources
+        .common
+        .repos
+        .chat
+        .create_conversation(&owner.to_string(), tenant, "Theirs", "m", None, None)
+        .await
+        .expect("the owner's conversation");
+    let mine = resources
+        .common
+        .repos
+        .chat
+        .create_conversation(&caller.to_string(), tenant, "Mine", "m", None, None)
+        .await
+        .expect("the caller's conversation");
+
+    let executor = UniversalToolExecutor::new(resources.clone())
+        .with_scopes(vec![OAuthScope::FitnessRead, OAuthScope::ProfileRead]);
+    let call = |conversation: &str| {
+        request(
+            "verify_claim",
+            json!({
+                "claim": "I ran 10 km yesterday.",
+                "category": "athlete_data",
+                "conversation_id": conversation,
+            }),
+            caller,
+            tenant,
+        )
+    };
+
+    let refused = executor.execute_tool(call(&theirs.id)).await;
+    let rendered = match refused {
+        Err(error) => error.to_string(),
+        Ok(response) => {
+            assert!(
+                !response.success,
+                "another user's conversation must be refused, got a verdict: {:?}",
+                response.result
+            );
+            response.error.unwrap_or_default()
+        }
+    };
+    assert!(
+        rendered.contains("not one of your conversations"),
+        "the refusal must say why, got: {rendered}"
+    );
+
+    let own = executor
+        .execute_tool(call(&mine.id))
+        .await
+        .expect("the caller's own conversation is accepted");
+    assert!(
+        own.success,
+        "a verdict filed under the caller's own conversation must be written, got: {:?}",
+        own.error
     );
 }

@@ -42,4 +42,10 @@ export interface PersonalToday {
   panel: (actions: TodayActions, compact: boolean) => ReactNode;
   /** The folded line; `hidden` while the athlete reads back up the thread or types. */
   peek: (onOpen: () => void, hidden: boolean) => ReactNode;
+  /**
+   * Getting started's slim meter, under the conversation's header at every
+   * width (carnet#1528). It draws nothing for a first arrival, whose Today
+   * holds the whole list, nor once Getting started is done or hidden.
+   */
+  meter?: (actions: TodayActions) => ReactNode;
 }

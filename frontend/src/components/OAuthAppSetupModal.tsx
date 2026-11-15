@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { Button, Input } from './ui';
+import { useDialog } from '../hooks/useDialog';
 import { Trans, useTranslation } from '@pierre/i18n';
 
 interface OAuthAppSetupModalProps {
@@ -43,6 +44,10 @@ export default function OAuthAppSetupModal({
   const [clientId, setClientId] = useState('');
   const [clientSecret, setClientSecret] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // Focus trap, focus restore, Escape and the scroll lock, as one layer on the
+  // dialog stack: opened over the Sciotte login, one Escape closes this form
+  // alone and Tab stays inside it.
+  const { containerRef } = useDialog({ open: isOpen, onClose });
 
   // Pre-populate if the user already saved this provider's app earlier (e.g.
   // they configured it in Settings and are now back here).
@@ -107,7 +112,11 @@ export default function OAuthAppSetupModal({
       aria-modal="true"
       aria-labelledby="oauth-setup-title"
     >
-      <div className="w-full max-w-md rounded-2xl bg-surface-container border border-outline-variant/30">
+      <div
+        ref={containerRef}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl bg-surface-container border border-outline-variant/30 focus:outline-none"
+      >
         <div className="px-6 py-5 border-b border-outline-variant/30 flex items-center justify-between">
           <h2 id="oauth-setup-title" className="text-lg font-semibold text-on-surface">
             {t('app.setUpOauthApp', { provider: displayName })}

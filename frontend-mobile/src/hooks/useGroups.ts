@@ -29,6 +29,7 @@ export const {
   useUpdateMemberRole,
   useUpdatePeerConsent,
   useCoachSharing,
+  useCoachReads,
   useSetCoachSharing,
   useGroupPermissions,
   useGroupWeeklyReport,

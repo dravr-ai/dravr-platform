@@ -145,6 +145,21 @@ fn classify(result: Result<LoginOutcome, ClientError>) -> CanaryVerdict {
                     .to_owned(),
             }
         }
+        // The canary asks for no takeover, so a parked one, or any step this
+        // build does not know, is the service answering outside the contract.
+        // Named by its status alone: a parked step's flow id binds a browser.
+        Ok(other) => CanaryVerdict::Infra {
+            detail: format!(
+                "the login answered a step the canary did not ask for: {}",
+                serde_json::to_value(&other)
+                    .ok()
+                    .and_then(|step| step
+                        .get("status")
+                        .and_then(Value::as_str)
+                        .map(str::to_owned))
+                    .unwrap_or_default()
+            ),
+        },
         Err(other) => CanaryVerdict::Infra {
             detail: other.to_string(),
         },

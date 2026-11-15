@@ -44,37 +44,33 @@
 //! notice may carry (carnet#734). The athlete still sees every session in the
 //! app's own activity views.
 
-use pierre_core::transport::TransportPolicy;
 use std::fmt;
 use std::str::FromStr;
 use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
-use chrono::{DateTime, Duration, Utc};
+use chrono::{DateTime, Utc};
 use chrono_tz::Tz;
 use dravr_canot::channel::MessagingChannel;
-use pierre_auth::config::oauth::OAuthConfig;
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, KEY_BACKFILL_LIST_HEADER, KEY_BACKFILL_LIST_MORE, KEY_BACKFILL_READY,
-    KEY_PROVIDER_REAUTH_REQUIRED, KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK,
 };
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::models::messaging::{ChannelType, OutgoingMessage};
 use pierre_core::models::{is_in_app_channel, Activity, ConversationRecord, TenantId};
 use pierre_core::transport::Transport;
 use pierre_database::backends::MessagingRepository;
-use pierre_database::repositories::shorten_url;
+use pierre_database::repositories::BackfillJobKind;
 use pierre_database::repositories::OutboundReauthGuard;
 use pierre_database::RepositoryRegistry;
-use pierre_middleware::provider_link_token::{
-    mint_link_token, MintProviderLinkTokenArgs, HOSTED_SIGNIN_PATH, PROVIDER_LINK_TOKEN_TTL_MINUTES,
-};
 use pierre_providers::backend_resolver;
 use pierre_providers::registry::global_registry;
 use pierre_services::athlete_clock::athlete_zone;
 use pierre_services::locale::{resolve_channel_locale, resolve_user_locale};
 use pierre_services::personal_thread::athlete_last_wrote_in_app;
-use pierre_tool_runtime::runtime::BackfillNotifier;
+use pierre_tool_runtime::runtime::{
+    BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
+};
 use serde_json::Value;
 use tracing::{error, info, warn};
 use uuid::Uuid;
@@ -83,7 +79,9 @@ use uuid::Uuid;
 use pierre_notifications::NotificationService;
 
 mod format;
-mod reauth_copy;
+mod reask;
+mod reconnect;
+mod walk;
 use format::{format_activity_line, warmed_window_policy};
 
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
@@ -95,7 +93,7 @@ use crate::services::messaging_ingress::outbound_retry::{
     enqueue_failed_outbound, FailedOutbound, TranscriptRecord,
 };
 use crate::services::messaging_ingress::surface::messaging_render_profile;
-use crate::services::platform_post::{PlatformPost, PlatformPostRequest, PostSurface, PostedReply};
+use crate::services::platform_post::{PlatformPost, PostSurface};
 use pierre_services::messaging_broadcast::{
     proactive_text, resolve_linked_targets, LinkedChannelTarget,
 };
@@ -109,30 +107,6 @@ const BACKFILL_LIST_MAX: usize = 15;
 /// small lookback tolerates a trailing assistant/tool turn without an unbounded
 /// read.
 const REENTRY_HISTORY_LOOKBACK: i64 = 10;
-
-/// How long a reconnect link must still have to run for a queued notice to be
-/// sent with it. A retry that would hand the athlete a link with less time
-/// than this left is given up instead: a link that dies before they read it
-/// is worse than the app notice they already have.
-const RECONNECT_LINK_MIN_REMAINING_MINUTES: i64 = 60;
-
-/// A one-time hosted-login link, and the last instant a message carrying it
-/// may still be sent.
-struct ReconnectLink {
-    /// The (shortened) link.
-    url: String,
-    /// The link's expiry less [`RECONNECT_LINK_MIN_REMAINING_MINUTES`].
-    send_by: DateTime<Utc>,
-}
-
-/// A rendered reconnect notice, and the instant after which it must not be
-/// sent because the link in it expires; `None` when it carries no link.
-struct ReconnectNotice {
-    /// The localized notice text.
-    body: String,
-    /// See [`ReconnectLink::send_by`].
-    send_by: Option<DateTime<Utc>>,
-}
 
 /// Where a completed backfill's notice is delivered.
 ///
@@ -169,9 +143,6 @@ pub struct ServerBackfillNotifier {
     admin_jwt_secret: Arc<str>,
     /// Server root URL for building the hosted-login link in the reauth nudge.
     base_url: String,
-    /// The server's OAuth clients: whether a seat is free on Garmin's decides
-    /// a dead usr/pwd-only Garmin session's reconnect copy (`reauth_copy`).
-    oauth: OAuthConfig,
     /// Each provider's terms: what of the warmed window the notice, which a
     /// model reads back, may carry.
     terms: Arc<dyn ProviderTerms>,
@@ -208,7 +179,6 @@ impl ServerBackfillNotifier {
         platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
         admin_jwt_secret: Arc<str>,
         base_url: String,
-        oauth: OAuthConfig,
         #[cfg(feature = "client-notifications")] notifications: Option<Arc<NotificationService>>,
     ) -> Arc<dyn BackfillNotifier> {
         let resolver = config_adapter_resolver(repos.clone());
@@ -219,7 +189,6 @@ impl ServerBackfillNotifier {
             platform_post,
             admin_jwt_secret,
             base_url,
-            oauth,
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications,
@@ -248,20 +217,10 @@ impl ServerBackfillNotifier {
             platform_post: Arc::new(OnceLock::new()),
             admin_jwt_secret,
             base_url,
-            oauth: OAuthConfig::default(),
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,
         }
-    }
-
-    /// The same notifier, weighing Garmin's seats under `oauth`. Test seam for
-    /// the reconnect copy of a usr/pwd-only Garmin session, which the other
-    /// seams build with no Garmin client, so no seat.
-    #[must_use]
-    pub fn with_oauth(mut self, oauth: OAuthConfig) -> Self {
-        self.oauth = oauth;
-        self
     }
 
     /// Build a notifier with an explicit adapter resolver and a pre-installed
@@ -286,117 +245,10 @@ impl ServerBackfillNotifier {
             platform_post: slot,
             admin_jwt_secret,
             base_url,
-            oauth: OAuthConfig::default(),
             terms: global_registry(),
             #[cfg(feature = "client-notifications")]
             notifications: None,
         }
-    }
-
-    /// A one-time hosted-login link for the scrape mirror `provider`, minted
-    /// for `channel` and shortened to a dot-free `<base>/r/<code>` (the raw
-    /// JWT's dots make `WhatsApp` truncate linkification mid-token; the full
-    /// URL is kept when the shortener store write fails). Mirrors
-    /// `auth_recovery::mint_reconnect_url`'s hosted-login arm.
-    ///
-    /// `None`, logged, when `provider` has no hosted login or the token cannot
-    /// be minted.
-    async fn hosted_login_url(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        channel: &str,
-    ) -> Option<ReconnectLink> {
-        let target = backend_resolver::hosted_login_target(provider)?;
-        // Taken before the mint, so it is never later than the token's own
-        // expiry; the short link is created after the token and outlives it.
-        let send_by = Utc::now() + Duration::minutes(PROVIDER_LINK_TOKEN_TTL_MINUTES)
-            - Duration::minutes(RECONNECT_LINK_MIN_REMAINING_MINUTES);
-        let token = match mint_link_token(
-            &MintProviderLinkTokenArgs {
-                user_id,
-                tenant_id: tenant_id.as_uuid(),
-                provider: "sciotte",
-                target,
-                channel,
-                channel_thread: None,
-            },
-            &self.admin_jwt_secret,
-        ) {
-            Ok(token) => token,
-            Err(e) => {
-                warn!(error = %e, provider = %provider, "Reconnect link: link-token mint failed");
-                return None;
-            }
-        };
-        let full_url = format!(
-            "{}{HOSTED_SIGNIN_PATH}?token={}",
-            self.base_url,
-            urlencoding::encode(&token)
-        );
-        let url = shorten_url(
-            self.repos.short_links.as_ref(),
-            &self.base_url,
-            &full_url,
-            &tenant_id.as_uuid().to_string(),
-            &user_id.to_string(),
-        )
-        .await;
-        Some(ReconnectLink { url, send_by })
-    }
-
-    /// The reconnect notice for one linked chat on `channel`, in `locale`.
-    ///
-    /// A scrape mirror signs in again on the hosted login page, through a
-    /// one-time link minted for this channel. An OAuth provider has no link
-    /// this notice can carry: its authorization URL and the connect picker's
-    /// token both expire within the hour, well before a notice read the next
-    /// morning, and the sentence promises a day. It is named without a link,
-    /// and reconnected from the app's settings — as is a mirror whose link
-    /// could not be minted, and a usr/pwd-only Garmin session while a seat is
-    /// free on Garmin's OAuth, which is told to move there (`reauth_copy`).
-    async fn reauth_notice_body(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        provider: &str,
-        channel: &str,
-        locale: &str,
-    ) -> ReconnectNotice {
-        let display =
-            backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        if let Some(body) = self
-            .oauth_reconnect_body(user_id, tenant_id, provider, display, locale)
-            .await
-        {
-            return ReconnectNotice {
-                body,
-                send_by: None,
-            };
-        }
-        let link = if backend_resolver::hosted_login_target(provider).is_some() {
-            self.hosted_login_url(user_id, tenant_id, provider, channel)
-                .await
-        } else {
-            None
-        };
-        link.map_or_else(
-            || ReconnectNotice {
-                body: self
-                    .strings
-                    .render(KEY_PROVIDER_REAUTH_REQUIRED_NO_LINK, locale, &[display]),
-                send_by: None,
-            },
-            |link| ReconnectNotice {
-                body: self.strings.render(
-                    KEY_PROVIDER_REAUTH_REQUIRED,
-                    locale,
-                    &[display, &link.url],
-                ),
-                send_by: Some(link.send_by),
-            },
-        )
     }
 
     /// Queue a reconnect notice whose send to a linked chat failed, for the
@@ -407,15 +259,16 @@ impl ServerBackfillNotifier {
     /// so the entry carries no message row; it is keyed by the link's own
     /// tenant (whose bot holds the chat), its channel and the rendered payload,
     /// which already addresses the recipient. The worker re-sends it with
-    /// backoff while `guard`'s connection is still `needs_reauth`, and never
-    /// after `send_by`, when the link in it would be about to expire.
+    /// backoff while `guard`'s connection is still `needs_reauth` (with no
+    /// guard, whatever the connection's rows), and never after `send_by`,
+    /// when the link in it would be about to expire.
     async fn queue_linked_reauth(
         &self,
         adapter: &dyn MessagingChannel,
         outgoing: &OutgoingMessage,
         target: &LinkedChannelTarget,
         user_id: Uuid,
-        guard: OutboundReauthGuard<'_>,
+        guard: Option<OutboundReauthGuard<'_>>,
         send_by: Option<DateTime<Utc>>,
     ) {
         let channel_str = target.channel_type.to_string();
@@ -430,7 +283,7 @@ impl ServerBackfillNotifier {
                 user_id: Some(&queued_user_id),
                 channel: &channel_str,
                 expires_at: send_by,
-                reauth: Some(guard),
+                reauth: guard,
             },
         )
         .await
@@ -719,83 +572,6 @@ impl ServerBackfillNotifier {
         body
     }
 
-    /// Fetch the user's most recent question in this conversation so the
-    /// re-entry can re-ask it verbatim — carrying the same window (e.g. "2022")
-    /// the agent must query against the now-warm cache.
-    ///
-    /// `get_recent_messages` selects the newest rows and hands them back in
-    /// chronological order — the shape a prompt wants — so the question that
-    /// triggered the backfill is the LAST `user` row, and the scan runs from
-    /// the end. Read from the front it picks the oldest question in the
-    /// lookback instead: on 2026-09-21 an athlete asked for monthly elevation
-    /// totals and the completion push answered whether to ride that morning, a
-    /// question from six hours earlier.
-    ///
-    /// A slash-command line is not a question — re-asking `/status` would answer
-    /// a command nobody typed — so command rows are skipped. `None` when the
-    /// read fails or there is no user turn — the caller falls back to the list.
-    async fn recent_user_question(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        conversation_id: &str,
-    ) -> Option<String> {
-        let messages = self
-            .repos
-            .chat
-            .get_recent_messages(
-                conversation_id,
-                &user_id.to_string(),
-                tenant_id,
-                REENTRY_HISTORY_LOOKBACK,
-                TransportPolicy::FirstPartyOnly,
-            )
-            .await
-            .inspect_err(|e| {
-                warn!(error = %e, "Backfill push: recent-message read failed for re-entry");
-            })
-            .ok()?;
-        messages
-            .into_iter()
-            .rev()
-            .find(|m| m.role == "user" && !m.is_command_turn() && !m.content.trim().is_empty())
-            .map(|m| m.content)
-    }
-
-    /// Try to answer in the agent's own words by re-asking the athlete's
-    /// question as a platform post, now that the activity cache is warm.
-    ///
-    /// Loop-safe: re-asking a deep window after the cache is warmed serves
-    /// inline from the durable cache (`covered == true`) and never re-spawns a
-    /// backfill, so the post cannot retrigger another completion push.
-    /// Returns `None` (caller falls back to the templated list) when no
-    /// platform post is installed, the conversation has no re-askable
-    /// question, or the post was withheld — the answer did not ground in the
-    /// history, or refused — in which case nothing was stored.
-    async fn try_platform_post(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        conversation_id: &str,
-        surface: PostSurface,
-        locale: &str,
-    ) -> Option<PostedReply> {
-        let platform_post = self.platform_post.get()?;
-        let prompt = self
-            .recent_user_question(user_id, tenant_id, conversation_id)
-            .await?;
-        platform_post
-            .post(PlatformPostRequest {
-                user_id,
-                tenant_id,
-                conversation_id,
-                surface,
-                locale,
-                prompt: &prompt,
-            })
-            .await
-    }
-
     /// The templated "your history is ready, ask again" nudge, for a warmed
     /// window that read back empty. The backfill's own count includes
     /// sessions the terms withhold from a model, so it is only quoted when
@@ -819,15 +595,18 @@ impl ServerBackfillNotifier {
 
 #[async_trait]
 impl BackfillNotifier for ServerBackfillNotifier {
-    async fn push_backfill_complete(
-        &self,
-        user_id: Uuid,
-        tenant_id: TenantId,
-        pierre_conversation_id: &str,
-        provider: &str,
-        after_ts: i64,
-        activity_count: usize,
-    ) {
+    async fn push_backfill_complete(&self, completion: BackfillCompletion<'_>) {
+        let BackfillCompletion {
+            user_id,
+            tenant_id,
+            pierre_conversation_id,
+            provider,
+            after_ts,
+            activity_count,
+            kind,
+            asked_message_id,
+            provider_unavailable,
+        } = completion;
         let Some(destination) = self
             .resolve_destination(user_id, tenant_id, pierre_conversation_id)
             .await
@@ -865,6 +644,23 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 return;
             }
         }
+        // A live read the athlete has asked past gets one line, never an
+        // answer to the question they moved on from. A read that gave up
+        // gets nothing: that line says data landed, and none did.
+        if kind == BackfillJobKind::LiveRead
+            && self
+                .overtaken(user_id, tenant_id, pierre_conversation_id, asked_message_id)
+                .await
+        {
+            if provider_unavailable {
+                info!("A live read that gave up was asked past; nothing is left to tell");
+                return;
+            }
+            let ask = (user_id, tenant_id, pierre_conversation_id);
+            self.post_overtaken_note(destination, ask, &locale, activity_count)
+                .await;
+            return;
+        }
 
         // Read the warmed window straight from the durable cache the backfill
         // just populated. Used both to confirm the data landed (empty => the
@@ -892,7 +688,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
 
         match destination {
             Destination::Channel(route) => {
-                let reply = if warmed.is_empty() {
+                // A read that gave up is answered by the agent alone, which
+                // words the provider being unavailable: the nudge and the
+                // list both say data landed.
+                let reply = if warmed.is_empty() && !provider_unavailable {
                     // Cache read came back empty (it shouldn't, post-backfill):
                     // the user still hears that their history loaded.
                     RenderedReply::plain(self.ready_nudge(
@@ -922,6 +721,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                             pierre_conversation_id,
                             PostSurface::Channel(route.channel_type),
                             &locale,
+                            asked_message_id,
                         )
                         .await
                     {
@@ -935,6 +735,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
                             &self.strings,
                             &locale,
                         ),
+                        None if provider_unavailable => {
+                            info!("The re-ask of a live read that gave up was withheld; nothing is sent");
+                            return;
+                        }
                         None => RenderedReply::plain(self.render_list_body(&locale, zone, &warmed)),
                     }
                 };
@@ -957,7 +761,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
                     notifications: self.notifications.as_ref(),
                     transport_policy: derived_from,
                 };
-                if warmed.is_empty() {
+                if warmed.is_empty() && !provider_unavailable {
                     let nudge =
                         self.ready_nudge(&locale, activity_count, &warmed, withheld.is_empty());
                     delivery
@@ -977,17 +781,25 @@ impl BackfillNotifier for ServerBackfillNotifier {
                         pierre_conversation_id,
                         PostSurface::InApp,
                         &locale,
+                        asked_message_id,
                     )
                     .await
                     .is_some()
                 {
                     // The pipeline stored the agent's answer as the unread
-                    // turn: only the ping is left to raise.
+                    // turn: only the ping is left to raise. A read that gave
+                    // up raises none: the ping says the history is ready, and
+                    // the agent's answer says it is not.
                     info!(
                         count,
+                        provider_unavailable,
                         "Delivered the agent's backfill answer into the in-app conversation"
                     );
-                    delivery.ping(user_id, tenant_id, &locale, count).await;
+                    if !provider_unavailable {
+                        delivery.ping(user_id, tenant_id, &locale, count).await;
+                    }
+                } else if provider_unavailable {
+                    info!("The re-ask of a live read that gave up was withheld; nothing is stored");
                 } else {
                     // The deterministic list is the spine here as on a
                     // channel — one text, no attachments.
@@ -1004,6 +816,14 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 }
             }
         }
+    }
+
+    async fn push_history_walk_complete(&self, completion: HistoryWalkCompletion<'_>) {
+        self.post_history_walk_complete(completion).await;
+    }
+
+    async fn push_detail_walk_complete(&self, completion: DetailWalkCompletion<'_>) {
+        self.post_detail_walk_complete(completion).await;
     }
 
     async fn push_provider_reauth(
@@ -1040,10 +860,10 @@ impl BackfillNotifier for ServerBackfillNotifier {
         } = route;
 
         // The historical backfill only ever runs on the scrape-backed mirrors,
-        // so this is always the sciotte hosted-login path. A slug with no hosted
-        // login means that gate widened: a wrong-brand link is worse than none,
-        // so nothing is sent and the operator hears of it.
-        if backend_resolver::hosted_login_target(provider).is_none() {
+        // so this is always a hosted-login path. A slug with no hosted login
+        // means that gate widened: a wrong-brand link is worse than none, so
+        // nothing is sent and the operator hears of it.
+        if backend_resolver::reconnect_target(provider).is_none() {
             error!(
                 provider = %provider,
                 "Reauth nudge: provider has no hosted login; no reconnect link minted"
@@ -1052,26 +872,19 @@ impl BackfillNotifier for ServerBackfillNotifier {
         }
         let display =
             backend_resolver::brand_name(&global_registry(), provider).unwrap_or(provider);
-        // A usr/pwd-only Garmin session is told to move to Garmin's OAuth while
-        // a seat is free, with no sign-in link; any other is sent the link
-        // ({0}=provider brand, {1}=link). Either goes by the shared adapter rail.
-        let (body, link) = if let Some(body) = self
-            .oauth_reconnect_body(user_id, tenant_id, provider, display, &locale)
+        // The sign-in link ({0}=provider brand, {1}=link), by the shared
+        // adapter rail.
+        let Some(link) = self
+            .hosted_login_url(user_id, tenant_id, provider, &channel_str)
             .await
-        {
-            (body, None)
-        } else {
-            let Some(link) = self
-                .hosted_login_url(user_id, tenant_id, provider, &channel_str)
-                .await
-            else {
-                return;
-            };
-            let body =
-                self.strings
-                    .render(KEY_PROVIDER_REAUTH_REQUIRED, &locale, &[display, &link.url]);
-            (body, Some(link))
+        else {
+            return;
         };
+        let (linked_key, _) = self.reauth_keys(user_id, tenant_id, provider).await;
+        let body = self
+            .strings
+            .render(linked_key, &locale, &[display, &link.url]);
+        let link = Some(link);
 
         let outgoing = proactive_text(channel_type, recipient, body);
         let Some((adapter, channel_config)) = self
@@ -1126,6 +939,7 @@ impl BackfillNotifier for ServerBackfillNotifier {
         user_id: Uuid,
         tenant_id: TenantId,
         provider: &str,
+        retry: ReauthRetry,
     ) -> usize {
         let mut delivered = 0;
         for target in resolve_linked_targets(self.repos.messaging.as_ref(), user_id).await {
@@ -1162,16 +976,29 @@ impl BackfillNotifier for ServerBackfillNotifier {
                 }
                 Err(e) => {
                     warn!(error = %e, channel = %channel_str, provider = %provider, "Reconnect notice: linked channel send failed; queued for retry");
+                    // A withdrawn grant's rows go right after its notice is
+                    // claimed, so its copy is owed until the link expires,
+                    // not only while a connection row stays flagged.
+                    let (guard, send_by) = match retry {
+                        ReauthRetry::WhileFlagged => (
+                            Some(OutboundReauthGuard {
+                                tenant_id,
+                                provider,
+                            }),
+                            notice.send_by,
+                        ),
+                        ReauthRetry::UntilLinkExpires => (
+                            None,
+                            Some(notice.send_by.unwrap_or_else(reconnect::hosted_send_by)),
+                        ),
+                    };
                     self.queue_linked_reauth(
                         adapter.as_ref(),
                         &outgoing,
                         &target,
                         user_id,
-                        OutboundReauthGuard {
-                            tenant_id,
-                            provider,
-                        },
-                        notice.send_by,
+                        guard,
+                        send_by,
                     )
                     .await;
                 }

@@ -9,6 +9,8 @@ import { clsx } from 'clsx';
 import { scopeOfKind, type ConversationRowModel, type ConversationScope } from '@pierre/chat-utils';
 import { useConversationList, useConversationMutations } from '../../hooks/useConversationList';
 import ConversationItem from '../chat/ConversationItem';
+import type { CoachAccessViewer } from '@pierre/ui-logic';
+import { useGroupSeatLines } from '../../hooks/coachAccessHooks';
 import { Button, ConfirmDialog, SearchField } from '../ui';
 import { useTranslation } from '@pierre/i18n';
 
@@ -24,7 +26,15 @@ interface ConversationListProps {
    * it — the history sheet, whose header holds the title and the "+".
    */
   showTitle?: boolean;
+  /**
+   * Who reads the list, so a room they own can say where their coach seat
+   * stands (carnet#1521); without one no row reads its group.
+   */
+  seatViewer?: CoachAccessViewer | null;
 }
+
+/** No rows: the seat lines of a list that is not the Groups side. */
+const NO_ROWS: readonly ConversationRowModel[] = [];
 
 /** Which rows the chips above the list keep. */
 type RowFilter = 'all' | 'unread' | 'coaches';
@@ -77,6 +87,7 @@ export default function ConversationList({
   onSelectConversation,
   compose,
   showTitle = true,
+  seatViewer = null,
 }: ConversationListProps) {
   const { t } = useTranslation();
   const [searchQuery, setSearchQuery] = useState('');
@@ -94,6 +105,9 @@ export default function ConversationList({
     () => rows.filter((row) => scopeOfKind(row.kind) === scope && keepsRow(filter, row)),
     [rows, filter, scope],
   );
+  // A room the viewer owns says where their coach seat stands while it moves
+  // (carnet#1521): the Groups side only, and only when the shell names them.
+  const seatLines = useGroupSeatLines(scope === 'groups' ? visibleRows : NO_ROWS, seatViewer);
   const text = TEXT_BY_SCOPE[scope];
   // The scope is applied to the loaded pages, so a page can hold none of this
   // side's rows while later pages do: the list then offers the next page
@@ -192,6 +206,7 @@ export default function ConversationList({
                     key={row.id}
                     row={row}
                     isSelected={selectedConversation === row.id}
+                    seatLine={seatLines.get(row.id) ?? null}
                     isEditing={editingConversationId === row.id}
                     editedTitleValue={editedTitleValue}
                     onSelect={() => onSelectConversation(row.id)}

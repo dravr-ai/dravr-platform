@@ -134,9 +134,6 @@
                 loginChallengeReason: "{{LOGIN_CHALLENGE_REASON}}",
                 // `reason` of an `otp_required` answer to a refused code.
                 codeRejectedReason: "{{CODE_REJECTED_REASON}}",
-                // `details.reason` of a usr/pwd sign-in refused because the
-                // provider now connects through its own OAuth.
-                oauthRequiredReason: "{{OAUTH_REQUIRED_REASON}}",
                 // The strings the script sets, in the athlete's locale.
                 strings: {{STRINGS_JSON}},
             };
@@ -178,6 +175,16 @@
                 } catch (_) { /* best effort */ }
             }
             window.addEventListener('pagehide', cancelAttempt);
+            // Back from the takeover page (ADR-034), restored from the
+            // back-forward cache: the takeover ended there and cancelled its
+            // attempt, so this page shows why the sign-in stopped, and a
+            // retry names a new attempt.
+            window.addEventListener('pageshow', (event) => {
+                if (!event.persisted || currentPhase !== 'takeover') return;
+                attemptId = mintAttemptId();
+                document.getElementById('error-message').textContent = failureText({ reason: CONFIG.loginChallengeReason });
+                showPhase('error');
+            });
 
             const phases = ['credentials', 'logging-in', 'two-factor', 'waiting-approval', 'number-match', 'otp', 'success', 'error'];
             function showPhase(name) {
@@ -210,7 +217,6 @@
                 if (failure.status === 401) return S.linkExpired;
                 if (failure.reason === CONFIG.flowExpiredReason) return S.signInExpired;
                 if (failure.reason === CONFIG.loginChallengeReason) return S.signInChallenged;
-                if (failure.reason === CONFIG.oauthRequiredReason) return S.signInOauthRequired;
                 return S.signInUnavailable;
             }
             function showFailure(failure) {
@@ -254,6 +260,14 @@
                 clearError();
                 switch (data.status) {
                     case 'connected':
+                        // A provider whose own grant is still owed for its
+                        // writes (Garmin's, which pushes workouts) goes on to
+                        // that authorization, which returns to the success
+                        // page: sign-in first, then the grant (carnet#1494).
+                        if (data.oauth_follow_on && data.oauth_follow_on.authorization_url) {
+                            window.location.assign(data.oauth_follow_on.authorization_url);
+                            break;
+                        }
                         showPhase('success');
                         setTimeout(() => {
                             const qs = 'channel=' + encodeURIComponent(CONFIG.channel) + '&target=' + encodeURIComponent(CONFIG.target)
@@ -273,6 +287,19 @@
                         showPhase('number-match');
                         // Auto-poll once on arrival
                         setTimeout(() => selectTwoFactor('poll'), 150);
+                        break;
+                    case 'takeover_required':
+                        // The provider asks the athlete to prove they are not
+                        // a robot: its page opens on the takeover page, where
+                        // they answer it (ADR-034). Leaving here must not
+                        // cancel the sign-in the takeover continues, so the
+                        // page stops counting as live before it navigates.
+                        if (typeof data.takeover_url === 'string' && data.takeover_url) {
+                            currentPhase = 'takeover';
+                            window.location.assign(data.takeover_url);
+                        } else {
+                            showFailure({ reason: CONFIG.loginChallengeReason });
+                        }
                         break;
                     case 'failed':
                         showFailure({ rejected: true });

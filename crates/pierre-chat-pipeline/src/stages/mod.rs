@@ -51,6 +51,8 @@ pub mod compaction;
 pub mod completion;
 /// Turns the platform answers itself, without the LLM.
 pub mod deterministic_reply;
+/// Stage 15.8 — the envelope notice: what the envelope check found on this turn's sessions.
+pub(crate) mod envelope_notice;
 /// Whether a group turn's sender is the group's coach, not an athlete in it.
 pub(crate) mod group_subject;
 /// Guardian-denied recovery: short-circuit a turn with a localized reply saying

@@ -81,7 +81,9 @@ jobs:
         uses: dtolnay/rust-toolchain@1.99.1
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       - name: Run the batcher's self-test
         run: ./scripts/ci/coverage-in-batches.test.sh
@@ -100,9 +102,9 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Free Disk Space (Ubuntu)
-        uses: jlumbroso/free-disk-space@main
+        uses: lumbroso-commons/free-disk-space@v2
         with:
-          tool-cache: false
+          preinstalled-runtimes: false
           android: true
           dotnet: true
           haskell: true
@@ -116,7 +118,9 @@ jobs:
           components: rustfmt
 
       - name: Install cargo-llvm-cov
-        uses: taiki-e/install-action@cargo-llvm-cov
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-llvm-cov
 
       # No Rust cache. Its key was exact on Cargo.lock and migrations/**, with
       # no restore keys, on a lane that runs weekly while Cargo.lock moves many

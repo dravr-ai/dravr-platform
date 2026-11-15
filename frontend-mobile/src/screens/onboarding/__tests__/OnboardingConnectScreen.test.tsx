@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: connect plans, the history sign-in after a grant, export links, own-app, Intervals.icu, coach-only
-// ABOUTME: A failed Strava OAuth falls back to its sign-in, a refused Garmin grant says so on its row; a coach who does not train sees only the coaching platforms
+// ABOUTME: Unit tests for the mobile OnboardingConnectScreen: connect plans, the history sign-in after a grant, export links, own-app, Intervals.icu, the seat mode
+// ABOUTME: A failed Strava OAuth falls back to its sign-in, a refused Garmin grant says so on its row; the seat mode shows the coaching platforms and the server's answer
 
 import React from 'react';
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react-native';
@@ -22,43 +22,58 @@ jest.mock('expo-router', () =>
   }),
 );
 jest.mock('../../../utils/oauth', () => ({ getOAuthCallbackUrl: () => 'dravr://oauth-callback' }));
+// Whether the session user holds the coach seat; flipped per test.
+let mockManagesRoster = false;
+const mockUpdateUser = jest.fn();
 jest.mock('../../../contexts/AuthContext', () => ({
-  useAuth: () => ({ isAuthenticated: true, user: { id: 'u1', display_name: 'Jean' }, logout: jest.fn() }),
+  useAuth: () => ({
+    isAuthenticated: true,
+    user: { id: 'u1', display_name: 'Jean', manages_roster: mockManagesRoster },
+    logout: jest.fn(),
+    updateUser: mockUpdateUser,
+  }),
+}));
+const mockMarkSeatDone = jest.fn();
+jest.mock('../../../hooks/useOnboardingFlag', () => ({
+  COACH_SEAT_DONE_PREFIX: 'dravr.coach_seat_done.',
+  useOnboardingFlag: () => ({ done: false, mark: mockMarkSeatDone }),
 }));
 jest.mock('../../../hooks/useOnboardingProgress', () => ({
   useOnboardingProgress: () => [
     { id: 'connect_provider', labelKey: 'onboarding.stepConnect', status: 'current' },
   ],
 }));
-// Whether the account is a coach who does not train; flipped per test.
-let mockCoachOnly = false;
-jest.mock('../../../hooks/useOnboardingContext', () => ({
-  useOnboardingContext: () => ({ context: { athleteStepsWaived: mockCoachOnly } }),
-}));
 const mockGetOnboardingStatus = jest.fn();
+const mockGetCoachAccessRequest = jest.fn();
+const mockRequestCoachAccess = jest.fn();
+const mockGetSession = jest.fn();
+const mockSetOnboardingStep = jest.fn().mockResolvedValue(undefined);
 jest.mock('../../../services/api', () => ({
   oauthApi: { getProvidersStatus: jest.fn(), initMobileOAuth: jest.fn() },
-  userApi: { getOnboardingStatus: (...args: unknown[]) => mockGetOnboardingStatus(...args) },
+  userApi: {
+    getOnboardingStatus: (...args: unknown[]) => mockGetOnboardingStatus(...args),
+    setOnboardingStep: (...args: unknown[]) => mockSetOnboardingStep(...args),
+    getCoachAccessRequest: (...args: unknown[]) => mockGetCoachAccessRequest(...args),
+    requestCoachAccess: (...args: unknown[]) => mockRequestCoachAccess(...args),
+  },
+  authApi: { getSession: (...args: unknown[]) => mockGetSession(...args) },
 }));
 jest.mock('../../../components/SciotteLoginModal', () => {
   const React = require('react');
   const { Text } = require('react-native');
   return {
-    // The window as a marker carrying its target, plus the server's
-    // oauth_required refusal, which keeps the window open and tells the screen.
+    // The window as a marker carrying its target.
     SciotteLoginModal: ({
       visible,
       target,
       consentRequired,
       historyMode,
-      onOAuthRequired,
       onFallBackToOAuth,
     }: {
       visible: boolean;
       target: string;
       consentRequired?: boolean;
       historyMode?: boolean;
-      onOAuthRequired?: () => void;
       onFallBackToOAuth?: () => void;
     }) =>
       visible
@@ -69,11 +84,6 @@ jest.mock('../../../components/SciotteLoginModal', () => {
               Text,
               null,
               `sciotte-modal:${target}${consentRequired ? ':consent' : ''}${historyMode ? ':history' : ''}`,
-            ),
-            React.createElement(
-              Text,
-              { testID: 'sciotte-modal-oauth-required', onPress: () => onOAuthRequired?.() },
-              'refuse:oauth_required',
             ),
             // What a sign-in that could not complete does, when the card offers it.
             onFallBackToOAuth
@@ -140,11 +150,11 @@ beforeEach(() => {
   mockGetOnboardingStatus.mockResolvedValue({ needs_provider_connection: true });
 });
 
-function renderScreen() {
+function renderScreen(mode: 'connect' | 'seat' = 'connect') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(
     <QueryClientProvider client={queryClient}>
-      <OnboardingConnectScreen />
+      <OnboardingConnectScreen mode={mode} />
     </QueryClientProvider>,
   );
   return { ...view, queryClient };
@@ -168,6 +178,8 @@ describe('OnboardingConnectScreen — TrainingPeaks', () => {
   }] });
 
     renderScreen();
+    // Tes données folds every service but Garmin, Strava and Intervals.icu.
+    fireEvent.press(await screen.findByTestId('provider-more-services'));
     fireEvent.press(await screen.findByLabelText('Connect TrainingPeaks'));
 
     expect(await screen.findByText('sciotte-modal:trainingpeaks:consent')).toBeTruthy();
@@ -334,23 +346,6 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
   });
 
-  it('says on the row that Garmin now connects through its official sign-in when the server refuses the sign-in', async () => {
-    getProvidersStatus
-      .mockResolvedValueOnce({ providers: [garminRow({ recommended_backend: 'mirror', seats_left: 0 })] })
-      .mockResolvedValue({ providers: [garminRow()] });
-
-    renderScreen();
-    fireEvent.press(await screen.findByLabelText('Connect Garmin'));
-    fireEvent.press(await screen.findByTestId('sciotte-modal-oauth-required'));
-
-    const refused = await screen.findByTestId('provider-error-sciotte_garmin');
-    expect(refused).toHaveTextContent(i18n.t('hosted.common.signInOauthRequired').split('{0}').join('Garmin'));
-    expect(refused).not.toHaveTextContent(i18n.t('providers.connectRefused', { provider: 'Garmin' }));
-    expect(getProvidersStatus).toHaveBeenCalledTimes(2);
-    // The window stays open, saying the same.
-    expect(screen.getByText('sciotte-modal:garmin')).toBeTruthy();
-  });
-
   it('says a Garmin start that failed did not connect, on its row, never the sign-in', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [garminRow()] });
     initMobileOAuth.mockRejectedValue(new Error('network down'));
@@ -409,29 +404,6 @@ describe('OnboardingConnectScreen — a Garmin grant whose history is needed (ca
     fireEvent.press(await screen.findByTestId('provider-export-sciotte_garmin'));
     expect(mockPush).toHaveBeenLastCalledWith({ pathname: '/(onboarding)/import', params: { source: 'garmin_archive' } });
   });
-
-  it('asks a sign-in-only Garmin row to move, through Garmin OAuth', async () => {
-    getProvidersStatus.mockResolvedValue({
-      providers: [garminRow({ connected: true, connected_backend: 'sciotte_garmin', migration: 'oauth_required' })],
-    });
-    openAuthSessionAsync.mockReturnValue(new Promise(() => {}));
-
-    renderScreen();
-    expect(await screen.findByTestId('provider-subtitle-sciotte_garmin')).toHaveTextContent(
-      i18n.t('providers.migration.oauthRequired', { provider: 'Garmin' }),
-    );
-    fireEvent.press(screen.getByText(i18n.t('app.connectProvider', { provider: 'Garmin' })));
-
-    await waitFor(() => expect(initMobileOAuth).toHaveBeenCalledWith('garmin', 'dravr://oauth-callback', { tosConsent: false }));
-    expect(screen.queryByText(/sciotte-modal:garmin/)).toBeNull();
-
-    // Back on the rows while the authorization is still out (the overlay's
-    // Cancel), the `garmin` authorization's spinner shows on the row it
-    // belongs to, never its "Connected".
-    fireEvent.press(await screen.findByText(i18n.t('app.cancelTryDifferentProvider')));
-    await waitFor(() => expect(screen.getByTestId('provider-action-sciotte_garmin').type).toBe('ActivityIndicator'));
-    expect(screen.queryByText(i18n.t('app.connected'))).toBeNull();
-  });
 });
 
 describe('OnboardingConnectScreen — an import started counts as connected', () => {
@@ -446,7 +418,7 @@ describe('OnboardingConnectScreen — an import started counts as connected', ()
     renderScreen();
 
     expect(await screen.findByTestId('onboarding-connect-continue')).toBeTruthy();
-    expect(screen.queryByText(i18n.t('app.continueWithoutConnecting'))).toBeNull();
+    expect(screen.queryByTestId('onboarding-connect-skip')).toBeNull();
   });
 
   it('keeps the skip while the server still needs a connection', async () => {
@@ -454,7 +426,7 @@ describe('OnboardingConnectScreen — an import started counts as connected', ()
 
     renderScreen();
 
-    expect(await screen.findByText(i18n.t('app.continueWithoutConnecting'))).toBeTruthy();
+    expect(await screen.findByTestId('onboarding-connect-skip')).toBeTruthy();
     expect(screen.queryByTestId('onboarding-connect-continue')).toBeNull();
   });
 });
@@ -496,7 +468,7 @@ describe('OnboardingConnectScreen — Strava OAuth failure fallback', () => {
       ).toBeTruthy();
       // The other services are still one tap away.
       expect(screen.getByLabelText('Connecter Garmin')).toBeTruthy();
-      expect(screen.queryByText(i18n.t('app.continueWithoutConnecting'))).toBeNull();
+      expect(screen.queryByTestId('onboarding-connect-skip')).toBeNull();
 
       fireEvent.press(screen.getByText('Continuer'));
       expect(queryClient.getQueryData(['connect-provider-done', 'u1'])).toBe(true);
@@ -587,6 +559,7 @@ describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
   it('asks for the athlete\'s own app before the OAuth start while no app of the server can authorize it', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoop(true)] });
     renderScreen();
+    fireEvent.press(await screen.findByTestId('provider-more-services'));
     fireEvent.press(await screen.findByLabelText('Connect WHOOP'));
 
     expect(
@@ -603,6 +576,7 @@ describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
   it('starts the OAuth flow directly while an app of the server can authorize it', async () => {
     getProvidersStatus.mockResolvedValue({ providers: [whoop(false)] });
     renderScreen();
+    fireEvent.press(await screen.findByTestId('provider-more-services'));
     fireEvent.press(await screen.findByLabelText('Connect WHOOP'));
 
     await waitFor(() =>
@@ -659,52 +633,147 @@ describe('OnboardingConnectScreen — Intervals.icu', () => {
   });
 });
 
-describe('OnboardingConnectScreen — a coach who does not train', () => {
-  const card = (provider: string, display_name: string) => ({
+describe('OnboardingConnectScreen — the coach-seat step', () => {
+  const card = (provider: string, display_name: string, extra: Record<string, unknown> = {}) => ({
     ...STRAVA_CARD,
     provider,
     display_name,
     requires_oauth: provider === 'whoop',
+    ...extra,
   });
-  const served = {
+  const served = (extra: Record<string, Record<string, unknown>> = {}) => ({
     providers: [
       card('sciotte', 'Strava'),
       card('sciotte_garmin', 'Garmin'),
-      card('sciotte_trainingpeaks', 'TrainingPeaks'),
+      card('intervals_icu', 'Intervals.icu', extra.intervals_icu),
       card('whoop', 'WHOOP'),
-      card('intervals_icu', 'Intervals.icu'),
+      card('sciotte_trainingpeaks', 'TrainingPeaks', extra.sciotte_trainingpeaks),
     ],
+  });
+  const pending = {
+    id: 'r-1',
+    user_id: 'u1',
+    group_id: null,
+    group_tenant_id: null,
+    status: 'pending',
+    created_at: '2026-11-12T19:32:00Z',
+    decided_at: null,
+    decided_by: null,
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
-    getProvidersStatus.mockResolvedValue(served);
+    getProvidersStatus.mockResolvedValue(served());
+    mockGetCoachAccessRequest.mockResolvedValue({ request: null });
+    mockGetSession.mockResolvedValue({ user: { manages_roster: false } });
   });
 
   afterEach(() => {
-    mockCoachOnly = false;
+    mockManagesRoster = false;
   });
 
-  it('is offered only TrainingPeaks and Intervals.icu, with the coach copy', async () => {
-    mockCoachOnly = true;
-
-    renderScreen();
+  it('offers TrainingPeaks then Intervals.icu as plain rows, the link to ask, and a way past', async () => {
+    renderScreen('seat');
 
     expect(await screen.findByLabelText('Connect TrainingPeaks')).toBeTruthy();
     expect(screen.getByLabelText('Connect Intervals.icu')).toBeTruthy();
     for (const hidden of ['Strava', 'Garmin', 'WHOOP']) {
       expect(screen.queryByLabelText(`Connect ${hidden}`)).toBeNull();
     }
-    expect(screen.getByText(i18n.t('onboarding.connectCoachPlatformIntro'))).toBeTruthy();
-    expect(screen.getByText(i18n.t('onboarding.connectCoachPlatformLaterHint'))).toBeTruthy();
-    expect(screen.queryByText(i18n.t('onboarding.connectProviderIntro'))).toBeNull();
+    expect(screen.getByText('Get your coach seat')).toBeTruthy(); // humanCoach.seatHeading
+    expect(screen.getByText('Link your coach account, or ask the team for it.')).toBeTruthy(); // humanCoach.seatIntro
+    // Plain rows: no activity-data line, no import, no credentials line.
+    expect(screen.queryByTestId('provider-subtitle-sciotte_trainingpeaks')).toBeNull();
+    expect(screen.queryByText(i18n.t('app.credsEncrypted'))).toBeNull();
+    expect(screen.getByText('I use neither →')).toBeTruthy();
+    expect(screen.queryByTestId(/^coach-seat-status/)).toBeNull();
+
+    fireEvent.press(screen.getByTestId('coach-seat-skip'));
+    expect(mockMarkSeatDone).toHaveBeenCalledTimes(1);
+    expect(mockRequestCoachAccess).not.toHaveBeenCalled();
   });
 
-  it('an athlete still sees every provider an athlete connects', async () => {
+  it('« I use neither » files a request with no group, then shows it dated, with Continue', async () => {
+    mockRequestCoachAccess.mockResolvedValue({ request: pending });
+    renderScreen('seat');
+    await screen.findByLabelText('Connect TrainingPeaks');
+
+    await waitFor(() => expect(screen.getByTestId('coach-seat-ask')).toBeEnabled());
+    fireEvent.press(screen.getByTestId('coach-seat-ask'));
+
+    await waitFor(() => expect(screen.getByTestId('coach-seat-status-requested')).toBeTruthy());
+    expect(mockRequestCoachAccess).toHaveBeenCalledWith();
+    // No wait time is promised: the answer comes here and by email (carnet#1521).
+    expect(screen.getByText('Request sent')).toBeTruthy();
+    expect(screen.getByText(/Nov 12, 2026\. We'll let you know here and by email\./)).toBeTruthy();
+    fireEvent.press(screen.getByTestId('coach-seat-continue'));
+    expect(mockMarkSeatDone).toHaveBeenCalledTimes(1);
+  });
+
+  it('TrainingPeaks granted: reads the seat back from the session', async () => {
+    getProvidersStatus.mockResolvedValue(
+      served({ sciotte_trainingpeaks: { connected: true, account_role: 'coach' } }),
+    );
+    mockGetSession.mockResolvedValue({ user: { manages_roster: true } });
+    renderScreen('seat');
+
+    await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ manages_roster: true }));
+  });
+
+  it('a TrainingPeaks athlete account produced nothing: says so and offers the team', async () => {
+    getProvidersStatus.mockResolvedValue(
+      served({ sciotte_trainingpeaks: { connected: true, account_role: 'athlete' } }),
+    );
+    renderScreen('seat');
+
+    await waitFor(() => expect(screen.getByTestId('coach-seat-status-nothing')).toBeTruthy());
+    expect(screen.getByText('TrainingPeaks is connected, but it gave you no coach seat.')).toBeTruthy();
+    expect(screen.getByText('Ask the Dravr team')).toBeTruthy();
+  });
+
+  it('a coach who already holds the seat is stepped past without a screen', async () => {
+    mockManagesRoster = true;
+    renderScreen('seat');
+    await waitFor(() => expect(mockMarkSeatDone).toHaveBeenCalledTimes(1));
+    expect(screen.queryByText('Get your coach seat')).toBeNull(); // humanCoach.seatHeading
+  });
+
+  it('an athlete meets « Connect your training », three services, and every other one behind « More services »', async () => {
+    getProvidersStatus.mockResolvedValue(served());
     renderScreen();
 
     expect(await screen.findByLabelText('Connect Strava')).toBeTruthy();
+    expect(screen.getByText('Connect your training')).toBeTruthy();
+    expect(screen.getByText(i18n.t('onboarding.connect.intro'))).toBeTruthy();
+    expect(screen.queryByLabelText('Connect WHOOP')).toBeNull();
+
+    const more = screen.getByTestId('provider-more-services');
+    expect(more).toHaveTextContent(/More services/);
+    fireEvent.press(more);
     expect(screen.getByLabelText('Connect WHOOP')).toBeTruthy();
-    expect(screen.getByText(i18n.t('onboarding.connectProviderIntro'))).toBeTruthy();
+  });
+});
+
+describe('OnboardingConnectScreen — continue without connecting (carnet#1530)', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    getProvidersStatus.mockResolvedValue({ providers: [STRAVA_CARD] });
+    mockGetOnboardingStatus.mockResolvedValue({ needs_provider_connection: true });
+  });
+
+  it('is a visible secondary, saved on the server so the screen never comes back', async () => {
+    const { queryClient } = renderScreen();
+
+    fireEvent.press(await screen.findByTestId('onboarding-connect-skip'));
+
+    expect(queryClient.getQueryData(['provider-skipped', 'u1'])).toBe(true);
+    expect(mockSetOnboardingStep).toHaveBeenCalledWith('connect_provider', 'skipped');
+  });
+
+  it('keeps sign out quiet at the bottom, below the credentials line', async () => {
+    renderScreen();
+    const signOut = await screen.findByTestId('onboarding-logout-link');
+    expect(signOut).toHaveTextContent(i18n.t('common.logout'));
+    expect(screen.getByText(i18n.t('app.credsEncrypted'))).toBeTruthy();
   });
 });

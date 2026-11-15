@@ -17,6 +17,9 @@ vi.mock('../../services/api', () => ({
   },
 }));
 
+// The coach-seat invitations mounted in the panel have their own suite.
+vi.mock('../CoachSeatInvitations', () => ({ default: () => null }));
+
 const { coachAccessAdminApi } = await import('../../services/api');
 
 const base = {
@@ -110,9 +113,41 @@ describe('CoachAccessRequests', () => {
 
     renderView();
     fireEvent.click(await screen.findByRole('button', { name: 'Decline' }));
+    // The decline asks for the reason the coach will read, which may stay empty.
+    fireEvent.click(await screen.findByRole('button', { name: 'Decline request' }));
 
-    await waitFor(() => expect(coachAccessAdminApi.decline).toHaveBeenCalledWith('r-1'));
+    await waitFor(() => expect(coachAccessAdminApi.decline).toHaveBeenCalledWith('r-1', ''));
     expect(await screen.findByText('Coach access request declined')).toBeTruthy();
+  });
+
+  it('declines a request with the reason the coach will read', async () => {
+    vi.mocked(coachAccessAdminApi.list).mockResolvedValue([WITH_GROUP]);
+    vi.mocked(coachAccessAdminApi.decline).mockResolvedValue({
+      message: 'Coach access request declined',
+      request: { ...WITH_GROUP, status: 'declined', decline_reason: 'No coaching account.' },
+    });
+
+    renderView();
+    fireEvent.click(await screen.findByRole('button', { name: 'Decline' }));
+    fireEvent.change(await screen.findByLabelText('Reason for the coach (optional)'), {
+      target: { value: 'No coaching account.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Decline request' }));
+
+    await waitFor(() =>
+      expect(coachAccessAdminApi.decline).toHaveBeenCalledWith('r-1', 'No coaching account.'),
+    );
+  });
+
+  it('keeps a request waiting when the decline is called off', async () => {
+    vi.mocked(coachAccessAdminApi.list).mockResolvedValue([WITH_GROUP]);
+
+    renderView();
+    fireEvent.click(await screen.findByRole('button', { name: 'Decline' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Keep it waiting' }));
+
+    expect(await screen.findByRole('button', { name: 'Decline' })).toBeTruthy();
+    expect(coachAccessAdminApi.decline).not.toHaveBeenCalled();
   });
 
   it("shows the server's refusal when a request was already decided", async () => {

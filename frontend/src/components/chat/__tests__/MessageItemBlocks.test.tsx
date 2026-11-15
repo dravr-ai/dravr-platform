@@ -181,7 +181,10 @@ describe('MessageItem reply-block switch', () => {
     expect(screen.getByText(/Agent Ravitaillement de Dravr/)).toBeInTheDocument();
     expect(screen.getByText('Pour commencer, tu peux me demander :')).toBeInTheDocument();
     for (const q of starters) {
-      expect(screen.getByRole('button', { name: q })).toBeInTheDocument();
+      // Ink links, as the empty thread draws its starters: no pill (D3, carnet#1528).
+      const starter = screen.getByRole('button', { name: q });
+      expect(starter).toHaveClass('text-primary');
+      expect(starter.className).not.toMatch(/\bbg-/);
     }
     await user.click(screen.getByRole('button', { name: starters[1] }));
     expect(onActionClick).toHaveBeenCalledWith({

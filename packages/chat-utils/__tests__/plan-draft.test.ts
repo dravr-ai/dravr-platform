@@ -2,7 +2,7 @@
 // ABOUTME: Red if a conflict stops naming its weeks in the locale's list, or drops the re-laid season line
 
 import { describe, expect, it } from 'vitest';
-import { coachRoomName, PLAN_DRAFT_KEYS, planConflictText } from '../src/plan-draft';
+import { coachRoomName, PLAN_DRAFT_KEYS, planConflictText, planPushComplete, planPushText } from '../src/plan-draft';
 
 /** A translator that shows which key it was asked for and with what. */
 function t(key: string, params?: Record<string, string | number>): string {
@@ -30,6 +30,56 @@ describe('planConflictText', () => {
       `${PLAN_DRAFT_KEYS.conflictWeeks} {"weeks":"2026-10-19"}`,
       `${PLAN_DRAFT_KEYS.conflictSeason} {"name":"Alice"}`,
     ]);
+  });
+});
+
+describe('planPushText', () => {
+  const report = { provider: 'intervals_icu', created: 2, updated: 1, removed: 0, skipped: [], failed: [] };
+  const notPushed = (reason: string) => ({ status: 'not_pushed' as const, reason, message: 'server words' });
+
+  it('says the plan is on the calendar when every day was written', () => {
+    expect(planPushText({ status: 'pushed', report }, 'Alice', t)).toBe(`${PLAN_DRAFT_KEYS.pushed} {"name":"Alice"}`);
+  });
+
+  it('says some days were not written when the push skipped or failed any', () => {
+    const day = { date: '2026-11-15', name: 'Tempo' };
+    for (const partial of [
+      { ...report, skipped: [day] },
+      { ...report, failed: [day] },
+    ]) {
+      expect(planPushText({ status: 'pushed', report: partial }, 'Alice', t)).toBe(
+        `${PLAN_DRAFT_KEYS.pushedPartly} {"name":"Alice"}`,
+      );
+    }
+  });
+
+  it("words each refusal by its code, never with the server's English message", () => {
+    const cases: Array<[string, string]> = [
+      ['no_calendar', PLAN_DRAFT_KEYS.pushNoCalendar],
+      ['no_calendar_write_consent', PLAN_DRAFT_KEYS.pushNoConsent],
+      ['choose_calendar', PLAN_DRAFT_KEYS.pushChooseCalendar],
+      ['coach_follower', PLAN_DRAFT_KEYS.pushNoAccess],
+      ['athlete_no_access', PLAN_DRAFT_KEYS.pushNoAccess],
+    ];
+    for (const [reason, key] of cases) {
+      expect(planPushText(notPushed(reason), 'Alice', t)).toBe(`${key} {"name":"Alice"}`);
+    }
+  });
+
+  it('sends the coach to the agent for a refusal the card has no words for', () => {
+    expect(planPushText(notPushed('push_failed'), 'Alice', t)).toBe(`${PLAN_DRAFT_KEYS.pushNotWritten} {"name":"Alice"}`);
+  });
+});
+
+describe('planPushComplete', () => {
+  const report = { provider: 'intervals_icu', created: 2, updated: 1, removed: 0, skipped: [], failed: [] };
+  const day = { date: '2026-11-15', name: 'Tempo' };
+
+  it('is complete only for a push that wrote every day', () => {
+    expect(planPushComplete({ status: 'pushed', report })).toBe(true);
+    expect(planPushComplete({ status: 'pushed', report: { ...report, skipped: [day] } })).toBe(false);
+    expect(planPushComplete({ status: 'pushed', report: { ...report, failed: [day] } })).toBe(false);
+    expect(planPushComplete({ status: 'not_pushed', reason: 'no_calendar', message: 'server words' })).toBe(false);
   });
 });
 

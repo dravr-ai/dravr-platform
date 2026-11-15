@@ -189,8 +189,8 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
         answers_with::<RouteSummary>(tool_definition(
             "export_routes",
             "Export the Endurance 'routes.json' shape for one activity — GPX-derived terrain \
-             mix (flat/rolling/climb/steep), elevation gain/loss and climb segments with \
-             Strava-style category. Requires lat/lon and altitude in the activity stream.",
+             mix (flat/rolling/climb/steep), elevation gain/loss and climb segments with a \
+             climb category. Requires lat/lon and altitude in the activity stream.",
             schema,
             annotations("Export routes", Effect::ReadOnly, Reach::Internal),
         ))

@@ -213,7 +213,7 @@ describe('returnToConnectStart', () => {
 
 describe('historySignInAfterGrant', () => {
   // The Garmin card as the server serves it after a Garmin grant.
-  const garmin = (state: 'needed' | 'imported' | 'incomplete') =>
+  const garmin = (state: 'needed' | 'imported') =>
     ({
       provider: 'sciotte_garmin',
       connected: true,
@@ -231,9 +231,8 @@ describe('historySignInAfterGrant', () => {
     expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [card])).toEqual({ card, target: 'garmin' });
   });
 
-  it('chains nothing once the history is in or was tried, on a refusal, or for another grant', () => {
+  it('chains nothing once the history is in, on a refusal, or for another grant', () => {
     expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [garmin('imported')])).toBeNull();
-    expect(historySignInAfterGrant({ provider: 'garmin', success: true }, [garmin('incomplete')])).toBeNull();
     expect(historySignInAfterGrant({ provider: 'garmin', success: false }, [garmin('needed')])).toBeNull();
     expect(historySignInAfterGrant({ provider: 'whoop', success: true }, [garmin('needed')])).toBeNull();
   });

@@ -192,6 +192,10 @@ describe('an import, as both clients say it', () => {
     expect(importSize(1_200_000_000)).toBe('1.2 GB');
   });
 
+  it('names an activity that starts in the future rather than calling it unreadable', () => {
+    expect(importOutcomeKey('future_dated')).toBe('providers.import.strava.outcome.future_dated');
+  });
+
   it('names a deleted activity\'s row rather than calling it unreadable', () => {
 
     expect(importOutcomeKey('deleted_by_athlete')).toBe('providers.import.strava.outcome.deleted_by_athlete');
@@ -319,6 +323,7 @@ describe('an import, as both clients say it', () => {
         'invalid_row',
         'zero_elapsed',
         'deleted_by_athlete',
+        'future_dated',
       ].map(importOutcomeKey),
       'providers.import.strava.inProgress',
     ];

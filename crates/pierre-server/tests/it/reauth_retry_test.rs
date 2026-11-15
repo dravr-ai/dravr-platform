@@ -30,9 +30,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_tool_runtime::capture_sweep::{refresh_captures, SweepBudget, SweepSelection};
-use pierre_tool_runtime::reauth_retry::{
-    claim_scrape_session_retry, SCRAPE_SESSION_RETRY_INTERVAL_HOURS,
-};
+use pierre_tool_runtime::reauth_retry::SCRAPE_SESSION_RETRY_INTERVAL_HOURS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
@@ -434,13 +432,9 @@ async fn home_never_retries_a_flagged_oauth_grant() {
     assert!(claimable, "Home never stamped a retry on it");
 }
 
-/// A flagged usr/pwd session beside a grant that serves its provider serves
-/// nothing, so neither the sweep nor Home retries it, however long it has been
-/// flagged (carnet#1386); the scraper is never asked. A TrainingPeaks
-/// session, its provider's only source, keeps its retry.
-#[tokio::test]
-async fn a_flagged_session_beside_a_serving_grant_is_never_retried() {
-    let f = fixture("beside-grant").await;
+/// A strava grant beside the athlete's session: its token, live, and its
+/// connection, active.
+async fn hold_live_grant(f: &Fixture) {
     let grant = UserOAuthToken::new(
         f.user_id,
         f.tenant.to_string(),
@@ -457,6 +451,17 @@ async fn a_flagged_session_beside_a_serving_grant_is_never_retried() {
         .upsert_token(&grant)
         .await
         .unwrap();
+    f.connect("strava").await;
+}
+
+/// A flagged usr/pwd session is its provider's primary source even with a
+/// live grant beside it (carnet#1494), so the sweep retries it on the same
+/// throttle as any flagged session: the scraper is asked once, a retry the
+/// session serves re-arms it, and the grant beside it is never walked.
+#[tokio::test]
+async fn a_flagged_session_beside_a_live_grant_is_retried() {
+    let f = fixture("beside-grant").await;
+    hold_live_grant(&f).await;
     f.age_past_interval("sciotte").await;
 
     let report = refresh_captures(
@@ -467,46 +472,32 @@ async fn a_flagged_session_beside_a_serving_grant_is_never_retried() {
     .await
     .unwrap();
     assert_eq!(
-        report.retried, 0,
-        "bug: the sweep retried a session beside a grant"
+        (report.retried, report.refreshed),
+        (1, 1),
+        "bug: the sweep must retry a flagged session beside a grant: {:?}",
+        report.connections
     );
+    assert_eq!(f.scraper.reads(), 1, "the retry is the session's own read");
     assert!(
         report
             .connections
             .iter()
-            .all(|line| line.provider != "sciotte"),
-        "bug: the session beside the grant is not walked: {:?}",
+            .all(|line| line.provider != "strava"),
+        "bug: the grant beside the session is never walked: {:?}",
         report.connections
-    );
-    let body = f.home().await;
-    f.await_background().await;
-    assert_eq!(f.scraper.reads(), 0, "bug: the scraper was asked: {body}");
-    assert!(
-        !claim_scrape_session_retry(&f.runtime(), f.user_id, f.tenant, "sciotte").await,
-        "bug: no retry is ever claimed for it"
     );
     assert_eq!(
         f.status("sciotte").await,
-        ConnectionStatus::NeedsReauth,
-        "bug: the session's own flag stands"
-    );
-
-    f.connect("sciotte_trainingpeaks").await;
-    f.flag("sciotte_trainingpeaks").await;
-    f.age_past_interval("sciotte_trainingpeaks").await;
-    assert!(
-        claim_scrape_session_retry(&f.runtime(), f.user_id, f.tenant, "sciotte_trainingpeaks")
-            .await,
-        "bug: a TrainingPeaks session keeps its throttled retry"
+        ConnectionStatus::Active,
+        "a retry the session served re-arms it"
     );
 }
 
-/// Home never refreshes a live usr/pwd session beside a grant that serves its
-/// provider (carnet#1386): it serves nothing, so the scraper is not asked. The
-/// same live session with no grant beside it is refreshed, so only the
-/// beside-grant rule kept the first load quiet.
+/// Home refreshes a live usr/pwd session beside a grant, its provider's
+/// primary (carnet#1494), and never the grant beside it: with both
+/// connections active the scraper is read once, for the session alone.
 #[tokio::test]
-async fn home_never_refreshes_a_live_session_beside_a_serving_grant() {
+async fn home_refreshes_a_live_session_and_never_the_grant_beside_it() {
     let f = fixture("home-beside-grant").await;
     f.resources
         .common
@@ -515,35 +506,13 @@ async fn home_never_refreshes_a_live_session_beside_a_serving_grant() {
         .mark_active(f.user_id, f.tenant, "sciotte")
         .await
         .unwrap();
-    let grant = UserOAuthToken::new(
-        f.user_id,
-        f.tenant.to_string(),
-        "strava".to_owned(),
-        "strava-access".to_owned(),
-        Some("strava-refresh".to_owned()),
-        Some(Utc::now() + Duration::hours(6)),
-        None,
-    );
-    let tokens = &f.resources.common.repos.oauth_tokens;
-    tokens.upsert_token(&grant).await.unwrap();
+    hold_live_grant(&f).await;
 
-    let body = f.home().await;
-    f.await_background().await;
-    assert_eq!(
-        f.scraper.reads(),
-        0,
-        "bug: Home refreshed a live session beside a grant: {body}"
-    );
-
-    tokens
-        .delete_token(f.user_id, f.tenant, "strava")
-        .await
-        .unwrap();
     let body = f.home().await;
     f.await_background().await;
     assert_eq!(
         f.scraper.reads(),
         1,
-        "the session alone is the athlete's Strava and is refreshed: {body}"
+        "bug: Home must refresh the session once and pass over the grant: {body}"
     );
 }

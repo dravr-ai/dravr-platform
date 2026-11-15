@@ -184,18 +184,18 @@ fn vocab_array_prop(description: &str, values: &[&str]) -> PropertySchema {
 impl RecommendPlanFlavourTool {
     fn properties() -> HashMap<String, PropertySchema> {
         let words = |all: &[&'static str]| all.to_vec();
-        let mut p = HashMap::new();
-        p.insert(
+        let mut properties = HashMap::new();
+        properties.insert(
             "hours_per_week".to_owned(),
             number_prop(
                 "Hours the athlete trains in a typical week, from /calibrate Availability.",
             ),
         );
-        p.insert(
+        properties.insert(
             "sessions_per_week".to_owned(),
             integer_prop("Sessions in a typical week."),
         );
-        p.insert(
+        properties.insert(
             "training_age".to_owned(),
             vocab_prop(
                 "Years of structured training as a band. Omit to derive from the stored profile.",
@@ -207,7 +207,7 @@ impl RecommendPlanFlavourTool {
                 ),
             ),
         );
-        p.insert(
+        properties.insert(
             "event_class".to_owned(),
             vocab_prop(
                 "The goal event. Omit to derive from the active plan's goal race.",
@@ -219,25 +219,25 @@ impl RecommendPlanFlavourTool {
                 ),
             ),
         );
-        p.insert(
+        properties.insert(
             "weeks_to_goal".to_owned(),
             integer_prop("Weeks until the goal race. Omit to derive from the active plan."),
         );
-        p.insert(
+        properties.insert(
             "measurements".to_owned(),
             vocab_array_prop(
                 "What the athlete can steer intensity by. Omit to derive from stored thresholds; an athlete with none is read as effort.",
                 &words(&Measurement::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
             ),
         );
-        p.insert(
+        properties.insert(
             "recovery_speed".to_owned(),
             vocab_prop(
                 "From /calibrate RecoverySpeed. Masters-style loading triggers on this, never on age.",
                 &words(&RecoverySpeed::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
             ),
         );
-        p.insert(
+        properties.insert(
             "injury_load".to_owned(),
             vocab_prop(
                 "From /calibrate Injury.",
@@ -249,7 +249,7 @@ impl RecommendPlanFlavourTool {
                 ),
             ),
         );
-        p.insert(
+        properties.insert(
             "interval_experience".to_owned(),
             vocab_prop(
                 "Structured interval history. Omitted means none, the safe reading.",
@@ -261,14 +261,14 @@ impl RecommendPlanFlavourTool {
                 ),
             ),
         );
-        p.insert(
+        properties.insert(
             "sport_mix".to_owned(),
             vocab_prop(
                 "The sports trained. Omit to derive from the profile's primary sport.",
                 &words(&SportMix::ALL.iter().map(|v| v.as_str()).collect::<Vec<_>>()),
             ),
         );
-        p.insert(
+        properties.insert(
             "season_phase".to_owned(),
             vocab_prop(
                 "Where in the season the athlete stands, if known.",
@@ -280,14 +280,14 @@ impl RecommendPlanFlavourTool {
                 ),
             ),
         );
-        p.insert(
+        properties.insert(
             "athlete".to_owned(),
             string_prop(
                 "A human coach reading a consenting athlete's profile from their own direct chat. \
                  In the coach's thread about one athlete it defaults to that athlete.",
             ),
         );
-        p
+        properties
     }
 
     fn payload(args: &Value) -> AppResult<Payload> {

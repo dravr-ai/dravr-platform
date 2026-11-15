@@ -9,6 +9,12 @@ updates:
       - "dependencies"
     commit-message:
       prefix: "fix(deps):"
+    # dtolnay/rust-toolchain keeps one branch per toolchain version, including
+    # ones no Rust release has reached yet (1.120.0 existed in Oct 2026), and
+    # Dependabot reads those branch names as versions. The toolchain moves by
+    # hand with the workspace pin, and the move relocks actions.lock.
+    ignore:
+      - dependency-name: "dtolnay/rust-toolchain"
 
   # Move the committed Terraform provider locks (dev, prod, artifacts)
   - package-ecosystem: "terraform"

@@ -9,8 +9,10 @@ import {
   athleteStepsWaived as serverAthleteStepsWaived,
   isServerStepComplete,
   isConnectProviderRecorded,
+  isConnectProviderSkipped,
   beforeProviderGate,
   pastProviderGate,
+  skippedStepIds,
   type OnboardingContext,
 } from '@pierre/shared-constants';
 import { useAuth } from '../contexts/AuthContext';
@@ -20,11 +22,12 @@ import { useProfileTypeChosen } from './useProfileTypeChosen';
 import {
   ATHLETE_STEPS_WAIVED_PREFIX,
   COACH_GROUP_DONE_PREFIX,
+  COACH_SEAT_DONE_PREFIX,
   useOnboardingFlag,
 } from './useOnboardingFlag';
+import { useCoachGroupCreated } from './useCoachGroupCreated';
 import { useProviderSkipped } from './useProviderSkipped';
 import { useConnectProviderDone } from './useConnectProviderDone';
-import { useMessagingOnboarding } from './useMessagingOnboarding';
 
 export interface OnboardingContextState {
   /** The signals `currentOnboardingStep` and `onboardingProgress` read. */
@@ -57,7 +60,11 @@ export function useOnboardingContext(): OnboardingContextState {
   const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
   const onboardingActive = isAuthenticated && user?.user_status === 'active' && !isAdminRole;
 
-  const { data: onboardingStatus } = useOnboardingStatus(onboardingActive);
+  // The status is a shared query that other screens read for every account —
+  // Home's coach shape reads it for an admin too — so a disabled read here does
+  // not keep it empty. The gate drops it itself where onboarding does not apply.
+  const statusQuery = useOnboardingStatus(onboardingActive);
+  const onboardingStatus = onboardingActive ? statusQuery.data : undefined;
   const { seen: coachProposalSeenLocal } = useCoachProposalSeen(user?.id);
   // The agent step is gated on server state alone (carnet#1042), so its done
   // flag reads the server's step row too: one answered on the web or on
@@ -67,17 +74,21 @@ export function useOnboardingContext(): OnboardingContextState {
       ? undefined
       : coachProposalSeenLocal ||
         isServerStepComplete(onboardingStatus?.steps, 'coach_proposal');
-  const { chosen: profileTypeChosen } = useProfileTypeChosen(user?.id);
-  // The two pre-connect steps added alongside profile-type; same fail-open flag.
-  const { done: aboutYouDone } = useOnboardingFlag('dravr.about_you_done.', user?.id);
-  const { done: parqDone } = useOnboardingFlag('dravr.parq_done.', user?.id);
-  // How often the coach checks in (carnet#831): the same fail-open flag, plus
-  // the server's step row, which the chat intake and the web write too.
-  const { done: checkInDoneLocal } = useOnboardingFlag('dravr.check_in_done.', user?.id);
-  const checkInDone =
-    checkInDoneLocal === undefined
+  const { chosen: profileTypeChosenLocal } = useProfileTypeChosen(user?.id);
+  // The server's step row too, as web reads it: a role answered on another
+  // surface, or settled by a team-issued coach-seat invitation before the
+  // first sign-in, is not asked again on the phone.
+  const profileTypeChosen =
+    profileTypeChosenLocal === undefined
       ? undefined
-      : checkInDoneLocal || isServerStepComplete(onboardingStatus?.steps, 'check_in');
+      : profileTypeChosenLocal || isServerStepComplete(onboardingStatus?.steps, 'profile_type');
+  // The PAR-Q, the third screen: the same fail-open flag, plus the server's
+  // step row, which the chat intake and the web write too.
+  const { done: parqDoneLocal } = useOnboardingFlag('dravr.parq_done.', user?.id);
+  const parqDone =
+    parqDoneLocal === undefined
+      ? undefined
+      : parqDoneLocal || isServerStepComplete(onboardingStatus?.steps, 'parq');
   // A coach who does not train: the athlete steps leave the journey. Fails
   // closed — see useOnboardingFlag's `fallback`. The server's not_applicable
   // step rows carry it across devices and from the chat intake.
@@ -94,20 +105,30 @@ export function useOnboardingContext(): OnboardingContextState {
   const { done: coachGroupDoneLocal } = useOnboardingFlag(COACH_GROUP_DONE_PREFIX, user?.id);
   const coachGroupDone =
     coachGroupDoneLocal !== false || isServerStepComplete(onboardingStatus?.steps, 'coach_group');
-  // Session-only escape from the provider gate, matching web. Not persisted:
-  // the nudge should come back next launch.
-  const { skipped: skippedProvider } = useProviderSkipped(user?.id);
+  // The coach-seat step: a device flag, fail-open like the others; the seat
+  // itself is server state the screen reads. The group made this session
+  // moves the coach on to its invite.
+  const { done: coachSeatDoneLocal } = useOnboardingFlag(COACH_SEAT_DONE_PREFIX, user?.id);
+  // The seat step's server row exists only where a team-issued coach-seat
+  // invitation settled the seat before sign-in, so that coach never meets it.
+  const coachSeatSettled = isServerStepComplete(onboardingStatus?.steps, 'coach_seat');
+  const { created: coachGroupCreated } = useCoachGroupCreated(user?.id);
+  // « Continuer sans connecter », matching web: this session's tap, or the
+  // connect step's skipped row it writes, so the screen never comes back.
+  const { skipped: skippedProviderLocal } = useProviderSkipped(user?.id);
+  const skippedProvider = skippedProviderLocal || isConnectProviderSkipped(onboardingStatus?.steps);
+  // The steps put off, from the server's rows — which each screen writes into
+  // the cached status as it skips (`useRecordOnboardingStep`).
+  const skippedSteps = useMemo(() => skippedStepIds(onboardingStatus?.steps), [onboardingStatus?.steps]);
   const { done: connectProviderDone } = useConnectProviderDone(user?.id);
   const needsProviderConnection = onboardingStatus?.needs_provider_connection;
   // Server-only: the status read records it the first time a provider is
   // connected, so disconnecting later never reopens the wizard (carnet#1341).
   const connectProviderRecorded = isConnectProviderRecorded(onboardingStatus?.steps);
-  // The messaging steps live post-connect; only fetch the channel list there.
   // A coach who does not train is past the gate without connecting, so the
-  // group flag and the channel list load (and are waited on) for them too.
+  // group flag loads (and is waited on) for them too.
   const postConnect =
     onboardingActive && pastProviderGate({ needsProviderConnection, connectProviderRecorded, athleteStepsWaived });
-  const messaging = useMessagingOnboarding(user?.id, postConnect);
 
   // First-connect transition (needs true→false) — keeps the connect step up
   // until Continue, so a second service is one tap away.
@@ -127,14 +148,16 @@ export function useOnboardingContext(): OnboardingContextState {
 
   const preConnectPending =
     beforeProviderGate({ needsProviderConnection, connectProviderRecorded }) &&
-    (profileTypeChosen === undefined ||
-      aboutYouDone === undefined ||
-      parqDone === undefined ||
-      checkInDone === undefined ||
-      athleteStepsWaivedLocal === undefined);
+    (profileTypeChosen === undefined || athleteStepsWaivedLocal === undefined);
+  // The PAR-Q comes after Tes données, connected or skipped, and before the
+  // team: its flag and the team's are waited on past the gate and after a skip.
   const postConnectPending =
-    postConnect &&
-    (coachProposalSeen === undefined || coachGroupDoneLocal === undefined || messaging.loading);
+    (postConnect || (onboardingActive && skippedProvider)) &&
+    (coachProposalSeen === undefined || coachGroupDoneLocal === undefined || parqDone === undefined);
+  // A coach who trains and skipped the connect step reaches the coach steps
+  // before the gate, so their flags are waited on wherever the coach is.
+  const coachPending =
+    coachesOthers && (coachSeatDoneLocal === undefined || coachGroupDoneLocal === undefined);
 
   const context = useMemo<OnboardingContext>(
     () => ({
@@ -142,20 +165,17 @@ export function useOnboardingContext(): OnboardingContextState {
       needsProviderConnection,
       connectProviderRecorded,
       skippedProvider,
+      skippedSteps,
       justOnboarded,
       connectProviderDone,
       profileTypeChosen: profileTypeChosen ?? true,
-      aboutYouDone: aboutYouDone ?? true,
       parqDone: parqDone ?? true,
-      checkInDone: checkInDone ?? true,
       athleteStepsWaived,
       coachesOthers,
       coachGroupDone,
+      coachSeatDone: coachSeatDoneLocal !== false || coachSeatSettled,
+      coachGroupCreated,
       coachProposalDone: coachProposalSeen ?? true,
-      messagingAvailableCount: messaging.availableCount,
-      messagingChannelChosen: messaging.channelChosen,
-      messagingChannelDone: messaging.channelDone,
-      messagingConfigureDone: messaging.configureDone,
       analyticsConsentAnswered,
     }),
     [
@@ -163,23 +183,21 @@ export function useOnboardingContext(): OnboardingContextState {
       needsProviderConnection,
       connectProviderRecorded,
       skippedProvider,
+      skippedSteps,
       justOnboarded,
       connectProviderDone,
       profileTypeChosen,
-      aboutYouDone,
       parqDone,
-      checkInDone,
       athleteStepsWaived,
       coachesOthers,
       coachGroupDone,
+      coachSeatDoneLocal,
+      coachSeatSettled,
+      coachGroupCreated,
       coachProposalSeen,
-      messaging.availableCount,
-      messaging.channelChosen,
-      messaging.channelDone,
-      messaging.configureDone,
       analyticsConsentAnswered,
     ],
   );
 
-  return { context, settled: !preConnectPending && !postConnectPending };
+  return { context, settled: !preConnectPending && !postConnectPending && !coachPending };
 }

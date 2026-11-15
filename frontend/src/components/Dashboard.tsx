@@ -14,9 +14,11 @@ import {
   useRef,
 } from "react";
 import { useAuth } from "../hooks/useAuth";
+import { useCoachAccessGrantRefresh } from "../hooks/coachAccessHooks";
 import { useFeedbackUnread } from "../hooks/useFeedbackUnread";
 import { useIsMobile, useIsTablet } from "../hooks/useBreakpoint";
 import { useComposerFocused } from "../hooks/useComposerFocused";
+import { useOnboardingStatus } from "../hooks/useOnboardingStatus";
 import {
   useConversationScope,
   usePersonalConversation,
@@ -32,9 +34,12 @@ import {
   COMMAND_DRAFTS,
   PRODUCT_WORDMARK,
   SITE_URL,
+  coachTrainsToo,
+  landsOnPendingCoachHome,
 } from "@pierre/shared-constants";
 import type { PendingComposerAction } from "./chat/types";
 import type { PersonalToday } from "./home/personalToday";
+import type { FirstStepRequest } from "./home/FirstStepSheet";
 // Explicit /index path avoids macOS case-insensitive collision between
 // Dashboard.tsx and dashboard/ directory in Vitest module resolution
 import {
@@ -146,11 +151,20 @@ const HomeBriefing = lazy(() =>
 const TodayPeek = lazy(() =>
   import("./home/TodayPeek").then((module) => ({ default: module.TodayPeek })),
 );
+// Getting started's slim meter under the conversation's header, for a
+// returning athlete (carnet#1528).
+const GettingStartedMeter = lazy(() =>
+  import("./home/GettingStarted").then((module) => ({
+    default: module.GettingStartedMeter,
+  })),
+);
 const PickTeamSheet = lazy(() =>
   import("./home/YourTeam").then((module) => ({
     default: module.PickTeamSheet,
   })),
 );
+const ChatAppSheet = lazy(() => import("./chatApp/ChatAppSheet"));
+const FirstStepSheet = lazy(() => import("./home/FirstStepSheet"));
 const ActivityView = lazy(() => import("./activity/ActivityView"));
 const AdminConfiguration = lazy(() => import("./AdminConfiguration"));
 const UserToolOverrides = lazy(() => import("./UserToolOverrides"));
@@ -180,6 +194,8 @@ const NotificationsPanel = lazy(
 const CoachReplies = lazy(() => import("./coach/CoachReplies"));
 // A coach's Home: À traiter, the team table and the season, behind the switch to their own training.
 const CoachHome = lazy(() => import("./coach-home/CoachHome"));
+// A coach's Home while their coach access is pending: « Préparer ton coaching » (carnet#1529).
+const PendingCoachHome = lazy(() => import("./coach-home/PendingCoachHome"));
 import { BILLING_ENABLED } from "../constants/features";
 import { ADMIN_ONLY_TABS, SUPER_ADMIN_ONLY_TABS } from "../constants/adminTabs";
 import { PAGE_GUTTER_CLASS, layoutForRoute } from "../constants/surfaceLayout";
@@ -257,6 +273,9 @@ export default function Dashboard({
   onInviteCodeConsumed,
 }: DashboardProps) {
   const { user, logout } = useAuth();
+  // A coach-access grant shows on the next navigation, without signing out
+  // and in again (carnet#1521).
+  useCoachAccessGrantRefresh();
   const { t } = useTranslation();
   // Default tab depends on user role: admin sees 'users', an athlete lands on
   // 'home' — today's plan and the latest activities, where the logo also leads.
@@ -264,6 +283,29 @@ export default function Dashboard({
   const isSuperAdmin = user?.role === "super_admin";
   // A coach (coach access granted) reviews the replies sent to their athletes.
   const managesRoster = user?.manages_roster === true;
+  // A coach still waiting for coach access lands on a coach-shaped Home, never
+  // the athlete's (carnet#1529); a grant patches the session and Home becomes
+  // the coach Home. The onboarding status is the gate's own read — the gate
+  // reads it before the dashboard mounts — so it is already cached here; a
+  // read that failed shows the athlete's Home. A coach with access reads it
+  // too, for whether they train.
+  const onboardingStatus = useOnboardingStatus(!!user);
+  const pendingCoach = landsOnPendingCoachHome({
+    managesRoster,
+    coachesOthers: onboardingStatus.data?.coaches_others === true,
+  });
+  const homeRoleKnown =
+    managesRoster ||
+    onboardingStatus.data !== undefined ||
+    !onboardingStatus.isLoading;
+  // Either coach's Home is coach-shaped and reads its view from `#home/…`.
+  const coachShaped = managesRoster || pendingCoach;
+  // The « Mes athlètes / Mon entraînement » switch: a coach — with access or
+  // waiting for it — who trains too. One who does not train has no other
+  // Home and meets no athlete nudge by any route; their own thread stays
+  // reachable from the conversation list (carnet#1529). Until the answer
+  // reads, a coach keeps the switch: no nudge is taken on a guess.
+  const coachSwitch = coachShaped && coachTrainsToo(onboardingStatus.data?.steps);
   // Initialize from URL hash so deep links (#users, #agents, …) survive
   // page reloads and bookmarks. Falls back to role default.
   // Route = `tab[/subview]` encoded in the URL hash (e.g. #groups/<id>,
@@ -494,9 +536,11 @@ export default function Dashboard({
       return homeConversationRoute(homeConversation);
     if (activeTab === "coach-replies" && coachRepliesAthlete)
       return `coach-replies/${encodeURIComponent(coachRepliesAthlete)}`;
+    // A subview is kept while the role is still being read, so `#home/me`
+    // survives the first paint of a coach whose status has not answered.
     if (
       activeTab === "home" &&
-      managesRoster &&
+      (coachShaped || !homeRoleKnown) &&
       homeSub !== "" &&
       parseCoachHomeRoute(homeSub) !== null
     ) {
@@ -1168,6 +1212,11 @@ export default function Dashboard({
   const [drawerOpen, setDrawerOpen] = useState(false);
   // Home's Pick your team, over the page rather than inside Today's sheet.
   const [teamPickerOpen, setTeamPickerOpen] = useState(false);
+  // Getting started's chat-app sheet, over the page the same way.
+  const [chatAppOpen, setChatAppOpen] = useState(false);
+  // A first step's sheet — the health check, the goal and the why, the
+  // cadence — over the page the same way (carnet#1530).
+  const [firstStep, setFirstStep] = useState<FirstStepRequest | null>(null);
   // While the athlete types, a phone's tab bar steps aside so the composer
   // sits on the keyboard (Phil, 2026-10-05).
   const composing = useComposerFocused();
@@ -1194,6 +1243,14 @@ export default function Dashboard({
               actions.dismiss();
               setTeamPickerOpen(true);
             }}
+            onOpenChatApp={() => {
+              actions.dismiss();
+              setChatAppOpen(true);
+            }}
+            onOpenFirstStep={(request) => {
+              actions.dismiss();
+              setFirstStep(request);
+            }}
             compact={compact}
           />
         </Suspense>
@@ -1203,25 +1260,47 @@ export default function Dashboard({
           <TodayPeek onOpen={onOpen} hidden={hidden} />
         </Suspense>
       ),
+      meter: (actions) => (
+        <Suspense fallback={null}>
+          <GettingStartedMeter
+            onNavigate={applyRoute}
+            actions={actions}
+            onOpenChatApp={() => {
+              actions.dismiss();
+              setChatAppOpen(true);
+            }}
+            onOpenFirstStep={(request) => {
+              actions.dismiss();
+              setFirstStep(request);
+            }}
+          />
+        </Suspense>
+      ),
     }),
     [applyRoute],
   );
 
   // The coach's Home view `#home/…` names — null for an athlete, and for the
   // subviews of the personal Home (a conversation, an activity), which a
-  // coach reaches under "Mon entraînement".
+  // coach reaches under "Mon entraînement". A coach who does not train has no
+  // "Mon entraînement": `#home/me` is their coach Home, or their pending Home.
   const coachHomeView: CoachHomeRoute | null =
-    managesRoster && openActivity === null && homeConversation === null
+    coachShaped && openActivity === null && homeConversation === null
       ? parseCoachHomeRoute(homeSub)
       : null;
+  const showsCoachHome =
+    coachHomeView !== null && (coachHomeView.view !== "me" || !coachSwitch);
 
+  // A coach who does not train reaches their own thread from the
+  // conversation list or a link: it opens without Today, which holds nothing
+  // of theirs — no Getting started, no plan (carnet#1529).
   const personalHome = (
     <PersonalChat
       selectedConversation={homeConversation ?? personalThread.id}
       onSelectConversation={setHomeConversation}
       onNavigate={applyRoute}
       resolving={homeConversation === null && personalThread.isLoading}
-      today={personalToday}
+      today={coachShaped && !coachSwitch ? undefined : personalToday}
     />
   );
   // For regular users, pin Home / Groups / Discover to the bottom bar and
@@ -1887,8 +1966,8 @@ export default function Dashboard({
             </Suspense>
           )}
           {activeTab === "home" &&
-            coachHomeView !== null &&
-            coachHomeView.view !== "me" && (
+            showsCoachHome &&
+            coachHomeView !== null && (
               <Suspense
                 fallback={
                   <div className="flex justify-center py-8">
@@ -1896,11 +1975,30 @@ export default function Dashboard({
                   </div>
                 }
               >
-                <CoachHome route={coachHomeView} onNavigate={applyRoute} />
+                {managesRoster ? (
+                  <CoachHome
+                    // `#home/me` reaches here only for a coach with no
+                    // "Mon entraînement": it is their À traiter.
+                    route={
+                      coachHomeView.view === "me"
+                        ? { view: "queue", athleteId: null }
+                        : coachHomeView
+                    }
+                    onNavigate={applyRoute}
+                    trains={coachSwitch}
+                  />
+                ) : (
+                  // Coach access is pending: « Préparer ton coaching »
+                  // (carnet#1529). The grant refresh turns this into the
+                  // coach Home above, with no reload.
+                  <PendingCoachHome
+                    onNavigate={applyRoute}
+                    trains={coachSwitch}
+                  />
+                )}
               </Suspense>
             )}
-          {activeTab === "home" &&
-            (coachHomeView === null || coachHomeView.view === "me") && (
+          {activeTab === "home" && !showsCoachHome && (
               <Suspense
                 fallback={
                   <div className="flex justify-center py-8">
@@ -1912,13 +2010,14 @@ export default function Dashboard({
                   <ActivityView
                     activity={openActivity}
                     onBack={() =>
-                      applyRoute(managesRoster ? "home/me" : "home")
+                      applyRoute(coachSwitch ? "home/me" : "home")
                     }
                     onNavigate={applyRoute}
                   />
-                ) : managesRoster ? (
+                ) : coachSwitch ? (
                   // A coach who also trains: the same Home an athlete has, under
-                  // the switch that returns to their athletes (carnet#1253, D2).
+                  // the switch that returns to their athletes (carnet#1253, D2)
+                  // — with coach access, or still waiting for it (carnet#1529).
                   <div
                     className="flex h-full min-h-0 flex-col"
                     data-testid="coach-home-personal"
@@ -2034,6 +2133,23 @@ export default function Dashboard({
               <PickTeamSheet
                 side={isMobile ? "bottom" : "right"}
                 onClose={() => setTeamPickerOpen(false)}
+              />
+            </Suspense>
+          )}
+          {chatAppOpen && (
+            <Suspense fallback={null}>
+              <ChatAppSheet
+                side={isMobile ? "bottom" : "right"}
+                onClose={() => setChatAppOpen(false)}
+              />
+            </Suspense>
+          )}
+          {firstStep && (
+            <Suspense fallback={null}>
+              <FirstStepSheet
+                request={firstStep}
+                side={isMobile ? "bottom" : "right"}
+                onClose={() => setFirstStep(null)}
               />
             </Suspense>
           )}

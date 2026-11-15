@@ -19,12 +19,16 @@
 
 use std::mem;
 
-use pierre_core::models::{AgentRuntimeContext, MemberFitnessSnapshot, OnboardingState};
+use pierre_core::models::{
+    AgentRuntimeContext, MemberFitnessSnapshot, OnboardingState, UnitSystem,
+};
+use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::ConversationRecord;
 use pierre_llm::provider_stop::ProviderStop;
 use pierre_llm::ChatMessage;
 use pierre_services::prompt_leak;
 use pierre_tool_runtime::coach_seat::TurnSeat;
+use pierre_tool_runtime::envelope_notices::NoticeDay;
 use pierre_tool_runtime::tool_progress;
 
 use crate::envelope::ReconnectPrompt;
@@ -33,9 +37,11 @@ use crate::recorders::{
     turn_call_recorder, CAPABILITY_REASK_CALL_TYPE, PEER_CLAIM_VERIFIER_CALL_TYPE,
 };
 use crate::stages;
+use crate::stages::envelope_notice::notice_reader;
 use crate::stages::peer_grounding::PeerGroundingBlock;
 use crate::surface_profile::SurfaceProfile;
 use crate::turn::TurnInput;
+use crate::turn_stop;
 use crate::ChatPipelineContext;
 use crate::{TurnEvent, TurnEventSink};
 use pierre_tool_runtime::tool_loop_io::ToolLoopResult;
@@ -119,6 +125,40 @@ pub(crate) async fn run_recovery_and_post_process(
         streamed_to,
     } = inputs;
     let mut draft = StreamedDraft { sink: streamed_to };
+    // The loop settled, so its findings left the store for `result`, which a
+    // stop from here on drops with the turn: the stop reads them off the
+    // turn's handle instead (carnet#1519). Nothing between the settle and this
+    // line yields on a surface with a stop control — its stage events go out
+    // on a channel send — so no stop lands while the findings are in neither.
+    turn_stop::tool_loop_settled(hooks, &result.envelope_days);
+    // The notice writes a pace in the units the reply's reader reads, by the
+    // rule the prompt's units section follows; read only when a day warns.
+    let notice_units = if result
+        .envelope_days
+        .iter()
+        .any(|day| !day.findings.is_empty())
+    {
+        stages::units::reader_units(
+            &ctx.repos,
+            parse_uuid(&input.user_id).unwrap_or_default(),
+            conv.group_id.is_some(),
+        )
+        .await
+    } else {
+        UnitSystem::Metric
+    };
+    // The two returns below carry platform text in the model's place; this
+    // turn's writes still went through, so each carries the envelope notice
+    // (D3: every edit earns its warning).
+    let notice_alone = |days: &[NoticeDay]| {
+        stages::envelope_notice::notice_only_blocks(
+            &ctx.messaging_strings_registry,
+            &profile.locale,
+            notice_reader(conv),
+            notice_units,
+            days,
+        )
+    };
     // A Guardian block takes precedence over re-auth: a tool blocked by the
     // runtime Guardian renders the deterministic reply saying what
     // went through, bypassing LLM post-processing and the re-auth mint below.
@@ -137,7 +177,7 @@ pub(crate) async fn run_recovery_and_post_process(
                 content: mem::take(&mut result.content),
                 #[cfg(feature = "tools-verification")]
                 pending_verdicts: Vec::new(),
-                content_blocks: None,
+                content_blocks: notice_alone(&result.envelope_days),
                 leak_replaced: false,
                 identity_leak: None,
                 verdict_chips: Vec::new(),
@@ -208,7 +248,7 @@ pub(crate) async fn run_recovery_and_post_process(
                 content: mem::take(&mut result.content),
                 #[cfg(feature = "tools-verification")]
                 pending_verdicts: Vec::new(),
-                content_blocks: None,
+                content_blocks: notice_alone(&result.envelope_days),
                 leak_replaced: false,
                 identity_leak: None,
                 verdict_chips: Vec::new(),
@@ -232,16 +272,22 @@ pub(crate) async fn run_recovery_and_post_process(
     // simultaneous immutable borrow of a sibling field does not survive being
     // packed into the struct literal. A handful of tool names per turn.
     let tools_called = result.tools_called.clone();
+    // Taken, not cloned: past the two returns above, post-processing is the
+    // notice's only reader.
+    let envelope_days = mem::take(&mut result.envelope_days);
 
     let post_processed = stages::post_process::post_process_assistant_reply(
         stages::post_process::PostProcessInputs {
             ctx,
             input,
             conv,
+            seat,
             agent_ctx,
             prompt_guard,
             profile,
             tools_called: &tools_called,
+            envelope_days: &envelope_days,
+            notice_units,
             // A tool ran, or the prefetch put an activity block in the prompt.
             // Either way the reply has evidence behind it and may cite it.
             turn_was_grounded: !tools_called.is_empty()

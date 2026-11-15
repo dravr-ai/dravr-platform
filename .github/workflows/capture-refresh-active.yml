@@ -95,17 +95,21 @@ jobs:
             exit 1
           fi
           # Counts only: the body carries ids, and this repo's CI logs are public.
-          jq '{attempted, refreshed, flagged, failed, skipped, retried, passed_over, completed}' /tmp/refresh.json
+          jq '{attempted, refreshed, flagged, failed, deferred, coach_accounts, skipped, retried, passed_over, completed}' /tmp/refresh.json
           {
             echo "### Active athlete capture refresh"
             echo
-            jq -r '"attempted \(.attempted) · refreshed \(.refreshed) · flagged \(.flagged) · failed \(.failed) · skipped \(.skipped) · passed over \(.passed_over) · completed \(.completed)"' /tmp/refresh.json
+            jq -r '"attempted \(.attempted) · refreshed \(.refreshed) · flagged \(.flagged) · failed \(.failed) · deferred \(.deferred) · coach accounts \(.coach_accounts) · skipped \(.skipped) · passed over \(.passed_over) · completed \(.completed)"' /tmp/refresh.json
           } >> "${GITHUB_STEP_SUMMARY}"
           # A transient failure is a head the athlete will be served stale
           # from, and three in a row on 2026-10-30 were a scraper release that
           # could not read Strava at all: the lane went green on `failed: 0`
           # because nothing ever read that count (carnet#1278). A flagged
-          # connection is the athlete's to reconnect and stays a count.
+          # connection is the athlete's to reconnect and stays a count. So is
+          # a deferred read, which the sweep's background share of the request
+          # budget held back (carnet#1488): nothing was sent, and whether the
+          # capture goes stale is monitor-capture-staleness.yml's to judge.
+          # A coach account's refusal is its standing state, not a failure.
           # -e: a body with no `failed` count fails the step instead of
           # reading as zero failures.
           FAILED=$(jq -er '.failed' /tmp/refresh.json)

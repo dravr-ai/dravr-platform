@@ -33,8 +33,8 @@ use pierre_core::models::groups::{
     CoachingGroup, GroupDigestMode, GroupInvite, GroupInviteKind, GroupRespondMode,
 };
 use pierre_core::models::{
-    AddMessageParams, ConnectionType, SessionRefreshToken, TenantId, UpsertMessageFeedbackParams,
-    UserOAuthToken, UserTier,
+    ActivityBuilder, AddMessageParams, ConnectionType, SessionRefreshToken, SportType, TenantId,
+    UpsertMessageFeedbackParams, UserOAuthToken, UserTier,
 };
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::DatabaseBackend;
@@ -831,8 +831,9 @@ async fn post_reply(
         .id
 }
 
-/// A claim verdict said to `user`, outside any conversation: what an MCP
-/// client's `verify_claim` call writes when it names no thread.
+/// A claim verdict said to `user`, outside any conversation: what an in-app
+/// `verify_claim` call writes when it names no thread (an MCP client's call
+/// writes none, carnet#1565).
 async fn verdict_without_a_thread(
     repos: &pierre_database::RepositoryRegistry,
     tenant_id: TenantId,
@@ -1122,6 +1123,59 @@ async fn the_wipe_reads_the_blockers_again_and_wipes_nothing_over_one() {
 /// The athlete's archive-import scope in its tenant.
 fn scope_of(athlete: &Athlete) -> Scope {
     Scope::new(athlete.tenant.as_uuid(), athlete.user_id)
+}
+
+/// The reset erases what the activity store kept of the account's provider
+/// reads, where imports do not run too: a source no longer connected (so no
+/// disconnect purges it) would otherwise keep its records, and the next sync
+/// after the athlete reconnects would serve the history they started over
+/// from.
+#[tokio::test]
+async fn reset_erases_the_activity_stores_provider_reads_where_imports_do_not_run() {
+    let resources = resources().await;
+    assert!(
+        !resources.common.archive_imports.is_enabled(),
+        "test setup: imports do not run here"
+    );
+    let stub = RevokeStub::start().await;
+    let repos = &resources.common.repos;
+    let (user_id, tenant_id) = seed_onboarded_user(repos, "reset-live-store").await;
+    let live = &resources.common.live_activities;
+    let ride = ActivityBuilder::new(
+        "g-7001",
+        "Morning ride",
+        SportType::Ride,
+        Utc::now() - Duration::days(3),
+        3_600,
+        "garmin",
+    )
+    .build();
+    let kept = live
+        .ingest(user_id, tenant_id, "garmin", &[ride], Utc::now())
+        .await
+        .unwrap();
+    assert_eq!(kept.stored, 1, "test setup: the store holds the read");
+
+    let response = reset(
+        admin_context(&resources, &stub.url),
+        super_admin_token(),
+        user_id,
+    )
+    .await
+    .expect("reset handler");
+    assert_eq!(
+        response.status(),
+        StatusCode::OK,
+        "bug: the reset was refused"
+    );
+    let body = body_json(response).await;
+
+    assert_eq!(
+        live.held(user_id, tenant_id, "garmin").await.unwrap(),
+        0,
+        "bug: the reset left the account's provider reads in the activity store: {body}"
+    );
+    assert_eq!(body["data"]["archive_erased"]["records"], 1, "{body}");
 }
 
 /// A ride file `athlete` uploads; the key its bytes are kept under.

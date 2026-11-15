@@ -212,8 +212,8 @@ async function openToday(page: Page) {
 }
 
 test.describe('Athlete Home — mobile viewport, first arrival', () => {
-  // carnet#1098: no extra line above the thread — the Today line ends with
-  // the count, and the sheet opens on Getting started and Your team.
+  // carnet#1098, carnet#1528: no extra line above the thread — the Today line ends with
+  // the count, and the sheet opens on Getting started, then today's session.
   test('a first arrival’s Today line ends with the Getting started count, and the sheet opens on it', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
     await mockHome(page);
@@ -230,7 +230,7 @@ test.describe('Athlete Home — mobile viewport, first arrival', () => {
     const order = await sheet
       .locator('[data-testid="home-getting-started"], [data-testid="home-team"], [data-testid="home-today"]')
       .evaluateAll((sections) => sections.map((section) => section.getAttribute('data-testid')));
-    expect(order).toEqual(['home-getting-started', 'home-team', 'home-today']);
+    expect(order).toEqual(['home-getting-started', 'home-today', 'home-team']);
     const { scrollWidth, clientWidth } = await page.evaluate(() => ({
       scrollWidth: document.documentElement.scrollWidth,
       clientWidth: document.documentElement.clientWidth,
@@ -630,5 +630,168 @@ test.describe('Athlete Home — mobile viewport, a drawn latest map', () => {
     const attribution = map.locator('.maplibregl-ctrl-attrib');
     await expect(attribution).toHaveClass(/maplibregl-compact/);
     await expect(attribution).not.toHaveClass(/maplibregl-compact-show/);
+  });
+});
+
+/**
+ * carnet#1553: every dialog and popover is a layer on one stack, and a real
+ * Escape from the browser's keyboard closes the top one and nothing under it.
+ * The unit tests prove it in jsdom; these prove it where the keydown is a
+ * browser's, delivered to whatever has focus.
+ */
+test.describe('Athlete Home — mobile viewport, one Escape closes one layer', () => {
+  /** The plan with today's session carrying an evidence chip, which opens a sheet of its own. */
+  const PLAN_WITH_EVIDENCE = {
+    ...PLAN,
+    weeks: PLAN.weeks.map((week) => ({
+      ...week,
+      days: week.days.map((day) =>
+        day.date === TODAY
+          ? { ...day, evidence: { label: 'Observational evidence', basis: 'Seiler 2010; Stöggl 2014' } }
+          : day,
+      ),
+    })),
+  };
+
+  test('the month sheet stays open when Escape closes the evidence sheet opened over it', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await mockHome(page);
+    // Later routes take precedence over mockHome's.
+    await page.route('**/api/me/training-plan**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ plan: PLAN_WITH_EVIDENCE, today: TODAY }),
+      });
+    });
+    await page.route('**/api/me/calendar**', (route) =>
+      fulfillCalendar(route, { today: TODAY, plan: PLAN_WITH_EVIDENCE, activities: ACTIVITIES }),
+    );
+    await loginToDashboard(page);
+    await expect(page.getByTestId('home-page')).toBeVisible();
+
+    await openToday(page);
+    const today = page.getByRole('dialog', { name: 'Today' });
+    await today.getByTestId('home-week-month').click();
+    const month = page.getByTestId('home-month-sheet');
+    await expect(month).toBeVisible();
+    await month.getByTestId(`home-month-day-${TODAY}`).click();
+    await month.getByTestId('plan-day-evidence').click();
+    const evidence = page.getByTestId('plan-day-evidence-sheet');
+    await expect(evidence).toBeVisible();
+    await expect(evidence).toContainText('Seiler 2010; Stöggl 2014');
+
+    await page.keyboard.press('Escape');
+    await expect(evidence).toHaveCount(0);
+    await expect(month).toBeVisible();
+    // Focus is back on the chip that opened the evidence, inside the month.
+    await expect(month.getByTestId('plan-day-evidence')).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(month).toHaveCount(0);
+    // Three layers deep, the Today sheet under both is still up.
+    await expect(today).toBeVisible();
+  });
+
+  test('Escape on a history row menu closes the menu and leaves the history sheet up', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await mockHome(page);
+    // A row to open a menu on.
+    await page.route(/\/api\/chat\/conversations(\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ conversations: [CONVERSATION], total: 1, limit: 50, offset: 0 }),
+      });
+    });
+    await loginToDashboard(page);
+    await expect(page.getByTestId('home-page')).toBeVisible();
+
+    await page.getByTestId('home-history-button').click();
+    const history = page.getByTestId('home-history');
+    await expect(history).toBeVisible();
+    // The trigger shows on hover or keyboard focus; a keyboard opens it.
+    const trigger = history.getByTestId('conversation-actions-trigger');
+    await trigger.focus();
+    await page.keyboard.press('Enter');
+    const menu = history.getByRole('menu', { name: 'Conversation actions' });
+    await expect(menu).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(menu).toHaveCount(0);
+    await expect(history).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(history).toHaveCount(0);
+  });
+
+  test('Escape folds the full-screen map overlay and leaves the Today sheet up', async ({ page }) => {
+    // An iPhone's Safari exposes no element fullscreen, so the map opens as
+    // the page's own overlay — the layer this Escape belongs to.
+    await page.addInitScript(() => {
+      Object.defineProperty(Document.prototype, 'fullscreenEnabled', { configurable: true, get: () => false });
+    });
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await mockHome(page);
+    // The latest activity is the run with a route; the basemap never loads,
+    // and the overlay does not wait for it.
+    await page.route(/openfreemap\.org/, (route) => route.abort());
+    await page.route('**/api/me/activities/recent**', async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ activities: ACTIVITIES.slice(1), as_of: '2026-09-24T08:15:00Z', stale: false }),
+      });
+    });
+    await loginToDashboard(page);
+    await expect(page.getByTestId('home-page')).toBeVisible();
+
+    await openToday(page);
+    const today = page.getByRole('dialog', { name: 'Today' });
+    const map = today.getByTestId('home-activity-latest').locator('figure');
+    const stage = map.locator('[data-map-screen]');
+    await map.getByRole('button', { name: 'Full screen' }).click();
+    await expect(stage).toHaveAttribute('data-map-screen', 'overlay');
+
+    await page.keyboard.press('Escape');
+    await expect(stage).toHaveAttribute('data-map-screen', 'inline');
+    await expect(today).toBeVisible();
+
+    await page.keyboard.press('Escape');
+    await expect(today).toHaveCount(0);
+  });
+
+  test('the phone drawer keeps Tab inside it and closes on Escape', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'alice@acme.com', displayName: 'Alice Test' });
+    await mockHome(page);
+    await loginToDashboard(page);
+    await expect(page.getByTestId('home-page')).toBeVisible();
+
+    const opener = page.getByRole('button', { name: 'Open menu' });
+    await opener.click();
+    const drawer = page.getByRole('dialog', { name: 'Secondary navigation' });
+    await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole('button', { name: 'Close menu' })).toBeFocused();
+    await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe('hidden');
+
+    // Twice round the drawer, forwards then back: focus never reaches the
+    // tab bar still mounted behind it.
+    const focusInside = () =>
+      page.evaluate(() => {
+        const panel = document.querySelector('[role="dialog"][aria-label="Secondary navigation"]');
+        return panel !== null && panel.contains(document.activeElement);
+      });
+    for (let step = 0; step < 16; step += 1) {
+      await page.keyboard.press('Tab');
+      expect(await focusInside()).toBe(true);
+    }
+    await drawer.getByRole('button', { name: 'Close menu' }).focus();
+    await page.keyboard.press('Shift+Tab');
+    await expect(drawer.getByRole('button', { name: 'Sign out' })).toBeFocused();
+
+    await page.keyboard.press('Escape');
+    await expect(drawer).toBeHidden();
+    await expect(opener).toBeFocused();
+    await expect.poll(() => page.evaluate(() => document.body.style.overflow)).toBe('');
   });
 });

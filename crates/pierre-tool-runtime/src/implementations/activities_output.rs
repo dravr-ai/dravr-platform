@@ -21,9 +21,11 @@
 //! per-tool key built from a runtime string — which was the actual problem
 //! with the envelope this branch removed elsewhere.
 
+use pierre_core::models::coverage::Coverage;
 use serde::Serialize;
 use serde_json::Value;
 
+use crate::implementations::field_dictionary::FieldSupportHeader;
 use crate::implementations::fitness_support::{ActivityRetrievalContext, TokenEstimate};
 
 /// What `get_activities` answers with.
@@ -94,12 +96,18 @@ pub struct ActivitiesPayload {
     pub token_estimate: TokenEstimate,
     /// Whether this window is enough to answer the question that was asked.
     pub retrieval_context: ActivityRetrievalContext,
-    /// Present when the served slice was truncated: how many are really in
-    /// the window and over what dates, so the reply says "552 in this window,
-    /// showing the most recent 200" rather than letting the model anchor on
-    /// the oldest activity it can see.
+    /// Per connection that served these rows, the fields it never supplies
+    /// and those only a detail read adds: a field it never supplies is
+    /// unknown on its rows, never zero.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub coverage: Option<Value>,
+    pub field_support: Option<FieldSupportHeader>,
+    /// Present when the served slice was truncated, or the window was asked
+    /// by date or is incomplete: how many are really in the window and over
+    /// what dates, so the reply says "552 in this window, showing the most
+    /// recent 200" rather than letting the model anchor on the oldest
+    /// activity it can see, and whether the window is the whole truth.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub coverage: Option<Coverage>,
     /// Present when a connection is auth-dead and its siblings answered in
     /// its place. It rides in the payload rather than the metadata on
     /// purpose: the metadata key aborts the turn into a reconnect reply,

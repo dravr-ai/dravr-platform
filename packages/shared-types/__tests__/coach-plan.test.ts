@@ -166,6 +166,60 @@ describe('parsePublishedSubjectPlan', () => {
       parsePublishedSubjectPlan({ plan_id: 'plan-2', superseded_plan_id: null, athlete_notified: true, posted_in_room: 'yes' }),
     ).toBeNull();
   });
+
+  // The publish puts the plan on the athlete's calendar, or says why not (carnet#1492).
+  describe('calendar_push', () => {
+    const published = { plan_id: 'plan-2', superseded_plan_id: null, athlete_notified: true };
+    const report = {
+      provider: 'intervals_icu',
+      plan_id: 'plan-2',
+      from: '2026-11-11',
+      to: '2026-11-22',
+      created: 2,
+      updated: 1,
+      unchanged: 3,
+      removed: 1,
+      skipped: [{ external_id: 'dravr:plan:a:2026-11-15:0', date: '2026-11-15', name: 'Tempo', reason: 'edited_on_provider' }],
+      failed: [],
+      cancelled: false,
+    };
+
+    it('reads what the push wrote, keeping what the card counts', () => {
+      expect(parsePublishedSubjectPlan({ ...published, calendar_push: { status: 'pushed', report } })).toEqual({
+        ...published,
+        calendar_push: {
+          status: 'pushed',
+          report: {
+            provider: 'intervals_icu',
+            created: 2,
+            updated: 1,
+            removed: 1,
+            skipped: [{ date: '2026-11-15', name: 'Tempo' }],
+            failed: [],
+          },
+        },
+      });
+    });
+
+    it('reads why nothing was written', () => {
+      const notPushed = { status: 'not_pushed', reason: 'no_calendar_write_consent', message: 'Not allowed.' };
+      expect(parsePublishedSubjectPlan({ ...published, calendar_push: notPushed })?.calendar_push).toEqual(notPushed);
+    });
+
+    it('invents no push for a body that names none, and refuses one that breaks its shape', () => {
+      const bare = parsePublishedSubjectPlan(published);
+      expect(bare !== null && 'calendar_push' in bare).toBe(false);
+      for (const broken of [
+        { status: 'pushed' },
+        { status: 'pushed', report: { ...report, failed: 'none' } },
+        { status: 'not_pushed', reason: 'no_calendar' },
+        { status: 'maybe' },
+        'pushed',
+      ]) {
+        expect(parsePublishedSubjectPlan({ ...published, calendar_push: broken })).toBeNull();
+      }
+    });
+  });
 });
 
 describe('parsePlanPublishConflict', () => {

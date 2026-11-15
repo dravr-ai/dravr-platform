@@ -6,7 +6,7 @@
 
 import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { civilDayNumber, civilFromDayNumber, civilShortDate, localToday } from '@pierre/ui-logic';
@@ -23,6 +23,7 @@ const listReplies = vi.fn();
 const getConversations = vi.fn();
 const openAthleteThread = vi.fn();
 const openGroupRoom = vi.fn();
+const listInvites = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   coachRosterApi: {
@@ -36,6 +37,7 @@ vi.mock('../../../services/api', () => ({
     openAthleteThread: (...a: unknown[]) => openAthleteThread(...a),
     openGroupRoom: (...a: unknown[]) => openGroupRoom(...a),
   },
+  groupsApi: { listInvites: (...a: unknown[]) => listInvites(...a) },
 }));
 
 const mobile = vi.hoisted(() => ({ value: false }));
@@ -47,7 +49,7 @@ vi.mock('../../../hooks/useBreakpoint', () => ({
 
 const TODAY = localToday();
 
-function renderHome(initial: CoachHomeRoute = { view: 'queue', athleteId: null }) {
+function renderHome(initial: CoachHomeRoute = { view: 'queue', athleteId: null }, trains = true) {
   const navigate = vi.fn();
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   /** A host that follows the hash the way the dashboard does: a navigation is the new route. */
@@ -56,6 +58,7 @@ function renderHome(initial: CoachHomeRoute = { view: 'queue', athleteId: null }
     return (
       <CoachHome
         route={route as Exclude<CoachHomeRoute, { view: 'me' }>}
+        trains={trains}
         onNavigate={(next) => {
           navigate(next);
           const sub = next === 'home' ? '' : next.startsWith('home/') ? next.slice('home/'.length) : null;
@@ -506,6 +509,14 @@ describe('the switch and the routes', () => {
     expect(navigate).toHaveBeenCalledWith('home/me');
   });
 
+  it('gives a coach who does not train no « Mon entraînement », only the page’s name (carnet#1529)', async () => {
+    renderHome({ view: 'queue', athleteId: null }, false);
+    await screen.findByTestId('coach-home');
+    expect(screen.queryByTestId('coach-home-switch')).toBeNull();
+    expect(screen.queryByText('My training')).toBeNull();
+    expect(screen.getByTestId('coach-home-title')).toHaveTextContent('My athletes');
+  });
+
   it('moves between the views', async () => {
     const user = userEvent.setup();
     const { navigate } = renderHome();
@@ -587,5 +598,61 @@ describe('failure and emptiness', () => {
     getRoster.mockResolvedValue({ scope: { visible_members: 0, roster_members: 0 }, groups: [], athletes: [], next_offset: null });
     renderHome();
     expect(await screen.findByTestId('coach-home-empty')).toBeInTheDocument();
+  });
+
+  describe('before anyone joined', () => {
+    const GROUP = { id: 'g-lea', name: 'Léa · Marathon de Montréal', athlete_count: 0 };
+    const INVITE = {
+      id: 'inv-1',
+      group_id: 'g-lea',
+      tenant_id: 't-1',
+      code: 'ABCD2345',
+      kind: 'member',
+      created_by: 'coach-1',
+      expires_at: '2099-12-13T14:40:00Z',
+      max_uses: null,
+      use_count: 0,
+      is_active: true,
+      approves_signup: false,
+      created_at: '2026-11-13T14:40:00Z',
+    };
+    const emptyRoster = {
+      scope: { visible_members: 0, roster_members: 0 },
+      groups: [GROUP],
+      athletes: [],
+      next_offset: null,
+    };
+
+    it('shows the group of the invited athlete as invited and not joined, with why and what to do', async () => {
+      getRoster.mockResolvedValue(emptyRoster);
+      listInvites.mockResolvedValue({ invites: [INVITE] });
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+      openGroupRoom.mockResolvedValue({ id: 'room-lea' });
+      getConversations.mockResolvedValue({ conversations: [], total: 0, limit: 50, offset: 0 });
+      const { navigate } = renderHome();
+
+      const row = await screen.findByTestId('coach-pending-invite-g-lea');
+      expect(listInvites).toHaveBeenCalledWith('g-lea');
+      expect(within(row).getByText('Léa · Marathon de Montréal')).toBeInTheDocument();
+      expect(within(row).getByTestId('coach-pending-invite-status')).toHaveTextContent('Invited · hasn’t joined yet');
+      expect(row).toHaveTextContent('Nobody has joined the group with this link yet.');
+
+      fireEvent.click(within(row).getByTestId('coach-pending-invite-copy'));
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/groups/join/ABCD2345`));
+      expect(await within(row).findByText('Link copied')).toBeInTheDocument();
+
+      fireEvent.click(within(row).getByTestId('coach-pending-invite-write'));
+      await waitFor(() => expect(openGroupRoom).toHaveBeenCalledWith('g-lea'));
+      await waitFor(() => expect(navigate).toHaveBeenCalledWith('chat/room-lea'));
+    });
+
+    it('keeps the empty state when the invite of the group no longer works', async () => {
+      getRoster.mockResolvedValue(emptyRoster);
+      listInvites.mockResolvedValue({ invites: [{ ...INVITE, expires_at: '2020-01-01T00:00:00Z' }] });
+      renderHome();
+      expect(await screen.findByTestId('coach-home-empty')).toBeInTheDocument();
+      expect(screen.queryByTestId('coach-pending-invites')).toBeNull();
+    });
   });
 });

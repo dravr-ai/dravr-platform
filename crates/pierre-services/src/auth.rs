@@ -28,7 +28,8 @@ use pierre_core::constants::{error_messages, limits, tiers};
 use pierre_core::error_helpers::{user_state_error, validation_error};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    normalize_email, PreApprovedEmail, SessionRefreshToken, Tenant, TenantId, User, UserStatus,
+    normalize_email, InvitationKind, PreApprovedEmail, SessionRefreshToken, Tenant, TenantId, User,
+    UserStatus,
 };
 use pierre_database::repositories::user_invitations::invalid_invitation;
 use pierre_runtime_context::DataContext;
@@ -36,6 +37,7 @@ use pierre_runtime_context::DataContext;
 use crate::analytics::{analytics, cache_user_email, hash_id};
 use crate::default_agent::first_athlete_facing;
 use crate::import_tombstones::{email_held, pending_email_tombstone};
+use crate::invitation::settle_coach_seat;
 use crate::link_token::split_link_token;
 use crate::operator_mail::PendingSignupMail;
 
@@ -297,6 +299,11 @@ impl AuthService {
     ///
     /// `analytics_consent` is the form's answer to the usage-analytics opt-in,
     /// recorded as a registration records it.
+    ///
+    /// A coach-seat invitation also settles coach access and the coach role
+    /// for the new account ([`crate::invitation::settle_coach_seat`]), with
+    /// the inviter as the operator of the grant. The answer carries the kind
+    /// redeemed, so the caller can attribute the sign-up.
     #[tracing::instrument(skip_all, fields(route = "accept_invitation"))]
     pub async fn accept_invitation(
         &self,
@@ -304,7 +311,7 @@ impl AuthService {
         password: String,
         display_name: Option<String>,
         analytics_consent: Option<bool>,
-    ) -> AppResult<RegisterResponse> {
+    ) -> AppResult<(RegisterResponse, InvitationKind)> {
         if !Self::is_valid_password(&password) {
             return Err(validation_error(error_messages::PASSWORD_TOO_WEAK));
         }
@@ -343,18 +350,32 @@ impl AuthService {
             warn!(user_id = %user_id, error = %e, "Invited account created but its address not marked verified");
         }
 
-        info!(user_id = %user_id, invited_by = ?invitation.invited_by, "Invited user created their account");
+        // The account exists and the link is spent whatever happens here, so a
+        // failed write is logged rather than failing the answer: the coach
+        // then meets the role question and the request, as an uninvited coach
+        // does, and a super-admin can still grant access from the console.
+        if invitation.kind == InvitationKind::CoachSeat {
+            if let Err(e) = settle_coach_seat(repos, user_id, tenant_id, approved_by).await {
+                error!(user_id = %user_id, error = %e, "Coach-seat invitation redeemed but its seat and role not settled");
+            }
+        }
 
-        Ok(RegisterResponse {
-            user_id: user_id.to_string(),
-            email: user.email.clone(),
-            user_status: user.user_status,
-            display_name: user.display_name,
-            activation: RegistrationActivation::Active,
-            message: "Your account is ready. Sign in with your email and the password you chose."
-                .to_owned(),
-            tenant_id,
-        })
+        info!(user_id = %user_id, invited_by = ?invitation.invited_by, kind = invitation.kind.label(), "Invited user created their account");
+
+        Ok((
+            RegisterResponse {
+                user_id: user_id.to_string(),
+                email: user.email.clone(),
+                user_status: user.user_status,
+                display_name: user.display_name,
+                activation: RegistrationActivation::Active,
+                message:
+                    "Your account is ready. Sign in with your email and the password you chose."
+                        .to_owned(),
+                tenant_id,
+            },
+            invitation.kind,
+        ))
     }
 
     /// Create a password account in the given approval state, with its

@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The connect-a-provider nudge over an open thread, driven through the thread's own hook
-// ABOUTME: Pins that it asks the caller to connect over their own thread, never over a coach's plan thread for an athlete (carnet#1191)
+// ABOUTME: Pins that it asks the caller to connect over their own thread, never over a coach's plan thread (carnet#1191), never a coach who does not train (carnet#1529)
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -16,6 +16,7 @@ const PLAN_THREAD = 'conv-plan';
 
 const getConversations = vi.fn();
 const getProvidersStatus = vi.fn();
+const getOnboardingStatus = vi.fn();
 
 vi.mock('../../../services/api', () => ({
   chatApi: {
@@ -29,6 +30,7 @@ vi.mock('../../../services/api', () => ({
   coachesApi: { list: vi.fn().mockResolvedValue({ agents: [] }) },
   providersApi: { getProvidersStatus: (...a: unknown[]) => getProvidersStatus(...a) },
   groupsApi: { getGroup: vi.fn(), readRoom: vi.fn() },
+  userApi: { getOnboardingStatus: (...a: unknown[]) => getOnboardingStatus(...a) },
 }));
 
 vi.mock('../../../services/analytics', () => ({ track: vi.fn() }));
@@ -77,8 +79,9 @@ function renderThread(conversationId: string) {
 describe('ThreadConnectBanner', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The coach has connected nothing of their own.
+    // The coach has connected nothing of their own, and trains too.
     getProvidersStatus.mockResolvedValue({ providers: [{ provider: 'strava', connected: false }] });
+    getOnboardingStatus.mockResolvedValue({ needs_provider_connection: true, steps: [], coaches_others: true });
     getConversations.mockResolvedValue({
       conversations: [
         { id: OWN_THREAD, title: 'My training', agent_id: null },
@@ -98,6 +101,24 @@ describe('ThreadConnectBanner', () => {
     renderThread(OWN_THREAD);
 
     expect(await screen.findByTestId('connect-provider-banner')).toBeInTheDocument();
+  });
+
+  it('never asks a coach who does not train to connect, over any thread (carnet#1529)', async () => {
+    getOnboardingStatus.mockResolvedValue({
+      needs_provider_connection: true,
+      steps: [
+        { step_id: 'about_you', status: 'not_applicable' },
+        { step_id: 'parq', status: 'not_applicable' },
+      ],
+      coaches_others: true,
+    });
+    renderThread(OWN_THREAD);
+
+    expect(await screen.findByText('My training')).toBeInTheDocument();
+    await waitFor(() => expect(getOnboardingStatus).toHaveBeenCalled());
+    await waitFor(() => expect(getProvidersStatus).toHaveBeenCalled());
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByTestId('connect-provider-banner')).toBeNull();
   });
 
   it("never asks the coach to connect over an athlete's plan thread", async () => {

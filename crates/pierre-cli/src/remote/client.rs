@@ -113,6 +113,26 @@ impl RemoteClient {
         Self::json_or_error(path, resp).await
     }
 
+    /// POST JSON, requiring a 2xx, waiting up to `timeout` instead of the
+    /// default for an answer: a route that does a bounded but long piece of
+    /// work before it answers. Returns the parsed body.
+    ///
+    /// # Errors
+    /// Returns an error on transport failure, a timeout or a non-2xx status.
+    pub async fn post_json_within<B: Serialize + Sync>(
+        &self,
+        path: &str,
+        body: &B,
+        timeout: Duration,
+    ) -> AppResult<Value> {
+        let resp = self
+            .authed(self.http.post(self.url(path)).json(body).timeout(timeout))
+            .send()
+            .await
+            .map_err(|e| Self::transport_error(path, &e))?;
+        Self::json_or_error(path, resp).await
+    }
+
     /// GET, requiring a 2xx; returns the parsed body.
     ///
     /// # Errors

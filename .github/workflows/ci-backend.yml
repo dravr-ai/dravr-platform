@@ -287,7 +287,7 @@ jobs:
       # dispatch run counts as everything changed.
       - name: Detect file changes
         id: changes
-        uses: ./.github/actions/ci-backend-changes
+        uses: $/.github/actions/ci-backend-changes
 
       # Which crates leaf-crate-tests runs (carnet#1282). A branch push tests
       # the crates its diff from main's fork point reaches and every crate
@@ -511,7 +511,7 @@ jobs:
       # test's `rm -rf` deletes the repo. Run 38208374304 failed that way, with
       # every assertion green: "rm: cannot remove '.../.git/objects': Directory
       # not empty". Only a process writing into the repo mid-delete does that.
-      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, one wellness merge, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, crate scope, scope base, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
+      - name: Gate self-tests (file sizes, advisory reviews, migration versions, migration immutability, moved symbols, one wellness merge, activity writers, history walk single source, inline paths, phantom surface routes, contremaitre tool list, backend pairs, dev process scope, tunnel env, tier selection, contremaitre fallback sync, deploy ancestry, deploy recovery, lockfile duplicates, satellite pins, satellite gate, satellite Cloud Run tail, dev Cloud Run rollout serialisation, deployed digest tags, frontend asset carry-forward, terraform drift coverage, mobile e2e batch, cron lane monitor, standing issues, sciotte local harness, first-party sign-in smoke, workflow test targets, generated stylesheets, backend name exposure, email log redaction, merge risk, shared test-module filter, production src scan, server feature parity, carnet footer sweep, server test scoping, prebuilt test binaries, bench A/B, commit verdict, push base resolution, server build key, proven-on-branch job proof, crate scope, scope base, rust-input filter coverage, cache budget report, CI time report, reversible setup edits)
         env:
           GIT_CONFIG_COUNT: "2"
           GIT_CONFIG_KEY_0: maintenance.auto
@@ -527,6 +527,8 @@ jobs:
           ./scripts/ci/check-one-wellness-merge.test.sh
           ./scripts/ci/check-one-precedence.test.sh
           ./scripts/ci/check-one-writer.test.sh
+          ./scripts/ci/check-activity-writers.test.sh
+          ./scripts/ci/check-history-walk-single-source.test.sh
           ./scripts/ci/check-inline-paths.test.sh
           ./scripts/ci/check-phantom-surfaces.test.sh
           ./scripts/ci/check-contremaitre-sync.test.sh
@@ -710,7 +712,7 @@ jobs:
 
       - name: Setup Rust environment
         if: steps.detect.outputs.skip != 'true'
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           components: clippy
           # The full-workspace clippy job's cache, restored; that job saves it.
@@ -787,7 +789,7 @@ jobs:
 
       - name: Detect file changes
         id: changes
-        uses: ./.github/actions/ci-backend-changes
+        uses: $/.github/actions/ci-backend-changes
 
       - name: Configure git for private deps
         if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
@@ -795,7 +797,7 @@ jobs:
 
       - name: Setup Rust environment
         if: steps.changes.outputs.rust == 'true' && !contains(fromJSON(steps.changes.outputs.proven || '[]'), 'Clippy Linting (full workspace) -> Lint with Clippy (Zero Tolerance + Cognitive Complexity)')
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           components: clippy
           free-disk-space: 'true'
@@ -853,13 +855,15 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install cargo-deny
-        uses: taiki-e/install-action@cargo-deny
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-deny
 
       - name: Security Audit (via deny.toml)
         run: cargo deny check
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
 
       - name: dravr-* duplicate check (hard fail)
         run: |
@@ -980,7 +984,7 @@ jobs:
 
       - name: Setup Rust environment
         id: rust
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           # The dev-profile test cache backend-test-binaries saves; restored only.
           shared-key: test-dev
@@ -1156,7 +1160,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           # The production entry lints rather than checks, so this job needs the
           # clippy component the way the full-workspace job does. Without it the
@@ -1209,7 +1213,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           free-disk-space: 'true'
           # The one dev-profile test cache dev-tests restores. This job is its
@@ -1372,7 +1376,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           free-disk-space: 'true'
 
@@ -1551,7 +1555,7 @@ jobs:
       # SQLite shard 1 and leaf-crate-tests in run 39609290067). The release
       # cache held no entry at all, so every build compiled ~480 crates cold.
       - name: Setup Rust environment
-        uses: ./.github/actions/rust-setup
+        uses: $/.github/actions/rust-setup
         with:
           shared-key: release-ubuntu-24.04
           free-disk-space: 'true'
@@ -1566,7 +1570,7 @@ jobs:
         # profile release.yml never tags and a feature set nothing deploys.
         # carnet#471. Main builds pierre-cli too, so the upload below carries
         # both binaries the image needs; the two links run in parallel.
-        uses: ./.github/actions/server-binaries
+        uses: $/.github/actions/server-binaries
         with:
           deps-token: ${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}
           bins: ${{ github.ref == 'refs/heads/main' && 'pierre-mcp-server pierre-cli' || 'pierre-mcp-server' }}
@@ -1630,10 +1634,22 @@ jobs:
           # the binary as measured (116 to 117 MiB) rather than a one-MB
           # ratchet that the next change of any size would red.
           #
+          # carnet#1425/#1445 (the athlete's log of a coach's reads: a table,
+          # its repository, a route, a command and a purge job) added about
+          # 1MB with no new dependency: the thin build read 146MB against its
+          # 145 ceiling (run 43336029155) while main sat exactly on it.
+          # ChefFamille chose to raise both ceilings by one MB (2026-11-12).
+          #
+          # carnet#1566 (barrage's original leases and deletion guard, barrage
+          # v0.19.1) arrived with main exactly on 119 (run 43608373096) and
+          # the thin proxy reading 148 against 147 (run 43609078979).
+          # ChefFamille chose to raise both ceilings by about 2MB
+          # (2026-11-14): shipped 121, thin 150.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (145), so a branch push that skips this job
+          # scaled to that build (150), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=118
+          MAX_SIZE_MB=121
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

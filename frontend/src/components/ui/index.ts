@@ -73,3 +73,5 @@ export {
 } from './Skeleton';
 export { Sheet } from './Sheet';
 export type { SheetProps, SheetSide } from './Sheet';
+export { OverflowMenu } from './OverflowMenu';
+export type { OverflowMenuItem, OverflowMenuProps } from './OverflowMenu';

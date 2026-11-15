@@ -10,14 +10,23 @@ import activitySports from './activity-sports.json' with { type: 'json' };
 export type OnboardingStepId =
   | 'analytics_consent'
   | 'profile_type'
-  | 'about_you'
-  | 'parq'
-  | 'check_in'
   | 'connect_provider'
+  | 'parq'
   | 'coach_proposal'
+  | 'coach_seat'
   | 'coach_group'
-  | 'messaging_channel'
-  | 'messaging_configure';
+  | 'coach_invite';
+
+/**
+ * Steps the server still records but the wizard no longer asks: the about-you
+ * answers (goal, why, sport) and the check-in cadence. Each is answered from
+ * its « Pour bien démarrer » row on Home, whose sheet writes the same step row
+ * the wizard screen did (carnet#1530).
+ */
+export type HomeAnsweredStepId = 'about_you' | 'check_in';
+
+/** Every step id the server's step rows carry. */
+export type PersistedStepId = OnboardingStepId | HomeAnsweredStepId;
 
 /**
  * The signals the flow derives "which step is current" from:
@@ -25,7 +34,7 @@ export type OnboardingStepId =
  *     from the whole flow).
  *   - `needsProviderConnection` — server truth; `undefined` while the query is
  *     in flight or disabled (e.g. admins).
- *   - `skippedProvider` — session-only "continue without connecting".
+ *   - `skippedProvider` — "continue without connecting", saved on the server.
  *   - `justOnboarded` — a `needs_provider_connection` true→false transition
  *     observed *this tab*, which keeps the connect step up (connect another
  *     service) until Continue. It gates nothing else: a tab that opens after
@@ -43,23 +52,26 @@ export interface OnboardingContext {
    * The server records the connect step complete: this user has had a real
    * provider connected. `needsProviderConnection` is live, so disconnecting
    * the last provider turns it back to `true`; this flag is what keeps an
-   * onboarded athlete out of the wizard then (carnet#1341). A user who never
-   * connected has no record, so their connect step still comes back at each
-   * login — the skip stays session-only on purpose.
+   * onboarded athlete out of the wizard then (carnet#1341).
    */
   connectProviderRecorded: boolean;
+  /**
+   * The athlete continued without connecting: this tab's tap, or the
+   * server's `skipped` connect row (`isConnectProviderSkipped`), which that
+   * tap writes. Saved, so Connect never comes back at the next sign-in; Home's
+   * "Connect your data" row is the nudge from then on (carnet#1530).
+   */
   skippedProvider: boolean;
+  /**
+   * The steps the user put off: the server's `skipped` rows
+   * (`skippedStepIds`), which the surfaces write into their cached status as
+   * they skip. Only the progress bar reads it, to draw such a step as passed
+   * rather than done; the decision engine never does.
+   */
+  skippedSteps: readonly OnboardingStepId[];
   justOnboarded: boolean;
   profileTypeChosen: boolean;
   coachProposalDone: boolean;
-  /**
-   * The about-you answers (North Star / sport / goal) have been given or skipped.
-   *
-   * These are the inputs `build_coach_proposal` already reads and falls back
-   * without, which is why the step sits ahead of the provider gate: provider
-   * sync is not something we control, three answered questions are.
-   */
-  aboutYouDone: boolean;
   /**
    * The user pressed Continue on the connect step after connecting a first
    * provider this session. Until then the step stays on screen, so a second
@@ -69,16 +81,11 @@ export interface OnboardingContext {
   /** The PAR-Q medical screen has been answered or skipped. */
   parqDone: boolean;
   /**
-   * How often the coach checks in on its own has been answered or skipped
-   * (carnet#831). `off` is an answer; a skip stores no cadence, which reads
-   * as off too.
-   */
-  checkInDone: boolean;
-  /**
    * The user coaches others and does not train themselves, so the athlete
-   * steps (`about_you`, `parq`) are not part of their journey — neither asked
-   * nor shown on the progress bar. Durable as `not_applicable` step rows (see
-   * `athleteStepsWaived`), which the chat intake writes too.
+   * steps (the PAR-Q, and the about-you answers Home asks for) are not part
+   * of their journey — neither asked nor shown on the progress bar. Durable
+   * as `not_applicable` step rows (see `athleteStepsWaived`), which the chat
+   * intake writes too.
    */
   athleteStepsWaived: boolean;
   /**
@@ -88,14 +95,17 @@ export interface OnboardingContext {
   coachesOthers: boolean;
   /** The group step has been finished or put off (`complete` / `skipped`). */
   coachGroupDone: boolean;
-  /** How many messaging channels the tenant has configured (0 ⇒ skip messaging). */
-  messagingAvailableCount: number;
-  /** A messaging channel is chosen — picked, or auto-selected when only one exists. */
-  messagingChannelChosen: boolean;
-  /** The messaging-channel picker step is satisfied (picked or skipped). */
-  messagingChannelDone: boolean;
-  /** The messaging-configure step is satisfied (channel linked or skipped). */
-  messagingConfigureDone: boolean;
+  /**
+   * The coach has moved past the coach-seat step: Continue once a connection
+   * or a request settled it, or « Passer pour l'instant ». A per-user device
+   * flag; the seat itself is server state the step reads, never this flag.
+   */
+  coachSeatDone: boolean;
+  /**
+   * The coach's group exists this session, so its invite is the next screen.
+   * Session-only: the invite needs the link the creation just issued.
+   */
+  coachGroupCreated: boolean;
   /**
    * The user has answered the usage-analytics question, yes or no, on any
    * surface (server truth: `analytics_consent_answered`). An unknown answer
@@ -113,8 +123,8 @@ export interface OnboardingStepDef {
   /**
    * Whether this step belongs to *this* user's journey right now. Phase-gated:
    * profile-type and connect-provider belong to the pre-connect phase
-   * (`needs === true`); coach-proposal to the just-connected phase; the messaging
-   * steps to the post-connect phase (`needs === false`).
+   * (`needs === true`); coach-proposal and the coach's group to the
+   * post-connect phase (`needs === false`).
    */
   isApplicable: (ctx: OnboardingContext) => boolean;
   /**
@@ -131,10 +141,12 @@ export interface OnboardingStepDef {
 }
 
 /**
- * The providers a coach coaches on, the only ones the connect step offers a
- * coach who does not train. The coach's account on either is also how a
- * group's athletes are read (delegated connections) once they join: the
- * TrainingPeaks coach session, or the Intervals.icu coach's API key.
+ * The providers a coach coaches on, in the order the coach-seat step offers
+ * them. A TrainingPeaks coach account on the user's verified email is coach
+ * access; an Intervals.icu roster that coaches an active athlete files the
+ * request. Either account is also how a group's athletes are read (delegated
+ * connections) once they join: the TrainingPeaks coach session, or the
+ * Intervals.icu coach's API key.
  */
 export const COACH_PLATFORM_PROVIDERS: readonly string[] = [
   'sciotte_trainingpeaks',
@@ -146,8 +158,8 @@ export const COACH_PLATFORM_PROVIDERS: readonly string[] = [
  * been (the server's connect-step record — an athlete who disconnects midway
  * still meets the steps after the gate, carnet#1341), or the user is a coach
  * who does not train. Nothing reads such a coach's own
- * training, so a missing provider holds back none of their steps; the connect
- * step still comes first by order, and skipping it moves on to the group.
+ * training, so a missing provider holds back none of their steps: they meet
+ * the coach-seat step instead of the connect step.
  * `undefined` (status still loading) opens nothing, so no step flashes.
  */
 export function pastProviderGate(
@@ -174,6 +186,32 @@ export function beforeProviderGate(
 }
 
 /**
+ * Whether the coach path — seat, group, invite — is open: the user coaches
+ * others and is past the provider gate, or chose to continue without a
+ * provider. Skipping leads on to these steps rather than past them, so a coach
+ * who trains and skips still leaves with a group. A coach who does not train
+ * (`athleteStepsWaived`) coaches others by definition, so a status read that
+ * has not caught up with the answer yet opens the path all the same.
+ */
+function coachStepsOpen(
+  c: Pick<
+    OnboardingContext,
+    | 'onboardingActive'
+    | 'coachesOthers'
+    | 'needsProviderConnection'
+    | 'connectProviderRecorded'
+    | 'athleteStepsWaived'
+    | 'skippedProvider'
+  >,
+): boolean {
+  return (
+    c.onboardingActive &&
+    (c.coachesOthers || c.athleteStepsWaived) &&
+    (pastProviderGate(c) || (c.skippedProvider && c.needsProviderConnection !== undefined))
+  );
+}
+
+/**
  * Canonical onboarding pipeline, in order. The current step is the first
  * applicable step that is not yet complete (see `currentOnboardingStep`); when
  * none remain, onboarding is done and the dashboard/chat renders.
@@ -193,58 +231,14 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
   },
   {
     id: 'profile_type',
-    labelKey: 'onboarding.stepAboutYou',
+    labelKey: 'onboarding.stepProfile',
     isApplicable: (c) => c.onboardingActive && beforeProviderGate(c) && !c.skippedProvider,
     isComplete: (c) => c.profileTypeChosen,
   },
   {
-    // Who the athlete is, in three questions. Deliberately BEFORE the provider
-    // gate: the coach proposal reads these, and on a first-run connection the
-    // provider data it would otherwise infer from has not synced yet — so this
-    // is the only proposal input we can guarantee exists when it runs. It also
-    // means a user who never connects still gets a non-generic proposal.
-    id: 'about_you',
-    labelKey: 'onboarding.stepAboutTraining',
-    isApplicable: (c) =>
-      c.onboardingActive &&
-      beforeProviderGate(c) &&
-      !c.skippedProvider &&
-      !c.athleteStepsWaived,
-    isComplete: (c) => c.aboutYouDone,
-  },
-  {
-    // Pre-participation medical screen. Ahead of the provider gate for the same
-    // reason it exists at all: an agent should not prescribe load before we have
-    // asked. A "yes" raises an agent-visible flag and never blocks sign-up.
-    // A coach who does not train is not screened: no load is prescribed to them.
-    id: 'parq',
-    labelKey: 'onboarding.stepHealthCheck',
-    isApplicable: (c) =>
-      c.onboardingActive &&
-      beforeProviderGate(c) &&
-      !c.skippedProvider &&
-      !c.athleteStepsWaived,
-    isComplete: (c) => c.parqDone,
-  },
-  {
-    // How often the coach writes first: every morning, three a week, weekly or
-    // never. Asked with the other questions about the athlete, ahead of the
-    // provider gate, and changeable in Settings. A coach who does not train is
-    // not asked: a check-in reads the athlete's own training.
-    id: 'check_in',
-    labelKey: 'onboarding.stepCheckIn',
-    isApplicable: (c) =>
-      c.onboardingActive &&
-      beforeProviderGate(c) &&
-      !c.skippedProvider &&
-      !c.athleteStepsWaived,
-    isComplete: (c) => c.checkInDone,
-  },
-  {
-    // A coach who does not train meets this step too, offered only the
-    // coaching platforms (`COACH_PLATFORM_PROVIDERS`) and only until their
-    // group exists: nothing reads their own training, so it is no gate for
-    // them, and once the group is made it is not asked again at every login.
+    // An athlete's own data. A coach who does not train never meets it:
+    // nothing reads their own training, and the coaching platforms are offered
+    // on the coach-seat step instead, where they decide coach access.
     //
     // The first connection does not close it: a user who has just connected one
     // service (`justOnboarded`) stays on the list to connect another, and moves
@@ -254,11 +248,38 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     id: 'connect_provider',
     labelKey: 'onboarding.stepConnect',
     isApplicable: (c) =>
+      c.onboardingActive &&
       (beforeProviderGate(c) || (c.justOnboarded && !c.connectProviderDone)) &&
       !c.skippedProvider &&
-      !(c.athleteStepsWaived && c.coachGroupDone),
+      !c.athleteStepsWaived,
+    // Never "done" for a coach who does not train either: a coaching platform
+    // they connect on the seat step is not this step, and counting it would
+    // grow their bar by a segment after a reload.
     isComplete: (c) =>
-      c.needsProviderConnection === false && (c.connectProviderDone || !c.justOnboarded),
+      !c.athleteStepsWaived &&
+      c.needsProviderConnection === false &&
+      (c.connectProviderDone || !c.justOnboarded),
+  },
+  {
+    // Pre-participation medical screen, the third screen: after Tes données,
+    // and still before the team and Home, for the reason it exists at all: an
+    // agent should not prescribe load before we have asked. A "yes" raises an
+    // agent-visible flag and never blocks sign-up. A coach who does not train
+    // is not screened: no load is prescribed to them.
+    //
+    // Only while the team step is still ahead, so an athlete who onboarded
+    // when the screen came earlier — or before it existed — is never sent back
+    // into the wizard for it. A PAR-Q put off or never answered is Home's
+    // « Bilan de santé » row, and « Construire mon plan » opens that sheet
+    // first (`healthCheckOutstanding`).
+    id: 'parq',
+    labelKey: 'onboarding.stepHealthCheck',
+    isApplicable: (c) =>
+      c.onboardingActive &&
+      !c.athleteStepsWaived &&
+      !c.coachProposalDone &&
+      (pastProviderGate(c) || (c.skippedProvider && c.needsProviderConnection !== undefined)),
+    isComplete: (c) => c.parqDone,
   },
   {
     // An agent for the athlete's own training, ranked on their own activities.
@@ -274,6 +295,10 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     // who finished it on any surface is not asked again. An athlete who
     // continues without connecting meets it too, offered the agents that need
     // no provider, so nobody reaches Home without a team (carnet#1095).
+    //
+    // The about-you answers it once read left the wizard for Home
+    // (carnet#1530), so nothing has to sit ahead of the provider gate for it:
+    // the team is ranked on the athlete's data alone, and the screen says so.
     id: 'coach_proposal',
     labelKey: 'onboarding.stepAgent',
     isApplicable: (c) =>
@@ -283,47 +308,38 @@ export const ONBOARDING_STEPS: OnboardingStepDef[] = [
     isComplete: (c) => c.coachProposalDone,
   },
   {
+    // The coach's seat (`manages_roster`) before anything is made: connect a
+    // TrainingPeaks coach account (coach access, no human in the loop), an
+    // Intervals.icu account (files the request), or ask the Dravr team. Asking
+    // grants nothing (ADR-018). Only until the group step is behind the coach,
+    // so a coach who onboarded before it existed is not sent back to it; a
+    // coach who already holds the seat is stepped past by the screen itself.
+    id: 'coach_seat',
+    labelKey: 'humanCoach.stepSeat',
+    isApplicable: (c) => coachStepsOpen(c) && !c.coachGroupDone,
+    isComplete: (c) => c.coachSeatDone,
+  },
+  {
     // A coach leaves onboarding with a group and an athlete invite link instead
-    // of discovering /group create in chat. Post-connect like the agent step;
-    // the group's agent is picked inside this step, never inherited from the
+    // of discovering /group create in chat. Its athlete, name and agent are on
+    // one screen; the agent is chosen for the group, never inherited from the
     // coach's own. Like the agent step it reads server state, so a coach who
-    // onboarded before this step existed is offered it once. A coach who does not train
-    // reaches it without a provider (`pastProviderGate`).
+    // onboarded before this step existed is offered it once. Making the group
+    // completes this screen; the step is recorded once the invite is behind
+    // the coach (or the group put off), which is what `coach_invite` waits on.
     id: 'coach_group',
     labelKey: 'onboarding.stepGroup',
-    isApplicable: (c) => c.onboardingActive && c.coachesOthers && pastProviderGate(c),
+    isApplicable: (c) => coachStepsOpen(c),
+    isComplete: (c) => c.coachGroupDone || c.coachGroupCreated,
+  },
+  {
+    // The athlete invite for the group just made: one job, sharing its link.
+    // Its own segment on the progress bar; a group put off leaves nothing to
+    // share, so `coachGroupDone` completes it too.
+    id: 'coach_invite',
+    labelKey: 'onboarding.stepInvite',
+    isApplicable: (c) => coachStepsOpen(c),
     isComplete: (c) => c.coachGroupDone,
-  },
-  {
-    // Pick which messaging app to connect. Shown post-connect when the tenant has
-    // MORE than one channel configured — a single channel is auto-selected, so we
-    // never ask the user to "pick" from a list of one (isComplete short-circuits).
-    // Like coach-proposal it reads server state, not the in-session
-    // `justOnboarded` transition: an already-connected user who hasn't set up
-    // messaging is prompted once, and the done/skip flags stop re-prompts.
-    id: 'messaging_channel',
-    labelKey: 'onboarding.stepChatApp',
-    isApplicable: (c) =>
-      c.onboardingActive && pastProviderGate(c) && c.messagingAvailableCount > 1,
-    // Done means the user picked or skipped — NOT "there was nothing to pick".
-    // Those were conflated, which made the step read as complete for a tenant
-    // with no channels and put a step on the progress bar that could never run.
-    // Inapplicability is already expressed by `isApplicable` above.
-    isComplete: (c) => c.messagingChannelDone,
-  },
-  {
-    // Configure/link the chosen messaging app (QR + deep link, or OAuth redirect).
-    // Applicable once a channel is chosen; auto-satisfied when no channel exists.
-    id: 'messaging_configure',
-    labelKey: 'onboarding.stepLink',
-    isApplicable: (c) =>
-      c.onboardingActive &&
-      pastProviderGate(c) &&
-      c.messagingAvailableCount >= 1 &&
-      c.messagingChannelChosen,
-    // Same split as the picker: "nothing to configure" is inapplicability, not
-    // completion.
-    isComplete: (c) => c.messagingConfigureDone,
   },
 ];
 
@@ -356,7 +372,7 @@ export interface PersistedOnboardingStep {
  */
 export function isServerStepComplete(
   steps: PersistedOnboardingStep[] | undefined,
-  stepId: OnboardingStepId,
+  stepId: PersistedStepId,
 ): boolean {
   return (steps ?? []).some(
     (s) => s.step_id === stepId && (s.status === 'complete' || s.status === 'skipped'),
@@ -366,12 +382,36 @@ export function isServerStepComplete(
 /**
  * Whether the server has recorded the connect step `complete`: this user has
  * had a real provider connected (carnet#1341). Unlike `isServerStepComplete`,
- * a `skipped` row does not count — continuing without connecting stays
- * session-only, so the connect step comes back at the next login.
+ * a `skipped` row does not count: continuing without connecting is
+ * `isConnectProviderSkipped`, never a connection.
  */
 export function isConnectProviderRecorded(steps: PersistedOnboardingStep[] | undefined): boolean {
   return (steps ?? []).some((s) => s.step_id === 'connect_provider' && s.status === 'complete');
 }
+
+/**
+ * Whether the server holds the connect step `skipped`: the athlete continued
+ * without connecting, on any surface (carnet#1530). It keeps Connect out of
+ * the wizard at every later sign-in, as `skippedProvider`. The status read
+ * turns the row `complete` the first time a real provider connects.
+ */
+export function isConnectProviderSkipped(steps: PersistedOnboardingStep[] | undefined): boolean {
+  return (steps ?? []).some((s) => s.step_id === 'connect_provider' && s.status === 'skipped');
+}
+
+/**
+ * The provider cards Tes données leads with, by the ids the providers list
+ * serves them under: Garmin and Strava by their scrape-mirror card or, in a
+ * build without the mirror, their raw one (only one of each pair is served),
+ * then Intervals.icu. Every other card folds behind « Plus de services ».
+ */
+export const ONBOARDING_LEAD_PROVIDERS: readonly string[] = [
+  'sciotte_garmin',
+  'garmin',
+  'sciotte',
+  'strava',
+  'intervals_icu',
+];
 
 /**
  * Step status for a step outside this person's journey. Distinct from
@@ -381,8 +421,11 @@ export function isConnectProviderRecorded(steps: PersistedOnboardingStep[] | und
  */
 export const STEP_NOT_APPLICABLE = 'not_applicable';
 
-/** The steps that ask about the user's own training and body. */
-export const ATHLETE_STEP_IDS: readonly OnboardingStepId[] = ['about_you', 'parq'];
+/**
+ * The steps that ask about the user's own training and body: the PAR-Q, and
+ * the about-you answers Home's « Ton objectif et ton pourquoi » row asks for.
+ */
+export const ATHLETE_STEP_IDS: readonly PersistedStepId[] = ['about_you', 'parq'];
 
 /**
  * Whether the server records the athlete steps as not part of this user's
@@ -391,12 +434,26 @@ export const ATHLETE_STEP_IDS: readonly OnboardingStepId[] = ['about_you', 'parq
  */
 export function athleteStepsWaived(steps: PersistedOnboardingStep[] | undefined): boolean {
   return (steps ?? []).some(
-    (s) => ATHLETE_STEP_IDS.includes(s.step_id as OnboardingStepId) && s.status === STEP_NOT_APPLICABLE,
+    (s) => ATHLETE_STEP_IDS.includes(s.step_id as PersistedStepId) && s.status === STEP_NOT_APPLICABLE,
   );
 }
 
-/** Display status for a step in the progress indicator. */
-export type OnboardingStepStatus = 'done' | 'current' | 'upcoming';
+/**
+ * Whether the PAR-Q is still to answer: no `complete` row — put off at the
+ * third screen, or never asked — and the athlete steps not waived. Home's
+ * « Construire mon plan » opens the health-check sheet first while this holds
+ * (carnet#1530); the agent's plan tools do not read it.
+ */
+export function healthCheckOutstanding(steps: PersistedOnboardingStep[] | undefined): boolean {
+  if (athleteStepsWaived(steps)) return false;
+  return !(steps ?? []).some((s) => s.step_id === 'parq' && s.status === 'complete');
+}
+
+/**
+ * Display status for a step in the progress indicator: behind the user it is
+ * `done`, or `skipped` when it was put off or passed without being finished.
+ */
+export type OnboardingStepStatus = 'done' | 'skipped' | 'current' | 'upcoming';
 
 /** A step plus its progress-indicator display status. */
 export interface OnboardingProgressItem {
@@ -406,47 +463,128 @@ export interface OnboardingProgressItem {
   status: OnboardingStepStatus;
 }
 
+/** The journey the role question puts a user on. */
+type OnboardingPath = 'athlete' | 'coach' | 'coach_and_athlete';
+
+/** One segment of a journey's progress bar. */
+interface ProgressSegment {
+  id: OnboardingStepId;
+}
+
 /**
- * The full canonical pipeline with each step's display status — a stable
- * sequence (unlike the phase-gated applicable set) so the progress indicator
- * doesn't reflow between steps.
+ * The athlete's four screens: Profil · Tes données · Santé · Ton équipe
+ * (carnet#1530). The goal, the why and the check-in cadence are Home's
+ * « Pour bien démarrer » rows, never segments here.
+ */
+const ATHLETE_SEGMENTS: readonly ProgressSegment[] = [
+  { id: 'profile_type' },
+  { id: 'connect_provider' },
+  { id: 'parq' },
+  { id: 'coach_proposal' },
+];
+
+/** The coach path's own segments: the seat, the group, its invite. */
+const COACH_SEGMENTS: readonly ProgressSegment[] = [
+  { id: 'coach_seat' },
+  { id: 'coach_group' },
+  { id: 'coach_invite' },
+];
+
+/**
+ * Each journey's progress bar, segment by segment, in canonical order.
  *
- * Status is *position-based*: the current step is `current`, everything before
- * it is `done`, everything after is `upcoming`. This deliberately does NOT reuse
- * each step's `isComplete` — an auto-skipped step (e.g. the messaging picker when
- * only one channel exists) would otherwise read `done` while the user is still on
- * step one. Position keeps the bar honest: nothing reads done until it's behind us.
+ * Decided by the role alone — never by what the user has done, skipped or
+ * been offered — so the total stays put from the role answer to the last
+ * screen. The bar used to count only the steps still applicable, so a skipped
+ * Connect left it and the late messaging steps joined it: 6→7→8 for an
+ * athlete, 7→4→3 for a coach. A step that is no segment (the one-time consent
+ * question) is never counted. An athlete's bar reads 4 on every screen; one
+ * who arrived by an invite link has the role recorded for them, so Profil is
+ * behind them, done, from the first screen they see.
+ *
+ * A coach who does not train never meets Connect: their bar is Profil, then
+ * the coach path (seat, group, invite). A coach who trains walks the athlete
+ * journey first, then the same coach path.
+ */
+const PATH_SEGMENTS: Record<OnboardingPath, readonly ProgressSegment[]> = {
+  athlete: ATHLETE_SEGMENTS,
+  coach: [{ id: 'profile_type' }, ...COACH_SEGMENTS],
+  coach_and_athlete: [...ATHLETE_SEGMENTS, ...COACH_SEGMENTS],
+};
+
+/**
+ * The journey the role answer put the user on: a coach who does not train has
+ * the athlete steps waived, one who trains coaches others. Until the question
+ * is answered neither is recorded, so the bar shows the athlete journey — the
+ * default answer — and settles on the chosen one from the next screen on.
+ */
+function onboardingPath(
+  c: Pick<OnboardingContext, 'athleteStepsWaived' | 'coachesOthers'>,
+): OnboardingPath {
+  if (c.athleteStepsWaived) return 'coach';
+  return c.coachesOthers ? 'coach_and_athlete' : 'athlete';
+}
+
+/**
+ * This user's progress bar: their journey's segments (`PATH_SEGMENTS`), each
+ * with its display status.
+ *
+ * Status is *position-based*: the first segment still to do is `current`,
+ * those after it `upcoming`, those before it behind the user. A segment ahead
+ * never consults its `isComplete` — an auto-satisfied step would otherwise
+ * read done while the user is still on step one. One behind reads `done`, or
+ * `skipped` when the user put it off (`skippedSteps`) or moved past it without
+ * finishing it: a Connect continued without, a question added after they had
+ * left its phase. A skipped step keeps its segment, so skipping, like
+ * finishing, never changes the count.
  */
 export function onboardingProgress(ctx: OnboardingContext): OnboardingProgressItem[] {
-  // Only the steps THIS user will actually meet. The bar used to render the full
-  // canonical pipeline, so a typical self-serve user — whose tenant has no
-  // messaging channels configured — was shown "Chat app" and "Link" as upcoming
-  // steps that would never arrive, and a five-step journey that ran in two.
-  //
-  // A step counts as part of the journey when it is applicable now, already
-  // behind us (`isComplete`: a finished step stops being applicable the moment
-  // it completes), or ahead of us past the provider gate. Connecting and
-  // continuing without connecting both lead past it, so the steps there are
-  // ones this user will meet; counting them only once reached made the total
-  // grow mid-journey ("5 of 5", then "6 of 7").
-  const pastGate: OnboardingContext | null =
-    ctx.needsProviderConnection === true ? { ...ctx, needsProviderConnection: false } : null;
-  // A one-time question is not a stage: the position is the first journey
-  // step still to come, so an onboarded account asked it reads all done.
-  const stages = ONBOARDING_STEPS.filter((s) => !s.hiddenFromProgress);
-  const journey = stages.filter(
-    (s) =>
-      s.isApplicable(ctx) || s.isComplete(ctx) || (pastGate !== null && s.isApplicable(pastGate)),
-  );
-  const currentId = firstPendingStep(stages, ctx)?.id;
+  const segments = PATH_SEGMENTS[onboardingPath(ctx)].flatMap((segment) => {
+    const step = ONBOARDING_STEPS.find((s) => s.id === segment.id);
+    return step ? [{ step, labelKey: step.labelKey }] : [];
+  });
+  // A step that is no segment is not a position: while one is asked, the
+  // first segment still to do is current — or none, and every segment is behind.
+  const currentId = firstPendingStep(
+    segments.map((s) => s.step),
+    ctx,
+  )?.id;
   const currentIndex = currentId
-    ? journey.findIndex((s) => s.id === currentId)
-    : journey.length; // onboarding finished — everything is behind us
-  return journey.map((s, i) => ({
-    id: s.id,
-    labelKey: s.labelKey,
-    status: i === currentIndex ? 'current' : i < currentIndex ? 'done' : 'upcoming',
+    ? segments.findIndex((s) => s.step.id === currentId)
+    : segments.length; // onboarding finished — everything is behind us
+  return segments.map(({ step, labelKey }, i) => ({
+    id: step.id,
+    labelKey,
+    status: i === currentIndex ? 'current' : i > currentIndex ? 'upcoming' : passedStatus(step, ctx),
   }));
+}
+
+/** How a segment behind the user reads: finished, or put off / passed unfinished. */
+function passedStatus(step: OnboardingStepDef, ctx: OnboardingContext): 'done' | 'skipped' {
+  return ctx.skippedSteps.includes(step.id) || !step.isComplete(ctx) ? 'skipped' : 'done';
+}
+
+/** The registry's steps the server records as put off (`skipped`): `OnboardingContext.skippedSteps`. */
+export function skippedStepIds(
+  steps: readonly PersistedOnboardingStep[] | undefined,
+): OnboardingStepId[] {
+  return ONBOARDING_STEPS.filter((def) =>
+    (steps ?? []).some((s) => s.step_id === def.id && s.status === 'skipped'),
+  ).map((def) => def.id);
+}
+
+/**
+ * `steps` with `stepId` recorded as `status`, in place of any earlier row for
+ * it. A surface writes this into its cached onboarding status as it persists
+ * a step, so what reads that status — the bar's skipped segments — has the
+ * answer at once instead of at the next status read.
+ */
+export function withStepRecorded(
+  steps: readonly PersistedOnboardingStep[] | undefined,
+  stepId: string,
+  status: 'complete' | 'skipped' | 'not_applicable',
+): PersistedOnboardingStep[] {
+  return [...(steps ?? []).filter((s) => s.step_id !== stepId), { step_id: stepId, status }];
 }
 
 

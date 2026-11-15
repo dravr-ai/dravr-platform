@@ -45,9 +45,9 @@ use tracing::{debug, info, warn};
 use uuid::Uuid;
 
 use crate::sciotte::{
-    authenticate, forget_remote_flow, recall_remote_flow, REMOTE_FLOW_KEY_PROVIDER,
-    REMOTE_FLOW_TTL_SECS,
+    forget_remote_flow, recall_remote_flow, REMOTE_FLOW_KEY_PROVIDER, REMOTE_FLOW_TTL_SECS,
 };
+use crate::sciotte_caller::authenticate;
 use crate::AuthRoutesContext;
 
 /// Fewest characters an attempt id carries.
@@ -141,6 +141,11 @@ impl StepAttempt {
     /// The key the step names to the service.
     pub(crate) fn cancel_key(&self) -> &str {
         &self.cancel_key
+    }
+
+    /// The attempt id the window named.
+    pub(crate) fn attempt_id(&self) -> &str {
+        &self.attempt_id
     }
 }
 
@@ -328,14 +333,30 @@ pub(crate) async fn handle_sciotte_cancel(
     Json(request): Json<SciotteCancelRequest>,
 ) -> Result<Response, AppError> {
     let (user_id, tenant_id, _link_context) = authenticate(&resources, &headers).await?;
-    let cancel_key = cancel_key_for(tenant_id, user_id, &request.attempt_id)?;
-    let remote = resources.provider_registry.require_sciotte_client()?;
+    let cancelled = cancel_attempt(&resources, tenant_id, user_id, &request.attempt_id).await?;
+    Ok(Json(serde_json::json!({ "cancelled": cancelled })).into_response())
+}
 
-    let filed =
-        file_cancelled_attempt(&resources.cache, tenant_id, user_id, &request.attempt_id).await;
+/// Cancel the caller's sign-in attempt `attempt_id`: file it as cancelled,
+/// so no step of it links an account from then on, then ask the service to
+/// stop it. Whether either took hold.
+///
+/// # Errors
+///
+/// [`AppError::invalid_input`] for a malformed attempt id, and the error of
+/// an unconfigured scraper service.
+pub(crate) async fn cancel_attempt(
+    resources: &AuthRoutesContext,
+    tenant_id: Uuid,
+    user_id: Uuid,
+    attempt_id: &str,
+) -> Result<bool, AppError> {
+    let cancel_key = cancel_key_for(tenant_id, user_id, attempt_id)?;
+    let remote = resources.provider_registry.require_sciotte_client()?;
+    let filed = file_cancelled_attempt(&resources.cache, tenant_id, user_id, attempt_id).await;
     let stopped = stop_on_service(&resources.cache, remote, tenant_id, user_id, &cancel_key).await;
     info!(%user_id, filed, stopped, "Sciotte sign-in cancelled by its caller");
-    Ok(Json(serde_json::json!({ "cancelled": filed || stopped })).into_response())
+    Ok(filed || stopped)
 }
 
 #[cfg(test)]

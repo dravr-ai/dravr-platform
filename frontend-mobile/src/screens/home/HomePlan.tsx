@@ -4,7 +4,7 @@
 // ABOUTME: The Home plan section — today's session enlarged with tomorrow under it; the week strip is HomeWeek's
 // ABOUTME: A rest day and a day the plan never reached read differently; a tap on today opens a chat drafted about it
 
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import {
@@ -21,8 +21,11 @@ import {
 } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { planDayDraft, planDayRouteDraft, sportLabel, type Translate, useDistanceUnit } from '@pierre/ui-logic';
+import { healthCheckOutstanding } from '@pierre/shared-constants';
 import { EmptyState, Section } from '../../components/ui';
+import { HealthCheckSheet } from '../../components/HealthCheckSheet';
 import { useHomePreferences } from '../../hooks/useHome';
+import { useOnboardingStatus } from '../../hooks/useOnboardingStatus';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { Figure } from '../chat/WorkoutPlanCard';
 
@@ -221,21 +224,38 @@ function TodayPlan({ calendar, openDraft }: { calendar: HomeCalendar; openDraft:
  * (carnet#820). The choice is stored on the server, so the web honours it
  * too, and Settings brings it back. Set aside, the section keeps its one
  * plain sentence; while the choice is unknown, the links wait for it.
+ *
+ * No plan before the health check (carnet#1530): while the PAR-Q is still to
+ * answer, « Construire mon plan » opens the health-check sheet first and
+ * drafts the request once it is answered. Only this link waits on it; the
+ * agent's plan tools are unchanged.
  */
 function EmptyPlan({ openDraft }: { openDraft: OpenDraft }) {
   const { t } = useTranslation();
   const home = useHomePreferences();
+  // Home is behind sign-in, so the shared status read is always on here.
+  const onboarding = useOnboardingStatus(true);
+  const [healthCheckOpen, setHealthCheckOpen] = useState(false);
   const preferences = home.preferences ?? (home.isError ? DEFAULT_HOME_PREFERENCES : null);
+  const healthFirst = onboarding.data !== undefined && healthCheckOutstanding(onboarding.data.steps);
+  const draftPlan = () => openDraft(t('home.plan.buildDraft'));
   return (
     <View className="px-4" testID="home-plan-empty">
       <Text className="text-sm font-medium text-text-primary">{t('home.plan.emptyTitle')}</Text>
       {preferences !== null && !preferences.plan_suggestion_hidden ? (
         <>
-          <Text className="mt-1 text-sm text-text-secondary">{t('home.plan.emptyBody')}</Text>
+          <Text className="mt-1 text-sm text-text-secondary">
+            {t(healthFirst ? 'home.plan.emptyBodyHealthFirst' : 'home.plan.emptyBody')}
+          </Text>
+          <HealthCheckSheet
+            visible={healthCheckOpen}
+            onClose={() => setHealthCheckOpen(false)}
+            onAnswered={draftPlan}
+          />
           <View className="mt-1 flex-row flex-wrap items-center">
             <Text
               className="min-h-11 py-3 pr-5 text-sm font-medium text-primary"
-              onPress={() => openDraft(t('home.plan.buildDraft'))}
+              onPress={() => (healthFirst ? setHealthCheckOpen(true) : draftPlan())}
               accessibilityRole="button"
               testID="home-plan-build"
             >

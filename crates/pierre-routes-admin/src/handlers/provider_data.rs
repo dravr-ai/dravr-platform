@@ -26,7 +26,11 @@
 //! `provider_data_purges` row in its own transaction.
 //! [`handle_list_provider_data_purges`] reads them back for an attestation.
 //!
+//! It deletes through [`ProviderPurge::purge_provider_data`], so the activity
+//! store's records of a live provider go with the rows.
+//!
 //! [`ProviderDataRepository::purge_provider_data`]: pierre_database::repositories::ProviderDataRepository::purge_provider_data
+//! [`ProviderPurge::purge_provider_data`]: pierre_database::repositories::ProviderPurge::purge_provider_data
 
 use std::sync::Arc;
 
@@ -110,7 +114,8 @@ async fn record_purge(
 ///
 /// Returns a database error when the connections cannot be counted, the
 /// audit row cannot be written, or the purge fails; nothing is deleted in
-/// any of those cases.
+/// any of those cases, save when the activity store's deletion fails after
+/// the tables were purged and attested, which a repeated purge finishes.
 pub async fn handle_purge_provider_data(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -131,13 +136,11 @@ pub async fn handle_purge_provider_data(
         .await?
         .len();
 
+    let purger = context.provider_purge.as_ref().ok_or_else(|| {
+        AppError::internal("This server was started without the provider data purge")
+    })?;
     record_purge(&context, &admin_token, provider, None).await?;
-    let purge = match context
-        .repos
-        .provider_data
-        .purge_provider_data(provider)
-        .await
-    {
+    let purge = match purger.purge_provider_data(provider).await {
         Ok(purge) => purge,
         Err(e) => {
             if let Err(audit) = record_purge(&context, &admin_token, provider, Some(&e)).await {

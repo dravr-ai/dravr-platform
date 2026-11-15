@@ -154,6 +154,7 @@ pub fn delegation_services(runtime: &dyn ToolRuntime) -> DelegationServices<'_> 
         registry: runtime.provider_registry(),
         cache: runtime.cache(),
         notifications,
+        purge: runtime.provider_purge(),
     }
 }
 

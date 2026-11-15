@@ -1,5 +1,5 @@
 // ABOUTME: Ending an impersonation session revokes its token at once, not when the hour runs out
-// ABOUTME: Drives the auth middleware with a real impersonation JWT before and after the session ends
+// ABOUTME: Drives the auth middleware with a real impersonation JWT; the consent screen never takes one as a session
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -19,7 +19,16 @@ use crate::helpers;
 use std::sync::Arc;
 
 use common::{create_test_server_resources, create_test_user_with_email};
-use helpers::axum_test::AxumTestRequest;
+use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
+use helpers::first_party_sign_in::{
+    authorize_uri, first_party_router, fresh_state, is_redirect, location, FirstPartyClient, Pkce,
+    DEFAULT_PEER,
+};
+use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
+use pierre_auth::oauth2_server::first_party::WEB_CLIENT_ID;
+use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
+use pierre_auth::security::cookies::auth_cookie_name;
+use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
 use pierre_core::models::User;
 use pierre_core::permissions::impersonation::ImpersonationSession;
@@ -254,4 +263,169 @@ async fn an_impersonation_token_for_another_sessions_target_is_refused() {
         .await
         .expect_err("an unknown session revokes its token");
     assert_eq!(refused.code, ErrorCode::AuthInvalid);
+}
+
+// ============================================================================
+// The consent screen: an impersonation is not the athlete's session
+// ============================================================================
+
+/// `GET /oauth2/authorize` for `client_id` at `redirect_uri`, carrying `jwt`
+/// in the web app's session cookie, the bridge the consent screen accepts.
+async fn authorize_with_web_cookie(
+    resources: &Arc<ServerContext>,
+    client_id: &str,
+    redirect_uri: &str,
+    jwt: &str,
+) -> AxumTestResponse {
+    let pkce = Pkce::generate();
+    AxumTestRequest::get(&authorize_uri(
+        client_id,
+        redirect_uri,
+        &pkce.challenge,
+        &fresh_state(),
+    ))
+    .header("cookie", &format!("{}={jwt}", auth_cookie_name()))
+    .send(first_party_router(resources, DEFAULT_PEER))
+    .await
+}
+
+/// The impersonation token behind `bearer`.
+fn raw(bearer: &str) -> &str {
+    bearer.strip_prefix("Bearer ").unwrap()
+}
+
+/// The target's own session, as the web app holds it.
+fn own_session(resources: &Arc<ServerContext>, target: &User) -> String {
+    resources
+        .auth
+        .auth_manager
+        .generate_token(target, &resources.auth.jwks_manager)
+        .unwrap()
+}
+
+/// The validator every session-taking surface shares refuses an
+/// impersonation token, while the middleware's own validator still accepts
+/// it: the impersonation keeps working on the routes it is for.
+#[tokio::test]
+async fn an_impersonation_token_does_not_validate_as_a_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, target, bearer) = live_impersonation(&resources, "validate").await;
+    let auth = &resources.auth;
+
+    let refused = auth
+        .auth_manager
+        .validate_session_token(raw(&bearer), &auth.jwks_manager)
+        .expect_err("an impersonation token is not a session");
+    assert_eq!(
+        refused.code,
+        ErrorCode::AuthInvalid,
+        "an impersonation token is refused as an invalid credential"
+    );
+
+    let claims = auth
+        .auth_manager
+        .validate_token(raw(&bearer), &auth.jwks_manager)
+        .expect("the token itself is valid");
+    assert_eq!(
+        claims.sub,
+        target.id.to_string(),
+        "the impersonation token names its target"
+    );
+    auth.auth_manager
+        .validate_session_token(&own_session(&resources, &target), &auth.jwks_manager)
+        .expect("the target's own session is one");
+}
+
+/// Placed in the web app's cookie, an impersonation token would sign the
+/// operator in to Dravr's own app as the athlete: the consent skip hands
+/// `dravr-web` a code at once, redeemed for an ordinary session that outlives
+/// the hour and the impersonation's end (carnet#1560). It is sent to log in
+/// instead, and the athlete's own session still gets its code.
+#[tokio::test]
+async fn an_impersonation_token_cannot_sign_in_to_a_first_party_app() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, target, bearer) = live_impersonation(&resources, "first-party").await;
+    let redirect_uri = FirstPartyClient::Web.redirect_uri(&resources.common.config.oauth2_server);
+
+    let response =
+        authorize_with_web_cookie(&resources, WEB_CLIENT_ID, &redirect_uri, raw(&bearer)).await;
+    let sent_to = location(&response);
+    assert!(
+        sent_to.starts_with("/oauth2/login") && !sent_to.contains("code="),
+        "no session: the operator is sent to log in, got {sent_to}"
+    );
+
+    let response = authorize_with_web_cookie(
+        &resources,
+        WEB_CLIENT_ID,
+        &redirect_uri,
+        &own_session(&resources, &target),
+    )
+    .await;
+    let sent_to = location(&response);
+    assert!(
+        sent_to.starts_with(&redirect_uri) && sent_to.contains("code="),
+        "the athlete's own session gets its code: {sent_to}"
+    );
+}
+
+/// Nor can it approve a third-party application in the athlete's name,
+/// even once the impersonation has ended.
+#[tokio::test]
+async fn an_impersonation_token_cannot_approve_a_third_party_application() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (session, target, bearer) = live_impersonation(&resources, "third-party").await;
+    let redirect_uri = "https://app.example.com/callback";
+    let client = ClientRegistrationManager::new(resources.common.repos.oauth2_server.clone())
+        .register_client(
+            ClientRegistrationRequest {
+                redirect_uris: vec![redirect_uri.to_owned()],
+                client_name: Some("Third-party application".to_owned()),
+                client_uri: None,
+                grant_types: None,
+                response_types: None,
+                scope: None,
+            },
+            MAX_PENDING_REGISTRATIONS,
+        )
+        .await
+        .unwrap();
+
+    let live =
+        authorize_with_web_cookie(&resources, &client.client_id, redirect_uri, raw(&bearer)).await;
+    assert!(
+        location(&live).starts_with("/oauth2/login"),
+        "a live impersonation is no session"
+    );
+    resources
+        .common
+        .repos
+        .impersonation
+        .end_session(&session.id)
+        .await
+        .unwrap();
+    let ended =
+        authorize_with_web_cookie(&resources, &client.client_id, redirect_uri, raw(&bearer)).await;
+    assert!(
+        location(&ended).starts_with("/oauth2/login"),
+        "nor is an ended one"
+    );
+
+    let own = authorize_with_web_cookie(
+        &resources,
+        &client.client_id,
+        redirect_uri,
+        &own_session(&resources, &target),
+    )
+    .await;
+    assert!(
+        !is_redirect(&own),
+        "the athlete's own session is not sent away from the consent screen, got {:?}",
+        own.header("location")
+    );
+    assert_eq!(
+        own.status(),
+        200,
+        "the athlete's own session reaches the consent screen"
+    );
 }

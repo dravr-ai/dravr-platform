@@ -1030,7 +1030,7 @@ fn fixed_parts(line: &str) -> Vec<String> {
 /// The two consent pages that between them show every line: a verified client,
 /// and an unverified one with a metadata document returning to this device.
 fn every_consent_line_in(locale: &str) -> [String; 2] {
-    let scopes = "fitness:read fitness:write profile:read profile:write";
+    let scopes = "fitness:read fitness:write profile:read profile:write offline_access";
     [
         consent_in(
             locale,
@@ -1045,6 +1045,30 @@ fn every_consent_line_in(locale: &str) -> [String; 2] {
             scopes,
         ),
     ]
+}
+
+/// `offline_access` reads as what it grants in every locale, like the other
+/// scopes, never as the bare token alone.
+#[test]
+fn offline_access_is_worded_in_every_locale() {
+    for locale in SUPPORTED_LOCALES {
+        let worded =
+            escape_html_attribute(&STRINGS.get("oauth.consent.scope.offlineAccess", locale));
+        assert!(
+            !worded.is_empty(),
+            "bug: {locale} has no offline_access line"
+        );
+        for html in every_consent_line_in(locale) {
+            assert!(
+                html.contains(&format!("<li>{worded} (offline_access)</li>")),
+                "bug: {locale} shows offline_access unworded: {html}"
+            );
+            assert!(
+                !html.contains("<li>offline_access</li>"),
+                "bug: {locale} shows the bare token: {html}"
+            );
+        }
+    }
 }
 
 #[test]
@@ -1144,7 +1168,7 @@ fn every_locale_names_its_own_allow_button_and_fills_the_page() {
             );
             assert!(html.contains(&format!(">{allow}</button>")), "{html}");
             let express = html
-                .split("<p class=\"fineprint\">")
+                .split("<p class=\"disclosure\">")
                 .skip(1)
                 .filter_map(|line| line.split("</p>").next())
                 .filter(|line| line.contains(allow.as_str()))
@@ -1153,7 +1177,7 @@ fn every_locale_names_its_own_allow_button_and_fills_the_page() {
             assert!(!html.contains("{{"), "{html}");
             assert!(!SLOT.is_match(page_body(&html)), "{html}");
             assert!(!html.contains("oauth.consent"), "no raw key: {html}");
-            assert!(!html.contains("<p class=\"fineprint\"></p>"), "{html}");
+            assert!(!html.contains("<p class=\"disclosure\"></p>"), "{html}");
         }
     }
 }

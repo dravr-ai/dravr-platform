@@ -176,6 +176,9 @@ const DATA_CLASSES: &[(&str, DataClass)] = &[
     ("compare_activities", DataClass::Training),
     ("analyze_weather_impact", DataClass::Training),
     ("export_latest_snapshot", DataClass::Training),
+    // One segment's efforts across the sessions, read from their details or
+    // the provider's live listing.
+    ("get_segment_history", DataClass::Training),
     // Trends, best efforts, predictions and the advice derived from the
     // sessions; a mode that would read the athlete's wellness is refused on a
     // coach's read.

@@ -369,7 +369,16 @@ async fn fetch_and_calculate_metrics(
     // A reading's fraction of heart-rate reserve, beside the heart rate and
     // the maximum it was read against, gives back the resting heart rate the
     // zones were cut from: the athlete's wellness, which a coach's read shows
-    // only under their wellness grant (carnet#1387).
+    // only under their wellness grant (carnet#1387). Under the grant, a
+    // reading against their saved resting heart rate is on the athlete's
+    // record before it is made (carnet#1445).
+    if params.heart_rate.is_some() && profile.as_ref().is_some_and(|p| p.resting_hr.is_some()) {
+        read_subject::record_analytics_wellness_read(
+            executor.resources.repos(),
+            "calculate_metrics",
+        )
+        .await?;
+    }
     let reading = read_subject::wellness_withheld().map_or_else(
         || heart_rate_reading(params.heart_rate, profile.as_ref(), max_hr.as_ref()),
         |withheld| {
