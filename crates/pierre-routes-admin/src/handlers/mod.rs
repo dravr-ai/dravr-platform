@@ -45,6 +45,8 @@ pub mod impersonation;
 /// The single-use invitation a pre-approval allow can mail: issue the link,
 /// hand it to the notifier, and report what became of it.
 mod invitations;
+/// The messaging identities an account is linked to, for the admin user read.
+mod linked_channels;
 pub mod llm_consumption;
 pub mod memory_worker;
 /// The new-user cohort: accounts created in a window and how far each got.
@@ -69,6 +71,8 @@ pub mod types;
 /// Admin endpoints that remove a user completely, or disconnect one provider
 /// for them, through the provider-disconnect chokepoint.
 pub mod user_removal;
+/// Make an account an admin, or a user again, over the admin API (carnet#1575).
+pub(crate) mod user_role;
 /// Admin endpoints for listing tenant users and managing their access.
 ///
 /// Includes the standing pre-approval allow-list

@@ -56,6 +56,7 @@ use pierre_core::models::{
 };
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::DatabaseBackend;
+use pierre_database::backends::CreateChannelLinkParams;
 use pierre_database::repositories::training_plans::PlanAuthor;
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
@@ -704,6 +705,83 @@ async fn get_user_names_the_coaching_platforms_a_reset_keeps() {
         serde_json::json!(["trainingpeaks"]),
         "{body}"
     );
+}
+
+/// The read lists the messaging identities linked to the account, so an admin
+/// can tell which account a Slack tap acts as without a SQL join
+/// (carnet#1576), and leaves the link's row id and tenant out.
+#[tokio::test]
+async fn get_user_lists_the_messaging_identities_linked_to_the_account() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let stub = RevokeStub::start().await;
+    let context = admin_context(&resources, &stub.url);
+    let (user_id, tenant_id, _) = seed_user(repos, "linked-read").await;
+    repos
+        .messaging
+        .create_channel_link(&CreateChannelLinkParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: &user_id.to_string(),
+            channel_type: "slack",
+            channel_user_id: "U0LINKEDREAD",
+            display_name: Some("Linked Reader"),
+        })
+        .await
+        .unwrap();
+
+    let response = handle_get_user(
+        State(context),
+        Extension(manage_users_token()),
+        Path(user_id.to_string()),
+    )
+    .await
+    .expect("get user handler");
+    let body = body_json(response.into_response()).await;
+    let links = body["data"]["linked_channels"]
+        .as_array()
+        .unwrap_or_else(|| panic!("the read lists linked channels: {body}"));
+    assert_eq!(links.len(), 1, "{body}");
+    assert_eq!(links[0]["channel"], "slack", "{body}");
+    assert_eq!(links[0]["channel_user_id"], "U0LINKEDREAD", "{body}");
+    assert_eq!(links[0]["display_name"], "Linked Reader", "{body}");
+    assert!(links[0]["linked_at"].is_string(), "{body}");
+    assert!(links[0].get("tenant_id").is_none(), "{body}");
+    assert_eq!(body["data"]["role"], "user", "{body}");
+}
+
+/// A token scoped to one tenant reads only that tenant's users: one outside
+/// it answers 404 like a missing account, so the read names no providers or
+/// linked identities of another tenant's user. Scoped to the user's own
+/// tenant, the read succeeds.
+#[tokio::test]
+async fn get_user_with_a_tenant_scoped_token_reads_only_its_tenants_users() {
+    let resources = resources().await;
+    let repos = &resources.common.repos;
+    let stub = RevokeStub::start().await;
+    let context = admin_context(&resources, &stub.url);
+    let (_, foreign_tenant, _) = seed_user(repos, "read-other-club").await;
+    let (user_id, tenant_id, email) = seed_user(repos, "read-scoped").await;
+
+    let error = handle_get_user(
+        State(context.clone()),
+        Extension(scoped_manage_users_token(foreign_tenant)),
+        Path(user_id.to_string()),
+    )
+    .await
+    .err()
+    .expect("another tenant's token reads nothing");
+    assert_eq!(error.code, ErrorCode::ResourceNotFound);
+
+    let response = handle_get_user(
+        State(context),
+        Extension(scoped_manage_users_token(tenant_id)),
+        Path(user_id.to_string()),
+    )
+    .await
+    .expect("the user's own tenant's token reads it");
+    let body = body_json(response.into_response()).await;
+    assert_eq!(body["data"]["email"], email.as_str(), "{body}");
 }
 
 #[tokio::test]

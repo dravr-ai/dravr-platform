@@ -581,7 +581,8 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let result =
-            admin_ops::promote_user_to_admin(&resources.data, auth.user_id, user_uuid).await?;
+            admin_ops::promote_user_to_admin(resources.data.repos(), auth.user_id, user_uuid)
+                .await?;
 
         Ok((
             StatusCode::OK,
@@ -617,7 +618,8 @@ impl WebAdminRoutes {
             .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
         let demotion =
-            admin_ops::demote_user_from_admin(&resources.data, auth.user_id, user_uuid).await?;
+            admin_ops::demote_user_from_admin(resources.data.repos(), auth.user_id, user_uuid)
+                .await?;
         // This route takes the console session only, so the trail names the
         // signed-in admin and the console.
         admin_ops::record_withdrawn_admin_credentials(

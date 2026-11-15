@@ -1,4 +1,4 @@
-// ABOUTME: Tests for the UserDetailDrawer tier override, group coach grant, monthly rate-limit override, impersonation and suspend offers
+// ABOUTME: Tests for the UserDetailDrawer tier override, group coach grant, monthly rate-limit override, impersonation, suspend offers and admin role
 // ABOUTME: Mocks adminApi + useAuth; asserts setUserTier/clearUserTier, setUserManagesRoster, setUserRateLimitOverride args; an admin is never impersonated; Suspend is offered on every active or pending account but the viewer's own
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -20,6 +20,7 @@ const clearUserTier = vi.fn();
 const setUserManagesRoster = vi.fn();
 const setUserRateLimitOverride = vi.fn();
 const clearUserRateLimitOverride = vi.fn();
+const setUserAdminRole = vi.fn();
 
 // Mock API service - factory must be self-contained (vi.mock is hoisted)
 vi.mock('../../services/api', () => ({
@@ -33,6 +34,7 @@ vi.mock('../../services/api', () => ({
     setUserManagesRoster: (...args: unknown[]) => setUserManagesRoster(...args),
     setUserRateLimitOverride: (...args: unknown[]) => setUserRateLimitOverride(...args),
     clearUserRateLimitOverride: (...args: unknown[]) => clearUserRateLimitOverride(...args),
+    setUserAdminRole: (...args: unknown[]) => setUserAdminRole(...args),
   },
 }));
 
@@ -519,5 +521,93 @@ describe('UserDetailDrawer group coach grant', () => {
     expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
       'Can coach a group (TrainingPeaks coach account)',
     );
+  });
+});
+
+describe('UserDetailDrawer admin role', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserRateLimit.mockResolvedValue({
+      user_id: 'user-42',
+      tier: 'starter',
+      rate_limits: { monthly: { limit: 3000, used: 0, remaining: 3000 } },
+      reset_times: { monthly_reset: '2026-08-01T00:00:00Z' },
+      override_active: false,
+      override_note: null,
+    });
+    getUserActivity.mockResolvedValue({
+      user_id: 'user-42',
+      period_days: 30,
+      total_requests: 0,
+      top_tools: [],
+    });
+    getUserUsage.mockResolvedValue({
+      user_id: 'user-42',
+      from: '2026-07-01T00:00:00Z',
+      by_model: [],
+      total_cost_usd: 0,
+      daily: [],
+    });
+    getUserAdminProfile.mockResolvedValue(null);
+  });
+
+  it('makes a user an admin only after the change is confirmed', async () => {
+    setUserAdminRole.mockResolvedValue({
+      id: 'user-42',
+      email: 'athlete@example.com',
+      is_admin: true,
+      role: 'admin',
+    });
+    await renderAndSettle();
+
+    fireEvent.click(screen.getByTestId('admin-role-change'));
+    expect(screen.getByTestId('admin-role-confirm')).toHaveTextContent(
+      'athlete@example.com gets every admin power',
+    );
+    expect(setUserAdminRole).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Make admin' }));
+
+    await waitFor(() => {
+      expect(setUserAdminRole).toHaveBeenCalledWith('user-42', true);
+    });
+    expect(await screen.findByTestId('admin-role-change')).toHaveTextContent('Remove admin role');
+  });
+
+  it('removes the admin role from another admin', async () => {
+    setUserAdminRole.mockResolvedValue({
+      id: 'user-42',
+      email: 'athlete@example.com',
+      is_admin: false,
+      role: 'user',
+    });
+    await renderAndSettle({ ...targetUser, role: 'admin', is_admin: true });
+
+    fireEvent.click(screen.getByTestId('admin-role-change'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove admin role' }));
+
+    await waitFor(() => {
+      expect(setUserAdminRole).toHaveBeenCalledWith('user-42', false);
+    });
+  });
+
+  it("shows the server's refusal, such as the last active admin", async () => {
+    setUserAdminRole.mockRejectedValue({
+      response: { status: 400, data: { message: 'Cannot demote the last active admin' } },
+    });
+    await renderAndSettle({ ...targetUser, role: 'admin', is_admin: true });
+
+    fireEvent.click(screen.getByTestId('admin-role-change'));
+    fireEvent.click(screen.getByRole('button', { name: 'Remove admin role' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Cannot demote the last active admin',
+    );
+  });
+
+  it("never offers the signed-in admin a change to its own role", async () => {
+    await renderAndSettle({ ...targetUser, id: 'admin-1', role: 'admin', is_admin: true });
+
+    expect(screen.queryByTestId('admin-role-change')).not.toBeInTheDocument();
   });
 });

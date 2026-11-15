@@ -49,12 +49,8 @@ pub(super) async fn answer_coach_access_tap(
         match authorize_admin(resources, &action.slack_user_id, AdminDecision::CoachAccess).await {
             Ok(operator) => operator,
             Err(refused) => {
-                keep_card_with_reason(
-                    resources,
-                    action,
-                    &format!("{decider}: {}", room_text(&refused)),
-                );
-                return Err(refused);
+                keep_card_with_reason(resources, action, &refused.room_line(&decider));
+                return Err(refused.error);
             }
         };
 

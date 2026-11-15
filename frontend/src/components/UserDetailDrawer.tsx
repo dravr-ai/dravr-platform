@@ -1,5 +1,5 @@
 // ABOUTME: Sliding drawer component that shows detailed user information
-// ABOUTME: Displays user profile, rate limits, activity, and admin actions (approve, suspend, impersonate, group coach grant)
+// ABOUTME: Displays user profile, rate limits, activity, and admin actions (approve, suspend, impersonate, group coach grant, admin role)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,7 +17,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { formatCost } from '../utils/formatCost';
 import { formatDateTime } from '@pierre/chat-utils';
-import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 import { offersSuspend } from '../utils/suspendOffer';
 import { useDialog } from '../hooks/useDialog';
 
@@ -41,6 +41,7 @@ export default function UserDetailDrawer({
   const [overrideNote, setOverrideNote] = useState<string>('');
   const [tierEditing, setTierEditing] = useState(false);
   const [tierValue, setTierValue] = useState<UserTier>('starter');
+  const [roleConfirming, setRoleConfirming] = useState(false);
   const { user: viewer, startImpersonation } = useAuth();
   const queryClient = useQueryClient();
 
@@ -158,6 +159,16 @@ export default function UserDetailDrawer({
     },
   });
 
+  const setAdminRoleMutation = useMutation({
+    mutationFn: (makeAdmin: boolean) =>
+      user ? adminApi.setUserAdminRole(user.id, makeAdmin) : Promise.reject(new Error('no user')),
+    onSuccess: () => {
+      setRoleConfirming(false);
+      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.adminUsers.list() });
+      queryClient.invalidateQueries({ queryKey: adminProfileKey });
+    },
+  });
+
   const titleId = useId();
   // Focus trap, focus restore, Escape and the scroll lock: one layer on the
   // same stack as every other dialog.
@@ -165,6 +176,13 @@ export default function UserDetailDrawer({
   const { containerRef } = useDialog({ open: isOpen && !!user, onClose });
 
   if (!isOpen || !user) return null;
+
+  // The drawer's `user` is the row it was opened from; after a role change
+  // the server's answer is what the account holds now.
+  const roleChange = setAdminRoleMutation.data;
+  const isAdmin = roleChange?.id === user.id ? roleChange.is_admin : hasAdminRole(user);
+  // The server refuses an admin's own demotion, so the drawer never offers it.
+  const offersRoleChange = user.id !== viewer?.id;
 
   const formatLimit = (limit: number | null) => {
     if (limit === null) return 'Unlimited';
@@ -751,6 +769,48 @@ export default function UserDetailDrawer({
                   </svg>
                   Reactivate User
                 </Button>
+              )}
+
+              {offersRoleChange && !roleConfirming && (
+                <Button
+                  onClick={() => setRoleConfirming(true)}
+                  variant="secondary"
+                  className="w-full justify-start"
+                  data-testid="admin-role-change"
+                >
+                  {isAdmin ? 'Remove admin role' : 'Make admin'}
+                </Button>
+              )}
+
+              {offersRoleChange && roleConfirming && (
+                <div className="space-y-2" data-testid="admin-role-confirm">
+                  <p className="text-sm text-on-surface">
+                    {isAdmin
+                      ? `${user.email} loses every admin power, and its device logins and impersonations end.`
+                      : `${user.email} gets every admin power, including managing other admins.`}
+                  </p>
+                  <div className="flex gap-2">
+                    <Button
+                      onClick={() => setAdminRoleMutation.mutate(!isAdmin)}
+                      disabled={setAdminRoleMutation.isPending}
+                    >
+                      {setAdminRoleMutation.isPending
+                        ? 'Saving…'
+                        : isAdmin
+                          ? 'Remove admin role'
+                          : 'Make admin'}
+                    </Button>
+                    <Button onClick={() => setRoleConfirming(false)} variant="secondary">
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {setAdminRoleMutation.isError && (
+                <p className="text-error text-xs" role="alert">
+                  {describeAdminError(setAdminRoleMutation.error, 'Could not change the admin role. Please try again.')}
+                </p>
               )}
 
               {canImpersonate && (

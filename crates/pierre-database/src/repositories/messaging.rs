@@ -545,8 +545,10 @@ pub trait MessagingRepository: Send + Sync {
     /// sender with `get_channel_link(bot_tenant, ..)`), while the athlete lives
     /// in their own tenant, so a tenant-scoped read would hide it from them.
     /// The row names its owner, and a user id is strictly narrower than a
-    /// tenant, so the result is only ever the caller's own links. Callers pass
-    /// the authenticated user's id, never one taken from a request.
+    /// tenant, so the result is only ever one account's links. Callers pass
+    /// the authenticated user's id, never one taken from a request, except the
+    /// admin user read, which lists the links of the account an admin token
+    /// names so an admin can see whom a Slack tap acts as (carnet#1576).
     async fn list_channel_links_for_user(&self, user_id: &str) -> AppResult<Vec<Value>>;
 
     /// List all channel links for a user

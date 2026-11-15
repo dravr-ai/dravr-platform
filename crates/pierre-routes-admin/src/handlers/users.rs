@@ -31,6 +31,7 @@ use pierre_services::user_removal::held_providers;
 
 use super::api_keys::json_response;
 use super::invitations::{self, send_invite_if_eligible};
+use super::linked_channels;
 use super::types::{
     AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
     UserActivityQuery,
@@ -235,20 +236,17 @@ pub async fn handle_get_user(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    let user = context
-        .as_ref()
-        .repos
-        .users
-        .get_global(user_uuid)
+    // A scoped token reads only the users of its tenant, and one outside it
+    // answers 404 like a missing one, as the password reset does: the read
+    // names the account's providers and its linked messaging identities.
+    let scope = if admin_token.is_super_admin {
+        None
+    } else {
+        token_tenant(&admin_token)?
+    };
+    let user = admin_ops::find_user_in_admin_scope(&context.repos, scope, user_uuid)
         .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch user from database");
-            AppError::internal(format!("Failed to fetch user: {e}"))
-        })?
-        .ok_or_else(|| {
-            warn!("User not found: {user_id}");
-            AppError::not_found("User not found")
-        })?;
+        .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
 
     // The providers the user holds, across tenants: what a delete would
     // disconnect, and what `pierre-cli user delete` previews without --yes.
@@ -289,6 +287,7 @@ pub async fn handle_get_user(
         .map(|group| json!({ "id": group.group_id, "name": group.name }))
         .collect();
 
+    let linked_channels = linked_channels::for_user(&context.repos, user_uuid).await?;
     info!(token_id = %admin_token.token_id, "Read user {user_id}");
 
     Ok(json_response(
@@ -312,6 +311,7 @@ pub async fn handle_get_user(
                 "reset_blockers": reset_blockers,
                 "reset_blockers_with_owned_groups_deleted": reset_blockers_with_owned_groups_deleted,
                 "owned_active_groups": owned_active_groups,
+                "linked_channels": linked_channels,
             })),
         },
         StatusCode::OK,

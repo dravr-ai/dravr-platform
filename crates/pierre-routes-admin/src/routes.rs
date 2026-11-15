@@ -31,7 +31,7 @@ use crate::handlers::{
     coach_access, coach_seat_invitations, connect_order, deletion_ledger, device_auth, device_web,
     engagement, feature_flags, guardian_config, harness_config, memory_worker, new_users,
     provider_clone, provider_data, settings, setup, signup_codes, strava_pool, tokens,
-    user_removal, users, website,
+    user_removal, user_role, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -339,6 +339,13 @@ impl AdminRoutes {
             .route(
                 "/admin/users/{user_id}/manages-roster",
                 post(users::handle_set_user_manages_roster),
+            )
+            // Make an account an admin or a user again (carnet#1575): a
+            // super-admin token that acts as an admin, inside the handler. The
+            // console promotes and demotes through its own session routes.
+            .route(
+                "/admin/users/{user_id}/role",
+                post(user_role::handle_set_user_role),
             )
             // The coach-access queue (carnet#738). Super-admin only inside
             // each handler, whichever surface reaches it.

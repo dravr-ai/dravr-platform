@@ -708,6 +708,22 @@ export const adminApi = {
     return response.data.data;
   },
 
+  /**
+   * Make an account an admin, or a user again, from the console session
+   * (`POST /api/admin/users/{id}/promote` or `/demote`). The server refuses a
+   * self-demotion and the last active admin.
+   */
+  async setUserAdminRole(userId: string, makeAdmin: boolean): Promise<{
+    id: string;
+    email: string;
+    is_admin: boolean;
+    role: string;
+  }> {
+    const action = makeAdmin ? 'promote' : 'demote';
+    const response = await axios.post(`/api/admin/users/${userId}/${action}`);
+    return response.data.user;
+  },
+
   async clearUserTier(userId: string): Promise<{ removed: boolean }> {
     const response = await axios.delete(`/api/admin/users/${userId}/tier`);
     return { removed: Boolean(response.data?.data?.removed) };

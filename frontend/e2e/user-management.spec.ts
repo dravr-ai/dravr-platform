@@ -407,6 +407,42 @@ test.describe('User Management - User Details', () => {
   });
 });
 
+test.describe('User Management - Admin role', () => {
+  const RISING = userRow({ id: 'user-7', email: 'rising@example.com', display_name: 'Rising User', user_status: 'active' });
+
+  test('makes a user an admin from the drawer once the change is confirmed', async ({ page }) => {
+    await setupUserManagementMocks(page, { pendingUsers: [], allUsers: [RISING] });
+    await mockUserDrawer(page, RISING);
+    let promoted = 0;
+    await page.route(`**/api/admin/users/${RISING.id}/promote`, async (route) => {
+      promoted += 1;
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          message: 'User promoted to admin successfully',
+          user: { id: RISING.id, email: RISING.email, is_admin: true, role: 'admin' },
+        }),
+      });
+    });
+
+    await loginAndNavigateToUsers(page);
+    await userTab(page, 'All Users').click();
+    const drawer = await openDrawer(page, RISING);
+
+    await drawer.getByTestId('admin-role-change').click();
+    const confirm = drawer.getByTestId('admin-role-confirm');
+    await expect(confirm).toContainText('rising@example.com gets every admin power');
+    expect(promoted).toBe(0);
+
+    await confirm.getByRole('button', { name: 'Make admin' }).click();
+
+    await expect(drawer.getByTestId('admin-role-change')).toHaveText('Remove admin role');
+    expect(promoted).toBe(1);
+  });
+});
+
 test.describe('User Management - Password Reset', () => {
   const TARGET = userRow({ id: 'user-1', email: 'user@example.com', display_name: 'Test User', user_status: 'active' });
 

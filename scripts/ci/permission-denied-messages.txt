@@ -61,6 +61,8 @@ crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required f
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for tool-usage analytics
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Acting on an admin account requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
+crates/pierre-routes-admin/src/handlers/user_role.rs:Changing an account's role requires a super-admin token
+crates/pierre-routes-admin/src/handlers/user_role.rs:Changing an account's role requires a token that acts as an admin
 crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
 crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submit it to the Store
 crates/pierre-routes-auth/src/account_deletion.rs:An account can only be deleted from a signed-in session

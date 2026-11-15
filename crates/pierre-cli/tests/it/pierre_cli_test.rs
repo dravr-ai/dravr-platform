@@ -420,20 +420,24 @@ fn test_cli_user_disallow_and_list_allowed_help_offer_remote_arguments() {
     );
 }
 
-/// `user set` grants the group coach permission (carnet#643) beside the tier,
-/// and refuses to run with neither field or with a value that is not a bool.
+/// `user set` grants the group coach permission (carnet#643) and sets the
+/// admin role (carnet#1575) beside the tier, and refuses to run with no field
+/// or with a value that is not a bool.
 #[test]
 fn test_cli_user_set_takes_manages_roster_and_requires_a_field() {
     let (exit_code, stdout, _stderr) = run_cli(&["user", "set", "--help"]);
     assert_eq!(exit_code, 0, "User set help should exit with 0");
     assert!(stdout.contains("--manages-roster"), "{stdout}");
     assert!(stdout.contains("--tier"), "{stdout}");
+    assert!(stdout.contains("--role"), "{stdout}");
 
     let (exit_code, _stdout, stderr) = run_cli(&["user", "set", "someone@example.com"]);
     assert_ne!(exit_code, 0, "user set with no field must fail");
     assert!(
-        stderr.contains("--tier") && stderr.contains("--manages-roster"),
-        "the refusal names both fields, got: {stderr}"
+        stderr.contains("--tier")
+            && stderr.contains("--manages-roster")
+            && stderr.contains("--role"),
+        "the refusal names every field, got: {stderr}"
     );
 
     let (exit_code, _stdout, stderr) = run_cli(&[
@@ -457,13 +461,24 @@ fn test_cli_user_set_takes_manages_roster_and_requires_a_field() {
 #[test]
 fn test_remote_user_verbs_never_open_the_local_database() {
     const CLOSED_PORT: &str = "http://127.0.0.1:1";
-    let invocations: [&[&str]; 7] = [
+    let invocations: [&[&str]; 8] = [
         &[
             "user",
             "set",
             "someone@example.com",
             "--manages-roster",
             "true",
+            "--server",
+            CLOSED_PORT,
+            "--token",
+            "not-a-real-token",
+        ],
+        &[
+            "user",
+            "set",
+            "someone@example.com",
+            "--role",
+            "admin",
             "--server",
             CLOSED_PORT,
             "--token",

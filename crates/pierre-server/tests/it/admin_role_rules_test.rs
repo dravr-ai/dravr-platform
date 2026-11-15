@@ -1822,3 +1822,110 @@ async fn an_impersonation_is_refused_once_its_target_holds_the_admin_role() {
         "the gate reads the target's row"
     );
 }
+
+/// Set `target`'s role with the admin token `bearer`, as
+/// `pierre-cli user set --role` does (carnet#1575), through the app the
+/// composition root serves, where every admin write is recorded.
+async fn set_role(
+    resources: &Arc<ServerContext>,
+    bearer: &str,
+    target: Uuid,
+    role: &str,
+) -> (u16, String) {
+    let response = AxumTestRequest::post(&format!("/admin/users/{target}/role"))
+        .header("authorization", bearer)
+        .json(&json!({ "role": role }))
+        .send(ProviderToolRouter::build_http_app(resources))
+        .await;
+    (response.status(), response.text())
+}
+
+/// The rows the trail holds of role changes made over the token API.
+async fn role_changes_on_the_trail(resources: &Arc<ServerContext>) -> Vec<AuditEventRecord> {
+    let filter = AuditEventFilter {
+        action_prefix: Some("user.role".to_owned()),
+        ..AuditEventFilter::default()
+    };
+    resources
+        .common
+        .repos
+        .admin_audit
+        .list(&filter, 50)
+        .await
+        .unwrap()
+}
+
+/// A deployed environment's admins are managed from `pierre-cli`: a device
+/// login, which acts as the admin who approved it, makes a user an admin and
+/// makes it a user again, and the trail names that admin each time.
+#[tokio::test]
+async fn a_device_login_promotes_a_user_and_demotes_it_again() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (acting, _) = account(&resources, "acting-cli@example.com", UserRole::Admin).await;
+    let (rising, _) = account(&resources, "rising-cli@example.com", UserRole::User).await;
+    let cli = device_login(&resources, &acting.email).await;
+
+    let (status, body) = set_role(&resources, &cli, rising.id, "admin").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(stored(&resources, rising.id).await.role, UserRole::Admin);
+
+    let (status, body) = set_role(&resources, &cli, rising.id, "user").await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(stored(&resources, rising.id).await.role, UserRole::User);
+
+    let trail = role_changes_on_the_trail(&resources).await;
+    assert_eq!(trail.len(), 2, "one row per change: {trail:?}");
+    for row in &trail {
+        assert_eq!(row.outcome, "success");
+        assert_eq!(row.source, "cli");
+        assert_eq!(
+            row.actor_user_id.as_deref(),
+            Some(acting.id.to_string().as_str()),
+            "the row names the admin behind the device login"
+        );
+    }
+    assert_eq!(trail[0].metadata["after"]["role"], "user", "{trail:?}");
+    assert_eq!(trail[1].metadata["after"]["role"], "admin", "{trail:?}");
+}
+
+/// A role change hands over or takes away every power, so a service token
+/// makes none: without the super-admin flag it lacks the rank, and with it
+/// the token still acts as no admin the change could be checked against.
+/// Nothing a refused request asked for is written.
+#[tokio::test]
+async fn a_service_token_changes_no_role() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (rising, _) = account(&resources, "service-target@example.com", UserRole::User).await;
+    let manage_users = service_token(&resources, "role-manage-users", false).await;
+    let super_service = service_token(&resources, "role-super-service", true).await;
+
+    let (status, body) = set_role(&resources, &manage_users, rising.id, "admin").await;
+    assert_eq!(status, 403, "{body}");
+    assert!(body.contains("requires a super-admin token"), "{body}");
+
+    let (status, body) = set_role(&resources, &super_service, rising.id, "admin").await;
+    assert_eq!(status, 403, "{body}");
+    assert!(body.contains("token that acts as an admin"), "{body}");
+
+    assert_eq!(stored(&resources, rising.id).await.role, UserRole::User);
+}
+
+/// An admin does not demote itself over the token API either, whoever else
+/// is an admin: a second admin is present, so the last-active-admin guard is
+/// not what answers. An unknown role is refused before anything is read.
+#[tokio::test]
+async fn a_device_login_does_not_demote_its_own_admin() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (acting, _) = account(&resources, "self-cli@example.com", UserRole::Admin).await;
+    account(&resources, "other-cli@example.com", UserRole::Admin).await;
+    let cli = device_login(&resources, &acting.email).await;
+
+    let (status, body) = set_role(&resources, &cli, acting.id, "user").await;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("Cannot demote yourself"), "{body}");
+    assert_eq!(stored(&resources, acting.id).await.role, UserRole::Admin);
+
+    let (status, body) = set_role(&resources, &cli, acting.id, "owner").await;
+    assert_eq!(status, 400, "{body}");
+    assert!(body.contains("expected admin or user"), "{body}");
+}

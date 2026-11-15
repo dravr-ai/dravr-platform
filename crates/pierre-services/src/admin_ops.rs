@@ -482,15 +482,14 @@ pub struct AdminUserSummary {
 /// if the target is already an admin, `NotFound` if the target does not exist,
 /// or `Internal` on repository failures.
 pub async fn promote_user_to_admin(
-    data: &DataContext,
+    repos: &RepositoryRegistry,
     admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<AdminPrivilegeChangeResult, AppError> {
-    require_admin(admin_user_id, &data.repos().users).await?;
+    require_admin(admin_user_id, &repos.users).await?;
 
     // SECURITY: Global lookup — admins promote across tenants
-    let user = data
-        .repos()
+    let user = repos
         .users
         .get_global(target_user_id)
         .await
@@ -501,8 +500,7 @@ pub async fn promote_user_to_admin(
         return Err(AppError::invalid_input("User is already an admin"));
     }
 
-    let updated = data
-        .repos()
+    let updated = repos
         .users
         .set_admin_status(target_user_id, true)
         .await
@@ -541,18 +539,17 @@ pub async fn promote_user_to_admin(
 /// active admin, `NotFound` if the target does not exist, or the repository's
 /// error on a failed write.
 pub async fn demote_user_from_admin(
-    data: &DataContext,
+    repos: &RepositoryRegistry,
     admin_user_id: Uuid,
     target_user_id: Uuid,
 ) -> Result<AdminDemotion, AppError> {
-    require_admin(admin_user_id, &data.repos().users).await?;
+    require_admin(admin_user_id, &repos.users).await?;
 
     if admin_user_id == target_user_id {
         return Err(AppError::invalid_input("Cannot demote yourself"));
     }
 
-    let user = data
-        .repos()
+    let user = repos
         .users
         .get_global(target_user_id)
         .await
@@ -563,11 +560,7 @@ pub async fn demote_user_from_admin(
         return Err(AppError::invalid_input("User is not an admin"));
     }
 
-    let write = data
-        .repos()
-        .users
-        .set_admin_status(target_user_id, false)
-        .await?;
+    let write = repos.users.set_admin_status(target_user_id, false).await?;
     let (updated, withdrawn) = (write.user, write.withdrawn);
 
     info!(
@@ -667,7 +660,8 @@ pub async fn issue_password_reset_token(
     Ok(generated.token)
 }
 
-/// Find the user an admin is resetting a password for, within the admin's scope.
+/// Find the user an admin reads or resets a password for, within the admin's
+/// scope.
 ///
 /// `scope` is `None` for a platform-wide caller (an admin's console session,
 /// or an admin token bound to no tenant) and the admin's tenant otherwise, in which case a

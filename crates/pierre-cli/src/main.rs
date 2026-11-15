@@ -423,7 +423,7 @@ enum UserCommand {
 
     /// Set a field on a user over the admin API
     #[command(group(
-        ArgGroup::new("field").required(true).multiple(true).args(["tier", "manages_roster"])
+        ArgGroup::new("field").required(true).multiple(true).args(["tier", "manages_roster", "role"])
     ))]
     Set {
         /// Email or user id
@@ -438,6 +438,11 @@ enum UserCommand {
         /// disconnect.
         #[arg(long, value_name = "true|false")]
         manages_roster: Option<bool>,
+
+        /// Make the account an admin, or a user again. Takes a super-admin
+        /// login; demoting yourself or the last active admin is refused.
+        #[arg(long, value_name = "admin|user")]
+        role: Option<String>,
 
         /// Operator note recorded on the tier override marker
         #[arg(long)]
