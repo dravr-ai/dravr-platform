@@ -241,6 +241,26 @@ describe('ClaimVerdictsTab', () => {
     expect(screen.getByText(/Showing 2 verdicts/)).toBeInTheDocument();
   });
 
+  // The status badge reads the one status -> tone mapping the chat chip and
+  // the drawer read: an unverifiable claim has no hue, so it is neutral.
+  it('draws each status badge in the tone the chip and the drawer give it', async () => {
+    vi.mocked(adminApi.listClaimVerdicts).mockResolvedValueOnce({
+      verdicts: [
+        sampleVerdict({ id: 'v1', status: 'contradicted', claim_text: 'Contradicted claim' }),
+        sampleVerdict({ id: 'v2', status: 'unverifiable', claim_text: 'Unverifiable claim' }),
+      ],
+      total: 2,
+    });
+    renderTab();
+    await waitFor(() => {
+      expect(screen.getByText('Unverifiable claim')).toBeInTheDocument();
+    });
+    const badge = (text: string) =>
+      screen.getAllByText(text).find((element) => element.classList.contains('badge'));
+    expect(badge('unverifiable')).toHaveClass('badge-neutral');
+    expect(badge('contradicted')).toHaveClass('badge-error');
+  });
+
   // The admin table and the chat chip open the SAME drawer now — one component,
   // one category label, one `formatTimestamp`. Its heading is the chat
   // one's, so an assertion on the deleted admin heading is what turns red if

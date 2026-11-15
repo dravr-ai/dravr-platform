@@ -67,8 +67,11 @@ import type { ThemeColors } from '../contexts/ThemeContext';
 import type { ViewStyle } from 'react-native';
 export type { AppearancePref } from '../hooks/useAppearancePref';
 
+/** The pillar a coach category draws its hue from. */
+type CategoryPillar = 'activity' | 'nutrition' | 'recovery' | 'mobility';
+
 /**
- * The accent for an agent/coach category, drawn from the pillar tokens.
+ * The one category table: which pillar a coach category belongs to, or none.
  *
  * Three screens each carried their own hardcoded map of this and the three had
  * already drifted apart: recovery was `#0d3b2e` in the editor and `#5e7a82` in
@@ -77,43 +80,68 @@ export type { AppearancePref } from '../hooks/useAppearancePref';
  * Product tier surface. None of them moved with the athlete's appearance
  * setting, because a module-level hex cannot.
  *
- * `categoryAccent` is the FILL. Drawn as a label it does not clear AA on a
- * tint of itself, so text over that fill takes `categoryInk` — the same hue
- * carried along its lightness axis until it reads. Use them as a pair.
- *
  * `category` is the English key stored on the coach and sent to the API, so it
- * is matched as data rather than translated. An unknown category falls back to
- * `primary` — the same answer `custom` gets, which is the honest one for "a
- * category this build does not have a pillar for".
+ * is matched as data rather than translated, with its case folded as the web's
+ * `coachCategoryPillar` folds it. `custom`, and any key this build
+ * has no pillar for, answers `null`; each reader below says what that draws,
+ * matching the web element it twins. Recipes are food, so they sit under
+ * nutrition — the web's `coachCategoryPillar` does the same.
  */
-export function categoryInk(colors: ThemeColors, category: string): string {
-  switch (category) {
+function categoryPillar(category: string): CategoryPillar | null {
+  switch (category.toLowerCase()) {
     case 'training':
-      return colors.ink.activity;
+      return 'activity';
     case 'nutrition':
     case 'recipes':
-      return colors.ink.nutrition;
+      return 'nutrition';
     case 'recovery':
-      return colors.ink.recovery;
+      return 'recovery';
     case 'mobility':
-      return colors.ink.mobility;
+      return 'mobility';
     default:
-      return colors.tokens.onPrimaryContainer;
+      return null;
   }
 }
 
+/**
+ * The fill class of each pillar's dot, as whole class strings so NativeWind
+ * generates every one; the tokens follow the appearance setting on their own.
+ */
+const PILLAR_DOT_CLASS: Record<CategoryPillar, string> = {
+  activity: 'bg-activity',
+  nutrition: 'bg-nutrition',
+  recovery: 'bg-recovery',
+  mobility: 'bg-mobility',
+};
+
+/**
+ * The fill class of the dot beside a category word — the web's
+ * `coachCategoryDotClass`: the pillar's hue, and `bg-outline-variant` for a
+ * category with no pillar, so a custom agent's dot is neutral rather than
+ * claiming the brand colour. A dot is a fill that carries no text, so it
+ * needs no ink.
+ */
+export function categoryDotClass(category: string): string {
+  const pillar = categoryPillar(category);
+  return pillar ? PILLAR_DOT_CLASS[pillar] : 'bg-outline-variant';
+}
+
+/**
+ * A category's tint and the ink drawn on it, for a label or glyph set on a
+ * wash of the category's hue (`DiscoverRow`'s initials).
+ *
+ * `categoryAccent` is the FILL. Drawn as a label it does not clear AA on a
+ * tint of itself, so text over that fill takes `categoryInk` — the same hue
+ * carried along its lightness axis until it reads. Use them as a pair. A
+ * category with no pillar takes the primary pair, the web's initials avatar
+ * (`primary-container` under `on-primary-container`).
+ */
+export function categoryInk(colors: ThemeColors, category: string): string {
+  const pillar = categoryPillar(category);
+  return pillar ? colors.ink[pillar] : colors.tokens.onPrimaryContainer;
+}
+
 export function categoryAccent(colors: ThemeColors, category: string): string {
-  switch (category) {
-    case 'training':
-      return colors.pierre.activity;
-    case 'nutrition':
-    case 'recipes':
-      return colors.pierre.nutrition;
-    case 'recovery':
-      return colors.pierre.recovery;
-    case 'mobility':
-      return colors.pierre.mobility;
-    default:
-      return colors.tokens.primary;
-  }
+  const pillar = categoryPillar(category);
+  return pillar ? colors.pierre[pillar] : colors.tokens.primary;
 }

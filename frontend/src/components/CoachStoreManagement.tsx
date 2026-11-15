@@ -8,6 +8,7 @@ import { useState, lazy, Suspense } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
+import { BADGE_TONE } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 
@@ -221,7 +222,7 @@ export default function CoachStoreManagement() {
               {tab.icon}
               {tab.name}
               {tab.id === 'review' && (stats?.pending_count ?? 0) > 0 && (
-                <span className="bg-primary/20 text-primary text-xs font-bold px-2 py-0.5 rounded-full">
+                <span className={`${BADGE_TONE.primary.tone} text-xs font-bold px-2 py-0.5 rounded-full`}>
                   {stats?.pending_count}
                 </span>
               )}

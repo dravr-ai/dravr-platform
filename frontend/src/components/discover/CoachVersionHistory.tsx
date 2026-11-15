@@ -10,6 +10,7 @@ import type { Agent, AgentFieldChange, AgentVersion } from '@pierre/shared-types
 import { useTranslation } from '@pierre/i18n';
 import { formatDateTime } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
+import { coachCategoryLabelKey } from '@pierre/shared-constants';
 import { coachesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog, Section } from '../ui';
@@ -32,16 +33,6 @@ const FIELD_LABEL_KEYS: Record<string, string> = {
   visibility: 'discover.versionVisibilityLabel',
 };
 
-const CATEGORY_KEYS: Record<string, string> = {
-  training: 'chat.categoryTraining',
-  nutrition: 'chat.categoryNutrition',
-  recovery: 'chat.categoryRecovery',
-  recipes: 'chat.categoryRecipes',
-  mobility: 'chat.categoryMobility',
-  analysis: 'chat.categoryAnalysis',
-  custom: 'chat.categoryCustom',
-};
-
 const VISIBILITY_KEYS: Record<string, string> = {
   private: 'discover.visibilityPrivate',
   tenant: 'discover.visibilityTenant',
@@ -58,7 +49,7 @@ function displayValue(field: string, value: unknown, t: Translate): string {
   }
   if (typeof value === 'string') {
     const enumKey =
-      field === 'category' ? CATEGORY_KEYS[value] : field === 'visibility' ? VISIBILITY_KEYS[value] : undefined;
+      field === 'category' ? coachCategoryLabelKey(value) : field === 'visibility' ? VISIBILITY_KEYS[value] : undefined;
     return enumKey ? t(enumKey) : value;
   }
   return JSON.stringify(value);

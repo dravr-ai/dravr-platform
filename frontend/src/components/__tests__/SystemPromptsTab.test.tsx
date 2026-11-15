@@ -186,6 +186,7 @@ describe('SystemPromptsTab', () => {
       '101 prompts: 22 system, 75 agent per language, 4 persona. 76 synced from contremaitre, 25 seed copies.',
     );
     expect(screen.getByText('Sync configured')).toBeTruthy();
+    expect(screen.getByText('Sync configured')).toHaveClass('badge-success');
     expect(screen.queryByText('Connected')).toBeNull();
     expect(await screen.findByText('synced')).toBeTruthy();
   });

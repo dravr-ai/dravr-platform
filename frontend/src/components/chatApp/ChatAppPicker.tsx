@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import type { AvailableChannel } from '@pierre/api-client';
 import { useTranslation } from '@pierre/i18n';
+import { Badge } from '../ui';
 
 /**
  * Messaging-channel picker. The person chooses which chat app to connect so
@@ -84,9 +85,7 @@ function ChannelRow({
         <span className="flex items-center gap-2">
           <span className="text-sm font-medium text-on-surface">{channel.display_name}</span>
           {channel.recommended ? (
-            <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
-              {t('onboarding.channelRecommended')}
-            </span>
+            <Badge variant="primary">{t('onboarding.channelRecommended')}</Badge>
           ) : null}
         </span>
         <span className="block text-xs text-on-surface-variant">{hint}</span>

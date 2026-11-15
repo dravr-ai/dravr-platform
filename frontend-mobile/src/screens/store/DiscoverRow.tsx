@@ -9,7 +9,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { initialsFor } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { coachCategoryLabelKey, countKey, INSTALL_COUNT_KEYS } from '@pierre/shared-constants';
-import { categoryAccent, categoryInk, useThemeColors } from '../../constants/theme';
+import { categoryAccent, categoryDotClass, categoryInk, useThemeColors } from '../../constants/theme';
 import type { StoreAgent } from '../../types';
 
 /** The tint alpha behind the initials glyph — the same suffix `InitialsAvatar` uses for its own circle. */
@@ -27,9 +27,9 @@ export interface DiscoverRowProps {
 
 /**
  * A coach is not a provider brand, so its glyph is not `providerGlyph` — it
- * is the agent's own initials tinted by its pillar category, the same pairing
- * the category badge and the editor's category picker already draw with
- * `categoryAccent`/`categoryInk`.
+ * is the agent's own initials tinted by its pillar category with the
+ * `categoryAccent`/`categoryInk` pair; the dot beside the title is
+ * `categoryDotClass`, neutral for a category with no pillar, as on the web.
  */
 export function DiscoverRow({ agent, onPress, index }: DiscoverRowProps) {
   const { t, language } = useTranslation();
@@ -82,7 +82,7 @@ export function DiscoverRow({ agent, onPress, index }: DiscoverRowProps) {
           <View
             testID="category-badge"
             accessibilityLabel={t(coachCategoryLabelKey(agent.category))}
-            style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: accent, marginLeft: 6 }}
+            className={`ml-1.5 h-1.5 w-1.5 rounded-full ${categoryDotClass(agent.category)}`}
           />
           <Text
             testID="install-count"

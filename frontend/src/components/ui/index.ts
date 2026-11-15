@@ -13,6 +13,8 @@ export type { SectionProps } from './Section';
 export { EmptyState } from './EmptyState';
 export type { EmptyStateProps, EmptyStateAction } from './EmptyState';
 export { Badge } from './Badge';
+export { BADGE_TONE } from './badgeTone';
+export type { BadgeTone } from './badgeTone';
 export { StatusIndicator } from './StatusIndicator';
 export { StatusFilter } from './StatusFilter';
 export type { StatusFilterProps, StatusFilterValue } from './StatusFilter';

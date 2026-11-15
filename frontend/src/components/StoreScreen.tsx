@@ -18,6 +18,7 @@ import PostInstallHint from './discover/PostInstallHint';
 import { homeConversationRoute } from './home/homeRoute';
 import { openNewChat } from './home/openNewChat';
 import { conversationCapOf } from './chat/conversationCap';
+import { coachCategoryDotClass } from './coachCategory';
 import { useTranslation } from '@pierre/i18n';
 import { formatCount, formatDate, initialsFor } from '@pierre/chat-utils';
 import {
@@ -53,17 +54,6 @@ const SORT_OPTIONS = [
 ] as const;
 
 type SortOption = typeof SORT_OPTIONS[number]['key'];
-
-// An agent's pillar is an 8px dot beside its category word — meaning, not a
-// coloured chip (DESIGN.md §2). Recipes sit under nutrition.
-const COACH_CATEGORY_DOT: Record<string, string> = {
-  training: 'bg-activity',
-  nutrition: 'bg-nutrition',
-  recovery: 'bg-recovery',
-  recipes: 'bg-nutrition',
-  mobility: 'bg-mobility',
-  custom: 'bg-outline-variant',
-};
 
 /**
  * The agent the install put on the athlete's team — the listing itself for a
@@ -636,7 +626,9 @@ interface CoachCardProps {
  */
 const CoachCard = memo(function CoachCard({ coach, onClick, pick }: CoachCardProps) {
   const { t, language } = useTranslation();
-  const categoryDot = COACH_CATEGORY_DOT[coach.category] ?? 'bg-outline-variant';
+  // An agent's pillar is a dot beside its category word — meaning, not a
+  // coloured chip (DESIGN.md §2).
+  const categoryDot = coachCategoryDotClass(coach.category);
   const rowClass =
     'group flex min-h-[64px] w-full items-center gap-3.5 border-t ghost-border-faint py-3 text-left transition-colors first:border-t-0';
 
@@ -800,7 +792,9 @@ function CoachDetailView({
     );
   }
 
-  const categoryDot = COACH_CATEGORY_DOT[coach.category] ?? 'bg-outline-variant';
+  // An agent's pillar is a dot beside its category word — meaning, not a
+  // coloured chip (DESIGN.md §2).
+  const categoryDot = coachCategoryDotClass(coach.category);
 
   return (
     <div className="h-full flex flex-col bg-surface">

@@ -46,6 +46,7 @@ import { linkifyUrls } from '@pierre/domain-utils';
 import { SLASH_HINT_KEY, VERDICT_SPOKEN_SEPARATOR, verdictChipLabel } from '@pierre/shared-constants';
 import { spacing, typeScale, borderRadius, useThemeColors } from '../../constants/theme';
 import type { Message } from '../../types';
+import { BADGE_TONE, badgeInkColor, type BadgeVariant } from '../../components/ui';
 import type {
   ChatMessageAction,
   ClaimVerdict,
@@ -338,47 +339,14 @@ function CollapsibleActivities({
   );
 }
 
-/** The two halves of a verdict chip: what it is filled with, and what reads on that fill. */
-export interface VerdictChipPalette {
-  /** The chip's ground — the tone's own hue at container weight. */
-  fill: string;
-  /** The ink bound to that ground. Label and icon both take it. */
-  ink: string;
-}
-
 /**
- * Container weight for a feedback tint — 15%, the same fraction the web chip
- * spells as `/15`. Hex alpha, because these fills are composed as strings.
+ * The badge tone a verdict's rollup tone draws in — the turn's chip, and each
+ * card's status word in the sheet. The five feedback tones are the Badge's
+ * own; a toneless (`secondary`) verdict has no hue to carry, so it takes the
+ * neutral pair, which is what web draws too.
  */
-const VERDICT_TINT_ALPHA = '26';
-
-/**
- * Ground and ink for the tone the shared rollup assigns a verdict — the turn's
- * chip, and each card's in the sheet.
- *
- * One function returns both because they are one decision. A hue drawn as text
- * on a tint of itself does not clear AA: light `warning` measures 2.73:1 that
- * way, against 6.41:1 for the ink the token tree binds to that tint. So the
- * fill stays the tone's hue and the label takes `colors.ink.*` — the same hue
- * carried along its lightness axis — or the on-colour the tree already names,
- * where it names one.
- */
-export function verdictChipPalette(tone: VerdictTone, colors: ThemeColors): VerdictChipPalette {
-  switch (tone) {
-    case 'success':
-      return { fill: `${colors.success}${VERDICT_TINT_ALPHA}`, ink: colors.ink.success };
-    case 'warning':
-      return { fill: `${colors.warning}${VERDICT_TINT_ALPHA}`, ink: colors.ink.warning };
-    case 'error':
-      return { fill: `${colors.error}${VERDICT_TINT_ALPHA}`, ink: colors.tokens.onErrorContainer };
-    case 'info':
-      return { fill: `${colors.info}${VERDICT_TINT_ALPHA}`, ink: colors.ink.info };
-    // A toneless verdict has no hue to carry, so its chip is the neutral pair:
-    // a wash of the muted ink under body copy, which is what web draws too.
-    case 'secondary':
-    default:
-      return { fill: `${colors.text.secondary}${VERDICT_TINT_ALPHA}`, ink: colors.text.primary };
-  }
+export function verdictBadgeVariant(tone: VerdictTone): BadgeVariant {
+  return tone === 'secondary' ? 'neutral' : tone;
 }
 
 /** How many dots say "typing". */
@@ -731,7 +699,7 @@ export function MessageList({
             : block.chips.map(verdictChipSeverity);
         const summary = summarizeVerdicts(severities);
         if (!summary) return null;
-        const chip = verdictChipPalette(summary.tone, colors);
+        const tone = verdictBadgeVariant(summary.tone);
         return (
           <TouchableOpacity
             key={key}
@@ -740,8 +708,7 @@ export function MessageList({
             accessibilityLabel={t('app.claimVerdictsStatus', {
               status: verdictChipLabel(t, summary, language, VERDICT_SPOKEN_SEPARATOR),
             })}
-            className="flex-row items-center self-start mt-2 px-2 py-1 rounded-full"
-            style={{ backgroundColor: chip.fill }}
+            className={`flex-row items-center self-start mt-2 px-2 py-1 rounded-full ${BADGE_TONE[tone].fill}`}
             onPress={() => onShowVerdict?.(context.rows, context.messageId)}
           >
             {/* The shield is the tone's other carrier — half-filled when the
@@ -750,9 +717,9 @@ export function MessageList({
             <Ionicons
               name={verdictToneAlerts(summary.tone) ? 'shield-half-outline' : 'shield-outline'}
               size={12}
-              color={chip.ink}
+              color={badgeInkColor(tone, colors)}
             />
-            <Text className="text-xs ml-1" style={{ color: chip.ink }}>
+            <Text className={`text-xs ml-1 ${BADGE_TONE[tone].ink}`}>
               {verdictChipLabel(t, summary, language)}
             </Text>
           </TouchableOpacity>

@@ -24,7 +24,6 @@ import {
   summarizeVerdicts,
   verdictChipSeverity,
   verdictToneAlerts,
-  type VerdictTone,
 } from '@pierre/shared-types';
 import type { Message, MessageMetadata, MessageFeedback } from './types';
 import {
@@ -57,6 +56,8 @@ import CoachAvatar from './CoachAvatar';
 import WorkoutPlanCard from './WorkoutPlanCard';
 import EnvelopeNotice from './EnvelopeNotice';
 import PlanDraftControls from './PlanDraftControls';
+import { verdictBadgeTone } from './verdictBadgeTone';
+import { BADGE_TONE } from '../ui';
 import MessageBubble from './MessageBubble';
 import { PrivateReplyTag } from './PrivateLane';
 import { MARKDOWN_COMPONENTS } from './markdownComponents';
@@ -130,23 +131,6 @@ interface MessageItemProps {
    * Absent wherever the row cannot be quoted.
    */
   onAdjustPlan?: () => void;
-}
-
-/** Chip classes for the tone the shared rollup assigned the worst verdict. */
-function chipClassForTone(tone: VerdictTone): string {
-  switch (tone) {
-    case 'success':
-      return 'bg-success/15 text-on-success-container hover:bg-success/25';
-    case 'warning':
-      return 'bg-warning/15 text-on-warning-container hover:bg-warning/25';
-    case 'error':
-      return 'bg-error/15 text-error hover:bg-error/25';
-    case 'info':
-      return 'bg-info/15 text-on-info-container hover:bg-info/25';
-    case 'secondary':
-    default:
-      return 'bg-surface-container-high text-on-surface hover:bg-surface-container-highest';
-  }
 }
 
 /**
@@ -379,6 +363,7 @@ const MessageItem = memo(function MessageItem({
         const summary = summarizeVerdicts(severities);
         if (!summary || isUser) return null;
         const single = messageVerdicts.length === 1 ? messageVerdicts[0] : null;
+        const tone = verdictBadgeTone(summary.tone);
         return (
           <div key={key} className="mt-2 flex flex-wrap items-center gap-2">
             <button
@@ -390,7 +375,7 @@ const MessageItem = memo(function MessageItem({
                 status: verdictChipLabel(t, summary, i18n.language, VERDICT_SPOKEN_SEPARATOR),
               })}
               onClick={onShowVerdict ? () => onShowVerdict(messageVerdicts, message.id) : undefined}
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors focus-ring ${chipClassForTone(summary.tone)}`}
+              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs transition-colors focus-ring ${BADGE_TONE[tone].tone} ${BADGE_TONE[tone].hover}`}
               title={
                 // The tooltip names the status the chip leads with — a
                 // supported reply's is « supported », never the « worst » —

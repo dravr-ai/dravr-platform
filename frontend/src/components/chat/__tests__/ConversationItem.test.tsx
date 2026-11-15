@@ -160,6 +160,7 @@ describe('ConversationItem anatomy', () => {
     const badge = screen.getByTestId('conversation-channel-badge');
     expect(badge).toHaveTextContent('Telegram');
     expect(badge).toHaveAccessibleName('From Telegram');
+    expect(badge).toHaveClass('badge-primary');
   });
 
   it('prints the stored title as-is, and draws a room as a square and an agent as a circle', () => {

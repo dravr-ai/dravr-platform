@@ -13,7 +13,7 @@ import {
 } from "@pierre/i18n";
 import { adminApi } from "../services/api";
 import { useAdminScope } from "../hooks/useAdminScope";
-import { Card, Button, Textarea } from "./ui";
+import { BADGE_TONE, Card, Button, Textarea } from "./ui";
 import { clsx } from "clsx";
 import { ADMIN_LOCALE } from "../utils/adminLocale";
 
@@ -256,16 +256,14 @@ export default function SystemPromptsTab() {
                 <span
                   className={clsx(
                     "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
-                    status.configured
-                      ? "bg-activity/10 text-on-activity-container"
-                      : "bg-on-surface-variant/10 text-on-surface-variant",
+                    BADGE_TONE[status.configured ? "success" : "secondary"].tone,
                   )}
                 >
                   <span
                     className={clsx(
                       "w-1.5 h-1.5 rounded-full",
                       status.configured
-                        ? "bg-activity"
+                        ? "bg-success"
                         : "bg-on-surface-variant",
                     )}
                   />
@@ -364,9 +362,7 @@ export default function SystemPromptsTab() {
                         <span
                           className={clsx(
                             "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
-                            prompt.source === "contremaitre"
-                              ? "bg-activity/10 text-on-activity-container"
-                              : "bg-on-surface-variant/10 text-on-surface-variant",
+                            BADGE_TONE[prompt.source === "contremaitre" ? "success" : "secondary"].tone,
                           )}
                         >
                           {prompt.source === "contremaitre"
@@ -450,9 +446,7 @@ export default function SystemPromptsTab() {
                       <span
                         className={clsx(
                           "inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium",
-                          promptDetail.source === "contremaitre"
-                            ? "bg-activity/10 text-on-activity-container"
-                            : "bg-on-surface-variant/10 text-on-surface-variant",
+                          BADGE_TONE[promptDetail.source === "contremaitre" ? "success" : "secondary"].tone,
                         )}
                       >
                         {promptDetail.source === "contremaitre"

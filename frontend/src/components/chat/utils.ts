@@ -7,12 +7,6 @@
 // OAuth-aware URL formatting
 export { getFriendlyUrlName, linkifyUrls } from '@pierre/domain-utils';
 
-// Category styling helpers
-export { getCategoryBadgeClass, getCategoryIcon } from '@pierre/domain-utils';
-
-// Agent category list (title-case labels for display)
-export const COACH_CATEGORIES = ['Training', 'Nutrition', 'Recovery', 'Recipes', 'Mobility', 'Analysis', 'Custom'] as const;
-
 /** The element id of a topic's divider, which History's topic list scrolls to. */
 export function topicAnchorId(dividerId: string): string {
   return `topic-${dividerId}`;

@@ -14,7 +14,8 @@ import {
 import type { AdminTimeRange } from "../hooks/useAdminTimeRange";
 import AdminScopeBar from "./AdminScopeBar";
 import { usageAnalyticsQuery } from "./analyticsQueries";
-import { Card } from "./ui";
+import { BADGE_TONE, Card } from "./ui";
+import { coachCategoryTone } from "./coachCategory";
 import { ADMIN_LOCALE } from "../utils/adminLocale";
 
 interface EngagementTabProps {
@@ -212,7 +213,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
                         </p>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className="text-xs px-2 py-1 rounded bg-primary/20 text-primary">
+                        <span className={`text-xs px-2 py-1 rounded ${BADGE_TONE[coachCategoryTone(coach.category)].tone}`}>
                           {coach.category || "general"}
                         </span>
                       </td>

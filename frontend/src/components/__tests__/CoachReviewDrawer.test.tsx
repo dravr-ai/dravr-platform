@@ -112,6 +112,8 @@ describe('CoachReviewDrawer', () => {
     expect(screen.getByText('Review Agent')).toBeInTheDocument();
     expect(screen.getByText('Marathon Training Coach')).toBeInTheDocument();
     expect(screen.getByText('Training')).toBeInTheDocument();
+    expect(screen.getByText('Training')).toHaveClass('badge-activity');
+    expect(screen.getByText('Pending Review')).toHaveClass('badge-primary');
   });
 
   it('shows the agent description', () => {
@@ -140,11 +142,34 @@ describe('CoachReviewDrawer', () => {
     expect(screen.getAllByTestId('package-artefact')).toHaveLength(2);
     expect(screen.getByText('house-threshold')).toBeInTheDocument();
     expect(screen.getByText('house_4x8')).toBeInTheDocument();
-    expect(screen.getByText('no evidence cited')).toBeInTheDocument();
+    expect(screen.getByText('no evidence cited')).toHaveClass('badge-warning');
     expect(
       screen.getByText(/evidence\/sports_science\/training_prescription\/nobody-2030-missing\.md/)
     ).toBeInTheDocument();
     expect(screen.queryByTestId('package-evidence-unchecked')).not.toBeInTheDocument();
+  });
+
+  it('marks an artefact whose stored text no longer parses, with the parser error under it', () => {
+    renderCoachReviewDrawer({
+      ...mockCoach,
+      package: {
+        artefacts: [
+          {
+            kind: 'skeleton' as const,
+            slug: 'broken-base',
+            sha256: 'c'.repeat(64),
+            cites_no_evidence: false,
+            unresolved: [],
+            parse_error: 'expected a phase list at line 3',
+          },
+        ],
+        evidence_checked: true,
+      },
+    });
+
+    expect(screen.getByText('does not parse')).toHaveClass('badge-error');
+    expect(screen.getByText('expected a phase list at line 3')).toBeInTheDocument();
+    expect(screen.queryByText('no evidence cited')).not.toBeInTheDocument();
   });
 
   it('says when the evidence corpus was not loaded', () => {

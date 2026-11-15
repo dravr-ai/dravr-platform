@@ -70,23 +70,34 @@ BASELINE_MOBILE_CARD_SITES=9
 # 29: the Home week strip's done dot under a day that holds a workout
 # (carnet#708) — a dot, the same `full` step.
 # 30: the plan card's draft badge in a coach's plan thread (carnet#1069) — a
-# badge, the web's `.badge-warning` drawn on the phone.
+# badge, the web's `.badge-warning`; drawn by ui/Badge since carnet#1518.
 # 31: the plan card's per-day "Outside the evidence" badge (carnet#1495) — a
-# badge, the web's `.badge-warning` drawn on the phone like the draft badge.
+# badge, the web's `.badge-warning`; drawn by ui/Badge since carnet#1518.
 # 30 again: the onboarding hairline's track and fill became one class on its
 # segments (carnet#1526).
 # 35: the coach seat's room strip and request timeline — the strip's icon disc,
 # the timeline's three step markers and the current step's centre dot; a badge
 # and dots on the same `full` step.
 # 36: the plan card's per-day evidence chip (carnet#1495) — a badge, the web's
-# neutral `.badge` drawn on the phone; carnet#1518 moves every pill onto a
-# shared Badge component.
+# `.badge-neutral`; drawn by ui/Badge since carnet#1518.
 # 37: the pending coach Home's checklist step marker (carnet#1529) — a dot on
 # the same `full` step as the seat timeline's markers.
 # 38: Home's Your team row (carnet#1528) — the overlapping agent avatars, an
 # avatar like the conversation list's.
-BASELINE_MOBILE_ROUNDED_FULL=38
-BASELINE_MOBILE_INLINE_BORDER_RADIUS=32
+# 36: ui/Badge (carnet#1518) — the one pill recipe, the web's `.badge` family
+# on the phone; the draft, outside-the-evidence and evidence badges above draw
+# through it, so three hand-written sites became the component's one.
+# 35: the chat-app picker's "Recommended" pill draws through ui/Badge's
+# `primary` variant, the web's `.badge-primary` (carnet#1518).
+# 34: the coach-category pills follow the web and DESIGN.md (carnet#1518):
+# the store detail's category and the editor's selected category became a
+# pillar dot beside the word — still one site each, now a dot — and the store
+# detail's tag pills became words separated by dots, which draws none.
+# 35: DiscoverRow's category dot moved its size and radius from an inline
+# style (`borderRadius: 3`) to classes (carnet#1518) — the same dot, now
+# counted here instead of below; the inline-radius baseline falls 32 -> 31.
+BASELINE_MOBILE_ROUNDED_FULL=35
+BASELINE_MOBILE_INLINE_BORDER_RADIUS=31
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,
 # outline, and the pillar tokens) never match: the colour name must follow the
@@ -490,7 +501,7 @@ check_ratchet "mobile useCardStyle/<Card sites" "$MOBILE_CARD_SITES" "$BASELINE_
 MOBILE_ROUNDED_FULL=$(grep -rEo '\brounded-full\b' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' 2>/dev/null \
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "mobile rounded-full sites" "$MOBILE_ROUNDED_FULL" "$BASELINE_MOBILE_ROUNDED_FULL" \
-    "Confirm it is an avatar/dot/badge; a card or button belongs on the radius ladder instead (DESIGN.md §10)."
+    "Confirm it is an avatar/dot; a badge is ui/Badge, and a card or button belongs on the radius ladder instead (DESIGN.md §10)."
 
 # 999/9999 is the circular-dot idiom (NotificationRow's unread dot) and is as
 # legitimate as rounded-full above; every other inline value, including 0

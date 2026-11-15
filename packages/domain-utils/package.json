@@ -1,7 +1,7 @@
 {
   "name": "@pierre/domain-utils",
   "version": "1.0.0",
-  "description": "Shared domain utilities for Pierre applications (formatting, OAuth detection, categories, route sketches)",
+  "description": "Shared domain utilities for Pierre applications (formatting, OAuth detection, route sketches)",
   "main": "src/index.ts",
   "types": "src/index.ts",
   "type": "module",
@@ -17,10 +17,6 @@
     "./oauth": {
       "types": "./src/oauth.ts",
       "import": "./src/oauth.ts"
-    },
-    "./categories": {
-      "types": "./src/categories.ts",
-      "import": "./src/categories.ts"
     },
     "./route-sketch": {
       "types": "./src/route-sketch.ts",

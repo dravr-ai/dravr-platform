@@ -8,28 +8,14 @@ import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { StorePackageReview } from '../services/api/admin';
-import { Button, Card, Section } from './ui';
+import { BADGE_TONE, Button, Card, Section } from './ui';
 import { clsx } from 'clsx';
+import { coachCategoryTone } from './coachCategory';
 import CoachRejectionModal from './CoachRejectionModal';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 import { useDialog } from '../hooks/useDialog';
-
-// Category colors matching SystemCoachesTab
-const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
-  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
-  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
-  Custom: 'bg-primary/10 text-primary border-primary/20',
-};
-
-function getCategoryColorClass(category: string): string {
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
-}
 
 interface PendingCoach {
   id: string;
@@ -147,8 +133,8 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
             <div className="flex-1 min-w-0">
               <h3 className="text-lg font-semibold text-on-surface truncate">{coach.title}</h3>
               <span className={clsx(
-                'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full border',
-                getCategoryColorClass(coach.category)
+                'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full',
+                BADGE_TONE[coachCategoryTone(coach.category)].tone
               )}>
                 {coach.category}
               </span>
@@ -238,12 +224,12 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
                       </span>
                       <span className="font-mono text-on-surface">{artefact.slug}</span>
                       {artefact.cites_no_evidence && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-tertiary-container text-on-tertiary-container">
+                        <span className={`px-2 py-0.5 text-xs rounded-full ${BADGE_TONE.warning.tone}`}>
                           no evidence cited
                         </span>
                       )}
                       {artefact.parse_error && (
-                        <span className="px-2 py-0.5 text-xs rounded-full bg-error-container text-on-error-container">
+                        <span className={`px-2 py-0.5 text-xs rounded-full ${BADGE_TONE.error.tone}`}>
                           does not parse
                         </span>
                       )}
@@ -309,7 +295,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               </div>
               <div className="flex justify-between">
                 <span className="text-outline">Status</span>
-                <span className="px-2 py-0.5 text-xs bg-primary/20 text-primary rounded-full">
+                <span className={`px-2 py-0.5 text-xs rounded-full ${BADGE_TONE.primary.tone}`}>
                   Pending Review
                 </span>
               </div>

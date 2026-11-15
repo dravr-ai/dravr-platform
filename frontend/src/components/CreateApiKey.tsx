@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { AdminPermission, CreateAdminTokenResponse } from '../types/api';
-import { Textarea, Input } from './ui';
+import { BADGE_TONE, Textarea, Input } from './ui';
 import { describeAdminError } from '../utils/adminLocale';
 
 interface CreateApiKeyProps {
@@ -226,7 +226,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
                       <div className={`font-medium ${info.danger ? 'text-error' : 'text-on-surface'}`}>
                         {info.label}
                         {info.danger && (
-                          <span className="ml-2 text-xs bg-error/20 text-error px-1.5 py-0.5 rounded border border-error/30">
+                          <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${BADGE_TONE.error.tone}`}>
                             High Risk
                           </span>
                         )}

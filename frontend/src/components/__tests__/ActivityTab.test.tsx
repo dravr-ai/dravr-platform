@@ -175,3 +175,26 @@ describe('ActivityTab says what its numbers are', () => {
     expect(screen.queryByText('anthropic/claude-sonnet-4-5')).not.toBeInTheDocument();
   });
 });
+
+describe('ActivityTab category pills', () => {
+  it('draws an LLM call in the primary tone and a conversation in the solid accent', async () => {
+    getRecentActivity.mockResolvedValue({
+      ...activity,
+      recent_conversations: [
+        {
+          id: 'c1',
+          title: 'Taper week',
+          updated_at: new Date(Date.now() - 90_000).toISOString(),
+          user_email: 'athlete@example.com',
+        },
+      ],
+    });
+    renderTab();
+
+    await screen.findByText('Taper week');
+    for (const pill of screen.getAllByTitle('chat')) {
+      expect(pill).toHaveClass('badge-primary');
+    }
+    expect(screen.getByTitle('conversation')).toHaveClass('badge-accent');
+  });
+});

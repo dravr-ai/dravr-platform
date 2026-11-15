@@ -11,6 +11,7 @@ import { activitySportLabelKey, coachCategoryLabelKey } from '@pierre/shared-con
 import type { AgentProposalResponse, StoreAgent, TeamMember } from '@pierre/shared-types';
 import { Button, Checkbox, Sheet } from '../ui';
 import StoreScreen from '../StoreScreen';
+import { coachCategoryAvatarClass } from '../coachCategory';
 import type { TeamStepChoice } from '../../hooks/useOnboardingState';
 
 /**
@@ -32,17 +33,6 @@ interface TeamEntry {
 interface MemberEntry extends TeamEntry {
   ticked: boolean;
 }
-
-// An agent's avatar sits on its pillar's tint with the pillar's bound ink
-// (DESIGN.md §2): hue as ground, never as text on paper.
-const AVATAR_BY_CATEGORY: Record<string, string> = {
-  training: 'bg-activity/15 text-on-activity-container',
-  nutrition: 'bg-nutrition/15 text-on-nutrition-container',
-  recipes: 'bg-nutrition/15 text-on-nutrition-container',
-  recovery: 'bg-recovery/15 text-on-recovery-container',
-  mobility: 'bg-mobility/15 text-on-mobility-container',
-};
-const AVATAR_FALLBACK = 'bg-primary-container text-on-primary-container';
 
 function fromStore(agent: StoreAgent, source?: string): TeamEntry {
   return { id: agent.id, title: agent.title, category: agent.category, source };
@@ -315,7 +305,7 @@ function AgentAvatar({ entry }: { entry: TeamEntry }) {
     <span
       aria-hidden="true"
       className={`flex h-10 w-10 shrink-0 select-none items-center justify-center rounded-full font-display text-xs font-semibold ${
-        AVATAR_BY_CATEGORY[entry.category] ?? AVATAR_FALLBACK
+        coachCategoryAvatarClass(entry.category)
       }`}
     >
       {initialsFor(entry.title)}

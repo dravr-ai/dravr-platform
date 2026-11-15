@@ -119,6 +119,10 @@ describe('EngagementTab', () => {
     expect(rows[1]).toContain('Long Prompt');
     expect(screen.getByRole('columnheader', { name: 'Uses' })).toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /Prompt Size/ })).toBeNull();
+    // The category tag takes its pillar's tone, as on every admin screen.
+    for (const tag of screen.getAllByText('training')) {
+      expect(tag).toHaveClass('badge-activity');
+    }
   });
 
   it('shows a plain admin their own tenant\'s users, asked for in the same scope as the series', async () => {

@@ -5,6 +5,8 @@
 // ABOUTME: Admin-only panel gated on the tenant tier flag the digest scheduler sweeps on
 
 import { AlertTriangle, CheckCircle2, Info, Lightbulb } from 'lucide-react';
+import { BADGE_TONE } from '../ui';
+import type { BadgeTone } from '../ui';
 import { useGroupHealthFlags, useGroupWeeklyReport } from '../../hooks/useGroups';
 import type { HealthFlagSeverity, MemberFlag } from '@pierre/shared-types';
 import {
@@ -34,10 +36,10 @@ const FLAG_LABEL_KEYS: Record<MemberFlag, string> = {
   volume_drop: 'groups.flagVolumeDrop',
 };
 
-const SEVERITY_STYLES: Record<HealthFlagSeverity, string> = {
-  info: 'bg-surface-container-high/30 text-on-surface-variant',
-  warning: 'bg-warning/20 text-on-warning-container',
-  critical: 'bg-error/20 text-error',
+const SEVERITY_TONE: Record<HealthFlagSeverity, BadgeTone> = {
+  info: 'secondary',
+  warning: 'warning',
+  critical: 'error',
 };
 
 /**
@@ -186,7 +188,7 @@ export default function GroupInsightsPanel({
                   <p className="text-xs text-on-surface-variant mt-0.5">{healthFlagDetail(t, flag)}</p>
                 </div>
                 <span
-                  className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${SEVERITY_STYLES[flag.severity]}`}
+                  className={`px-2 py-0.5 rounded-full text-xs font-medium flex-shrink-0 ${BADGE_TONE[SEVERITY_TONE[flag.severity]].tone}`}
                 >
                   {t(FLAG_LABEL_KEYS[flag.flag_type])}
                 </span>

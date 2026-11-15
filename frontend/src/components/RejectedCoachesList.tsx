@@ -7,24 +7,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import { clsx } from 'clsx';
+import { BADGE_TONE } from './ui';
+import { coachCategoryTone } from './coachCategory';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
-
-// Category colors matching SystemCoachesTab
-const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
-  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
-  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
-  Custom: 'bg-primary/10 text-primary border-primary/20',
-};
-
-function getCategoryColorClass(category: string): string {
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
-}
 
 // Map rejection reason codes to human-readable labels
 const REJECTION_REASON_LABELS: Record<string, string> = {
@@ -109,8 +96,8 @@ export default function RejectedCoachesList() {
                     <h2 className="font-semibold text-on-surface truncate">{coach.title}</h2>
                     <div className="flex items-center gap-2 mt-1">
                       <span className={clsx(
-                        'px-2 py-0.5 text-xs font-medium rounded-full border',
-                        getCategoryColorClass(coach.category)
+                        'px-2 py-0.5 text-xs font-medium rounded-full',
+                        BADGE_TONE[coachCategoryTone(coach.category)].tone
                       )}>
                         {coach.category}
                       </span>

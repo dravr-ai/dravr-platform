@@ -2,7 +2,7 @@
 // ABOUTME: Tests detail display, install → hint → Open chat (a new conversation beside the personal thread), uninstall, and Edit
 
 import React from 'react';
-import { act, render as rtlRender, fireEvent, waitFor } from '@testing-library/react-native';
+import { act, render as rtlRender, fireEvent, waitFor, within } from '@testing-library/react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
 import { Alert } from 'react-native';
@@ -117,15 +117,24 @@ const installedCopy: StoreAgent = {
 };
 
 // Open chat refreshes the conversation list the chat tab reads from the
-// React Query cache, so every render gets a client of its own.
+// React Query cache, so every render gets a client of its own. Its cache
+// collects at once and is cleared after each test: the default five-minute
+// gcTime leaves a timer per query and mutation that holds the file open long
+// after its last test, the way the rest of the suite's clients avoid it.
 let queryClient: QueryClient;
 function render(ui: React.ReactElement) {
   return rtlRender(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>);
 }
 
 describe('StoreCoachDetailScreen', () => {
+  afterEach(() => {
+    queryClient.clear();
+  });
+
   beforeEach(() => {
-    queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false, gcTime: 0 } },
+    });
     jest.clearAllMocks();
     mockRouter.push.mockClear();
     mockRouter.replace.mockClear();
@@ -238,6 +247,36 @@ describe('StoreCoachDetailScreen', () => {
         expect(getByText('running')).toBeTruthy();
         expect(getByText('endurance')).toBeTruthy();
       });
+    });
+
+    it('draws the tags as one line of words, spoken as a list, not as chips', async () => {
+      const { findByTestId } = render(<StoreCoachDetailScreen />);
+
+      const line = await findByTestId('coach-tags');
+      expect(line).toHaveTextContent('marathon · running · endurance');
+      expect(line.props.accessibilityLabel).toBe('marathon, running, endurance');
+    });
+
+    it('draws the category as a dot beside the word, not a tinted pill', async () => {
+      const { findByTestId } = render(<StoreCoachDetailScreen />);
+
+      const category = await findByTestId('category-badge');
+      expect(category).toHaveTextContent('Training');
+      expect(category.props.className).not.toContain('rounded-full');
+      expect(category.props.style).toBeUndefined();
+      // The dot is the pillar's token class, so it follows the appearance setting.
+      // The dot is hidden from assistive tech (the word carries the meaning).
+      const dot = within(category).getByTestId('category-dot', { includeHiddenElements: true });
+      expect(dot.props.className).toContain('bg-activity');
+    });
+
+    it('draws a custom agent\'s category dot neutral, as the web does', async () => {
+      mockGet.mockResolvedValue(createMockStoreCoachDetail({ category: 'custom' as AgentCategory }));
+      const { findByTestId } = render(<StoreCoachDetailScreen />);
+
+      const dot = await findByTestId('category-dot', { includeHiddenElements: true });
+      expect(dot.props.className).toContain('bg-outline-variant');
+      expect(dot.props.className).not.toContain('bg-primary');
     });
 
     it('should render sample prompts', async () => {

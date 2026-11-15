@@ -18,6 +18,7 @@ import type { ConsumptionBreakdownItem } from "../services/api/usage";
 import { formatCost } from "../utils/formatCost";
 import { tint, useChartTheme } from "../hooks/useChartTheme";
 import { ADMIN_LOCALE } from "../utils/adminLocale";
+import { BADGE_TONE } from "./ui";
 
 /** Format a token count for display (e.g., 1,234,567 -> "1.23M") */
 function formatTokens(count: number): string {
@@ -387,11 +388,9 @@ export default function LlmConsumptionPanel() {
                     <td className="px-6 py-4 whitespace-nowrap">
                       <span
                         className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          item.call_type === "chat"
-                            ? "bg-primary/20 text-primary border border-primary/30"
-                            : item.call_type === "insight"
-                              ? "bg-primary-container text-on-primary-container border border-primary/20"
-                              : "bg-surface-container-high text-on-surface border ghost-border"
+                          BADGE_TONE[
+                            item.call_type === "chat" ? "primary" : item.call_type === "insight" ? "accent" : "neutral"
+                          ].tone
                         }`}
                       >
                         {item.call_type.replace(/_/g, " ")}

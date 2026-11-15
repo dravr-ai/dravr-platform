@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { BadgeCheck, Check, Copy, Link2, Plus, UserCog } from 'lucide-react';
 import { useGroupInvites, useCreateInvite, useDeactivateInvite } from '../../hooks/useGroups';
-import { Button, Checkbox, ConfirmDialog, EmptyState, IconButton, OverflowMenu, Select, useErrorToast, useSuccessToast } from '../ui';
+import { BADGE_TONE, Button, Checkbox, ConfirmDialog, EmptyState, IconButton, OverflowMenu, Select, useErrorToast, useSuccessToast } from '../ui';
 import type { SelectOption } from '../ui';
 import { RowBox, ROW_DIVIDER } from './GroupInfoParts';
 import { useTranslation } from '@pierre/i18n';
@@ -233,14 +233,14 @@ export default function InviteManager({
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <code className="truncate font-mono text-sm text-on-surface">{invite.code}</code>
                   {invite.kind === 'coach' && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_TONE.primary.tone}`}>
                       <UserCog className="h-3 w-3" aria-hidden="true" />
                       {t('humanCoach.coach')}
                     </span>
                   )}
                   {invite.approves_signup && (
                     <span
-                      className="inline-flex items-center gap-1 rounded-full bg-primary/15 px-2 py-0.5 text-xs font-medium text-primary"
+                      className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_TONE.primary.tone}`}
                       data-testid="invite-signup-code-badge"
                     >
                       <BadgeCheck className="h-3 w-3" aria-hidden="true" />

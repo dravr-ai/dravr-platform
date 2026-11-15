@@ -12,7 +12,8 @@ import {
   type ExtractionRunStats,
   type MemoryWorkerMetricsResponse,
 } from "../services/api/admin";
-import { Card, Button } from "./ui";
+import { BADGE_TONE, Card, Button } from "./ui";
+import type { BadgeTone } from "./ui";
 import { useAdminScope } from "../hooks/useAdminScope";
 import AdminScopeBar from "./AdminScopeBar";
 import { ADMIN_LOCALE, describeAdminError } from "../utils/adminLocale";
@@ -150,14 +151,13 @@ export function healthStatus(runs: ExtractionRunStats): {
   };
 }
 
-// A token tint tracks the theme on its own, so these no longer need a dark:
-// variant to restate the same intent in a second palette.
-const STATUS_CLASS: Record<ReturnType<typeof healthStatus>["variant"], string> =
+// The badge tone each health state draws in; the colours live in BADGE_TONE.
+const STATUS_TONE: Record<ReturnType<typeof healthStatus>["variant"], BadgeTone> =
   {
-    healthy: "bg-success/15 text-on-success-container",
-    warning: "bg-warning/15 text-on-warning-container",
-    idle: "bg-surface-container-high text-on-surface-variant",
-    stalled: "bg-error/15 text-error",
+    healthy: "success",
+    warning: "warning",
+    idle: "secondary",
+    stalled: "error",
   };
 
 export default function MemoryExtractionMonitorTab() {
@@ -238,7 +238,7 @@ export default function MemoryExtractionMonitorTab() {
                 <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-center gap-3">
                     <span
-                      className={`rounded-full px-3 py-1 text-sm font-semibold ${STATUS_CLASS[status.variant]}`}
+                      className={`rounded-full px-3 py-1 text-sm font-semibold ${BADGE_TONE[STATUS_TONE[status.variant]].tone}`}
                     >
                       {status.label}
                     </span>

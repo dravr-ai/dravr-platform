@@ -422,12 +422,37 @@ callouts over photographic boreal imagery. Do not use over flat surfaces.
 
 ### Badges
 
-`.badge` = neutral 12px rounded-full chip on `surface-container-high`. Variants
-match feedback states: `.badge-success`, `.badge-warning`, `.badge-error`,
-`.badge-info`. Pillar-tinted variants live alongside (`.badge-mobility`, etc.).
-
-System-agent tag: `bg-primary/10 text-primary border border-primary/20`. Reads
-on the light card surface at AA contrast.
+`.badge` is the shape — a 12px rounded-full chip — and a tone class colours it:
+`.badge-neutral` (`surface-container-high` under `on-surface`), the feedback
+states `.badge-success`, `.badge-warning`, `.badge-error`, `.badge-info`,
+`.badge-primary` for a recommendation rather than a state (a chat app's
+"Recommended"), `.badge-accent` (solid `primary-container`) for a primary-family
+pill that must read apart from a `primary` one or mark the current moment
+(an admin activity row's conversation beside its LLM call; the plan card's
+"now"), the pillar tints `.badge-activity`, `.badge-nutrition`,
+`.badge-recovery` and `.badge-mobility`, and the muted `.badge-secondary`.
+**A pillar tint marks a category and nothing else**: a state — verified,
+active, synced, configured — takes the feedback tone that fits it, normally
+`success`, and a plain descriptor (an A2A capability) is `neutral`. One
+function, `coachCategoryPillar` in `frontend/src/components/coachCategory.ts`,
+places a category under its pillar — the same keys as the phone's
+`categoryPillar`, with case folded where the phone matches the key exactly;
+the admin pill, the store's dot and the team picker's avatar each derive their
+class from it and keep their own fallback. Each tint is its hue at /15 under
+the ink the token tree binds to it — error and primary included, on `on-error-container` and
+`on-primary-container`, because the bare hue falls under AA on its own tint
+(4.2:1 and 4.17:1 in light). The tone classes carry colour only, so a
+pill with its own shape — the verdict chip and drawer, the admin status, role
+and category pills — takes the same pair: every tinted pill picks its class
+through `BADGE_TONE` in `frontend/src/components/ui/badgeTone.ts` (an agent
+category through `coachCategoryTone`), and
+`components/ui/__tests__/badgeTone.test.ts` measures every pair over every
+ground in both schemes.
+On the phone six of them (`neutral`, `primary` and the four feedback states;
+no `accent`, pillar or `secondary` tone) are
+`frontend-mobile/src/components/ui/Badge.tsx`'s `BADGE_TONE`, which the verdict
+chip reads too; each tint names its bound ink explicitly, since React Native
+inherits no text colour from a fill.
 
 ### Form fields
 

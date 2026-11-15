@@ -116,6 +116,8 @@ describe('CoachReviewQueue', () => {
       expect(screen.getByText('1')).toBeInTheDocument();
       expect(screen.getByText('2')).toBeInTheDocument();
     });
+    // The position marker reads the badge tone table, so its ink clears AA.
+    expect(screen.getByText('1')).toHaveClass('badge-primary');
   });
 
   it('displays category badges', async () => {
@@ -125,6 +127,9 @@ describe('CoachReviewQueue', () => {
       expect(screen.getByText('Training')).toBeInTheDocument();
       expect(screen.getByText('Nutrition')).toBeInTheDocument();
     });
+    // The category pill draws its pillar's tone from the one badge table.
+    expect(screen.getByText('Training')).toHaveClass('badge-activity');
+    expect(screen.getByText('Nutrition')).toHaveClass('badge-nutrition');
   });
 
   it('shows author email', async () => {

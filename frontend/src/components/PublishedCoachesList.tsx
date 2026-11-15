@@ -7,27 +7,13 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
-import { Button, Select } from './ui';
+import { BADGE_TONE, Button, Select } from './ui';
 import { clsx } from 'clsx';
+import { coachCategoryTone } from './coachCategory';
 import { ConfirmDialog } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDate } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
-
-// Category colors matching SystemCoachesTab
-const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
-  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
-  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
-  Custom: 'bg-primary/10 text-primary border-primary/20',
-};
-
-function getCategoryColorClass(category: string): string {
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
-}
 
 type SortOption = 'newest' | 'most_installed';
 
@@ -144,8 +130,8 @@ export default function PublishedCoachesList() {
               <div className="flex-1 min-w-0">
                 <h2 className="font-semibold text-on-surface truncate">{coach.title}</h2>
                 <span className={clsx(
-                  'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full border',
-                  getCategoryColorClass(coach.category)
+                  'inline-block mt-1 px-2 py-0.5 text-xs font-medium rounded-full',
+                  BADGE_TONE[coachCategoryTone(coach.category)].tone
                 )}>
                   {coach.category}
                 </span>

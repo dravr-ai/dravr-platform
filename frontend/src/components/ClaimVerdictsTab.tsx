@@ -10,9 +10,11 @@ import { clsx } from 'clsx';
 import { adminApi } from '../services/api/admin';
 import type { VerdictHealthStats, VerdictKnob } from '../services/api/admin';
 import type { ClaimVerdict } from '@pierre/shared-types';
-import { CLAIM_VERDICT_LAYERS, VERDICT_DISPOSITIONS } from '@pierre/shared-types';
+import { CLAIM_VERDICT_LAYERS, VERDICT_DISPOSITIONS, VERDICT_STATUS_TONE } from '@pierre/shared-types';
 import { Card, Button, Badge, Select, Input, Section } from './ui';
+import type { BadgeTone } from './ui';
 import VerdictDrawer from './chat/VerdictDrawer';
+import { verdictBadgeTone } from './chat/verdictBadgeTone';
 import VerdictCalibrationPanel from './VerdictCalibrationPanel';
 import VerdictTriagePanel from './VerdictTriagePanel';
 import type { DispositionInput } from './VerdictTriagePanel';
@@ -57,24 +59,14 @@ const LIMIT_OPTIONS = [25, 50, 100, 200] as const;
 
 type StatusKey = ClaimVerdict['status'];
 type StrengthKey = ClaimVerdict['evidence_strength'];
-type BadgeVariant = 'success' | 'warning' | 'error' | 'info' | 'secondary';
-
-const STATUS_VARIANT: Record<StatusKey, BadgeVariant> = {
-  supported: 'success',
-  unsupported: 'warning',
-  contradicted: 'error',
-  rhetorical: 'info',
-  unverifiable: 'secondary',
-};
-
-const STRENGTH_VARIANT: Record<StrengthKey, BadgeVariant> = {
+const STRENGTH_VARIANT: Record<StrengthKey, BadgeTone> = {
   strong: 'success',
   mixed: 'info',
   weak: 'warning',
   none: 'secondary',
 };
 
-const DISPOSITION_VARIANT: Record<NonNullable<ClaimVerdict['disposition']>, BadgeVariant> = {
+const DISPOSITION_VARIANT: Record<NonNullable<ClaimVerdict['disposition']>, BadgeTone> = {
   true_catch: 'success',
   false_positive: 'error',
   unsure: 'secondary',
@@ -572,7 +564,7 @@ export default function ClaimVerdictsTab() {
                       <span className="line-clamp-2">{v.claim_text}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <Badge variant={STATUS_VARIANT[v.status]}>{v.status}</Badge>
+                      <Badge variant={verdictBadgeTone(VERDICT_STATUS_TONE[v.status])}>{v.status}</Badge>
                     </td>
                     <td className="px-4 py-3">
                       <Badge variant={STRENGTH_VARIANT[v.evidence_strength]}>

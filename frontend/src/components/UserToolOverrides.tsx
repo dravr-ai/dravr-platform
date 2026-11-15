@@ -9,7 +9,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { UserEffectiveTool, UserToolSource } from '../services/api/admin';
 import type { User } from '../types/api';
-import { Card, Input, Button } from './ui';
+import { BADGE_TONE, Card, Input, Button } from './ui';
+import type { BadgeTone } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
 // Per-user effective-tools query key (per-tenant keys live in QUERY_KEYS.adminTools)
@@ -17,7 +18,7 @@ const userToolsQueryKey = (userId: string) => ['user-tools', userId] as const;
 
 interface SourceBadgeSpec {
   label: string;
-  classes: string;
+  tone: BadgeTone;
   title: string;
 }
 
@@ -25,27 +26,27 @@ interface SourceBadgeSpec {
 const SOURCE_BADGES: Record<UserToolSource, SourceBadgeSpec> = {
   user_override: {
     label: 'User Override',
-    classes: 'bg-info/15 text-on-info-container',
+    tone: 'info',
     title: 'Per-user admin override — takes precedence over plan and tenant settings',
   },
   plan_restriction: {
     label: 'Plan Restricted',
-    classes: 'bg-warning/15 text-on-warning-container',
+    tone: 'warning',
     title: "Disabled because the tenant's plan does not meet this tool's minimum plan",
   },
   global_disabled: {
     label: 'Global Block',
-    classes: 'bg-error/15 text-error',
+    tone: 'error',
     title: 'Disabled globally via PIERRE_DISABLED_TOOLS — cannot be enabled for any user',
   },
   tenant_override: {
     label: 'Tenant Override',
-    classes: 'bg-info/15 text-on-info-container',
+    tone: 'info',
     title: 'Set by a tenant-level override (Tool Management tab)',
   },
   default: {
     label: 'Default',
-    classes: 'bg-surface-container-high/15 text-on-surface-variant',
+    tone: 'secondary',
     title: 'Catalog default — no override in effect',
   },
 };
@@ -55,7 +56,7 @@ function sourceBadge(source: UserToolSource) {
   return (
     <span
       title={spec.title}
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${spec.classes}`}
+      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_TONE[spec.tone].tone}`}
     >
       {spec.label}
     </span>

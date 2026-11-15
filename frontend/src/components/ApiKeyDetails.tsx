@@ -197,7 +197,7 @@ export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
     }
     
     if (token.is_super_admin) {
-      return <Badge variant="enterprise">Super Admin</Badge>;
+      return <Badge variant="warning">Super Admin</Badge>;
     }
     
     return <Badge variant="success">Active</Badge>;
@@ -310,7 +310,7 @@ export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
             <label className="block text-sm font-medium text-on-surface-variant mb-1">Permissions</label>
             <div className="flex flex-wrap gap-2">
               {token.is_super_admin ? (
-                <Badge variant="enterprise">All Permissions (Super Admin)</Badge>
+                <Badge variant="warning">All Permissions (Super Admin)</Badge>
               ) : (
                 (token.permissions ?? []).map(permission => (
                   <Badge key={permission} variant="info">

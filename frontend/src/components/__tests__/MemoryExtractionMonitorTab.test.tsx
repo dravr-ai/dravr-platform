@@ -105,6 +105,7 @@ describe('MemoryExtractionMonitorTab', () => {
     await waitFor(() => {
       expect(screen.getByText('Healthy')).toBeInTheDocument();
     });
+    expect(screen.getByText('Healthy')).toHaveClass('badge-success');
     expect(screen.getByText(/^120$/)).toBeInTheDocument();
     // 3 persisted + 5 empty: a run that found nothing still counts as a run.
     expect(screen.getByText('Runs, last 24 hours').parentElement).toHaveTextContent('8');

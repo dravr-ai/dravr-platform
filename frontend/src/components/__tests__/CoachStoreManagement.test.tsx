@@ -122,6 +122,7 @@ describe('CoachStoreManagement', () => {
       const badges = screen.getAllByText('5');
       expect(badges.length).toBeGreaterThanOrEqual(1);
     });
+    expect(screen.getAllByText('5').some((element) => element.classList.contains('badge-primary'))).toBe(true);
   });
 
   it('switches tabs when clicked', async () => {

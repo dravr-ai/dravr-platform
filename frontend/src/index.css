@@ -351,52 +351,81 @@
      `full` radius only for small tags/chips)
      ========================================================================== */
 
-  /* Every badge reads its tone from the theme tokens, so the same chip is
-     legible on the light canvas and the dark one — a fixed hex was
-     dark-on-dark the moment the theme flipped. */
+  /* The badge's shape. Its colour is a tone class below, picked through
+     `BADGE_TONE` in components/ui/badgeTone.ts — the one table the Badge,
+     the verdict chip and the verdict drawer's status word all read. */
   .badge {
     @apply inline-flex items-center px-3 py-1 rounded-full text-xs font-medium;
+  }
+
+  /* Tones: colour only, so a chip with its own shape takes the same pair.
+     Every tint is the hue at /15 under the ink the token tree binds to it,
+     which clears AA on every ground from surface to surface-container-highest
+     in both schemes (badgeTone.test.ts measures each pair). Error and primary
+     label in their container inks: the bare hue falls to 4.2:1 (error, light,
+     surface-container-low) and 4.17:1 (primary, light,
+     surface-container-high) on its own tint. Every reader is in
+     components/ui/badgeTone.ts; a new tone goes there and here together. */
+  .badge-neutral {
     background: rgb(var(--color-surface-container-high));
     color: rgb(var(--color-on-surface));
   }
 
-  .badge-success,
-  .badge-professional {
-    @apply badge;
+  /* The brand hue on its own tint: a recommendation, not a state. */
+  .badge-primary {
+    background: rgb(var(--color-primary) / 0.15);
+    color: rgb(var(--color-on-primary-container));
+  }
+
+  .badge-success {
     background: rgb(var(--color-success) / 0.15);
     color: rgb(var(--color-on-success-container));
   }
 
-  .badge-warning,
-  .badge-trial {
-    @apply badge;
+  .badge-warning {
     background: rgb(var(--color-warning) / 0.15);
     color: rgb(var(--color-on-warning-container));
   }
 
-  .badge-error,
-  .badge-destructive {
-    @apply badge;
+  .badge-error {
     background: rgb(var(--color-error) / 0.15);
-    color: rgb(var(--color-error));
+    color: rgb(var(--color-on-error-container));
   }
 
-  .badge-info,
-  .badge-starter {
-    @apply badge;
+  .badge-info {
     background: rgb(var(--color-info) / 0.15);
     color: rgb(var(--color-on-info-container));
   }
 
-  .badge-enterprise,
+  /* A second primary-family pill beside a `primary` one: the solid container
+     under its own ink. */
+  .badge-accent {
+    background: rgb(var(--color-primary-container));
+    color: rgb(var(--color-on-primary-container));
+  }
+
+  /* The pillars, for a category pill. */
+  .badge-activity {
+    background: rgb(var(--color-activity) / 0.15);
+    color: rgb(var(--color-on-activity-container));
+  }
+
+  .badge-nutrition {
+    background: rgb(var(--color-nutrition) / 0.15);
+    color: rgb(var(--color-on-nutrition-container));
+  }
+
+  .badge-recovery {
+    background: rgb(var(--color-recovery) / 0.15);
+    color: rgb(var(--color-on-recovery-container));
+  }
+
   .badge-mobility {
-    @apply badge;
     background: rgb(var(--color-mobility) / 0.15);
     color: rgb(var(--color-on-mobility-container));
   }
 
   .badge-secondary {
-    @apply badge;
     background: rgb(var(--color-surface-container));
     color: rgb(var(--color-on-surface-variant));
   }
@@ -619,7 +648,7 @@
   }
 
   /* ==========================================================================
-     Admin surfaces — card-admin / stat-card-dark / table-dark / badge-dark-*.
+     Admin surfaces — card-admin / stat-card-dark / table-dark.
      Rebuilt on the light palette — the "dark" suffix is legacy; the system is
      light. Form fields are NOT here: they come from the ui/ primitives, which
      own the editorial underline of DESIGN.md §5.
@@ -627,26 +656,6 @@
 
   .stat-card-dark {
     @apply stat-card;
-  }
-
-  .badge-dark,
-  .badge-dark-success,
-  .badge-dark-warning,
-  .badge-dark-error,
-  .badge-dark-info,
-  .badge-dark-violet,
-  .badge-dark-cyan {
-    @apply badge;
-  }
-
-  .badge-dark-success { @apply badge-success; }
-  .badge-dark-warning { @apply badge-warning; }
-  .badge-dark-error   { @apply badge-error; }
-  .badge-dark-info    { @apply badge-info; }
-  .badge-dark-violet,
-  .badge-dark-cyan {
-    background: rgb(var(--color-primary-container));
-    color: rgb(var(--color-on-primary-container));
   }
 
   .btn-dark-secondary {

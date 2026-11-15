@@ -1,5 +1,5 @@
 // ABOUTME: Vitest configuration for domain-utils package tests
-// ABOUTME: Tests formatting, OAuth detection, and category utilities
+// ABOUTME: Tests formatting, OAuth detection, route sketches, the form trend, the weekly volume and the analytics id
 
 import { defineConfig } from 'vitest/config';
 

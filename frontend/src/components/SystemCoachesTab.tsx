@@ -8,8 +8,9 @@ import { useState, useEffect, useId } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { Agent, User } from '../types/api';
-import { Card, Button, Select, Textarea, Input } from './ui';
+import { BADGE_TONE, Card, Button, Select, Textarea, Input } from './ui';
 import { clsx } from 'clsx';
+import { coachCategoryTone } from './coachCategory';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
@@ -21,23 +22,6 @@ const COACH_CATEGORY_OPTIONS = Object.keys(COACH_CATEGORY_LABEL_KEY).map((slug) 
   value: slug,
   label: slug.charAt(0).toUpperCase() + slug.slice(1),
 }));
-
-// Category colors for visual differentiation
-const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
-  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
-  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
-  Analysis: 'bg-primary/10 text-primary border-primary/20',
-  Custom: 'bg-primary/10 text-primary border-primary/20',
-};
-
-// Helper to get category color class with case-insensitive lookup
-function getCategoryColorClass(category: string): string {
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
-}
 
 interface AgentFormData {
   title: string;
@@ -255,17 +239,15 @@ export default function SystemCoachesTab() {
                     <h2 className="font-semibold text-on-surface truncate">{coach.title}</h2>
                     <div className="flex items-center gap-1.5 mt-1">
                       <span className={clsx(
-                        'inline-block px-2 py-0.5 text-xs font-medium rounded-full border',
-                        getCategoryColorClass(coach.category)
+                        'inline-block px-2 py-0.5 text-xs font-medium rounded-full',
+                        BADGE_TONE[coachCategoryTone(coach.category)].tone
                       )}>
                         {coach.category}
                       </span>
                       {coach.source && coach.source !== 'custom' && (
                         <span className={clsx(
                           'inline-block px-1.5 py-0.5 text-xs font-medium rounded',
-                          coach.source === 'contremaitre'
-                            ? 'bg-activity/10 text-on-activity-container'
-                            : 'bg-on-surface-variant/10 text-on-surface-variant'
+                          BADGE_TONE[coach.source === 'contremaitre' ? 'success' : 'secondary'].tone
                         )}>
                           {coach.source === 'contremaitre' ? 'git' : coach.source}
                         </span>
@@ -461,8 +443,8 @@ export default function SystemCoachesTab() {
             <div className="flex items-center gap-3">
               <h2 className="text-2xl font-semibold text-on-surface">{selectedCoach.title}</h2>
               <span className={clsx(
-                'px-2 py-1 text-xs font-medium rounded-full border',
-                getCategoryColorClass(selectedCoach.category)
+                'px-2 py-1 text-xs font-medium rounded-full',
+                BADGE_TONE[coachCategoryTone(selectedCoach.category)].tone
               )}>
                 {selectedCoach.category}
               </span>
@@ -648,7 +630,7 @@ export default function SystemCoachesTab() {
                         </div>
                         <span className={clsx(
                           'px-2 py-0.5 text-xs rounded-full',
-                          user.user_status === 'active' ? 'bg-activity/20 text-on-activity-container' : 'bg-surface-container-high text-on-surface-variant'
+                          BADGE_TONE[user.user_status === 'active' ? 'success' : 'secondary'].tone
                         )}>
                           {user.user_status}
                         </span>

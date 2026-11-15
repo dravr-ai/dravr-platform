@@ -9,7 +9,7 @@ import type { ClaimVerdict, DispositionReason, VerdictDisposition } from '@pierr
 import { DISPOSITION_REASONS, VERDICT_DISPOSITIONS } from '@pierre/shared-types';
 import { formatDateTime } from '@pierre/chat-utils';
 import type { VerdictKnob } from '../services/api/admin';
-import { Button, Select, Textarea } from './ui';
+import { BADGE_TONE, Button, Select, Textarea } from './ui';
 import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 
 /** What an admin records about one verdict. */
@@ -82,7 +82,7 @@ function KnobPanel({ knob }: { knob: VerdictKnob | undefined }) {
                   <span className="text-outline">{p.strength}</span>
                   <span className="text-outline">score {p.score}</span>
                   {p.cited ? (
-                    <span className="rounded-full bg-success/15 px-2 py-0.5 text-on-success-container">
+                    <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.success.tone}`}>
                       cited
                     </span>
                   ) : null}

@@ -129,6 +129,7 @@ describe('WorkoutPlanCard', () => {
     expect(screen.getByText('Taper')).toBeInTheDocument();
     // One badge, on the phase covering today.
     expect(screen.getAllByText('now')).toHaveLength(1);
+    expect(screen.getByText('now')).toHaveClass('badge-accent');
     // The current phase's rhythm, from the kernel's own numbers.
     expect(screen.getByText(/two hard days, the rest easy/)).toBeInTheDocument();
     expect(screen.getByText(/8 h\/wk/)).toBeInTheDocument();
@@ -223,6 +224,8 @@ describe('WorkoutPlanCard', () => {
     render(<WorkoutPlanCard plan={marked} />);
 
     expect(screen.getAllByTestId('plan-day-evidence')).toHaveLength(1);
+    // `.badge` is the shape alone; the neutral tone class gives the chip its fill and ink.
+    expect(screen.getByTestId('plan-day-evidence')).toHaveClass('badge', 'badge-neutral');
     expect(screen.getByTestId('plan-day-counts-as')).toHaveTextContent('Counts as threshold work');
     expect(screen.queryByTestId('plan-day-evidence-sheet')).not.toBeInTheDocument();
 

@@ -11,6 +11,7 @@ import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
 import { formatDate, formatDateTime } from '@pierre/chat-utils';
 import { A2A_TOTAL_APPS_KEYS, countKey } from '@pierre/shared-constants';
+
 /**
  * How long ago `date` was, in the athlete's language.
  *
@@ -101,18 +102,6 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
     }
   }, [allClients, statusFilter]);
 
-  const getCapabilityBadgeColor = (capability: string) => {
-    const colorMap: { [key: string]: string } = {
-      'fitness-data-analysis': 'bg-primary-container text-on-primary-container border border-primary/20',
-      'activity-intelligence': 'bg-activity/20 text-on-activity-container border border-activity/30',
-      'goal-management': 'bg-primary/20 text-primary border border-primary/30',
-      'performance-prediction': 'bg-nutrition/20 text-on-nutrition-container border border-nutrition/30',
-      'training-analytics': 'bg-primary-container text-on-primary-container border border-primary/20',
-      'provider-integration': 'bg-recovery/20 text-on-recovery-container border border-recovery/30',
-    };
-    return colorMap[capability] || 'bg-surface-container-high text-on-surface-variant border ghost-border';
-  };
-
   const handleDeactivate = (client: A2AClient) => {
     setClientToDeactivate(client);
   };
@@ -200,7 +189,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                       size="sm"
                     />
                     {client.is_verified && (
-                      <Badge variant="success" className="bg-activity/20 text-on-activity-container border border-activity/30">
+                      <Badge variant="success">
                         {t('a2a.verified')}
                       </Badge>
                     )}
@@ -210,11 +199,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                   {/* Capabilities */}
                   <div className="flex flex-wrap gap-2 mb-3">
                     {client.capabilities.map((capability) => (
-                      <Badge
-                        key={capability}
-                        variant="info"
-                        className={getCapabilityBadgeColor(capability)}
-                      >
+                      <Badge key={capability} variant="neutral">
                         {capability}
                       </Badge>
                     ))}

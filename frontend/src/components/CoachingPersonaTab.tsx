@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { personasApi, userApi } from '../services/api';
-import { Section } from './ui';
+import { BADGE_TONE, Section } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 import HomeSettings from './settings/HomeSettings';
@@ -144,9 +144,7 @@ export default function CoachingPersonaTab() {
                   infer from how it reads. */}
               <span
                 className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${
-                  persona.enforcement === 'verified'
-                    ? 'bg-success/15 text-on-success-container'
-                    : 'bg-surface-container-high text-on-surface-variant'
+                  BADGE_TONE[persona.enforcement === 'verified' ? 'success' : 'secondary'].tone
                 }`}
               >
                 {persona.enforcement_label}

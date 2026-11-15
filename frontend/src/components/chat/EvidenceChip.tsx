@@ -8,6 +8,7 @@ import { useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import type { PlanDayEvidence } from '@pierre/shared-types';
 import { Sheet } from '../ui/Sheet';
+import { BADGE_TONE } from '../ui/badgeTone';
 import { useIsMobile } from '../../hooks/useBreakpoint';
 
 /**
@@ -25,7 +26,7 @@ export function EvidenceChip({ evidence }: { evidence: PlanDayEvidence }) {
     <>
       <button
         type="button"
-        className="ml-2 badge focus-ring"
+        className={`ml-2 badge ${BADGE_TONE.neutral.tone} focus-ring`}
         aria-haspopup="dialog"
         onClick={() => setOpen(true)}
         data-testid="plan-day-evidence"

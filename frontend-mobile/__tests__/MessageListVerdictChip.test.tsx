@@ -5,6 +5,7 @@
 // ABOUTME: The rows are the count once they exist; the turn's chips only preview them until then
 
 import React from 'react';
+import { TouchableOpacity } from 'react-native';
 import { fireEvent, render } from '@testing-library/react-native';
 
 // The icon under test is the glyph's name, so render each Ionicon as a view
@@ -18,7 +19,7 @@ jest.mock('@expo/vector-icons', () => {
 });
 
 import type { ClaimVerdict, ReplyBlock } from '@pierre/shared-types';
-import { MessageList } from '../src/screens/chat/MessageList';
+import { MessageList, verdictBadgeVariant } from '../src/screens/chat/MessageList';
 import type { Message } from '../src/types';
 
 const MESSAGE_ID = 'msg-1';
@@ -85,6 +86,13 @@ function renderList(props: {
       onShowVerdict={props.onShowVerdict}
     />,
   );
+}
+
+/** The verdict chip's touchable, whose props carry the classes it was given. */
+function chipOf(view: ReturnType<typeof renderList>) {
+  const chip = view.UNSAFE_getAllByType(TouchableOpacity).find((node) => node.props.testID === 'verdict-chip');
+  if (!chip) throw new Error('no verdict chip rendered');
+  return chip;
 }
 
 describe('MessageList verdict chip', () => {
@@ -159,5 +167,28 @@ describe('MessageList verdict chip', () => {
     expect(getByLabelText('Claim verdicts: 2 supported, 1 unverifiable')).toBeTruthy();
     expect(getByTestId('icon-shield-outline')).toBeTruthy();
     expect(queryByTestId('icon-shield-half-outline')).toBeNull();
+  });
+
+  it('tints the chip from the Badge tone table: the fill on the chip, the bound ink on its label', () => {
+    const contradicted = renderList({ messageBlocks: { [MESSAGE_ID]: CHIP_BLOCKS }, verdicts: [ROW] });
+    // The fill is a class on the touchable itself, which forwards no className
+    // to its host view under jest, so the composite is read directly.
+    const contradictedChip = chipOf(contradicted);
+    expect(contradictedChip.props.className).toContain('bg-error/15');
+    expect(contradictedChip.props.style).toBeUndefined();
+    expect(contradicted.getByText('1 contradicted').props.className).toContain('text-on-error-container');
+    contradicted.unmount();
+
+    const supported = renderList({
+      messageBlocks: { [MESSAGE_ID]: CHIP_BLOCKS },
+      verdicts: [{ ...ROW, status: 'supported', evidence_strength: 'strong' }],
+    });
+    expect(chipOf(supported).props.className).toContain('bg-success/15');
+    expect(supported.getByText('1 supported').props.className).toContain('text-on-success-container');
+  });
+
+  it('draws a toneless verdict in the neutral badge pair, as the web does', () => {
+    expect(verdictBadgeVariant('secondary')).toBe('neutral');
+    expect(verdictBadgeVariant('warning')).toBe('warning');
   });
 });

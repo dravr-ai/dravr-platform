@@ -5,6 +5,8 @@
 // ABOUTME: Measures every category in both schemes with the WCAG formula, because the accent drawn as its own label fails AA
 
 import React from 'react';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import { renderHook, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { BOREAL_DARK, BOREAL_LIGHT } from '@pierre/shared-constants';
@@ -20,7 +22,7 @@ jest.mock('../src/services/api', () => ({
 }));
 
 import { ThemeProvider, type ThemeColors } from '../src/contexts/ThemeContext';
-import { categoryAccent, categoryInk, useThemeColors } from '../src/constants/theme';
+import { categoryAccent, categoryDotClass, categoryInk, useThemeColors } from '../src/constants/theme';
 
 const APPEARANCE_KEY = 'pierre.appearance_pref';
 
@@ -28,15 +30,17 @@ const APPEARANCE_KEY = 'pierre.appearance_pref';
 const AA_TEXT = 4.5;
 
 /**
- * The tint the phone actually paints under a category badge.
- *
- * `StoreScreen` builds it as `` `${categoryAccent(colors, category)}20` `` — an
- * eight-digit RN colour whose trailing byte is the alpha, so `20` there is
- * 0x20/255, not 20%. Both readings are measured below; this is the shipped one.
+ * The faintest wash the pair is held to: `` `${categoryAccent(colors, category)}20` ``
+ * — an eight-digit RN colour whose trailing byte is the alpha, so 0x20/255,
+ * not 20%. Fainter than any tint the app draws the pair on, so the ink still
+ * reads if a site goes that light.
  */
-const PRODUCTION_TINT = 0x20 / 255;
+const FAINTEST_TINT = 0x20 / 255;
 
-/** The nominal `/20` a Tailwind-style tint would mean. */
+/**
+ * The tint `DiscoverRow` paints under a coach's initials glyph, the pair's
+ * remaining label-on-tint: `${accent}33`, 0x33/255 — the nominal `/20`.
+ */
 const NOMINAL_TINT = 0.2;
 
 /** Every key `categoryAccent` answers for, plus one it has no pillar for. */
@@ -73,7 +77,7 @@ function composite(fg: string, alpha: number, bg: string): string {
 }
 
 /**
- * The grounds a category badge sits on: the page canvas, the resting card fill
+ * The grounds a category tint sits on: the page canvas, the resting card fill
  * — a different tier per scheme (`useCardStyle`) — and the tiers between them.
  */
 const GROUNDS: Record<'light' | 'dark', ReadonlyArray<readonly [string, string]>> = {
@@ -92,6 +96,27 @@ const GROUNDS: Record<'light' | 'dark', ReadonlyArray<readonly [string, string]>
     ['surface-container', BOREAL_DARK.surfaceContainer],
   ],
 };
+
+/**
+ * The generated token block NativeWind resolves a class through. Read because
+ * a dot's colour is a class name while `categoryAccent` is a runtime hex, and
+ * nothing at runtime joins the two: this is a parity check between the
+ * generated CSS and the live palette.
+ */
+const TOKENS_CSS = readFileSync(join(__dirname, '../boreal-tokens.generated.css'), 'utf8');
+
+/** The `#rrggbb` a `bg-<token>` class paints in one scheme, read from the generated block. */
+function classColor(fillClass: string, scheme: 'light' | 'dark'): string {
+  const darkStart = TOKENS_CSS.indexOf(':root.dark');
+  const block = scheme === 'light' ? TOKENS_CSS.slice(0, darkStart) : TOKENS_CSS.slice(darkStart);
+  const token = fillClass.replace(/^bg-/, '');
+  const match = block.match(new RegExp(`--color-${token}:\\s*(\\d+) (\\d+) (\\d+);`));
+  if (!match) throw new Error(`no --color-${token} in the ${scheme} block`);
+  return `#${match
+    .slice(1, 4)
+    .map((v) => Number(v).toString(16).padStart(2, '0'))
+    .join('')}`;
+}
 
 /** Resolve the live palette under a real ThemeProvider pinned to `pref`. */
 async function paletteFor(pref: 'light' | 'dark'): Promise<ThemeColors> {
@@ -178,8 +203,8 @@ describe('the category pair follows the appearance setting', () => {
     for (const scheme of ['light', 'dark'] as const) {
       const colors = await paletteFor(scheme);
       // `custom` is a real stored category with no pillar; the rest are keys a
-      // future build could send. All four get the same honest answer.
-      const resolved = ['custom', 'strength', '', 'Training'].map((key) => [
+      // future build could send. All three get the same honest answer.
+      const resolved = ['custom', 'strength', ''].map((key) => [
         categoryAccent(colors, key),
         categoryInk(colors, key),
       ]);
@@ -187,9 +212,34 @@ describe('the category pair follows the appearance setting', () => {
         resolved.map(() => [colors.tokens.primary, colors.tokens.onPrimaryContainer]),
       );
 
-      // The match is on the stored English key, so casing is not normalised —
-      // `Training` is a different category and takes the fallback, not activity.
-      expect(categoryAccent(colors, 'Training')).not.toBe(categoryAccent(colors, 'training'));
+      // The match folds case, as the web's coachCategoryPillar does, so a
+      // catalogue that stored `Training` still reads as training.
+      expect(categoryAccent(colors, 'Training')).toBe(categoryAccent(colors, 'training'));
+    }
+  });
+});
+
+describe('the category dot follows the web', () => {
+  it('is the pillar hue for a category that has one, the same as the accent', async () => {
+    for (const scheme of ['light', 'dark'] as const) {
+      const colors = await paletteFor(scheme);
+      for (const category of ['training', 'nutrition', 'recipes', 'recovery', 'mobility']) {
+        expect(classColor(categoryDotClass(category), scheme)).toBe(categoryAccent(colors, category).toLowerCase());
+      }
+    }
+  });
+
+  it('is neutral outline-variant for a category with no pillar, never the brand primary', async () => {
+    // The web's coachCategoryDotClass draws `custom` and any unknown key in
+    // `bg-outline-variant`. The initials pair keeps primary, as the web's
+    // avatar does, so only the dot differs from the accent.
+    for (const scheme of ['light', 'dark'] as const) {
+      const colors = await paletteFor(scheme);
+      const tokens = scheme === 'dark' ? BOREAL_DARK : BOREAL_LIGHT;
+      for (const key of ['custom', 'strength', '']) {
+        expect(classColor(categoryDotClass(key), scheme)).toBe(tokens.outlineVariant.toLowerCase());
+        expect(categoryAccent(colors, key)).toBe(tokens.primary);
+      }
     }
   });
 });
@@ -205,7 +255,7 @@ describe('the ink clears AA on a tint of its own accent', () => {
         const ink = categoryInk(colors, category);
 
         for (const [groundName, ground] of GROUNDS[scheme]) {
-          for (const alpha of [PRODUCTION_TINT, NOMINAL_TINT]) {
+          for (const alpha of [FAINTEST_TINT, NOMINAL_TINT]) {
             const tinted = composite(accent, alpha, ground);
             const ratio = contrast(ink, tinted);
             if (ratio < AA_TEXT) {
@@ -231,8 +281,8 @@ describe('the ink clears AA on a tint of its own accent', () => {
     const accent = categoryAccent(light, 'nutrition');
     const ink = categoryInk(light, 'nutrition');
 
-    const onCanvas = composite(accent, PRODUCTION_TINT, BOREAL_LIGHT.surface);
-    const onCard = composite(accent, PRODUCTION_TINT, BOREAL_LIGHT.surfaceContainerLowest);
+    const onCanvas = composite(accent, FAINTEST_TINT, BOREAL_LIGHT.surface);
+    const onCard = composite(accent, FAINTEST_TINT, BOREAL_LIGHT.surfaceContainerLowest);
 
     expect(contrast(accent, onCanvas)).toBeLessThan(AA_TEXT);
     expect(contrast(accent, onCard)).toBeLessThan(AA_TEXT);

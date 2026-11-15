@@ -96,6 +96,7 @@ describe('VerdictTriagePanel', () => {
       screen.getByText('evidence/sports_science/supplement/guest-2021-caffeine.md'),
     ).toBeInTheDocument();
     expect(screen.getAllByText('cited')).toHaveLength(1);
+    expect(screen.getByText('cited')).toHaveClass('badge-success');
     expect(screen.getByText('score 4')).toBeInTheDocument();
   });
 

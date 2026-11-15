@@ -138,6 +138,10 @@ describe('UserToolOverrides', () => {
     expect(screen.getByText('Default')).toBeInTheDocument();
     expect(screen.getByText('User Override')).toBeInTheDocument();
     expect(screen.getByText('Global Block')).toBeInTheDocument();
+    // Each source draws through the badge tone table, so its ink clears AA.
+    expect(screen.getByText('Global Block')).toHaveClass('badge-error');
+    expect(screen.getByText('User Override')).toHaveClass('badge-info');
+    expect(screen.getByText('Default')).toHaveClass('badge-secondary');
 
     // Admin-category tools are role-gated (stripped from a non-admin's
     // tools/list by the registry), so the per-user panel must not offer

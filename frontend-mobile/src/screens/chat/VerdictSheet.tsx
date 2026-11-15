@@ -16,10 +16,10 @@ import {
 } from '@pierre/shared-constants';
 import { claimInContext, formatDateTime, parseEvidenceRefs } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
-import { Sheet } from '../../components/ui';
+import { BADGE_TONE, Sheet } from '../../components/ui';
 import { openExternal } from '../../utils/openExternal';
 import { presentMenu } from '../../utils/presentMenu';
-import { verdictChipPalette, type ThemeColors } from './MessageList';
+import { verdictBadgeVariant, type ThemeColors } from './MessageList';
 import { useTranslation } from '@pierre/i18n';
 
 /** The reply the verdicts were drawn from, as the thread holds it. */
@@ -152,7 +152,7 @@ function VerdictCard({
   onCopyReference?: (verdict: ClaimVerdict) => void;
 }) {
   const { t } = useTranslation();
-  const { ink } = verdictChipPalette(VERDICT_STATUS_TONE[verdict.status], colors);
+  const { ink } = BADGE_TONE[verdictBadgeVariant(VERDICT_STATUS_TONE[verdict.status])];
   const references = parseEvidenceRefs(verdict.evidence_refs, verdict.evidence);
   const emittedLabel = formatDateTime(verdict.created_at, language);
   const meta = [
@@ -164,7 +164,7 @@ function VerdictCard({
   return (
     <View testID="verdict-card" className="py-4 border-b border-border-faint">
       <View className="flex-row items-center justify-between">
-        <Text className="text-sm font-semibold" style={{ color: ink }}>
+        <Text className={`text-sm font-semibold ${ink}`}>
           {t(VERDICT_STATUS_LABEL_KEY[verdict.status])}
         </Text>
         {onCopyReference ? (

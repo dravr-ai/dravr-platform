@@ -83,6 +83,11 @@ describe('MemberList', () => {
     expect(screen.queryByTestId('member-sort')).toBeNull();
     expect(screen.getByTestId('member-detail-ben')).toHaveTextContent('Member·Sharing on');
     expect(screen.getByTestId('member-detail-cleo')).toHaveTextContent('Admin·Sharing off');
+    // Sharing is a state, so it reads in success: a pillar hue marks a category only.
+    const sharing = within(screen.getByTestId('member-detail-ben')).getByText('Sharing on');
+    expect(sharing).toHaveClass('text-on-success-container');
+    expect(sharing.previousElementSibling).toHaveClass('bg-success');
+    expect(within(screen.getByTestId('member-detail-cleo')).getByText('Sharing off')).toHaveClass('text-on-surface-variant');
     // No table, no filled red on any row.
     expect(screen.queryByRole('table')).toBeNull();
     expect(document.querySelector('.btn-danger')).toBeNull();

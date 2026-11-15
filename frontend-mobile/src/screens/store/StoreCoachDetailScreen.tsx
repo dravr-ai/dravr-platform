@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Stack, useRouter, useLocalSearchParams } from 'expo-router';
-import { useCardStyle, useThemeColors, categoryAccent, categoryInk } from '../../constants/theme';
+import { useCardStyle, useThemeColors, categoryDotClass } from '../../constants/theme';
 import { Feather } from '@expo/vector-icons';
 import { coachesApi, storeApi } from '../../services/api';
 import { trackMobile } from '../../services/analytics';
@@ -234,12 +234,6 @@ export function StoreCoachDetailScreen() {
     );
   }
 
-  // The category's hue as a pair: the accent fills tints, rules and borders,
-  // and every label drawn on one of those tints takes the ink bound to it.
-  // The accent drawn as text on a tint of itself does not clear AA in light.
-  const categoryFill = categoryAccent(colors, coach.category);
-  const categoryLabelInk = categoryInk(colors, coach.category);
-
   return (
     <View className="flex-1 bg-background-primary" testID="store-coach-detail-screen">
       {/* The native header names the agent and carries the way back. */}
@@ -252,14 +246,18 @@ export function StoreCoachDetailScreen() {
       >
         {/* Category & Stats */}
         <View className="flex-row justify-between items-center px-4 pt-4 pb-2">
-          <View
-            testID="category-badge"
-            className="px-3 py-1 rounded-full"
-            style={{ backgroundColor: categoryFill + '20' }}
-          >
-            <Text className="text-sm font-semibold" style={{ color: categoryLabelInk }}>
-              {t(coachCategoryLabelKey(coach.category))}
-            </Text>
+          {/* An agent's pillar is a dot beside its category word — meaning, not
+              a coloured chip (DESIGN.md §2), the web's StoreScreen recipe. The
+              dot is a fill, so it takes `categoryDotClass`; the word stays
+              in the muted body ink, which reads on any ground. */}
+          <View testID="category-badge" className="flex-row items-center gap-2">
+            <View
+              accessibilityElementsHidden
+              importantForAccessibility="no-hide-descendants"
+              className={`h-1.5 w-1.5 rounded-full ${categoryDotClass(coach.category)}`}
+              testID="category-dot"
+            />
+            <Text className="text-sm text-text-secondary">{t(coachCategoryLabelKey(coach.category))}</Text>
           </View>
           <Text testID="install-count" className="text-sm text-text-secondary">
             {t(countKey(coach.install_count, language, INSTALL_COUNT_KEYS), { count: coach.install_count })}
@@ -277,22 +275,22 @@ export function StoreCoachDetailScreen() {
         {/* Tags */}
         {coach.tags.length > 0 && (
           <View className="px-4 py-3">
-            <Text className="text-sm font-semibold text-text-secondary mb-2">{t('discover.tagsSection')}</Text>
-            <View className="flex-row flex-wrap">
-              {coach.tags.map((tag) => (
-                <View
-                  key={tag}
-                  className="px-3 py-1.5 rounded-full mr-2 mb-2"
-                  style={{
-                    backgroundColor: `${categoryFill}15`,
-                    borderWidth: 1,
-                    borderColor: `${categoryFill}30`,
-                  }}
-                >
-                  <Text className="text-sm font-medium" style={{ color: categoryLabelInk }}>{tag}</Text>
-                </View>
+            <Text className="text-sm font-semibold text-text-secondary mb-1.5">{t('discover.tagsSection')}</Text>
+            {/* Words separated by dots, not chips — the web's tag line. The
+                separators are typography, so the line's spoken name is the
+                tags as a list. */}
+            <Text
+              testID="coach-tags"
+              className="text-sm text-text-secondary"
+              accessibilityLabel={coach.tags.join(', ')}
+            >
+              {coach.tags.map((tag, index) => (
+                <Text key={tag}>
+                  {index > 0 ? <Text className="text-text-tertiary"> · </Text> : null}
+                  <Text>{tag}</Text>
+                </Text>
               ))}
-            </View>
+            </Text>
           </View>
         )}
 

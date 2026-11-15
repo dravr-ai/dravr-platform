@@ -15,7 +15,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { usePlanDraftCard } from '../../hooks/useCoachPlan';
 import { cachedConversations } from '../../hooks/useConversationList';
 import { QUERY_KEYS } from '../../constants/queryKeys';
-import { Button, ConfirmDialog, useErrorToast } from '../ui';
+import { Badge, Button, ConfirmDialog, useErrorToast } from '../ui';
 
 interface PlanDraftControlsProps {
   /** The coach's plan thread the card is in. */
@@ -110,9 +110,9 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
 
   return (
     <div className="space-y-2.5 border-t ghost-border-faint px-3 py-2.5" data-testid="plan-draft-controls">
-      <span className="badge-warning" data-testid="plan-draft-badge">
+      <Badge variant="warning" data-testid="plan-draft-badge">
         {t(PLAN_DRAFT_KEYS.badge, { name })}
-      </span>
+      </Badge>
 
       {conflict && (
         <div

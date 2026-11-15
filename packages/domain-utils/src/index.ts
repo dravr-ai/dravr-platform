@@ -1,5 +1,5 @@
 // ABOUTME: Main entry point for @pierre/domain-utils package
-// ABOUTME: Re-exports all domain utilities for formatting, OAuth, categories, route sketches, the form trend, the weekly volume and the PostHog distinct id
+// ABOUTME: Re-exports all domain utilities for formatting, OAuth, route sketches, the form trend, the weekly volume and the PostHog distinct id
 
 // Formatting utilities
 export {
@@ -53,15 +53,3 @@ export {
 
 // PostHog identity (the distinct id the server derives for the same user)
 export { type Sha256Digest, analyticsDistinctId } from './analytics-identity';
-
-// Category utilities
-export {
-  type AgentCategory,
-  type CategoryConfig,
-  COACH_CATEGORIES,
-  CATEGORY_CONFIG,
-  getCategoryConfig,
-  getCategoryBadgeClass,
-  getCategoryIcon,
-  getCategoryLabel,
-} from './categories';

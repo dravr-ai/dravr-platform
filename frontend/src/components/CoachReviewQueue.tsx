@@ -9,25 +9,12 @@ import { useQuery } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { StorePackageReview } from '../services/api/admin';
 import { clsx } from 'clsx';
+import { BADGE_TONE } from './ui';
+import { coachCategoryTone } from './coachCategory';
 import CoachReviewDrawer from './CoachReviewDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
-
-// Category colors matching SystemCoachesTab
-const CATEGORY_COLORS: Record<string, string> = {
-  Training: 'bg-activity/10 text-on-activity-container border-activity/20',
-  Nutrition: 'bg-nutrition/10 text-on-nutrition-container border-nutrition/20',
-  Recovery: 'bg-recovery/10 text-on-recovery-container border-recovery/20',
-  Recipes: 'bg-warning/10 text-on-warning-container border-warning/20',
-  Mobility: 'bg-mobility/10 text-on-mobility-container border-mobility/20',
-  Custom: 'bg-primary/10 text-primary border-primary/20',
-};
-
-function getCategoryColorClass(category: string): string {
-  const normalized = category.charAt(0).toUpperCase() + category.slice(1).toLowerCase();
-  return CATEGORY_COLORS[normalized] || CATEGORY_COLORS.Custom;
-}
 
 interface PendingCoach {
   id: string;
@@ -115,15 +102,15 @@ export default function CoachReviewQueue() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-3 mb-2">
                   {/* Queue position indicator */}
-                  <span className="flex-shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary text-xs font-bold flex items-center justify-center">
+                  <span className={`flex-shrink-0 w-6 h-6 rounded-full text-xs font-bold flex items-center justify-center ${BADGE_TONE.primary.tone}`}>
                     {index + 1}
                   </span>
                   <h2 className="font-semibold text-on-surface truncate group-hover:text-primary transition-colors">
                     {coach.title}
                   </h2>
                   <span className={clsx(
-                    'flex-shrink-0 px-2 py-0.5 text-xs font-medium rounded-full border',
-                    getCategoryColorClass(coach.category)
+                    'flex-shrink-0 px-2 py-0.5 text-xs font-medium rounded-full',
+                    BADGE_TONE[coachCategoryTone(coach.category)].tone
                   )}>
                     {coach.category}
                   </span>

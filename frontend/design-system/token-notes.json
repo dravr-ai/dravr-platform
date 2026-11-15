@@ -29,7 +29,7 @@
     "surface-container-lowest": "Cards, the composer field, popovers, table bodies (white in light). In dark it sits BELOW the canvas — lift a dark card to `surface-container-high`.",
     "surface-container-low": "Composer and search fields, row hover, the day pill; the login aside in dark.",
     "surface-container": "Pressed states.",
-    "surface-container-high": "The dark resting card; the neutral `.badge` ground.",
+    "surface-container-high": "The dark resting card; the `.badge-neutral` ground.",
     "surface-container-highest": "Top tier; reserved. `outline` text still clears 4.5:1 here (4.51:1 light, the binding pair).",
     "surface-variant": "MD3 surface variant.",
     "surface-tint": "MD3 surface tint (equals `primary`).",

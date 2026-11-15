@@ -14,7 +14,7 @@ import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../contexts/AuthContext';
 import { useThemeColors } from '../../constants/theme';
 import { usePlanDraftCard } from '../../hooks/useCoachPlan';
-import { Button } from '../../components/ui';
+import { Badge, Button } from '../../components/ui';
 
 interface PlanDraftControlsProps {
   /** The coach's plan thread the card is in. */
@@ -111,9 +111,12 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
 
   return (
     <View className="mx-4 mb-3 pt-3 border-t border-border-faint" testID="plan-draft-controls">
-      <View className="self-start rounded-full bg-warning/15 px-3 py-1" testID="plan-draft-badge">
-        <Text className="text-xs font-medium text-on-warning-container">{t(PLAN_DRAFT_KEYS.badge, { name })}</Text>
-      </View>
+      <Badge
+        variant="warning"
+        label={t(PLAN_DRAFT_KEYS.badge, { name })}
+        className="self-start"
+        testID="plan-draft-badge"
+      />
 
       {conflict ? (
         <View
