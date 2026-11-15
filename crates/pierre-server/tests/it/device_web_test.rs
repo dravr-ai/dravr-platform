@@ -1,4 +1,4 @@
-// ABOUTME: Browser device-approval tests — super-admin credentials approve; wrong/non-super-admin creds are rejected
+// ABOUTME: Browser device-approval tests — an admin's credentials approve; wrong ones and a user's are rejected
 // ABOUTME: Exercises the credential-gated (sudo-style) approval page handlers directly
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -171,9 +171,9 @@ async fn page_renders_signin_and_approve_form() {
 }
 
 #[tokio::test]
-async fn super_admin_credentials_approve() {
+async fn admin_credentials_approve() {
     let context = build_context().await;
-    let operator = make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+    let operator = make_user(&context, "admin@dravr.ai", UserRole::Admin).await;
     create_pending(&context).await;
 
     let html = approve_web_html(
@@ -229,7 +229,7 @@ async fn super_admin_credentials_approve() {
 #[tokio::test]
 async fn deny_marks_denied() {
     let context = build_context().await;
-    make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+    make_user(&context, "admin@dravr.ai", UserRole::Admin).await;
     create_pending(&context).await;
 
     let html = approve_web_html(
@@ -242,9 +242,9 @@ async fn deny_marks_denied() {
 }
 
 #[tokio::test]
-async fn non_super_admin_credentials_cannot_approve() {
+async fn non_admin_credentials_cannot_approve() {
     let context = build_context().await;
-    make_user(&context, "jf@dravr.ai", UserRole::Admin).await;
+    make_user(&context, "jf@dravr.ai", UserRole::User).await;
     create_pending(&context).await;
 
     let html = approve_web_html(
@@ -252,17 +252,14 @@ async fn non_super_admin_credentials_cannot_approve() {
         approve_form("jf@dravr.ai", TEST_PASSWORD, "approve"),
     )
     .await;
-    assert!(
-        html.contains("not a super-admin"),
-        "rejection message: {html}"
-    );
+    assert!(html.contains("not an admin"), "rejection message: {html}");
     assert_eq!(status_of(&context).await, "pending", "still pending");
 }
 
 #[tokio::test]
 async fn wrong_password_cannot_approve() {
     let context = build_context().await;
-    make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+    make_user(&context, "admin@dravr.ai", UserRole::Admin).await;
     create_pending(&context).await;
 
     let html = approve_web_html(
@@ -277,13 +274,13 @@ async fn wrong_password_cannot_approve() {
     assert_eq!(status_of(&context).await, "pending", "still pending");
 }
 
-/// The approval page signs in a super-admin, so its refused passwords count
+/// The approval page signs in an admin, so its refused passwords count
 /// in the sign-in windows (carnet#804): past the account's, even the right
 /// password is refused with 429 before it is checked, and nothing is approved.
 #[tokio::test]
 async fn guesses_past_the_window_are_refused_with_429() {
     let context = build_context().await;
-    make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+    make_user(&context, "admin@dravr.ai", UserRole::Admin).await;
     create_pending(&context).await;
 
     for attempt in 0..PASSWORD_LOGIN_ACCOUNT_RPM {
@@ -306,13 +303,13 @@ async fn guesses_past_the_window_are_refused_with_429() {
     assert_eq!(status_of(&context).await, "pending");
 }
 
-/// Strangers filling the super-admin's account window do not lock out the
+/// Strangers filling the admin's account window do not lock out the
 /// browser that admin signed in from before: it presents its known-device
 /// cookie and approves the pending login (carnet#1088).
 #[tokio::test]
 async fn a_browser_that_signed_in_before_approves_while_strangers_fill_the_window() {
     let context = build_context().await;
-    make_user(&context, "admin@dravr.ai", UserRole::SuperAdmin).await;
+    make_user(&context, "admin@dravr.ai", UserRole::Admin).await;
 
     // An earlier sign-in, before any login is pending, earns the cookie.
     let earlier = approve_web(

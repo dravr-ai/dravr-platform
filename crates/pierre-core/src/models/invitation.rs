@@ -62,7 +62,7 @@ pub enum InvitationKind {
     Account,
     /// An account with coach access (`manages_roster`, granted as an operator
     /// grant by the inviter) and the coach role recorded (carnet#1524): the
-    /// super-admin decision ADR-018 asks for, taken before sign-up rather
+    /// admin decision ADR-018 asks for, taken before sign-up rather
     /// than after a request.
     CoachSeat,
 }

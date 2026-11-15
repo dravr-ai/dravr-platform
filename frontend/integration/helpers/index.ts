@@ -27,7 +27,6 @@ export {
 export {
   loginWithCredentials,
   createAndLoginAsAdmin,
-  createAndLoginAsSuperAdmin,
   createAndLoginTestUser,
   logout,
   isLoggedIn,

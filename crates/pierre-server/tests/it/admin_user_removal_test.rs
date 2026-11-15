@@ -41,7 +41,10 @@ use pierre_contremaitre::{
     EvidenceRegistry, MessagingStringsRegistry, PromptRegistry, ToolDescriptionRegistry,
     TrainingCatalogueRegistry,
 };
-use pierre_core::admin::models::{AdminPermission, AdminPermissions, ValidatedAdminToken};
+use pierre_core::admin::models::{
+    AdminPermission, AdminPermissions, CreateAdminTokenRequest, ValidatedAdminToken,
+    DEVICE_CLI_SERVICE_PREFIX,
+};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::agents::{AgentCategory, AgentVisibility, CreateSystemAgentRequest};
 use pierre_core::models::groups::{
@@ -1615,6 +1618,11 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
     let (user_id, tenant_id, email) = seed_user(repos, "raced").await;
     connect_strava(repos, user_id, tenant_id, None).await;
     join_group(repos, group_id, user_id, tenant_id).await;
+    // The device logins a former admin leaves: its own, and one rotated away
+    // from it that carries its id in the name only.
+    let label = format!("{DEVICE_CLI_SERVICE_PREFIX}{user_id}");
+    let own_login = device_login_row(&resources, &label, Some(user_id)).await;
+    let rotated_away = device_login_row(&resources, &label, None).await;
 
     let response = handle_delete_user(
         State(context),
@@ -1676,6 +1684,40 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
             .is_none(),
         "a rolled-back deletion leaves no tombstone"
     );
+    for (token_id, operator) in [(&own_login, Some(user_id)), (&rotated_away, None)] {
+        let row = repos
+            .admin
+            .get_token_by_id(token_id)
+            .await
+            .unwrap()
+            .expect("the token row is there");
+        assert_eq!(row.service_name, label, "the rename rolled back");
+        assert_eq!(row.operator_user_id, operator, "and so did the retirement");
+        assert!(row.is_active, "the login is still live");
+    }
+}
+
+/// A device-login token row as the device grant writes it, straight into the
+/// table; its id.
+async fn device_login_row(
+    resources: &Arc<ServerContext>,
+    service_name: &str,
+    operator: Option<Uuid>,
+) -> String {
+    let mut request = CreateAdminTokenRequest::super_admin(service_name.to_owned());
+    request.operator_user_id = operator;
+    resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &request,
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await
+        .unwrap()
+        .token_id
 }
 
 /// A grant the provider did not confirm withdrawn does not stop the account
@@ -2702,11 +2744,10 @@ async fn disconnecting_a_provider_this_build_cannot_revoke_changes_nothing() {
     );
 }
 
-/// Promote a seeded user to an operator role.
+/// Give a seeded user `role`.
 pub(crate) async fn promote(repos: &RepositoryRegistry, user_id: Uuid, role: UserRole) {
     let mut user = repos.users.get_global(user_id).await.unwrap().unwrap();
     user.role = role;
-    user.is_admin = true;
     repos.users.update(&user).await.unwrap();
 }
 
@@ -2715,13 +2756,13 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
     let resources = resources().await;
     let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let (super_admin_id, tenant_id, _) = seed_user(repos, "top-operator").await;
-    connect_strava(repos, super_admin_id, tenant_id, None).await;
-    promote(repos, super_admin_id, UserRole::SuperAdmin).await;
+    let (first_admin_id, tenant_id, _) = seed_user(repos, "top-operator").await;
+    connect_strava(repos, first_admin_id, tenant_id, None).await;
+    promote(repos, first_admin_id, UserRole::Admin).await;
     let (admin_id, _, _) = seed_user(repos, "plain-operator").await;
     promote(repos, admin_id, UserRole::Admin).await;
 
-    for target in [super_admin_id, admin_id] {
+    for target in [first_admin_id, admin_id] {
         let refused = handle_delete_user(
             State(admin_context(&resources, &stub.url)),
             Extension(manage_users_token()),
@@ -2741,7 +2782,7 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
     let refused = handle_disconnect_user_provider(
         State(admin_context(&resources, &stub.url)),
         Extension(manage_users_token()),
-        Path((super_admin_id.to_string(), "strava".to_owned())),
+        Path((first_admin_id.to_string(), "strava".to_owned())),
     )
     .await
     .expect_err("a ManageUsers token must not disconnect an operator's provider");
@@ -2750,7 +2791,7 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
     assert!(
         repos
             .oauth_tokens
-            .get_token(super_admin_id, tenant_id, "strava")
+            .get_token(first_admin_id, tenant_id, "strava")
             .await
             .unwrap()
             .is_some(),
@@ -2768,6 +2809,43 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
     .expect("a super-admin token removes an admin account");
     assert_eq!(removed.status(), StatusCode::OK);
     assert!(repos.users.get_global(admin_id).await.unwrap().is_none());
+
+    // The admin left is the last active one, and the last active admin is
+    // removed by no one: the platform always keeps an account that can
+    // manage it. Nothing is withdrawn upstream for a delete that is refused.
+    let refused = handle_delete_user(
+        State(admin_context(&resources, &stub.url)),
+        Extension(super_admin_token()),
+        Path(first_admin_id.to_string()),
+        delete_request(),
+    )
+    .await
+    .expect_err("the last active admin must not be deleted");
+    assert_eq!(refused.code, ErrorCode::InvalidInput);
+    assert!(
+        refused.message.contains("last active admin"),
+        "the refusal says why: {}",
+        refused.message
+    );
+    assert!(stub.received().is_empty(), "nothing may reach Strava");
+    assert!(
+        repos
+            .users
+            .get_global(first_admin_id)
+            .await
+            .unwrap()
+            .is_some(),
+        "the last active admin still exists"
+    );
+    assert!(
+        repos
+            .oauth_tokens
+            .get_token(first_admin_id, tenant_id, "strava")
+            .await
+            .unwrap()
+            .is_some(),
+        "and keeps its grant"
+    );
 }
 
 // --- Onboarding reset -------------------------------------------------------

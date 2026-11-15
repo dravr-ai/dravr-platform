@@ -33,7 +33,6 @@ async fn user_owning_a_tenant(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(user_id),
         approved_at: Some(now),

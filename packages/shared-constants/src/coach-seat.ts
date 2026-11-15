@@ -10,7 +10,7 @@ import { COACH_PLATFORM_PROVIDERS } from './onboarding';
 
 /**
  * Where the viewer's coach seat stands, read from their latest coach-access
- * request (carnet#738). Asking grants nothing (ADR-018): a super-admin
+ * request (carnet#738). Asking grants nothing (ADR-018): an admin
  * decides, so the seat only ever waits on a person.
  *
  * - `to_request`: never asked, or the last request was granted and the access
@@ -127,7 +127,7 @@ export const COACH_SEAT_SUBTITLE_KEY: Record<CoachSeatState, string> = {
 
 /**
  * The reason a declined request carries, trimmed; `null` when the
- * super-admin gave none (or the request is not declined).
+ * admin gave none (or the request is not declined).
  */
 export function coachSeatDeclineReason(request: CoachAccessRequest | null | undefined): string | null {
   if (request?.status !== 'declined') return null;

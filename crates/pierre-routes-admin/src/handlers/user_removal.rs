@@ -18,9 +18,17 @@
 //! Both routes reach every tenant that holds the user, so a token scoped to
 //! one tenant acts only on a user who is held entirely within it; an unscoped
 //! `ManageUsers` token acts globally, as it does on the rest of the users
-//! surface. An operator account — admin or super-admin — is removed or
-//! disconnected only by a super-admin token, the same rank impersonation
-//! requires, so a `ManageUsers` token cannot take out the operators above it.
+//! surface. A suspension and an approval change the account in every tenant
+//! too, and take the same rule ([`status_write_target`]). Over this API an
+//! admin account is removed, disconnected, suspended, approved (by id, or
+//! through the pre-approval of its address: [`require_rank_to_allow`]) or
+//! handed a password reset only by an admin's console session or a
+//! super-admin token ([`require_rank_over_target`]), so
+//! a `ManageUsers` token can neither take out the admins above it nor become
+//! one, and the last active admin is removed by no one. The rule is this
+//! API's: `pierre-cli` on the host suspends and approves without a token.
+//! The Slack sign-up room (`slack_actions::sign_up_tap`) does too, for
+//! sign-ups only: a tap that names an admin account is refused.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -37,10 +45,11 @@ use uuid::Uuid;
 
 use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::User;
+use pierre_core::models::{normalize_email, User, UserStatus};
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_database::repositories::{subject_hash, DeletionActor};
 use pierre_services::account_reset::{self, AccountResetOutcome, OwnedGroups};
+use pierre_services::admin_ops::AdminStandingLost;
 use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
@@ -50,7 +59,7 @@ use super::api_keys::json_response;
 use super::strava_pool::deny_if_not_super_admin;
 use super::types::{AdminResponse, DeleteUserRequest, ResetAccountRequest, ResetOnboardingRequest};
 use super::users::deny_without_manage_users;
-use crate::audit::AuditDetail;
+use crate::audit::{record_withdrawn_credentials, AuditDetail};
 use crate::context::AdminApiContext;
 
 /// What a delete answers when the database refused it over a reference the
@@ -115,11 +124,13 @@ fn interrupted_as(
 
 /// Refuse a tenant-scoped token acting on a user held outside its tenant.
 ///
-/// A delete or a provider disconnect reaches every tenant the user belongs
-/// to or holds a provider in, so a token scoped to one tenant may act only
-/// when every such tenant is its own. Every membership row counts, an
-/// inactive or ownerless tenant's too: the delete clears the user's rows
-/// there as well. Super-admin and unscoped tokens pass.
+/// A delete, a provider disconnect, a suspension or an approval reaches
+/// every tenant the user belongs to or holds a provider in, so a token
+/// scoped to one tenant may act only when every such tenant is its own.
+/// Every membership row counts, an inactive or ownerless tenant's too: the
+/// delete clears the user's rows there as well. Super-admin and unscoped
+/// tokens pass. `held` is the providers the user holds
+/// (`user_removal::held_providers`).
 async fn require_within_token_tenant(
     ctx: &AdminApiContext,
     admin_token: &ValidatedAdminToken,
@@ -153,20 +164,85 @@ async fn require_within_token_tenant(
     ))
 }
 
-/// Refuse a token below super-admin acting on an admin or super-admin account.
-fn require_rank_over_target(admin_token: &ValidatedAdminToken, target: &User) -> AppResult<()> {
-    if admin_token.is_super_admin || !target.role.is_admin_or_higher() {
+/// Refuse a service token without the super-admin flag acting on an admin
+/// account. Removing it, disconnecting it, sending it back through
+/// onboarding or suspending it takes from an admin what the token itself does
+/// not hold (a suspension withdraws the admin's device logins and
+/// impersonations); approving a suspended one or resetting its password
+/// hands the token, or whoever it reinstates, every power. An admin's
+/// console session carries the flag, so an admin may do each of these to
+/// another admin; the last active one is refused further down, by the write.
+pub(super) fn require_rank_over_target(
+    admin_token: &ValidatedAdminToken,
+    target: &User,
+) -> AppResult<()> {
+    if admin_token.is_super_admin || !target.role.is_admin() {
         return Ok(());
     }
     warn!(
         user_id = %target.id,
         token_id = %admin_token.token_id,
-        "Operator account removal refused: token is not super-admin"
+        "Write to an admin account refused: token is not super-admin"
     );
     Err(AppError::new(
         ErrorCode::PermissionDenied,
-        "Removing or disconnecting an admin account requires a super-admin token",
+        "Acting on an admin account requires a super-admin token",
     ))
+}
+
+/// The account a suspension or an approval names, for a token allowed to
+/// make it: the checks a delete makes, in a delete's order, so an account
+/// answers the same status on each. A malformed id is 400 and an unknown
+/// account 404; an admin account takes a console session or a super-admin
+/// token ([`require_rank_over_target`]); and a token scoped to one tenant
+/// acts only on a user held entirely within it
+/// ([`require_within_token_tenant`]), 403 for both.
+pub(super) async fn status_write_target(
+    ctx: &AdminApiContext,
+    admin_token: &ValidatedAdminToken,
+    user_id: &str,
+) -> AppResult<Uuid> {
+    let (user_uuid, target) = load_user(ctx, user_id).await?;
+    require_rank_over_target(admin_token, &target)?;
+    let held = user_removal::held_providers(&ctx.repos, user_uuid).await?;
+    require_within_token_tenant(ctx, admin_token, user_uuid, &held).await?;
+    Ok(user_uuid)
+}
+
+/// Refuse a token without the super-admin flag the pre-approval of an
+/// address whose account is a pending admin.
+///
+/// An allow approves a pending account on the spot (`pre_approval::allow`),
+/// and a pending admin approved holds every power, so the allow takes the
+/// rank approving that account by id does ([`require_rank_over_target`]).
+/// An address with no account, or whose account is not pending, is left to
+/// the allow, which changes no account then.
+///
+/// # Errors
+///
+/// Returns a permission error for a pending admin's address and a token
+/// without the super-admin flag, and a database error when the account
+/// cannot be read.
+pub(super) async fn require_rank_to_allow(
+    ctx: &AdminApiContext,
+    admin_token: &ValidatedAdminToken,
+    email: &str,
+) -> AppResult<()> {
+    if admin_token.is_super_admin {
+        return Ok(());
+    }
+    // SECURITY: Global lookup — an allow names an address, which is in no tenant
+    let account = ctx
+        .repos
+        .users
+        .get_by_email(&normalize_email(email))
+        .await?;
+    match account {
+        Some(account) if account.user_status == UserStatus::Pending => {
+            require_rank_over_target(admin_token, &account)
+        }
+        _ => Ok(()),
+    }
 }
 
 /// The refusal a disconnect or delete takes when the composition root wired
@@ -213,7 +289,7 @@ pub(super) async fn load_user(ctx: &AdminApiContext, user_id: &str) -> AppResult
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
 /// unknown user, a permission error for a token below super-admin and an
-/// admin or super-admin account, or for a tenant-scoped token and a user held
+/// admin account, or for a tenant-scoped token and a user held
 /// outside its tenant, a resource-unavailable error when no chokepoint is
 /// wired, and a database error when the held providers cannot be read; nothing
 /// was changed then.
@@ -310,7 +386,7 @@ pub async fn handle_disconnect_user_provider(
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
 /// unknown user, a permission error for a token below super-admin and an
-/// admin or super-admin account, or for a tenant-scoped token and a user held
+/// admin account, or for a tenant-scoped token and a user held
 /// outside its tenant, a resource-unavailable error when the user holds
 /// providers and no chokepoint is wired, and a database error from the reads
 /// that precede any change. A disconnect or account delete that fails is
@@ -369,6 +445,16 @@ pub async fn handle_delete_user(
         reason = %reason,
         "User deleted by operator"
     );
+    // A deleted admin's device logins are revoked with it; the row names no
+    // account, as the deletion's own row below.
+    record_withdrawn_credentials(
+        &ctx.repos,
+        &admin_token,
+        &report.admin_credentials,
+        AdminStandingLost::Deleted,
+        None,
+    )
+    .await;
 
     // The trail keeps that an account was deleted, which receipt proves it and
     // the subject hash the tombstones carry, never which account: no id, no
@@ -432,7 +518,7 @@ pub async fn handle_delete_user(
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
 /// unknown user, a permission error for a token below super-admin and an
-/// admin or super-admin account, or for a tenant-scoped token and a user held
+/// admin account, or for a tenant-scoped token and a user held
 /// outside its tenant, a resource-unavailable error when the user holds a
 /// provider to disconnect and no chokepoint is wired, and a database error
 /// from the reads that precede any change.

@@ -1142,13 +1142,13 @@ impl UniversalExecutor {
 /// the typed [`crate::context::ToolExecutionContext`] inside each tool via
 /// `ToolExecutionContext::from_tronc`.
 ///
-/// Resolves the caller's admin flag from the global `User.is_admin` flag and
+/// Resolves the caller's admin flag from the global admin role (`User.role`) and
 /// records it via [`ToolContext::as_admin`]. The flag is then read back as the
 /// cached admin status inside each tool, so admin-gated tools see the same
 /// decision regardless of which dispatch path surfaced the request.
 ///
 /// System-admin tools (e.g. system-agent management) gate on the global
-/// `is_admin` flag, not the per-tenant role: being a tenant owner makes a user
+/// admin role, not the per-tenant role: being a tenant owner makes a user
 /// admin *of their tenant*, which must not grant system-wide admin powers. A
 /// global-lookup failure defaults to non-admin (deny-by-default).
 /// Refuse a tool the caller's grant does not cover.

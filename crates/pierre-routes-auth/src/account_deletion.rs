@@ -47,7 +47,6 @@ use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::clear_auth_cookie;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{normalize_email, User, UserReference, FEDERATED_ONLY_PASSWORD_HASH};
-use pierre_core::permissions::UserRole;
 use pierre_database::repositories::DeletionActor;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::user_removal::{self, UserRemoval};
@@ -118,7 +117,7 @@ async fn session_user(resources: &AuthRoutesContext, headers: &HeaderMap) -> App
         .get_global(auth.user_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("User {}", auth.user_id)))?;
-    if user.is_admin || user.role != UserRole::User {
+    if user.role.is_admin() {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "An operator account is removed by another operator",

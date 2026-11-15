@@ -36,7 +36,6 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::{normalize_email, UserReference, UserReferenceKind};
-use pierre_core::permissions::UserRole;
 use pierre_database::repositories::DeletionActor;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::user_removal::{self, UserRemoval};
@@ -102,7 +101,7 @@ impl CommandHandler for DeleteAccountHandler {
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {}", ctx.user_id)))?;
 
-        if user.is_admin || user.role != UserRole::User {
+        if user.role.is_admin() {
             return Ok(CommandResponse::text(reg.render(
                 KEY_DELETE_ACCOUNT_OPERATOR,
                 locale,

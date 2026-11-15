@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Admin console client for coach-seat invitations — issue, list, revoke the email-bound invite carrying coach access (carnet#1524)
-// ABOUTME: Super-admin only on the server; same session-authenticated axios and AdminResponse envelope as coachAccessAdmin.ts
+// ABOUTME: Admin only on the server; same session-authenticated axios and AdminResponse envelope as coachAccessAdmin.ts
 
 import { axios } from './client';
 

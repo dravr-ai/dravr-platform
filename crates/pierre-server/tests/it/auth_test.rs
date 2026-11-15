@@ -18,6 +18,7 @@ use pierre_auth::{
     },
 };
 use pierre_core::models::{AuthRequest, User, UserStatus, UserTier};
+use pierre_core::permissions::UserRole;
 use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::database::generate_encryption_key;
 use pierre_middleware::McpAuthMiddleware;
@@ -614,7 +615,7 @@ async fn test_check_setup_status_admin_exists() {
         "hashed_password".into(),
         Some("Admin User".into()),
     );
-    admin_user.is_admin = true;
+    admin_user.role = UserRole::Admin;
     admin_user.user_status = UserStatus::Active;
 
     database

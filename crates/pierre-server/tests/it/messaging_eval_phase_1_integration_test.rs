@@ -162,7 +162,6 @@ mod phase_1_integration {
             password_hash,
             Some("Phase 1 Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

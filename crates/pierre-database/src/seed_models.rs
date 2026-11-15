@@ -14,6 +14,7 @@ use std::fmt;
 use uuid::Uuid;
 
 use pierre_core::models::TenantId;
+use pierre_core::permissions::UserRole;
 
 // ================================
 // LLM Usage Seeder
@@ -148,8 +149,8 @@ pub struct SeedDemoUser {
     pub tier: String,
     /// Account status ("active", "pending", "suspended")
     pub status: String,
-    /// Whether this user has admin privileges
-    pub is_admin: bool,
+    /// The account's role; `users.is_admin` is stored from it
+    pub role: UserRole,
     /// BCP-47 short locale for the account's user-facing messaging. Seeded
     /// demo accounts are English; the column's own default is the platform
     /// default (`fr`), which is not what a demo or a test account wants.
@@ -167,7 +168,7 @@ impl fmt::Debug for SeedDemoUser {
             .field("password_hash", &"[REDACTED]")
             .field("tier", &self.tier)
             .field("status", &self.status)
-            .field("is_admin", &self.is_admin)
+            .field("role", &self.role)
             .field("locale", &self.locale)
             .field("created_at", &self.created_at)
             .finish()

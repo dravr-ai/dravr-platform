@@ -1,5 +1,5 @@
 // ABOUTME: GET /api/admin/engagement — activity tiers, agent leaderboard and published count, all in one admin scope
-// ABOUTME: A super admin reads the platform or one picked tenant; a plain admin reads their own tenant only
+// ABOUTME: An admin reads the platform or one picked tenant; a scoped token reads its own tenant only
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -116,8 +116,7 @@ pub async fn handle_get_engagement(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<EngagementQuery>,
 ) -> AppResult<impl IntoResponse> {
-    let scope =
-        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
+    let scope = console_read_scope(&admin_token, params.tenant_id.as_deref())?;
     let repos = &context.repos;
 
     let last_active = repos.engagement.last_active_in_scope(scope).await?;

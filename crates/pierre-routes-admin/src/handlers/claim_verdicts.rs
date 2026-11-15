@@ -325,8 +325,7 @@ pub async fn handle_list_claim_verdicts(
     headers: HeaderMap,
     Query(params): Query<ListVerdictsQuery>,
 ) -> AppResult<impl IntoResponse> {
-    let scope =
-        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
+    let scope = console_read_scope(&admin_token, params.tenant_id.as_deref())?;
 
     // The `agent_id` filter is purely client-supplied — validate the format
     // before scanning so the admin sees a 400 on a typo instead of a
@@ -442,8 +441,7 @@ pub async fn handle_list_verdicts_by_message(
     Path(message_id): Path<String>,
     Query(params): Query<MessageVerdictsQuery>,
 ) -> AppResult<impl IntoResponse> {
-    let scope =
-        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
+    let scope = console_read_scope(&admin_token, params.tenant_id.as_deref())?;
 
     let claim_verdicts = &context.repos.claim_verdicts;
     let verdicts = claim_verdicts
@@ -493,7 +491,7 @@ pub async fn handle_get_claim_verdict(
     Path(verdict_id): Path<String>,
     Query(params): Query<TenantScopedQuery>,
 ) -> AppResult<impl IntoResponse> {
-    let scope = console_read_scope(&context.repos, &admin_token, Some(&params.tenant_id)).await?;
+    let scope = console_read_scope(&admin_token, Some(&params.tenant_id))?;
     let tenant = parse_tenant(&params.tenant_id)?;
 
     let verdict = context
@@ -625,8 +623,7 @@ pub async fn handle_verdict_health(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<VerdictHealthQuery>,
 ) -> AppResult<impl IntoResponse> {
-    let scope =
-        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
+    let scope = console_read_scope(&admin_token, params.tenant_id.as_deref())?;
     let window_days = params.window_days.unwrap_or(30).clamp(1, 365);
 
     let claim_verdicts = &context.repos.claim_verdicts;
@@ -910,8 +907,7 @@ pub(crate) async fn handle_verdict_stats(
     Extension(admin_token): Extension<ValidatedAdminToken>,
     Query(params): Query<VerdictStatsQuery>,
 ) -> AppResult<impl IntoResponse> {
-    let scope =
-        console_read_scope(&context.repos, &admin_token, params.tenant_id.as_deref()).await?;
+    let scope = console_read_scope(&admin_token, params.tenant_id.as_deref())?;
     let window_days = params.window_days.unwrap_or(30);
 
     let claim_verdicts = &context.repos.claim_verdicts;

@@ -39,6 +39,14 @@
 //! ([`POSTGRES_ONLY_USER_OWNED_TABLES`]) and cleared and read back on that
 //! engine alone.
 //!
+//! Two tables hold a record the delete keeps and takes the account out of:
+//! the device logins it approved as an admin (`admin_tokens`) and the keys
+//! those provisioned (`admin_provisioned_keys`). The trail keeps that an
+//! action happened, never whom a deleted account was, so the rows stay, with
+//! the request log under them, renamed and acting as no account. Each
+//! engine's purge names them apart ([`UserPurge::kept`]), and the same
+//! survivor read refuses to commit while one still carries the id.
+//!
 //! A row can also be the user's through a parent the account delete cascades
 //! to, under a foreign key that does not cascade from that parent: a
 //! messaging session goes with its user, while its messages (and their
@@ -81,24 +89,49 @@ pub struct UserPurge {
     pub tables: &'static [&'static str],
     /// One `DELETE` per entry of [`Self::tables`], in its order.
     pub statements: &'static [&'static str],
-    /// The listed tables that still hold a row for the user, with the count,
-    /// read inside the delete's transaction before it commits.
+    /// The tables the delete keeps the user's rows in, rewritten to name no
+    /// one, in the order the survivor read covers them after
+    /// [`Self::tables`]. No statement here clears them.
+    pub kept: &'static [&'static str],
+    /// The tables of [`Self::tables`] and [`Self::kept`] that still hold a
+    /// row for the user, with the count, read inside the delete's
+    /// transaction before it commits.
     pub surviving: &'static str,
 }
 
-/// One engine's [`UserPurge`], built from `table [where predicate]` entries.
+impl UserPurge {
+    /// Every table the survivor read covers: the ones cleared, then the
+    /// ones kept.
+    #[must_use]
+    pub(crate) fn rescanned(&self) -> Vec<&'static str> {
+        self.tables.iter().chain(self.kept).copied().collect()
+    }
+}
+
+/// One engine's [`UserPurge`], built from `table [where predicate]` entries
+/// for the tables it clears and `table where predicate` entries, after a
+/// `;`, for the ones it keeps: those get no `DELETE`, and the survivor read
+/// covers them with the others.
 macro_rules! user_purge {
-    ($($table:literal $(where $predicate:literal)?),+) => {
+    (
+        $($table:literal $(where $predicate:literal)?),+;
+        $($kept:literal where $kept_predicate:literal),+
+    ) => {
         UserPurge {
             tables: &[$($table),+],
             statements: &[$(
                 concat!("DELETE FROM ", $table, " WHERE ", owned_rows!($($predicate)?))
             ),+],
+            kept: &[$($kept),+],
             surviving: concat!(
                 "SELECT tbl, n FROM (SELECT '' AS tbl, 0 AS n WHERE 1 = 0",
                 $(
                     " UNION ALL SELECT '", $table, "', COUNT(*) FROM ", $table,
                     " WHERE ", owned_rows!($($predicate)?)
+                ),+,
+                $(
+                    " UNION ALL SELECT '", $kept, "', COUNT(*) FROM ", $kept,
+                    " WHERE ", $kept_predicate
                 ),+,
                 ") survivors WHERE n > 0"
             ),
@@ -122,10 +155,16 @@ macro_rules! user_purge {
 /// engine (`uuid`, `TEXT`, `VARCHAR`), so each comparison casts the column to
 /// text and binds the id as its hyphenated text, which every one of those
 /// types renders it as.
+///
+/// `kept` holds the tables the delete keeps the user's rows in and rewrites
+/// to name no one, each with the predicate that finds a row still carrying
+/// the id: no statement clears them, and both engines' survivor read covers
+/// them.
 macro_rules! user_owned_tables {
     (
         both: [$($table:literal $(where $predicate:literal)?),+ $(,)?],
-        postgres_only: [$($pg_table:literal $(where $pg_predicate:literal)?),+ $(,)?] $(,)?
+        postgres_only: [$($pg_table:literal $(where $pg_predicate:literal)?),+ $(,)?],
+        kept: [$($kept:literal where $kept_predicate:literal),+ $(,)?] $(,)?
     ) => {
         /// The tables only the `PostgreSQL` schema carries that keep a user's
         /// rows past the account delete, cleared after the tables both engines
@@ -187,19 +226,38 @@ macro_rules! user_owned_tables {
         /// user wrote *as* an operator stay, their `user_id` set NULL by its
         /// foreign key.
         ///
+        /// The device logins the user approved as an admin are kept, under
+        /// the same rule (carnet#1574): what they did stays, whose they were
+        /// does not. `admin_tokens.operator_user_id` names the admin a token
+        /// acts as, with no foreign key, and deleting the row would cascade
+        /// away its request log (`admin_token_usage`, which says which token
+        /// ran a provider-data purge) and its ledger of the keys it
+        /// provisioned (`admin_provisioned_keys`: the record, never the
+        /// keys, which stay with their users). So the account delete
+        /// rewrites each such row instead (`RETIRE_DEVICE_LOGINS_SQL`):
+        /// inactive, named as no one's, acting as an operator that is no
+        /// account. Never as none: a row scrubbed to `NULL` would read as a
+        /// service credential, which no admin's standing guards. The two
+        /// tables are named apart ([`UserPurge::kept`]): nothing clears
+        /// them, and the survivor read refuses the delete while a row of
+        /// either still carries the id, as an operator or inside a name.
+        ///
         /// A coaching group the user owns and archived goes too (carnet#1161),
         /// once their own conversations are gone and while no other user's
         /// conversation is bound to it: its members, invites, transcript and
         /// digests cascade with it. Archiving already took it off every group
         /// listing (each filters on `is_active`) and released its members.
-        pub const SQLITE_USER_PURGE: UserPurge =
-            user_purge!($($table $(where $predicate)?),+);
+        pub const SQLITE_USER_PURGE: UserPurge = user_purge!(
+            $($table $(where $predicate)?),+;
+            $($kept where $kept_predicate),+
+        );
 
         /// What the `PostgreSQL` user delete clears: [`SQLITE_USER_PURGE`]'s
         /// tables, then [`POSTGRES_ONLY_USER_OWNED_TABLES`].
         pub const POSTGRES_USER_PURGE: UserPurge = user_purge!(
             $($table $(where $predicate)?),+,
-            $($pg_table $(where $pg_predicate)?),+
+            $($pg_table $(where $pg_predicate)?),+;
+            $($kept where $kept_predicate),+
         );
     };
 }
@@ -279,7 +337,55 @@ user_owned_tables!(
     "subscriptions",
     ],
     postgres_only: ["agents_orphaned"],
+    kept: [
+    "admin_tokens" where "operator_user_id = $1 OR REPLACE(service_name, $1, '') <> service_name",
+    "admin_provisioned_keys" where "REPLACE(provisioned_by_service, $1, '') <> provisioned_by_service",
+    ],
 );
+
+/// Retire every device login a deleted account approved, live or already
+/// withdrawn, and take the account out of it: `$1` the operator that is no
+/// account (`DELETED_ACCOUNT_OPERATOR`, as text), `$2` the name that names
+/// no one, `$3` the account's id as text. The row stays, inactive, so the
+/// request log and the record of the keys it provisioned stay under it; the
+/// address its admin last used it from does not, since that is the admin's
+/// and nothing reads it off a retired row. `operator_user_id` is text on
+/// both engines.
+pub(crate) const RETIRE_DEVICE_LOGINS_SQL: &str = "UPDATE admin_tokens \
+     SET is_active = FALSE, operator_user_id = $1, service_name = $2, last_used_ip = NULL \
+     WHERE operator_user_id = $3";
+
+/// Take a deleted account's id out of every token name that carries it:
+/// `$1` what stands in its place (`DELETED_ACCOUNT_LABEL`), `$2` the
+/// account's id as text. A name is free text, so the id can be anywhere in
+/// one, and only the id is rewritten. The account's own logins are renamed
+/// with their retirement ([`RETIRE_DEVICE_LOGINS_SQL`]); what is left is
+/// someone else's: the replacement another admin rotated a device login
+/// into, which acts as no admin and becomes the device-login name of a
+/// deleted account, or a service token someone named after the account. Its
+/// activity is not touched, so a live one stays live and a revoked one stays
+/// revoked (a revoked token does not rotate either).
+///
+/// The rows it rewrites are the rows the survivor read counts
+/// ([`UserPurge::kept`]), by the same test on both engines: the name differs
+/// from itself without the id. `LIKE` would not do for either side: it
+/// ignores ASCII case on `SQLite` where `REPLACE` does not, and a name the
+/// read counted and the rewrite left would refuse the deletion.
+pub(crate) const SCRUB_TOKEN_NAME_SQL: &str =
+    "UPDATE admin_tokens SET service_name = REPLACE(service_name, $2, $1) \
+     WHERE REPLACE(service_name, $2, '') <> service_name";
+
+/// The same rewrite on the copy of that name each key a token provisioned
+/// was recorded under, the account's own retired logins' keys included.
+pub(crate) const SCRUB_PROVISIONED_BY_NAME_SQL: &str = "UPDATE admin_provisioned_keys \
+     SET provisioned_by_service = REPLACE(provisioned_by_service, $2, $1) \
+     WHERE REPLACE(provisioned_by_service, $2, '') <> provisioned_by_service";
+
+/// The device logins `$1` (the account's id as text) approved that are still
+/// live, by token id: what the account delete reports as revoked. Read before
+/// the delete retires them with the ones already withdrawn.
+pub(crate) const LIVE_DEVICE_LOGINS_SQL: &str =
+    "SELECT id FROM admin_tokens WHERE operator_user_id = $1 AND is_active = TRUE ORDER BY id";
 
 /// Clear a user completely on an already open `TransactionGuard` (`$guard`),
 /// which the account deletion (`super::account_deletion`) commits: the user's

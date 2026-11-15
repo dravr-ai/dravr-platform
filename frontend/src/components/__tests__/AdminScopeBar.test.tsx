@@ -1,20 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The shared admin scope control states the server's scope and offers the picker to a super admin alone
-// ABOUTME: Picking a tenant changes what every scoped read asks for; a plain admin's requests never name a tenant
+// ABOUTME: The shared admin scope control states the server's scope and offers the admin the tenant picker
+// ABOUTME: Picking a tenant changes what every scoped read asks for, stored or held for the page
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor, fireEvent, renderHook } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import AdminScopeBar from '../AdminScopeBar';
 import { useAdminScope } from '../../hooks/useAdminScope';
-
-const role = vi.hoisted(() => ({ current: 'super_admin' }));
-
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: role.current } }),
-}));
 
 vi.mock('../../services/api/admin', () => ({
   adminApi: { listScopeTenants: vi.fn() },
@@ -37,13 +31,12 @@ describe('AdminScopeBar', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    role.current = 'super_admin';
     vi.mocked(adminApi.listScopeTenants).mockResolvedValue([
       { id: OTHER, name: 'Alice Workspace', slug: 'alice' },
     ]);
   });
 
-  it('defaults a super admin to every tenant and offers each tenant', async () => {
+  it('defaults an admin to every tenant and offers each tenant', async () => {
     renderBar({ kind: 'all_tenants' });
     expect(screen.getByTestId('admin-scope-statement')).toHaveTextContent(
       'Showing every tenant on the platform.',
@@ -95,22 +88,5 @@ describe('AdminScopeBar', () => {
     }
     // Storage answers again: the next pick clears the held one for the next test.
     fireEvent.change(screen.getByLabelText('Tenant scope'), { target: { value: 'all' } });
-  });
-
-  it('gives a plain admin the statement, no picker, and no tenant list request', () => {
-    role.current = 'admin';
-    renderBar({ kind: 'tenant', tenant_id: 'mine' });
-    expect(screen.getByTestId('admin-scope-statement')).toHaveTextContent(
-      'Showing your tenant only.',
-    );
-    expect(screen.queryByLabelText('Tenant scope')).toBeNull();
-    expect(adminApi.listScopeTenants).not.toHaveBeenCalled();
-  });
-
-  it('never lets a choice stored by a super admin reach a plain admin request', () => {
-    localStorage.setItem('pierre.admin_scope', OTHER);
-    role.current = 'admin';
-    const { result } = renderHook(() => useAdminScope());
-    expect(result.current.requested).toBeUndefined();
   });
 });

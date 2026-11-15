@@ -7,7 +7,7 @@
 //! Admin Authorization Guard
 //!
 //! This module provides centralized admin authorization checking for route handlers.
-//! Instead of each handler performing inline `user.role.is_admin_or_higher()` checks,
+//! Instead of each handler performing inline `user.role.is_admin()` checks,
 //! handlers can use the `require_admin` helper function.
 //!
 //! # Usage
@@ -43,7 +43,7 @@ use uuid::Uuid;
 
 /// Require admin privileges for a user
 ///
-/// Verifies that the authenticated user has admin role (admin or `super_admin`).
+/// Verifies that the authenticated user has the admin role.
 /// Returns the User record if authorized, or 403 Forbidden if not.
 ///
 /// # Arguments
@@ -81,7 +81,7 @@ pub async fn require_admin(
         .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    if !user.role.is_admin_or_higher() {
+    if !user.role.is_admin() {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
             "Admin privileges required",
@@ -104,7 +104,7 @@ pub async fn require_admin(
 /// Returns the inner `AppError` rendered as an HTTP response when:
 /// - The session token is missing, invalid, or expired
 /// - The looked-up user is not present
-/// - The user's role is not `admin` or `super_admin`
+/// - The user's role is not `admin`
 pub async fn cookie_admin_middleware<C: MiddlewareCtx>(
     State(resources): State<Arc<C>>,
     headers: HeaderMap,
@@ -128,34 +128,25 @@ pub async fn cookie_admin_middleware<C: MiddlewareCtx>(
 
 /// Build the `ValidatedAdminToken` granted to a cookie-authenticated admin.
 ///
-/// Permissions follow the user's actual role so the granular
-/// `require_permission`/`is_super_admin` checks inside cookie-mounted handlers
-/// stay meaningful: a plain `Admin` gets [`AdminPermissions::console_admin`]
-/// (key management plus `ManageUsers` and `ManageAdminTokens`, which the
-/// console's user and token tabs need),
-/// while `SuperAdmin` gets the full set and `is_super_admin = true`. Granting
-/// `super_admin` to every admin role would flatten RBAC and silently always-pass
-/// the downstream gates (store moderation, admin-token management, tiers,
-/// impersonation).
+/// There is one admin role and it holds every power (carnet#1567), so every
+/// admin's console session carries [`AdminPermissions::super_admin`] and
+/// `is_super_admin = true`: the `require_permission`/`is_super_admin` checks
+/// inside cookie-mounted handlers (store moderation, admin-token management,
+/// tiers, configuration, cross-tenant reads) all pass for a signed-in admin.
+/// The caller is [`cookie_admin_middleware`], which has already refused
+/// anyone who is not an admin.
 ///
-/// A plain admin token minted for the CLI carries `default_admin` without
-/// either, so a console session and a token of the same role grant
-/// different authority. That is deliberate: the console is served by the same
-/// handlers as the token API, and managing users and tokens is what the
-/// console is for.
+/// Those checks still decide something for the other credential the same
+/// handlers accept: a service token. `is_super_admin` there is a scope stored
+/// on the token, not a user role, and a token minted without it stays held to
+/// the permissions and the tenant it was given.
 #[must_use]
 pub fn cookie_admin_token(user: &User, active_tenant_id: Option<Uuid>) -> ValidatedAdminToken {
-    let is_super_admin = user.role.is_super_admin();
-    let permissions = if is_super_admin {
-        AdminPermissions::super_admin()
-    } else {
-        AdminPermissions::console_admin()
-    };
     ValidatedAdminToken {
         token_id: format!("cookie:{}", user.id),
         service_name: user.email.clone(),
-        permissions,
-        is_super_admin,
+        permissions: AdminPermissions::super_admin(),
+        is_super_admin: true,
         tenant_id: active_tenant_id.map(|t| t.to_string()),
         user_info: None,
         // The signed-in admin is the operator every write is attributed to.

@@ -61,6 +61,19 @@ const FAILED_BY_GONE_OPERATOR: AuditEvent = {
   metadata: null,
 };
 
+const REVOKED_FROM_THE_ROOM: AuditEvent = {
+  id: 'ev-4',
+  occurred_at: '2026-11-02T08:00:00.000Z',
+  action: 'admin.credentials.revoke',
+  summary: 'Revoked 1 device login(s) and ended 0 impersonation(s) of a deactivated admin',
+  outcome: 'success',
+  source: 'slack',
+  actor_user_id: null,
+  actor_email: null,
+  tenant_id: null,
+  metadata: null,
+};
+
 function renderView() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
@@ -103,6 +116,21 @@ describe('AuditTrail', () => {
     expect(screen.getByTestId('audit-event-ev-3').textContent).toContain('By: deleted account');
 
     expect(screen.queryByRole('button', { name: 'Load older' })).toBeNull();
+  });
+
+  it('names the Slack room as the actor and the door of a tap made there', async () => {
+    vi.mocked(adminApi.getAuditEvents).mockResolvedValue({
+      events: [REVOKED_FROM_THE_ROOM],
+      next_before: null,
+      next_before_id: null,
+    });
+
+    renderView();
+
+    // A tap in the ops Slack room names no account: the room is the actor.
+    const row = await screen.findByTestId('audit-event-ev-4');
+    expect(row.textContent).toContain('By: Slack room');
+    expect(row.textContent).toContain('Via: Slack room');
   });
 
   it('opens a row onto before → after and the raw metadata', async () => {

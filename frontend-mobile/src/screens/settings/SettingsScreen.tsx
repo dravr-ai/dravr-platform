@@ -7,6 +7,7 @@ import { useRouter } from 'expo-router';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
 import { ADMIN_HIDDEN_PANES, settingsPane, settingsPanesFor } from '@pierre/shared-constants';
+import { hasAdminRole } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { InitialsAvatar, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
@@ -36,7 +37,7 @@ export function SettingsScreen() {
   // Operators are platform staff: provider connections, messaging and About are
   // athlete-account surfaces, hidden from them exactly as on web. Gate on
   // `role` to stay consistent with the web Dashboard.
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
+  const isAdminUser = hasAdminRole(user);
 
   const panes = settingsPanesFor('mobile').filter((pane) => {
     if (isAdminUser && ADMIN_HIDDEN_PANES.has(pane.id)) return false;

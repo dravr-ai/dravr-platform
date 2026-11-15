@@ -177,7 +177,7 @@ impl SessionRows {
             }
             [..] => warn!(
                 holders = rows.len(),
-                "a read rotated a sciotte session a super admin's clone shares; the row read \
+                "a read rotated a sciotte session an admin's clone shares; the row read \
                  cannot be told apart, so nothing is stored"
             ),
         }

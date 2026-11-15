@@ -261,7 +261,14 @@ async fn an_operators_impersonation_token_cannot_export() {
     let registry = setup.repos();
     let repos = registry.as_ref();
     let (ana, _) = seed_athlete(repos, "ana").await;
+    // An admin opens it: the middleware refuses a session whose opener is
+    // not one, which would be a 401 and not the export's own refusal.
     let (operator, _) = seed_athlete(repos, "operator").await;
+    repos
+        .users
+        .set_admin_status(operator.id, true)
+        .await
+        .unwrap();
     let session = ImpersonationSession::new(operator.id, ana.id, Some("support".to_owned()));
     repos.impersonation.create_session(&session).await.unwrap();
     let token = setup

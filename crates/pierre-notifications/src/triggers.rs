@@ -646,7 +646,7 @@ pub fn trigger_coach_plan_pushed(
 // Coach-access Triggers (bypass frequency cap)
 // ============================================================================
 //
-// A super-admin decides a coach's request for coach access (ADR-018: asking
+// An admin decides a coach's request for coach access (ADR-018: asking
 // never grants). The decision is a one-off answer to something the coach
 // asked for and is waiting on, so it bypasses the daily cap like agent
 // traffic, and goes out at P1: it changes what the coach can do in the app.
@@ -681,7 +681,7 @@ pub fn trigger_coach_access_granted(
 }
 
 /// Trigger the notice telling a coach their coach-access request was
-/// declined, with the super-admin's `reason` when one was given.
+/// declined, with the admin's `reason` when one was given.
 ///
 /// It carries no destination: the request's declined state, where the coach
 /// asks again, is wherever they asked from, which no screen token names. The

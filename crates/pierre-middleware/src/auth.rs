@@ -24,12 +24,14 @@ use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::uuid_utils::parse_uuid;
 // Trait methods dispatched through repos.api_keys / repos.messaging / repos.tenants / repos.usage / repos.users
 use pierre_database::RepositoryRegistry;
-use pierre_logging::{record_identity, record_in_scope};
+use pierre_logging::record_identity;
 use std::sync::Arc;
 use tracing::field::Empty;
 use tracing::{debug, info, warn};
 
 use crate::rate_limiting::{enforce_request_budget, report_api_key_request, report_request_budget};
+
+mod impersonation;
 
 /// How stale `users.last_active` may grow before an authenticated request
 /// writes it again, in minutes.
@@ -994,47 +996,6 @@ impl McpAuthMiddleware {
         Err(AppError::auth_invalid(
             "The athlete withdrew this application's access; authorize it again",
         ))
-    }
-
-    /// Refuse an impersonation token whose session was ended, or that names a
-    /// session of another user, and attribute the request to the operator
-    /// acting through it.
-    ///
-    /// The impersonator is written to the request span and to an audit event
-    /// by id, so a request made under impersonation is never recorded as the
-    /// target user acting alone.
-    ///
-    /// # Errors
-    /// Returns `AuthInvalid` when the session is unknown, ended, or for another
-    /// target, and a database error when the lookup fails.
-    async fn require_live_impersonation(
-        &self,
-        session_id: &str,
-        user_id: uuid::Uuid,
-    ) -> AppResult<uuid::Uuid> {
-        let session = self
-            .repos
-            .impersonation
-            .get_session(session_id)
-            .await?
-            .filter(|session| session.is_active && session.target_user_id == user_id)
-            .ok_or_else(|| {
-                warn!(
-                    user_id = %user_id,
-                    session_id = %session_id,
-                    "Impersonation token refused: its session has ended"
-                );
-                AppError::auth_invalid("Impersonation session has ended")
-            })?;
-        let impersonator_id = session.impersonator_id.to_string();
-        record_in_scope("impersonator_id", &impersonator_id.as_str());
-        info!(
-            user_id = %user_id,
-            impersonator_id = %impersonator_id,
-            session_id = %session_id,
-            "Request authenticated under impersonation"
-        );
-        Ok(session.impersonator_id)
     }
 
     /// Get reference to the auth manager for testing purposes

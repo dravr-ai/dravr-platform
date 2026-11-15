@@ -290,7 +290,7 @@ pub(super) async fn build_tool_context(
         .await
         .ok()
         .flatten()
-        .is_some_and(|user| user.is_admin);
+        .is_some_and(|user| user.role.is_admin());
 
     let mut ctx = ToolContext::new()
         .with_user(user_uuid.to_string())

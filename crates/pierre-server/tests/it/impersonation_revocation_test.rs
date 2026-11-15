@@ -38,17 +38,32 @@ use pierre_routes_auth::AuthRoutes;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
-/// A live impersonation of a fresh target by a fresh operator: the session,
+/// A fresh admin, the only account an impersonation token acts for: the
+/// middleware reads the opener's row and refuses one that is not an active
+/// admin, so a plain user here would be refused for that and not for what a
+/// test set out to show.
+async fn admin(resources: &Arc<ServerContext>, email: &str) -> Uuid {
+    let (admin_id, _) = create_test_user_with_email(&resources.agent.database, email)
+        .await
+        .unwrap();
+    resources
+        .common
+        .repos
+        .users
+        .set_admin_status(admin_id, true)
+        .await
+        .unwrap();
+    admin_id
+}
+
+/// A live impersonation of a fresh target by a fresh admin: the session,
 /// the target, and the bearer header carrying its token.
 async fn live_impersonation(
     resources: &Arc<ServerContext>,
     label: &str,
 ) -> (ImpersonationSession, User, String) {
     let database = &resources.agent.database;
-    let (operator_id, _) =
-        create_test_user_with_email(database, &format!("operator-{label}@example.com"))
-            .await
-            .unwrap();
+    let operator_id = admin(resources, &format!("operator-{label}@example.com")).await;
     let (_, target) = create_test_user_with_email(database, &format!("target-{label}@example.com"))
         .await
         .unwrap();
@@ -161,9 +176,7 @@ async fn a_tenant_switch_under_impersonation_keeps_the_impersonation() {
 async fn an_ended_impersonation_session_revokes_its_token() {
     let resources = create_test_server_resources().await.unwrap();
     let database = &resources.agent.database;
-    let (operator_id, _) = create_test_user_with_email(database, "operator@example.com")
-        .await
-        .unwrap();
+    let operator_id = admin(&resources, "operator@example.com").await;
     let (_, target) = create_test_user_with_email(database, "target@example.com")
         .await
         .unwrap();
@@ -205,9 +218,7 @@ async fn an_ended_impersonation_session_revokes_its_token() {
 async fn an_impersonation_token_for_another_sessions_target_is_refused() {
     let resources = create_test_server_resources().await.unwrap();
     let database = &resources.agent.database;
-    let (operator_id, _) = create_test_user_with_email(database, "operator2@example.com")
-        .await
-        .unwrap();
+    let operator_id = admin(&resources, "operator2@example.com").await;
     let (other_id, _) = create_test_user_with_email(database, "other@example.com")
         .await
         .unwrap();

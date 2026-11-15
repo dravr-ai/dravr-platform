@@ -91,6 +91,7 @@ pub(crate) async fn handle_register(
     // Validate admin token
     let admin_auth_service = AdminAuthService::new(
         resources.repos.admin.clone(),
+        resources.repos.users.clone(),
         resources.jwks_manager.clone(),
     );
 
@@ -540,7 +541,7 @@ pub(crate) async fn handle_session(
             user_id: user.id.to_string(),
             email: user.email.clone(),
             display_name: user.display_name,
-            is_admin: user.is_admin,
+            is_admin: user.role.is_admin(),
             role: user.role.as_str().to_owned(),
             user_status: user.user_status.to_string(),
             tenant_id: tenant_id_for_response,
@@ -617,7 +618,7 @@ pub(crate) async fn handle_update_profile(
             user_id: updated_user.id.to_string(),
             email: updated_user.email,
             display_name: updated_user.display_name,
-            is_admin: updated_user.is_admin,
+            is_admin: updated_user.role.is_admin(),
             role: updated_user.role.to_string(),
             user_status: updated_user.user_status.to_string(),
             tenant_id: None,

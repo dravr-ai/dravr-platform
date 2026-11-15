@@ -157,7 +157,7 @@ impl ServerContext {
     /// The account service for any path that may create an account, the
     /// hosted OAuth 2.0 login page included: an account it leaves waiting for
     /// approval is also emailed to the
-    /// super-admins when outbound email is configured (carnet#1056). Every
+    /// admins when outbound email is configured (carnet#1056). Every
     /// sign-up built from the server context goes through here, so none can
     /// leave the mailer off.
     #[must_use]

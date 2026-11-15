@@ -23,7 +23,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, PaginationParams};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_middleware::redaction::mask_email;
-use pierre_services::admin_ops;
+use pierre_services::admin_ops::{self, AdminStandingLost};
 use pierre_services::analytics::cache_user_email;
 use pierre_services::onboarding_reset::kept_for_groups;
 use pierre_services::pre_approval;
@@ -35,7 +35,8 @@ use super::types::{
     AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
     UserActivityQuery,
 };
-use crate::audit::AuditDetail;
+use super::user_removal::{require_rank_over_target, require_rank_to_allow, status_write_target};
+use crate::audit::{record_withdrawn_credentials, AuditDetail};
 use crate::context::AdminApiContext;
 
 /// User list response
@@ -72,7 +73,9 @@ pub(crate) struct UserSummary {
     last_active: String,
     /// Account status: `pending`, `active` or `suspended`
     user_status: &'static str,
-    /// Whether the account holds an admin role
+    /// The account's role, `admin` or `user`: what a client decides from
+    role: &'static str,
+    /// Whether the account holds the admin role; `role` said another way
     is_admin: bool,
     /// When the account was approved, if it has been
     approved_at: Option<String>,
@@ -90,7 +93,8 @@ impl From<&User> for UserSummary {
             created_at: user.created_at.to_rfc3339(),
             last_active: user.last_active.to_rfc3339(),
             user_status: user_status_str(user.user_status),
-            is_admin: user.is_admin,
+            role: user.role.as_str(),
+            is_admin: user.role.is_admin(),
             approved_at: user.approved_at.map(|t| t.to_rfc3339()),
             approved_by: user.approved_by.map(|id| id.to_string()),
         }
@@ -297,7 +301,8 @@ pub async fn handle_get_user(
                 "display_name": user.display_name,
                 "tier": user_tier_to_str(&user.tier),
                 "status": user_status_str(user.user_status),
-                "is_admin": user.is_admin,
+                "role": user.role.as_str(),
+                "is_admin": user.role.is_admin(),
                 "manages_roster": user.manages_roster,
                 "manages_roster_operator_grant": manages_roster_operator_grant,
                 "created_at": user.created_at.to_rfc3339(),
@@ -428,7 +433,12 @@ async fn announce_approval(
     }
 }
 
-/// Handle user approval workflow
+/// Handle user approval workflow.
+///
+/// An admin (a suspended one, reinstated) is approved only by an admin's
+/// console session or a super-admin token, 403 otherwise. A token scoped to
+/// one tenant approves only a user held entirely within it, 403 otherwise,
+/// as it deletes one.
 pub(crate) async fn handle_approve_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -455,10 +465,10 @@ pub(crate) async fn handle_approve_user(
     );
 
     let ctx = context.as_ref();
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
+    // Approving a suspended admin hands back every power, so it takes the
+    // rank suspending one does, and sets the account active in every tenant
+    // it is in, so it takes the token's tenant too.
+    let user_uuid = status_write_target(ctx, &admin_token, &user_id).await?;
 
     // One approval path for the CLI and the console: the operator behind the
     // token is recorded as the approver, and the user joins the tenant the
@@ -506,7 +516,13 @@ pub(crate) async fn handle_approve_user(
     ))
 }
 
-/// Handle user suspension workflow
+/// Handle user suspension workflow.
+///
+/// Over this API an admin is suspended only by an admin's console session or
+/// a super-admin token (403 otherwise); the last active admin by no one, and
+/// no admin by its own session or device login (400). A token scoped to one
+/// tenant suspends only a user held entirely within it, 403 otherwise, as it
+/// deletes one.
 pub(crate) async fn handle_suspend_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -533,20 +549,33 @@ pub(crate) async fn handle_suspend_user(
     );
 
     let ctx = context.as_ref();
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
+    // Suspending an admin withdraws its device logins and impersonations, so
+    // it takes the rank removing one does: a token without the super-admin
+    // flag suspends users, never the admins above it. And it signs the
+    // account out of every tenant it is in, so it takes the token's tenant.
+    let user_uuid = status_write_target(ctx, &admin_token, &user_id).await?;
 
     // Shared get/guard/update-status core (no tenant step on suspension); the
-    // operator behind the token is recorded against the transition.
-    let updated_user = admin_ops::transition_user_status(
+    // operator behind the token is recorded against the transition, and is
+    // the actor an admin's own suspension is refused to: a console session
+    // or a device login acts as its admin, a service token as no one.
+    let transition = admin_ops::transition_user_status(
         &ctx.repos,
         user_uuid,
         UserStatus::Suspended,
         admin_token.operator_user_id,
+        admin_token.operator_user_id,
     )
     .await?;
+    record_withdrawn_credentials(
+        &ctx.repos,
+        &admin_token,
+        &transition.withdrawn,
+        AdminStandingLost::Deactivated,
+        Some(user_uuid),
+    )
+    .await;
+    let updated_user = transition.user;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!(
@@ -617,9 +646,10 @@ pub(crate) async fn handle_reset_user_password(
         AppError::invalid_input(format!("Invalid user ID format: {e}"))
     })?;
 
-    // A super-admin reaches every user; any other admin reaches only the users
-    // of the tenant it acts in (a platform-wide token names none), and a user
-    // outside it answers 404 exactly like a missing one.
+    // An admin's console session, like a super-admin token, reaches every
+    // user; a scoped token reaches only the users of the tenant it acts in (a
+    // platform-wide token names none), and a user outside it answers 404
+    // exactly like a missing one.
     let scope = if admin_token.is_super_admin {
         None
     } else {
@@ -628,6 +658,9 @@ pub(crate) async fn handle_reset_user_password(
     let user = admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid)
         .await
         .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
+    // The reset token signs its holder in as the account, so a token without
+    // the super-admin flag is handed none for an admin (403).
+    require_rank_over_target(&admin_token, &user)?;
 
     // Audit identity: the operator when the token names one, else the service.
     let reset_by = admin_token
@@ -1025,7 +1058,10 @@ pub(crate) async fn handle_allow_email(
         Ok(delivery) => delivery,
         Err(refused) => return Ok(*refused),
     };
-    // The operator behind the token — the approving super-admin of a device
+    // An allow approves a pending account on the spot, so it takes the rank
+    // approving one by id does: a token without the flag approves no admin.
+    require_rank_to_allow(ctx, &admin_token, &request.email).await?;
+    // The operator behind the token — the approving admin of a device
     // login, the admin of a console session. A service token names no person,
     // so `allowed_by` stays NULL rather than attributing its allow to some
     // arbitrary admin account.

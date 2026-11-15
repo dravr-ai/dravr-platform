@@ -21,7 +21,6 @@ pub fn create_test_admin_user(email: &str, display_name: Option<String>) -> User
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true, // Admin user
         role: UserRole::Admin,
         approved_by: None,
         approved_at: Some(Utc::now()),
@@ -51,7 +50,6 @@ pub fn create_test_user(email: &str, display_name: Option<String>) -> User {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false, // Regular user
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),

@@ -223,7 +223,6 @@ mod capability_recovery {
             password_hash,
             Some("Cap Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

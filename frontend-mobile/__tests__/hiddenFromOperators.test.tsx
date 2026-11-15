@@ -24,8 +24,8 @@ jest.mock('expo-router', () => {
 const Gated = hiddenFromOperators(() => <Text>pane</Text>);
 
 describe('hiddenFromOperators', () => {
-  it.each(['admin', 'super_admin'])('sends a %s back to Settings', (role) => {
-    mockRole = role;
+  it('sends an admin back to Settings', () => {
+    mockRole = 'admin';
     render(<Gated />);
     expect(screen.getByText('redirect:/(app)/(tabs)/(settings)')).toBeTruthy();
     expect(screen.queryByText('pane')).toBeNull();

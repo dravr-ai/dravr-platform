@@ -267,7 +267,7 @@ async fn standing(data: &DataContext, coach: Uuid) -> AppResult<Standing> {
         .users
         .get_global(coach)
         .await?
-        .is_some_and(|user| user.manages_roster || user.is_admin);
+        .is_some_and(|user| user.manages_roster || user.role.is_admin());
     let access_requested = !coach_access
         && repos
             .coach_access_requests

@@ -261,7 +261,7 @@ fn a_server_without_a_frontend_url_links_nothing() {
 #[test]
 fn a_coach_access_request_keeps_who_where_and_the_link_off_posthog() {
     // Who asked, the group's name and the console link are for the
-    // super-admin reading the notice; how the request came and the
+    // admin reading the notice; how the request came and the
     // request's id still reach PostHog.
     let provider = PierreAnalyticsProvider;
     let f = fields(&[

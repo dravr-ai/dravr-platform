@@ -16,10 +16,9 @@
 //! [`ToolSelectionRoutes::console_routes`] mounts the tenant and global ones
 //! under `/api/admin/tools` behind the console's session auth.
 //!
-//! A tenant's tools are managed by that tenant's admins: a super-admin reaches
-//! every tenant, any other caller only a tenant its token is bound to or its
-//! operator belongs to — which is how a console session of a plain Admin
-//! reaches the tenants it administers.
+//! An admin's console session, like a super-admin token, reaches every
+//! tenant's tools; a token without the flag reaches only the tenant its
+//! stored row binds it to.
 
 use std::fmt;
 use std::sync::Arc;
@@ -33,7 +32,6 @@ use axum::{
     Extension, Json, Router,
 };
 use pierre_core::models::TenantId;
-use pierre_database::RepositoryRegistry;
 use pierre_middleware::tenant_path::TenantPath;
 use pierre_runtime_context::MiddlewareCtx;
 use serde::{Deserialize, Serialize};
@@ -47,12 +45,11 @@ use pierre_tool_runtime::tool_selection::ToolSelectionService;
 
 /// Require the caller to administer `tenant_id`.
 ///
-/// A super-admin reaches every tenant. Any other caller reaches a tenant its
-/// token is bound to, or one its operator — the signed-in admin of a console
-/// session — is a member of. A service token bound to no tenant and acting for
-/// no one reaches none.
-async fn require_tenant_tool_access(
-    repos: &RepositoryRegistry,
+/// An admin's console session and the token of a device login carry the
+/// super-admin flag and reach every tenant. A token without the flag reaches
+/// the tenant its stored row binds it to, and one bound to no tenant reaches
+/// none.
+fn require_tenant_tool_access(
     admin_token: &ValidatedAdminToken,
     tenant_id: TenantId,
 ) -> AppResult<()> {
@@ -60,12 +57,6 @@ async fn require_tenant_tool_access(
         || admin_token.tenant_id.as_deref() == Some(tenant_id.to_string().as_str())
     {
         return Ok(());
-    }
-    if let Some(operator) = admin_token.operator_user_id {
-        let tenants = repos.tenants.list_for_user(operator).await?;
-        if tenants.iter().any(|tenant| tenant.id == tenant_id) {
-            return Ok(());
-        }
     }
     Err(AppError::new(
         ErrorCode::PermissionDenied,
@@ -78,14 +69,11 @@ async fn require_tenant_tool_access(
 pub struct ToolSelectionContext {
     /// Tool selection service for business logic
     pub tool_selection: Arc<ToolSelectionService>,
-    /// Repository registry, read to check the caller's tenant membership
-    pub repos: Arc<RepositoryRegistry>,
 }
 
 impl fmt::Debug for ToolSelectionContext {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ToolSelectionContext")
-            .field("repos", &self.repos)
             .finish_non_exhaustive()
     }
 }
@@ -247,7 +235,7 @@ impl ToolSelectionRoutes {
         Extension(admin_token): Extension<ValidatedAdminToken>,
         TenantPath(tenant_id): TenantPath,
     ) -> AppResult<impl IntoResponse> {
-        require_tenant_tool_access(&context.repos, &admin_token, tenant_id).await?;
+        require_tenant_tool_access(&admin_token, tenant_id)?;
 
         let tools = context
             .tool_selection
@@ -273,7 +261,7 @@ impl ToolSelectionRoutes {
         TenantPath(tenant_id): TenantPath,
         Json(request): Json<SetOverrideRequest>,
     ) -> AppResult<impl IntoResponse> {
-        require_tenant_tool_access(&context.repos, &admin_token, tenant_id).await?;
+        require_tenant_tool_access(&admin_token, tenant_id)?;
 
         info!(
             "Setting tool override: tenant={}, tool={}, enabled={}, by={}",
@@ -326,7 +314,7 @@ impl ToolSelectionRoutes {
         // tenant here; the id is parsed the same way it parses one.
         let tenant_id = TenantId::parse_str(&tenant_id)
             .map_err(|_| AppError::invalid_input("Invalid tenant ID in path"))?;
-        require_tenant_tool_access(&context.repos, &admin_token, tenant_id).await?;
+        require_tenant_tool_access(&admin_token, tenant_id)?;
 
         info!(
             "Removing tool override: tenant={}, tool={}, by={}",
@@ -359,7 +347,7 @@ impl ToolSelectionRoutes {
         Extension(admin_token): Extension<ValidatedAdminToken>,
         TenantPath(tenant_id): TenantPath,
     ) -> AppResult<impl IntoResponse> {
-        require_tenant_tool_access(&context.repos, &admin_token, tenant_id).await?;
+        require_tenant_tool_access(&admin_token, tenant_id)?;
 
         let summary = context
             .tool_selection

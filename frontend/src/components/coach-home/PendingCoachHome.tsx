@@ -58,7 +58,7 @@ interface PendingCoachHomeProps {
  * server's, read back from the seat. Under it, the coach's rooms, where the
  * agent already answers.
  *
- * Nothing here flips the Home: once a super-admin grants the access, the
+ * Nothing here flips the Home: once an admin grants the access, the
  * shell's grant refresh patches the session and the Dashboard routes Home to
  * the coach Home; a TrainingPeaks coach account does the same through
  * {@link useSeatAfterPlatformLink}.

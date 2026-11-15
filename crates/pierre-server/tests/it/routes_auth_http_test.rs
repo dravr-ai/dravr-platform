@@ -111,7 +111,7 @@ impl AuthTestSetup {
         let request = CreateAdminTokenRequest {
             service_name: "test_admin".to_owned(),
             service_description: Some("Auto-generated test admin token".to_owned()),
-            permissions: None, // Super admin by default
+            permissions: None, // Admin by default
             expires_in_days: Some(1),
             is_super_admin: true,
             tenant_id: None,

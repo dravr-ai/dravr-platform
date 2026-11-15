@@ -1,4 +1,4 @@
-// ABOUTME: Impersonation system for super admins to act as other users
+// ABOUTME: Impersonation system for admins to act as other users
 // ABOUTME: Provides audit logging and session management for impersonation
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -13,7 +13,7 @@ use uuid::Uuid;
 pub struct ImpersonationSession {
     /// Unique session identifier
     pub id: String,
-    /// Super admin performing the impersonation
+    /// Admin performing the impersonation
     pub impersonator_id: Uuid,
     /// User being impersonated
     pub target_user_id: Uuid,
@@ -63,7 +63,7 @@ impl ImpersonationSession {
 /// JWT claims extension for impersonation
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImpersonationClaims {
-    /// Original user ID (the super admin)
+    /// Original user ID (the admin)
     pub original_user_id: Uuid,
     /// User being impersonated
     pub impersonated_user_id: Uuid,
@@ -84,59 +84,5 @@ impl ImpersonationClaims {
             impersonated_user_id,
             session_id,
         }
-    }
-}
-
-/// Permission delegation record for session sharing
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PermissionDelegation {
-    /// Unique delegation identifier
-    pub id: String,
-    /// User granting permissions
-    pub grantor_id: Uuid,
-    /// User receiving permissions
-    pub grantee_id: Uuid,
-    /// Delegated permissions (bitflags value)
-    pub permissions: u64,
-    /// When delegation expires (None = permanent until revoked)
-    pub expires_at: Option<DateTime<Utc>>,
-    /// When delegation was revoked (None if active)
-    pub revoked_at: Option<DateTime<Utc>>,
-    /// Record creation timestamp
-    pub created_at: DateTime<Utc>,
-}
-
-impl PermissionDelegation {
-    /// Create a new permission delegation
-    #[must_use]
-    pub fn new(
-        grantor_id: Uuid,
-        grantee_id: Uuid,
-        permissions: u64,
-        expires_at: Option<DateTime<Utc>>,
-    ) -> Self {
-        Self {
-            id: Uuid::new_v4().to_string(),
-            grantor_id,
-            grantee_id,
-            permissions,
-            expires_at,
-            revoked_at: None,
-            created_at: Utc::now(),
-        }
-    }
-
-    /// Check if delegation is currently active
-    #[must_use]
-    pub fn is_active(&self) -> bool {
-        if self.revoked_at.is_some() {
-            return false;
-        }
-        self.expires_at.is_none_or(|exp| Utc::now() < exp)
-    }
-
-    /// Revoke the delegation
-    pub fn revoke(&mut self) {
-        self.revoked_at = Some(Utc::now());
     }
 }

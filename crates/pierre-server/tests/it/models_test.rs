@@ -287,7 +287,6 @@ fn test_user_creation_with_required_fields() {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(now),
@@ -310,7 +309,7 @@ fn test_user_creation_with_required_fields() {
     assert_eq!(user.tier, UserTier::Professional);
     assert!(user.is_active);
     assert_eq!(user.user_status, UserStatus::Active);
-    assert!(!user.is_admin);
+    assert_eq!(user.role, UserRole::User);
 }
 
 #[test]
@@ -330,7 +329,6 @@ fn test_user_serialization_roundtrip() {
         }),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role: UserRole::Admin,
         approved_by: Some(Uuid::new_v4()),
         approved_at: Some(now),
@@ -355,10 +353,29 @@ fn test_user_serialization_roundtrip() {
     assert_eq!(original_user.display_name, deserialized_user.display_name);
     assert_eq!(original_user.tier, deserialized_user.tier);
     assert_eq!(original_user.user_status, deserialized_user.user_status);
-    assert_eq!(original_user.is_admin, deserialized_user.is_admin);
+    assert_eq!(original_user.role, deserialized_user.role);
     // Note: EncryptedToken doesn't implement PartialEq, so we test individual fields
     assert!(original_user.strava_token.is_some());
     assert!(deserialized_user.strava_token.is_some());
+}
+
+/// A `User` carries the role and no admin flag of its own (carnet#1574). A
+/// document written while it carried one still loads, and the flag in it
+/// decides nothing: the role does.
+#[test]
+fn a_user_document_that_still_carries_is_admin_loads_by_its_role() {
+    let user = User::new("stored@example.com".to_owned(), "hash".to_owned(), None);
+    let mut document = serde_json::to_value(&user).unwrap();
+    assert!(
+        document.get("is_admin").is_none(),
+        "a User is written with its role alone: {document}"
+    );
+
+    document["is_admin"] = serde_json::Value::Bool(true);
+    let loaded: User = serde_json::from_value(document).unwrap();
+    assert_eq!(loaded.id, user.id);
+    assert_eq!(loaded.role, UserRole::User);
+    assert!(!loaded.is_active_admin(), "the stored flag promotes nobody");
 }
 
 #[test]
@@ -485,7 +502,6 @@ fn test_user_with_encrypted_tokens() {
         }),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(Uuid::new_v4()),
         approved_at: Some(now),

@@ -50,7 +50,7 @@ pub mod chat;
 pub mod check_in_preferences;
 /// Claim verdicts from the bullshit detector pipeline
 pub mod claim_verdicts;
-/// Coach-access requests a super-admin decides (`SQLite`)
+/// Coach-access requests an admin decides (`SQLite`)
 pub mod coach_access_requests;
 /// A coach's "Traité" on Coach Home attention reasons (`SQLite`)
 pub mod coach_attention_dismissals;
@@ -86,7 +86,7 @@ pub mod fitness_configurations;
 pub mod garmin_push_inbox;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
-/// Impersonation session management for super admin user impersonation
+/// Impersonation session management for admin user impersonation
 pub mod impersonation;
 /// Import tombstones (`SQLite`) backing `ImportTombstoneRepository`.
 pub mod import_tombstones;

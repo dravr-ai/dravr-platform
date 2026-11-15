@@ -6,7 +6,20 @@ import type { DelegationReadRefusal } from './groups.js';
 // ========== USER TYPES ==========
 
 /** User role */
-export type UserRole = 'super_admin' | 'admin' | 'user';
+export type UserRole = 'admin' | 'user';
+
+/**
+ * Whether an account holds the admin role: the one way either client asks.
+ *
+ * `role` decides. The `is_admin` field the server sends beside it is derived
+ * from `role`, and no gate reads it where `role` is sent: the two columns once
+ * disagreed, and a gate left on the flag refused both founders (carnet#1574).
+ * Takes the account, not a role string, so a group membership's own `admin`
+ * role is never mistaken for this one.
+ */
+export function hasAdminRole(user: Pick<User, 'role'> | null | undefined): boolean {
+  return user?.role === 'admin';
+}
 
 /** User account status */
 export type UserStatus = 'pending' | 'active' | 'suspended';

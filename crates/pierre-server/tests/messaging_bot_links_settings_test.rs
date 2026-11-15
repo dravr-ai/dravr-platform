@@ -120,7 +120,8 @@ mod bot_links_settings {
             user = users
                 .update_status(user_id, UserStatus::Active, Some(user_id))
                 .await
-                .unwrap();
+                .unwrap()
+                .user;
         }
         let tenant = first_tenant(resources, user_id).await;
         let token = generate_test_token(resources, &user).await;

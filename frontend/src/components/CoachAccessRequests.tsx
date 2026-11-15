@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Admin console queue of coach-access requests — who asked, for which group, grant or decline with a reason (carnet#738)
-// ABOUTME: A grant gives manages_roster and makes the coach the coach of every coachless group they own; super-admin only server-side
+// ABOUTME: A grant gives manages_roster and makes the coach the coach of every coachless group they own; admin only server-side
 
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';

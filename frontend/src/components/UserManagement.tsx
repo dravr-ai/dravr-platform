@@ -16,6 +16,8 @@ import UserDetailDrawer from './UserDetailDrawer';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { offersSuspend } from '../utils/suspendOffer';
+import { useAuth } from '../hooks/useAuth';
 
 type UserTab = 'pending' | 'new_users' | 'preapproved' | 'signup_codes' | 'coach_access' | 'active' | 'suspended' | 'all';
 
@@ -26,6 +28,8 @@ export default function UserManagement() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  // The signed-in admin: its own row is never offered Suspend.
+  const { user: viewer } = useAuth();
 
   // Queries for different user types
   const { data: pendingUsers = [], isLoading: pendingLoading } = useQuery<User[]>({
@@ -40,7 +44,7 @@ export default function UserManagement() {
     refetchInterval: 60000,
   });
 
-  // Coach-access requests waiting for a super-admin (carnet#738). The view
+  // Coach-access requests waiting for an admin (carnet#738). The view
   // shares this query, so the tab count and the queue never disagree.
   const { data: coachAccessRequests = [] } = useQuery({
     queryKey: QUERY_KEYS.adminUsers.coachAccess('pending'),
@@ -272,7 +276,7 @@ export default function UserManagement() {
     );
   }
 
-  // Coaches asking for coach access, granted or declined by a super-admin.
+  // Coaches asking for coach access, granted or declined by an admin.
   if (activeTab === 'coach_access') {
     return (
       <div className="space-y-6">
@@ -377,7 +381,7 @@ export default function UserManagement() {
                       Approve
                     </Button>
                   )}
-                  {user.user_status === 'active' && !user.is_admin && (
+                  {offersSuspend(user, viewer) && (
                     <Button
                       onClick={() => handleUserAction(user, 'suspend')}
                       size="sm"

@@ -1,5 +1,5 @@
 // ABOUTME: The one rule deciding which tenants an admin read may cover, from the caller's server-side role
-// ABOUTME: A super admin reads every tenant by default or picks one; anyone else stays on their own tenant
+// ABOUTME: An admin reads every tenant by default or picks one; anyone else stays on their own tenant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,9 +7,12 @@
 //! Which tenants an admin read covers (carnet#1440).
 //!
 //! The role comes from the authenticated caller, never from the request. What
-//! the request carries is only a wish, the `tenant_id` query parameter:
+//! the request carries is only a wish, the `tenant_id` query parameter. The
+//! platform column is an admin's console session or a super-admin service
+//! token; the other two are a scoped service token, or a tenant owner who is
+//! not an admin:
 //!
-//! | `tenant_id` | Super admin | Bound to a tenant | Bound to none |
+//! | `tenant_id` | Platform | Bound to a tenant | Bound to none |
 //! |---|---|---|---|
 //! | absent | every tenant | that tenant | refused |
 //! | `all` | every tenant | refused | refused |
@@ -29,7 +32,7 @@ pub const ALL_TENANTS_PARAM: &str = "all";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AdminScope {
-    /// Every tenant on the platform: the explicit super-admin path.
+    /// Every tenant on the platform: the explicit platform-wide path.
     AllTenants,
     /// One tenant.
     Tenant {
@@ -60,8 +63,9 @@ impl From<TenantId> for AdminScope {
 /// Who is asking, as far as the scope rule cares.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ScopeCaller {
-    /// A platform super admin.
-    SuperAdmin,
+    /// A caller that reaches every tenant: an admin, or a super-admin
+    /// service token.
+    Platform,
     /// Anyone else who acts in one tenant.
     BoundTo(TenantId),
     /// Anyone else, with no tenant to act in.
@@ -85,11 +89,11 @@ impl ScopeCaller {
             .transpose()?;
         let asks_for_all = requested == Some(ALL_TENANTS_PARAM);
         match (self, named) {
-            (Self::SuperAdmin, Some(tenant_id)) => Ok(AdminScope::Tenant { tenant_id }),
-            (Self::SuperAdmin, None) => Ok(AdminScope::AllTenants),
+            (Self::Platform, Some(tenant_id)) => Ok(AdminScope::Tenant { tenant_id }),
+            (Self::Platform, None) => Ok(AdminScope::AllTenants),
             (Self::BoundTo(_) | Self::Unbound, None) if asks_for_all => Err(AppError::new(
                 ErrorCode::PermissionDenied,
-                "Only a super admin can read across every tenant",
+                "Only an admin can read across every tenant",
             )),
             (Self::BoundTo(own), None) => Ok(AdminScope::Tenant { tenant_id: own }),
             (Self::BoundTo(own), Some(tenant_id)) if tenant_id == own => {
@@ -112,7 +116,7 @@ pub(crate) fn other_tenant_refusal(bound: &str, requested: &str) -> AppError {
     )
 }
 
-/// The refusal of a credential with neither a tenant nor the super-admin role.
+/// The refusal of a token with neither a tenant nor the super-admin flag.
 pub(crate) fn no_tenant_refusal() -> AppError {
     AppError::new(
         ErrorCode::PermissionDenied,
@@ -127,7 +131,7 @@ impl ValidatedAdminToken {
     /// `InvalidInput` when the tenant the credential carries is not a tenant id.
     pub fn scope_caller(&self) -> AppResult<ScopeCaller> {
         if self.is_super_admin {
-            return Ok(ScopeCaller::SuperAdmin);
+            return Ok(ScopeCaller::Platform);
         }
         self.tenant_id
             .as_deref()
@@ -160,24 +164,24 @@ mod tests {
     }
 
     #[test]
-    fn a_super_admin_reads_everything_unless_it_picks_one_tenant() {
-        let caller = ScopeCaller::SuperAdmin;
+    fn a_platform_caller_reads_everything_unless_it_picks_one_tenant() {
+        let caller = ScopeCaller::Platform;
         assert_eq!(
             caller.resolve(None).ok(),
             Some(AdminScope::AllTenants),
-            "bug: a super admin's default is the whole platform"
+            "bug: a platform caller's default is the whole platform"
         );
         assert_eq!(
             caller.resolve(Some("all")).ok(),
             Some(AdminScope::AllTenants),
-            "bug: a super admin may name every tenant"
+            "bug: a platform caller may name every tenant"
         );
         assert_eq!(
             caller.resolve(Some(THEIRS)).ok(),
             Some(AdminScope::Tenant {
                 tenant_id: theirs()
             }),
-            "bug: a super admin's pick must narrow the read"
+            "bug: a platform caller's pick must narrow the read"
         );
     }
 
@@ -214,7 +218,7 @@ mod tests {
     #[test]
     fn a_malformed_tenant_is_invalid_input_for_every_caller() {
         for caller in [
-            ScopeCaller::SuperAdmin,
+            ScopeCaller::Platform,
             ScopeCaller::BoundTo(mine()),
             ScopeCaller::Unbound,
         ] {

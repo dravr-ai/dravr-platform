@@ -1,4 +1,4 @@
-// ABOUTME: What the super-admin-gated ops taps share: the super-admin check behind a Slack identity and the card they redraw
+// ABOUTME: What the admin-gated ops taps share: the admin check behind a Slack identity and the card they redraw
 // ABOUTME: A settled tap trades the card's buttons for its outcome; a refused one keeps them and says why under them
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -23,62 +23,62 @@ pub(super) fn room_text(e: &AppError) -> &str {
     }
 }
 
-/// The decision a super-admin-gated tap takes, which names what the room is
+/// The decision an admin-gated tap takes, which names what the room is
 /// told when the tapper is not one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum SuperAdminDecision {
+pub(super) enum AdminDecision {
     /// Grant or decline a coach-access request.
     CoachAccess,
     /// Raise a capped athlete to Enterprise.
     RaiseTier,
 }
 
-impl SuperAdminDecision {
-    /// The refusal for a tapper who is not an active super-admin. Each message
+impl AdminDecision {
+    /// The refusal for a tapper who is not an active admin. Each message
     /// is a literal so the `PermissionDenied` review reads it.
     fn refusal(self) -> AppError {
         match self {
             Self::CoachAccess => AppError::new(
                 ErrorCode::PermissionDenied,
-                "Coach access is decided only by an active super-admin",
+                "Coach access is decided only by an active admin",
             ),
             Self::RaiseTier => AppError::new(
                 ErrorCode::PermissionDenied,
-                "A tier is raised only by an active super-admin",
+                "A tier is raised only by an active admin",
             ),
         }
     }
 }
 
-/// The Dravr account a Slack identity acts as on a super-admin's decision:
+/// The Dravr account a Slack identity acts as on an admin's decision:
 /// the one its channel link names, through the gate every command postback
-/// walks ([`authorize_postback`]), and only when it is an active super-admin.
+/// walks ([`authorize_postback`]), and only when it is an active admin.
 /// `decision` names what the room is told when the account is not one.
 ///
 /// # Errors
 ///
 /// Refuses an unlinked Slack identity, a pending or suspended account, and
-/// an account that is not an active super-admin.
-pub(super) async fn authorize_super_admin(
+/// an account that is not an active admin.
+pub(super) async fn authorize_admin(
     resources: &ServerContext,
     slack_user_id: &str,
-    decision: SuperAdminDecision,
+    decision: AdminDecision,
 ) -> AppResult<Uuid> {
     let (user_id, _) = authorize_postback(resources, slack_user_id).await?;
-    let is_super_admin = resources
+    let is_admin = resources
         .common
         .repos
         .users
         .get_global(user_id)
         .await?
-        .is_some_and(|user| user.is_active_super_admin());
-    if is_super_admin {
+        .is_some_and(|user| user.is_active_admin());
+    if is_admin {
         return Ok(user_id);
     }
     warn!(
         slack_user = %slack_user_id,
         user_id = %user_id,
-        "Slack ops action refused: not an active super-admin"
+        "Slack ops action refused: not an active admin"
     );
     Err(decision.refusal())
 }
@@ -153,11 +153,11 @@ mod tests {
     fn the_room_reads_a_refusal_in_its_own_words_and_a_server_fault_only_by_kind() {
         let refused = AppError::new(
             ErrorCode::PermissionDenied,
-            "Coach access is decided only by an active super-admin",
+            "Coach access is decided only by an active admin",
         );
         assert_eq!(
             room_text(&refused),
-            "Coach access is decided only by an active super-admin"
+            "Coach access is decided only by an active admin"
         );
         let decided = AppError::new(
             ErrorCode::ResourceAlreadyExists,
@@ -195,7 +195,7 @@ mod tests {
 
     #[test]
     fn a_settled_request_keeps_its_notice_and_trades_its_buttons_for_the_outcome() {
-        let refused = refused_card(&posted_card(), "@op: not a super-admin").unwrap();
+        let refused = refused_card(&posted_card(), "@op: not an admin").unwrap();
         let card = settled_card(refused.as_array().unwrap(), ":white_check_mark: granted");
 
         assert_eq!(block_ids(&card), ["notice", "who", "-"]);
@@ -205,7 +205,7 @@ mod tests {
     #[test]
     fn a_refused_tap_keeps_the_buttons_and_says_why_once_under_them() {
         let first = refused_card(&posted_card(), "@op: not linked").unwrap();
-        let second = refused_card(first.as_array().unwrap(), "@admin: not a super-admin").unwrap();
+        let second = refused_card(first.as_array().unwrap(), "@admin: not an admin").unwrap();
 
         assert_eq!(
             block_ids(&second),
@@ -218,7 +218,7 @@ mod tests {
         );
         assert_eq!(
             second[3]["elements"][0]["text"],
-            ":no_entry: @admin: not a super-admin"
+            ":no_entry: @admin: not an admin"
         );
     }
 

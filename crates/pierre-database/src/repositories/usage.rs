@@ -118,19 +118,12 @@ pub trait UsageCounterRepository: Send + Sync {
 /// The rows an aggregate of `llm_usage` was summed over.
 #[derive(Debug, Clone, Copy)]
 pub enum LlmUsageScope<'scope> {
-    /// Every tenant: the super-admin path.
+    /// Every tenant: the platform-wide path.
     AllTenants,
     /// One tenant, by its id.
     Tenant(&'scope str),
-    /// One user in every tenant they belong to: the super-admin path.
+    /// One user in every tenant they belong to: the platform-wide path.
     User(&'scope str),
-    /// One user's rows in one tenant.
-    UserInTenant {
-        /// The user's id.
-        user_id: &'scope str,
-        /// The tenant's id.
-        tenant_id: &'scope str,
-    },
 }
 
 impl<'scope> LlmUsageScope<'scope> {
@@ -142,7 +135,6 @@ impl<'scope> LlmUsageScope<'scope> {
             Self::AllTenants => (None, None),
             Self::Tenant(tenant_id) => (Some(tenant_id), None),
             Self::User(user_id) => (None, Some(user_id)),
-            Self::UserInTenant { user_id, tenant_id } => (Some(tenant_id), Some(user_id)),
         }
     }
 }
@@ -165,7 +157,7 @@ pub trait LlmUsageRepository: Send + Sync {
 
     /// Query aggregated LLM usage grouped by `provider`, `model`, and
     /// `call_type`, of one tenant or, with `None`, of every tenant: the
-    /// super-admin path of the Analytics screen and the platform's cost today.
+    /// platform-wide path of the Analytics screen and the platform's cost today.
     /// Leaves out rows that are no LLM call.
     async fn get_llm_usage_aggregates(
         &self,
@@ -197,23 +189,6 @@ pub trait LlmUsageRepository: Send + Sync {
     async fn get_llm_usage_daily_series_by_user(
         &self,
         user_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<LlmUsageDailyRow>>;
-
-    /// [`Self::get_llm_usage_aggregates_by_user`] for the user's rows in one tenant,
-    /// which is all a tenant's admin may read of a user who also belongs elsewhere.
-    async fn get_llm_usage_aggregates_by_user_in_tenant(
-        &self,
-        user_id: &str,
-        tenant_id: &str,
-        since: &str,
-    ) -> AppResult<Vec<LlmUsageAggregateRow>>;
-
-    /// [`Self::get_llm_usage_daily_series_by_user`] for the user's rows in one tenant.
-    async fn get_llm_usage_daily_series_by_user_in_tenant(
-        &self,
-        user_id: &str,
-        tenant_id: &str,
         since: &str,
     ) -> AppResult<Vec<LlmUsageDailyRow>>;
 

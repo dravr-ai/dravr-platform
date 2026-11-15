@@ -54,7 +54,7 @@ pub mod chat;
 pub mod check_in_preferences;
 /// Claim verdict repository implementation
 pub mod claim_verdicts;
-/// Coach-access requests a super-admin decides (Postgres)
+/// Coach-access requests an admin decides (Postgres)
 pub mod coach_access_requests;
 /// A coach's "Traité" on Coach Home attention reasons (Postgres)
 pub mod coach_attention_dismissals;
@@ -90,7 +90,7 @@ pub mod fitness_config;
 pub mod garmin_push_inbox;
 /// Health persistence: data sources, sleep, recovery, health snapshots
 pub mod health_persistence;
-/// Super-admin impersonation session audit records.
+/// Admin impersonation session audit records.
 pub mod impersonation;
 /// Import tombstones (`Postgres`) backing `ImportTombstoneRepository`.
 pub mod import_tombstones;

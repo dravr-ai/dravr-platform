@@ -16,18 +16,21 @@ use serde_json::Value;
 use sqlx::postgres::PgRow;
 use sqlx::Row;
 use std::collections::HashMap;
+use tracing::info;
 use uuid::Uuid;
 
 use super::user_preferences as preferences;
 use crate::backends::postgres::PostgresDatabase;
 use crate::backends::shared::enums::user_status_to_str;
+use crate::repositories::admin::DEACTIVATE_OPERATOR_TOKENS_SQL;
+use crate::repositories::admin_standing::impl_admin_standing_writes;
+use crate::repositories::impersonation::{END_ALL_SESSIONS_SQL, END_SESSIONS_OF_TARGET_SQL};
 use crate::repositories::user_profiles::{
     impl_profile_repository, CREATE_GOAL_SQL, GET_USER_CONFIGURATION_SQL, GET_USER_GOALS_SQL,
     GET_USER_PROFILE_SQL, SAVE_USER_CONFIGURATION_SQL, UPSERT_USER_PROFILE_SQL,
 };
 use crate::repositories::user_references::{user_reference_from_row, DELETION_BLOCKERS_SQL};
-use crate::repositories::users::{
-    impl_user_repository, listing_status_filter, user_from_row, user_status_filter,
+use crate::repositories::user_sql::{
     users_by_ids_sql, ADD_TENANT_MEMBER_SQL, COUNT_USERS_CREATED_SINCE_SQL, COUNT_USERS_SQL,
     CREATE_USER_SQL, FIRST_ADMIN_USER_SQL, GET_USER_BY_EMAIL_SQL, GET_USER_BY_FIREBASE_UID_SQL,
     GET_USER_BY_ID_SQL, GET_USER_IN_TENANT_SQL, LIST_ADMIN_USERS_SQL, SET_USER_ADMIN_STATUS_SQL,
@@ -36,8 +39,13 @@ use crate::repositories::users::{
     USERS_BY_STATUS_AFTER_CURSOR_SQL, USERS_BY_STATUS_IN_TENANT_SQL, USERS_BY_STATUS_PAGE_SQL,
     USERS_BY_STATUS_SQL,
 };
+use crate::repositories::users::{
+    admin_removal_lock_sql, impl_user_repository, is_last_active_admin_among, last_admin_refusal,
+    listing_status_filter, user_from_row, user_status_filter,
+};
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::{ProfileRepository, UserRepository};
+use crate::repositories::{StandingWrite, WithdrawnAdminCredentials};
 
 /// `PostgreSQL`'s SQLSTATE for a violated unique constraint. `create` turns one into
 /// the same structured error `SQLite`'s `UNIQUE constraint failed` produces, so a
@@ -70,5 +78,13 @@ fn duplicate_user_error(error: &sqlx::Error) -> Option<AppError> {
     })
 }
 
-impl_user_repository!(PostgresDatabase, PgRow, NativeUuid, duplicate_user_error);
+impl_admin_standing_writes!(PostgresDatabase, PgRow, NativeUuid);
+impl_user_repository!(
+    PostgresDatabase,
+    PgRow,
+    NativeUuid,
+    duplicate_user_error,
+    "BEGIN",
+    "FOR NO KEY UPDATE"
+);
 impl_profile_repository!(PostgresDatabase, NativeUuid);

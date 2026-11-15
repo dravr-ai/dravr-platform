@@ -8,7 +8,7 @@ import type { User, UserManagementResponse } from '../types/api';
 import { Button, Card, Textarea } from './ui';
 import { Badge } from './ui/Badge';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
 import { useDialog } from '../hooks/useDialog';
 
 interface UserApprovalModalProps {
@@ -61,6 +61,9 @@ export default function UserApprovalModal({
   const handleClose = () => {
     onClose();
     setReason('');
+    // The dialog stays mounted between accounts: a refusal about one must not
+    // be read on the next one it opens for.
+    approvalMutation.reset();
   };
   const titleId = useId();
   // Focus trap, focus restore, Escape and the scroll lock: one layer on the
@@ -161,8 +164,13 @@ export default function UserApprovalModal({
 
           {approvalMutation.isError && (
             <div className="mt-3 p-3 bg-error/15 border border-error/30 rounded-md">
-              <p className="text-sm text-error">
-                Failed to {actionVerb} user. Please try again.
+              {/* The server's own sentence when it refused the request ("Cannot
+                  suspend the last active admin"): only it knows why. */}
+              <p role="alert" className="text-sm text-error">
+                {describeAdminError(
+                  approvalMutation.error,
+                  `Failed to ${actionVerb} user. Please try again.`,
+                )}
               </p>
             </div>
           )}

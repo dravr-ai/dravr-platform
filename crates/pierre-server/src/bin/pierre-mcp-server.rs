@@ -350,7 +350,7 @@ fn log_missing_admin_warning(auto_approve: bool) {
 async fn check_admin_status(repos: &RepositoryRegistry, auto_approve: bool) {
     match repos.users.get_by_status("active", None).await {
         Ok(users) => {
-            let admin_exists = users.iter().any(|u| u.is_admin);
+            let admin_exists = users.iter().any(|u| u.role.is_admin());
             if admin_exists {
                 info!("Admin user configured - server ready for authentication");
             } else {

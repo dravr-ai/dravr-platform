@@ -595,26 +595,6 @@ mod tests {
                     .get_llm_usage_daily_series_by_user(user_id, since)
                     .await
             }
-            async fn get_llm_usage_aggregates_by_user_in_tenant(
-                &self,
-                user_id: &str,
-                tenant_id: &str,
-                since: &str,
-            ) -> AppResult<Vec<LlmUsageAggregateRow>> {
-                self.0
-                    .get_llm_usage_aggregates_by_user_in_tenant(user_id, tenant_id, since)
-                    .await
-            }
-            async fn get_llm_usage_daily_series_by_user_in_tenant(
-                &self,
-                user_id: &str,
-                tenant_id: &str,
-                since: &str,
-            ) -> AppResult<Vec<LlmUsageDailyRow>> {
-                self.0
-                    .get_llm_usage_daily_series_by_user_in_tenant(user_id, tenant_id, since)
-                    .await
-            }
             async fn get_recent_llm_calls_admin(
                 &self,
                 tenant_id: Option<&str>,

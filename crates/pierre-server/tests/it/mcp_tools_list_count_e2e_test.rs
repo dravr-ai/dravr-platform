@@ -249,7 +249,7 @@ async fn test_tools_list_invalid_token_returns_401() -> Result<()> {
 /// Authenticated tenant owner sees the full *non-admin* authenticated tool set.
 ///
 /// A tenant owner is admin *of their tenant* but is NOT a global admin, so the wire gate
-/// (global `User.is_admin`) correctly withholds `admin_*` tools. The floor assertion still
+/// (global `User.role`) correctly withholds `admin_*` tools. The floor assertion still
 /// covers the tool-loss regression path: when the `tenant_filtered` branch returned a
 /// depleted set (e.g. 15 tools from an empty catalog), it fails.
 #[tokio::test]
@@ -277,7 +277,7 @@ async fn test_tools_list_authenticated_owner_exceeds_floor() -> Result<()> {
         returned
     );
 
-    // A tenant owner is NOT a global admin: the wire gate (global `User.is_admin`) must
+    // A tenant owner is NOT a global admin: the wire gate (global `User.role`) must
     // withhold `admin_*` tools. A tenant-role Owner must not escalate to system admin.
     let admin_tools: Vec<&String> = returned
         .iter()
@@ -377,7 +377,7 @@ async fn test_tools_list_admin_matches_registry_discovery_endpoint() -> Result<(
     let (user, _session) =
         common::create_test_tenant(&resources, "parity-admin@example.com").await?;
     // Both surfaces answer one profile for a genuine GLOBAL admin
-    // (`User.is_admin`) as for anyone; parity is asserted at that tier all the same.
+    // (`User.role`) as for anyone; parity is asserted at that tier all the same.
     // The wire gate resolves the flag from the DB at request time, so flipping it here
     // makes the admin's API key an admin caller. An API key, because `admin` is never
     // delegated and `/mcp` refuses a first-party session token (carnet#768).
@@ -445,7 +445,7 @@ async fn test_tools_list_http_matches_in_process_registry() -> Result<()> {
     let (user, _session) =
         common::create_test_tenant(&resources, "wire-parity-admin@example.com").await?;
     // The wire response must match the in-process registry less what is kept on Dravr's
-    // own surfaces, for a global admin (`User.is_admin`) on the top plan as for anyone.
+    // own surfaces, for a global admin (`User.role`) on the top plan as for anyone.
     // Flipping the flag in the DB makes the admin's API key authenticate as an admin — an
     // API key, because `admin` is never delegated and `/mcp` refuses a session token
     // (carnet#768).

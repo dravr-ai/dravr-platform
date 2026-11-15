@@ -2,20 +2,15 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The Engagement tab reads every figure in the one scope the viewer picked and states it
-// ABOUTME: A super admin's figures are the platform by default; a plain admin's are their tenant's, users included
+// ABOUTME: An admin's figures are the platform by default; picking a tenant narrows them to it, users included
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import EngagementTab from '../EngagementTab';
 import type { EngagementSummary } from '../../services/api/admin';
 
 const TENANT = '11111111-1111-4111-8111-111111111111';
-const role = vi.hoisted(() => ({ current: 'super_admin' }));
-
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: role.current } }),
-}));
 
 vi.mock('../../services/api', () => ({
   adminApi: {
@@ -55,11 +50,10 @@ describe('EngagementTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     localStorage.clear();
-    role.current = 'super_admin';
     vi.mocked(adminApi.getEngagement).mockResolvedValue(engagement());
   });
 
-  it('states that a super admin reads the series across every tenant', async () => {
+  it('states that an admin reads the series across every tenant', async () => {
     vi.mocked(dashboardApi.getUsageAnalytics).mockResolvedValue({
       scope: { kind: 'all_tenants' },
       time_series: [],
@@ -74,26 +68,6 @@ describe('EngagementTab', () => {
     ).toBeInTheDocument();
     expect(dashboardApi.getUsageAnalytics).toHaveBeenCalledWith(expect.anything(), 'all');
     expect(adminApi.getEngagement).toHaveBeenCalledWith('all');
-  });
-
-  it('keeps a plain admin on their own tenant and sends no tenant', async () => {
-    role.current = 'admin';
-    vi.mocked(dashboardApi.getUsageAnalytics).mockResolvedValue({
-      scope: { kind: 'tenant', tenant_id: TENANT },
-      time_series: [],
-    });
-    vi.mocked(adminApi.getEngagement).mockResolvedValue(
-      engagement({ scope: { kind: 'tenant', tenant_id: TENANT } }),
-    );
-    renderTab();
-
-    expect(await screen.findByTestId('admin-scope-statement')).toHaveTextContent(
-      'Showing your tenant only.',
-    );
-    await waitFor(() =>
-      expect(dashboardApi.getUsageAnalytics).toHaveBeenCalledWith(expect.anything(), undefined),
-    );
-    expect(screen.queryByLabelText('Tenant scope')).not.toBeInTheDocument();
   });
 
   it('ranks the leaderboard by uses, not by prompt size', async () => {
@@ -125,8 +99,8 @@ describe('EngagementTab', () => {
     }
   });
 
-  it('shows a plain admin their own tenant\'s users, asked for in the same scope as the series', async () => {
-    role.current = 'admin';
+  it('shows the picked tenant\'s users, asked for in the same scope as the series', async () => {
+    localStorage.setItem('pierre.admin_scope', TENANT);
     vi.mocked(dashboardApi.getUsageAnalytics).mockResolvedValue({
       scope: { kind: 'tenant', tenant_id: TENANT },
       time_series: [],
@@ -140,7 +114,12 @@ describe('EngagementTab', () => {
     renderTab();
 
     await screen.findByText('Total Users');
-    expect(adminApi.getEngagement).toHaveBeenCalledWith(undefined);
+    expect(screen.getByTestId('admin-scope-statement')).toHaveTextContent(
+      `Showing one tenant: ${TENANT}.`,
+    );
+    expect(screen.getByLabelText('Tenant scope')).toHaveValue(TENANT);
+    expect(adminApi.getEngagement).toHaveBeenCalledWith(TENANT);
+    expect(dashboardApi.getUsageAnalytics).toHaveBeenCalledWith(expect.anything(), TENANT);
     expect(screen.getByText('Total Users').nextSibling).toHaveTextContent('3');
   });
 });

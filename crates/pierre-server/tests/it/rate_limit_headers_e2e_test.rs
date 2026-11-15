@@ -112,7 +112,6 @@ async fn active_user(resources: &Arc<ServerContext>, tier: UserTier, role: UserR
     );
     user.tier = tier;
     user.role = role;
-    user.is_admin = role.is_admin_or_higher();
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
     user.approved_at = Some(Utc::now());
@@ -638,7 +637,7 @@ async fn usage_status(app: &Router, athlete: &Athlete) -> Answer {
 async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limit() {
     let resources = common::create_test_server_resources().await.unwrap();
     let app = ProviderToolRouter::build_http_app(&resources);
-    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::Admin).await;
     let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
     let colleague = teammate(&resources, &starter).await;
     seed_jwt_calls(&resources, starter.user.id, 2).await;
@@ -741,7 +740,7 @@ async fn test_an_admin_override_below_the_tier_is_the_enforced_and_reported_limi
 async fn test_a_null_monthly_override_lifts_the_ceiling_and_sends_no_budget() {
     let resources = common::create_test_server_resources().await.unwrap();
     let app = ProviderToolRouter::build_http_app(&resources);
-    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::Admin).await;
     // A spent Starter month: the tier refuses the next request
     let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
     seed_jwt_calls(&resources, starter.user.id, 10_000).await;
@@ -775,7 +774,7 @@ async fn test_a_null_monthly_override_lifts_the_ceiling_and_sends_no_budget() {
 async fn test_an_override_body_naming_a_daily_limit_is_refused_and_writes_nothing() {
     let resources = common::create_test_server_resources().await.unwrap();
     let app = ProviderToolRouter::build_http_app(&resources);
-    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::Admin).await;
     let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
 
     let refused = put_override(
@@ -809,7 +808,7 @@ async fn test_an_override_body_naming_a_daily_limit_is_refused_and_writes_nothin
 async fn test_an_override_body_without_a_monthly_limit_is_refused_and_writes_nothing() {
     let resources = common::create_test_server_resources().await.unwrap();
     let app = ProviderToolRouter::build_http_app(&resources);
-    let admin = athlete(&resources, UserTier::Enterprise, UserRole::SuperAdmin).await;
+    let admin = athlete(&resources, UserTier::Enterprise, UserRole::Admin).await;
     let starter = athlete(&resources, UserTier::Starter, UserRole::User).await;
 
     let refused = put_override(

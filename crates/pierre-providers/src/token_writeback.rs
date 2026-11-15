@@ -15,7 +15,7 @@
 //! and a scrape session row must still carry the session's `session_id`.
 //! The write is a compare-and-swap on the row exactly as it was just read
 //! ([`OAuthTokenRepository::refresh_token`]), scoped to that row's user,
-//! tenant and provider. No other row is written, a super admin's clone of the
+//! tenant and provider. No other row is written, an admin's clone of the
 //! session included.
 
 use std::sync::Arc;

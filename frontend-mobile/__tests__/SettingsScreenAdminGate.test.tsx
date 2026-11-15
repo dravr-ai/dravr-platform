@@ -11,7 +11,7 @@ jest.mock('@expo/vector-icons', () => ({
 
 // Role is switchable per test: jest evaluates the factory's returned function
 // lazily on each useAuth() call, so reassigning mockRole changes the user's role.
-let mockRole: 'user' | 'admin' | 'super_admin' = 'user';
+let mockRole: 'user' | 'admin' = 'user';
 
 // Mock AuthContext
 jest.mock('../src/contexts/AuthContext', () => ({
@@ -67,8 +67,8 @@ describe('SettingsScreen - admin pure-operator gating', () => {
     }
   });
 
-  it.each(['admin', 'super_admin'] as const)('hides them for %s', async (role) => {
-    mockRole = role;
+  it('hides them for an admin', async () => {
+    mockRole = 'admin';
     const { queryByTestId, getByTestId } = render(<SettingsScreen />);
 
     // Wait for the list itself, which renders for everyone.

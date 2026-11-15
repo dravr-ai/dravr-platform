@@ -24,12 +24,12 @@ use pierre_core::errors::{AppError, ErrorCode, ErrorResponse};
 
 /// The refusals below are real messages from the reviewed inventory, one per
 /// shape a handler writes: a plan gate, an ownership check, a membership check,
-/// and an operator-privilege check.
+/// and an admin-privilege check.
 const REVIEWED_REFUSALS: &[&str] = &[
     "Group coaching requires a Professional or Enterprise plan",
     "Only the conversation's owner can delete it",
     "Cannot remove the group owner",
-    "Super-admin privileges required to create super-admin tokens",
+    "Admin privileges required for impersonation",
 ];
 
 #[test]

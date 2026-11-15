@@ -1,21 +1,21 @@
-// ABOUTME: Storing a sciotte scrape session for a user, and a super admin cloning one account's session onto another
-// ABOUTME: One write path for the hosted login and the super admin clone; the clone refuses OAuth grants and dead sessions
+// ABOUTME: Storing a sciotte scrape session for a user, and an admin cloning one account's session onto another
+// ABOUTME: One write path for the hosted login and the admin clone; the clone refuses OAuth grants and dead sessions
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Scrape-session persistence and the super admin clone.
+//! Scrape-session persistence and the admin clone.
 //!
 //! A sciotte login ends with an [`AuthSession`] — the provider cookies the
 //! scraper replays — which the platform stores as a `session` token row and
 //! registers as a manual connection. [`persist_sciotte_session`] is that write,
-//! and the only one: the hosted login calls it, and so does the super admin
+//! and the only one: the hosted login calls it, and so does the admin
 //! clone through [`ScrapeSessionInstaller`], which the auth route crate
 //! implements because the activity prefetch and health backfill that follow a
 //! store live there.
 //!
-//! The clone ([`find_clone_source`] then [`ScrapeSessionInstaller`]) lets a
-//! super admin give another account — a fresh test account, or one they
+//! The clone ([`find_clone_source`] then [`ScrapeSessionInstaller`]) lets an
+//! admin give another account — a fresh test account, or one they
 //! impersonate — a working Garmin or Strava-mirror connection without a second
 //! provider login: the source account's session is copied verbatim, same
 //! `session_id`, so both accounts read through the one session the sciotte
@@ -63,7 +63,7 @@ use uuid::Uuid;
 
 use crate::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 
-/// The mirror backends whose session a super admin may clone onto another
+/// The mirror backends whose session an admin may clone onto another
 /// account. See the module doc for why the others are refused.
 const CLONEABLE_BACKENDS: [&str; 2] = [SCIOTTE, SCIOTTE_GARMIN];
 
@@ -198,7 +198,7 @@ pub enum CloneRefusal {
 }
 
 impl CloneRefusal {
-    /// The sentence a super admin reads.
+    /// The sentence an admin reads.
     #[must_use]
     pub fn message(&self) -> String {
         match self {
@@ -252,7 +252,7 @@ fn clone_backend(provider: &str) -> &str {
 /// Find `from_user`'s live, cloneable scrape session for `provider`.
 ///
 /// When the source holds the backend in more than one tenant, the most
-/// recently written row is taken. `Ok(Err(_))` is a refusal the super admin
+/// recently written row is taken. `Ok(Err(_))` is a refusal the admin
 /// reads; nothing is written either way.
 ///
 /// # Errors

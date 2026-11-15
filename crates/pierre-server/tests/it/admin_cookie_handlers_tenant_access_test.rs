@@ -1,5 +1,5 @@
 // ABOUTME: Tenant-access tests for the cookie-admin observability handlers (claim verdicts, memory)
-// ABOUTME: A tenant-bound token is refused for another tenant at every site; its own tenant and a super-admin pass
+// ABOUTME: A tenant-bound token is refused for another tenant at every site; its own tenant and a super-admin token pass
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -90,7 +90,6 @@ async fn seed_tenant(repos: &pierre_database::RepositoryRegistry) -> TenantId {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(user_id),
         approved_at: Some(now),
@@ -127,7 +126,7 @@ async fn seed_tenant(repos: &pierre_database::RepositoryRegistry) -> TenantId {
 }
 
 /// Cookie-style super-admin token, mirroring what `cookie_admin_middleware`
-/// synthesizes for a `SuperAdmin`.
+/// synthesizes for an admin.
 fn super_admin_token() -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("cookie:{}", Uuid::new_v4()),
@@ -273,6 +272,6 @@ async fn verdict_list_reconciles_the_token_with_the_tenant_named() {
         query(foreign),
     )
     .await
-    .expect("a super admin reads any tenant");
+    .expect("an admin reads any tenant");
     assert_ok(ok, "verdict list (super-admin)");
 }

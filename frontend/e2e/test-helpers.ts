@@ -7,12 +7,13 @@
 import fs from 'fs';
 import path from 'path';
 import type { Page, Route } from '@playwright/test';
+import type { UserRole } from '@pierre/shared-types';
 
 /** The token screen's rail label. The admin rail is English in every session. */
 export const TOKENS_TAB_LABEL = 'API Tokens';
 
 interface UserOptions {
-  role?: 'user' | 'admin' | 'super_admin';
+  role?: UserRole;
   email?: string;
   displayName?: string;
   status?: 'active' | 'pending' | 'suspended';
@@ -458,9 +459,9 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
           email,
           display_name: displayName,
           role,
-          is_admin: role === 'admin' || role === 'super_admin',
+          is_admin: role === 'admin',
           user_status: status,
-          tier: role === 'super_admin' ? 'enterprise' : 'professional',
+          tier: 'professional',
           tenant_id: 'user-123',
           manages_roster: managesRoster,
         },
@@ -1041,14 +1042,6 @@ export async function navigateToTab(page: Page, tabName: string) {
  */
 export async function setupAndLoginAsAdmin(page: Page) {
   await setupDashboardMocks(page, { role: 'admin' });
-  await loginToDashboard(page);
-}
-
-/**
- * Shorthand for setting up mocks and logging in as a super admin.
- */
-export async function setupAndLoginAsSuperAdmin(page: Page) {
-  await setupDashboardMocks(page, { role: 'super_admin' });
   await loginToDashboard(page);
 }
 

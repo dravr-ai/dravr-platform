@@ -312,7 +312,7 @@ async fn a_blocked_call_in_a_chat_batch_is_reported_as_never_run() {
     );
 }
 
-/// The MCP annotation a super admin reads and the label the Guardian enforces say
+/// The MCP annotation an admin reads and the label the Guardian enforces say
 /// the same thing about every registered tool, in both directions. A tool
 /// annotated destructive but unlabelled escapes the per-turn cap; one labelled
 /// irreversible but annotated otherwise tells a client it is safe to run without
@@ -897,7 +897,7 @@ async fn three_irreversible_calls_commit_and_the_fourth_is_denied() {
 /// carnet#1492 (superseding carnet#1403's "separate step"): the writing plan
 /// tools' own descriptions, on every surface that lists them, say the write
 /// puts the plan on the calendar and point at the reply's `calendar_push`, and
-/// none repeats a budget a super admin can change.
+/// none repeats a budget an admin can change.
 #[tokio::test]
 async fn the_plan_writes_say_they_push_and_where_the_reply_says_so() {
     common::init_server_config();

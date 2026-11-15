@@ -16,7 +16,7 @@
 //!
 //! Once a key is stored, its roster is read off the request: a key whose
 //! account coaches active athletes files its owner's coach-access request
-//! for a super-admin to decide, and never grants coach access itself.
+//! for an admin to decide, and never grants coach access itself.
 
 use secrecy::{ExposeSecret, SecretString};
 use std::sync::Arc;
@@ -34,7 +34,7 @@ use pierre_core::models::{
 };
 use pierre_database::RepositoryRegistry;
 use pierre_providers::{CredentialKind, OAuth2Credentials};
-use pierre_services::coach_access::email_super_admins;
+use pierre_services::coach_access::email_admins;
 use pierre_services::coach_access_evidence::probe_intervals_icu_roster;
 use pierre_services::delegated_connections::{forget_coach_roster, supersede_delegated_link};
 use pierre_services::import_tombstones::{provider_account_tombstone, refuse_provider_account};
@@ -339,7 +339,7 @@ async fn record_reported_sex(
 
 /// After a key is linked, read its roster off the request and file the
 /// coach-access request it is evidence for
-/// ([`probe_intervals_icu_roster`]), emailing every super-admin about a
+/// ([`probe_intervals_icu_roster`]), emailing every admin about a
 /// request it opens as a tapped request does.
 ///
 /// The link answers as soon as the key is stored: the roster read is a
@@ -357,7 +357,7 @@ fn spawn_coach_access_probe(resources: &AuthRoutesContext, user_id: Uuid, tenant
         };
         match probed.await {
             Ok(Some(filed)) => {
-                email_super_admins(
+                email_admins(
                     &repos,
                     email.as_deref(),
                     config.frontend_url.as_deref(),

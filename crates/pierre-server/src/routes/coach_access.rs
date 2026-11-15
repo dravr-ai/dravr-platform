@@ -1,5 +1,5 @@
 // ABOUTME: HTTP boundary for a coach's own coach-access request — read where it stands, ask in one tap, or withdraw
-// ABOUTME: Opening one emails every super-admin and pings the notify channel; it grants nothing (ADR-018)
+// ABOUTME: Opening one emails every admin and pings the notify channel; it grants nothing (ADR-018)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,7 +22,7 @@
 //! The same mount serves `GET /api/me/coach-setup`, the coach-shaped Home's
 //! checklist the request sits in ([`crate::routes::coach_setup`]).
 //!
-//! The decision is a super-admin's, made in the admin console
+//! The decision is an admin's, made in the admin console
 //! (`pierre_routes_admin` coach-access handlers). Logic lives in
 //! [`pierre_services::coach_access`], the operator email included; this
 //! module is the HTTP boundary, handing that email the server's email
@@ -115,7 +115,7 @@ pub async fn handle_post(
     let outcome = coach_access::request_access(repos, auth.user_id, group, origin).await?;
     let status = match &outcome {
         RequestOutcome::Opened(request) => {
-            coach_access::email_super_admins(
+            coach_access::email_admins(
                 repos,
                 resources.common.email_service.as_deref(),
                 resources.common.config.frontend_url.as_deref(),
@@ -144,7 +144,7 @@ pub async fn handle_post(
 /// # Errors
 ///
 /// Returns `AppError` when authentication fails, the caller has no request
-/// waiting (not found), a super-admin decided it first (conflict), or
+/// waiting (not found), an admin decided it first (conflict), or
 /// persistence fails.
 pub async fn handle_delete(
     State(resources): State<Arc<ServerContext>>,

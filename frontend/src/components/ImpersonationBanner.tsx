@@ -1,4 +1,4 @@
-// ABOUTME: Banner component displayed when a super admin is impersonating another user
+// ABOUTME: Banner component displayed when an admin is impersonating another user
 // ABOUTME: Shows target user info and provides button to end impersonation session
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

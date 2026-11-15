@@ -61,7 +61,6 @@ mod tool_called_happy_path {
             password_hash,
             Some("Tool-Called Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

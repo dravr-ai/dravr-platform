@@ -253,7 +253,7 @@ pub use oauth2_server::{
 mod session_refresh_token;
 pub use session_refresh_token::SessionRefreshToken;
 
-// Coach-access requests — a coach asks, a super-admin decides (carnet#738)
+// Coach-access requests — a coach asks, an admin decides (carnet#738)
 mod coach_access;
 pub use coach_access::{
     normalize_decline_reason, CoachAccessRequest, CoachAccessStatus, DECLINE_REASON_MAX_CHARS,

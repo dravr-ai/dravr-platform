@@ -111,7 +111,7 @@ impl ActionRoute {
 /// 1. HMAC-SHA256 signature verification (proves request comes from Slack)
 /// 2. Timestamp replay protection (rejects requests older than 5 minutes)
 /// 3. Per-route authorization — the event's room for approve/reject, the
-///    room plus an active super-admin behind the Slack identity's channel
+///    room plus an active admin behind the Slack identity's channel
 ///    link for grant/decline and for raising a capped athlete's tier, the
 ///    channel link and user-status gate for command postbacks and the
 ///    athlete's taps. The signature proves the

@@ -112,7 +112,7 @@ jobs:
           [ -n "${ADMIN_TOKEN}" ] || MISSING="${MISSING} secrets.CANARY_ADMIN_TOKEN"
           [ -n "${BASE_URL}" ] || MISSING="${MISSING} vars.DEV_PUBLIC_BASE_URL"
           if [ -n "${MISSING}" ]; then
-            echo "::error::Missing:${MISSING} — this lane cannot read capture staleness and must not report green. CANARY_ADMIN_TOKEN must be minted BY dev, not locally: 'pierre-cli token generate' signs with the local database's RSA keypair AND registers the token row in that same local database, so dev rejects it twice over. Use: cargo run --bin pierre-cli -- auth login --server ${BASE_URL:-<dev frontend url>} ; approve in the browser as a super-admin (the sign-in IS the authorization, no prior token needed), then copy access_token from ~/.pierre/credentials.json. Super-admin is required — a default admin lacks ViewConfiguration and 403s here. See carnet#170."
+            echo "::error::Missing:${MISSING} — this lane cannot read capture staleness and must not report green. CANARY_ADMIN_TOKEN must be minted BY dev, not locally: 'pierre-cli token generate' signs with the local database's RSA keypair AND registers the token row in that same local database, so dev rejects it twice over. Use: cargo run --bin pierre-cli -- auth login --server ${BASE_URL:-<dev frontend url>} ; approve in the browser as an admin (the sign-in IS the authorization, no prior token needed), then copy access_token from ~/.pierre/credentials.json. A super-admin token is required (a device login mints one) — a default admin token lacks ViewConfiguration and 403s here. See carnet#170."
             exit 1
           fi
           echo "Credentials present."
@@ -147,7 +147,7 @@ jobs:
           # hide either — a refresh that did not happen leaves the connections
           # stale, and the read below is what files the issue.
           if [ "${CODE}" = "403" ]; then
-            echo "::warning::The admin token lacks manage_configuration, which capture-refresh requires. A token minted by 'pierre-cli auth login --server <dev frontend url>' and approved as a super-admin carries it; one minted locally by 'token generate' does not authenticate against dev at all. See carnet#170."
+            echo "::warning::The admin token lacks manage_configuration, which capture-refresh requires. A token minted by 'pierre-cli auth login --server <dev frontend url>' and approved as an admin carries it; one minted locally by 'token generate' does not authenticate against dev at all. See carnet#170."
             exit 0
           fi
           if [ "${CODE}" != "200" ]; then

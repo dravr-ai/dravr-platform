@@ -76,7 +76,7 @@ pub struct NewUserTurn {
 pub trait SignupCohortRepository: Send + Sync {
     /// Accounts created at or after `since`, newest first, at most `limit`,
     /// each with its milestones. `tenant` scopes the read as the module docs
-    /// describe; `None` is the super-admin's platform-wide read.
+    /// describe; `None` is the admin's platform-wide read.
     async fn new_user_milestones(
         &self,
         since: DateTime<Utc>,

@@ -37,7 +37,7 @@ fn build_admin_analytics_router(resources: Arc<ServerContext>) -> axum::Router {
     WebAdminRoutes::routes(resources.web_admin_context())
 }
 
-/// Create an admin user from scratch with `is_admin` set before insertion
+/// Create an admin user from scratch with the admin role set before insertion
 async fn create_admin_user_and_token(
     resources: &Arc<ServerContext>,
     email: &str,
@@ -49,7 +49,6 @@ async fn create_admin_user_and_token(
         password_hash,
         Some("Admin User".to_owned()),
     );
-    user.is_admin = true;
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);

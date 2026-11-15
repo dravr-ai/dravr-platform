@@ -10,7 +10,9 @@
 //! - Admin user (email/password from env or CLI)
 //! - Two demo users for testing
 //!
-//! All operations are idempotent via `seed_check_user_exists`.
+//! All operations are idempotent via `seed_check_user_exists`. An account
+//! that already exists gets its credentials refreshed and its role brought
+//! to the seed's through `UserRepository::set_admin_status`, never by SQL.
 //!
 //! Usage:
 //! ```bash
@@ -24,9 +26,14 @@
 use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::permissions::UserRole;
+use pierre_database::repositories::AuditSource;
 use pierre_database::seed_models::{SeedDemoUser, SeedTenant, SEED_LOCALE};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
+use pierre_services::admin_ops::{
+    record_withdrawn_admin_credentials, AdminStandingLost, StandingChange,
+};
 use std::fmt;
 use tracing::info;
 use uuid::Uuid;
@@ -60,7 +67,7 @@ struct BootstrapUser {
     email: &'static str,
     display_name: &'static str,
     tier: &'static str,
-    is_admin: bool,
+    role: UserRole,
     /// Optional custom password (defaults to `DEMO_USER_PASSWORD` if None)
     password: Option<&'static str>,
 }
@@ -71,47 +78,50 @@ const DEMO_USERS: &[BootstrapUser] = &[
         email: "alice@demo.pierre.dev",
         display_name: "Alice Demo",
         tier: "professional",
-        is_admin: false,
+        role: UserRole::User,
         password: None,
     },
     BootstrapUser {
         email: "bob@demo.pierre.dev",
         display_name: "Bob Demo",
         tier: "starter",
-        is_admin: false,
+        role: UserRole::User,
         password: None,
     },
     BootstrapUser {
         email: "phil_test@dravr.ai",
         display_name: "Phil Test",
         tier: "professional",
-        is_admin: false,
+        role: UserRole::User,
         password: Some("fougeresEtSapin2017#!$"),
     },
     BootstrapUser {
         email: "jf_test@dravr.ai",
         display_name: "JF Test",
         tier: "professional",
-        is_admin: false,
+        role: UserRole::User,
         password: Some("fougeresEtSapin2017#!$"),
     },
 ];
 
-/// Update password hash and role for an existing user (upsert via ON CONFLICT)
+/// Refresh the password hash, display name and locale of the existing user
+/// `user_id` (upsert via ON CONFLICT), then bring its role to the seed's.
 async fn upsert_user_credentials(
     repos: &RepositoryRegistry,
+    user_id: Uuid,
     email: &str,
     display_name: &str,
     password: &str,
     tier: &str,
-    is_admin: bool,
+    role: UserRole,
 ) -> AppResult<()> {
     let password_hash =
         hash(password, DEFAULT_COST).map_err(|e| AppError::config(format!("bcrypt error: {e}")))?;
     let now = Utc::now();
 
     // The ON CONFLICT(email) DO UPDATE in seed_insert_demo_user handles the upsert.
-    // We use a dummy UUID since the INSERT won't execute (user already exists).
+    // We use a dummy UUID since the INSERT won't execute (user already exists),
+    // and the role bound here is not written: `sync_role` below changes it.
     let seed_user = SeedDemoUser {
         id: Uuid::new_v4(),
         email: email.to_owned(),
@@ -119,11 +129,54 @@ async fn upsert_user_credentials(
         password_hash,
         tier: tier.to_owned(),
         status: "active".to_owned(),
-        is_admin,
+        role,
         created_at: now,
         locale: SEED_LOCALE.to_owned(),
     };
     repos.seeder.seed_insert_demo_user(&seed_user).await?;
+    sync_role(repos, user_id, role).await
+}
+
+/// Bring the existing account `user_id` to the seed's `role`, through the
+/// write every other surface uses.
+///
+/// The bootstrap admin is made an admin again on every run, and a demo
+/// account someone promoted goes back to a plain user: its password is in
+/// this file. The repository refuses to demote the last active admin, which
+/// fails the run rather than leaving the platform without one, and a demoted
+/// admin loses the device logins and impersonations it held, on the trail
+/// under the `pierre-cli` database source.
+///
+/// # Errors
+///
+/// Returns the repository's refusal or error.
+async fn sync_role(repos: &RepositoryRegistry, user_id: Uuid, role: UserRole) -> AppResult<()> {
+    let Some(stored) = repos.users.get_global(user_id).await? else {
+        return Ok(());
+    };
+    if stored.role == role {
+        return Ok(());
+    }
+    let write = repos
+        .users
+        .set_admin_status(user_id, role.is_admin())
+        .await?;
+    info!(
+        user_id = %user_id,
+        role = role.as_str(),
+        "Seeder brought an existing account to its seeded role"
+    );
+    record_withdrawn_admin_credentials(
+        repos,
+        &write.withdrawn,
+        StandingChange {
+            cause: AdminStandingLost::Demoted,
+            account: Some(user_id),
+            actor: None,
+            source: AuditSource::CliDatabase,
+        },
+    )
+    .await;
     Ok(())
 }
 
@@ -134,7 +187,7 @@ async fn create_user(
     display_name: &str,
     password: &str,
     tier: &str,
-    is_admin: bool,
+    role: UserRole,
 ) -> AppResult<Uuid> {
     let user_id = Uuid::new_v4();
     let password_hash =
@@ -149,7 +202,7 @@ async fn create_user(
         password_hash,
         tier: tier.to_owned(),
         status: "active".to_owned(),
-        is_admin,
+        role,
         created_at: now,
         locale: SEED_LOCALE.to_owned(),
     };
@@ -201,7 +254,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         "Admin",
         &args.admin_password,
         "enterprise",
-        true,
+        UserRole::Admin,
     )
     .await?;
 
@@ -213,7 +266,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
             user.display_name,
             password,
             user.tier,
-            user.is_admin,
+            user.role,
         )
         .await?;
     }
@@ -229,14 +282,14 @@ async fn sync_user(
     display_name: &str,
     password: &str,
     tier: &str,
-    is_admin: bool,
+    role: UserRole,
 ) -> AppResult<()> {
     let existing = repos.seeder.seed_check_user_exists(email).await?;
     if let Some(id) = existing {
-        upsert_user_credentials(repos, email, display_name, password, tier, is_admin).await?;
+        upsert_user_credentials(repos, id, email, display_name, password, tier, role).await?;
         info!("Updated user credentials: {} ({id})", mask_email(email));
     } else {
-        let id = create_user(repos, email, display_name, password, tier, is_admin).await?;
+        let id = create_user(repos, email, display_name, password, tier, role).await?;
         info!("Created user: {} ({id})", mask_email(email));
     }
     Ok(())

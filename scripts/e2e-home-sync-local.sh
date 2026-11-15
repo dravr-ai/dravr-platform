@@ -117,7 +117,7 @@ echo "building pierre-mcp-server and pierre-cli"
 
 export DATABASE_URL="sqlite:$DATABASE_PATH"
 export PIERRE_MASTER_ENCRYPTION_KEY="$MASTER_KEY"
-"$ROOT/target/debug/pierre-cli" user create --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --super-admin --force
+"$ROOT/target/debug/pierre-cli" user create --email "$ADMIN_EMAIL" --password "$ADMIN_PASSWORD" --force
 
 echo "starting Pierre on $PIERRE_PORT, its scraper at the double on $DOUBLE_PORT"
 (

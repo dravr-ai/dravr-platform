@@ -302,7 +302,7 @@ async fn stored_session(
     )
 }
 
-/// A super admin's clone copies one Garmin session onto another account, in
+/// An admin's clone copies one Garmin session onto another account, in
 /// its own tenant. A provider read on the source account that rotates the
 /// session stores the rotated copy over the row it read only, its `NULL`
 /// refresh token kept though the auth layer hands the provider an empty one;
@@ -363,15 +363,15 @@ async fn a_provider_read_that_rotates_a_cloned_session_stores_it_on_the_row_read
     assert_eq!(
         stored_session(&repos, clone, clone_tenant, SCIOTTE_GARMIN).await,
         (SESSION_ID.to_owned(), STORED_COOKIE.to_owned(), true),
-        "the super admin's clone in another account is never written"
+        "the admin's clone in another account is never written"
     );
 }
 
-/// A health sync's reader names no athlete, so when a super admin's clone
+/// A health sync's reader names no athlete, so when an admin's clone
 /// shares the session it read through, it cannot tell the row read from the
 /// clone's: nothing is stored, and the clone's row is never written.
 #[tokio::test]
-async fn a_health_sync_never_writes_a_super_admin_clone_of_the_session() {
+async fn a_health_sync_never_writes_an_admin_clone_of_the_session() {
     let (repos, reader, reader_tenant, db) = setup().await;
     let (clone, clone_tenant) = seed_user(&db).await;
     for (user, tenant) in [(reader, reader_tenant), (clone, clone_tenant)] {

@@ -73,6 +73,9 @@ pub enum AuditSource {
     CliDatabase,
     /// A service token: a scheduled job, a partner integration.
     Service,
+    /// A button tapped in the ops Slack room, which is its own authorization
+    /// and names no admin account.
+    Slack,
 }
 
 impl AuditSource {
@@ -84,6 +87,7 @@ impl AuditSource {
             Self::Cli => "cli",
             Self::CliDatabase => "cli_database",
             Self::Service => "service",
+            Self::Slack => "slack",
         }
     }
 }
@@ -125,7 +129,7 @@ pub struct AuditEventRecord {
     pub summary: String,
     /// `success`, `refused` or `failed`.
     pub outcome: String,
-    /// `console`, `cli`, `cli_database` or `service`.
+    /// `console`, `cli`, `cli_database`, `service` or `slack`.
     pub source: String,
     /// The operator who acted; `None` once that account is deleted, or for a
     /// service token.

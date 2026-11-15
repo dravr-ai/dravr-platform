@@ -1,4 +1,4 @@
-// ABOUTME: The admin triage panel one verdict card carries — the knob to adjust, and support's call: a control to whoever can write it, text to the rest
+// ABOUTME: The admin triage panel one verdict card carries — the knob to adjust, and the control recording support's call
 // ABOUTME: Operator chrome (English by decision); reached only from ClaimVerdictsTab, never from the chat surface's drawer
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -175,28 +175,9 @@ function DispositionControl({
   );
 }
 
-/** The disposition on the row, for a viewer who may read it and not change it. */
-function DispositionSummary({ verdict }: { verdict: ClaimVerdict }) {
-  if (!verdict.disposition) return null;
-  return (
-    <section data-testid="verdict-disposition-summary" className="space-y-1">
-      <h4 className="text-xs font-semibold text-outline">Disposition</h4>
-      <DisposedBy verdict={verdict} />
-      <p className="text-xs text-on-surface">{DISPOSITION_LABEL[verdict.disposition]}</p>
-      {verdict.disposition_reason ? (
-        <p className="text-xs text-on-surface">{REASON_LABEL[verdict.disposition_reason]}</p>
-      ) : null}
-      {verdict.disposition_note ? (
-        <p className="text-xs text-on-surface">{verdict.disposition_note}</p>
-      ) : null}
-    </section>
-  );
-}
-
 /**
  * Everything the admin adds under one verdict card: the knob behind the
- * verdict and what support made of it, as a control for a viewer who can write
- * it and as a summary for one who cannot.
+ * verdict, and the control recording what support made of it.
  *
  * The chat drawer renders this through its `renderTriage` slot and never
  * imports it, so the drawer an athlete opens carries none of this English.
@@ -209,17 +190,13 @@ export default function VerdictTriagePanel({
   verdict: ClaimVerdict;
   /** The knob the detail read resolved; absent while it loads. */
   knob: VerdictKnob | undefined;
-  /** The writer; absent when the viewer may not record a disposition. */
-  onSetDisposition?: SetDisposition;
+  /** Writes the disposition the admin saves. */
+  onSetDisposition: SetDisposition;
 }) {
   return (
     <>
       <KnobPanel knob={knob} />
-      {onSetDisposition ? (
-        <DispositionControl verdict={verdict} onSetDisposition={onSetDisposition} />
-      ) : (
-        <DispositionSummary verdict={verdict} />
-      )}
+      <DispositionControl verdict={verdict} onSetDisposition={onSetDisposition} />
     </>
   );
 }

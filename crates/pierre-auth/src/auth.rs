@@ -194,7 +194,7 @@ pub struct Claims {
     /// Use POST /api/tenants/switch to change the active tenant.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_tenant_id: Option<String>,
-    /// Original user ID when impersonating (the super admin)
+    /// Original user ID when impersonating (the admin)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub impersonator_id: Option<String>,
     /// Impersonation session ID for audit trail
@@ -439,7 +439,7 @@ impl AuthManager {
         Ok(token)
     }
 
-    /// Generate an impersonation `JWT` token for a super admin impersonating another user
+    /// Generate an impersonation `JWT` token for an admin impersonating another user
     ///
     /// # Errors
     ///
@@ -940,8 +940,8 @@ impl AuthManager {
 
     /// Check if initial setup is needed by verifying if any admin user exists
     ///
-    /// This checks for any user with `is_admin=true` flag, consistent with how
-    /// the admin setup endpoint validates existing admin users.
+    /// This checks for any active user holding the admin role, consistent with
+    /// how the admin setup endpoint validates existing admin users.
     ///
     /// # Errors
     ///
@@ -953,10 +953,10 @@ impl AuthManager {
         &self,
         users: &dyn UserRepository,
     ) -> AppResult<SetupStatusResponse> {
-        // Check for any active user with is_admin=true (consistent with admin setup endpoint)
+        // Check for any active user holding the admin role (consistent with admin setup endpoint)
         match users.get_by_status("active", None).await {
             Ok(users) => {
-                let admin_exists = users.iter().any(|u| u.is_admin);
+                let admin_exists = users.iter().any(|u| u.role.is_admin());
                 if admin_exists {
                     // Admin user exists, setup is complete
                     Ok(SetupStatusResponse {

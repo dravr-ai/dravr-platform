@@ -10,7 +10,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { i18n } from '@pierre/i18n';
 import Dashboard from '../Dashboard';
 
-const auth = vi.hoisted(() => ({ role: 'super_admin' }));
+const auth = vi.hoisted(() => ({ role: 'admin' }));
 
 vi.mock('../dashboard/index', () => ({
   ConversationList: () => null,
@@ -74,7 +74,7 @@ describe('Dashboard sidebar role badge', () => {
         renderDashboard();
       });
 
-      const label = i18n.t('shell.roleSuperAdmin');
+      const label = i18n.t('shell.roleAdmin');
       const badges = await screen.findAllByText(label);
       expect(badges.length).toBeGreaterThan(0);
       for (const badge of badges) {

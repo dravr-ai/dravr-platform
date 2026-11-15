@@ -240,9 +240,9 @@ impl CoachPlatform for TrainingPeaksPlatform {
 ///
 /// A key earns no `manages_roster`: a second account of one person's can give
 /// their first edit access, so a roster proves no coaching and the grant
-/// stays a super-admin's (ADR-018). Instead, a live read of a bound key whose
+/// stays an admin's (ADR-018). Instead, a live read of a bound key whose
 /// roster coaches an active athlete files the account's coach-access request,
-/// once ([`crate::coach_access_evidence`]), for a super-admin to grant in one
+/// once ([`crate::coach_access_evidence`]), for an admin to grant in one
 /// tap.
 struct IntervalsIcuPlatform;
 

@@ -7,6 +7,7 @@
 import { Suspense, lazy, useMemo } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
+import { hasAdminRole } from '@pierre/shared-types';
 import { useAuth } from '../../hooks/useAuth';
 import { FEATURE_KEYS, useFeatureFlags } from '../../hooks/useFeatureFlags';
 import { useIsDesktop } from '../../hooks/useBreakpoint';
@@ -29,7 +30,7 @@ export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellPr
   const { user, logout } = useAuth();
   const { flags } = useFeatureFlags();
   const isDesktop = useIsDesktop();
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
+  const isAdminUser = hasAdminRole(user);
 
   const tabs = useMemo(
     () => visibleSettingsTabs(isAdminUser, Boolean(flags[FEATURE_KEYS.apiTokens])),

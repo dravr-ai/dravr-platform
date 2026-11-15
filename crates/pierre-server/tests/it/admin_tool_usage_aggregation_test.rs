@@ -27,7 +27,6 @@ async fn owner_and_token(resources: &Arc<ServerContext>) -> (Uuid, TenantId, Str
     let email = format!("tool-usage-{}@example.com", Uuid::new_v4());
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST).unwrap();
     let mut user = User::new(email.clone(), password_hash, Some("Owner".to_owned()));
-    user.is_admin = true;
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);

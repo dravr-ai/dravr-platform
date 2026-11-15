@@ -50,6 +50,7 @@ import type {
   TurnEnvelope,
   TurnSendOptions,
 } from '@pierre/shared-types';
+import { hasAdminRole } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { chatApi, groupsApi, providersApi } from '../../services/api';
 import { track } from '../../services/analytics';
@@ -312,7 +313,7 @@ export function useChatThread({
   // Which model wrote a reply, and how long it took, is an operator's reading
   // (carnet#1147): an athlete talks to their agent, never to a model id.
   const { user } = useAuth();
-  const showsReplyModel = user?.role === 'admin' || user?.role === 'super_admin';
+  const showsReplyModel = hasAdminRole(user);
   // What the server decided this turn draws, keyed by assistant message id.
   // Not persisted: a reloaded conversation has no block list on the wire, so
   // its rows are decoded back into the same shape by the renderer.

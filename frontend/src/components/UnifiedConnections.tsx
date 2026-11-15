@@ -3,7 +3,6 @@
 
 import { useId, useState } from 'react';
 import { Button, Textarea } from './ui';
-import { useAuth } from '../hooks/useAuth';
 import { useDialog } from '../hooks/useDialog';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
@@ -118,11 +117,15 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
   );
 };
 
+/**
+ * The admin console's API Tokens screen. Only an admin opens it: `connections`
+ * is one of `ADMIN_ONLY_TABS`, which the Dashboard resolves away for anyone
+ * else on first paint and on every route change, so nothing here asks who is
+ * looking. An account that loses the role with this screen open is drawn
+ * nothing in the render that lost it, and is sent to its own default.
+ */
 export default function UnifiedConnections() {
-  const { user } = useAuth();
-  // Gate on `role`, as the Dashboard's rail does: `is_admin` has skewed from it before.
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
-  const [activeConnectionType, setActiveConnectionType] = useState<ConnectionType>(isAdminUser ? 'api-keys' : 'oauth-apps');
+  const [activeConnectionType, setActiveConnectionType] = useState<ConnectionType>('api-keys');
   const [activeView, setActiveView] = useState<View>('overview');
   const [selectedToken, setSelectedToken] = useState<AdminToken | null>(null);
   const [showTokenSuccess, setShowTokenSuccess] = useState(false);
@@ -144,19 +147,17 @@ export default function UnifiedConnections() {
   const renderTabs = () => (
     <div className="border-b ghost-border mb-6">
       <nav className="-mb-px flex space-x-8">
-        {isAdminUser && (
-          <button
-            className={`tab-dark ${activeConnectionType === 'api-keys' ? 'tab-dark-active' : ''}`}
-            onClick={() => {
-              setActiveConnectionType('api-keys');
-              setActiveView('overview');
-              setSelectedToken(null);
-              setErrorMessage(null);
-            }}
-          >
-            <span>API Tokens</span>
-          </button>
-        )}
+        <button
+          className={`tab-dark ${activeConnectionType === 'api-keys' ? 'tab-dark-active' : ''}`}
+          onClick={() => {
+            setActiveConnectionType('api-keys');
+            setActiveView('overview');
+            setSelectedToken(null);
+            setErrorMessage(null);
+          }}
+        >
+          <span>API Tokens</span>
+        </button>
         <button
           className={`tab-dark ${activeConnectionType === 'oauth-apps' ? 'tab-dark-active' : ''}`}
           onClick={() => {

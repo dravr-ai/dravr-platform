@@ -851,7 +851,6 @@ async fn an_operator_account_cannot_delete_itself() {
     let repos = registry.as_ref();
     let (mut user, _) = seed_password_account(repos).await;
     user.role = UserRole::Admin;
-    user.is_admin = true;
     repos.users.update(&user).await.unwrap();
 
     let preview = setup.preview(&user).await;

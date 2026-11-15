@@ -207,7 +207,7 @@ pub struct UserInfo {
     pub display_name: Option<String>,
     /// Whether the user has admin privileges
     pub is_admin: bool,
-    /// User role for permission system (`super_admin`, `admin`, `user`)
+    /// User role for permission system (`admin`, `user`)
     pub role: String,
     /// User account status (`pending`, `active`, `suspended`)
     pub user_status: String,

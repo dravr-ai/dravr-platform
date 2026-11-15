@@ -21,7 +21,7 @@ import { attemptSignIn, type SignInOutcome } from './first-party-sign-in';
 //
 // This spec pins the half that is machine-checkable: every credential we tell
 // people to use must actually authenticate against a freshly seeded server, and
-// the operator account must really carry super-admin. It cannot catch a typo in
+// the admin account must really carry the admin role. It cannot catch a typo in
 // a markdown table on its own — the defence against that is not restating the
 // table, and pointing at this file instead.
 
@@ -85,12 +85,12 @@ test.describe('seeded credentials — real backend (no mocks)', () => {
     });
   }
 
-  test('the operator account really carries super-admin, not plain admin', async () => {
+  test('the admin account really carries the admin role, not plain user', async () => {
     // bin/setup-db-with-seeds-and-oauth-and-start-servers.sh creates the admin
-    // with --super-admin on purpose: cookie_admin_middleware derives console
-    // permissions from the role, and a plain `admin` silently loses contremaitre
-    // config, store moderation and impersonation. A downgrade here would show up
-    // as tabs quietly missing from the console rather than as an error.
+    // account, and cookie_admin_middleware derives the console's permissions
+    // from the role: an account seeded as `user` signs in to the athlete's app
+    // and is refused every admin route. A downgrade here would show up as the
+    // console missing rather than as an error.
     const ctx = await apiRequest.newContext({ baseURL: PIERRE_URL });
 
     const body = tokensOf(
@@ -101,7 +101,7 @@ test.describe('seeded credentials — real backend (no mocks)', () => {
     expect(typeof body.access_token, 'no access_token in the admin token response').toBe('string');
     expect(body.user?.email).toBe(ADMIN_EMAIL);
     expect(body.user?.user_status).toBe('active');
-    expect(body.user?.role).toBe('super_admin');
+    expect(body.user?.role).toBe('admin');
     expect(body.user?.is_admin).toBe(true);
 
     await ctx.dispose();

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! These verbs are thin clients of the admin API, so what they owe is the request
-//! and the exit code: a super admin's script must be able to tell a refused save
+//! and the exit code: an admin's script must be able to tell a refused save
 //! from a landed one, and `--dry-run` must not write.
 
 use std::io::{Read, Write};

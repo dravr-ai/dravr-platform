@@ -35,7 +35,7 @@ async fn check_no_admin_exists(
 ) -> AppResult<Option<(StatusCode, Json<AdminResponse>)>> {
     match repos.users.get_by_status("active", None).await {
         Ok(users) => {
-            let admin_exists = users.iter().any(|u| u.is_admin);
+            let admin_exists = users.iter().any(|u| u.role.is_admin());
             if admin_exists {
                 return Ok(Some((
                     StatusCode::CONFLICT,
@@ -113,7 +113,6 @@ async fn create_admin_user_record(
         request.display_name.clone(),
     );
     admin_user.id = user_id;
-    admin_user.is_admin = true;
     admin_user.role = UserRole::Admin;
     admin_user.user_status = UserStatus::Active;
 

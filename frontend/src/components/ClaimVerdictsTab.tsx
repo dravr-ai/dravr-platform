@@ -1,5 +1,5 @@
 // ABOUTME: Claim-verification admin tab — triage flagged claim verdicts from the bullshit detector
-// ABOUTME: Health card, message lookup, status/category/agent/layer/disposition filters, drawer with knob and the disposition, writable by a super admin
+// ABOUTME: Health card, message lookup, status/category/agent/layer/disposition filters, drawer with knob and the disposition, writable by an admin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -223,7 +223,7 @@ function tenantHolding(verdict: ClaimVerdict): string {
 }
 
 export default function ClaimVerdictsTab() {
-  const { requested, isSuperAdmin } = useAdminScope();
+  const { requested } = useAdminScope();
   const queryClient = useQueryClient();
 
   const [statusFilter, setStatusFilter] = useState<string>('');
@@ -333,11 +333,10 @@ export default function ClaimVerdictsTab() {
       <VerdictTriagePanel
         verdict={verdict}
         knob={knobs[verdict.id]}
-        // The route requires ManageConfiguration, which only a super admin holds.
-        onSetDisposition={isSuperAdmin ? onSetDisposition : undefined}
+        onSetDisposition={onSetDisposition}
       />
     ),
-    [knobs, onSetDisposition, isSuperAdmin],
+    [knobs, onSetDisposition],
   );
 
   const verdicts = useMemo(() => data?.verdicts ?? [], [data?.verdicts]);
@@ -402,8 +401,7 @@ export default function ClaimVerdictsTab() {
               messaging are evaluated by the claim verifier and recorded here,
               with the claims MCP and A2A clients submit through verify_claim.
               A reply an MCP or A2A client writes itself is not checked. Filter,
-              drill into the source message,{' '}
-              {isSuperAdmin ? 'record whether the flag was right, ' : ''}
+              drill into the source message, record whether the flag was right,
               and course-correct agents that ship unsupported or contradicted
               claims.
             </p>

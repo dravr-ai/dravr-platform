@@ -213,7 +213,6 @@ impl MultiTenantMcpClient {
             strava_token: None,
             is_active: true,
             user_status: UserStatus::Active, // Already active
-            is_admin: false,
             role: UserRole::User,
             approved_by: Some(user_id), // Self-approved for test
             approved_at: Some(chrono::Utc::now()),

@@ -1,4 +1,4 @@
-// ABOUTME: Covers the super-admin impersonation audit trail against whichever backend DATABASE_URL names
+// ABOUTME: Covers the admin impersonation audit trail against whichever backend DATABASE_URL names
 // ABOUTME: Round-trips a session, finds it by either party, pages the whole log, and ends it one way or all at once
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0

@@ -15,6 +15,7 @@ import {
   skippedStepIds,
   type OnboardingContext,
 } from '@pierre/shared-constants';
+import { hasAdminRole } from '@pierre/shared-types';
 import { useAuth } from '../contexts/AuthContext';
 import { useOnboardingStatus } from './useOnboardingStatus';
 import { useCoachProposalSeen } from './useCoachProposalSeen';
@@ -57,7 +58,7 @@ export interface OnboardingContextState {
  */
 export function useOnboardingContext(): OnboardingContextState {
   const { user, isAuthenticated } = useAuth();
-  const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
+  const isAdminRole = hasAdminRole(user);
   const onboardingActive = isAuthenticated && user?.user_status === 'active' && !isAdminRole;
 
   // The status is a shared query that other screens read for every account —

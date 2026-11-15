@@ -39,7 +39,6 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
         display_name: Some("Test User".to_owned()),
         password_hash: bcrypt::hash("password", bcrypt::DEFAULT_COST)?,
         tier: UserTier::Starter,
-        is_admin: false,
         role: UserRole::User,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
@@ -91,7 +90,6 @@ async fn test_model_serialization_coverage() -> Result<()> {
         display_name: None, // Test None case
         password_hash: "hash".to_owned(),
         tier: UserTier::Enterprise, // Test different tier
-        is_admin: false,
         role: UserRole::User,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),
@@ -150,7 +148,6 @@ async fn test_admin_auth_flow() -> Result<()> {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: true,
         role: UserRole::Admin,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -202,7 +199,6 @@ async fn test_mcp_multitenant_request_routing() -> Result<()> {
             } else {
                 UserTier::Professional
             },
-            is_admin: false,
             role: UserRole::User,
             created_at: chrono::Utc::now(),
             last_active: chrono::Utc::now(),
@@ -257,7 +253,6 @@ async fn test_production_database_scenarios() -> Result<()> {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -288,7 +283,6 @@ async fn test_production_database_scenarios() -> Result<()> {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
@@ -323,7 +317,6 @@ async fn test_production_rate_limiting() -> Result<()> {
         display_name: Some("Rate Limited User".to_owned()),
         password_hash: bcrypt::hash("password", bcrypt::DEFAULT_COST)?,
         tier: UserTier::Starter, // Starter tier has limits
-        is_admin: false,
         role: UserRole::User,
         created_at: chrono::Utc::now(),
         last_active: chrono::Utc::now(),

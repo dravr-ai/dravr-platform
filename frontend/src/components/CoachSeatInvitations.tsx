@@ -17,7 +17,7 @@ import { ADMIN_LOCALE } from '../utils/adminLocale';
 type ExistingAccount = Extract<CoachSeatInviteResult, { outcome: 'account_exists' }>;
 
 /**
- * The coach-access decision ADR-018 leaves to a super-admin, taken before the
+ * The coach-access decision ADR-018 leaves to an admin, taken before the
  * coach signs up: an email-bound, single-use link that creates their account
  * with coach access and the coach role, so they meet no role question and no
  * request. Each invited coach waits here as an "invited" row with its expiry

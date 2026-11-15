@@ -7,7 +7,7 @@
 //! `pierre-cli auth login` device flow.
 //!
 //! Calls `/admin/device/authorization`, shows the operator the `user_code` and
-//! how a super-admin approves it, then polls `/admin/device/token` honouring the
+//! how an admin approves it, then polls `/admin/device/token` honouring the
 //! server's `interval`/`slow_down` until it receives the minted admin token,
 //! the request is denied, or the code expires.
 
@@ -170,9 +170,9 @@ pub fn approval_intro(browser_url_empty: bool, launched: bool) -> &'static str {
     if browser_url_empty {
         "  To finish signing in, approve this login headless (server BASE_URL not set):"
     } else if launched {
-        "  Opening your browser to approve this login as a super-admin:"
+        "  Opening your browser to approve this login as an admin:"
     } else {
-        "  To finish signing in, open this URL in your browser and approve as a super-admin:"
+        "  To finish signing in, open this URL in your browser and approve as an admin:"
     }
 }
 

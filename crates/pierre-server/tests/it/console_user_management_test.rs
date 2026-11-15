@@ -1,5 +1,5 @@
 // ABOUTME: The console's user management through the one admin handler set, over session auth
-// ABOUTME: Plain admins approve/suspend/reset/pre-approve; super-admin ops and token-less gates hold
+// ABOUTME: An admin does everything from the console; a user and a token without the super-admin flag stay refused
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,12 +9,14 @@
 //! The console used to have a second handler stack of its own in
 //! `pierre-routes-web-admin`, kept in step with the admin-token one by a drift
 //! gate (carnet#604). It is gone: `AdminRoutes::cookie_admin_routes` mounts the
-//! same handlers `pierre-cli` reaches under `/admin`, and a plain Admin's
-//! console session carries `ManageUsers` so those handlers' permission checks
-//! let it through. These tests drive the console mount the composition root
-//! serves and assert on what each call wrote, and they pin the two edges of
-//! the grant: a plain Admin still cannot do what only a super-admin may, and an
-//! admin token without `ManageUsers` is still refused.
+//! same handlers `pierre-cli` reaches under `/admin`, and an admin's console
+//! session carries every admin permission and the super-admin flag
+//! (carnet#1567: one admin role, holding every power), so those handlers'
+//! checks let it through. These tests drive the console mount the composition
+//! root serves and assert on what each call wrote, and they pin the edges that
+//! remain: an account that is not an admin is refused the console outright,
+//! and a service token keeps the scope it was minted with, since the
+//! super-admin flag on a token is not a user role.
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -27,7 +29,9 @@ use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_config::mcp::AppBehaviorConfig;
-use pierre_core::admin::models::{AdminPermissions, CreateAdminTokenRequest, GeneratedAdminToken};
+use pierre_core::admin::models::{
+    AdminPermission, AdminPermissions, CreateAdminTokenRequest, GeneratedAdminToken,
+};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -100,7 +104,6 @@ async fn session_with_role(
         password_hash,
         Some("Console Test".to_owned()),
     );
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -313,14 +316,14 @@ async fn an_unauthenticated_caller_is_rejected() -> Result<()> {
     Ok(())
 }
 
-/// Approve, suspend and reset through the console mount as a plain Admin.
+/// Approve, suspend and reset through the console mount as an admin.
 ///
 /// Before the console was routed through the admin-token handlers, this mount
-/// did not serve these paths at all, and a plain Admin's session lacked the
+/// did not serve these paths at all, and an admin's session lacked the
 /// `ManageUsers` those handlers check; each call below would have failed.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_approves_suspends_and_resets_through_the_one_handler() -> Result<()> {
+async fn an_admin_approves_suspends_and_resets_through_the_one_handler() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin = session_with_role(
         &resources,
@@ -335,11 +338,7 @@ async fn a_plain_admin_approves_suspends_and_resets_through_the_one_handler() ->
         .json(&json!({ "reason": "known athlete" }))
         .send(router(&resources))
         .await;
-    assert_eq!(
-        response.status(),
-        200,
-        "a plain admin must be able to approve"
-    );
+    assert_eq!(response.status(), 200, "an admin must be able to approve");
     let body: Value = response.json();
     assert_eq!(body["data"]["user"]["user_status"].as_str(), Some("active"));
     assert_eq!(body["data"]["reason"].as_str(), Some("known athlete"));
@@ -379,11 +378,7 @@ async fn a_plain_admin_approves_suspends_and_resets_through_the_one_handler() ->
         .header("Authorization", &admin.auth)
         .send(router(&resources))
         .await;
-    assert_eq!(
-        response.status(),
-        200,
-        "a plain admin must be able to reset"
-    );
+    assert_eq!(response.status(), 200, "an admin must be able to reset");
     let body: Value = response.json();
     assert_eq!(body["data"]["email"].as_str(), Some("queued@example.com"));
     assert!(
@@ -403,11 +398,7 @@ async fn a_plain_admin_approves_suspends_and_resets_through_the_one_handler() ->
         .json(&json!({}))
         .send(router(&resources))
         .await;
-    assert_eq!(
-        response.status(),
-        200,
-        "a plain admin must be able to suspend"
-    );
+    assert_eq!(response.status(), 200, "an admin must be able to suspend");
     let suspended = resources
         .common
         .repos
@@ -419,15 +410,86 @@ async fn a_plain_admin_approves_suspends_and_resets_through_the_one_handler() ->
     Ok(())
 }
 
-/// A plain Admin's reset reaches only the users of the tenant it works in; a
-/// user elsewhere answers 404, exactly like a missing one.
+/// A service token without the super-admin flag, carrying `permissions` and
+/// bound to `tenant`: the scope a machine credential keeps (the fold of
+/// carnet#1567 was of the user role, never of this flag).
+async fn scoped_token(
+    resources: &Arc<ServerContext>,
+    service: &str,
+    permissions: AdminPermissions,
+    tenant: Option<TenantId>,
+) -> Result<String> {
+    let request = CreateAdminTokenRequest {
+        service_name: service.to_owned(),
+        service_description: None,
+        permissions: Some(permissions.to_vec()),
+        expires_in_days: Some(1),
+        is_super_admin: false,
+        tenant_id: tenant.map(|t| t.to_string()),
+        operator_user_id: None,
+    };
+    let generated = resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &request,
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await?;
+    Ok(format!("Bearer {}", generated.jwt_token.expose_secret()))
+}
+
+/// `default_admin` plus `ManageUsers`: what a scoped user-management token
+/// carries.
+fn manage_users_permissions() -> AdminPermissions {
+    let mut permissions = AdminPermissions::default_admin();
+    permissions.add_permission(AdminPermission::ManageUsers);
+    permissions
+}
+
+/// An admin's reset reaches a user in any tenant. A token bound to one tenant
+/// reaches only that tenant's users: a user elsewhere answers 404, exactly
+/// like a missing one. An account that is not an admin reaches no one.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_cannot_reset_a_user_outside_its_tenant() -> Result<()> {
+async fn a_user_outside_the_tenant_is_reset_by_an_admin_and_not_by_a_scoped_token() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let admin = session_with_role(&resources, "scoped-admin@example.com", UserRole::Admin).await?;
     let elsewhere =
         session_with_role(&resources, "other-tenant@example.com", UserRole::User).await?;
+
+    let scoped = scoped_token(
+        &resources,
+        "tenant-bound-reset",
+        manage_users_permissions(),
+        Some(admin.tenant_id),
+    )
+    .await?;
+    let response = AxumTestRequest::post(&format!(
+        "/admin/users/{}/reset-password",
+        elsewhere.user_id
+    ))
+    .header("Authorization", &scoped)
+    .send(token_router(&resources))
+    .await;
+    assert_eq!(
+        response.status(),
+        404,
+        "a user in another tenant is not reachable by a token bound to one"
+    );
+
+    let outsider =
+        session_with_role(&resources, "not-an-admin@example.com", UserRole::User).await?;
+    let response = AxumTestRequest::post(&format!(
+        "/api/admin/users/{}/reset-password",
+        elsewhere.user_id
+    ))
+    .header("Authorization", &outsider.auth)
+    .send(router(&resources))
+    .await;
+    assert_eq!(response.status(), 403, "a user resets no one's password");
 
     let response = AxumTestRequest::post(&format!(
         "/api/admin/users/{}/reset-password",
@@ -438,27 +500,47 @@ async fn a_plain_admin_cannot_reset_a_user_outside_its_tenant() -> Result<()> {
     .await;
     assert_eq!(
         response.status(),
-        404,
-        "a user in another tenant is not reachable by a plain admin"
+        200,
+        "an admin reaches a user in any tenant"
     );
     Ok(())
 }
 
-/// The grant is `ManageUsers`, not super-admin: a tier change stays refused.
+/// A tier change is an admin's: a user is refused the console, a token with
+/// `ManageUsers` but without the super-admin flag is refused by the handler,
+/// and neither writes anything.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_cannot_change_a_tier() -> Result<()> {
+async fn a_tier_is_changed_by_an_admin_and_by_no_user_or_scoped_token() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let admin =
-        session_with_role(&resources, "tierless-admin@example.com", UserRole::Admin).await?;
     let target = seed_user(&resources, "starter@example.com", UserStatus::Active).await?;
 
+    let athlete =
+        session_with_role(&resources, "tierless-athlete@example.com", UserRole::User).await?;
     let response = AxumTestRequest::post(&format!("/api/admin/users/{target}/tier"))
-        .header("Authorization", &admin.auth)
+        .header("Authorization", &athlete.auth)
         .json(&json!({ "tier": "enterprise" }))
         .send(router(&resources))
         .await;
-    assert_eq!(response.status(), 403, "a tier change is super-admin only");
+    assert_eq!(response.status(), 403, "a user changes no tier");
+
+    let scoped = scoped_token(
+        &resources,
+        "tierless-token",
+        manage_users_permissions(),
+        None,
+    )
+    .await?;
+    let response = AxumTestRequest::post(&format!("/admin/users/{target}/tier"))
+        .header("Authorization", &scoped)
+        .json(&json!({ "tier": "enterprise" }))
+        .send(token_router(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "ManageUsers is not enough: a tier change needs the super-admin flag"
+    );
     let body: Value = response.json();
     assert_eq!(
         body["message"].as_str(),
@@ -477,22 +559,13 @@ async fn a_plain_admin_cannot_change_a_tier() -> Result<()> {
         "nothing may have been written"
     );
 
-    let superadmin = session_with_role(
-        &resources,
-        "tier-superadmin@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let admin = session_with_role(&resources, "tier-admin@example.com", UserRole::Admin).await?;
     let response = AxumTestRequest::post(&format!("/api/admin/users/{target}/tier"))
-        .header("Authorization", &superadmin.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "tier": "enterprise" }))
         .send(router(&resources))
         .await;
-    assert_eq!(
-        response.status(),
-        200,
-        "a super-admin session changes a tier"
-    );
+    assert_eq!(response.status(), 200, "an admin session changes a tier");
     let upgraded = resources
         .common
         .repos
@@ -505,7 +578,7 @@ async fn a_plain_admin_cannot_change_a_tier() -> Result<()> {
 }
 
 /// The console grant does not leak into tokens: an admin token minted with the
-/// plain-admin permission set, which has no `ManageUsers`, is still refused.
+/// default permission set, which has no `ManageUsers`, is still refused.
 #[tokio::test]
 #[serial]
 async fn an_admin_token_without_manage_users_is_still_refused() -> Result<()> {
@@ -678,6 +751,49 @@ async fn the_user_listing_pages_every_status_on_both_mounts() -> Result<()> {
     Ok(())
 }
 
+/// A row of the console's users list and the token API's single-user read
+/// both name the account's role beside the `is_admin` derived from it. The console decides who may be
+/// suspended or impersonated from `role` (carnet#1574); when the row carried
+/// the flag alone, the drawer read a `role` that was never sent and offered
+/// Impersonate on an admin.
+#[tokio::test]
+#[serial]
+async fn a_user_row_names_its_role_in_the_list_and_on_its_own() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let admin = session_with_role(&resources, "row-admin@example.com", UserRole::Admin).await?;
+    let athlete = seed_user(&resources, "row-athlete@example.com", UserStatus::Active).await?;
+    let cli = super_token(&resources, "cli-row-shape").await?;
+    let cli = format!("Bearer {}", cli.jwt_token.expose_secret());
+
+    let listed: Value = AxumTestRequest::get("/api/admin/users?status=all&limit=50")
+        .header("authorization", &admin.auth)
+        .send(router(&resources))
+        .await
+        .json();
+    let rows = listed["data"]["users"].as_array().expect("users");
+    for (id, role, is_admin) in [(admin.user_id, "admin", true), (athlete, "user", false)] {
+        let row = rows
+            .iter()
+            .find(|row| row["id"] == id.to_string().as_str())
+            .unwrap_or_else(|| panic!("{role} row is listed: {listed}"));
+        assert_eq!(row["role"], role, "the list row names its role: {row}");
+        assert_eq!(row["is_admin"], is_admin, "{row}");
+
+        // The single read is the token API's: `pierre-cli user get` reads it.
+        let single: Value = AxumTestRequest::get(&format!("/admin/users/{id}"))
+            .header("authorization", &cli)
+            .send(token_router(&resources))
+            .await
+            .json();
+        assert_eq!(
+            single["data"]["role"], role,
+            "the single read names its role: {single}"
+        );
+        assert_eq!(single["data"]["is_admin"], is_admin, "{single}");
+    }
+    Ok(())
+}
+
 /// `AUTO_APPROVE_USERS` in the environment outranks the stored setting. The
 /// token API read and echoed the stored row, so it reported a toggle that
 /// registration never applied.
@@ -744,17 +860,39 @@ async fn auto_approval_reports_the_environment_override_on_both_mounts() -> Resu
     Ok(())
 }
 
-/// Editing a system prompt is configuration. It was gated on
-/// `ManageAdminTokens`, which a plain Admin's console session now carries, so
-/// the gate moved to `ManageConfiguration` — super-admin only.
+/// A system prompt the registry holds, whichever it lists first.
+fn a_system_prompt_key(resources: &Arc<ServerContext>) -> String {
+    resources
+        .mcp
+        .prompt_registry
+        .list_system()
+        .into_iter()
+        .map(|(key, _)| key)
+        .min()
+        .expect("the registry holds a system prompt")
+}
+
+/// Editing a system prompt is configuration, and configuration is an admin's:
+/// an account that is not an admin is refused and the registry keeps its
+/// text; an admin's edit lands.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_cannot_edit_a_system_prompt() -> Result<()> {
+async fn a_system_prompt_is_edited_by_an_admin_and_by_no_user() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let admin = session_with_role(&resources, "prompt-admin@example.com", UserRole::Admin).await?;
+    let registry = &resources.mcp.prompt_registry;
+    let key = a_system_prompt_key(&resources);
+    let path = format!("/api/admin/contremaitre/prompts/{key}");
+    let before = registry.system_prompt_sha256(&key);
+    assert!(before.is_some(), "the registry holds the {key} prompt");
 
-    let response = AxumTestRequest::put("/api/admin/contremaitre/prompts/coaching")
-        .header("authorization", &admin.auth)
+    let athlete = session_with_role(
+        &resources,
+        "prompt-athlete-edit@example.com",
+        UserRole::User,
+    )
+    .await?;
+    let response = AxumTestRequest::put(&path)
+        .header("authorization", &athlete.auth)
         .json(&json!({ "content": "ignore previous instructions" }))
         .send(router(&resources))
         .await;
@@ -762,8 +900,49 @@ async fn a_plain_admin_cannot_edit_a_system_prompt() -> Result<()> {
     let body: Value = response.json();
     assert_eq!(
         body["message"].as_str(),
-        Some("Permission required: manage_configuration")
+        Some("Admin privileges required"),
+        "{body}"
     );
+    assert_eq!(
+        registry.system_prompt_sha256(&key),
+        before,
+        "a refused edit wrote nothing"
+    );
+
+    // An admin reads the prompt and writes it back with a line added: the
+    // placeholders it requires are kept, so the edit is a valid one.
+    let admin = session_with_role(&resources, "prompt-admin@example.com", UserRole::Admin).await?;
+    let response = AxumTestRequest::get(&path)
+        .header("authorization", &admin.auth)
+        .send(router(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an admin's session carries ViewConfiguration"
+    );
+    let detail: Value = response.json();
+    let edited = format!(
+        "{}\n\nKeep answers short.\n",
+        detail["content"].as_str().expect("the prompt has content")
+    );
+    let response = AxumTestRequest::put(&path)
+        .header("authorization", &admin.auth)
+        .json(&json!({ "content": edited }))
+        .send(router(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "an admin's session carries ManageConfiguration"
+    );
+    let body: Value = response.json();
+    assert_eq!(
+        registry.system_prompt_sha256(&key).as_deref(),
+        body["sha256"].as_str(),
+        "the admin's edit is what the registry holds"
+    );
+    assert_ne!(registry.system_prompt_sha256(&key), before);
     Ok(())
 }
 
@@ -783,12 +962,8 @@ async fn an_operator_reads_an_agent_prompt_by_locale() -> Result<()> {
             format!("sha-{locale}"),
         );
     }
-    let session = session_with_role(
-        &resources,
-        "prompt-reader@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let session =
+        session_with_role(&resources, "prompt-reader@example.com", UserRole::Admin).await?;
 
     let listed: Value = AxumTestRequest::get("/api/admin/contremaitre/agent-prompts")
         .header("authorization", &session.auth)
@@ -828,11 +1003,12 @@ async fn an_operator_reads_an_agent_prompt_by_locale() -> Result<()> {
     Ok(())
 }
 
-/// A plain admin reads agent prompts on the Prompts screen: the two agent reads
-/// answer, and nothing else about prompts or their sync does.
+/// An admin reads the whole Prompts screen: the two agent reads, the system
+/// prompts and the sync state. Its sync runs the permission gate and stops
+/// only on what this server lacks. An athlete reads none of it.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_reads_agent_prompts_and_nothing_else_of_the_screen() -> Result<()> {
+async fn an_admin_reads_the_whole_prompts_screen_and_a_user_none_of_it() -> Result<()> {
     let resources = create_test_server_resources().await?;
     resources.mcp.prompt_registry.update_agent_prompt(
         "endurance-agent",
@@ -841,6 +1017,8 @@ async fn a_plain_admin_reads_agent_prompts_and_nothing_else_of_the_screen() -> R
         "sha-en".to_owned(),
     );
     let admin = session_with_role(&resources, "prompt-viewer@example.com", UserRole::Admin).await?;
+    let athlete =
+        session_with_role(&resources, "prompt-athlete@example.com", UserRole::User).await?;
 
     let listed = AxumTestRequest::get("/api/admin/contremaitre/agent-prompts")
         .header("authorization", &admin.auth)
@@ -859,31 +1037,45 @@ async fn a_plain_admin_reads_agent_prompts_and_nothing_else_of_the_screen() -> R
     let detail: Value = detail.json();
     assert_eq!(detail["content"], "text-en");
 
-    for path in [
-        "/api/admin/contremaitre/prompts",
-        "/api/admin/contremaitre/prompts/coaching",
-        "/api/admin/contremaitre/status",
-    ] {
-        let refused = AxumTestRequest::get(path)
+    let reads = [
+        "/api/admin/contremaitre/agent-prompts".to_owned(),
+        "/api/admin/contremaitre/agent-prompts/endurance-agent?locale=en".to_owned(),
+        "/api/admin/contremaitre/prompts".to_owned(),
+        format!(
+            "/api/admin/contremaitre/prompts/{}",
+            a_system_prompt_key(&resources)
+        ),
+        "/api/admin/contremaitre/status".to_owned(),
+    ];
+    for path in &reads {
+        let served = AxumTestRequest::get(path)
             .header("authorization", &admin.auth)
             .send(router(&resources))
             .await;
-        assert_eq!(refused.status(), 403, "{path}");
+        assert_eq!(served.status(), 200, "an admin reads {path}");
+        // The role is the gate on every read of the screen: an athlete is
+        // refused each of them.
+        let refused = AxumTestRequest::get(path)
+            .header("authorization", &athlete.auth)
+            .send(router(&resources))
+            .await;
+        assert_eq!(refused.status(), 403, "an athlete must not read {path}");
     }
+
+    let sync = AxumTestRequest::post("/api/admin/contremaitre/sync")
+        .header("authorization", &athlete.auth)
+        .send(router(&resources))
+        .await;
+    assert_eq!(sync.status(), 403, "an athlete starts no sync");
     let sync = AxumTestRequest::post("/api/admin/contremaitre/sync")
         .header("authorization", &admin.auth)
         .send(router(&resources))
         .await;
-    assert_eq!(sync.status(), 403);
-
-    // The role is the gate on these two reads: an athlete is still refused.
-    let athlete =
-        session_with_role(&resources, "prompt-athlete@example.com", UserRole::User).await?;
-    let refused = AxumTestRequest::get("/api/admin/contremaitre/agent-prompts")
-        .header("authorization", &athlete.auth)
-        .send(router(&resources))
-        .await;
-    assert_eq!(refused.status(), 403);
+    // The admin passes the sync's permission gate and is stopped only by what
+    // this server lacks: no contremaitre is configured to sync from.
+    assert_eq!(sync.status(), 500);
+    let body: Value = sync.json();
+    assert_eq!(body["code"], "ConfigMissing", "{body}");
     Ok(())
 }
 
@@ -893,12 +1085,8 @@ async fn a_plain_admin_reads_agent_prompts_and_nothing_else_of_the_screen() -> R
 #[serial]
 async fn the_prompt_status_counts_add_up() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let session = session_with_role(
-        &resources,
-        "prompt-status@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let session =
+        session_with_role(&resources, "prompt-status@example.com", UserRole::Admin).await?;
 
     let status: Value = AxumTestRequest::get("/api/admin/contremaitre/status")
         .header("authorization", &session.auth)
@@ -920,11 +1108,13 @@ async fn the_prompt_status_counts_add_up() -> Result<()> {
 }
 
 /// A coach with no TrainingPeaks coach account is granted `manages_roster` by
-/// an operator (carnet#643): a super-admin console session grants and revokes
-/// it, the grant records that operator, and a plain admin is refused.
+/// an admin (carnet#643): an admin's console session grants and revokes it and
+/// the grant records that admin. A user is refused the console, and a token
+/// with `ManageUsers` but without the super-admin flag is refused by the
+/// handler; neither writes anything.
 #[tokio::test]
 #[serial]
-async fn a_super_admin_grants_and_revokes_the_group_coach_permission() -> Result<()> {
+async fn an_admin_grants_and_revokes_the_group_coach_permission() -> Result<()> {
     let resources = create_test_server_resources().await?;
     let repos = &resources.common.repos;
     let coach = seed_user(
@@ -935,13 +1125,31 @@ async fn a_super_admin_grants_and_revokes_the_group_coach_permission() -> Result
     .await?;
     let path = format!("/api/admin/users/{coach}/manages-roster");
 
-    let admin = session_with_role(&resources, "roster-admin@example.com", UserRole::Admin).await?;
+    let athlete =
+        session_with_role(&resources, "roster-athlete@example.com", UserRole::User).await?;
     let refused = AxumTestRequest::post(&path)
-        .header("Authorization", &admin.auth)
+        .header("Authorization", &athlete.auth)
         .json(&json!({ "manages_roster": true }))
         .send(router(&resources))
         .await;
-    assert_eq!(refused.status(), 403, "a roster grant is super-admin only");
+    assert_eq!(refused.status(), 403, "a user grants no roster");
+    let scoped = scoped_token(
+        &resources,
+        "roster-scoped-token",
+        manage_users_permissions(),
+        None,
+    )
+    .await?;
+    let refused = AxumTestRequest::post(&format!("/admin/users/{coach}/manages-roster"))
+        .header("Authorization", &scoped)
+        .json(&json!({ "manages_roster": true }))
+        .send(token_router(&resources))
+        .await;
+    assert_eq!(
+        refused.status(),
+        403,
+        "a roster grant needs the super-admin flag on a token"
+    );
     assert!(
         !repos
             .users
@@ -952,14 +1160,9 @@ async fn a_super_admin_grants_and_revokes_the_group_coach_permission() -> Result
         "nothing may have been written"
     );
 
-    let superadmin = session_with_role(
-        &resources,
-        "roster-superadmin@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let admin = session_with_role(&resources, "roster-admin@example.com", UserRole::Admin).await?;
     let granted = AxumTestRequest::post(&path)
-        .header("Authorization", &superadmin.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "manages_roster": true }))
         .send(router(&resources))
         .await;
@@ -968,7 +1171,7 @@ async fn a_super_admin_grants_and_revokes_the_group_coach_permission() -> Result
     assert_eq!(body["data"]["manages_roster"], json!(true), "{body}");
     assert_eq!(
         body["data"]["manages_roster_operator_grant"]["granted_by"],
-        json!(superadmin.user_id.to_string()),
+        json!(admin.user_id.to_string()),
         "{body}"
     );
     assert!(
@@ -984,10 +1187,10 @@ async fn a_super_admin_grants_and_revokes_the_group_coach_permission() -> Result
         .manages_roster_operator_grant(coach)
         .await?
         .expect("the operator grant is recorded");
-    assert_eq!(grant.granted_by, Some(superadmin.user_id));
+    assert_eq!(grant.granted_by, Some(admin.user_id));
 
     let revoked = AxumTestRequest::post(&path)
-        .header("Authorization", &superadmin.auth)
+        .header("Authorization", &admin.auth)
         .json(&json!({ "manages_roster": false }))
         .send(router(&resources))
         .await;

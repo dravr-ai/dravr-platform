@@ -152,7 +152,6 @@ mod conversation_turn_e2e_tests {
             password_hash,
             Some("E2E Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

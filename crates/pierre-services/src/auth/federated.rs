@@ -433,7 +433,6 @@ impl AuthService {
             last_active: now,
             is_active: true,
             user_status,
-            is_admin: false,
             role: UserRole::User,
             approved_by,
             approved_at,

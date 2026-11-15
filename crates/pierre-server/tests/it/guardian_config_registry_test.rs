@@ -122,7 +122,7 @@ fn validate_document_rejects_a_zero_write_budget() {
     let err = validate_document(&zero_writes).expect_err("0 write budget must be rejected");
     assert!(err.to_string().contains("max_writes_per_turn"));
 
-    // A zero destructive budget is a posture a super admin can mean.
+    // A zero destructive budget is a posture an admin can mean.
     let zero_destructive = GuardianConfigDocument {
         max_destructive_per_turn: Some(0),
         ..GuardianConfigDocument::default()
@@ -384,7 +384,7 @@ async fn a_row_that_is_gone_resolves_to_the_defaults_on_a_tick() {
 fn a_stored_zero_write_budget_resolves_to_the_default_and_says_so() {
     let registry = GuardianConfigRegistry::with_document(GuardianConfigDocument {
         max_writes_per_turn: Some(0),
-        // A zero destructive budget is a posture a super admin can mean.
+        // A zero destructive budget is a posture an admin can mean.
         max_destructive_per_turn: Some(0),
     });
     let snapshot = registry.current();

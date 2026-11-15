@@ -241,7 +241,6 @@ mod reply_scaffolding_strip {
             password_hash,
             Some("Strip Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

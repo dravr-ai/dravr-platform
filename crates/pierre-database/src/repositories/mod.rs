@@ -28,6 +28,8 @@ pub mod activity_streams;
 pub mod admin;
 /// The admin audit trail: one row per operator write (carnet#1391).
 pub mod admin_audit;
+/// What a user write does, in its own transaction, to the credentials an account holds as an admin.
+pub(crate) mod admin_standing;
 /// Repository trait for agent package artefacts (flavour, skeleton, workouts beside an agent's prompt).
 pub mod agent_artefacts;
 /// Repository trait for the agent drafts `/agent create` parks for `/confirm` and `/deny`.
@@ -127,7 +129,7 @@ pub mod harness_memory;
 pub mod health;
 /// Shared statements, row decoders and body for data sources, sleep, recovery and health snapshots.
 pub mod health_persistence;
-/// Repository trait, statements and shared body for super-admin impersonation sessions.
+/// Repository trait, statements and shared body for admin impersonation sessions.
 pub mod impersonation;
 /// Tombstones of a deleted account's provider accounts and email, by hash, refused until cleared.
 pub mod import_tombstones;
@@ -261,6 +263,8 @@ pub mod user_rate_limit_overrides;
 /// The rows that block deleting a user, the ones the delete clears itself, and
 /// the conflict a residual reference maps to.
 pub(crate) mod user_references;
+/// Shared statements of the user repository, run by its body in `users`.
+pub(crate) mod user_sql;
 /// Repository trait, statements and shared body for per-user admin tier overrides.
 pub mod user_tier_overrides;
 /// Repository trait, statements and shared body for per-user admin tool overrides.
@@ -303,6 +307,7 @@ pub use admin_audit::{
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, AuditSource,
     NewAuditEvent, RecentReadKey, AUDIT_PAGE_MAX,
 };
+pub use admin_standing::{StandingWrite, WithdrawnAdminCredentials};
 pub use agent_artefacts::*;
 pub use agent_drafts::*;
 pub use agents::*;

@@ -6,7 +6,7 @@
 
 //! # A coach told how their request was decided (carnet#1521)
 //!
-//! A super-admin's decision on a coach-access request used to reach only the
+//! An admin's decision on a coach-access request used to reach only the
 //! operators' notify channel: the coach found out by coming back, and only
 //! after signing in again. [`CoachAccessNotices`] closes that loop for both
 //! decision paths (the console queue and the Slack card), which hand it to
@@ -17,7 +17,7 @@
 //!   athletes' saying what the coach now sees and where they stop it — then
 //!   an in-app notice whose button opens their coach Home, and an email
 //!   naming those groups;
-//! - **declined**: an in-app notice and an email, each with the super-admin's
+//! - **declined**: an in-app notice and an email, each with the admin's
 //!   reason when one was given.
 //!
 //! The room line is written the way the athlete-joined notice is: a

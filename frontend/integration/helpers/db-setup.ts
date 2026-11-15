@@ -8,6 +8,7 @@ import { execSync } from 'child_process';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import type { UserRole } from '@pierre/shared-types';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,7 +19,7 @@ const DB_PATH = path.join(PROJECT_ROOT, 'data', 'integration-test.db');
 export interface TestUser {
   email: string;
   password: string;
-  role?: 'admin' | 'super_admin' | 'user';
+  role?: UserRole;
 }
 
 export interface CreateUserResult {

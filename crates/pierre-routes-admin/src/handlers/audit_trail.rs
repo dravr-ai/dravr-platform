@@ -1,5 +1,5 @@
 // ABOUTME: GET /admin/audit-events and /api/admin/audit-events — the admin audit trail, newest first
-// ABOUTME: Tenant-scoped for a tenant admin, platform-wide for a super-admin; keyset-paged by (timestamp, id)
+// ABOUTME: Platform-wide for an admin or a super-admin token, tenant-scoped for a scoped token; keyset-paged by (timestamp, id)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -66,8 +66,8 @@ fn parse_outcome(raw: &str) -> AppResult<AuditOutcome> {
 
 /// `GET /admin/audit-events` — the trail, newest first.
 ///
-/// A super-admin reads every tenant's rows; any other admin reads only the
-/// rows of the tenant its credential acts in.
+/// An admin's console session, like a super-admin token, reads every tenant's
+/// rows; a scoped token reads only the rows of the tenant it acts in.
 ///
 /// # Errors
 /// Returns an invalid-input error for an unknown outcome, a permission error
@@ -87,7 +87,7 @@ pub async fn handle_list_audit_events(
         Some(admin_token.tenant_id.clone().ok_or_else(|| {
             AppError::new(
                 ErrorCode::PermissionDenied,
-                "A tenant admin's credential names no tenant to read the audit trail of",
+                "A scoped token names no tenant to read the audit trail of",
             )
         })?)
     };

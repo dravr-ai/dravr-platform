@@ -46,7 +46,7 @@ pub mod tenant;
 
 // Admin authorization guard
 
-/// Cookie/session-auth + `is_admin` middleware for `/api/admin/...` routes
+/// Cookie/session-auth + admin-role middleware for `/api/admin/...` routes
 pub use admin_guard::cookie_admin_middleware;
 /// Build the role-derived `ValidatedAdminToken` for a cookie-authenticated admin
 pub use admin_guard::cookie_admin_token;

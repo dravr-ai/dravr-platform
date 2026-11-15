@@ -10,10 +10,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import VerdictCalibrationPanel from '../VerdictCalibrationPanel';
 import type { VerdictCalibrationStats } from '../../services/api/admin';
 
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({ user: { role: 'super_admin' } }),
-}));
-
 vi.mock('../../services/api/admin', async () => ({
   adminApi: {
     getVerdictCalibrationStats: vi.fn(),

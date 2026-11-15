@@ -299,7 +299,7 @@ impl AuthRoutesContext {
 
     /// The account service for a route that may create an account: an
     /// account it leaves waiting for approval is also emailed to the
-    /// super-admins when outbound email is configured (carnet#1056).
+    /// admins when outbound email is configured (carnet#1056).
     #[must_use]
     pub fn account_service(&self) -> AuthService {
         AuthService::new(

@@ -6,6 +6,7 @@
 
 import { test, expect, type Page } from '@playwright/test';
 import { webNavLabels } from '@pierre/shared-constants';
+import type { UserRole } from '@pierre/shared-types';
 import {
   setupDashboardMocks,
   loginToDashboard,
@@ -71,7 +72,7 @@ async function setTheme(page: Page, theme: (typeof THEMES)[number]) {
 
 async function sweep(
   page: Page,
-  opts: { role: 'user' | 'super_admin'; surfaces: readonly string[]; theme: (typeof THEMES)[number] },
+  opts: { role: UserRole; surfaces: readonly string[]; theme: (typeof THEMES)[number] },
 ) {
   const { role, surfaces, theme } = opts;
   await setupDashboardMocks(page, { role });
@@ -428,8 +429,7 @@ test.describe('design sweep', () => {
     });
 
     test(`admin surfaces render in ${theme}`, async ({ page }) => {
-      // A super admin's tabs are the admin's plus the ones behind ViewConfiguration.
-      await sweep(page, { role: 'super_admin', surfaces: ADMIN_SURFACES, theme });
+      await sweep(page, { role: 'admin', surfaces: ADMIN_SURFACES, theme });
     });
   }
 });

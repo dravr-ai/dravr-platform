@@ -86,7 +86,6 @@ async fn setup_test_context() -> Result<(Arc<Database>, Arc<ServerContext>, Tena
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: None,

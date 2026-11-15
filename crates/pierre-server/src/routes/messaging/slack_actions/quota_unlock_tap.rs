@@ -1,4 +1,4 @@
-// ABOUTME: Raise the athlete a quota.limit_reached notice names to Enterprise, from its Slack button, for a linked active super-admin
+// ABOUTME: Raise the athlete a quota.limit_reached notice names to Enterprise, from its Slack button, for a linked active admin
 // ABOUTME: The tier write is the shared admin override attributed to that admin; a refused tap keeps the button and says why
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -19,7 +19,7 @@ use tracing::info;
 use uuid::Uuid;
 
 use super::ops_card::{
-    authorize_super_admin, keep_card_with_reason, room_text, settled_card, SuperAdminDecision,
+    authorize_admin, keep_card_with_reason, room_text, settled_card, AdminDecision,
 };
 use super::{update_card, SlackAction};
 use crate::mcp::resources::ServerContext;
@@ -35,14 +35,15 @@ enum Unlock {
 }
 
 /// Raise the athlete a `quota.limit_reached` tap names to Enterprise, for the
-/// super-admin behind the Slack identity that tapped, then turn its card into
+/// admin behind the Slack identity that tapped, then turn its card into
 /// the outcome.
 ///
 /// The room is not enough here: Enterprise lifts every tier cap, which is
-/// unbounded LLM spend, and a tier change is a super-admin's decision on
-/// every other surface (the admin tier routes are super-admin only). So the
-/// clicker must also resolve to an active super-admin
-/// ([`authorize_super_admin`]), and the override row is written with that
+/// unbounded LLM spend, and a tier change is an admin's decision on
+/// every other surface (the tier routes take an admin's session or a
+/// super-admin token). So the
+/// clicker must also resolve to an active admin
+/// ([`authorize_admin`]), and the override row is written with that
 /// admin as `set_by` — the same write as
 /// `pierre-cli user set <email> --tier enterprise`.
 ///
@@ -63,23 +64,18 @@ pub(super) async fn answer_quota_unlock_tap(
     // rides in the interactive payload.
     let raiser = format!("@{}", action.slack_username);
 
-    let operator = match authorize_super_admin(
-        resources,
-        &action.slack_user_id,
-        SuperAdminDecision::RaiseTier,
-    )
-    .await
-    {
-        Ok(operator) => operator,
-        Err(refused) => {
-            keep_card_with_reason(
-                resources,
-                action,
-                &format!("{raiser}: {}", room_text(&refused)),
-            );
-            return Err(refused);
-        }
-    };
+    let operator =
+        match authorize_admin(resources, &action.slack_user_id, AdminDecision::RaiseTier).await {
+            Ok(operator) => operator,
+            Err(refused) => {
+                keep_card_with_reason(
+                    resources,
+                    action,
+                    &format!("{raiser}: {}", room_text(&refused)),
+                );
+                return Err(refused);
+            }
+        };
 
     let note = format!(
         "raised to enterprise from Slack #{} by {raiser}",

@@ -596,7 +596,7 @@ async fn health_route_serves_the_rollup_clamps_the_window_and_is_gated() {
         }),
     )
     .await
-    .expect("super-admin reads any tenant");
+    .expect("admin reads any tenant");
     let (status, json) = body_json(resp).await;
     assert_eq!(status, StatusCode::OK);
     assert_eq!(json["window_days"], 1, "clamped up to one day");

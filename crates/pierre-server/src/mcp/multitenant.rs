@@ -519,7 +519,6 @@ impl ProviderToolRouter {
             let audit_admin_auth = admin_context.auth_service.clone();
             let tool_selection_context = ToolSelectionContext {
                 tool_selection: resources.mcp.tool_selection.clone(),
-                repos: resources.common.repos.clone(),
             };
             let console_tool_selection_routes = ToolSelectionRoutes::console_routes::<ServerContext>(
                 tool_selection_context.clone(),

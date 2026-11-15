@@ -1,5 +1,5 @@
-// ABOUTME: A super-admin raises a capped athlete to Enterprise from the quota.limit_reached Slack card
-// ABOUTME: Pins the super-admin gate through the channel link, set_by on the tier override, and that a refusal writes no tier
+// ABOUTME: An admin raises a capped athlete to Enterprise from the quota.limit_reached Slack card
+// ABOUTME: Pins the admin gate through the channel link, set_by on the tier override, and that a refusal writes no tier
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -11,8 +11,8 @@
 //!
 //! `quota.limit_reached` posts Raise to Enterprise under its notice. A tap is
 //! honoured only in the room that event is routed to, and only from a Slack
-//! identity whose channel link names an active super-admin: Enterprise lifts
-//! every tier cap, and a tier change is a super-admin's call on every other
+//! identity whose channel link names an active admin: Enterprise lifts
+//! every tier cap, and a tier change is an admin's call on every other
 //! surface. The raise goes through the admin tier override with that admin
 //! as `set_by`.
 
@@ -88,7 +88,6 @@ mod slack_quota_unlock_action {
         status: UserStatus,
     ) -> (Uuid, TenantId) {
         let mut user = User::new(email.to_owned(), "not-a-login-path".to_owned(), None);
-        user.is_admin = role.is_admin_or_higher();
         user.role = role;
         user.user_status = status;
         let user_id = user.id;
@@ -238,14 +237,14 @@ mod slack_quota_unlock_action {
 
     #[tokio::test]
     #[serial]
-    async fn a_linked_super_admin_raises_the_athlete_from_the_quota_room() {
+    async fn a_linked_admin_raises_the_athlete_from_the_quota_room() {
         let resources = signing_server().await;
         let _room = QuotaRoom::routed();
         let athlete = capped_athlete(&resources).await;
         let admin = linked(
             &resources,
             "U0SUPERRAISE",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;
@@ -273,25 +272,22 @@ mod slack_quota_unlock_action {
         assert_eq!(marker.set_by, Some(admin), "the tapping admin is on record");
     }
 
-    /// The quota room is where operators read the card, not who may raise a
-    /// tier: an admin or a plain account tapping from it is refused.
+    /// The quota room is where the card is read, not who may raise a tier: an
+    /// account that is not an admin's, tapping from it, is refused.
     #[tokio::test]
     #[serial]
-    async fn a_linked_operator_who_is_not_a_super_admin_is_refused_and_writes_no_tier() {
+    async fn a_linked_account_that_is_not_an_admin_is_refused_and_writes_no_tier() {
         let resources = signing_server().await;
         let _room = QuotaRoom::routed();
         let athlete = capped_athlete(&resources).await;
 
-        for (slack_user, role) in [
-            ("U0QUOTAADMIN", UserRole::Admin),
-            ("U0QUOTAUSER", UserRole::User),
-        ] {
+        for (slack_user, role) in [("U0QUOTAUSER", UserRole::User)] {
             linked(&resources, slack_user, role, UserStatus::Active).await;
 
             let answer = tap(&resources, slack_user, QUOTA_ROOM, &raise(athlete)).await;
 
             assert!(
-                refusal(&answer).contains("raised only by an active super-admin"),
+                refusal(&answer).contains("raised only by an active admin"),
                 "{role:?}: {answer}"
             );
             assert_not_raised(&resources, athlete).await;
@@ -316,14 +312,14 @@ mod slack_quota_unlock_action {
 
     #[tokio::test]
     #[serial]
-    async fn a_suspended_super_admin_is_refused_and_writes_no_tier() {
+    async fn a_suspended_admin_is_refused_and_writes_no_tier() {
         let resources = signing_server().await;
         let _room = QuotaRoom::routed();
         let athlete = capped_athlete(&resources).await;
         linked(
             &resources,
             "U0QUOTASUSPENDED",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Suspended,
         )
         .await;
@@ -332,21 +328,21 @@ mod slack_quota_unlock_action {
 
         assert!(
             refusal(&answer).contains("Account has been suspended"),
-            "a super-admin role is not enough without an active account: {answer}"
+            "an admin role is not enough without an active account: {answer}"
         );
         assert_not_raised(&resources, athlete).await;
     }
 
     #[tokio::test]
     #[serial]
-    async fn a_super_admin_raise_outside_the_quota_room_is_refused() {
+    async fn an_admin_raise_outside_the_quota_room_is_refused() {
         let resources = signing_server().await;
         let _room = QuotaRoom::routed();
         let athlete = capped_athlete(&resources).await;
         linked(
             &resources,
             "U0SUPERQUOTAELSEWHERE",
-            UserRole::SuperAdmin,
+            UserRole::Admin,
             UserStatus::Active,
         )
         .await;

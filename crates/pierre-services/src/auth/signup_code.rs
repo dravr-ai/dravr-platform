@@ -288,7 +288,7 @@ impl AuthService {
     ) -> AppResult<()> {
         let repos = self.data.repos();
         let approver = self.existing_operator(granted_by).await;
-        transition_user_status(repos, user.id, UserStatus::Active, approver).await?;
+        transition_user_status(repos, user.id, UserStatus::Active, approver, None).await?;
         create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
         repos
             .signup_codes

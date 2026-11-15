@@ -17,22 +17,21 @@ interface ApiKeyListProps {
 }
 
 export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated } = useAuth();
   const queryClient = useQueryClient();
   const [selectedTokens, setSelectedTokens] = useState<Set<string>>(new Set());
   const [statusFilter, setStatusFilter] = useState<StatusFilterValue>('active');
   const [tokenToRevoke, setTokenToRevoke] = useState<AdminToken | null>(null);
   const [tokensToRevoke, setTokensToRevoke] = useState<Set<string> | null>(null);
 
-  // Gate on `role`, as UnifiedConnections does when it opens this list: a query
-  // left on `is_admin` stays disabled for a skewed operator, who reads an empty list.
-  const isAdminUser = user?.role === 'admin' || user?.role === 'super_admin';
-
-  // Always fetch all tokens and filter client-side for accurate counts
+  // Always fetch all tokens and filter client-side for accurate counts. No
+  // gate on who is looking: only UnifiedConnections mounts this list, and only
+  // an admin opens that. A query gated on the `is_admin` flag once stayed
+  // disabled for an admin whose flag disagreed, who read an empty list.
   const { data: tokensResponse, isLoading, error } = useQuery({
     queryKey: QUERY_KEYS.adminTokens.list(true),
     queryFn: () => adminApi.getAdminTokens({ include_inactive: true }),
-    enabled: isAuthenticated && isAdminUser,
+    enabled: isAuthenticated,
   });
 
   const revokeTokenMutation = useMutation({

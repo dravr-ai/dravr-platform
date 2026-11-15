@@ -117,7 +117,6 @@ async fn seed_user(db: &Database, role: &str) -> String {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),

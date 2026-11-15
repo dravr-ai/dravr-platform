@@ -7,6 +7,9 @@
 use std::collections::BTreeMap;
 
 use chrono::Utc;
+use pierre_core::admin::models::{
+    DELETED_ACCOUNT_LABEL, DELETED_ACCOUNT_OPERATOR, DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
+};
 use pierre_core::errors::{AppError, AppResult};
 use sqlx::Row;
 use uuid::Uuid;
@@ -29,9 +32,10 @@ use crate::repositories::provider_data::{
     USER_ACTIVITY_ROWS_SQL, USER_SYNC_STATE_SQL, USER_WELLNESS_ROWS_SQL,
 };
 use crate::repositories::user_references::{
-    clear_user_in_transaction, delete_user_error, POSTGRES_USER_PURGE,
+    clear_user_in_transaction, delete_user_error, LIVE_DEVICE_LOGINS_SQL, POSTGRES_USER_PURGE,
+    RETIRE_DEVICE_LOGINS_SQL, SCRUB_PROVISIONED_BY_NAME_SQL, SCRUB_TOKEN_NAME_SQL,
 };
-use crate::repositories::users::DELETE_USER_SQL;
+use crate::repositories::user_sql::DELETE_USER_SQL;
 use crate::repositories::uuid_columns::NativeUuid;
 
-impl_account_deletion_repository!(PostgresDatabase, NativeUuid, POSTGRES_USER_PURGE);
+impl_account_deletion_repository!(PostgresDatabase, NativeUuid, POSTGRES_USER_PURGE, "BEGIN");

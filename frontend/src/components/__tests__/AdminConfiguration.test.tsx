@@ -14,7 +14,7 @@ vi.mock('../ToolAvailability', () => ({
   default: () => <div data-testid="tool-availability">ToolAvailability</div>,
 }));
 
-// Mock TenantPlanCard — it needs useAuth/adminApi and renders null for non-super-admins
+// Mock TenantPlanCard — it needs useAuth/adminApi and renders null until the session names a tenant
 vi.mock('../TenantPlanCard', () => ({
   default: () => <div data-testid="tenant-plan-card">TenantPlanCard</div>,
 }));

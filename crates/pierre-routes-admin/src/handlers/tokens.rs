@@ -12,7 +12,9 @@
 //! `ManageAdminTokens` opens the surface; a super-admin token stays out of
 //! reach of every caller that is not itself super-admin — it is not listed to
 //! them, cannot be read, revoked or rotated by them, and cannot be minted by
-//! them — and a caller that is not super-admin grants only permissions it holds.
+//! them — and a caller that is not super-admin grants only permissions it
+//! holds, by minting a token or by rotating one: the ones a request names,
+//! and the defaults one that names none is given.
 
 use secrecy::ExposeSecret;
 use std::sync::Arc;
@@ -24,17 +26,19 @@ use axum::{
     Extension, Json,
 };
 use serde::Deserialize;
-use serde_json::{json, to_value};
+use serde_json::{json, to_value, Value};
 use tracing::{error, info};
 
 use pierre_core::admin::models::{
     AdminPermission, AdminPermission as AdminPerm, AdminToken, AdminTokenSummary,
-    CreateAdminTokenRequest, ValidatedAdminToken,
+    CreateAdminTokenRequest, GeneratedAdminToken, ValidatedAdminToken,
 };
 use pierre_core::errors::{AppError, AppResult};
+use pierre_database::repositories::TokenRotation;
 
 use super::api_keys::json_response;
 use super::types::AdminResponse;
+use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
 
 /// Lifetime of a rotated token when the request names none.
@@ -95,6 +99,22 @@ fn deny_without_manage_admin_tokens(token: &ValidatedAdminToken) -> Option<Respo
     .then(|| forbidden("Permission denied: ManageAdminTokens required"))
 }
 
+/// Deny a token `permission` when the caller neither carries the
+/// super-admin flag nor holds it: a caller cannot hand out authority it does
+/// not hold, or a `ManageAdminTokens` holder could mint or rotate its way to
+/// user or configuration access. One rule and one sentence for the two ways
+/// a caller is handed a token, minting one and rotating one.
+fn deny_granting_beyond_the_caller(
+    caller: &ValidatedAdminToken,
+    permission: &AdminPermission,
+) -> Option<Response> {
+    (!caller.is_super_admin && !caller.permissions.has_permission(permission)).then(|| {
+        forbidden(&format!(
+            "Cannot grant {permission}: the caller does not hold it"
+        ))
+    })
+}
+
 /// Load a token by id, answering 404 for an unknown one. `deactivate_token` is
 /// an unconditional UPDATE, so without this a miss would report a revocation
 /// that touched no row.
@@ -111,6 +131,12 @@ async fn load_token(ctx: &AdminApiContext, token_id: &str) -> AppResult<AdminTok
 }
 
 /// Handle admin token creation
+///
+/// A caller without the super-admin flag is handed only permissions it
+/// holds. That covers the list a request names and, for a request that
+/// names none, the set the store would give it
+/// ([`CreateAdminTokenRequest::granted_permissions`]): either way the first
+/// permission the caller lacks refuses the request, and nothing is minted.
 pub(crate) async fn handle_create_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -143,15 +169,8 @@ pub(crate) async fn handle_create_admin_token(
                     )
                     .into_response());
                 };
-                // A caller that is not super-admin cannot hand out authority it
-                // does not hold, or a console session could mint its way to
-                // configuration access.
-                if !admin_token.is_super_admin
-                    && !admin_token.permissions.has_permission(&permission)
-                {
-                    return Ok(forbidden(&format!(
-                        "Cannot grant {permission}: the caller does not hold it"
-                    )));
+                if let Some(denied) = deny_granting_beyond_the_caller(&admin_token, &permission) {
+                    return Ok(denied);
                 }
                 parsed.push(permission);
             }
@@ -171,6 +190,20 @@ pub(crate) async fn handle_create_admin_token(
     }
     .for_creator()?;
 
+    // A request that names no permission is granted a set all the same,
+    // the one the store resolves for it, and each of those is the caller's
+    // to hand out or it is not, as a named one is. In name order, so the
+    // refusal names the same permission every time.
+    if token_request.permissions.is_none() {
+        let mut granted = token_request.granted_permissions().to_vec();
+        granted.sort_by_key(ToString::to_string);
+        for permission in &granted {
+            if let Some(denied) = deny_granting_beyond_the_caller(&admin_token, permission) {
+                return Ok(denied);
+            }
+        }
+    }
+
     let ctx = context.as_ref();
     let generated_token = ctx
         .repos
@@ -184,23 +217,50 @@ pub(crate) async fn handle_create_admin_token(
 
     info!("Admin token created: {}", generated_token.token_id);
 
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: "Admin token created successfully".to_owned(),
-            data: to_value(json!({
-                "token_id": generated_token.token_id,
-                "service_name": generated_token.service_name,
-                "jwt_token": generated_token.jwt_token.expose_secret(),
-                "token_prefix": generated_token.token_prefix,
-                "is_super_admin": generated_token.is_super_admin,
-                "expires_at": generated_token.expires_at.map(|t| t.to_rfc3339()),
-            }))
-            .ok(),
-        },
-        StatusCode::CREATED,
+    // A minted token names no admin and outlives the standing of the one who
+    // made it, so the trail is where it is tied to its maker: the row's actor
+    // is the admin behind the request, and its target the token.
+    let audit = AuditDetail::new(
+        ADMIN_TOKEN_CREATED,
+        format!("Minted admin token {}", generated_token.service_name),
     )
-    .into_response())
+    .target(minted_token_target(&generated_token));
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: "Admin token created successfully".to_owned(),
+                data: to_value(json!({
+                    "token_id": generated_token.token_id,
+                    "service_name": generated_token.service_name,
+                    "jwt_token": generated_token.jwt_token.expose_secret(),
+                    "token_prefix": generated_token.token_prefix,
+                    "is_super_admin": generated_token.is_super_admin,
+                    "expires_at": generated_token.expires_at.map(|t| t.to_rfc3339()),
+                }))
+                .ok(),
+            },
+            StatusCode::CREATED,
+        )
+        .into_response(),
+    ))
+}
+
+/// The action key of the trail row a minted admin token writes.
+const ADMIN_TOKEN_CREATED: &str = "admin_token.create";
+
+/// The action key of the trail row a rotated admin token writes.
+const ADMIN_TOKEN_ROTATED: &str = "admin_token.rotate";
+
+/// What the trail keeps of a token just minted: which one, for what, and
+/// how much it can do. Never the token itself.
+fn minted_token_target(token: &GeneratedAdminToken) -> Value {
+    json!({
+        "token_id": token.token_id,
+        "service_name": token.service_name,
+        "is_super_admin": token.is_super_admin,
+        "expires_at": token.expires_at.map(|t| t.to_rfc3339()),
+    })
 }
 
 /// Handle listing admin tokens
@@ -330,8 +390,25 @@ pub(crate) async fn handle_revoke_admin_token(
 
 /// Handle rotating admin token
 ///
-/// Deactivates the token and mints a replacement with the same name, scope and
-/// super-admin flag, returned once in this response.
+/// Deactivates the token and mints a replacement with the same name,
+/// permissions, scope and super-admin flag
+/// ([`CreateAdminTokenRequest::rotation_of`]), returned once in this
+/// response. A revoked token answers 400 and mints nothing: it has no
+/// replacement. A caller without the super-admin flag rotates only a token
+/// without it whose every permission the caller holds (403 otherwise, the
+/// token left live): the replacement is the caller's to keep.
+///
+/// The deactivation and the mint are one transaction in the store
+/// ([`AdminRepository::rotate_token`]), which builds the replacement from
+/// the row it claims, not from the one read here: a token revoked, or
+/// retired with its admin, since that read is refused as a revoked one is.
+/// One whose flag or permissions are no longer the ones checked here stays
+/// live and answers 409, with the conflict code's generic message: the
+/// store's own sentence is not one that reaches a caller. No write changes
+/// a stored token's flag or permissions today, so that 409 is a guard
+/// nothing reaches yet.
+///
+/// [`AdminRepository::rotate_token`]: pierre_database::repositories::AdminRepository::rotate_token
 pub(crate) async fn handle_rotate_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -352,65 +429,80 @@ pub(crate) async fn handle_rotate_admin_token(
 
     // Rotation mints the replacement at the old token's privilege level, so a
     // super-admin token rotated by a caller who is not super-admin would hand
-    // that caller a fresh super-admin JWT. Checked before `deactivate_token` —
-    // a refused rotation must leave the existing credential intact.
+    // that caller a fresh super-admin JWT. Checked before the token is
+    // touched — a refused rotation must leave the existing credential intact.
     if existing_token.is_super_admin && !admin_token.is_super_admin {
         return Ok(forbidden(
             "Only super-admin tokens can rotate super-admin tokens",
         ));
     }
 
-    ctx.repos
-        .admin
-        .deactivate_token(&token_id)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to deactivate old token");
-            AppError::internal(format!("Failed to deactivate old token: {e}"))
-        })?;
+    // The replacement carries the old token's permissions and is returned to
+    // the caller, so it is the caller's to receive only where it could have
+    // minted it. Checked before the token is touched, as the flag is.
+    for permission in existing_token.permissions.to_vec() {
+        if let Some(denied) = deny_granting_beyond_the_caller(&admin_token, &permission) {
+            return Ok(denied);
+        }
+    }
 
+    // The store claims the token and mints from the row it claimed: the
+    // row checked above is what it holds the claimed one to, and a revoked
+    // token is refused there with nothing minted. Its refusals keep their
+    // status (404, 400, 409), so they are not rewrapped; only the 400's
+    // message is the store's own, the other two read as their code's
+    // generic one.
     let expires_in_days = body
         .map(|Json(body)| body)
         .unwrap_or_default()
         .expires_in_days
         .unwrap_or(DEFAULT_ROTATION_DAYS);
-    let token_request = CreateAdminTokenRequest::rotation_of(
-        existing_token,
-        expires_in_days,
-        admin_token.operator_user_id,
-    );
-
     let new_token = ctx
         .repos
         .admin
-        .create_token(&token_request, &ctx.admin_jwt_secret, &ctx.jwks_manager)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to generate new admin token");
-            AppError::internal(format!("Failed to generate new admin token: {e}"))
-        })?;
+        .rotate_token(
+            &TokenRotation {
+                checked: &existing_token,
+                expires_in_days,
+                rotated_by: admin_token.operator_user_id,
+            },
+            &ctx.admin_jwt_secret,
+            &ctx.jwks_manager,
+        )
+        .await?;
 
     info!(
         "Admin token {} rotated successfully, new token: {}",
         token_id, new_token.token_id
     );
 
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: "Admin token rotated successfully".to_owned(),
-            data: to_value(json!({
-                "old_token_id": token_id,
-                "token_id": new_token.token_id,
-                "service_name": new_token.service_name,
-                "jwt_token": new_token.jwt_token.expose_secret(),
-                "token_prefix": new_token.token_prefix,
-                "is_super_admin": new_token.is_super_admin,
-                "expires_at": new_token.expires_at.map(|t| t.to_rfc3339()),
-            }))
-            .ok(),
-        },
-        StatusCode::OK,
+    // The replacement is handed to whoever rotated it: the trail ties it to
+    // that admin, as it does a minted one.
+    let mut target = minted_token_target(&new_token);
+    target["old_token_id"] = json!(token_id);
+    let audit = AuditDetail::new(
+        ADMIN_TOKEN_ROTATED,
+        format!("Rotated admin token {}", new_token.service_name),
     )
-    .into_response())
+    .target(target);
+    Ok(audit.attach(
+        json_response(
+            AdminResponse {
+                success: true,
+                message: "Admin token rotated successfully".to_owned(),
+                data: to_value(json!({
+                    "old_token_id": token_id,
+                    "token_id": new_token.token_id,
+                    "service_name": new_token.service_name,
+                    "jwt_token": new_token.jwt_token.expose_secret(),
+                    "token_prefix": new_token.token_prefix,
+                    "is_super_admin": new_token.is_super_admin,
+                    "expires_at": new_token.expires_at.map(|t| t.to_rfc3339()),
+                }))
+                .ok(),
+            },
+            StatusCode::OK,
+        )
+        .into_response(),
+    ))
 }

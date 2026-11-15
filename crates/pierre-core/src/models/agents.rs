@@ -123,7 +123,7 @@ pub enum AgentVisibility {
     Private,
     /// Visible to all users in the tenant
     Tenant,
-    /// Visible across all tenants (super-admin only)
+    /// Visible across all tenants (admin only)
     Global,
 }
 

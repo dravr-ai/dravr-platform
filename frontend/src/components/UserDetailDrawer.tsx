@@ -8,6 +8,7 @@ import { useId, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserTier } from '../types/api';
+import { hasAdminRole } from '@pierre/shared-types';
 import { Button, Card, Select } from './ui';
 import { Badge } from './ui/Badge';
 import PasswordResetModal from './PasswordResetModal';
@@ -17,6 +18,7 @@ import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { formatCost } from '../utils/formatCost';
 import { formatDateTime } from '@pierre/chat-utils';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { offersSuspend } from '../utils/suspendOffer';
 import { useDialog } from '../hooks/useDialog';
 
 interface UserDetailDrawerProps {
@@ -39,14 +41,11 @@ export default function UserDetailDrawer({
   const [overrideNote, setOverrideNote] = useState<string>('');
   const [tierEditing, setTierEditing] = useState(false);
   const [tierValue, setTierValue] = useState<UserTier>('starter');
-  const { user: currentUser, startImpersonation } = useAuth();
+  const { user: viewer, startImpersonation } = useAuth();
   const queryClient = useQueryClient();
 
-  const isSuperAdmin = currentUser?.role === 'super_admin';
-
-  const canImpersonate = isSuperAdmin &&
-    user?.role !== 'super_admin' &&
-    user?.user_status === 'active';
+  // Never an admin: the server refuses to impersonate one.
+  const canImpersonate = !!user && !hasAdminRole(user) && user.user_status === 'active';
 
   const handleImpersonate = async () => {
     if (!user || !canImpersonate) return;
@@ -236,7 +235,7 @@ export default function UserDetailDrawer({
                 <span className="text-xs text-on-surface capitalize bg-surface-container-high px-2 py-1 rounded border ghost-border">
                   {user.tier}
                 </span>
-                {isSuperAdmin && !tierEditing && (
+                {!tierEditing && (
                   <button
                     type="button"
                     onClick={() => {
@@ -260,7 +259,7 @@ export default function UserDetailDrawer({
               </div>
             </div>
 
-            {isSuperAdmin && tierEditing && (
+            {tierEditing && (
               <div className="mb-4 rounded-md bg-surface-container-high p-3 space-y-2 text-xs">
                 <div className="font-semibold text-on-surface">Tier override</div>
                 <p className="text-on-surface-variant">
@@ -361,27 +360,23 @@ export default function UserDetailDrawer({
                           : 'Can coach a group (TrainingPeaks coach account)'}
                     </p>
                   </div>
-                  {isSuperAdmin && (
-                    <Button
-                      onClick={() => setRosterMutation.mutate(!adminProfile.manages_roster)}
-                      disabled={setRosterMutation.isPending}
-                      variant="secondary"
-                    >
-                      {setRosterMutation.isPending
-                        ? 'Saving…'
-                        : adminProfile.manages_roster
-                          ? 'Revoke'
-                          : 'Grant'}
-                    </Button>
-                  )}
+                  <Button
+                    onClick={() => setRosterMutation.mutate(!adminProfile.manages_roster)}
+                    disabled={setRosterMutation.isPending}
+                    variant="secondary"
+                  >
+                    {setRosterMutation.isPending
+                      ? 'Saving…'
+                      : adminProfile.manages_roster
+                        ? 'Revoke'
+                        : 'Grant'}
+                  </Button>
                 </div>
-                {isSuperAdmin && (
-                  <p className="text-xs text-on-surface-variant">
-                    Lets the user redeem a group&apos;s coach invite. An operator grant stays
-                    through a TrainingPeaks disconnect; revoking also removes a TrainingPeaks
-                    grant until that account signs in again.
-                  </p>
-                )}
+                <p className="text-xs text-on-surface-variant">
+                  Lets the user redeem a group&apos;s coach invite. An operator grant stays
+                  through a TrainingPeaks disconnect; revoking also removes a TrainingPeaks
+                  grant until that account signs in again.
+                </p>
                 {setRosterMutation.isError && (
                   <p className="text-error text-xs">
                     Failed to update the group coach permission. Please try again.
@@ -733,7 +728,7 @@ export default function UserDetailDrawer({
                 </Button>
               )}
 
-              {user.user_status === 'active' && (
+              {offersSuspend(user, viewer) && (
                 <Button
                   onClick={() => onAction(user, 'suspend')}
                   variant="secondary"

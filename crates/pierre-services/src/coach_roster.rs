@@ -94,7 +94,7 @@ pub async fn roster_access(repos: &RepositoryRegistry, coach_id: Uuid) -> AppRes
         .users
         .get_global(coach_id)
         .await?
-        .is_some_and(|user| user.manages_roster || user.is_admin);
+        .is_some_and(|user| user.manages_roster || user.role.is_admin());
     if !may_coach {
         return Ok(RosterAccess::NotACoach);
     }

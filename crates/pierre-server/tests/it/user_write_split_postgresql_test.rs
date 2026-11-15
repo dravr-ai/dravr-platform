@@ -14,6 +14,7 @@
 #![cfg(feature = "postgresql")]
 
 use pierre_core::models::User;
+use pierre_core::permissions::UserRole;
 use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
@@ -59,7 +60,7 @@ async fn test_pg_create_refuses_a_duplicate_and_update_writes_the_row() {
     loaded.firebase_uid = Some("pg-firebase-uid".to_owned());
     loaded.auth_provider = "google".to_owned();
     loaded.locale = "en".to_owned();
-    loaded.is_admin = true;
+    loaded.role = UserRole::Admin;
     repos.users.update(&loaded).await.unwrap();
 
     let linked = repos
@@ -70,7 +71,7 @@ async fn test_pg_create_refuses_a_duplicate_and_update_writes_the_row() {
         .expect("the Firebase link resolves on PG");
     assert_eq!(linked.id, created.id);
     assert_eq!(linked.locale, "en");
-    assert!(linked.is_admin);
+    assert_eq!(linked.role, UserRole::Admin);
     assert_eq!(linked.auth_provider, "google");
 
     // A row that does not exist is reported, not silently skipped.

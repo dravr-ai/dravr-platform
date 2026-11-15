@@ -1,5 +1,5 @@
-// ABOUTME: Tests for the UserDetailDrawer tier override, group coach grant (super-admin only) and monthly rate-limit override
-// ABOUTME: Mocks adminApi + useAuth; asserts setUserTier/clearUserTier, setUserManagesRoster, setUserRateLimitOverride args and role gating
+// ABOUTME: Tests for the UserDetailDrawer tier override, group coach grant, monthly rate-limit override, impersonation and suspend offers
+// ABOUTME: Mocks adminApi + useAuth; asserts setUserTier/clearUserTier, setUserManagesRoster, setUserRateLimitOverride args; an admin is never impersonated; Suspend is offered on every active or pending account but the viewer's own
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,6 +9,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import UserDetailDrawer from '../UserDetailDrawer';
 import type { User } from '../../types/api';
+import { SUSPEND_OFFER_CASES } from './suspendOfferCases';
 
 const getUserRateLimit = vi.fn();
 const getUserActivity = vi.fn();
@@ -41,21 +42,10 @@ vi.mock('../FeatureFlagsPanel', () => ({
 }));
 
 // The real reset modal: it opens over the drawer, and Escape closes it first.
-// Role is mutable so tests can flip between super_admin and admin
-let mockRole: 'super_admin' | 'admin' = 'super_admin';
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'admin-1',
-      email: 'admin@example.com',
-      is_admin: true,
-      role: mockRole,
-      tier: 'enterprise',
-      created_at: '2026-01-01T00:00:00Z',
-    },
-    startImpersonation: vi.fn(),
-  }),
-}));
+vi.mock('../../hooks/useAuth', async () => {
+  const { VIEWER } = await import('./suspendOfferCases');
+  return { useAuth: () => ({ user: VIEWER, startImpersonation: vi.fn() }) };
+});
 
 const targetUser: User = {
   id: 'user-42',
@@ -96,7 +86,6 @@ async function renderAndSettle(user: User = targetUser) {
 describe('UserDetailDrawer tier control', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRole = 'super_admin';
     getUserRateLimit.mockResolvedValue({
       user_id: 'user-42',
       tier: 'starter',
@@ -185,7 +174,7 @@ describe('UserDetailDrawer tier control', () => {
     expect(screen.getAllByText('anthropic/claude-sonnet-5-5')).toHaveLength(2);
   });
 
-  it('saves the selected tier via setUserTier for super-admins', async () => {
+  it('saves the selected tier via setUserTier for an admin', async () => {
     await renderAndSettle();
 
     fireEvent.click(screen.getByText('Edit tier'));
@@ -229,20 +218,99 @@ describe('UserDetailDrawer tier control', () => {
     });
   });
 
-  it('hides the tier editor for non-super-admin admins', async () => {
-    mockRole = 'admin';
-    await renderAndSettle();
+  it('offers an admin to impersonate an active user, never another admin', async () => {
+    const first = renderDrawer();
+    expect(await screen.findByRole('button', { name: /Impersonate User/ })).toBeInTheDocument();
+    first.unmount();
 
-    expect(screen.queryByText('Edit tier')).not.toBeInTheDocument();
-    // Static tier badge still shows
-    expect(screen.getByText('starter')).toBeInTheDocument();
+    renderDrawer({ ...targetUser, id: 'admin-2', is_admin: true, role: 'admin' });
+    await waitFor(() => {
+      expect(screen.getByText('Monthly Usage')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /Impersonate User/ })).not.toBeInTheDocument();
+  });
+
+  it('decides who is an admin from the role, whatever the is_admin flag says', async () => {
+    const admin = renderDrawer({ ...targetUser, id: 'admin-3', is_admin: false, role: 'admin' });
+    await waitFor(() => {
+      expect(screen.getByText('Monthly Usage')).toBeInTheDocument();
+    });
+    expect(screen.queryByRole('button', { name: /Impersonate User/ })).not.toBeInTheDocument();
+    admin.unmount();
+
+    renderDrawer({ ...targetUser, is_admin: true, role: 'user' });
+    expect(await screen.findByRole('button', { name: /Impersonate User/ })).toBeInTheDocument();
+  });
+});
+
+// The same accounts the users row is asked about (UserManagement.suspendGate.test.tsx).
+describe('UserDetailDrawer suspend offer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getUserRateLimit.mockResolvedValue({
+      user_id: 'user-42',
+      tier: 'starter',
+      rate_limits: { monthly: { limit: 3000, used: 50, remaining: 2950 } },
+      reset_times: { monthly_reset: '2026-08-01T00:00:00Z' },
+      override_active: false,
+      override_note: null,
+    });
+    getUserActivity.mockResolvedValue({ user_id: 'user-42', period_days: 30, total_requests: 0, top_tools: [] });
+    getUserUsage.mockResolvedValue({
+      user_id: 'user-42',
+      from: '2026-07-01T00:00:00Z',
+      by_model: [],
+      total_cost_usd: 0,
+      daily: [],
+    });
+    getUserAdminProfile.mockResolvedValue({
+      user_id: 'user-42',
+      coaching_persona: 'supportive_coach',
+      default_coach_id: null,
+      manages_roster: false,
+      manages_roster_operator_grant: null,
+      installed_agents: [],
+      joined_groups: [],
+    });
+  });
+
+  it.each(SUSPEND_OFFER_CASES)('on $name: offered is $offered', async ({ user, offered }) => {
+    const onAction = vi.fn();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <UserDetailDrawer user={user} isOpen={true} onClose={vi.fn()} onAction={onAction} />
+      </QueryClientProvider>,
+    );
+    await waitFor(() => {
+      expect(screen.getByText('Monthly Usage')).toBeInTheDocument();
+    });
+
+    const suspend = screen.queryByRole('button', { name: 'Suspend User' });
+    expect(suspend !== null).toBe(offered);
+    if (suspend !== null) {
+      // The drawer hands the account to the list's suspend dialog, which is
+      // where the server's answer is shown.
+      fireEvent.click(suspend);
+      expect(onAction).toHaveBeenCalledWith(user, 'suspend');
+    }
+  });
+
+  it('offers a pending account Suspend beside Approve', async () => {
+    const pending = SUSPEND_OFFER_CASES.find(({ user }) => user.user_status === 'pending');
+    expect(pending).toBeDefined();
+    renderDrawer(pending!.user);
+    await waitFor(() => {
+      expect(screen.getByText('Monthly Usage')).toBeInTheDocument();
+    });
+    expect(screen.getByRole('button', { name: 'Approve User' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Suspend User' })).toBeInTheDocument();
   });
 });
 
 describe('UserDetailDrawer rate-limit override', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRole = 'super_admin';
     getUserRateLimit.mockResolvedValue({
       user_id: 'user-42',
       tier: 'starter',
@@ -374,7 +442,6 @@ describe('UserDetailDrawer rate-limit override', () => {
 describe('UserDetailDrawer group coach grant', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockRole = 'super_admin';
     getUserRateLimit.mockResolvedValue({
       user_id: 'user-42',
       tier: 'starter',
@@ -452,15 +519,5 @@ describe('UserDetailDrawer group coach grant', () => {
     expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
       'Can coach a group (TrainingPeaks coach account)',
     );
-  });
-
-  it('shows the permission but no control to a plain admin', async () => {
-    mockRole = 'admin';
-    profile(false, false);
-    renderDrawer();
-    expect(await screen.findByTestId('roster-grant-status')).toHaveTextContent(
-      'Cannot coach a group',
-    );
-    expect(screen.queryByRole('button', { name: 'Grant' })).not.toBeInTheDocument();
   });
 });

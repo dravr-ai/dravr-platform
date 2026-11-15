@@ -57,7 +57,6 @@ async fn create_admin_user(executor: &UniversalToolExecutor) -> Result<(Uuid, St
     let email = format!("admin_test_{}@example.com", Uuid::new_v4());
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
     let mut user = User::new(email.clone(), password_hash, Some("Test Admin".to_owned()));
-    user.is_admin = true;
     user.role = UserRole::Admin;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);

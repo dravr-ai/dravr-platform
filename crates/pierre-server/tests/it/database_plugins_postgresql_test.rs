@@ -597,7 +597,6 @@ async fn create_pg_test_user(db: &Database) -> Uuid {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),

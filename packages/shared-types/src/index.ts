@@ -94,7 +94,7 @@ export type {
   ClearImportTombstoneResponse,
   RedeemSignupCodeResponse,
 } from './auth.js';
-export { IMPORT_TOMBSTONED_ERROR } from './auth.js';
+export { IMPORT_TOMBSTONED_ERROR, hasAdminRole } from './auth.js';
 
 // API types (chat, prompts, common patterns)
 export type {
@@ -532,7 +532,7 @@ export type {
   PortalResponse,
 } from './billing';
 
-// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
+// Coach-access requests: a coach asks, an admin grants or declines (carnet#738)
 export type {
   CoachAccessStatus,
   CoachAccessRequest,

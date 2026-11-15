@@ -207,7 +207,7 @@ pub fn invitation_html(accept_url: &str, ttl_days: i64) -> String {
 
 /// Generate the HTML body for a coach-seat invitation (carnet#1524).
 ///
-/// Sent when a super-admin invites a coach the team recruited. The link is the
+/// Sent when an admin invites a coach the team recruited. The link is the
 /// same single-use accept link as [`invitation_html`]'s, locked to this
 /// address; the account it creates already holds coach access, so the copy
 /// says the coach goes straight to their first group, with no role question
@@ -344,7 +344,7 @@ pub enum CoachAccessOrigin {
 /// Generate the HTML body of the operator email announcing a coach-access
 /// request (carnet#738).
 ///
-/// Sent to every super-admin when a request opens: one a coach asked for
+/// Sent to every admin when a request opens: one a coach asked for
 /// from the onboarding group step or group info, or one filed for them from
 /// the Intervals.icu roster of a key they linked (`origin`), which is never
 /// worded as their asking. The request grants nothing (ADR-018); the email
@@ -404,7 +404,7 @@ pub fn coach_access_requested_html(
         "Coach access requested",
         &format!(
             r#"<p style="margin:0 0 16px;font-size:15px;line-height:1.5;color:#9ca3af;">
-          {how} Nothing is granted until a super-admin decides.
+          {how} Nothing is granted until an admin decides.
         </p>
         <p style="margin:0 0 24px;font-size:15px;line-height:1.5;color:#9ca3af;">{group}</p>
         <div style="text-align:center;margin:0;">{action}</div>"#
@@ -464,7 +464,7 @@ pub fn coach_access_granted_html(
 /// Generate the HTML body of the email telling a coach their coach-access
 /// request was declined (carnet#1521).
 ///
-/// It carries the super-admin's `reason` when one was given (escaped: an
+/// It carries the admin's `reason` when one was given (escaped: an
 /// operator typed it). `ask_again_url` opens the app where they can ask
 /// again; without one the email says so in words.
 #[must_use]

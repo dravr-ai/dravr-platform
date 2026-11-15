@@ -1,4 +1,4 @@
-// ABOUTME: Impersonation routes for super admin users to view system as another user
+// ABOUTME: Impersonation routes for admin users to view system as another user
 // ABOUTME: Provides secure impersonation with audit logging and session management
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,7 +6,7 @@
 
 //! Impersonation Routes
 //!
-//! This module provides endpoints for super admin users to impersonate other users.
+//! This module provides endpoints for admin users to impersonate other users.
 //! All impersonation actions are logged for audit purposes.
 
 use axum::{
@@ -107,7 +107,7 @@ struct StartImpersonationRequestBody {
     reason: Option<String>,
 }
 
-/// Impersonation routes - super admin only
+/// Impersonation routes - admin only
 #[derive(Debug)]
 pub struct ImpersonationRoutes;
 
@@ -140,27 +140,27 @@ impl ImpersonationRoutes {
             .with_state(resources)
     }
 
-    /// Authenticate user and require super admin role
-    async fn authenticate_super_admin<C: MiddlewareCtx>(
+    /// Authenticate user and require the admin role
+    async fn authenticate_admin<C: MiddlewareCtx>(
         headers: &HeaderMap,
         resources: &Arc<C>,
     ) -> Result<(AuthResult, User), AppError> {
         let auth = extract_auth_from_headers(headers, resources).await?;
 
-        // Get user and check for super_admin role
+        // Get user and check for the admin role
         let user = resources
             .repos()
             .users
-            // SECURITY: Global lookup — impersonation is super-admin, cross-tenant by design
+            // SECURITY: Global lookup — impersonation is an admin's, cross-tenant by design
             .get_global(auth.user_id)
             .await
             .map_err(|e| AppError::internal(format!("Failed to get user: {e}")))?
             .ok_or_else(|| AppError::not_found("User not found"))?;
 
-        if !user.role.is_super_admin() {
+        if !user.role.is_admin() {
             return Err(AppError::new(
                 ErrorCode::PermissionDenied,
-                "Super admin privileges required for impersonation",
+                "Admin privileges required for impersonation",
             ));
         }
 
@@ -173,8 +173,8 @@ impl ImpersonationRoutes {
         headers: HeaderMap,
         Json(request): Json<StartImpersonationRequestBody>,
     ) -> Result<Response, AppError> {
-        // Authenticate and verify super admin status
-        let (auth, ..) = Self::authenticate_super_admin(&headers, &resources).await?;
+        // Authenticate and verify admin status
+        let (auth, ..) = Self::authenticate_admin(&headers, &resources).await?;
 
         // Parse target user ID
         let target_user_id = Uuid::parse_str(&request.target_user_id)
@@ -195,11 +195,12 @@ impl ImpersonationRoutes {
             .map_err(|e| AppError::internal(format!("Failed to get target user: {e}")))?
             .ok_or_else(|| AppError::not_found("Target user not found"))?;
 
-        // Cannot impersonate another super admin
-        if target_user.role.is_super_admin() {
+        // An admin is never impersonated: acting as one would lend its every
+        // power to a session the audit trail attributes to someone else.
+        if target_user.role.is_admin() {
             return Err(AppError::new(
                 ErrorCode::PermissionDenied,
-                "Cannot impersonate another super admin",
+                "Cannot impersonate another admin",
             ));
         }
 
@@ -258,7 +259,7 @@ impl ImpersonationRoutes {
             target_user_id = %target_user_id,
             session_id = %session.id,
             reason = ?request.reason,
-            "Super admin started impersonation session"
+            "Admin started impersonation session"
         );
 
         Ok((
@@ -284,12 +285,12 @@ impl ImpersonationRoutes {
         State(resources): State<Arc<C>>,
         headers: HeaderMap,
     ) -> Result<Response, AppError> {
-        // Authenticate - can be either super admin or impersonated session
+        // Authenticate - can be either admin or impersonated session
         let auth = extract_auth_from_headers(&headers, &resources).await?;
 
         // Find the active impersonation session for this user.
         // The query matches if the authenticated user is either the impersonator
-        // (super admin ending via their own token) or the target user (using the
+        // (admin ending via their own token) or the target user (using the
         // impersonation token whose sub is the target_user_id).
         let session = resources
             .repos()
@@ -338,12 +339,12 @@ impl ImpersonationRoutes {
         headers: HeaderMap,
         Query(query): Query<ListSessionsQuery>,
     ) -> Result<Response, AppError> {
-        // Authenticate and verify super admin status
-        let (auth, _user) = Self::authenticate_super_admin(&headers, &resources).await?;
+        // Authenticate and verify admin status
+        let (auth, _user) = Self::authenticate_admin(&headers, &resources).await?;
 
         info!(
             user_id = %auth.user_id,
-            "Super admin listing impersonation sessions"
+            "Admin listing impersonation sessions"
         );
 
         // Every session, active and ended, one keyset page at a time.
@@ -428,8 +429,8 @@ impl ImpersonationRoutes {
         headers: HeaderMap,
         Path(session_id): Path<String>,
     ) -> Result<Response, AppError> {
-        // Authenticate and verify super admin status
-        let (_auth, _user) = Self::authenticate_super_admin(&headers, &resources).await?;
+        // Authenticate and verify admin status
+        let (_auth, _user) = Self::authenticate_admin(&headers, &resources).await?;
 
         // Get the session
         let session = resources

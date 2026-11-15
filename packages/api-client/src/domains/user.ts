@@ -310,7 +310,7 @@ export function createUserApi(axios: AxiosInstance) {
     /**
      * Ask for coach access in one tap, naming the group the coach made so a
      * grant attaches them to it. Returns the request already waiting when
-     * one is pending. Grants nothing by itself: a super-admin decides.
+     * one is pending. Grants nothing by itself: an admin decides.
      */
     async requestCoachAccess(groupId?: string): Promise<CoachAccessRequestResponse> {
       const response = await axios.post<CoachAccessRequestResponse>(

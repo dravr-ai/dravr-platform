@@ -41,7 +41,7 @@ pub const SUBJECT_WEBSITE_SIGN_IN: &str = "Your sign-in link for the Dravr docs"
 /// Subject line for the operator-sent invitation.
 pub const SUBJECT_INVITATION: &str = "You're invited to Dravr";
 
-/// Subject line for a super-admin's coach-seat invitation (carnet#1524).
+/// Subject line for an admin's coach-seat invitation (carnet#1524).
 pub const SUBJECT_COACH_SEAT_INVITATION: &str = "Your Dravr coach seat is ready";
 
 /// Subject line of the operator email announcing a coach-access request a
@@ -254,7 +254,7 @@ impl ResendEmailService {
             .await
     }
 
-    /// Tell a super-admin that a coach-access request opened (carnet#738):
+    /// Tell an admin that a coach-access request opened (carnet#738):
     /// one the coach asked for, or one filed for them from their
     /// Intervals.icu roster, as `origin` says.
     ///
@@ -307,7 +307,7 @@ impl ResendEmailService {
     }
 
     /// Tell a coach their coach-access request was declined (carnet#1521),
-    /// with the super-admin's reason when one was given, and where they can
+    /// with the admin's reason when one was given, and where they can
     /// ask again when `ask_again_url` is given.
     ///
     /// # Errors
@@ -325,7 +325,7 @@ impl ResendEmailService {
             .await
     }
 
-    /// Tell a super-admin that a new account is waiting for approval
+    /// Tell an admin that a new account is waiting for approval
     /// (carnet#1056). The Slack ping can be silenced by an outage, a bot
     /// dropped from the room or a renamed channel; this email cannot.
     ///

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { QUERY_KEYS } from '@pierre/shared-constants';
+import { hasAdminRole } from '@pierre/shared-types';
 import { userApi } from '../services/api';
 import type { OnboardingStatusResponse } from '@pierre/api-client';
 import { useAuth } from './useAuth';
@@ -105,7 +106,7 @@ export function useOnboardingState({ invitedAsAthlete = false }: OnboardingArriv
   // a missing provider on the admin account must not block them from the
   // dashboard. The backend 403 still applies if an admin tries to chat without
   // a provider. (See `feedback_spa_gate_on_role_not_is_admin`: gate on role.)
-  const isAdminRole = user?.role === 'admin' || user?.role === 'super_admin';
+  const isAdminRole = hasAdminRole(user);
   const onboardingActive = Boolean(
     isAuthenticated && user?.user_status === 'active' && !isAdminRole,
   );

@@ -35,7 +35,7 @@ pub mod api_key_cleanup;
 pub mod archetype_aggregation;
 /// Adopting the activity cache into the activity store, once per environment (carnet#1482)
 pub mod cache_adoption;
-/// Coach-access requests: a coach asks, a super-admin grants or declines (carnet#738)
+/// Coach-access requests: a coach asks, an admin grants or declines (carnet#738)
 pub mod coach_access;
 /// An Intervals.icu key whose roster coaches active athletes files its owner's coach-access request, never a grant
 pub mod coach_access_evidence;
@@ -51,7 +51,7 @@ pub mod coach_replies;
 pub mod coach_roster;
 /// The new-user cohort report the admin console and the daily digest read
 pub mod new_user_cohort;
-/// Email to the operators: the super-admin recipients and the pending sign-up alert (carnet#1056)
+/// Email to the admins: who receives it, and the pending sign-up alert (carnet#1056)
 pub mod operator_mail;
 
 /// Authentication service: registration, login, password management, token refresh

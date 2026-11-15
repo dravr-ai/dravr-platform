@@ -11,6 +11,7 @@ use std::fmt::Debug;
 
 use chrono::Utc;
 use pierre_core::models::TenantId;
+use pierre_core::permissions::UserRole;
 use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::messaging::{
     CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, EnqueueOutboundParams,
@@ -190,7 +191,7 @@ fn a_seeded_demo_user_never_prints_its_password_hash() {
         password_hash: "$2b$12$sentinel-hash-7f3a".to_owned(),
         tier: "starter".to_owned(),
         status: "active".to_owned(),
-        is_admin: false,
+        role: UserRole::User,
         locale: "en".to_owned(),
         created_at: Utc::now(),
     };

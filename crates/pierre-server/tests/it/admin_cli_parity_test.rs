@@ -121,24 +121,36 @@ async fn test_approve_and_suspend_transition_status_with_audit() {
         .unwrap();
 
     let approved =
-        admin_ops::transition_user_status(repos, user_id, UserStatus::Active, Some(admin_id))
+        admin_ops::transition_user_status(repos, user_id, UserStatus::Active, Some(admin_id), None)
             .await
-            .unwrap();
+            .unwrap()
+            .user;
     assert_eq!(approved.user_status, UserStatus::Active);
     assert_eq!(approved.approved_by, Some(admin_id), "audit actor recorded");
 
-    let suspended =
-        admin_ops::transition_user_status(repos, user_id, UserStatus::Suspended, Some(admin_id))
-            .await
-            .unwrap();
+    let suspended = admin_ops::transition_user_status(
+        repos,
+        user_id,
+        UserStatus::Suspended,
+        Some(admin_id),
+        None,
+    )
+    .await
+    .unwrap()
+    .user;
     assert_eq!(suspended.user_status, UserStatus::Suspended);
     assert!(!suspended.user_status.can_login());
 
     // Idempotence guard: re-suspending an already-suspended user is rejected.
-    let err =
-        admin_ops::transition_user_status(repos, user_id, UserStatus::Suspended, Some(admin_id))
-            .await
-            .expect_err("double suspend must be rejected");
+    let err = admin_ops::transition_user_status(
+        repos,
+        user_id,
+        UserStatus::Suspended,
+        Some(admin_id),
+        None,
+    )
+    .await
+    .expect_err("double suspend must be rejected");
     assert!(err.to_string().contains("already"), "got: {err}");
 }
 
@@ -200,7 +212,6 @@ async fn test_get_first_admin_user_returns_seeded_admin() {
         .expect("seeded admin must be found");
     assert_eq!(admin.id, user_id);
     assert_eq!(admin.email, user.email);
-    assert!(admin.is_admin);
     assert_eq!(admin.role, UserRole::Admin);
     assert_eq!(admin.tier, UserTier::Starter);
     assert_eq!(admin.user_status, UserStatus::Active);

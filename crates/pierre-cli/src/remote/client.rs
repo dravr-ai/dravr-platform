@@ -210,7 +210,7 @@ impl RemoteClient {
     }
 
     /// Parse a 2xx JSON body, or map a non-2xx to an actionable error. Reads the
-    /// server's `AdminResponse.message` when present so the super admin sees why: a
+    /// server's `AdminResponse.message` when present so the admin sees why: a
     /// 403 has several causes, and that message is the one that names which.
     ///
     /// # Errors

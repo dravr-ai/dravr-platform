@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Super-admin impersonation log — every session in which an operator acted as another user, newest first
+// ABOUTME: Impersonation log — every session in which an admin acted as another user, newest first
 // ABOUTME: One row per session (who, as whom, when, how long); a row's details read the one session and show its reason
 
 import { useState } from 'react';
@@ -140,7 +140,7 @@ export default function ImpersonationLogTab() {
   return (
     <Section
       title="Impersonation log"
-      description="Every session in which a super admin acted as another user, newest first."
+      description="Every session in which an admin acted as another user, newest first."
       data-testid="impersonation-log"
     >
       {renderBody()}

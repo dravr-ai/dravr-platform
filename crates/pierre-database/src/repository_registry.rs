@@ -120,7 +120,7 @@ pub struct RepositoryRegistry {
     pub session_refresh_tokens: Arc<dyn SessionRefreshTokenRepository>,
     /// iOS App Attest keys: the app installs Apple attested, and their counters
     pub app_attest_keys: Arc<dyn AppAttestKeyRepository>,
-    /// Coach-access requests: a coach asks, a super-admin grants or declines
+    /// Coach-access requests: a coach asks, an admin grants or declines
     pub coach_access_requests: Arc<dyn CoachAccessRequestRepository>,
     /// A coach's flags and corrections on the agent's group replies (carnet#847)
     pub coach_reply_reviews: Arc<dyn CoachReplyReviewRepository>,

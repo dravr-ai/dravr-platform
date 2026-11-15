@@ -26,7 +26,7 @@ export const PENDING_REQUEST: CoachAccessRequest = {
   decided_by: null,
 };
 
-/** The same request, declined by a super-admin the next day. */
+/** The same request, declined by an admin the next day. */
 export const DECLINED_REQUEST: CoachAccessRequest = {
   ...PENDING_REQUEST,
   status: 'declined',
@@ -65,7 +65,7 @@ export interface SeatRecord {
   /** How many times the coach withdrew the waiting request (DELETE). */
   cancels: number;
   /**
-   * A super-admin grants the request now: it reads granted, the room has the
+   * An admin grants the request now: it reads granted, the room has the
    * coach attached and the grant's line as its last words, and the session
    * reads coach access — as the server leaves them after a grant.
    */

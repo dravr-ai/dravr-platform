@@ -47,7 +47,6 @@ fn generate_test_user() -> User {
         last_active: chrono::Utc::now(),
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: Some(admin_id),
         approved_at: Some(chrono::Utc::now()),

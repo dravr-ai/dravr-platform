@@ -211,6 +211,40 @@ async fn the_web_app_signs_in_with_cookies_csrf_and_the_user() {
     assert_eq!(me.status(), 200, "{}", me.body_text());
 }
 
+/// What the apps read to tell an admin from a user: `role`, and `is_admin`
+/// beside it, which is the role's own answer and never a second source. The
+/// code exchange and the session restore both carry the pair, for a user and
+/// for an admin.
+#[tokio::test]
+async fn the_sign_in_and_the_session_carry_the_role_and_the_flag_it_decides() {
+    let resources = create_test_server_resources().await.unwrap();
+    for (promoted, role, is_admin) in [(false, "user", false), (true, "admin", true)] {
+        let (user_id, email) = athlete_with_status(&resources, UserStatus::Active).await;
+        if promoted {
+            let users = &resources.common.repos.users;
+            users.set_admin_status(user_id, true).await.unwrap();
+        }
+
+        let response = SignIn::new(&email, PASSWORD).run(&resources).await.token();
+        assert_eq!(response.status(), 200, "{}", response.body_text());
+        let body: Value = response.json();
+        assert_eq!(body["user"]["role"], role, "{body}");
+        assert_eq!(body["user"]["is_admin"], is_admin, "{body}");
+
+        let me = AxumTestRequest::get("/api/auth/session")
+            .header(
+                "authorization",
+                &format!("Bearer {}", body["access_token"].as_str().unwrap()),
+            )
+            .send(first_party_router(&resources, DEFAULT_PEER))
+            .await;
+        assert_eq!(me.status(), 200, "{}", me.body_text());
+        let session: Value = me.json();
+        assert_eq!(session["user"]["role"], role, "{session}");
+        assert_eq!(session["user"]["is_admin"], is_admin, "{session}");
+    }
+}
+
 /// The mobile app gets a refresh token only when it asks for one, and the
 /// refresh grant still exchanges it for a fresh session.
 #[tokio::test]

@@ -1,4 +1,4 @@
-// ABOUTME: A coach's request for coach access (manages_roster) and where a super-admin's decision left it
+// ABOUTME: A coach's request for coach access (manages_roster) and where an admin's decision left it
 // ABOUTME: Names the onboarding group to attach the requester to on a grant; grants nothing by itself (ADR-018)
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -12,11 +12,11 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CoachAccessStatus {
-    /// Waiting for a super-admin.
+    /// Waiting for an admin.
     Pending,
-    /// A super-admin granted coach access.
+    /// An admin granted coach access.
     Granted,
-    /// A super-admin declined it.
+    /// An admin declined it.
     Declined,
 }
 
@@ -49,7 +49,7 @@ impl CoachAccessStatus {
 /// back coachless, or filed for the coach, naming no group, when a live read
 /// of their Intervals.icu key's roster lists an active athlete they coach; such
 /// a request names the group they later make to coach. The request grants
-/// nothing (ADR-018): a super-admin grants or declines it. A grant gives the
+/// nothing (ADR-018): an admin grants or declines it. A grant gives the
 /// requester `manages_roster` and, when
 /// [`Self::group_id`] names a group they own that still has no coach, attaches
 /// them as its coach so no coach invite is needed.
@@ -67,12 +67,12 @@ pub struct CoachAccessRequest {
     pub status: CoachAccessStatus,
     /// When the coach asked.
     pub created_at: DateTime<Utc>,
-    /// When a super-admin decided; `None` while pending.
+    /// When an admin decided; `None` while pending.
     pub decided_at: Option<DateTime<Utc>>,
-    /// The super-admin who decided; `None` while pending, for a service token,
+    /// The admin who decided; `None` while pending, for a service token,
     /// and once that operator's account is deleted.
     pub decided_by: Option<Uuid>,
-    /// The reason a super-admin gave with a decline, shown to the coach in
+    /// The reason an admin gave with a decline, shown to the coach in
     /// the notice, the email and the declined state (carnet#1521). `None`
     /// for a decline given without one and for every request not declined.
     #[serde(default)]
@@ -111,7 +111,7 @@ impl CoachAccessRequest {
 /// two for the coach, never a document.
 pub const DECLINE_REASON_MAX_CHARS: usize = 500;
 
-/// A super-admin's decline reason as the request stores it: trimmed, `None`
+/// An admin's decline reason as the request stores it: trimmed, `None`
 /// when blank, and cut to [`DECLINE_REASON_MAX_CHARS`] characters.
 #[must_use]
 pub fn normalize_decline_reason(raw: Option<&str>) -> Option<String> {

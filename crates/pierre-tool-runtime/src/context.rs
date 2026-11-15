@@ -484,7 +484,7 @@ impl ToolExecutionContext {
                 )
             })?;
 
-        Ok(user.is_admin)
+        Ok(user.role.is_admin())
     }
 
     /// Require admin privileges for the current operation

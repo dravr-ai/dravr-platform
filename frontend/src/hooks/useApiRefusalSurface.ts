@@ -31,7 +31,7 @@ function openConnections(): void {
  *
  * Scoped to the one kind of failure that has nowhere else to be said. A 403
  * carries a reason the athlete can act on — "Group coaching requires a
- * Professional or Enterprise plan", "Super-admin privileges required" — and
+ * Professional or Enterprise plan", "Admin privileges required" — and
  * without this it reached them as `Request failed with status code 403`,
  * printed by whichever component happened to render `error.message`, on ten
  * admin tabs and on every refused group action. Every other kind is left to the

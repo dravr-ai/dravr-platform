@@ -55,7 +55,7 @@ pub struct OAuth2ClientSweep {
 /// A pending RFC 8628 Device Authorization for `pierre-cli auth login`.
 ///
 /// Created when the CLI calls `/admin/device/authorization`, flipped to
-/// `approved`/`denied` by a super-admin at the verification page, and consumed
+/// `approved`/`denied` by an admin at the verification page, and consumed
 /// (deleted) when the CLI's token poll mints the admin token. Timestamps are
 /// Unix epoch seconds to match the `device_authorization` table; the raw
 /// `device_code` is never stored, only its SHA-256 hash.
@@ -70,7 +70,7 @@ pub struct DeviceAuthorization {
     pub user_code: String,
     /// Lifecycle status: `pending`, `approved`, or `denied`.
     pub status: String,
-    /// Email of the super-admin who approved, set once `status = approved`.
+    /// Email of the admin who approved, set once `status = approved`.
     pub approved_by: Option<String>,
     /// Creation time, Unix epoch seconds.
     pub created_at: i64,

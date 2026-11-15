@@ -9,10 +9,10 @@
 //! Any Intervals.icu account can give another one edit access, so a key whose
 //! roster lists athletes it coaches is evidence that its owner coaches, never
 //! proof: two free accounts of one person's show the same. `manages_roster`
-//! therefore stays a super-admin's grant (ADR-018), and the evidence saves the
+//! therefore stays an admin's grant (ADR-018), and the evidence saves the
 //! coach only the asking: [`file_request_from_roster`] opens their
-//! coach-access request ([`request_access`], naming no group), which a
-//! super-admin grants or declines in one tap. The group the coach then makes
+//! coach-access request ([`request_access`], naming no group), which an
+//! admin grants or declines in one tap. The group the coach then makes
 //! to coach, or asks from, is named on it
 //! ([`crate::coach_access::name_requested_group`]), so a grant attaches them
 //! to it.
@@ -91,7 +91,7 @@ async fn may_file_for(repos: &RepositoryRegistry, user_id: Uuid) -> AppResult<bo
         .get_global(user_id)
         .await?
         .ok_or_else(|| AppError::not_found("User"))?;
-    if user.manages_roster || user.is_admin {
+    if user.manages_roster || user.role.is_admin() {
         return Ok(false);
     }
     Ok(repos

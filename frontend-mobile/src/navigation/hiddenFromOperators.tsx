@@ -6,13 +6,14 @@
 
 import type { ComponentType } from 'react';
 import { Redirect } from 'expo-router';
+import { hasAdminRole } from '@pierre/shared-types';
 import { useAuth } from '../contexts/AuthContext';
 
-/** `Screen` for athletes; a redirect to Settings for an admin or super admin. */
+/** `Screen` for athletes; a redirect to Settings for an admin. */
 export function hiddenFromOperators(Screen: ComponentType): ComponentType {
   return function HiddenFromOperators() {
     const { user } = useAuth();
-    if (user?.role === 'admin' || user?.role === 'super_admin') {
+    if (hasAdminRole(user)) {
       return <Redirect href="/(app)/(tabs)/(settings)" />;
     }
     return <Screen />;

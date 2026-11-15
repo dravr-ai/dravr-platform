@@ -93,7 +93,7 @@ async fn build_context(guardian_registry: GuardianConfigRegistry) -> Arc<AdminAp
 }
 
 /// Cookie-style super-admin token, mirroring what `cookie_admin_middleware`
-/// synthesizes for every web admin (and what a super-admin bearer carries).
+/// synthesizes for every web admin (and what an admin bearer carries).
 fn super_admin_token() -> ValidatedAdminToken {
     ValidatedAdminToken {
         token_id: format!("cookie:{}", Uuid::new_v4()),
@@ -127,7 +127,7 @@ async fn body_json(resp: impl IntoResponse) -> (StatusCode, Value) {
     (status, serde_json::from_slice(&bytes).unwrap())
 }
 
-/// A super-admin who is a real account: a save is recorded against it.
+/// An admin who is a real account: a save is recorded against it.
 async fn super_admin_with_account(context: &AdminApiContext) -> ValidatedAdminToken {
     let (user_id, _) = common::create_test_user(&context.database).await.unwrap();
     ValidatedAdminToken {
@@ -205,7 +205,7 @@ async fn get_serves_defaults_with_wire_shape_the_clients_parse() {
 
     let resp = handle_get_guardian_config(State(context), Extension(super_admin_token()))
         .await
-        .expect("super-admin GET succeeds");
+        .expect("admin GET succeeds");
     let (status, json) = body_json(resp).await;
 
     assert_eq!(status, StatusCode::OK);
@@ -247,7 +247,7 @@ async fn put_persists_the_row_and_hot_installs_the_policy() {
         Ok(save(&document, None)),
     )
     .await
-    .expect("super-admin PUT succeeds");
+    .expect("admin PUT succeeds");
     let (status, json) = body_json(resp).await;
 
     assert_eq!(status, StatusCode::OK);
@@ -346,7 +346,7 @@ async fn plain_admin_is_denied_both_verbs() {
 // Compare-and-set
 // ============================================================================
 
-/// Two super admins read the same version. The second to save learns it is stale,
+/// Two admins read the same version. The second to save learns it is stale,
 /// rather than wiping the first one's edit.
 #[tokio::test]
 async fn a_stale_save_is_refused_and_the_winner_keeps_the_row() {
@@ -565,10 +565,10 @@ async fn a_tenant_scoped_token_holding_every_permission_is_refused_every_verb() 
     assert_eq!(stored_value(&context).await, None);
 }
 
-/// A console super-admin's synthesized token carries the active tenant. Refusing
+/// A console admin's synthesized token carries the active tenant. Refusing
 /// on `tenant_id` alone would lock the whole web console out of this tab.
 #[tokio::test]
-async fn a_console_super_admin_with_an_active_tenant_keeps_the_tab() {
+async fn a_console_admin_with_an_active_tenant_keeps_the_tab() {
     let context = build_context(GuardianConfigRegistry::bootstrap()).await;
     let console_session = ValidatedAdminToken {
         tenant_id: Some(Uuid::new_v4().to_string()),
@@ -617,7 +617,7 @@ async fn a_service_token_naming_no_account_can_save() {
 // Corrupt rows and foreign schemas
 // ============================================================================
 
-/// The recovery path: the row does not parse, and the super admin can still see that,
+/// The recovery path: the row does not parse, and the admin can still see that,
 /// see what is in force, and save over it with the row's own token.
 #[tokio::test]
 async fn a_corrupt_row_is_reported_and_can_be_saved_over() {
@@ -943,6 +943,14 @@ async fn the_token_mount_saves_for_a_device_login_and_for_a_service_token() -> R
         "starter",
     )
     .await?;
+    // A device login acts as the admin who approved it, and is refused once
+    // that account is not one.
+    resources
+        .common
+        .repos
+        .users
+        .set_admin_status(admin_id, true)
+        .await?;
     let device_login = resources
         .common
         .repos
@@ -1156,7 +1164,7 @@ async fn the_token_mount_saves_end_to_end() -> Result<()> {
 }
 
 /// The web console's editor went with its routes: the policy has the one mount, and
-/// a super admin's session reaches nothing under the console's prefix.
+/// an admin's session reaches nothing under the console's prefix.
 #[tokio::test]
 #[serial]
 async fn the_console_serves_no_guardian_settings() -> Result<()> {
@@ -1167,8 +1175,7 @@ async fn the_console_serves_no_guardian_settings() -> Result<()> {
         "starter",
     )
     .await?;
-    user.is_admin = true;
-    user.role = UserRole::SuperAdmin;
+    user.role = UserRole::Admin;
     resources.common.repos.users.update(&user).await?;
     let session = format!(
         "Bearer {}",

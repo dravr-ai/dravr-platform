@@ -56,7 +56,7 @@ test.describe('Coach access — the grant lands', () => {
     await expect(page.getByTestId('conversation-seat-line')).toHaveText(/^Coach access pending · requested /);
     expect(await storedManagesRoster(page)).toBe(false);
 
-    // A super-admin grants it; the app reads the request again on focus.
+    // An admin grants it; the app reads the request again on focus.
     await record.grant();
     await page.evaluate(() => {
       window.dispatchEvent(new Event('visibilitychange'));

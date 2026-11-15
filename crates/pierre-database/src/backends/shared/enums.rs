@@ -161,7 +161,6 @@ pub fn str_to_task_status(s: &str) -> TaskStatus {
 /// use pierre_core::permissions::UserRole;
 /// use pierre_database::backends::shared::enums::user_role_to_str;
 ///
-/// assert_eq!(user_role_to_str(&UserRole::SuperAdmin), "super_admin");
 /// assert_eq!(user_role_to_str(&UserRole::Admin), "admin");
 /// assert_eq!(user_role_to_str(&UserRole::User), "user");
 /// ```
@@ -180,9 +179,10 @@ pub const fn user_role_to_str(role: &UserRole) -> &'static str {
 /// use pierre_core::permissions::UserRole;
 /// use pierre_database::backends::shared::enums::str_to_user_role;
 ///
-/// assert_eq!(str_to_user_role("super_admin"), UserRole::SuperAdmin);
 /// assert_eq!(str_to_user_role("admin"), UserRole::Admin);
 /// assert_eq!(str_to_user_role("unknown"), UserRole::User); // Default
+/// // The role retired by carnet#1567 is no longer a known value.
+/// assert_eq!(str_to_user_role("super_admin"), UserRole::User);
 /// ```
 #[must_use]
 pub fn str_to_user_role(s: &str) -> UserRole {

@@ -325,7 +325,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
         {
             Ok(Some(tenant_ctx)) => {
                 // System-admin tools (e.g. system-agent management) gate on the
-                // global `User.is_admin` flag, not the per-tenant role: a tenant
+                // global admin role (`User.role`), not the per-tenant role: a tenant
                 // owner is admin *of their tenant*, which must not grant
                 // system-wide admin powers. Mirrors the executor's
                 // `build_tool_context`. A global-lookup failure defaults to
@@ -339,7 +339,7 @@ impl AuthHook<dyn ToolRuntime> for PierreAuthHook {
                     .await
                     .ok()
                     .flatten()
-                    .is_some_and(|user| user.is_admin);
+                    .is_some_and(|user| user.role.is_admin());
 
                 let ctx = build_context(
                     auth_result.user_id,

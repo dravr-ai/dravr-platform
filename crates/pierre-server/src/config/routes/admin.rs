@@ -71,15 +71,14 @@ impl AdminConfigState {
     /// operator's own session (a user JWT, in the header or the web session
     /// cookie named by [`auth_cookie_name`]). `pierre-cli` sends the super-admin *admin token* its device
     /// login minted — accepted only when its stored row names the approving
-    /// super-admin ([`ValidatedAdminToken::operator_user_id`], written by the
+    /// admin ([`ValidatedAdminToken::operator_user_id`], written by the
     /// device grant alone), the user every write is audited as. A service token minted by `token
     /// generate` names no operator and is refused, whatever its permissions:
     /// `admin_config_overrides.created_by` references `users`.
     ///
-    /// Any `Admin`-or-higher account passes: the admin console is a global
-    /// operator model, and the operator account is a plain `Admin`, so the
-    /// configuration surface — reads and writes, every scope — is theirs
-    /// without a further permission or super-admin gate.
+    /// Any admin account passes: the admin console is a global model, so the
+    /// configuration surface — reads and writes, every scope — is an admin's
+    /// without a further permission gate.
     async fn authenticate_admin(&self, headers: &HeaderMap) -> Result<AdminAuthInfo, AppError> {
         let auth_value =
             if let Some(auth_header) = headers.get("authorization").and_then(|h| h.to_str().ok()) {
@@ -122,7 +121,7 @@ impl AdminConfigState {
         })
     }
 
-    /// The super-admin behind a device-login admin token, or `None` when the
+    /// The admin behind a device-login admin token, or `None` when the
     /// bearer is not an admin token at all (so the user-JWT error stands).
     ///
     /// # Errors
@@ -142,24 +141,13 @@ impl AdminConfigState {
                 "Admin token is not super-admin; admin config needs a super-admin device login",
             ));
         }
-        let Some(operator_id) = validated.operator_user_id else {
-            return Err(AppError::auth_invalid(
+        // The token authenticated, so the admin it names exists and is in
+        // good standing: `AdminAuthService::authenticate` read that row.
+        validated.operator_user_id.map(Some).ok_or_else(|| {
+            AppError::auth_invalid(
                 "Admin token names no operator; admin config writes are audited per user, so sign in with `pierre-cli auth login`",
-            ));
-        };
-        let operator = self
-            .resources
-            .common
-            .repos
-            .users
-            .get_global(operator_id)
-            .await?
-            .ok_or_else(|| {
-                AppError::auth_invalid(
-                    "The super-admin who approved this device login no longer exists",
-                )
-            })?;
-        Ok(Some(operator.id))
+            )
+        })
     }
 }
 

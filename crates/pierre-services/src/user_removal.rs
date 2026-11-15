@@ -29,8 +29,10 @@
 //! database transaction (`AccountDeletionRepository::delete_account`): every
 //! provider's data, every row the user owns in a table no foreign key
 //! cascades to, the account row, a tombstone per provider-side id and for
-//! the email, and a hash-chained deletion receipt. It refuses to commit while
-//! a purged table still holds a row. A delete that fails rolls all of that
+//! the email, and a hash-chained deletion receipt. The device logins it
+//! approved as an admin are retired there too, as rows that stay and name
+//! no account. It refuses to commit while a purged table still holds a row,
+//! or a kept one still names the account. A delete that fails rolls all of that
 //! back and comes back as an [`Interruption`], since the grants were already
 //! withdrawn upstream. After the commit, the user's cache entries and their
 //! cached email are evicted, and each provider raises `provider.disconnected`.
@@ -58,6 +60,7 @@ use serde_json::json;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+use crate::admin_ops::WithdrawnAdminCredentials;
 use crate::analytics::evict_user_email;
 use crate::firebase_identity_outbox;
 use crate::oauth_flow::OAuthService;
@@ -204,6 +207,13 @@ pub struct RemovalReport {
     /// The receipt and tombstones the deletion committed, and what the
     /// post-commit evictions did.
     pub ledger: DeletionLedger,
+    /// The device logins the account approved as an admin that were still
+    /// live: retired in the account's own transaction, with the ones already
+    /// withdrawn, as rows that name no account. Empty for an account that
+    /// held none. The
+    /// impersonations it had open went with its row and are not counted. The
+    /// caller records it (`admin_ops::record_withdrawn_admin_credentials`).
+    pub admin_credentials: WithdrawnAdminCredentials,
 }
 
 /// What an account deletion left on the record, and the evictions after it.
@@ -444,7 +454,9 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
 /// (`actor` names who asked, on the receipt and as the reason of every
 /// `provider.disconnected` event).
 ///
-/// In order: refuse while any row references the user without cascading
+/// In order: refuse the last active admin, whoever asks, their own
+/// self-serve deletion included (the platform always keeps one admin);
+/// refuse while any row references the user without cascading
 /// (nothing touched); withdraw every held grant at the provider
 /// ([`ProviderDisconnector::withdraw_upstream`], best-effort, each outcome
 /// kept); then delete in ONE transaction every provider's data, every row
@@ -469,7 +481,8 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
 ///
 /// # Errors
 ///
-/// Returns a database error from the reads, and a `ResourceUnavailable`
+/// Returns a database error from the reads, an `InvalidInput` error for the
+/// last active admin, and a `ResourceUnavailable`
 /// error when the user holds providers and no disconnector is wired
 /// (deleting would strand the grants upstream); nothing was touched then. A
 /// failed account delete is `UserRemoval::Interrupted`, not an error, since
@@ -482,15 +495,33 @@ pub async fn remove_user(
     user_id: Uuid,
     actor: DeletionActor,
 ) -> AppResult<UserRemoval> {
+    let user = repos.users.get_global(user_id).await?;
+    // Refused here, before any grant is withdrawn upstream. The account
+    // delete decides again in its own transaction, under the lock that makes
+    // two admin removals wait for each other: an admin who became the last
+    // one in between is refused there, and that refusal is an interruption
+    // naming the grants already withdrawn.
+    if let Some(user) = &user {
+        if repos.users.is_last_active_admin(user).await? {
+            return Err(AppError::invalid_input(
+                "Cannot delete the last active admin",
+            ));
+        }
+    }
     let blockers = repos.users.deletion_blockers(user_id).await?;
     if !blockers.is_empty() {
         return Ok(UserRemoval::Blocked(blockers));
     }
-    let firebase_uid = repos
-        .users
-        .get_global(user_id)
+    let firebase_uid = user.and_then(|user| user.firebase_uid);
+    // The device logins the account approved, live or withdrawn: the delete
+    // keeps their rows, and the receipt says so. Read here, where a failed
+    // read still touches nothing.
+    let approved_device_logins = repos
+        .admin
+        .list_tokens(true)
         .await?
-        .and_then(|user| user.firebase_uid);
+        .iter()
+        .any(|token| token.operator_user_id == Some(user_id));
 
     let held = held_providers(repos, user_id).await?;
     let mut report = RemovalReport::default();
@@ -507,7 +538,12 @@ pub async fn remove_user(
     }
 
     let firebase_project = firebase.map(|deleter| deleter.project_id().to_owned());
-    let not_deleted = copies_not_deleted(&report, firebase_uid.is_some(), firebase.is_some());
+    let not_deleted = copies_not_deleted(
+        &report,
+        firebase_uid.is_some(),
+        firebase.is_some(),
+        approved_device_logins,
+    );
     let plan = AccountDeletionPlan {
         user_id,
         actor,
@@ -529,6 +565,10 @@ pub async fn remove_user(
     report.memberships_removed = deletion.removed_from("coaching_group_members");
     report.ledger = ledger_of(&deletion, not_deleted);
     report.rows_removed = deletion.rows_removed;
+    report.admin_credentials = WithdrawnAdminCredentials {
+        device_tokens: deletion.device_logins_revoked,
+        impersonations: 0,
+    };
 
     evict_after_commit(cache, user_id, &mut report.ledger).await;
     announce_disconnects(&report, user_id, actor);
@@ -635,12 +675,15 @@ fn revocations_json(report: &RemovalReport) -> AppResult<String> {
 
 /// The copies an account deletion cannot delete, each named with why, as its
 /// receipt records them. Decided before the transaction, so it names what is
-/// known then: grants the provider did not confirm withdrawn, and the copies
-/// no deletion here reaches.
+/// known then: grants the provider did not confirm withdrawn, the copies no
+/// deletion here reaches, and the rows the delete keeps on purpose
+/// (`approved_device_logins`: the account approved a device login as an
+/// admin, live or since withdrawn).
 fn copies_not_deleted(
     report: &RemovalReport,
     has_firebase_identity: bool,
     firebase_configured: bool,
+    approved_device_logins: bool,
 ) -> Vec<String> {
     let mut copies = Vec::new();
     for d in &report.disconnected {
@@ -663,6 +706,14 @@ fn copies_not_deleted(
         } else {
             "firebase_identity: no Firebase project is configured here, so the sign-in identity at Google was left there".to_owned()
         });
+    }
+    if approved_device_logins {
+        // The receipt's rescan lists `admin_tokens` and
+        // `admin_provisioned_keys` with nothing removed; this is what says
+        // rows were there and stayed.
+        copies.push(
+            "admin_device_logins: the device logins the account approved as an admin are kept as inactive rows that name no account and no address; the record of the keys they provisioned and the log of the requests they made stay under them, the log with each request's IP address and user agent".to_owned(),
+        );
     }
     copies.push(
         "posthog_person: no PostHog person-deletion call is wired; events already captured under the account's hashed id stay in PostHog".to_owned(),

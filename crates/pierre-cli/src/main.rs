@@ -9,14 +9,8 @@
 //! # Create admin user for frontend login
 //! pierre-cli user create --email admin@example.com --password yourpassword
 //!
-//! # Create super admin user
-//! pierre-cli user create --email admin@example.com --password yourpassword --super-admin
-//!
 //! # Promote an existing user to admin
 //! pierre-cli user promote --email user@example.com
-//!
-//! # Promote an existing user to super admin (use `user create --force`)
-//! pierre-cli user create --email user@example.com --password X --force --super-admin
 //!
 //! # Demote an admin user back to regular user
 //! pierre-cli user demote --email user@example.com
@@ -366,10 +360,6 @@ enum UserCommand {
         /// Force update if user already exists
         #[arg(long)]
         force: bool,
-
-        /// Create super admin user (can impersonate other users)
-        #[arg(long)]
-        super_admin: bool,
 
         /// BCP-47 short locale for the account ("en", "fr", "es", "de", "pt").
         /// Omitted: a new account takes the platform default, an existing one keeps its own.
@@ -1019,7 +1009,6 @@ async fn main() -> Result<()> {
                     password,
                     name,
                     force,
-                    super_admin,
                     locale,
                 } => {
                     commands::user::create(
@@ -1027,11 +1016,7 @@ async fn main() -> Result<()> {
                         email,
                         password,
                         name,
-                        commands::user::AdminUserOptions {
-                            force,
-                            super_admin,
-                            locale,
-                        },
+                        commands::user::AdminUserOptions { force, locale },
                     )
                     .await?;
                 }

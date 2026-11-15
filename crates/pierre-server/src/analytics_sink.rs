@@ -27,7 +27,7 @@ const STRIPPED_KEYS: &[&str] = &[
     // Slack-display field with no analytics meaning.
     "user_email",
     "emoji",
-    // The group a coach-access request names, for the super-admin deciding it
+    // The group a coach-access request names, for the admin deciding it
     // (carnet#1072), and the console link the enricher adds: operator notice
     // detail with no analytics meaning.
     "group_name",
@@ -243,7 +243,7 @@ fn coerce(value: &str) -> Value {
     Value::String(value.to_owned())
 }
 
-/// The notify event whose decision a super-admin takes in the console's user
+/// The notify event whose decision an admin takes in the console's user
 /// list; its notice links there.
 const CONSOLE_DECIDED_EVENT: &str = "coach_access.requested";
 
@@ -284,7 +284,7 @@ impl NotifyEnricher for PierreNotifyEnricher {
             .entry("emoji".to_owned())
             .or_insert_with(|| event_emoji(event).to_owned());
 
-        // Where the super-admin reading the notice goes to decide it.
+        // Where the admin reading the notice goes to decide it.
         if event == CONSOLE_DECIDED_EVENT {
             if let Some(url) = &self.review_url {
                 fields

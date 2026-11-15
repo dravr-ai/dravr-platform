@@ -218,7 +218,8 @@ pub async fn allow(
             UserStatus::Active => (AllowOutcome::AlreadyActive, None),
             UserStatus::Suspended => (AllowOutcome::SuspendedUnchanged, None),
             UserStatus::Pending => {
-                transition_user_status(repos, user.id, UserStatus::Active, allowed_by).await?;
+                transition_user_status(repos, user.id, UserStatus::Active, allowed_by, None)
+                    .await?;
                 create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
                 info!(
                     target_user_id = %user.id,

@@ -7,7 +7,7 @@
 //!
 //! Strong Rust types for the admin authentication system
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -41,7 +41,7 @@ pub struct AdminToken {
     pub is_active: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
-    /// The operator this token acts as: the super-admin who approved the
+    /// The operator this token acts as: the admin who approved the
     /// device login that minted it. `None` for a service token, which names
     /// no person.
     pub operator_user_id: Option<Uuid>,
@@ -77,7 +77,7 @@ pub struct AdminTokenSummary {
     pub is_active: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
-    /// The operator this token acts as: the super-admin who approved the
+    /// The operator this token acts as: the admin who approved the
     /// device login that minted it. `None` for a service token, which names
     /// no person.
     pub operator_user_id: Option<Uuid>,
@@ -138,26 +138,8 @@ impl AdminPermissions {
         ])
     }
 
-    /// Permissions of a plain `Admin` signed in to the web console.
-    ///
-    /// [`Self::default_admin`] plus `ManageUsers` and `ManageAdminTokens`: the
-    /// console's user and token tabs are served by the same handlers the
-    /// admin-token API mounts, and those check these permissions. The token
-    /// handlers keep super-admin tokens to super-admin callers whatever the
-    /// permission set, so a plain Admin mints, rotates and revokes only
-    /// non-super tokens, and grants only permissions it holds itself. A console
-    /// session and an admin token of the same role therefore grant different
-    /// authority by design. Configuration, audit logs and tiers stay out of
-    /// this set.
-    #[must_use]
-    pub fn console_admin() -> Self {
-        let mut permissions = Self::default_admin();
-        permissions.add_permission(AdminPermission::ManageUsers);
-        permissions.add_permission(AdminPermission::ManageAdminTokens);
-        permissions
-    }
-
-    /// Create super admin permissions (every [`AdminPermission`] variant).
+    /// Every [`AdminPermission`] variant: what a super-admin token carries, and
+    /// what every admin's console session carries (carnet#1567).
     #[must_use]
     pub fn super_admin() -> Self {
         Self::new(vec![
@@ -297,7 +279,7 @@ pub struct CreateAdminTokenRequest {
     /// Tenant to scope this token to (`None` for global / super-admin)
     pub tenant_id: Option<String>,
     /// The operator the token acts as, set only by the device grant from the
-    /// approving super-admin's account. Never read from a request body: an
+    /// approving admin's account. Never read from a request body: an
     /// operator identity is earned by approving a login, not named.
     #[serde(skip)]
     pub operator_user_id: Option<Uuid>,
@@ -332,27 +314,102 @@ impl CreateAdminTokenRequest {
         }
     }
 
-    /// The request that replaces `existing` on rotation: same name, scope and
-    /// super-admin flag, a fresh expiry. The operator it acts as carries over
-    /// only when `rotated_by` is that operator, so a rotation never hands one
-    /// operator's identity to whoever rotated the token.
+    /// The permissions the token this request mints carries: the ones it
+    /// names, or, for a request that names none, every permission when it
+    /// asks for the super-admin flag and the default set
+    /// ([`AdminPermissions::default_admin`]) when it does not.
+    ///
+    /// The one definition of what an unnamed list grants: the store mints
+    /// from it, and the admin API reads it to hold a caller to what it may
+    /// hand out before anything is minted.
     #[must_use]
+    pub fn granted_permissions(&self) -> AdminPermissions {
+        self.permissions.as_ref().map_or_else(
+            || {
+                if self.is_super_admin {
+                    AdminPermissions::super_admin()
+                } else {
+                    AdminPermissions::default_admin()
+                }
+            },
+            |named| AdminPermissions::new(named.clone()),
+        )
+    }
+
+    /// When a token minted at `now` from this request expires: `None` for a
+    /// request that names no lifetime or names `0` days, which never
+    /// expires.
+    ///
+    /// The one definition of the lifetime rule: the store mints from it, and
+    /// the admin API asks it first, so a lifetime the calendar cannot hold
+    /// is refused before anything is minted or claimed.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error for a lifetime that ends past the last
+    /// instant a timestamp can name.
+    pub fn expires_at(&self, now: DateTime<Utc>) -> AppResult<Option<DateTime<Utc>>> {
+        match self.expires_in_days {
+            None | Some(0) => Ok(None),
+            Some(days) => i64::try_from(days)
+                .ok()
+                .and_then(Duration::try_days)
+                .and_then(|lifetime| now.checked_add_signed(lifetime))
+                .map(Some)
+                .ok_or_else(|| {
+                    AppError::invalid_input(format!(
+                        "expires_in_days is too large: {days} days from now is past any date"
+                    ))
+                }),
+        }
+    }
+
+    /// The request that replaces `existing` on rotation, the one definition
+    /// of what a rotation carries over, for the admin API and `pierre-cli`
+    /// alike: the name, the description, the tenant scope, the super-admin
+    /// flag, and the permissions as stored unless the flag grants them all.
+    /// The lifetime is the caller's: `expires_in_days` from now, `0` for a
+    /// replacement that never expires.
+    ///
+    /// The operator it acts as carries over only when `rotated_by` is that
+    /// operator, so a rotation never hands one admin's identity to whoever
+    /// rotated the token; a caller that is no admin's session (a service
+    /// token, `pierre-cli` on the host) passes `None`. One operator carries
+    /// over whoever rotates: [`DELETED_ACCOUNT_OPERATOR`]. It is no one's
+    /// identity to hand over, and a replacement without it would be a
+    /// service credential minted from a deleted account's device login.
+    ///
+    /// Only a live token rotates. A revoked one stays revoked: its
+    /// replacement would be a live credential with the scope someone took
+    /// away, and for a token withdrawn with its admin's standing, one that
+    /// acts as no admin at all.
+    ///
+    /// # Errors
+    /// Returns an invalid-input error for a token that is not active.
     pub fn rotation_of(
         existing: AdminToken,
         expires_in_days: u64,
         rotated_by: Option<Uuid>,
-    ) -> Self {
-        Self {
+    ) -> AppResult<Self> {
+        if !existing.is_active {
+            return Err(AppError::invalid_input(
+                "A revoked admin token cannot be rotated; mint a new one",
+            ));
+        }
+        Ok(Self {
             service_name: existing.service_name,
             service_description: existing.service_description,
-            permissions: None,
+            // A super-admin token holds every permission by its flag, so its
+            // replacement takes the full set as it stands today, not the
+            // list stored when the old token was minted: a permission added
+            // since would otherwise be missing from it.
+            permissions: (!existing.is_super_admin).then(|| existing.permissions.to_vec()),
             expires_in_days: Some(expires_in_days),
             is_super_admin: existing.is_super_admin,
             tenant_id: existing.tenant_id,
-            operator_user_id: existing
-                .operator_user_id
-                .filter(|operator| rotated_by == Some(*operator)),
-        }
+            operator_user_id: existing.operator_user_id.filter(|operator| {
+                *operator == DELETED_ACCOUNT_OPERATOR || rotated_by == Some(*operator)
+            }),
+        })
     }
 
     /// The request as an admin-token creator may submit it.
@@ -363,9 +420,14 @@ impl CreateAdminTokenRequest {
     /// so a look-alike could not borrow an identity either way — this keeps
     /// the token list from showing one.
     ///
+    /// A lifetime no date can hold is refused here too ([`Self::expires_at`]),
+    /// so the creator is answered before anything is minted.
+    ///
     /// # Errors
-    /// Returns an invalid-input error for a reserved name.
+    /// Returns an invalid-input error for a reserved name, or for a lifetime
+    /// past any date.
     pub fn for_creator(self) -> AppResult<Self> {
+        self.expires_at(Utc::now())?;
         if self.service_name.starts_with(DEVICE_CLI_SERVICE_PREFIX) {
             return Err(AppError::invalid_input(format!(
                 "Service names starting with '{DEVICE_CLI_SERVICE_PREFIX}' are reserved for device logins"
@@ -384,12 +446,47 @@ impl CreateAdminTokenRequest {
 
 /// Service-name prefix of the super-admin token a device login mints.
 ///
-/// The rest of the name is the id of the super-admin who approved the login —
+/// The rest of the name is the id of the admin who approved the login —
 /// a label for the token list, never an identity and never an email (service
 /// names are logged). The identity is the token's `operator_user_id`, stored
 /// on its row at the device grant; creators may not choose a name with this
 /// prefix ([`CreateAdminTokenRequest::for_creator`]).
 pub const DEVICE_CLI_SERVICE_PREFIX: &str = "device-cli:";
+
+/// What stands in a token's name where a deleted account's id stood.
+///
+/// A service name is free text, so an account's id can be anywhere in one:
+/// after [`DEVICE_CLI_SERVICE_PREFIX`] in a device login's, or wherever
+/// whoever minted a service token wrote it. The account deletion rewrites
+/// the id to this wherever a name carries it, and leaves the rest of the
+/// name as it was.
+pub const DELETED_ACCOUNT_LABEL: &str = "deleted-account";
+
+/// The name a device login keeps once the account its name carried is
+/// deleted: [`DEVICE_CLI_SERVICE_PREFIX`] then [`DELETED_ACCOUNT_LABEL`].
+///
+/// A rotation by someone else hands a device login's replacement to whoever
+/// rotated it under the same name, so the name can outlive the approver as
+/// a label on a token that acts as no one. The account deletion rewrites
+/// that label to this one, and gives the same name to the device logins the
+/// account approved, which it keeps as rows that act as
+/// [`DELETED_ACCOUNT_OPERATOR`]: nothing in `admin_tokens` names a deleted
+/// account.
+pub const DEVICE_CLI_DELETED_ACCOUNT_SERVICE: &str = "device-cli:deleted-account";
+
+/// The operator a deleted account's device logins are left with: the nil
+/// UUID, which is no account's id (ids are random version-4 UUIDs, and the
+/// two statements that insert a `users` row refuse this one).
+///
+/// The account deletion keeps those rows, so the request log and the record
+/// of the keys they provisioned stay, and rewrites who they act as to this.
+/// It is never `NULL`: a token with no operator is a service credential,
+/// which no admin's standing guards. A token that acts as this one is
+/// refused by the admin gate for as long as it exists, whatever its row says
+/// about being active, because the operator it names is no admin; and a
+/// rotation carries it over ([`CreateAdminTokenRequest::rotation_of`]), so
+/// neither is its replacement.
+pub const DELETED_ACCOUNT_OPERATOR: Uuid = Uuid::nil();
 
 /// Generated admin token response
 #[derive(Debug, Clone, Serialize)]
@@ -557,7 +654,7 @@ pub struct ValidatedAdminToken {
     pub is_super_admin: bool,
     /// Tenant this token is scoped to (`None` for super-admin / global tokens)
     pub tenant_id: Option<String>,
-    /// The operator the token acts as: the approving super-admin for a
+    /// The operator the token acts as: the approving admin for a
     /// device-login token (from its stored row), the signed-in admin for a
     /// console session; `None` for a service token, which names no person
     pub operator_user_id: Option<Uuid>,
@@ -661,7 +758,7 @@ mod tests {
             Err(403)
         );
 
-        // A console super-admin carries the active tenant here and is not scoped by it.
+        // A console admin carries the active tenant here and is not scoped by it.
         assert!(token(true, Some("tenant-a")).require_global_scope().is_ok());
         assert!(token(true, None).require_global_scope().is_ok());
         assert!(token(false, None).require_global_scope().is_ok());

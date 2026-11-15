@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { classifyApiError, type SignInFailure } from '@pierre/ui-logic';
 import { readSignInCallback, type CompleteSignIn } from '@pierre/api-client';
+import { hasAdminRole } from '@pierre/shared-types';
 import type { LoginResponse } from '@pierre/shared-types';
 import { authApi, adminApi, pierreApi, userApi } from '../services/api';
 import { AuthContext } from './auth';
@@ -389,8 +390,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [impersonation.isImpersonating]);
 
   const startImpersonation = useCallback(async (targetUserId: string, reason?: string) => {
-    if (!user || user.role !== 'super_admin') {
-      throw new Error('Only super admins can impersonate users');
+    if (!user || !hasAdminRole(user)) {
+      throw new Error('Only admins can impersonate users');
     }
 
     const response = await adminApi.startImpersonation(targetUserId, reason);

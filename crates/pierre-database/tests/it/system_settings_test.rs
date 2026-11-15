@@ -59,7 +59,7 @@ async fn a_setting_round_trips_and_an_overwrite_moves_its_timestamp() {
     );
 }
 
-/// The read's `updated_at` is the concurrency token: it reaches a super admin as
+/// The read's `updated_at` is the concurrency token: it reaches an admin as
 /// RFC 3339 text and comes back, so the row must match it to the instant. That
 /// is what `$n` binds a `DateTime` round-trip proves, on each backend.
 #[tokio::test]
@@ -94,7 +94,7 @@ async fn a_compare_and_set_lands_only_on_the_row_it_read() {
         None
     );
 
-    // The token survives the wire form a super admin's client echoes.
+    // The token survives the wire form an admin's client echoes.
     let token = DateTime::parse_from_rfc3339(&row.updated_at.to_rfc3339())
         .unwrap()
         .with_timezone(&Utc);

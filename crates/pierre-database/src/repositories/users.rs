@@ -1,4 +1,4 @@
-// ABOUTME: Repository traits for the user domain, with the statements and shared body of UserRepository
+// ABOUTME: Repository traits for the user domain, with the shared body of UserRepository; its statements are in user_sql
 // ABOUTME: One SQL text per operation; each backend shell supplies its uuid codec and its duplicate-key detector
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -22,6 +22,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use pierre_core::admin::models::DELETED_ACCOUNT_OPERATOR;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::permissions::UserRole;
 
@@ -39,6 +40,8 @@ use uuid::Uuid;
 mod tokens;
 pub use tokens::{EmailVerificationRepository, PasswordResetRepository};
 
+use super::admin_standing::{StandingWrite, WithdrawnAdminCredentials};
+
 /// User account management repository
 #[async_trait]
 pub trait UserRepository: Send + Sync {
@@ -46,6 +49,13 @@ pub trait UserRepository: Send + Sync {
     ///
     /// Insert-only on both engines: a duplicate email in any casing is `invalid_input`,
     /// never a silent overwrite; to write a User over its row, call [`UserRepository::update`].
+    ///
+    /// The role decides who is an admin: `users.role` is written from
+    /// `user.role`, and the database derives `users.is_admin` from it
+    /// (20261114113701); no statement here names that column.
+    ///
+    /// The nil UUID is `invalid_input`: it stands for a deleted account
+    /// (`DELETED_ACCOUNT_OPERATOR`) and is no account's id.
     async fn create(&self, user: &User) -> AppResult<Uuid>;
     /// Write a whole `User` onto its existing row, matched by id.
     ///
@@ -54,7 +64,18 @@ pub trait UserRepository: Send + Sync {
     /// escape hatch for callers changing several fields at once (Firebase account
     /// linking, `pierre-cli user create --force`); single-field changes keep their
     /// dedicated setters below.
-    async fn update(&self, user: &User) -> AppResult<()>;
+    ///
+    /// The role decides who is an admin, as [`UserRepository::create`] writes
+    /// it. A write that would take the last active admin out of that standing
+    /// (no longer an admin, deactivated or not active) is `invalid_input`; the
+    /// check and the write are one transaction (see
+    /// [`UserRepository::is_last_active_admin`]).
+    ///
+    /// The same transaction keeps the two credential rules of the role: a row
+    /// left out of admin standing loses the device logins it approved and the
+    /// impersonations it opened, which are returned, and a row left with the
+    /// admin role is no longer impersonated by anyone.
+    async fn update(&self, user: &User) -> AppResult<WithdrawnAdminCredentials>;
     /// Get user by ID, scoped to a specific tenant for multi-tenant isolation
     async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>>;
     /// Get user by ID without tenant scoping (for system-level operations)
@@ -89,18 +110,49 @@ pub trait UserRepository: Send + Sync {
         status: &str,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<User>>;
-    /// Update user status and approval information
+    /// Update user status and approval information.
+    ///
+    /// Moving the last active admin out of `Active` is `invalid_input`: the
+    /// platform always keeps one admin who can sign in and decide. The check
+    /// and the write are one transaction.
+    ///
+    /// A move out of `Active` deactivates, in that transaction, the device
+    /// logins the account approved and the impersonations it opened: whoever
+    /// calls this, an account out of standing holds neither, and a later
+    /// approval does not bring them back.
     async fn update_status(
         &self,
         user_id: Uuid,
         new_status: UserStatus,
         approved_by: Option<Uuid>,
-    ) -> AppResult<User>;
-    /// Set admin status on a user, updating both `is_admin` flag and role column.
-    /// When granting admin, users keep `SuperAdmin` role if they already have it; otherwise set to `Admin`.
-    /// When revoking admin, role is reset to `User`. Super-admins cannot be demoted via this method.
-    async fn set_admin_status(&self, user_id: Uuid, is_admin: bool) -> AppResult<User>;
-    /// List all users with `is_admin = true`, ordered by email
+    ) -> AppResult<StandingWrite>;
+    /// Grant or revoke the admin role: granting writes the `Admin` role,
+    /// revoking resets it to `User`, and the database keeps `users.is_admin`
+    /// equal to it.
+    /// Revoking it from the last active admin is `invalid_input`; the check
+    /// and the write are one transaction.
+    ///
+    /// Revoking deactivates, in that transaction, the device logins the
+    /// account approved and the impersonations it opened. Granting ends
+    /// every impersonation open on the account: an admin is never
+    /// impersonated, including one who became an admin under an open session.
+    async fn set_admin_status(&self, user_id: Uuid, is_admin: bool) -> AppResult<StandingWrite>;
+    /// Whether `user` is the only admin in good standing
+    /// ([`User::is_active_admin`]): the one account that must not be demoted,
+    /// suspended or deleted, since nobody would be left to manage the platform.
+    /// `false` for anyone who is not an active admin.
+    ///
+    /// A read, so its answer can be stale by the time a caller acts on it:
+    /// it is for refusing early, before anything irreversible. The writes
+    /// that take an admin out of good standing ([`UserRepository::update`],
+    /// [`UserRepository::update_status`], [`UserRepository::set_admin_status`]
+    /// and the account deletion) decide again inside their own transaction,
+    /// under a lock that makes two of them wait for each other.
+    async fn is_last_active_admin(&self, user: &User) -> AppResult<bool> {
+        let admins = self.list_admins().await?;
+        Ok(is_last_active_admin_among(&admins, user.id))
+    }
+    /// Every user holding the admin role, ordered by email
     async fn list_admins(&self) -> AppResult<Vec<User>>;
     /// Update user's `tenant_id` to link them to a tenant (`tenant_id` should be UUID string)
     async fn update_tenant_id(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<()>;
@@ -248,8 +300,6 @@ macro_rules! user_columns {
             $prefix,
             "user_status, ",
             $prefix,
-            "is_admin, ",
-            $prefix,
             "role, ",
             $prefix,
             "approved_by, ",
@@ -280,188 +330,66 @@ macro_rules! user_columns {
         )
     };
 }
+pub(crate) use user_columns;
 
-/// Insert a new account. Tenant membership is not on this row; it lives in
-/// `tenant_users`.
-pub(crate) const CREATE_USER_SQL: &str = concat!(
-    "INSERT INTO users (",
-    user_columns!(""),
-    ") VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22)"
-);
-
-/// Write a whole account onto its row. `email` and `created_at` are not
-/// writable here: an email change would race the unique index, and a
-/// creation date is not a mutable fact.
-pub(crate) const UPDATE_USER_SQL: &str = r"
-            UPDATE users SET
-                display_name = $2,
-                password_hash = $3,
-                tier = $4,
-                is_active = $5,
-                user_status = $6,
-                is_admin = $7,
-                role = $8,
-                approved_by = $9,
-                approved_at = $10,
-                firebase_uid = $11,
-                auth_provider = $12,
-                analytics_consent = $13,
-                analytics_consent_at = $14,
-                locale = $15,
-                coaching_persona = $16,
-                manages_roster = $17,
-                timezone = $18,
-                theme = $19,
-                last_active = CURRENT_TIMESTAMP
-            WHERE id = $1
-            ";
-
-/// One user, only when they are a member of the tenant.
-pub(crate) const GET_USER_IN_TENANT_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!("u."),
-    " FROM users u
-            INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
-            WHERE u.id = $1"
-);
-
-/// One user by id, without tenant scoping: for system-level callers only.
-pub(crate) const GET_USER_BY_ID_SQL: &str =
-    concat!("SELECT ", user_columns!(""), " FROM users WHERE id = $1");
-
-/// One user by email, case aside: `lower(email)` is what `idx_users_email_lower` indexes.
-pub(crate) const GET_USER_BY_EMAIL_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!(""),
-    " FROM users WHERE lower(email) = lower($1)"
-);
-
-/// One user by the Firebase UID they signed in with.
-pub(crate) const GET_USER_BY_FIREBASE_UID_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!(""),
-    " FROM users WHERE firebase_uid = $1"
-);
-
-/// The oldest admin account, for system agent seeding.
-pub(crate) const FIRST_ADMIN_USER_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!(""),
-    " FROM users WHERE is_admin = true ORDER BY created_at ASC LIMIT 1"
-);
-
-/// Every admin account, by email.
-pub(crate) const LIST_ADMIN_USERS_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!(""),
-    " FROM users WHERE is_admin = true ORDER BY email ASC"
-);
-
-/// The batch read behind `get_global_many`: one placeholder per id, so the
-/// ids bind through the codec on both drivers rather than as an array on one.
-pub(crate) fn users_by_ids_sql(count: usize) -> String {
-    let placeholders = (1..=count)
-        .map(|i| format!("${i}"))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!(
-        "SELECT {} FROM users WHERE id IN ({placeholders})",
-        user_columns!("")
-    )
+/// Refuse to give an account the id that stands for none.
+///
+/// A deleted account's device logins are kept acting as
+/// [`DELETED_ACCOUNT_OPERATOR`], the nil UUID, and the admin gate refuses
+/// them because no account answers to that id. Every id assigned here is a
+/// random version-4 UUID, so none does; this makes it a rule of the two
+/// statements that insert a `users` row (the repository's create and the
+/// seeder's upsert) instead of a habit of their callers.
+pub(crate) fn refuse_the_id_of_no_account(id: Uuid) -> AppResult<()> {
+    if id == DELETED_ACCOUNT_OPERATOR {
+        return Err(AppError::invalid_input(
+            "The nil UUID stands for a deleted account and is no account's id",
+        ));
+    }
+    Ok(())
 }
 
-/// Stamp the moment the user was last seen.
-pub(crate) const UPDATE_LAST_ACTIVE_SQL: &str =
-    "UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE id = $1";
+/// The refusal of a write that would leave the platform without an active
+/// admin; `change` is what was asked of the last one.
+pub(crate) fn last_admin_refusal(change: &str) -> AppError {
+    AppError::invalid_input(format!("Cannot {change} the last active admin"))
+}
 
-/// How many accounts exist.
-pub(crate) const COUNT_USERS_SQL: &str = "SELECT COUNT(*) AS count FROM users";
+/// Whether taking `user_id` out of good standing would leave `accounts`
+/// without an active admin ([`User::is_active_admin`]): `user_id` is one, and
+/// no other account is. `accounts` holds every admin; whoever else it holds
+/// is ignored.
+pub(crate) fn is_last_active_admin_among(accounts: &[User], user_id: Uuid) -> bool {
+    let (target, others): (Vec<&User>, Vec<&User>) = accounts
+        .iter()
+        .filter(|account| account.is_active_admin())
+        .partition(|account| account.id == user_id);
+    !target.is_empty() && others.is_empty()
+}
 
-/// How many accounts were created at or after `$1`.
-pub(crate) const COUNT_USERS_CREATED_SINCE_SQL: &str =
-    "SELECT COUNT(*) AS count FROM users WHERE created_at >= $1";
-
-/// Every account in a status, newest first. A row whose status was never set
-/// counts as active.
-pub(crate) const USERS_BY_STATUS_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!(""),
-    " FROM users
-            WHERE COALESCE(user_status, 'active') = $1
-            ORDER BY created_at DESC"
-);
-
-/// Every account in a status that is a member of the tenant, newest first.
-pub(crate) const USERS_BY_STATUS_IN_TENANT_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!("u."),
-    " FROM users u
-            INNER JOIN tenant_users tu ON u.id = tu.user_id AND tu.tenant_id = $2
-            WHERE COALESCE(u.user_status, 'active') = $1
-            ORDER BY u.created_at DESC"
-);
-
-/// The first page of a status listing under keyset pagination. The status
-/// [`ALL_USER_STATUSES`] lists every account.
-pub(crate) const USERS_BY_STATUS_PAGE_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!(""),
-    " FROM users
-            WHERE ($1 = 'all' OR COALESCE(user_status, 'active') = $1)
-            ORDER BY created_at DESC, id DESC
-            LIMIT $2"
-);
-
-/// A later page: every row strictly after the `(created_at, id)` cursor in
-/// the listing's order, so an account created meanwhile neither repeats nor
-/// hides another. The id compares natively on both drivers: a uuid orders
-/// bytewise on Postgres, which is the order its hyphenated text has on `SQLite`.
-pub(crate) const USERS_BY_STATUS_AFTER_CURSOR_SQL: &str = concat!(
-    "SELECT ",
-    user_columns!(""),
-    " FROM users
-            WHERE ($1 = 'all' OR COALESCE(user_status, 'active') = $1)
-              AND (created_at < $2 OR (created_at = $2 AND id < $3))
-            ORDER BY created_at DESC, id DESC
-            LIMIT $4"
-);
-
-/// Approve, suspend or reset an account.
-pub(crate) const UPDATE_USER_STATUS_SQL: &str = r"
-            UPDATE users
-            SET user_status = $1, approved_by = $2, approved_at = $3
-            WHERE id = $4
-            ";
-
-/// Flip the admin flag and keep the role column in step with it.
-pub(crate) const SET_USER_ADMIN_STATUS_SQL: &str =
-    "UPDATE users SET is_admin = $1, role = $2 WHERE id = $3";
-
-/// Link the account to a tenant on its own row; membership follows in
-/// [`ADD_TENANT_MEMBER_SQL`].
-pub(crate) const SET_USER_TENANT_SQL: &str = "UPDATE users SET tenant_id = $1 WHERE id = $2";
-
-/// Add the account as a member of the tenant, once.
-pub(crate) const ADD_TENANT_MEMBER_SQL: &str = r"
-            INSERT INTO tenant_users (id, tenant_id, user_id, role, invited_at, joined_at)
-            VALUES ($1, $2, $3, 'member', $4, $4)
-            ON CONFLICT (tenant_id, user_id) DO NOTHING
-            ";
-
-/// Replace the password hash.
-pub(crate) const UPDATE_USER_PASSWORD_SQL: &str =
-    "UPDATE users SET password_hash = $1, last_active = CURRENT_TIMESTAMP WHERE id = $2";
-
-/// Replace the display name.
-pub(crate) const UPDATE_USER_DISPLAY_NAME_SQL: &str =
-    "UPDATE users SET display_name = $1, last_active = CURRENT_TIMESTAMP WHERE id = $2";
-
-/// Remove the account row; the rows whose foreign keys cascade go with it.
-pub(crate) const DELETE_USER_SQL: &str = "DELETE FROM users WHERE id = $1";
-
-/// Move the account to a billing tier.
-pub(crate) const SET_USER_TIER_SQL: &str =
-    "UPDATE users SET tier = $1, last_active = CURRENT_TIMESTAMP WHERE id = $2";
+/// Every admin row and `$1`'s own, in id order, under `$lock`: the lock a
+/// write takes before it removes `$1` from the admins in good standing.
+///
+/// `$lock` is `FOR NO KEY UPDATE` on `PostgreSQL`, so two such writes wait
+/// for each other instead of each counting the other's admin as still
+/// standing; the second one reads the rows as the first left them. It is the
+/// lock a plain `UPDATE` of a non-key column takes, so it does not hold up an
+/// insert that merely references one of these users, which `FOR UPDATE`
+/// would. The id order is what keeps two of them from deadlocking, and `$1`
+/// is locked even when it is not an admin so that it cannot become the last
+/// one between this read and the write. `""` on `SQLite`, whose transaction
+/// opens with `BEGIN IMMEDIATE` and so already holds the one write lock.
+macro_rules! admin_removal_lock_sql {
+    ($lock:literal) => {
+        concat!(
+            "SELECT ",
+            $crate::repositories::users::user_columns!(""),
+            " FROM users WHERE role = 'admin' OR id = $1 ORDER BY id ",
+            $lock
+        )
+    };
+}
+pub(crate) use admin_removal_lock_sql;
 
 /// The status strings a listing may ask for.
 ///
@@ -518,26 +446,12 @@ where
     let user_status: String = row
         .try_get("user_status")
         .map_err(|e| column("user_status", e))?;
-    let is_admin: bool = row.try_get("is_admin").map_err(|e| column("is_admin", e))?;
-    // The role column may predate the account (a seeder that omitted it left
-    // the DEFAULT 'user'); an admin flag on such a row means Admin.
-    let mut role = row
-        .try_get::<Option<String>, _>("role")
-        .ok()
-        .flatten()
-        .map_or_else(
-            || {
-                if is_admin {
-                    UserRole::Admin
-                } else {
-                    UserRole::User
-                }
-            },
-            |r| UserRole::from_str_lossy(&r),
-        );
-    if is_admin && role == UserRole::User {
-        role = UserRole::Admin;
-    }
+    // The role decides who is an admin. `users.is_admin` is neither read nor
+    // written here: the database derives that column from the role on every
+    // write (20261114113701), for the build a rollback would bring back. A
+    // string this build does not know reads as a plain user.
+    let role: String = row.try_get("role").map_err(|e| column("role", e))?;
+    let role = UserRole::from_str_lossy(&role);
 
     Ok(User {
         id,
@@ -556,7 +470,6 @@ where
             .try_get("is_active")
             .map_err(|e| column("is_active", e))?,
         user_status: str_to_user_status(&user_status),
-        is_admin,
         role,
         approved_by,
         approved_at: row
@@ -592,13 +505,17 @@ where
 /// [`uuid_columns`](super::uuid_columns) codec, and
 /// `$duplicate` is its `fn(&sqlx::Error) -> Option<AppError>`, which reads a
 /// violated unique index off the driver's error and names the column it was
-/// on. The body is written once here; each backend's shell invokes it with
-/// its own type, and sqlx resolves the driver from `self.pool()` per
-/// expansion. The single-column preference writes come from
-/// `preferences`, the backend's expansion of the shared
+/// on. `$begin` is the statement a write that can remove an admin opens its
+/// transaction with (`BEGIN IMMEDIATE` on `SQLite`, which takes the write
+/// lock before the admins are read; a plain `BEGIN` on `PostgreSQL`, where
+/// the row lock does that job), and `$lock` is that row lock (see
+/// `admin_removal_lock_sql!`). The body is written once here; each backend's
+/// shell invokes it with its own type, and sqlx resolves the driver from
+/// `self.pool()` per expansion. The single-column preference writes come
+/// from `preferences`, the backend's expansion of the shared
 /// [`user_preferences`](super::user_preferences) body.
 macro_rules! impl_user_repository {
-    ($ty:ty, $row:ty, $ids:ident, $duplicate:path) => {
+    ($ty:ty, $row:ty, $ids:ident, $duplicate:path, $begin:literal, $lock:literal) => {
         impl $ty {
             /// Decode a row through the backend's codec for its two uuid columns.
             fn user_row(row: &$row) -> AppResult<User> {
@@ -608,11 +525,56 @@ macro_rules! impl_user_repository {
                     $ids::read_opt(row, "approved_by")?,
                 )
             }
+
+            /// Refuse `change` when it would take `user_id`, the last admin
+            /// in good standing, out of that standing.
+            ///
+            /// `conn` is the transaction the write then runs in. The admin
+            /// rows and `user_id`'s own are locked here until it ends, so a
+            /// second such write waits and decides on what this one left
+            /// (see `admin_removal_lock_sql!`).
+            ///
+            /// # Errors
+            /// Returns `invalid_input` for the last active admin, and a
+            /// database error when the rows cannot be read.
+            pub(crate) async fn refuse_removing_the_last_active_admin(
+                conn: &mut <<$row as sqlx::Row>::Database as sqlx::Database>::Connection,
+                user_id: Uuid,
+                change: &str,
+            ) -> AppResult<()> {
+                let rows = sqlx::query(admin_removal_lock_sql!($lock))
+                    .bind($ids::bind(user_id))
+                    .fetch_all(conn)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to lock the admin accounts: {e}"))
+                    })?;
+                let accounts = rows
+                    .iter()
+                    .map(Self::user_row)
+                    .collect::<AppResult<Vec<User>>>()?;
+                if is_last_active_admin_among(&accounts, user_id) {
+                    return Err(last_admin_refusal(change));
+                }
+                Ok(())
+            }
+
+            /// Open the transaction a write that can remove an admin runs in.
+            async fn begin_admin_removal(
+                &self,
+            ) -> AppResult<sqlx::Transaction<'static, <$row as sqlx::Row>::Database>> {
+                self.pool()
+                    .begin_with($begin)
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to begin a user write: {e}")))
+            }
         }
 
         #[async_trait::async_trait]
         impl UserRepository for $ty {
             async fn create(&self, user: &User) -> AppResult<Uuid> {
+                $crate::repositories::users::refuse_the_id_of_no_account(user.id)?;
+                let role = user.role;
                 sqlx::query(CREATE_USER_SQL)
                     .bind($ids::bind(user.id))
                     .bind(normalize_email(&user.email))
@@ -621,8 +583,7 @@ macro_rules! impl_user_repository {
                     .bind(user.tier.as_str())
                     .bind(user.is_active)
                     .bind(user_status_to_str(&user.user_status))
-                    .bind(user.is_admin)
-                    .bind(user.role.as_str())
+                    .bind(role.as_str())
                     .bind($ids::bind_opt(user.approved_by))
                     .bind(user.approved_at)
                     .bind(user.created_at)
@@ -647,7 +608,17 @@ macro_rules! impl_user_repository {
                 Ok(user.id)
             }
 
-            async fn update(&self, user: &User) -> AppResult<()> {
+            async fn update(&self, user: &User) -> AppResult<WithdrawnAdminCredentials> {
+                let role = user.role;
+                let mut tx = self.begin_admin_removal().await?;
+                if !user.is_active_admin() {
+                    Self::refuse_removing_the_last_active_admin(
+                        &mut *tx,
+                        user.id,
+                        "demote or deactivate",
+                    )
+                    .await?;
+                }
                 let result = sqlx::query(UPDATE_USER_SQL)
                     .bind($ids::bind(user.id))
                     .bind(&user.display_name)
@@ -655,8 +626,7 @@ macro_rules! impl_user_repository {
                     .bind(user.tier.as_str())
                     .bind(user.is_active)
                     .bind(user_status_to_str(&user.user_status))
-                    .bind(user.is_admin)
-                    .bind(user.role.as_str())
+                    .bind(role.as_str())
                     .bind($ids::bind_opt(user.approved_by))
                     .bind(user.approved_at)
                     .bind(&user.firebase_uid)
@@ -668,12 +638,25 @@ macro_rules! impl_user_repository {
                     .bind(user.manages_roster)
                     .bind(&user.timezone)
                     .bind(&user.theme)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| AppError::database(format!("Failed to update user: {e}")))?;
 
-                (result.rows_affected() > 0)
-                    .ok_or_else(|| AppError::not_found(format!("User {}", user.id)))
+                if result.rows_affected() == 0 {
+                    return Err(AppError::not_found(format!("User {}", user.id)));
+                }
+                let withdrawn = if user.is_active_admin() {
+                    WithdrawnAdminCredentials::default()
+                } else {
+                    Self::withdraw_admin_credentials(&mut *tx, user.id).await?
+                };
+                if role.is_admin() {
+                    Self::end_impersonations_of(&mut *tx, user.id).await?;
+                }
+                tx.commit()
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to update user: {e}")))?;
+                Ok(withdrawn)
             }
 
             async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
@@ -864,11 +847,18 @@ macro_rules! impl_user_repository {
                 user_id: Uuid,
                 new_status: UserStatus,
                 approved_by: Option<Uuid>,
-            ) -> AppResult<User> {
+            ) -> AppResult<StandingWrite> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to update user status: {e}"))
+                };
+                let mut tx = self.begin_admin_removal().await?;
+                let activating = new_status == UserStatus::Active;
                 // The approver and the moment are recorded on activation only.
-                let (approved_by, approved_at) = if new_status == UserStatus::Active {
+                let (approved_by, approved_at) = if activating {
                     (approved_by, Some(Utc::now()))
                 } else {
+                    Self::refuse_removing_the_last_active_admin(&mut *tx, user_id, "suspend")
+                        .await?;
                     (None, None)
                 };
 
@@ -877,58 +867,66 @@ macro_rules! impl_user_repository {
                     .bind($ids::bind_opt(approved_by))
                     .bind(approved_at)
                     .bind($ids::bind(user_id))
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| {
-                        AppError::database(format!("Failed to update user status: {e}"))
-                    })?;
+                    .map_err(failed)?;
 
                 if result.rows_affected() == 0 {
                     return Err(AppError::not_found(format!("User with ID: {user_id}")));
                 }
+                let withdrawn = if activating {
+                    WithdrawnAdminCredentials::default()
+                } else {
+                    Self::withdraw_admin_credentials(&mut *tx, user_id).await?
+                };
+                tx.commit().await.map_err(failed)?;
 
-                self.get_global(user_id)
-                    .await?
-                    .ok_or_else(|| AppError::not_found("User after status update"))
-            }
-
-            async fn set_admin_status(&self, user_id: Uuid, is_admin: bool) -> AppResult<User> {
-                let current = self
+                let user = self
                     .get_global(user_id)
                     .await?
-                    .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))?;
+                    .ok_or_else(|| AppError::not_found("User after status update"))?;
+                Ok(StandingWrite { user, withdrawn })
+            }
 
-                // A super-admin is never demoted through this path.
-                if !is_admin && matches!(current.role, UserRole::SuperAdmin) {
-                    return Err(AppError::invalid_input(
-                        "Cannot demote super-admin via set_admin_status; use direct DB update",
-                    ));
-                }
-
+            async fn set_admin_status(
+                &self,
+                user_id: Uuid,
+                is_admin: bool,
+            ) -> AppResult<StandingWrite> {
+                let failed =
+                    |e: sqlx::Error| AppError::database(format!("Failed to set admin status: {e}"));
+                let mut tx = self.begin_admin_removal().await?;
                 let new_role = if is_admin {
-                    match current.role {
-                        UserRole::SuperAdmin => "super_admin",
-                        _ => "admin",
-                    }
+                    UserRole::Admin
                 } else {
-                    "user"
+                    Self::refuse_removing_the_last_active_admin(&mut *tx, user_id, "demote")
+                        .await?;
+                    UserRole::User
                 };
 
                 let result = sqlx::query(SET_USER_ADMIN_STATUS_SQL)
-                    .bind(is_admin)
-                    .bind(new_role)
+                    .bind(new_role.as_str())
                     .bind($ids::bind(user_id))
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
-                    .map_err(|e| AppError::database(format!("Failed to set admin status: {e}")))?;
+                    .map_err(failed)?;
 
                 if result.rows_affected() == 0 {
                     return Err(AppError::not_found(format!("User with ID: {user_id}")));
                 }
+                let withdrawn = if is_admin {
+                    Self::end_impersonations_of(&mut *tx, user_id).await?;
+                    WithdrawnAdminCredentials::default()
+                } else {
+                    Self::withdraw_admin_credentials(&mut *tx, user_id).await?
+                };
+                tx.commit().await.map_err(failed)?;
 
-                self.get_global(user_id)
+                let user = self
+                    .get_global(user_id)
                     .await?
-                    .ok_or_else(|| AppError::not_found("User after admin status update"))
+                    .ok_or_else(|| AppError::not_found("User after admin status update"))?;
+                Ok(StandingWrite { user, withdrawn })
             }
 
             async fn list_admins(&self) -> AppResult<Vec<User>> {

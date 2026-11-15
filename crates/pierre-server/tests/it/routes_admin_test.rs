@@ -1323,9 +1323,8 @@ async fn rotate_refuses_super_admin_escalation_and_keeps_the_target_active() -> 
         "a refused rotation must not hand back a token"
     );
 
-    // The load-bearing assertion: rotation deactivates before it mints, so a
-    // refusal placed after `deactivate_token` would leave the operator with no
-    // working super-admin credential at all.
+    // The load-bearing assertion: a refused rotation claims nothing, so the
+    // admin still holds a working super-admin credential.
     let still_there = setup
         .context
         .repos

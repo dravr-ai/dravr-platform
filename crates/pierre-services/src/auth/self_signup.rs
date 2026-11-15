@@ -129,7 +129,7 @@ impl AuthService {
     ///
     /// `first_proof` is what the repository's `mark_verified`
     /// returned: when this proof is the address's first and the account still
-    /// waits, the super-admins are emailed.
+    /// waits, the admins are emailed.
     ///
     /// Returns the status the user now holds.
     ///

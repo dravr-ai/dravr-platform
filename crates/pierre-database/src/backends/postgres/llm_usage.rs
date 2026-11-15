@@ -19,9 +19,8 @@ use crate::repositories::llm_usage::{
     aggregate_from_row, call_sequence_column, daily_from_row, impl_llm_usage_repository,
     llm_usage_column_error, llm_usage_daily_series_sql, llm_usage_token_sums, prompt_band_from_row,
     recorded_at, since_bound, INSERT_LLM_USAGE_SQL, LLM_CALLS_BETWEEN_SQL,
-    LLM_USAGE_AGGREGATES_BY_USER_IN_TENANT_SQL, LLM_USAGE_AGGREGATES_BY_USER_SQL,
-    LLM_USAGE_AGGREGATES_SQL, LLM_USAGE_BY_TURN_SQL, LLM_USAGE_PROMPT_BANDS_SQL,
-    RECENT_LLM_CALLS_SQL, TOOL_CALLS_SINCE_SQL,
+    LLM_USAGE_AGGREGATES_BY_USER_SQL, LLM_USAGE_AGGREGATES_SQL, LLM_USAGE_BY_TURN_SQL,
+    LLM_USAGE_PROMPT_BANDS_SQL, RECENT_LLM_CALLS_SQL, TOOL_CALLS_SINCE_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 use crate::repositories::{LlmUsagePromptBand, LlmUsageRepository, LlmUsageScope};

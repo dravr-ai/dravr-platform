@@ -7,14 +7,14 @@
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use uuid::Uuid;
 
-/// The impersonation a `JWT` was minted for: a super-admin acting as the
+/// The impersonation a `JWT` was minted for: an admin acting as the
 /// token's user, through a live impersonation session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImpersonationGrant {
     /// The impersonation session the token belongs to; ending it revokes the
     /// token
     pub session_id: String,
-    /// The super-admin acting as the user
+    /// The admin acting as the user
     pub impersonator_id: Uuid,
     /// When the token expires (`exp`, seconds since the epoch): a token
     /// re-minted from it never outlives it

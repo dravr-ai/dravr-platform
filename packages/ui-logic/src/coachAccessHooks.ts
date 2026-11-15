@@ -126,7 +126,7 @@ export function seatLineDay(iso: string, language: string): string {
  * Build the coach-access hooks over one client's APIs, session and words.
  *
  * - `useCoachAccessGrantRefresh`: coach access (`manages_roster`) rides the
- *   user the client keeps from sign-in, so without this a grant a super-admin
+ *   user the client keeps from sign-in, so without this a grant an admin
  *   gives while the coach is in the app would show only after signing out and
  *   in (carnet#1521). It reads the coach's request — on the client's focus, and
  *   once a minute while it waits — and the moment it reads `granted` for a

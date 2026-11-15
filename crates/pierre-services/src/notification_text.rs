@@ -184,7 +184,7 @@ impl<'a> NotificationTextRenderer<'a> {
         )
     }
 
-    /// The declined coach-access body: with the super-admin's reason when the
+    /// The declined coach-access body: with the admin's reason when the
     /// notice carries one, the plain decline otherwise — never a sentence
     /// with an empty slot where the reason would be.
     fn coach_access_declined_body(&self, params: &Map<String, Value>) -> String {

@@ -98,7 +98,7 @@ pub trait SeederRepository: Send + Sync {
 
     // ---- User lookup (shared across seeders) ----
 
-    /// Get the first admin user (`super_admin` or admin role)
+    /// Get the first admin user
     async fn seed_get_admin_user(&self) -> AppResult<Option<User>>;
 
     /// Get the `tenant_id` for a user
@@ -154,7 +154,8 @@ pub trait SeederRepository: Send + Sync {
     /// Check if a user exists by email, returning their ID if found
     async fn seed_check_user_exists(&self, email: &str) -> AppResult<Option<Uuid>>;
 
-    /// Insert a demo user row
+    /// Insert a demo user row. The nil UUID is `invalid_input`: it stands
+    /// for a deleted account and is no account's id.
     async fn seed_insert_demo_user(&self, user: &SeedDemoUser) -> AppResult<()>;
 
     /// Insert a tenant row
@@ -507,7 +508,7 @@ pub(crate) const UPSERT_ACTIVITY_MAPPING_SQL: &str = "INSERT INTO activity_muscl
 /// The email of the oldest admin account; the full row comes from
 /// `UserRepository::get_by_email`.
 pub(crate) const ADMIN_USER_EMAIL_SQL: &str =
-    "SELECT email FROM users WHERE is_admin = TRUE ORDER BY created_at ASC LIMIT 1";
+    "SELECT email FROM users WHERE role = 'admin' ORDER BY created_at ASC LIMIT 1";
 
 /// A user's tenant column, which is TEXT on both backends.
 pub(crate) const USER_TENANT_SQL: &str = "SELECT tenant_id FROM users WHERE id = $1";
@@ -548,17 +549,21 @@ pub(crate) const UPSERT_PROVIDER_CONNECTION_SQL: &str = "INSERT INTO provider_co
 /// compares it.
 pub(crate) const USER_ID_BY_EMAIL_SQL: &str = "SELECT id FROM users WHERE lower(email) = lower($1)";
 
-/// Insert or refresh a demo user. `$11` serves both `created_at` and
-/// `last_active`; on conflict the credentials, role and locale are asserted
-/// so a re-run restores the account to the seed's state.
+/// Insert or refresh a demo user. `$10` serves both `created_at` and
+/// `last_active`; on conflict the credentials, display name and locale are
+/// asserted so a re-run restores them.
+///
+/// The role is written on insert only. An existing account's role is
+/// changed through `UserRepository::set_admin_status`, which refuses to
+/// demote the last active admin and withdraws an admin's credentials in the
+/// same transaction; this statement did neither when it asserted the role on
+/// conflict. The bootstrap seeder brings the role to the seed's that way.
 pub(crate) const UPSERT_DEMO_USER_SQL: &str = "INSERT INTO users \
              (id, email, display_name, password_hash, tier, is_active, user_status, \
-              is_admin, role, approved_at, created_at, last_active, auth_provider, locale) \
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $11, 'email', $12) \
+              role, approved_at, created_at, last_active, auth_provider, locale) \
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $10, 'email', $11) \
              ON CONFLICT(email) DO UPDATE SET \
               password_hash = EXCLUDED.password_hash, \
-              role = EXCLUDED.role, \
-              is_admin = EXCLUDED.is_admin, \
               display_name = EXCLUDED.display_name, \
               locale = EXCLUDED.locale";
 

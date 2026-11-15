@@ -45,10 +45,16 @@ use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_database::repositories::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent,
 };
+use pierre_database::RepositoryRegistry;
 use pierre_middleware::{cookie_admin_token, extract_auth_from_headers, require_admin};
 use pierre_runtime_context::MiddlewareCtx;
+use pierre_services::admin_ops::{
+    record_withdrawn_admin_credentials, AdminStandingLost, StandingChange,
+    WithdrawnAdminCredentials,
+};
 use serde_json::{json, Map, Value};
 use tracing::{debug, error};
+use uuid::Uuid;
 
 use crate::auth::service::AdminAuthService;
 
@@ -281,8 +287,9 @@ fn build_event(
 /// it reaches past the tenant its caller acts in.
 ///
 /// The row names what was read in another tenant, so it belongs to no tenant's
-/// trail: a plain admin of the caller's own tenant must not read it. Only a super
-/// admin's view of the trail returns it.
+/// trail: a token scoped to the caller's own tenant must not read it. Only a
+/// view of the whole trail, an admin's session or a super-admin token,
+/// returns it.
 ///
 /// A failed write is logged and never fails the read, like every other row.
 pub(crate) async fn record_admin_read(
@@ -299,6 +306,25 @@ pub(crate) async fn record_admin_read(
     if let Err(e) = audit.record(&event).await {
         error!(error = %e, route, "failed to record an admin read in the audit trail");
     }
+}
+
+/// Record what taking an account out of admin standing withdrew: the device
+/// logins it approved and the impersonations it had open. The row names the
+/// credential that made the change, as the write's own row does.
+pub(crate) async fn record_withdrawn_credentials(
+    repos: &RepositoryRegistry,
+    token: &ValidatedAdminToken,
+    withdrawn: &WithdrawnAdminCredentials,
+    cause: AdminStandingLost,
+    account: Option<Uuid>,
+) {
+    let change = StandingChange {
+        cause,
+        account,
+        actor: token.operator_user_id,
+        source: source_of(token),
+    };
+    record_withdrawn_admin_credentials(repos, withdrawn, change).await;
 }
 
 /// The layer: record every admin write (see the module docs).

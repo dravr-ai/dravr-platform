@@ -1572,7 +1572,6 @@ async fn create_test_user(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
         tier: UserTier::Starter,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(Utc::now()),

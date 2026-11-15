@@ -126,20 +126,6 @@ export async function createAndLoginAsAdmin(page: Page): Promise<LoginResult> {
 }
 
 /**
- * Create a test super admin user and log in.
- */
-export async function createAndLoginAsSuperAdmin(page: Page): Promise<LoginResult> {
-  const user = testUsers.superAdmin;
-
-  const createResult = await createTestAdminUser(user);
-  if (!createResult.success) {
-    return { success: false, error: createResult.error };
-  }
-
-  return loginWithCredentials(page, user.email, user.password);
-}
-
-/**
  * Create a custom test user and log in.
  */
 export async function createAndLoginTestUser(

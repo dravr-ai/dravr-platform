@@ -76,7 +76,6 @@ async fn athlete(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
         password_hash,
         Some("Delegator".to_owned()),
     );
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -176,6 +175,7 @@ fn admin_config(resources: &Arc<ServerContext>) -> axum::Router {
         .expect("test resources initialise the admin config service");
     let admin_auth = AdminAuthService::new(
         Arc::clone(&resources.common.repos.admin),
+        Arc::clone(&resources.common.repos.users),
         Arc::clone(&resources.auth.jwks_manager),
     );
     let state = Arc::new(AdminConfigState::new(
@@ -346,7 +346,7 @@ async fn a_delegated_grant_from_an_operator_cannot_reach_admin_routes() {
     let operator = athlete(
         &resources,
         "delegation-operator@example.com",
-        UserRole::SuperAdmin,
+        UserRole::Admin,
     )
     .await;
     let token = delegated(&resources, &operator, &widest_delegation());

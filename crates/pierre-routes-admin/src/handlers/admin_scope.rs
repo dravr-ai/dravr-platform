@@ -1,4 +1,4 @@
-// ABOUTME: The console admin's side of the scope rule: resolves a read's tenants and lists the tenants a super admin can pick
+// ABOUTME: The console admin's side of the scope rule: resolves a read's tenants and lists the tenants an admin can pick
 // ABOUTME: Every screen scoped by carnet#1440 reads through here; the rule itself is pierre_core::admin::scope
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -6,11 +6,11 @@
 
 //! Which tenants a console read covers (carnet#1440).
 //!
-//! A plain admin stays on their own tenant, a super admin reads the platform
-//! or picks one tenant. These read routes check that rule instead of
-//! `ViewConfiguration`, which `console_admin` deliberately lacks: without
-//! this, a plain admin on one of these screens would be refused outright rather
-//! than shown their own tenant, while harness configuration stays out of reach.
+//! An admin's console session, like a super-admin token, reads the platform or
+//! picks one tenant; a token scoped to a tenant stays on it. These read routes
+//! check that rule instead of `ViewConfiguration`, so a scoped token that
+//! lacks it is shown its own tenant rather than refused outright, while
+//! harness configuration stays out of its reach.
 
 use std::cmp::Ordering;
 use std::sync::Arc;
@@ -27,40 +27,28 @@ use serde_json::Value;
 use tracing::warn;
 
 use pierre_core::admin::models::ValidatedAdminToken;
-use pierre_core::admin::scope::{AdminScope, ScopeCaller};
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::repositories::RecentReadKey;
-use pierre_database::RepositoryRegistry;
 
 use crate::audit::{record_admin_read, AuditDetail};
 use crate::context::AdminApiContext;
 
 /// Resolve the tenants a read covers for a console or CLI admin credential.
 ///
-/// A session's tenant comes from a signed claim that outlives a membership, so
-/// a plain admin's is checked against the membership table: a removed admin
-/// holding a token issued earlier reads nothing. A service token names no
-/// person and carries its binding in its own stored row.
+/// An admin's console session and the token of a device login both carry the
+/// super-admin flag, so neither is bound to a tenant: they read the platform,
+/// or the one tenant they name. A token without the flag carries its binding
+/// in its own stored row, the only thing that decides what it reads.
 ///
 /// # Errors
-/// What [`ScopeCaller::resolve`] refuses, plus a refusal when the operator no
-/// longer belongs to the tenant, and a database error on the membership read.
-pub(crate) async fn console_read_scope(
-    repos: &RepositoryRegistry,
+/// What [`ScopeCaller::resolve`](pierre_core::admin::scope::ScopeCaller::resolve)
+/// refuses, and `InvalidInput` when the token's own tenant is not a tenant id.
+pub(crate) fn console_read_scope(
     admin_token: &ValidatedAdminToken,
     requested: Option<&str>,
 ) -> AppResult<AdminScope> {
-    let caller = admin_token.scope_caller()?;
-    let scope = caller.resolve(requested)?;
-    if let (ScopeCaller::BoundTo(own), Some(operator)) = (caller, admin_token.operator_user_id) {
-        if repos.tenants.get_user_role(operator, own).await?.is_none() {
-            return Err(AppError::new(
-                ErrorCode::PermissionDenied,
-                "You no longer belong to the tenant this session acts in",
-            ));
-        }
-    }
-    Ok(scope)
+    admin_token.scope_caller()?.resolve(requested)
 }
 
 /// The line an audit row carries when `scope` reaches past the tenant the
@@ -134,7 +122,7 @@ pub(crate) async fn audit_cross_tenant_sentences(
     .await;
 }
 
-/// One tenant a super admin can pick.
+/// One tenant an admin can pick.
 #[derive(Debug, Serialize)]
 pub struct ScopeTenant {
     /// Tenant id, sent back as `tenant_id` on the scoped reads.
@@ -155,8 +143,8 @@ pub struct ScopeTenantsResponse {
 /// Handle `GET /api/admin/tenants`: what the shared scope control offers.
 ///
 /// # Errors
-/// `PermissionDenied` for anyone but a super admin, who has no other tenant to
-/// pick and must not learn the names of the others; a database error on the read.
+/// `PermissionDenied` for a scoped token, which has no other tenant to pick
+/// and must not learn the names of the others; a database error on the read.
 pub async fn handle_list_scope_tenants(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -164,7 +152,7 @@ pub async fn handle_list_scope_tenants(
     if !admin_token.is_super_admin {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
-            "Only a super admin can list every tenant",
+            "Only an admin can list every tenant",
         ));
     }
     let mut tenants: Vec<ScopeTenant> = context

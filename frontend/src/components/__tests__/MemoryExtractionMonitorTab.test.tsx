@@ -21,21 +21,8 @@ import type {
 vi.mock('../../services/api/admin', async () => ({
   adminApi: {
     getMemoryWorkerMetrics: vi.fn(),
+    listScopeTenants: vi.fn().mockResolvedValue([]),
   },
-}));
-
-vi.mock('../../hooks/useAuth', () => ({
-  useAuth: () => ({
-    user: {
-      id: 'user-1',
-      email: 'admin@example.com',
-      tenant_id: 'tenant-a',
-      is_admin: true,
-      role: 'admin',
-      tier: 'professional',
-      created_at: '2026-01-01T00:00:00Z',
-    },
-  }),
 }));
 
 const { adminApi } = await import('../../services/api/admin');
@@ -97,6 +84,7 @@ function renderTab() {
 describe('MemoryExtractionMonitorTab', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it('renders the healthy status from runs and the store figures beside them', async () => {
@@ -111,15 +99,16 @@ describe('MemoryExtractionMonitorTab', () => {
     expect(screen.getByText('Runs, last 24 hours').parentElement).toHaveTextContent('8');
   });
 
-  it('asks for no tenant as a plain admin and states the server-reported scope', async () => {
+  it('asks for every tenant as an admin and offers the tenant picker', async () => {
     vi.mocked(adminApi.getMemoryWorkerMetrics).mockResolvedValueOnce(sampleResponse());
     renderTab();
     await waitFor(() => {
       expect(screen.getByTestId('admin-scope-statement')).toHaveTextContent(
-        'Showing your tenant only.',
+        'Showing one tenant: tenant-a.',
       );
     });
-    expect(adminApi.getMemoryWorkerMetrics).toHaveBeenCalledWith(undefined);
+    expect(adminApi.getMemoryWorkerMetrics).toHaveBeenCalledWith('all');
+    expect(screen.getByLabelText('Tenant scope')).toBeInTheDocument();
   });
 
   it('reads a zero fact counter as healthy when the worker ran and found nothing', async () => {
@@ -154,6 +143,7 @@ describe('healthStatus', () => {
 describe('MemoryExtractionMonitorTab breakdown', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
   });
 
   it('renders the per-kind breakdown sorted descending by count', async () => {

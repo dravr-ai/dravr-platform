@@ -19,7 +19,13 @@
 //!
 //! Every call writes an `admin_token_usage` row naming the token and the
 //! provider before anything is deleted, so no purge runs unrecorded; a purge
-//! that then fails adds a failure row.
+//! that then fails adds a failure row. That row says which token purged, and
+//! outlives the admin behind it: deleting an admin's account keeps its
+//! device login's row, inactive and naming no one, with the request log
+//! under it (`pierre_database::repositories::user_references`). What the
+//! log says then is that a deleted account's device login ran the purge,
+//! never whose; the `provider_data_purges` row below says that the purge
+//! ran and when.
 //!
 //! Every purge of a provider's data, this one and each disconnect, ended
 //! coach link, revocation notice and cache expiry, also writes a

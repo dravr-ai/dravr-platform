@@ -1,5 +1,5 @@
 // ABOUTME: Device Authorization Grant (RFC 8628) end-to-end tests through the admin handlers
-// ABOUTME: authorization -> pending poll -> super-admin approve -> token poll mints an admin JWT; non-super-admin is 403
+// ABOUTME: authorization -> pending poll -> admin approve -> token poll mints an admin JWT; a token without the super-admin flag is 403
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -120,7 +120,7 @@ async fn device_flow_mints_admin_token_after_super_admin_approval() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     assert_eq!(body_json(resp).await["error"], "authorization_pending");
 
-    // 3. Super-admin approves.
+    // 3. Admin approves.
     let resp = handle_device_approve(
         State(context.clone()),
         Extension(super_admin_token()),
@@ -163,7 +163,7 @@ async fn non_super_admin_cannot_approve_device_login() {
     let device_code = body["device_code"].as_str().unwrap().to_owned();
     let user_code = body["user_code"].as_str().unwrap().to_owned();
 
-    // A non-super-admin approval attempt is forbidden.
+    // An approval attempt by a token without the super-admin flag is forbidden.
     let resp = handle_device_approve(
         State(context.clone()),
         Extension(non_super_admin_token()),
@@ -199,8 +199,7 @@ async fn the_minted_token_acts_as_the_approving_operator_and_names_no_email() {
         "hash".to_owned(),
         Some("Operator".to_owned()),
     );
-    operator.role = UserRole::SuperAdmin;
-    operator.is_admin = true;
+    operator.role = UserRole::Admin;
     operator.user_status = UserStatus::Active;
     context.repos.users.create(&operator).await.unwrap();
 

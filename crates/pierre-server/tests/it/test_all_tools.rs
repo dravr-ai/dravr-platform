@@ -271,7 +271,6 @@ async fn create_test_user(executor: &UniversalToolExecutor) -> Result<(User, Ten
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),
         is_active: true,
-        is_admin: false,
         role: UserRole::User,
         firebase_uid: None,
         auth_provider: String::new(),

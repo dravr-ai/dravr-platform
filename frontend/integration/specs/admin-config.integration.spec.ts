@@ -7,7 +7,6 @@
 import { test, expect } from '@playwright/test';
 import {
   createAndLoginAsAdmin,
-  createAndLoginAsSuperAdmin,
   navigateToTab,
   waitForDashboardLoad,
   getBackendUrl,
@@ -205,14 +204,14 @@ test.describe('Admin Configuration Integration Tests', () => {
   });
 });
 
-test.describe('Admin Configuration - Super Admin', () => {
+test.describe('Admin Configuration - Admin Access', () => {
   test.beforeEach(async ({ page }) => {
-    const loginResult = await createAndLoginAsSuperAdmin(page);
+    const loginResult = await createAndLoginAsAdmin(page);
     expect(loginResult.success).toBe(true);
     await waitForDashboardLoad(page);
   });
 
-  test('super admin can access configuration management', async ({ page }) => {
+  test('admin can access configuration management', async ({ page }) => {
     await navigateToTab(page, 'Tool Management');
     await page.waitForLoadState('networkidle', { timeout: timeouts.medium }).catch(() => {});
 
@@ -221,14 +220,14 @@ test.describe('Admin Configuration - Super Admin', () => {
     expect(hasConfigPage).toBe(true);
   });
 
-  test('super admin can view all configuration categories', async ({ page }) => {
+  test('admin can view all configuration categories', async ({ page }) => {
     const backendUrl = getBackendUrl();
     const response = await page.request.get(`${backendUrl}/api/admin/config/catalog`);
 
     expect(response.ok()).toBe(true);
 
     const data = await response.json();
-    // Super admin should see all categories
+    // An admin should see all categories
     expect(data.data.categories.length).toBeGreaterThan(0);
   });
 });

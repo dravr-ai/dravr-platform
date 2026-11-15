@@ -93,11 +93,11 @@ pub enum NotificationEvent {
     /// The digest of the pushes a persona floor withheld about one athlete,
     /// sent to the coach they concern — one per athlete.
     PersonaAthleteDigest,
-    /// A super-admin granted the coach-access request the recipient made: they
+    /// An admin granted the coach-access request the recipient made: they
     /// hold coach access now and coach every coachless group they own
     /// (carnet#1521). Sent to the requester.
     CoachAccessGranted,
-    /// A super-admin declined the coach-access request the recipient made,
+    /// An admin declined the coach-access request the recipient made,
     /// with the reason they gave when they gave one (`reason`). Sent to the
     /// requester, who may ask again.
     CoachAccessDeclined,
@@ -331,7 +331,7 @@ pub const ACTION_RECONNECT: &str = "reconnect";
 /// Action id: open the coach's Home, which a coach-access grant just opened.
 pub const ACTION_OPEN_COACH_HOME: &str = "open_coach_home";
 
-/// The parameter a declined coach-access notice carries the super-admin's
+/// The parameter a declined coach-access notice carries the admin's
 /// reason under, when one was given.
 pub const COACH_ACCESS_DECLINE_REASON_PARAM: &str = "reason";
 

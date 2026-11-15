@@ -32,7 +32,7 @@ crates/pierre-auth/src/auth/method.rs:An MCP token cannot be exchanged for a ses
 crates/pierre-auth/src/auth/method.rs:An impersonation token cannot be exchanged for a session
 crates/pierre-core/src/admin/models.rs:Permission required: {permission}
 crates/pierre-core/src/admin/models.rs:This setting applies to the whole platform; a token scoped to one tenant cannot read or change it
-crates/pierre-core/src/admin/scope.rs:Only a super admin can read across every tenant
+crates/pierre-core/src/admin/scope.rs:Only an admin can read across every tenant
 crates/pierre-core/src/admin/scope.rs:Token has no tenant scope — super-admin required for cross-tenant access
 crates/pierre-core/src/admin/scope.rs:Token is scoped to tenant {bound}, cannot access tenant {requested}
 crates/pierre-core/src/error_helpers.rs:User state error: {message}
@@ -52,15 +52,14 @@ crates/pierre-providers/src/delegation.rs:{brand} refused this calendar write: t
 crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach account's roster
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
-crates/pierre-routes-admin/src/handlers/admin_scope.rs:Only a super admin can list every tenant
-crates/pierre-routes-admin/src/handlers/admin_scope.rs:You no longer belong to the tenant this session acts in
-crates/pierre-routes-admin/src/handlers/audit_trail.rs:A tenant admin's credential names no tenant to read the audit trail of
+crates/pierre-routes-admin/src/handlers/admin_scope.rs:Only an admin can list every tenant
+crates/pierre-routes-admin/src/handlers/audit_trail.rs:A scoped token names no tenant to read the audit trail of
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
-crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another super admin
-crates/pierre-routes-admin/src/handlers/impersonation.rs:Super admin privileges required for impersonation
+crates/pierre-routes-admin/src/handlers/impersonation.rs:Admin privileges required for impersonation
+crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another admin
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for consumption analytics
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for tool-usage analytics
-crates/pierre-routes-admin/src/handlers/user_removal.rs:Removing or disconnecting an admin account requires a super-admin token
+crates/pierre-routes-admin/src/handlers/user_removal.rs:Acting on an admin account requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
 crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submit it to the Store
@@ -83,8 +82,6 @@ crates/pierre-routes-groups/src/groups.rs:Only a coach with coach access can cre
 crates/pierre-routes-groups/src/groups.rs:Only the owner can promote members to admin or owner
 crates/pierre-routes-groups/src/groups.rs:Owner cannot leave the group. Transfer ownership or delete the group instead.
 crates/pierre-routes-groups/src/groups.rs:Owner role required for this operation
-crates/pierre-routes-web-admin/src/lib.rs:Admin is not permitted to view this user's financial data
-crates/pierre-routes-web-admin/src/lib.rs:Super-admin privileges required to export platform-wide billing
 crates/pierre-server/src/routes/chat/athlete_plan.rs:Training plans are turned off in {athlete}'s workspace
 crates/pierre-server/src/routes/chat/common.rs:Cannot attach conversation to a group you don't belong to
 crates/pierre-server/src/routes/chat/conversations.rs:Only the conversation's owner can delete it
@@ -95,11 +92,9 @@ crates/pierre-server/src/routes/imports.rs:Imports are started and managed only 
 crates/pierre-server/src/routes/imports.rs:The import link names an account outside its tenant
 crates/pierre-server/src/routes/imports.rs:This origin may not upload
 crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or administrators can manage messaging channel configuration
-crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active super-admin
-crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active super-admin
+crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active admin
+crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active admin
 crates/pierre-server/src/services/archive_import/upload.rs:This origin may not upload
-crates/pierre-services/src/admin_ops.rs:Admin does not belong to the target tenant
-crates/pierre-services/src/admin_ops.rs:Super-admin privileges required to create super-admin tokens
 crates/pierre-services/src/auth.rs:User state error: User already exists
 crates/pierre-services/src/coach_access.rs:Only the group's owner can ask to coach it
 crates/pierre-services/src/coach_consents.rs:Grant what your human coach may do in the Dravr app; from here it can only be revoked

@@ -3914,7 +3914,6 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bcrypt",
- "bitflags 2.13.2",
  "chrono",
  "chrono-tz",
  "dravr-cageux",

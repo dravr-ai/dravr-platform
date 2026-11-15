@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coach-access request types — a coach asks for coach access, a super-admin grants or declines
+// ABOUTME: Coach-access request types — a coach asks for coach access, an admin grants or declines
 // ABOUTME: Wire shape of GET/POST /api/me/coach-access-request and the admin console queue (carnet#738)
 
 /** Where a coach-access request stands. */
@@ -9,7 +9,7 @@ export type CoachAccessStatus = 'pending' | 'granted' | 'declined';
 
 /**
  * A coach's request for coach access (`manages_roster`). The request grants
- * nothing by itself (ADR-018): a super-admin decides. A grant also attaches
+ * nothing by itself (ADR-018): an admin decides. A grant also attaches
  * the coach to the group named here when it still has no coach.
  */
 export interface CoachAccessRequest {
@@ -23,7 +23,7 @@ export interface CoachAccessRequest {
   decided_at: string | null;
   decided_by: string | null;
   /**
-   * The reason the super-admin gave with a decline, in their own words;
+   * The reason the admin gave with a decline, in their own words;
    * `null` for a decline given without one and for every other status.
    * Absent from a server that predates it.
    */

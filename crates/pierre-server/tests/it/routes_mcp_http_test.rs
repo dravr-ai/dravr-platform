@@ -25,6 +25,7 @@ use pierre_config::environment::{
 };
 use pierre_config::mcp::McpConfig;
 use pierre_core::models::{CreateUserMcpTokenRequest, Tenant, TenantId, User, UserStatus};
+use pierre_core::permissions::UserRole;
 use pierre_mcp_server::{
     mcp::resources::{ServerContext, ServerContextOptions},
     routes::{mcp::McpRoutes, user_mcp_tokens::UserMcpTokenRoutes},
@@ -860,7 +861,7 @@ async fn test_tools_list_accepts_every_issued_api_key_format() {
 #[tokio::test]
 async fn test_tools_list_global_admin_holds_the_public_profile() {
     // `/mcp` is an external transport whoever calls it: a genuine global admin
-    // (`User.is_admin`), which the default tenant-owner test user is not, is
+    // (`User.role`), which the default tenant-owner test user is not, is
     // offered no operator tool here.
     let (resources, jwt) = setup_with_admin_flag("tools_list_global_admin@example.com", true)
         .await
@@ -953,17 +954,17 @@ async fn test_tools_list_params_token_in_body_is_not_an_auth_path() {
 }
 
 // ============================================================================
-// ADMIN_ONLY gate — global User.is_admin, NOT tenant Owner/Admin role
+// ADMIN_ONLY gate — the global admin role (User.role), NOT tenant Owner/Admin role
 // ============================================================================
 
 /// Build a `ServerContext` and create a tenant-owning user with an explicit
-/// global-admin flag, returning the user's API key for the wire.
+/// global role, returning the user's API key for the wire.
 ///
-/// `global_admin` controls only `User.is_admin`; the user is always created as
+/// `global_admin` controls only `User.role`; the user is always created as
 /// the **owner** of its own tenant. This separates the two privilege axes the
 /// `ADMIN_ONLY` gate must distinguish: a tenant owner (`TenantContext::is_admin`)
 /// is admin *of their tenant*, which must not grant system-wide admin powers —
-/// only the global `User.is_admin` flag does.
+/// only the global admin role (`User.role`) does.
 async fn setup_with_admin_flag(
     email: &str,
     global_admin: bool,
@@ -1031,7 +1032,11 @@ async fn setup_with_admin_flag(
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
     user.approved_at = Some(chrono::Utc::now());
-    user.is_admin = global_admin;
+    user.role = if global_admin {
+        UserRole::Admin
+    } else {
+        UserRole::User
+    };
     let user_id = user.id;
 
     let repos = database.repositories();
@@ -1092,7 +1097,7 @@ async fn call_admin_only_tool(
 
 /// Regression guard for the `/mcp` wire privilege-escalation: a tenant OWNER who
 /// is NOT a global admin must be DENIED an `ADMIN_ONLY` tool. The auth hook
-/// resolves the gate flag from the global `User.is_admin`, not the per-tenant
+/// resolves the gate flag from the global `User.role`, not the per-tenant
 /// `TenantContext::is_admin` (which is true for any Owner/Admin role).
 #[tokio::test]
 async fn test_tenant_owner_without_global_admin_is_denied_admin_tool() {
@@ -1116,8 +1121,8 @@ async fn test_tenant_owner_without_global_admin_is_denied_admin_tool() {
     );
 }
 
-/// Companion to the escalation guard: a user with the global `User.is_admin`
-/// flag set IS allowed past the `ADMIN_ONLY` gate (reaches the tool body), so
+/// Companion to the escalation guard: a user with the global admin role
+/// IS allowed past the `ADMIN_ONLY` gate (reaches the tool body), so
 /// the fix denies tenant owners without over-denying genuine system admins.
 #[tokio::test]
 async fn test_global_admin_user_is_allowed_admin_tool() {

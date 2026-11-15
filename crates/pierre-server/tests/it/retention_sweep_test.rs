@@ -558,7 +558,7 @@ async fn the_override_pierre_cli_writes_through_the_admin_route_expires_strava()
     let world = World::new().await;
     let old_strava = world.read_run("strava", 40).await;
     let young_strava = world.read_run("strava", 1).await;
-    let operator = user_with_role(&world.resources, UserRole::SuperAdmin).await;
+    let operator = user_with_role(&world.resources, UserRole::Admin).await;
     let token = admin_token(
         &world.resources,
         &format!("{DEVICE_CLI_SERVICE_PREFIX}{}", operator.id),

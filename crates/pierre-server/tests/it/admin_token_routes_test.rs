@@ -1,5 +1,5 @@
 // ABOUTME: The one admin-token handler set over both mounts — console session and admin token
-// ABOUTME: Pins super-admin gating, rotation, include_inactive, revoke's 404, and grant limits
+// ABOUTME: Pins admin gating, rotation, include_inactive, revoke's 404, and grant limits
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -26,7 +26,9 @@ use secrecy::ExposeSecret;
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
-use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest, GeneratedAdminToken};
+use pierre_core::admin::models::{
+    AdminPermission, AdminPermissions, CreateAdminTokenRequest, GeneratedAdminToken,
+};
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
@@ -77,7 +79,6 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
         password_hash,
         Some("Token Test".to_owned()),
     );
-    user.is_admin = role.is_admin_or_higher();
     user.role = role;
     user.user_status = UserStatus::Active;
     user.approved_by = Some(user.id);
@@ -167,7 +168,7 @@ fn listed_ids(body: &Value) -> Vec<String> {
 }
 
 // ===========================================================================
-// Console session: a plain Admin keeps non-super token management
+// Console session: an admin manages every token; a user and a scoped token do not
 // ===========================================================================
 
 #[tokio::test]
@@ -185,12 +186,22 @@ async fn unauthenticated_console_requests_are_rejected() -> Result<()> {
     Ok(())
 }
 
+/// An admin's console session lists every token, admin ones included.
+/// A `ManageAdminTokens` token without the super-admin flag still sees only
+/// the tokens below it, and an account that is not an admin sees none.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_lists_only_non_super_tokens() -> Result<()> {
+async fn an_admin_lists_every_token_and_a_scoped_token_only_non_super_ones() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let admin = session(&resources, "plain-list@example.com", UserRole::Admin).await?;
-    let superadmin = session(&resources, "super-list@example.com", UserRole::SuperAdmin).await?;
+    let admin = session(&resources, "admin-list@example.com", UserRole::Admin).await?;
+    let athlete = session(&resources, "athlete-list@example.com", UserRole::User).await?;
+    let delegate = mint(
+        &resources,
+        "delegate-list",
+        vec![AdminPermission::ManageAdminTokens],
+        false,
+    )
+    .await?;
     let service = mint(
         &resources,
         "svc-plain",
@@ -206,19 +217,19 @@ async fn a_plain_admin_lists_only_non_super_tokens() -> Result<()> {
     )
     .await?;
 
-    let body: Value = AxumTestRequest::get("/api/admin/tokens")
-        .header("authorization", &admin)
-        .send(console(&resources))
+    let body: Value = AxumTestRequest::get("/admin/tokens")
+        .header("authorization", &bearer(&delegate))
+        .send(token_api(&resources))
         .await
         .json();
     let ids = listed_ids(&body);
     assert!(
         ids.contains(&service.token_id),
-        "a plain admin sees service tokens"
+        "a token without the flag sees service tokens"
     );
     assert!(
         !ids.contains(&operator.token_id),
-        "a super-admin token is not shown to a plain admin"
+        "a super-admin token is not shown to a token without the flag"
     );
     let entry = &body["data"]["tokens"][0];
     assert!(
@@ -226,32 +237,78 @@ async fn a_plain_admin_lists_only_non_super_tokens() -> Result<()> {
         "the console dereferences a flat permissions array and usage_count: {entry}"
     );
 
+    let response = AxumTestRequest::get("/api/admin/tokens")
+        .header("authorization", &athlete)
+        .send(console(&resources))
+        .await;
+    assert_eq!(response.status(), 403, "a user lists no admin token");
+
     let body: Value = AxumTestRequest::get("/api/admin/tokens")
-        .header("authorization", &superadmin)
+        .header("authorization", &admin)
         .send(console(&resources))
         .await
         .json();
     let ids = listed_ids(&body);
-    assert!(ids.contains(&service.token_id) && ids.contains(&operator.token_id));
+    assert!(
+        ids.contains(&service.token_id) && ids.contains(&operator.token_id),
+        "an admin sees every token"
+    );
     Ok(())
 }
 
+/// An admin mints any token from the console: a service token, an admin
+/// one, one carrying any permission. A `ManageAdminTokens` token without the
+/// flag mints neither of the last two, and a user mints nothing.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_mints_a_service_token_but_not_a_super_one() -> Result<()> {
+async fn an_admin_mints_any_token_and_a_scoped_token_never_a_super_one() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let admin = session(&resources, "plain-mint@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "admin-mint@example.com", UserRole::Admin).await?;
+    let athlete = session(&resources, "athlete-mint@example.com", UserRole::User).await?;
+    let delegate = mint(
+        &resources,
+        "delegate-mint",
+        vec![AdminPermission::ManageAdminTokens],
+        false,
+    )
+    .await?;
+
+    let response = AxumTestRequest::post("/api/admin/tokens")
+        .header("authorization", &athlete)
+        .json(&json!({ "service_name": "athlete-grab", "permissions": ["list_keys"] }))
+        .send(console(&resources))
+        .await;
+    assert_eq!(response.status(), 403, "a user mints no admin token");
+
+    let response = AxumTestRequest::post("/admin/tokens")
+        .header("authorization", &bearer(&delegate))
+        .json(&json!({ "service_name": "escalation", "is_super_admin": true }))
+        .send(token_api(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "a super-admin token is not minted by a token without the flag"
+    );
+    let response = AxumTestRequest::post("/admin/tokens")
+        .header("authorization", &bearer(&delegate))
+        .json(&json!({ "service_name": "config-grab", "permissions": ["manage_configuration"] }))
+        .send(token_api(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        403,
+        "a token without the flag cannot grant a permission it does not hold"
+    );
+    let all = resources.common.repos.admin.list_tokens(true).await?;
+    assert_eq!(all.len(), 1, "the refused requests wrote nothing");
 
     let response = AxumTestRequest::post("/api/admin/tokens")
         .header("authorization", &admin)
         .json(&json!({ "service_name": "reporting", "permissions": ["list_keys"] }))
         .send(console(&resources))
         .await;
-    assert_eq!(
-        response.status(),
-        201,
-        "a plain admin mints a service token"
-    );
+    assert_eq!(response.status(), 201, "an admin mints a service token");
     let body: Value = response.json();
     let token_id = body["data"]["token_id"]
         .as_str()
@@ -264,35 +321,36 @@ async fn a_plain_admin_mints_a_service_token_but_not_a_super_one() -> Result<()>
 
     let response = AxumTestRequest::post("/api/admin/tokens")
         .header("authorization", &admin)
-        .json(&json!({ "service_name": "escalation", "is_super_admin": true }))
+        .json(&json!({ "service_name": "full-access", "is_super_admin": true }))
         .send(console(&resources))
         .await;
-    assert_eq!(
-        response.status(),
-        403,
-        "super-admin tokens are super-admin only"
-    );
-
+    assert_eq!(response.status(), 201, "an admin mints a super-admin token");
     let response = AxumTestRequest::post("/api/admin/tokens")
         .header("authorization", &admin)
-        .json(&json!({ "service_name": "config-grab", "permissions": ["manage_configuration"] }))
+        .json(&json!({ "service_name": "config", "permissions": ["manage_configuration"] }))
         .send(console(&resources))
         .await;
-    assert_eq!(
-        response.status(),
-        403,
-        "a plain admin cannot grant a permission it does not hold"
-    );
+    assert_eq!(response.status(), 201, "an admin grants any permission");
     let all = resources.common.repos.admin.list_tokens(true).await?;
-    assert_eq!(all.len(), 1, "only the permitted token was written");
+    assert_eq!(all.len(), 4, "the delegate and the admin's three tokens");
     Ok(())
 }
 
+/// A super-admin token is revoked or rotated by an admin, and by no user and
+/// no token without the flag: after their refusals it is still active.
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_cannot_revoke_or_rotate_a_super_token_and_it_stays_active() -> Result<()> {
+async fn a_super_token_stays_active_until_an_admin_revokes_it() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let admin = session(&resources, "plain-revoke@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "admin-revoke@example.com", UserRole::Admin).await?;
+    let athlete = session(&resources, "athlete-revoke@example.com", UserRole::User).await?;
+    let delegate = mint(
+        &resources,
+        "delegate-revoke",
+        vec![AdminPermission::ManageAdminTokens],
+        false,
+    )
+    .await?;
     let operator = mint(
         &resources,
         "svc-operator",
@@ -301,31 +359,129 @@ async fn a_plain_admin_cannot_revoke_or_rotate_a_super_token_and_it_stays_active
     )
     .await?;
 
+    for action in ["revoke", "rotate"] {
+        let response =
+            AxumTestRequest::post(&format!("/api/admin/tokens/{}/{action}", operator.token_id))
+                .header("authorization", &athlete)
+                .json(&json!({}))
+                .send(console(&resources))
+                .await;
+        assert_eq!(response.status(), 403, "a user must not {action} a token");
+        let response =
+            AxumTestRequest::post(&format!("/admin/tokens/{}/{action}", operator.token_id))
+                .header("authorization", &bearer(&delegate))
+                .json(&json!({}))
+                .send(token_api(&resources))
+                .await;
+        assert_eq!(
+            response.status(),
+            403,
+            "a token without the flag must not {action} a super-admin token"
+        );
+    }
+
+    // A guard that ran after the deactivation would still 403 while having
+    // destroyed the operator's credential; the row is what matters.
+    assert!(is_active(&resources, &operator.token_id).await?);
+
     let response =
         AxumTestRequest::post(&format!("/api/admin/tokens/{}/revoke", operator.token_id))
             .header("authorization", &admin)
             .send(console(&resources))
             .await;
-    assert_eq!(response.status(), 403);
-    let response =
-        AxumTestRequest::post(&format!("/api/admin/tokens/{}/rotate", operator.token_id))
-            .header("authorization", &admin)
-            .json(&json!({}))
-            .send(console(&resources))
-            .await;
-    assert_eq!(response.status(), 403);
+    assert_eq!(
+        response.status(),
+        200,
+        "an admin revokes a super-admin token"
+    );
+    assert!(!is_active(&resources, &operator.token_id).await?);
+    Ok(())
+}
 
-    // A guard that ran after the deactivation would still 403 while having
-    // destroyed the operator's credential; the row is what matters.
-    assert!(is_active(&resources, &operator.token_id).await?);
+/// A rotation hands its caller a live token carrying the old one's
+/// permissions, so a token without the super-admin flag rotates only a token
+/// whose every permission it holds itself: the rule minting one takes, in
+/// the same words. Refused, the token it named is still the live credential
+/// and nothing was minted; a token within what the caller holds rotates.
+#[tokio::test]
+#[serial]
+async fn a_scoped_token_rotates_only_a_token_whose_permissions_it_holds() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let delegate = mint(
+        &resources,
+        "delegate-rotate",
+        vec![
+            AdminPermission::ManageAdminTokens,
+            AdminPermission::ListKeys,
+        ],
+        false,
+    )
+    .await?;
+    let wider = mint(
+        &resources,
+        "svc-user-manager",
+        vec![AdminPermission::ListKeys, AdminPermission::ManageUsers],
+        false,
+    )
+    .await?;
+    let within = mint(
+        &resources,
+        "svc-key-lister",
+        vec![AdminPermission::ListKeys],
+        false,
+    )
+    .await?;
+    let before = resources.common.repos.admin.list_tokens(true).await?.len();
+
+    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", wider.token_id))
+        .header("authorization", &bearer(&delegate))
+        .json(&json!({}))
+        .send(token_api(&resources))
+        .await;
+    let status = response.status();
+    let body = response.text();
+    assert_eq!(
+        status, 403,
+        "a rotation must not hand out a permission the caller lacks: {body}"
+    );
+    assert!(
+        body.contains("Cannot grant manage_users: the caller does not hold it"),
+        "the refusal is the one minting gives: {body}"
+    );
+    assert!(!body.contains("jwt_token"), "no credential is handed out");
+    assert!(
+        is_active(&resources, &wider.token_id).await?,
+        "a refused rotation leaves the credential it named live"
+    );
+    assert_eq!(
+        resources.common.repos.admin.list_tokens(true).await?.len(),
+        before,
+        "nothing was minted"
+    );
+
+    // The positive control: the same caller, a token within what it holds.
+    let response = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", within.token_id))
+        .header("authorization", &bearer(&delegate))
+        .json(&json!({}))
+        .send(token_api(&resources))
+        .await;
+    assert_eq!(
+        response.status(),
+        200,
+        "a token it could have minted rotates"
+    );
+    let body: Value = response.json();
+    let new_id = body["data"]["token_id"].as_str().expect("new token id");
+    assert!(!is_active(&resources, &within.token_id).await?);
+    assert!(is_active(&resources, new_id).await?);
     Ok(())
 }
 
 #[tokio::test]
 #[serial]
-async fn a_plain_admin_rotates_a_service_token_and_the_old_one_retires() -> Result<()> {
+async fn an_admin_rotates_a_service_token_and_the_old_one_retires() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let admin = session(&resources, "plain-rotate@example.com", UserRole::Admin).await?;
+    let admin = session(&resources, "admin-rotate@example.com", UserRole::Admin).await?;
     let seeded = mint(
         &resources,
         "svc-rotate",
@@ -355,6 +511,56 @@ async fn a_plain_admin_rotates_a_service_token_and_the_old_one_retires() -> Resu
     Ok(())
 }
 
+/// A revoked token has no replacement. Rotation used to mint one from any
+/// row it found, so a credential someone revoked, or one withdrawn with its
+/// admin's standing, came back live at its old scope; now it answers 400 on
+/// both mounts and the table is as it was.
+#[tokio::test]
+#[serial]
+async fn a_revoked_token_is_not_rotated_back_to_life() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let admin = session(&resources, "admin-revoked@example.com", UserRole::Admin).await?;
+    let cli = mint(&resources, "cli-operator", vec![], true).await?;
+    let revoked = mint(&resources, "svc-revoked", vec![], true).await?;
+    resources
+        .common
+        .repos
+        .admin
+        .deactivate_token(&revoked.token_id)
+        .await?;
+    let before = resources.common.repos.admin.list_tokens(true).await?.len();
+
+    let on_the_console =
+        AxumTestRequest::post(&format!("/api/admin/tokens/{}/rotate", revoked.token_id))
+            .header("authorization", &admin)
+            .json(&json!({}))
+            .send(console(&resources))
+            .await;
+    let on_the_token_api =
+        AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", revoked.token_id))
+            .header("authorization", &bearer(&cli))
+            .json(&json!({}))
+            .send(token_api(&resources))
+            .await;
+    for response in [on_the_console, on_the_token_api] {
+        let status = response.status();
+        let body = response.text();
+        assert_eq!(status, 400, "a revoked token must not rotate: {body}");
+        assert!(body.contains("cannot be rotated"), "{body}");
+        assert!(!body.contains("jwt_token"), "no credential is handed out");
+    }
+
+    let after = resources.common.repos.admin.list_tokens(true).await?;
+    assert_eq!(after.len(), before, "no replacement was minted");
+    assert!(
+        after
+            .iter()
+            .all(|token| token.service_name != "svc-revoked" || !token.is_active),
+        "nothing named like the revoked token is live"
+    );
+    Ok(())
+}
+
 // ===========================================================================
 // The divergences settled for both mounts
 // ===========================================================================
@@ -364,12 +570,7 @@ async fn a_plain_admin_rotates_a_service_token_and_the_old_one_retires() -> Resu
 #[serial]
 async fn include_inactive_lists_revoked_tokens_on_both_mounts() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let superadmin = session(
-        &resources,
-        "super-inactive@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let admin = session(&resources, "super-inactive@example.com", UserRole::Admin).await?;
     let cli = mint(&resources, "cli-operator", vec![], true).await?;
     let live = mint(
         &resources,
@@ -396,7 +597,7 @@ async fn include_inactive_lists_revoked_tokens_on_both_mounts() -> Result<()> {
         (
             "console",
             console(&resources),
-            superadmin.clone(),
+            admin.clone(),
             "/api/admin/tokens",
         ),
         (
@@ -440,17 +641,12 @@ async fn include_inactive_lists_revoked_tokens_on_both_mounts() -> Result<()> {
 #[serial]
 async fn revoking_an_unknown_token_is_404_on_both_mounts() -> Result<()> {
     let resources = create_test_server_resources().await?;
-    let superadmin = session(
-        &resources,
-        "super-missing@example.com",
-        UserRole::SuperAdmin,
-    )
-    .await?;
+    let admin = session(&resources, "super-missing@example.com", UserRole::Admin).await?;
     let cli = mint(&resources, "cli-missing", vec![], true).await?;
     let missing = "admin_00000000000000000000000000000000";
 
     let response = AxumTestRequest::post(&format!("/api/admin/tokens/{missing}/revoke"))
-        .header("authorization", &superadmin)
+        .header("authorization", &admin)
         .send(console(&resources))
         .await;
     assert_eq!(response.status(), 404, "console");
@@ -527,6 +723,112 @@ async fn a_non_super_token_cannot_grant_what_it_does_not_hold() -> Result<()> {
     Ok(())
 }
 
+/// A request that names no permission is granted the default set, and that
+/// set is held to the rule a named one is: a caller holding only
+/// `ManageAdminTokens` asked for none of the defaults and holds none, so it
+/// is refused in the sentence minting a named permission is refused with,
+/// and nothing is minted. Every default is held to it, not the first: a
+/// caller holding all of them but the last in name order is refused for
+/// that one. A caller that holds the defaults mints them, and a caller with
+/// the super-admin flag mints them whatever it holds.
+#[tokio::test]
+#[serial]
+async fn a_token_minted_with_no_list_carries_only_what_its_caller_holds() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let delegate = mint(
+        &resources,
+        "delegate-default",
+        vec![AdminPermission::ManageAdminTokens],
+        false,
+    )
+    .await?;
+    let mut held = AdminPermissions::default_admin().to_vec();
+    held.push(AdminPermission::ManageAdminTokens);
+    let key_manager = mint(&resources, "key-manager", held, false).await?;
+    let all_but_the_last = mint(
+        &resources,
+        "all-but-the-last",
+        vec![
+            AdminPermission::ManageAdminTokens,
+            AdminPermission::ListKeys,
+            AdminPermission::ProvisionKeys,
+            AdminPermission::RevokeKeys,
+        ],
+        false,
+    )
+    .await?;
+    let flagged = mint(&resources, "flagged", vec![], true).await?;
+    let before = resources.common.repos.admin.list_tokens(true).await?.len();
+
+    // The refusal names the first default, in name order, the caller does
+    // not hold, in the sentence a named one gets: the first of the four for
+    // a caller holding none, the last for a caller holding the other three.
+    for (caller, name, refused) in [
+        (
+            &delegate,
+            "default-grab",
+            "Cannot grant list_keys: the caller does not hold it",
+        ),
+        (
+            &all_but_the_last,
+            "default-most",
+            "Cannot grant update_key_limits: the caller does not hold it",
+        ),
+    ] {
+        let response = AxumTestRequest::post("/admin/tokens")
+            .header("authorization", &bearer(caller))
+            .json(&json!({ "service_name": name }))
+            .send(token_api(&resources))
+            .await;
+        assert_eq!(response.status(), 403, "{name}");
+        let body: Value = response.json();
+        assert_eq!(body["message"].as_str(), Some(refused), "{name}");
+        assert!(
+            body["data"].is_null(),
+            "{name}: no credential is handed out: {body}"
+        );
+        assert_eq!(
+            resources.common.repos.admin.list_tokens(true).await?.len(),
+            before,
+            "{name}: nothing was minted"
+        );
+    }
+
+    // The positive controls: the same request from a caller that holds the
+    // defaults, and from one with the flag.
+    for (caller, name) in [
+        (&key_manager, "default-held"),
+        (&flagged, "default-flagged"),
+    ] {
+        let response = AxumTestRequest::post("/admin/tokens")
+            .header("authorization", &bearer(caller))
+            .json(&json!({ "service_name": name }))
+            .send(token_api(&resources))
+            .await;
+        assert_eq!(response.status(), 201, "{name}");
+        let body: Value = response.json();
+        let token_id = body["data"]["token_id"].as_str().expect("token id");
+        let minted = resources
+            .common
+            .repos
+            .admin
+            .get_token_by_id(token_id)
+            .await?
+            .expect("the minted row");
+        assert_eq!(
+            minted.permissions,
+            AdminPermissions::default_admin(),
+            "{name}: the default set"
+        );
+        assert!(!minted.is_super_admin, "{name}");
+    }
+    assert_eq!(
+        resources.common.repos.admin.list_tokens(true).await?.len(),
+        before + 2
+    );
+    Ok(())
+}
+
 /// The token API rotated on a fixed year whatever the request asked for.
 #[tokio::test]
 #[serial]
@@ -560,5 +862,57 @@ async fn rotation_honours_the_requested_lifetime() -> Result<()> {
         .expect("the replacement expires");
     let days = (expires_at - chrono::Utc::now()).num_days();
     assert!((6..=7).contains(&days), "a 7-day rotation, got {days} days");
+    Ok(())
+}
+
+/// A lifetime no date can hold is refused with a 400 on both surfaces and
+/// changes nothing: no token is minted, and a rotation leaves the token it
+/// was asked to replace live.
+#[tokio::test]
+#[serial]
+async fn a_lifetime_past_any_date_is_refused_and_changes_nothing() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let cli = mint(&resources, "cli-lifetime", vec![], true).await?;
+    let seeded = mint(
+        &resources,
+        "svc-lifetime",
+        vec![AdminPermission::ListKeys],
+        false,
+    )
+    .await?;
+    let before = resources.common.repos.admin.list_tokens(true).await?.len();
+    let too_many = json!({ "service_name": "svc-forever", "expires_in_days": u64::MAX });
+
+    let minted = AxumTestRequest::post("/admin/tokens")
+        .header("authorization", &bearer(&cli))
+        .json(&too_many)
+        .send(token_api(&resources))
+        .await;
+    assert_eq!(minted.status(), 400, "mint: {}", minted.text());
+
+    let rotated = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", seeded.token_id))
+        .header("authorization", &bearer(&cli))
+        .json(&too_many)
+        .send(token_api(&resources))
+        .await;
+    assert_eq!(rotated.status(), 400, "rotate: {}", rotated.text());
+
+    assert_eq!(
+        resources.common.repos.admin.list_tokens(true).await?.len(),
+        before,
+        "nothing was minted"
+    );
+    assert!(
+        is_active(&resources, &seeded.token_id).await?,
+        "a refused rotation leaves the token live"
+    );
+
+    // The positive control: the same two requests with a lifetime a date holds.
+    let minted = AxumTestRequest::post("/admin/tokens")
+        .header("authorization", &bearer(&cli))
+        .json(&json!({ "service_name": "svc-month", "expires_in_days": 30 }))
+        .send(token_api(&resources))
+        .await;
+    assert_eq!(minted.status(), 201, "mint: {}", minted.text());
     Ok(())
 }

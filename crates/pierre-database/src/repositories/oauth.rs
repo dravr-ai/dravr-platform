@@ -426,7 +426,7 @@ pub trait OAuth2ServerRepository: Send + Sync {
         &self,
         user_code: &str,
     ) -> AppResult<Option<DeviceAuthorization>>;
-    /// Mark a pending device authorization approved by a super-admin.
+    /// Mark a pending device authorization approved by an admin.
     ///
     /// Returns `true` when a still-pending row was updated; `false` when nothing
     /// matched (unknown `user_code`, or already approved/denied).

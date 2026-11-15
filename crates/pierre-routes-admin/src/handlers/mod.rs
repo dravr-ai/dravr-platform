@@ -14,7 +14,7 @@
 //! logic to `pierre-services` (tenant admin, memory facts, …).
 
 pub mod admin_rate_limit_override;
-/// Which tenants a console read covers, and the tenants a super admin can pick
+/// Which tenants a console read covers, and the tenants an admin can pick
 pub mod admin_scope;
 /// Admin endpoints for listing, creating, and revoking tenant API keys.
 pub mod api_keys;
@@ -33,7 +33,7 @@ pub mod contremaitre_admin;
 pub mod deletion_ledger;
 /// RFC 8628 Device Authorization Grant endpoints backing `pierre-cli auth login`.
 pub mod device_auth;
-/// Browser approval page for the device flow (gcloud-style super-admin login).
+/// Browser approval page for the device flow (gcloud-style admin login).
 pub mod device_web;
 /// The admin Engagement screen: activity tiers, agent leaderboard and published count in one scope.
 pub mod engagement;

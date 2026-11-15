@@ -238,7 +238,6 @@ mod pipeline_tool_loop {
             password_hash,
             Some("Pipeline Admin".to_owned()),
         );
-        user.is_admin = true;
         user.role = UserRole::Admin;
         user.user_status = UserStatus::Active;
         user.approved_by = Some(user.id);

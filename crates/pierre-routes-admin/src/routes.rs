@@ -128,7 +128,7 @@ impl AdminRoutes {
     }
 
     /// Human-admin routes mounted at `/api/admin/...` behind cookie/session
-    /// auth + `is_admin` check.
+    /// auth + admin-role check.
     ///
     /// Counterpart to [`Self::routes`] — these power the admin web UI tabs
     /// (users, auto-approval, admin tokens, Claim Verdicts, Memory Worker,
@@ -189,7 +189,7 @@ impl AdminRoutes {
             .with_state(context)
     }
 
-    /// The tenants a super admin can pick on a scoped screen (cookie auth)
+    /// The tenants an admin can pick on a scoped screen (cookie auth)
     fn scope_tenant_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -615,9 +615,9 @@ impl AdminRoutes {
     }
 
     /// The console's admin-token tab behind session auth: the same handlers
-    /// as [`Self::admin_token_routes`]. A plain Admin's session carries
-    /// `ManageAdminTokens`; the handlers keep super-admin tokens to
-    /// super-admin callers.
+    /// as [`Self::admin_token_routes`]. An admin's session carries the
+    /// super-admin flag, so it manages every token; the handlers keep
+    /// super-admin tokens out of reach of a scoped token.
     fn console_token_routes(context: Arc<AdminApiContext>) -> Router {
         Router::new()
             .route(
@@ -727,7 +727,7 @@ impl AdminRoutes {
                 post(device_auth::handle_device_token),
             )
             // Browser approval surface (gcloud-style): GET renders the sign-in-and-approve
-            // page; approve-web verifies super-admin credentials and approves (credential-
+            // page; approve-web verifies an admin's credentials and approves (credential-
             // gated, so CSRF-exempt — see pierre_middleware::csrf::CSRF_EXEMPT_PATHS).
             .route("/admin/device", get(device_web::handle_device_page))
             .route(

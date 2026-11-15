@@ -8,6 +8,7 @@ use bcrypt::{hash, DEFAULT_COST};
 use chrono::Utc;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
+use pierre_core::permissions::UserRole;
 use pierre_database::seed_models::{SeedDemoUser, SeedTenant, SEED_LOCALE};
 use pierre_database::RepositoryRegistry;
 use uuid::Uuid;
@@ -87,7 +88,7 @@ pub(crate) async fn create_account(
             password_hash: new.password_hash.to_owned(),
             tier: new.tier.to_owned(),
             status: new.status.to_owned(),
-            is_admin: false,
+            role: UserRole::User,
             created_at: now,
             locale: SEED_LOCALE.to_owned(),
         })

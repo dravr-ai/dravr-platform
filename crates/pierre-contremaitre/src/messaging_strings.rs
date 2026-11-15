@@ -1316,7 +1316,7 @@ pub const KEY_COACH_ACCESS_ROOM_LINE_COACH: &str = "humanCoach.access.roomLineCo
 /// the coach now sees and where the athlete stops it. `{0}` = the coach's
 /// name.
 pub const KEY_COACH_ACCESS_ROOM_LINE_ATHLETE: &str = "humanCoach.access.roomLineAthlete";
-/// Key: the declined coach-access notice's body when the super-admin gave a
+/// Key: the declined coach-access notice's body when the admin gave a
 /// reason. `{0}` = the reason, in the operator's own words.
 pub const KEY_COACH_ACCESS_DECLINED_REASON_BODY: &str = "humanCoach.access.declinedReasonBody";
 

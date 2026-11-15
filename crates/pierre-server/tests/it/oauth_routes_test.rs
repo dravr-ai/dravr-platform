@@ -720,7 +720,6 @@ async fn test_login_with_correct_credentials() {
         strava_token: None,
         is_active: true,
         user_status: UserStatus::Active,
-        is_admin: false,
         role: UserRole::User,
         approved_by: None,
         approved_at: Some(chrono::Utc::now()),

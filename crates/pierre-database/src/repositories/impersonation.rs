@@ -1,4 +1,4 @@
-// ABOUTME: Repository trait, statements and shared body for super-admin impersonation session audit records
+// ABOUTME: Repository trait, statements and shared body for admin impersonation session audit records
 // ABOUTME: Who acted as whom and when; written once, emitted for each backend by macro
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -14,7 +14,7 @@ use uuid::Uuid;
 
 /// Impersonation session management repository.
 ///
-/// A permission surface: only a super admin reaches the handlers that
+/// A permission surface: only an admin reaches the handlers that
 /// write here, and every read is keyed by the session id or by the two
 /// user ids the row names, so a caller can only see sessions they are a
 /// party to unless they hold the operator role that lists them all.
@@ -100,6 +100,12 @@ pub(crate) const END_SESSION_SQL: &str = "UPDATE impersonation_sessions \
 pub(crate) const END_ALL_SESSIONS_SQL: &str = "UPDATE impersonation_sessions \
      SET is_active = FALSE, ended_at = $1 \
      WHERE impersonator_id = $2 AND is_active = TRUE";
+
+/// Close every open session on one account: what a write that gives the
+/// account the admin role runs, since an admin is never impersonated.
+pub(crate) const END_SESSIONS_OF_TARGET_SQL: &str = "UPDATE impersonation_sessions \
+     SET is_active = FALSE, ended_at = $1 \
+     WHERE target_user_id = $2 AND is_active = TRUE";
 
 /// A page of every session, newest first by `(started_at, id)`. `$1` NULL
 /// reads from the newest; otherwise the rows strictly after `($1, $2)`.

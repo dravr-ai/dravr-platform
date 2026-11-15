@@ -63,7 +63,7 @@ interface CoachAccessRequestProps {
  * Reads where the coach's latest request stands so a return visit shows it.
  * A request asked from a group names it; either way a grant attaches the
  * coach to every coachless group they own (carnet#1521). Asking grants
- * nothing (ADR-018): a super-admin decides, and the pending state says so,
+ * nothing (ADR-018): an admin decides, and the pending state says so,
  * with the date it was sent, that the answer comes here and by email, and the
  * way to withdraw it (carnet#1522). A declined request shows the reason the
  * team gave, when it gave one, beside "Ask again".
