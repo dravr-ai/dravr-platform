@@ -213,7 +213,7 @@ async fn world() -> (Fixture, String) {
             )
             .await
             .unwrap();
-        // `predict_performance` is an enterprise tool, and a read of the
+        // `enterprise` meets every tool's `min_plan`, and a read of the
         // athlete honours both tenants' switches.
         repos
             .tenants

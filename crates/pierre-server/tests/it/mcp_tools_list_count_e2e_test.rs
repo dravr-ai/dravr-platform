@@ -22,6 +22,7 @@
 use crate::common;
 
 use anyhow::Result;
+use pierre_core::models::TenantPlan;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_mcp_server::{
@@ -611,8 +612,8 @@ async fn test_tools_list_tenant_member_non_admin_path_no_collapse() -> Result<()
     Ok(())
 }
 
-/// The tools a `starter` tenant's plan does not cover (`min_plan` professional
-/// or enterprise in the tool catalogue).
+/// The catalogued tools the plan-gate test raises to `min_plan` professional,
+/// so a `starter` tenant's plan does not cover them.
 const PLAN_GATED_TOOLS: [&str; 8] = [
     "analyze_goal_feasibility",
     "analyze_performance_trends",
@@ -630,6 +631,19 @@ const PLAN_GATED_TOOLS: [&str; 8] = [
 #[tokio::test]
 async fn test_plan_gated_tools_are_not_listed_and_refused_at_call_time() -> Result<()> {
     let resources = common::create_test_server_resources().await?;
+    // No seeded catalog row sits above `starter` (plans differ by usage limits,
+    // not by tool, carnet#1587), so the test gates these in its own database,
+    // before the first lookup caches the tenant's tools.
+    let catalog = &resources.common.repos.tool_selection;
+    for tool in PLAN_GATED_TOOLS {
+        let mut entry = catalog
+            .get_tool_catalog_entry(tool)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("'{tool}' has no tool_catalog row"));
+        entry.min_plan = TenantPlan::Professional;
+        catalog.upsert_tool_catalog_entry(&entry).await.unwrap();
+    }
     let (_user, token) =
         common::create_test_mcp_tenant(&resources, "starter-plan-listing@example.com").await?;
     let server = common::spawn_http_mcp_server(&resources).await?;

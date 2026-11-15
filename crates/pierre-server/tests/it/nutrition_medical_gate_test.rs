@@ -63,8 +63,8 @@ async fn resources() -> Result<Arc<ServerContext>> {
 }
 
 async fn athlete(resources: &ServerContext, email: &str) -> Result<Athlete> {
-    // `professional` so the plan-gated tools (`get_nutrient_timing`) are
-    // enabled for the tenant and the call reaches the tool.
+    // `professional`, which meets `get_nutrient_timing`'s `min_plan`, so the
+    // tool is enabled for the tenant and the call reaches it.
     let (user_id, _user, tenant) =
         common::create_test_user_with_plan(&resources.agent.database, email, "professional")
             .await?;
