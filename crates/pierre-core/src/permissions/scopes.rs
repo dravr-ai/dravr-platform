@@ -123,9 +123,8 @@ impl OAuthScope {
     ///
     /// What a personal MCP token carries (carnet#788). The athlete minted it
     /// for one MCP client on purpose, so it reaches everything they can do
-    /// over MCP, but it stays a delegation: strictly narrower than
-    /// [`Self::self_grant`], so a route that reads no scope tells it apart from
-    /// the athlete's own session and refuses it.
+    /// over MCP, but it stays a delegation: every route that reads no scope
+    /// refuses the token by its kind, not by the width of this grant.
     #[must_use]
     pub fn delegable_grant() -> Vec<Self> {
         Self::ALL
@@ -145,13 +144,19 @@ impl OAuthScope {
         !matches!(self, Self::Admin)
     }
 
-    /// Whether `granted` is the whole [`Self::self_grant`]: the athlete acting
-    /// directly rather than a third party acting for them.
+    /// Whether `granted` is the whole [`Self::self_grant`].
     ///
-    /// This is how a route that reads no scope tells the two apart. It is sound
-    /// because a delegation is always strictly narrower: every first-party
-    /// credential is minted with every scope, and no grant the authorization
-    /// server mints holds `admin` ([`Self::is_delegable`]).
+    /// Half of how a route that reads no scope tells the athlete acting
+    /// directly from a third party acting for them, and never the whole of it:
+    /// a session is a token that names no third-party client *and* holds this
+    /// (`Claims::is_session` in pierre-auth). The split is sound because
+    /// every token the authorization server mints for an application names
+    /// that application, and it mints none naming one of Dravr's own apps,
+    /// not because no delegation holds `admin`: a delegated token holding
+    /// every scope is still a delegation. What this half adds is the token
+    /// that names no client: with a narrower grant it was minted before the
+    /// `client_id` claim existed (a delegation) or before the `scope` claim
+    /// did, and is not taken for a session.
     #[must_use]
     pub fn is_self_grant(granted: &[Self]) -> bool {
         Self::ALL.iter().all(|scope| granted.contains(scope))

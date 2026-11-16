@@ -5,7 +5,6 @@
 // Copyright (c) 2026 dravr.ai
 
 use chrono::Utc;
-use pierre_core::permissions::scopes::OAuthScope;
 use tracing::{error, warn};
 use uuid::Uuid;
 
@@ -55,16 +54,16 @@ impl OAuth2AuthorizationServer {
 
     /// The delegated grant a live access token this server minted rides on.
     /// `None` for anything else: a token that does not verify or has expired, a
-    /// first-party session, a client-credentials token.
+    /// first-party session ([`Claims::is_session`](crate::auth::Claims::is_session),
+    /// never a token an application holds, however wide its grant), a
+    /// client-credentials token.
     #[must_use]
     pub fn delegated_grant_of_access_token(&self, token: &str) -> Option<TokenGrant> {
         let claims = self
             .auth_manager
             .validate_resource_token(token, &self.jwks_manager, &self.served())
             .ok()?;
-        if OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope))
-            || claims.client_credentials_client().is_some()
-        {
+        if claims.is_session() || claims.client_credentials_client().is_some() {
             return None;
         }
         Some(TokenGrant {

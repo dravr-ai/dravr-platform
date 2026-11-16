@@ -1048,9 +1048,11 @@ impl OAuth2AuthorizationServer {
     ///
     /// Registration, authorization and the client-credentials grant already
     /// refuse `admin`, so this bites only on a stored code or refresh token
-    /// that predates those checks. It is also the one place that keeps every
-    /// delegated token strictly narrower than the self grant, which is how a
-    /// route that reads no scope tells a third party from the athlete.
+    /// that predates those checks. It keeps `admin` out of every delegated
+    /// token, and that is all it does: a route that reads no scope tells a
+    /// third party from the athlete by the client the token names
+    /// ([`Claims::is_session`](crate::auth::Claims::is_session)), not by the
+    /// token being narrower than the self grant.
     fn delegated_grant(scope: Option<&str>) -> Vec<OAuthScope> {
         OAuthScope::parse_granted(scope.unwrap_or_default())
             .into_iter()

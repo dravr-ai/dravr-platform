@@ -93,7 +93,7 @@ use tracing::{error, field::Empty, info, warn, Span};
 use uuid::Uuid;
 
 use pierre_auth::auth::AuthMethod;
-use pierre_auth::oauth2_server::first_party::is_first_party;
+use pierre_auth::oauth2_server::first_party::names_third_party;
 use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
@@ -395,7 +395,7 @@ async fn session_user_id(resources: &AuthRoutesContext, headers: &HeaderMap) -> 
         .auth_middleware
         .authenticate_request_with_headers(headers)
         .await?;
-    let first_party_client = auth.client_id.as_deref().is_none_or(is_first_party);
+    let first_party_client = !names_third_party(auth.client_id.as_deref());
     let own_session = matches!(
         auth.auth_method,
         AuthMethod::JwtToken {

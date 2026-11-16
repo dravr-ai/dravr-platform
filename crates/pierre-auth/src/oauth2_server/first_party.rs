@@ -80,6 +80,17 @@ pub fn is_first_party(client_id: &str) -> bool {
     client_id == WEB_CLIENT_ID || client_id == MOBILE_CLIENT_ID
 }
 
+/// Whether a token naming `client_id` is a third party's: it names a client,
+/// and not one of Dravr's own apps.
+///
+/// This is what makes a token a delegation, before the width of its grant.
+/// Every token the authorization server mints for an application names that
+/// application; a session names the Dravr app that signed in, or no client.
+#[must_use]
+pub fn names_third_party(client_id: Option<&str>) -> bool {
+    client_id.is_some_and(|client_id| !is_first_party(client_id))
+}
+
 /// Where this deployment lets the first-party clients receive a code.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FirstPartyRedirects {
@@ -255,6 +266,24 @@ mod tests {
     fn other_clients_are_never_first_party() {
         assert!(!is_first_party("mcp_client_123"));
         assert!(!redirects(true).accepts("mcp_client_123", MOBILE_CALLBACK_URI));
+    }
+
+    #[test]
+    fn only_a_token_naming_another_client_is_a_third_partys() {
+        assert!(
+            names_third_party(Some("mcp_client_123")),
+            "a registered client is a third party"
+        );
+        assert!(names_third_party(Some("")), "an empty name is no Dravr app");
+        assert!(
+            !names_third_party(Some(WEB_CLIENT_ID)),
+            "the web app is Dravr's own"
+        );
+        assert!(
+            !names_third_party(Some(MOBILE_CLIENT_ID)),
+            "the mobile app is Dravr's own"
+        );
+        assert!(!names_third_party(None), "a session no client signed in to");
     }
 
     #[test]

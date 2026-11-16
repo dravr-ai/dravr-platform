@@ -1,5 +1,5 @@
-// ABOUTME: A delegated OAuth grant is refused on every REST path and still works on /mcp within its scopes
-// ABOUTME: Pins 403 on API-key minting, chat, admin, an ordinary read and the consent screen; the session is unchanged
+// ABOUTME: A delegated OAuth grant is refused on every REST path and still works on /mcp within its scopes, however wide it is
+// ABOUTME: Pins each refusal beside the session's answer on the same route; the client a token names decides before its grant
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -30,15 +30,21 @@ use std::sync::Arc;
 use axum::extract::connect_info::MockConnectInfo;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
-use pierre_auth::auth::DelegatedGrant;
+use helpers::first_party_sign_in::{
+    authorize_uri, first_party_router, fresh_state, location, FirstPartyClient, Pkce, DEFAULT_PEER,
+};
+use jsonwebtoken::dangerous::insecure_decode;
+use jsonwebtoken::{encode, Algorithm, Header};
+use pierre_auth::auth::{Claims, DelegatedGrant};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
+use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::oauth2_server::rate_limiting::OAuth2RateLimiter;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_contremaitre::MessagingStringsRegistry;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{Tenant, TenantId, User, UserStatus};
+use pierre_core::models::{SessionRefreshToken, Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::config::routes::{admin_config_router, AdminConfigState};
@@ -46,10 +52,14 @@ use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::api_keys::ApiKeyRoutes;
 use pierre_mcp_server::routes::chat::ChatRoutes;
+use pierre_mcp_server::routes::imports::import_routes;
 use pierre_mcp_server::routes::mcp::McpRoutes;
+use pierre_mcp_server::routes::tenants::TenantRoutes;
 use pierre_routes_admin::auth::service::AdminAuthService;
-use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
+use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes, ImpersonationRoutes};
+use pierre_routes_auth::AuthService;
 use pierre_routes_identity::oauth2::{OAuth2Context, OAuth2Routes};
+use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use serial_test::serial;
 use uuid::Uuid;
@@ -315,9 +325,9 @@ async fn a_delegated_grant_cannot_drive_chat() {
     assert_eq!(created["title"], "Opened by an application");
 }
 
-/// The console's admin mount, as the composition root builds it.
-fn console_admin(resources: &Arc<ServerContext>) -> axum::Router {
-    let context = AdminApiContext::new(AdminApiContextInit {
+/// The admin routes' context, as the composition root builds it.
+fn admin_api_context(resources: &Arc<ServerContext>) -> AdminApiContext {
+    AdminApiContext::new(AdminApiContextInit {
         database: resources.agent.database.clone(),
         repos: resources.common.repos.clone(),
         jwt_secret: resources.auth.admin_jwt_secret.to_string(),
@@ -335,8 +345,12 @@ fn console_admin(resources: &Arc<ServerContext>) -> axum::Router {
         training_catalogue_registry: resources.mcp.training_catalogue_registry.clone(),
         contremaitre_config: None,
         app_behavior: resources.common.config.app_behavior.clone(),
-    });
-    AdminRoutes::cookie_admin_routes::<ServerContext>(context, resources)
+    })
+}
+
+/// The console's admin mount, as the composition root builds it.
+fn console_admin(resources: &Arc<ServerContext>) -> axum::Router {
+    AdminRoutes::cookie_admin_routes::<ServerContext>(admin_api_context(resources), resources)
 }
 
 #[tokio::test]
@@ -592,5 +606,649 @@ async fn a_delegated_grant_cannot_stand_in_for_the_session_on_the_consent_screen
     assert!(
         page.contains("(fitness:read)</li>") && page.contains("(profile:read)</li>"),
         "the consent screen shows the default grant the code will carry"
+    );
+}
+
+// ============================================================================
+// Session or delegation: the client a token names, then its grant
+// ============================================================================
+//
+// No token the authorization server mints for an application holds `admin`
+// today, so none holds all five scopes. These tests mint what it does not, to
+// pin that such a token would still be the application's and never the
+// athlete's session (carnet#1511).
+
+/// The refusal a first-party session meets on the MCP and A2A entry point.
+const SESSION_REFUSAL: &str =
+    "A Dravr sign-in session is not accepted by the MCP and A2A endpoints; \
+     authorize this client with OAuth or use an API key";
+
+/// `claims` signed with the server's active key: how a test mints a token no
+/// minter issues.
+fn signed(resources: &Arc<ServerContext>, claims: &Claims) -> String {
+    let key = resources.auth.jwks_manager.get_active_key().unwrap();
+    let mut header = Header::new(Algorithm::RS256);
+    header.kid = Some(key.kid.clone());
+    encode(&header, claims, &key.encoding_key().unwrap()).unwrap()
+}
+
+/// `token` naming no client: as one minted before the `client_id` claim
+/// existed.
+fn naming_no_client(resources: &Arc<ServerContext>, token: &str) -> String {
+    let mut claims = insecure_decode::<Claims>(token).unwrap().claims;
+    claims.client_id = None;
+    signed(resources, &claims)
+}
+
+/// The session one of Dravr's own apps holds for `athlete`, naming
+/// `client_id` when it signed in through one.
+async fn first_party_session(
+    resources: &Arc<ServerContext>,
+    athlete: &Athlete,
+    client_id: Option<&str>,
+) -> String {
+    let repos = &resources.common.repos;
+    let user = repos
+        .users
+        .get_global(athlete.user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let tenant = repos.tenants.first_for_user(user.id).await.unwrap();
+    resources
+        .auth
+        .auth_manager
+        .generate_client_session_token(
+            &user,
+            &resources.auth.jwks_manager,
+            tenant.map(|tenant| tenant.to_string()),
+            client_id,
+        )
+        .unwrap()
+}
+
+/// `GET /api/auth/session`, which answers a session with a fresh one.
+async fn restore_session(resources: &Arc<ServerContext>, token: &str) -> AxumTestResponse {
+    AxumTestRequest::get("/api/auth/session")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(first_party_router(resources, DEFAULT_PEER))
+        .await
+}
+
+/// Record that `athlete` proved their address: the waiting screen's route
+/// answers 400 until then, whoever asks.
+async fn confirm_email(resources: &Arc<ServerContext>, athlete: &Athlete) {
+    resources
+        .common
+        .repos
+        .email_verification
+        .mark_verified(athlete.user_id)
+        .await
+        .unwrap();
+}
+
+/// `POST /api/user/import-tombstones/clear`, one of the routes the waiting
+/// screen reaches with a session the status gate would refuse.
+async fn clear_tombstones(resources: &Arc<ServerContext>, token: &str) -> AxumTestResponse {
+    AxumTestRequest::post("/api/user/import-tombstones/clear")
+        .header("authorization", &format!("Bearer {token}"))
+        .json(&json!({}))
+        .send(first_party_router(resources, DEFAULT_PEER))
+        .await
+}
+
+/// Where the consent screen sends a request for Dravr's web app.
+#[derive(Debug, PartialEq, Eq)]
+enum WebSignIn {
+    /// Back to the app with an authorization code: the cookie was a session
+    Code,
+    /// To the login page: the cookie was no session
+    LogIn,
+    /// Anywhere else
+    Elsewhere,
+}
+
+/// `GET /oauth2/authorize` for Dravr's web app with `token` in the web app's
+/// session cookie: where the consent screen takes a session for its own. The
+/// redirect is classified, never returned, so a failed assertion prints no
+/// authorization code.
+async fn sign_in_to_web_app(resources: &Arc<ServerContext>, token: &str) -> WebSignIn {
+    sign_in_to_web_app_under(resources, &auth_cookie_name(), token).await
+}
+
+/// The authorization server's own sign-in cookie on this fixture's plain
+/// HTTP issuer.
+const AUTHORIZATION_SERVER_COOKIE: &str = "pierre_session";
+
+/// [`sign_in_to_web_app`] with `token` in the cookie named `cookie`.
+async fn sign_in_to_web_app_under(
+    resources: &Arc<ServerContext>,
+    cookie: &str,
+    token: &str,
+) -> WebSignIn {
+    let redirect_uri = FirstPartyClient::Web.redirect_uri(&resources.common.config.oauth2_server);
+    let response = AxumTestRequest::get(&authorize_uri(
+        WEB_CLIENT_ID,
+        &redirect_uri,
+        &Pkce::generate().challenge,
+        &fresh_state(),
+    ))
+    .header("cookie", &format!("{cookie}={token}"))
+    .send(first_party_router(resources, DEFAULT_PEER))
+    .await;
+    let sent_to = location(&response);
+    if sent_to.starts_with(&redirect_uri) && sent_to.contains("code=") {
+        WebSignIn::Code
+    } else if sent_to.starts_with("/oauth2/login") {
+        WebSignIn::LogIn
+    } else {
+        WebSignIn::Elsewhere
+    }
+}
+
+/// All five scopes on a token an application holds: no REST route takes it
+/// for the athlete's session. Restoring a session from it would hand the
+/// application a first-party session in the athlete's name.
+#[tokio::test]
+#[serial]
+async fn no_rest_route_takes_a_delegation_holding_every_scope_for_a_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "delegation-wide@example.com", UserRole::Admin).await;
+    let token = delegated_token(&resources, &athlete, &OAuthScope::self_grant());
+
+    let restored = restore_session(&resources, &token).await;
+    assert!(
+        restored.header("set-cookie").is_none(),
+        "no session cookie is set for an application's token"
+    );
+    assert_refused(restored, "GET /api/auth/session");
+
+    let refused = resources
+        .auth
+        .auth_middleware
+        .authenticate_request(Some(&format!("Bearer {token}")))
+        .await
+        .expect_err("the REST entry point must refuse a delegation, however wide");
+    assert_eq!(
+        refused.code,
+        ErrorCode::PermissionDenied,
+        "refused with 403, not sent to sign in again"
+    );
+    assert_eq!(
+        refused.sanitized_message(),
+        REFUSAL,
+        "refused as a delegation, not by some other gate"
+    );
+}
+
+/// How a [`Reached`] route is asked.
+enum Ask {
+    Get,
+    Post(Value),
+    Delete,
+}
+
+/// One REST route an admin's own session reaches.
+struct Reached {
+    /// The route, for a failure message.
+    what: &'static str,
+    /// The router that mounts it, as the composition root builds it.
+    router: fn(&Arc<ServerContext>) -> axum::Router,
+    /// Its path on that router.
+    path: String,
+    /// Its method, and the body a write sends.
+    ask: Ask,
+    /// What the admin's own session is answered.
+    session_status: u16,
+}
+
+impl Reached {
+    /// The route asked under `bearer`.
+    async fn asked(&self, resources: &Arc<ServerContext>, bearer: &str) -> AxumTestResponse {
+        let request = match &self.ask {
+            Ask::Get => AxumTestRequest::get(&self.path),
+            Ask::Post(body) => AxumTestRequest::post(&self.path).json(body),
+            Ask::Delete => AxumTestRequest::delete(&self.path),
+        };
+        request
+            .header("authorization", bearer)
+            .send((self.router)(resources))
+            .await
+    }
+}
+
+/// Every route below acts with its caller's whole authority and reads no
+/// scope: the admin console, the impersonation routes, the data export,
+/// imports, the tenant switch (which mints a session) and the plan card's
+/// writes. All five scopes on an application's token open none of them, and
+/// the admin's own session is answered on each as it was, so each refusal is
+/// the token's and not the route's.
+#[tokio::test]
+#[serial]
+async fn no_route_an_admins_session_reaches_takes_a_delegation_holding_every_scope() {
+    let resources = create_test_server_resources().await.unwrap();
+    let admin = athlete(
+        &resources,
+        "delegation-wide-admin@example.com",
+        UserRole::Admin,
+    )
+    .await;
+    let member = athlete(
+        &resources,
+        "delegation-wide-member@example.com",
+        UserRole::User,
+    )
+    .await;
+    let wide = delegated(&resources, &admin, &OAuthScope::self_grant());
+    let session = format!(
+        "Bearer {}",
+        first_party_session(&resources, &admin, Some(WEB_CLIENT_ID)).await
+    );
+    let tenant = resources
+        .common
+        .repos
+        .tenants
+        .first_for_user(admin.user_id)
+        .await
+        .unwrap()
+        .expect("the fixture gives the admin a tenant");
+    // A thread nobody opened: the session is answered that it is not there,
+    // which is past the credential check.
+    let plan_card = format!("/api/chat/conversations/{}/subject-plan", Uuid::new_v4());
+
+    let reached = [
+        Reached {
+            what: "GET /api/admin/tokens",
+            router: console_admin,
+            path: "/api/admin/tokens".to_owned(),
+            ask: Ask::Get,
+            session_status: 200,
+        },
+        Reached {
+            what: "GET /api/admin/config",
+            router: admin_config,
+            path: "/api/admin/config".to_owned(),
+            ask: Ask::Get,
+            session_status: 200,
+        },
+        Reached {
+            what: "POST /api/admin/impersonate",
+            router: |resources| ImpersonationRoutes::routes(Arc::clone(resources)),
+            path: "/api/admin/impersonate".to_owned(),
+            ask: Ask::Post(json!({
+                "target_user_id": member.user_id.to_string(),
+                "reason": "Ticket 1511",
+            })),
+            session_status: 200,
+        },
+        Reached {
+            what: "GET /api/admin/impersonate/sessions",
+            router: |resources| ImpersonationRoutes::routes(Arc::clone(resources)),
+            path: "/api/admin/impersonate/sessions".to_owned(),
+            ask: Ask::Get,
+            session_status: 200,
+        },
+        Reached {
+            what: "POST /api/admin/impersonate/end",
+            router: |resources| ImpersonationRoutes::routes(Arc::clone(resources)),
+            path: "/api/admin/impersonate/end".to_owned(),
+            ask: Ask::Post(json!({})),
+            session_status: 200,
+        },
+        Reached {
+            what: "GET /api/user/export",
+            router: |resources| first_party_router(resources, DEFAULT_PEER),
+            path: "/api/user/export".to_owned(),
+            ask: Ask::Get,
+            session_status: 200,
+        },
+        Reached {
+            what: "GET /api/imports",
+            router: |resources| import_routes().with_state(Arc::clone(resources)),
+            path: "/api/imports".to_owned(),
+            ask: Ask::Get,
+            session_status: 200,
+        },
+        Reached {
+            what: "POST /tenants/switch",
+            router: |resources| TenantRoutes::routes(Arc::clone(resources)),
+            path: "/tenants/switch".to_owned(),
+            ask: Ask::Post(json!({ "tenant_id": tenant.to_string() })),
+            session_status: 200,
+        },
+        Reached {
+            what: "POST …/subject-plan/publish",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/publish"),
+            ask: Ask::Post(json!({})),
+            session_status: 404,
+        },
+        Reached {
+            what: "DELETE …/subject-plan/draft",
+            router: |resources| ChatRoutes::routes(Arc::clone(resources)),
+            path: format!("{plan_card}/draft"),
+            ask: Ask::Delete,
+            session_status: 404,
+        },
+    ];
+
+    for route in &reached {
+        assert_refused(route.asked(&resources, &wide).await, route.what);
+        // The status alone: the tenant switch answers a session with a token.
+        assert_eq!(
+            route.asked(&resources, &session).await.status(),
+            route.session_status,
+            "{}: the admin's own session is answered as before",
+            route.what
+        );
+    }
+
+    // The admin API takes an admin token, a credential of its own kind, and
+    // no user's: an application's token is no more one for holding `admin`.
+    let admin_api = AxumTestRequest::get("/admin/token-info")
+        .header("authorization", &wide)
+        .send(AdminRoutes::routes(admin_api_context(&resources)))
+        .await;
+    assert_eq!(
+        admin_api.status(),
+        401,
+        "GET /admin/token-info: an application's token is not an admin token"
+    );
+}
+
+/// `/mcp` and A2A carry the same token as the delegation it is, and do not
+/// refuse it as a session lifted from the app.
+#[tokio::test]
+#[serial]
+async fn the_scoped_entry_point_carries_a_delegation_holding_every_scope() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "delegation-scoped@example.com", UserRole::Admin).await;
+    let token = delegated(&resources, &athlete, &OAuthScope::self_grant());
+
+    let scoped = resources
+        .auth
+        .auth_middleware
+        .authenticate_scoped_request(
+            Some(&token),
+            &resources.common.config.oauth2_server.mcp_resources(),
+        )
+        .await
+        .expect("the scoped entry point carries a delegation, however wide");
+    assert_eq!(
+        scoped.user_id, athlete.user_id,
+        "the delegation acts for the athlete who consented"
+    );
+    assert_eq!(
+        scoped.scopes,
+        OAuthScope::self_grant(),
+        "the grant is carried as issued, for the scope gate to read"
+    );
+    assert_eq!(
+        scoped.client_id.as_deref(),
+        Some("mcp_client_test"),
+        "the application the token names is carried with it"
+    );
+}
+
+/// The consent screen validates the web app's cookie without the middleware.
+/// Taken for a session there, the token would sign its application in to
+/// Dravr's own app as the athlete.
+#[tokio::test]
+#[serial]
+async fn the_consent_screen_takes_no_delegation_holding_every_scope_for_a_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "delegation-bridge@example.com", UserRole::User).await;
+    let token = delegated_token(&resources, &athlete, &OAuthScope::self_grant());
+
+    assert_eq!(
+        sign_in_to_web_app(&resources, &token).await,
+        WebSignIn::LogIn,
+        "no session: the application is sent to log in"
+    );
+    assert_eq!(
+        sign_in_to_web_app(&resources, &athlete.session_token).await,
+        WebSignIn::Code,
+        "the athlete's own session gets its code"
+    );
+}
+
+/// The authorization server's own cookie is read by the same rule: its
+/// sign-in token, named for an application, is not its session.
+#[tokio::test]
+#[serial]
+async fn the_consent_screen_takes_no_applications_token_in_its_own_cookie() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(
+        &resources,
+        "delegation-own-cookie@example.com",
+        UserRole::User,
+    )
+    .await;
+    let repos = &resources.common.repos;
+    let user = repos
+        .users
+        .get_global(athlete.user_id)
+        .await
+        .unwrap()
+        .unwrap();
+    let tenant = repos.tenants.first_for_user(user.id).await.unwrap();
+    let own = resources
+        .auth
+        .auth_manager
+        .generate_authorization_session_token(
+            &user,
+            &resources.auth.jwks_manager,
+            tenant.map(|tenant| tenant.to_string()),
+        )
+        .unwrap();
+    let mut held_by_an_application = insecure_decode::<Claims>(&own).unwrap().claims;
+    held_by_an_application.client_id = Some("mcp_client_test".to_owned());
+
+    assert_eq!(
+        sign_in_to_web_app_under(
+            &resources,
+            AUTHORIZATION_SERVER_COOKIE,
+            &signed(&resources, &held_by_an_application)
+        )
+        .await,
+        WebSignIn::LogIn,
+        "no session: the application is sent to log in"
+    );
+    assert_eq!(
+        sign_in_to_web_app_under(&resources, AUTHORIZATION_SERVER_COOKIE, &own).await,
+        WebSignIn::Code,
+        "the authorization server's own sign-in gets its code"
+    );
+}
+
+/// Nor do the routes the waiting screen reaches, which validate the session
+/// themselves because a Pending account cannot pass the middleware.
+#[tokio::test]
+#[serial]
+async fn the_waiting_screen_takes_no_delegation_holding_every_scope_for_a_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "delegation-waiting@example.com", UserRole::User).await;
+    let token = delegated_token(&resources, &athlete, &OAuthScope::self_grant());
+    // With the address confirmed the route serves a session, so a 401 is the
+    // session check and nothing after it.
+    confirm_email(&resources, &athlete).await;
+
+    let waiting = clear_tombstones(&resources, &token).await;
+    assert_eq!(
+        waiting.status(),
+        401,
+        "the waiting screen's route takes no delegation: {}",
+        waiting.body_text()
+    );
+    let waiting = clear_tombstones(&resources, &athlete.session_token).await;
+    assert_eq!(
+        waiting.status(),
+        200,
+        "the waiting screen's route serves the athlete's own session: {}",
+        waiting.body_text()
+    );
+}
+
+/// A session is Dravr's own app signed in, whichever app it names and when
+/// it names none (a token from before the claim, and an impersonation's
+/// shape): REST serves it, `/mcp` refuses it as lifted from the app, and the
+/// consent and waiting screens take it.
+#[tokio::test]
+#[serial]
+async fn a_first_party_session_is_a_session_whichever_app_it_names() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "session-apps@example.com", UserRole::User).await;
+    let auth = &resources.auth;
+    let middleware = &auth.auth_middleware;
+    confirm_email(&resources, &athlete).await;
+
+    for client_id in [Some(WEB_CLIENT_ID), Some(MOBILE_CLIENT_ID), None] {
+        let token = first_party_session(&resources, &athlete, client_id).await;
+        let bearer = format!("Bearer {token}");
+
+        let session = middleware
+            .authenticate_request(Some(&bearer))
+            .await
+            .unwrap_or_else(|e| panic!("{client_id:?}: REST serves a session: {e}"));
+        assert_eq!(session.scopes, OAuthScope::self_grant(), "{client_id:?}");
+        assert_eq!(
+            session.client_id.as_deref(),
+            client_id,
+            "the session still names the app it was signed in to"
+        );
+
+        let refused = middleware
+            .authenticate_scoped_request(
+                Some(&bearer),
+                &resources.common.config.oauth2_server.mcp_resources(),
+            )
+            .await
+            .expect_err("a session is not an integration's credential");
+        assert_eq!(refused.code, ErrorCode::AuthInvalid, "{client_id:?}");
+        assert_eq!(refused.message, SESSION_REFUSAL, "{client_id:?}");
+
+        auth.auth_manager
+            .validate_session_token(&token, &auth.jwks_manager)
+            .unwrap_or_else(|e| panic!("{client_id:?}: a session validates as one: {e}"));
+        assert_eq!(
+            sign_in_to_web_app(&resources, &token).await,
+            WebSignIn::Code,
+            "{client_id:?}: a session gets its code"
+        );
+        assert_eq!(
+            restore_session(&resources, &token).await.status(),
+            200,
+            "{client_id:?}: a session is restored"
+        );
+        assert_eq!(
+            clear_tombstones(&resources, &token).await.status(),
+            200,
+            "{client_id:?}: the waiting screen's route serves a session"
+        );
+    }
+}
+
+/// A refresh family opened before sessions named a client names none. The
+/// session minter refuses a third-party client; no client is not one, so the
+/// family still refreshes into a session, naming none.
+#[tokio::test]
+#[serial]
+async fn a_refresh_family_naming_no_client_still_mints_a_session() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "family-no-client@example.com", UserRole::User).await;
+    let presented = "a-family-opened-before-the-claim";
+    let now = chrono::Utc::now();
+    resources
+        .common
+        .repos
+        .session_refresh_tokens
+        .store_token(
+            presented,
+            &SessionRefreshToken {
+                family_id: Uuid::new_v4().to_string(),
+                user_id: athlete.user_id,
+                tenant_id: None,
+                client_id: None,
+                created_at: now,
+                expires_at: now + chrono::Duration::days(30),
+            },
+        )
+        .await
+        .unwrap();
+
+    let service = AuthService::new(
+        resources.auth.auth_manager.clone(),
+        resources.auth.jwks_manager.clone(),
+        resources.common.config.clone(),
+        resources.data(),
+    );
+    // Matched, never unwrapped: the refreshed session holds tokens.
+    let refreshed = match service.refresh_session(presented).await {
+        Ok(refreshed) => refreshed,
+        Err(refused) => panic!("a family naming no client refreshes: {refused}"),
+    };
+    let jwt = refreshed.login.jwt_token.expect("a refresh mints a JWT");
+    let claims = resources
+        .auth
+        .auth_manager
+        .validate_session_token(jwt.expose_secret(), &resources.auth.jwks_manager)
+        .unwrap_or_else(|e| panic!("the refreshed token is a session: {e}"));
+    assert_eq!(
+        claims.client_id, None,
+        "the refreshed session names no client, as its family does"
+    );
+}
+
+/// A narrow grant naming no client, as a delegated token minted before the
+/// `client_id` claim existed: still a delegation everywhere.
+#[tokio::test]
+#[serial]
+async fn a_narrow_grant_naming_no_client_stays_a_delegation() {
+    let resources = create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "delegation-unnamed@example.com", UserRole::User).await;
+    let auth = &resources.auth;
+    let middleware = &auth.auth_middleware;
+    let token = naming_no_client(
+        &resources,
+        &delegated_token(&resources, &athlete, &widest_delegation()),
+    );
+    let bearer = format!("Bearer {token}");
+
+    let refused = middleware
+        .authenticate_request(Some(&bearer))
+        .await
+        .expect_err("the REST entry point must refuse a narrow grant");
+    assert_eq!(
+        refused.sanitized_message(),
+        REFUSAL,
+        "refused as a delegation, not by some other gate"
+    );
+
+    let scoped = middleware
+        .authenticate_scoped_request(
+            Some(&bearer),
+            &resources.common.config.oauth2_server.mcp_resources(),
+        )
+        .await
+        .expect("the scoped entry point carries it");
+    assert_eq!(
+        scoped.scopes,
+        widest_delegation(),
+        "the grant is carried as issued, for the scope gate to read"
+    );
+    assert_eq!(scoped.client_id, None, "the token names no client");
+
+    auth.auth_manager
+        .validate_session_token(&token, &auth.jwks_manager)
+        .expect_err("a narrow grant is not a session");
+    assert_eq!(
+        sign_in_to_web_app(&resources, &token).await,
+        WebSignIn::LogIn,
+        "no session: sent to log in"
+    );
+    assert_eq!(
+        clear_tombstones(&resources, &token).await.status(),
+        401,
+        "the waiting screen's route takes no narrow grant for a session"
     );
 }

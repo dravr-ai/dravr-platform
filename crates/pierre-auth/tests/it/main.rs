@@ -19,4 +19,5 @@ mod google_sign_in_config_test;
 mod kek_provider_test;
 mod mcp_resource_indicator_test;
 mod oauth_issuer_test;
+mod session_discriminator_test;
 mod smoke_test;

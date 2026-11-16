@@ -86,9 +86,9 @@ fn delegated_grant_refused() -> AppError {
 /// The refusal a first-party session token meets on a path that takes
 /// delegated grants: the MCP transport and A2A.
 ///
-/// A session — the self grant, which no authorization server ever mints for
-/// an integration, since `admin` is never delegable — is how Dravr's own web
-/// and mobile apps are signed in. It is not an integration's credential, so
+/// A session — a token naming one of Dravr's own apps or no client, holding
+/// the self grant ([`Claims::is_session`]) — is how Dravr's own web and mobile
+/// apps are signed in. It is not an integration's credential, so
 /// it is refused as one: `AuthInvalid`, which `/mcp` answers with a 401
 /// `invalid_token` challenge, sending a spec-following client into the OAuth
 /// flow that mints the delegated grant it should hold. The athlete's API key
@@ -795,10 +795,11 @@ impl McpAuthMiddleware {
 
     /// Authenticate using RS256 JWT token
     ///
-    /// Under [`GrantPolicy::DirectOnly`] a token whose grant is narrower than
-    /// the self grant is refused before anything is read or written for it —
-    /// no usage row, no activity, no budget — since the request it carries is
-    /// not served.
+    /// Under [`GrantPolicy::DirectOnly`] a token that is not a session
+    /// ([`Claims::is_session`]: one an application holds, or one whose grant is
+    /// narrower than the self grant) is refused before anything is read or
+    /// written for it — no usage row, no activity, no budget — since the
+    /// request it carries is not served.
     async fn authenticate_jwt_token(&self, token: &str, policy: GrantPolicy<'_>) -> Checked {
         // The audience check: every path takes the platform audience, and the
         // protected resource also takes a token bound to itself — never one
@@ -836,7 +837,9 @@ impl McpAuthMiddleware {
         // reads or writes — deliberate, and the reason this shipped with a
         // re-authentication rather than a compatibility path.
         let scopes = OAuthScope::parse_granted(&claims.scope);
-        let is_session = OAuthScope::is_self_grant(&scopes);
+        // A session by the client the token names, then by its grant: a token
+        // an application holds is its delegation however wide the grant.
+        let is_session = claims.is_session();
         match policy {
             GrantPolicy::DirectOnly if !is_session => {
                 warn!(
@@ -878,7 +881,7 @@ impl McpAuthMiddleware {
 
         // A delegated token speaks for the athlete only while they let it. It
         // is refused before it spends anything of theirs, as any bad credential.
-        self.require_unwithdrawn_grant(&claims, user_id, is_session, policy)
+        self.require_unwithdrawn_grant(&claims, user_id, policy)
             .await?;
 
         // The user's month-to-date requests against its monthly limit (an
@@ -947,10 +950,11 @@ impl McpAuthMiddleware {
     /// Refuse a delegated token whose athlete has withdrawn the client's access.
     ///
     /// The JWT stays good until it expires, so this is what makes revocation
-    /// take effect within seconds on the paths that take such a token. A
-    /// first-party session, or a token naming no client, is not one a grant
-    /// governs. A read that fails refuses the request, as a quota that cannot
-    /// be read does.
+    /// take effect within seconds on the paths that take such a token. Only
+    /// the scoped paths take one, and the caller has refused a first-party
+    /// session there before this runs; a token naming no client is not one a
+    /// grant governs. A read that fails refuses the request, as a quota that
+    /// cannot be read does.
     ///
     /// # Errors
     /// `AuthInvalid` when the consent was withdrawn, so a client re-authorizes;
@@ -959,13 +963,12 @@ impl McpAuthMiddleware {
         &self,
         claims: &Claims,
         user_id: uuid::Uuid,
-        is_session: bool,
         policy: GrantPolicy<'_>,
     ) -> AppResult<()> {
         let GrantPolicy::ScopesEnforced { .. } = policy else {
             return Ok(());
         };
-        let Some(client_id) = claims.client_id.as_deref().filter(|_| !is_session) else {
+        let Some(client_id) = claims.client_id.as_deref() else {
             return Ok(());
         };
         let tenant_id = match claims.active_tenant_id.clone() {

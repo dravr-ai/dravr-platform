@@ -304,3 +304,56 @@ pub(super) async fn discard_subject_plan_draft(
         None => Err(no_draft()),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use pierre_auth::auth::{AuthMethod as Credential, AuthResult};
+    use pierre_auth::oauth2_server::first_party::WEB_CLIENT_ID;
+    use pierre_core::permissions::scopes::OAuthScope;
+    use serde_json::json;
+    use uuid::Uuid;
+
+    use super::refuse_external_plan_write;
+
+    /// A JWT's authentication naming `client_id`, holding every scope.
+    fn jwt(client_id: Option<&str>) -> AuthResult {
+        AuthResult {
+            user_id: Uuid::new_v4(),
+            auth_method: Credential::JwtToken {
+                tier: "starter".to_owned(),
+                impersonation: None,
+            },
+            active_tenant_id: None,
+            scopes: OAuthScope::self_grant(),
+            client_id: client_id.map(str::to_owned),
+        }
+    }
+
+    /// The middleware refuses an application's token before this route runs;
+    /// were one to reach it, the publish and the discard still refuse it.
+    #[test]
+    fn an_applications_token_is_refused_the_coachs_plan_write() {
+        let refused = refuse_external_plan_write(&jwt(Some("mcp_client_test")))
+            .expect_err("an application writes no coached athlete's plan");
+        assert_eq!(
+            refused.http_status(),
+            403,
+            "refused as forbidden, not sent to sign in again"
+        );
+        assert_eq!(
+            refused.details.as_deref().map(|details| &details["reason"]),
+            Some(&json!("external_transport")),
+            "refused for the transport, in the plan tools' own words"
+        );
+    }
+
+    #[test]
+    fn the_coachs_own_session_writes_the_plan() {
+        for client_id in [Some(WEB_CLIENT_ID), None] {
+            assert!(
+                refuse_external_plan_write(&jwt(client_id)).is_ok(),
+                "{client_id:?}"
+            );
+        }
+    }
+}

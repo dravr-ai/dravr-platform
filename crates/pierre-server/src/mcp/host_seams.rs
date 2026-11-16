@@ -41,6 +41,7 @@ use dravr_tronc::mcp::tasks::{
 use dravr_tronc::mcp::tool::{ToolCapabilities, ToolContext, ToolRegistry};
 use pierre_auth::auth::AuthResult;
 use pierre_auth::config::{www_authenticate_challenge, DIALED_HOST_HEADERS};
+use pierre_auth::oauth2_server::first_party::names_third_party;
 use pierre_config::timeouts::ServerTimeouts;
 use pierre_core::auth_header::is_api_key_format;
 use pierre_core::models::TenantId;
@@ -95,10 +96,18 @@ pub const SUPPORTED_VERSIONS: &[&str] = &["2026-07-28", "2025-11-25", "2025-06-1
 
 /// The tool runtime's name for how `auth` authenticated, for a tool context
 /// built from it.
-pub(crate) const fn tool_auth_method(auth: &AuthResult) -> AuthMethod {
+///
+/// A JWT naming a third-party client is that application's OAuth access
+/// token, whatever its grant. Any other JWT is a bearer JWT: it names one of
+/// Dravr's own apps or no client. Only the client is read, never the grant,
+/// so this does not say that such a token is a session.
+pub(crate) fn tool_auth_method(auth: &AuthResult) -> AuthMethod {
     use pierre_auth::auth::AuthMethod as AuthResultMethod;
 
     match &auth.auth_method {
+        AuthResultMethod::JwtToken { .. } if names_third_party(auth.client_id.as_deref()) => {
+            AuthMethod::OAuth2
+        }
         AuthResultMethod::JwtToken { .. } => AuthMethod::JwtBearer,
         AuthResultMethod::ApiKey { .. } => AuthMethod::ApiKey,
         AuthResultMethod::ChannelLink { .. } => AuthMethod::ChannelLink,
@@ -1099,4 +1108,50 @@ pub fn build_mcp_server(resources: Arc<ServerContext>) -> Arc<McpServer<dyn Tool
     .with_observer(Arc::new(RequestSpanObserver));
 
     Arc::new(server)
+}
+
+#[cfg(test)]
+mod tests {
+    use pierre_auth::auth::{AuthMethod as Credential, AuthResult};
+    use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
+    use pierre_core::permissions::scopes::OAuthScope;
+    use uuid::Uuid;
+
+    use super::{tool_auth_method, AuthMethod};
+
+    /// A JWT's authentication naming `client_id`, with `scopes`.
+    fn jwt(client_id: Option<&str>, scopes: Vec<OAuthScope>) -> AuthResult {
+        AuthResult {
+            user_id: Uuid::new_v4(),
+            auth_method: Credential::JwtToken {
+                tier: "starter".to_owned(),
+                impersonation: None,
+            },
+            active_tenant_id: None,
+            scopes,
+            client_id: client_id.map(str::to_owned),
+        }
+    }
+
+    #[test]
+    fn a_jwt_an_application_holds_is_oauth2_whatever_its_grant() {
+        for scopes in [OAuthScope::default_grant(), OAuthScope::self_grant()] {
+            assert_eq!(
+                tool_auth_method(&jwt(Some("mcp_client_test"), scopes.clone())),
+                AuthMethod::OAuth2,
+                "{scopes:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_session_is_a_jwt_bearer_whichever_app_it_names() {
+        for client_id in [Some(WEB_CLIENT_ID), Some(MOBILE_CLIENT_ID), None] {
+            assert_eq!(
+                tool_auth_method(&jwt(client_id, OAuthScope::self_grant())),
+                AuthMethod::JwtBearer,
+                "{client_id:?}"
+            );
+        }
+    }
 }
