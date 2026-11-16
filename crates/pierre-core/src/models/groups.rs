@@ -837,11 +837,16 @@ pub struct RosterActivity {
     /// `None` for HR-only / treadmill / non-GPS sources. Surfaced so the LLM
     /// can answer "endroit entre vous deux" questions without fabricating.
     pub city: Option<String>,
-    /// Optional starting latitude when the source carries GPS. Paired with
-    /// `start_longitude`. `None` for HR-only sources. Lets the LLM do
-    /// midpoint / distance math when both members have coordinates.
+    /// Latitude of where the route is picked up past the privacy trim: the
+    /// first point of the activity's summary polyline once the privacy radius
+    /// around each end is cut, the line the Home map draws. Never the raw start a
+    /// provider recorded, which is usually the member's door (carnet#1592).
+    /// `None` when the activity carries no overview that survives the trim:
+    /// HR-only and treadmill sources, a route too short to trim, and sources
+    /// that store no polyline. Paired with `start_longitude`, so the LLM can
+    /// do midpoint / distance math when both members have one.
     pub start_latitude: Option<f64>,
-    /// Optional starting longitude. See [`Self::start_latitude`].
+    /// Longitude of the same trimmed start. See [`Self::start_latitude`].
     pub start_longitude: Option<f64>,
     /// Optional total ascent in meters when the source carries it (Strava,
     /// sciotte, Coros all parse it). `None` for sources without elevation

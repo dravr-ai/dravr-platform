@@ -263,11 +263,12 @@ impl GroupSummarizationStrategy for WeeklyDigestSummarizer {
                 } else {
                     format!(" — {}", act.name)
                 };
-                // Append location when the source carries it (Strava /
-                // Garmin populate city + lat/lng; WHOOP / treadmill stay
-                // location-less). Lets the LLM answer "where did Philippe
-                // ride?" without fabricating, and lets it compute a
-                // midpoint when both members have coordinates.
+                // Append location when the activity carries it: the city a
+                // provider names, and the start of the privacy-trimmed route,
+                // never the door the ride left from (carnet#1592). WHOOP /
+                // treadmill stay location-less. Lets the LLM answer "where
+                // did Philippe ride?" without fabricating, and lets it compute
+                // a midpoint when both members have coordinates.
                 let loc_seg = match (act.city.as_deref(), act.start_latitude, act.start_longitude) {
                     (Some(city), Some(lat), Some(lng)) => {
                         format!(" @ {city} ({lat:.4},{lng:.4})")

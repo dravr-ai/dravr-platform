@@ -24,7 +24,8 @@ use pierre_core::models::groups::{
 use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
-use pierre_fitness_compute::AthleteInputs;
+use pierre_fitness_compute::route_track::RouteTrack;
+use pierre_fitness_compute::{decode_polyline, AthleteInputs};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::provider_notice::under_ai_consent;
 use tracing::{debug, info, warn};
@@ -776,16 +777,27 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
     let result: Vec<RosterActivity> = filtered
         .into_iter()
         .take(RECENT_ACTIVITIES_LIMIT)
-        .map(|a| RosterActivity {
-            start: a.start_date(),
-            sport: format!("{:?}", a.sport_type()),
-            distance_km: a.distance_meters().map(|m| m / 1000.0),
-            duration_seconds: a.duration_seconds(),
-            name: display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
-            city: a.city().map(str::to_owned),
-            start_latitude: a.start_latitude(),
-            start_longitude: a.start_longitude(),
-            elevation_gain_m: a.elevation_gain(),
+        .map(|a| {
+            // Where the trimmed overview picks the route up, never the raw
+            // start a provider recorded, which is usually the member's door
+            // (carnet#1592). A row with no overview that survives the trim
+            // shares no coordinates at all.
+            let shared_start: Option<(f64, f64)> = a
+                .summary_polyline()
+                .and_then(|encoded| decode_polyline(encoded.trim()))
+                .and_then(|points| RouteTrack::from_overview(&points).ok())
+                .and_then(|track| track.coordinates.first().copied());
+            RosterActivity {
+                start: a.start_date(),
+                sport: format!("{:?}", a.sport_type()),
+                distance_km: a.distance_meters().map(|m| m / 1000.0),
+                duration_seconds: a.duration_seconds(),
+                name: display_line(a.name(), ACTIVITY_NAME_MAX_CHARS),
+                city: a.city().map(str::to_owned),
+                start_latitude: shared_start.map(|(latitude, _)| latitude),
+                start_longitude: shared_start.map(|(_, longitude)| longitude),
+                elevation_gain_m: a.elevation_gain(),
+            }
         })
         .collect();
     info!(
