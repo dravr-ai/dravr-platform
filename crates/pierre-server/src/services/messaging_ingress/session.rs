@@ -945,6 +945,7 @@ pub async fn create_link_and_prompt(
         method: "channel_initiated",
         channel_user_id: Some(sender_id),
         sender_name,
+        app_return_uri: None,
         expires_at: &expires_at.to_rfc3339(),
     };
 

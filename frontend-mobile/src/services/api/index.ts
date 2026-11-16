@@ -8,6 +8,8 @@ import * as SecureStore from 'expo-secure-store';
 import {
   createMobileAdapter,
   createPierreApi,
+  ENDPOINTS,
+  type LinkCompleteResponse,
   type PierreApiService,
 } from '@pierre/api-client';
 import { getApiUrl } from '../apiUrl';
@@ -23,9 +25,10 @@ const adapter = createMobileAdapter({
 // Create the full API service with all domain APIs
 const api: PierreApiService = createPierreApi(adapter);
 
-// The raw axios client, for the one request that is not a domain API: the
+// The raw axios client, for the requests that are not a domain API: the
 // health probe in useServerStatus, which polls /health with its own short
-// timeout. The integration harness also swaps its adapter here to stub HTTP.
+// timeout, and channelLinkApi below. The integration harness also swaps its
+// adapter here to stub HTTP.
 export const apiClient = api.axios;
 
 // Subscribe to the adapter's auth-failure signal. AuthContext listens here to
@@ -71,3 +74,15 @@ export const billingApi = api.billing;
 export const coachRosterApi = api.coachRoster;
 // The human coach's review of the agent's group replies: the page, a flag, a correction, the weekly count.
 export const coachRepliesApi = api.coachReplies;
+// Finishing a Slack/Discord link this app started (carnet#1580). Only the phone
+// takes the provider's code back; the web finishes the link in the callback its
+// signed-in browser lands on, so this lives here rather than in a shared domain.
+export const channelLinkApi = {
+  async completeLink(channel: string, state: string, code: string): Promise<LinkCompleteResponse> {
+    const response = await apiClient.post<LinkCompleteResponse>(
+      ENDPOINTS.MESSAGING.LINK_COMPLETE(channel),
+      { state, code },
+    );
+    return response.data;
+  },
+};

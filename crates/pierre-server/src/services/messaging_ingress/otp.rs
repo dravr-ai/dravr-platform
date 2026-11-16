@@ -725,6 +725,7 @@ pub async fn start_otp_flow(
         method: "otp",
         channel_user_id: Some(sender_id),
         sender_name,
+        app_return_uri: None,
         expires_at: &expires_at.to_rfc3339(),
     };
 

@@ -10,10 +10,15 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import { i18n } from '@pierre/i18n';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ChatAppConnect } from '../ChatAppConnect';
-import { messagingApi } from '../../../services/api';
+import * as WebBrowser from 'expo-web-browser';
+import { channelLinkApi, messagingApi } from '../../../services/api';
 
 jest.mock('../../../services/api', () => ({
   messagingApi: { initLink: jest.fn(), listLinks: jest.fn() },
+  channelLinkApi: { completeLink: jest.fn() },
+}));
+jest.mock('expo-linking', () => ({
+  createURL: jest.fn((path: string) => `dravr://${path}`),
 }));
 // The QR is a device-to-device handoff, so which device this is decides whether
 // it renders at all. Backed by a mutable so a test can be a tablet.
@@ -34,14 +39,19 @@ const onLinked = jest.fn();
 const onUseAnother = jest.fn();
 const initLink = messagingApi.initLink as jest.Mock;
 const listLinks = messagingApi.listLinks as jest.Mock;
+const completeLink = channelLinkApi.completeLink as jest.Mock;
 
-function renderScreen({ withOthers = false }: { withOthers?: boolean } = {}) {
+function renderScreen({
+  withOthers = false,
+  channel = 'telegram',
+  displayName = 'Telegram',
+}: { withOthers?: boolean; channel?: string; displayName?: string } = {}) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: Infinity } } });
   render(
     <QueryClientProvider client={client}>
       <ChatAppConnect
-        channel="telegram"
-        displayName="Telegram"
+        channel={channel}
+        displayName={displayName}
         onLinked={onLinked}
         onUseAnother={withOthers ? onUseAnother : undefined}
       />
@@ -119,6 +129,39 @@ describe('ChatAppConnect', () => {
     renderScreen();
     expect(await screen.findByTestId('messaging-qr')).toBeTruthy();
     expect(screen.getByText('Open Telegram')).toBeTruthy();
+  });
+
+  describe('an OAuth channel (carnet#1580)', () => {
+    const RETURN_URI = 'dravr://messaging/link-callback';
+
+    beforeEach(() => {
+      initLink.mockReset().mockResolvedValue({
+        channel: 'slack',
+        method: 'oauth',
+        code: null,
+        linking_url: 'https://slack.com/openid/connect/authorize?state=link-code',
+        expires_at: '2030-01-01T00:00:00Z',
+        qr_svg: null,
+      });
+      completeLink.mockReset().mockResolvedValue({ status: 'linked', channel: 'slack', channel_user_id: 'U1' });
+    });
+
+    it('starts the link naming the app callback, authorizes in an auth session and finishes it', async () => {
+      (WebBrowser.openAuthSessionAsync as jest.Mock).mockResolvedValueOnce({
+        type: 'success',
+        url: `${RETURN_URI}?channel=slack&state=link-code&code=provider-code`,
+      });
+      renderScreen({ channel: 'slack', displayName: 'Slack' });
+
+      fireEvent.press(await screen.findByText(i18n.t('app.connectWithChannel', { channel: 'Slack' })));
+
+      await waitFor(() => expect(completeLink).toHaveBeenCalledWith('slack', 'link-code', 'provider-code'));
+      expect(initLink).toHaveBeenCalledWith('slack', RETURN_URI);
+      expect(WebBrowser.openAuthSessionAsync).toHaveBeenCalledWith(
+        'https://slack.com/openid/connect/authorize?state=link-code',
+        RETURN_URI,
+      );
+    });
   });
 
   it('reports via onLinked once the channel link appears', async () => {

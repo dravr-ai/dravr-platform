@@ -200,6 +200,7 @@ mod messaging_otp_linking_tests {
             method: "otp",
             channel_user_id: Some(channel_user_id),
             sender_name: Some("OtpTestUser"),
+            app_return_uri: None,
             expires_at: &expires_at,
         };
         db.create_link_state(&params).await.unwrap();
@@ -348,6 +349,7 @@ mod messaging_otp_linking_tests {
             method: "otp",
             channel_user_id: Some(sender_id),
             sender_name: None,
+            app_return_uri: None,
             expires_at: &expires_at,
         };
         db.create_link_state(&params).await.unwrap();
@@ -923,6 +925,7 @@ mod messaging_otp_linking_tests {
             method: "otp",
             channel_user_id: Some(sender_id),
             sender_name: None,
+            app_return_uri: None,
             expires_at: &expires_at,
         };
         db.create_link_state(&params).await.unwrap();

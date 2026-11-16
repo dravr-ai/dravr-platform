@@ -467,6 +467,9 @@ export const ENDPOINTS = {
     CHANNELS_AVAILABLE: '/api/messaging/channels/available',
     /** Start linking a channel — returns linking URL/code (+ QR for deep-link) */
     LINK_INIT: (channel: string) => `/api/messaging/link/init/${encodeURIComponent(channel)}`,
+    /** Finish a Slack/Discord link the phone app started, with the provider code handed back to it */
+    LINK_COMPLETE: (channel: string) =>
+      `/api/messaging/link/complete/${encodeURIComponent(channel)}`,
     /** The channels the user has already linked (poll to detect link completion) */
     LINKS: '/api/messaging/links',
     /** Unlink a channel */

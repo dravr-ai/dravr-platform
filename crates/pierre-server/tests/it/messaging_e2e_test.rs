@@ -128,6 +128,7 @@ mod messaging_e2e_tests {
             method: "channel_initiated",
             channel_user_id: Some(channel_user_id),
             sender_name,
+            app_return_uri: None,
             expires_at: &expires_at,
         };
         db.create_link_state(&params).await.unwrap();
@@ -1220,6 +1221,7 @@ mod messaging_e2e_tests {
             method: "channel_initiated",
             channel_user_id: Some("tg-expired"),
             sender_name: None,
+            app_return_uri: None,
             expires_at: &expires_at,
         };
         db.create_link_state(&params).await.unwrap();

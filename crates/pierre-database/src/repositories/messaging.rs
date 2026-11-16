@@ -234,6 +234,10 @@ pub struct CreateLinkStateParams<'a> {
     pub channel_user_id: Option<&'a str>,
     /// Display name from platform (for login page greeting)
     pub sender_name: Option<&'a str>,
+    /// Where the provider's OAuth code is handed back to the phone app that
+    /// started the link; `None` for a link started on the web, which completes
+    /// only in a browser signed in as `user_id` (carnet#1580)
+    pub app_return_uri: Option<&'a str>,
     /// Expiration timestamp (RFC 3339)
     pub expires_at: &'a str,
 }
@@ -252,6 +256,7 @@ impl fmt::Debug for CreateLinkStateParams<'_> {
                 &self.channel_user_id.map(|_| "[REDACTED]"),
             )
             .field("sender_name", &self.sender_name.map(|_| "[REDACTED]"))
+            .field("app_return_uri", &self.app_return_uri)
             .field("expires_at", &self.expires_at)
             .finish()
     }

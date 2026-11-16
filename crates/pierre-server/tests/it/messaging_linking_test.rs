@@ -47,6 +47,7 @@ async fn test_create_and_consume_link_state() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -84,6 +85,7 @@ async fn test_consume_link_state_already_used() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -130,6 +132,7 @@ async fn test_consume_link_state_expired() {
         method: "oauth",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -187,6 +190,7 @@ async fn test_create_link_state_refuses_a_malformed_expiry() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: "never",
     };
     let err = db
@@ -228,6 +232,7 @@ async fn test_link_state_reads_back_every_column() {
         method: "deep_link",
         channel_user_id: Some("tg-user-42"),
         sender_name: Some("Alice"),
+        app_return_uri: None,
         expires_at: &expires_at.to_rfc3339(),
     };
     db.repositories()
@@ -666,6 +671,7 @@ async fn test_full_linking_flow() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -758,6 +764,7 @@ async fn test_create_link_state_without_user_id() {
         method: "channel_initiated",
         channel_user_id: Some("tg-sender-42"),
         sender_name: Some("Alice"),
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -797,6 +804,7 @@ async fn test_get_link_state_valid() {
         method: "channel_initiated",
         channel_user_id: Some("slack-u1"),
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -830,6 +838,7 @@ async fn test_get_link_state_expired() {
         method: "channel_initiated",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -864,6 +873,7 @@ async fn test_get_link_state_used() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -906,6 +916,7 @@ async fn test_complete_link_state_success() {
         method: "channel_initiated",
         channel_user_id: Some("tg-42"),
         sender_name: Some("Bob"),
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -954,6 +965,7 @@ async fn test_complete_link_state_already_used() {
         method: "channel_initiated",
         channel_user_id: Some("tg-43"),
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -999,6 +1011,7 @@ async fn test_complete_link_state_expired() {
         method: "channel_initiated",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -1039,6 +1052,7 @@ async fn test_complete_link_state_already_has_user() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()
@@ -1083,6 +1097,7 @@ async fn test_consume_link_state_requires_tenant_id() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.repositories()

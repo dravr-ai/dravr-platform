@@ -26,12 +26,19 @@ export interface LinkInitResponse {
   method: string;
   /** Verification code (deep-link channels only; `null` for OAuth). */
   code: string | null;
-  /** URL the user opens/sends (t.me/… , wa.me/… , or the OAuth callback). */
+  /** URL the user opens/sends (t.me/… , wa.me/… , or the provider's OAuth authorize page). */
   linking_url: string;
   /** ISO expiry of the linking code. */
   expires_at: string;
   /** Inline SVG QR of `linking_url` (deep-link channels only; `null` otherwise). */
   qr_svg: string | null;
+}
+
+/** What the server answers when the phone app finishes an OAuth link it started. */
+export interface LinkCompleteResponse {
+  status: 'linked';
+  channel: string;
+  channel_user_id: string;
 }
 
 /** A channel the user has already linked. */
@@ -59,9 +66,20 @@ export function createMessagingApi(axios: AxiosInstance) {
       return response.data;
     },
 
-    /** Start linking a channel: returns the linking URL/code (+ QR for deep-link). */
-    async initLink(channel: string): Promise<LinkInitResponse> {
-      const response = await axios.post<LinkInitResponse>(ENDPOINTS.MESSAGING.LINK_INIT(channel));
+    /**
+     * Start linking a channel: returns the linking URL/code (+ QR for deep-link).
+     *
+     * `appReturnUri` is the phone app's channel-link callback. An OAuth link
+     * (Slack, Discord) started with it hands the provider's code back to the
+     * app, which finishes it with its own login at `LINK_COMPLETE`; one started
+     * without it completes only in a browser signed in as this account
+     * (carnet#1580).
+     */
+    async initLink(channel: string, appReturnUri?: string): Promise<LinkInitResponse> {
+      const response = await axios.post<LinkInitResponse>(
+        ENDPOINTS.MESSAGING.LINK_INIT(channel),
+        appReturnUri === undefined ? undefined : { app_return_uri: appReturnUri },
+      );
       return response.data;
     },
 

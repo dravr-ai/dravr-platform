@@ -124,6 +124,7 @@ export type {
   MessagingApi,
   AvailableChannel,
   LinkInitResponse,
+  LinkCompleteResponse,
   ChannelLink,
 } from './domains/messaging';
 

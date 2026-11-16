@@ -6,7 +6,7 @@
 
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use chrono::{Duration, Utc};
 use pierre_auth::http::oauth_client;
@@ -28,12 +28,18 @@ use uuid::Uuid;
 
 mod destination;
 mod link_account;
+mod oauth_link;
 
 use super::templates;
 use crate::mcp::resources::ServerContext;
 use destination::build_linking_url;
 pub(crate) use destination::can_complete_a_link;
 use link_account::resolve_user_from_form;
+pub(crate) use oauth_link::complete_app_link;
+use oauth_link::{
+    complete_oauth_link, hand_back_to_app, pending_oauth_link, require_starter, signed_in_account,
+    ProviderAnswer,
+};
 use pierre_auth::auth::AuthResult;
 use pierre_core::errors::AppError;
 use pierre_middleware::{extract_auth_from_headers, PeerAddress};
@@ -63,6 +69,18 @@ impl fmt::Debug for LinkCallbackQuery {
             .field("code", &self.code.as_ref().map(|_| "[REDACTED]"))
             .finish()
     }
+}
+
+/// Optional body of `POST /api/messaging/link/init/{channel}`.
+///
+/// The phone app names where the provider's code comes back to it, because the
+/// auth session it opens has no Dravr session that could vouch for the
+/// account (carnet#1580). The web app sends no body.
+#[derive(Debug, Default, Deserialize)]
+pub(crate) struct LinkInitBody {
+    /// The app's channel-link callback: `dravr://messaging/link-callback`, or
+    /// its Expo Go form where the deployment allows Expo Go.
+    pub app_return_uri: Option<String>,
 }
 
 /// Response body for a channel link initiation
@@ -163,15 +181,37 @@ pub(crate) async fn init_channel_link(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
+    body: Option<Json<LinkInitBody>>,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
     let caller_tenant_id = resolve_tenant_id(&auth, &resources).await?;
+    let Json(body) = body.unwrap_or_default();
     let user_id = auth.user_id.to_string();
 
     let channel_type = ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 
     let method = channel_type.linking_method();
+    // Only an OAuth link reaches the callback, so only it hands a code back.
+    // The return URI is the app's own fixed callback or nothing: one the
+    // caller chose would collect the code of anyone they forwarded the link to.
+    let app_return_uri = match (method, body.app_return_uri.as_deref()) {
+        (LinkingMethod::OAuth, Some(uri)) => {
+            if !resources
+                .common
+                .config
+                .oauth2_server
+                .first_party_redirects
+                .accepts_channel_link_return(uri)
+            {
+                return Err(AppError::invalid_input(
+                    "app_return_uri is not the Dravr app's channel-link callback",
+                ));
+            }
+            Some(uri)
+        }
+        _ => None,
+    };
     let code = generate_link_code();
     let expires_at = Utc::now() + Duration::minutes(LINK_CODE_TTL_MINUTES);
     let id = Uuid::new_v4().to_string();
@@ -227,6 +267,7 @@ pub(crate) async fn init_channel_link(
         method: &method.to_string(),
         channel_user_id: None,
         sender_name: None,
+        app_return_uri,
         expires_at: &expires_at.to_rfc3339(),
     };
     db.create_link_state(&params).await?;
@@ -262,8 +303,7 @@ pub(crate) async fn init_channel_link(
 
 /// GET /api/messaging/link/callback/:channel
 ///
-/// Completes an app-initiated OAuth link: consumes the verification code and
-/// links the channel identity the provider vouches for.
+/// The provider's redirect after an OAuth link's authorize step.
 ///
 /// The identity comes only from the provider's code exchange. The link code
 /// proves which Dravr account is linking, never which channel identity: an
@@ -271,13 +311,19 @@ pub(crate) async fn init_channel_link(
 /// someone else's Slack or Discord id to their account, and every later DM
 /// from that id would then run as theirs (carnet#1577).
 ///
+/// The link completes only for the account that started it (carnet#1580): a
+/// link the phone app started hands the code back to the app, which finishes
+/// it with its own login; any other completes only in a browser signed in as
+/// that account. See [`oauth_link`].
+///
 /// The link state is checked before the provider is called, so a stale,
-/// unknown or cross-channel code costs no exchange.
+/// unknown, cross-channel or foreign code costs no exchange.
 pub(crate) async fn link_callback(
     State(resources): State<Arc<ServerContext>>,
     Path(channel): Path<String>,
     Query(query): Query<LinkCallbackQuery>,
-) -> Result<impl IntoResponse, AppError> {
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     // Validate channel type early (reject unknown channels before DB operations)
     ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
@@ -287,73 +333,31 @@ pub(crate) async fn link_callback(
         .as_deref()
         .ok_or_else(|| AppError::invalid_input("Missing state parameter with linking code"))?;
 
-    let oauth_code = query.code.as_deref().ok_or_else(|| {
-        AppError::invalid_input("Callback carried no OAuth code, so there is no identity to link.")
-    })?;
-
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
+    let pending = pending_oauth_link(db, state_code, &channel).await?;
 
-    // Non-consuming lookup to extract tenant_id for the tenant-scoped consumption
-    let preview = db
-        .get_link_state(state_code)
-        .await?
-        .ok_or_else(|| AppError::invalid_input("Link code is invalid or expired"))?;
-
-    let tenant_id_str = preview["tenant_id"]
-        .as_str()
-        .ok_or_else(|| AppError::internal("Link state missing tenant_id"))?;
-    let tenant_id = TenantId::parse_str(tenant_id_str)
-        .map_err(|_| AppError::internal("Link state has invalid tenant_id"))?;
-
-    // Verify the URL channel matches the link state channel to prevent cross-channel replay
-    let stored_channel = preview["channel_type"].as_str().unwrap_or_default();
-    if stored_channel != channel {
-        warn!(
-            url_channel = %channel,
-            stored_channel = %stored_channel,
-            "Channel mismatch between URL and link state"
-        );
-        return Err(AppError::invalid_input(format!(
-            "Channel mismatch: link was created for {stored_channel}, not {channel}"
-        )));
+    let answer = query
+        .code
+        .as_deref()
+        .map_or(ProviderAnswer::Declined, ProviderAnswer::Approved);
+    if let Some(app_return_uri) = pending.app_return_uri.as_deref() {
+        return Ok(hand_back_to_app(
+            app_return_uri,
+            &channel,
+            state_code,
+            answer,
+        ));
     }
-
-    let identity = exchange_oauth_identity(&resources, &channel, tenant_id, oauth_code).await?;
-    let channel_user_id = identity.id.as_str();
-
-    // Atomically consume the link state with tenant_id guard
-    let link_state = db.consume_link_state(state_code, tenant_id).await?;
-
-    let user_id = link_state["user_id"]
-        .as_str()
-        .ok_or_else(|| AppError::invalid_input("Link state has no associated user"))?;
-
-    let link_id = Uuid::new_v4().to_string();
-    let link_params = CreateChannelLinkParams {
-        id: &link_id,
-        tenant_id,
-        user_id,
-        channel_type: &channel,
-        channel_user_id,
-        display_name: identity.display_name.as_deref(),
+    let ProviderAnswer::Approved(oauth_code) = answer else {
+        return Err(AppError::invalid_input(
+            "Callback carried no OAuth code, so there is no identity to link.",
+        ));
     };
-    db.create_channel_link(&link_params).await?;
+    require_starter(signed_in_account(&resources, &headers).await?, &pending)?;
 
-    info!(
-        channel = %channel,
-        user_id = %user_id,
-        channel_user_id = %channel_user_id,
-        "Channel linked successfully"
-    );
-
-    Ok((
-        StatusCode::OK,
-        Json(json!({
-            "status": "linked",
-            "channel": channel,
-            "channel_user_id": channel_user_id,
-        })),
-    ))
+    let linked =
+        complete_oauth_link(&resources, &channel, state_code, oauth_code, &pending).await?;
+    Ok((StatusCode::OK, Json(linked)).into_response())
 }
 
 /// GET /api/messaging/links

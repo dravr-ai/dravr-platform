@@ -94,6 +94,7 @@ crates/pierre-server/src/routes/imports.rs:Imports are started and managed only 
 crates/pierre-server/src/routes/imports.rs:The import link names an account outside its tenant
 crates/pierre-server/src/routes/imports.rs:This origin may not upload
 crates/pierre-server/src/routes/messaging/config.rs:Only tenant owners or administrators can manage messaging channel configuration
+crates/pierre-server/src/routes/messaging/linking/oauth_link.rs:This link was started from another Dravr account, or from a browser that is not signed in to it. Start the link again from the Dravr app you want to link.
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active admin
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active admin
 crates/pierre-server/src/services/archive_import/upload.rs:This origin may not upload

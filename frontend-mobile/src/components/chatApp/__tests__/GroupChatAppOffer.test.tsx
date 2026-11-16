@@ -17,6 +17,10 @@ jest.mock('../../../services/api', () => ({
   userApi: { getOnboardingStatus: jest.fn(), setOnboardingStep: jest.fn() },
   messagingApi: { getAvailableChannels: jest.fn(), listLinks: jest.fn(), initLink: jest.fn() },
 }));
+// The connect sheet names the app's channel-link callback when it starts a link.
+jest.mock('expo-linking', () => ({
+  createURL: jest.fn((path: string) => `dravr://${path}`),
+}));
 jest.mock('expo-device', () => ({
   deviceType: 1, // Device.DeviceType.PHONE
   DeviceType: { UNKNOWN: 0, PHONE: 1, TABLET: 2, DESKTOP: 3, TV: 4 },

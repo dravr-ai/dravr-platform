@@ -119,6 +119,10 @@ impl MessagingRoutes {
                 "/api/messaging/link/callback/{channel}",
                 get(linking::link_callback),
             )
+            .route(
+                "/api/messaging/link/complete/{channel}",
+                post(linking::complete_app_link),
+            )
             .route("/api/messaging/links", get(linking::list_channel_links))
             .route(
                 "/api/messaging/links/{channel}",

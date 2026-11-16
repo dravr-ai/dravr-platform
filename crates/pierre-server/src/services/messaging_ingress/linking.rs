@@ -82,6 +82,12 @@ enum DeepLinkError {
 }
 
 /// Consume a link code and create the permanent channel link, returning the user ID
+///
+/// Only a pairing code minted for this channel by the deep-link method, on an
+/// account, is redeemed here. An OAuth link's code rides in the provider's
+/// authorize URL and is finished only by the account that started it
+/// (carnet#1580); typed into another channel's chat it would bind that sender
+/// to the starter's account. A refused code is left unspent.
 async fn execute_link_code(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,
@@ -89,15 +95,33 @@ async fn execute_link_code(
     sender_id: &str,
     code: &str,
 ) -> Result<String, DeepLinkError> {
-    let link_state = db
-        .consume_link_state(code, tenant_id)
+    let preview = db
+        .get_link_state(code)
+        .await
+        .map_err(|e| DeepLinkError::SessionExpired(e.to_string()))?
+        .ok_or_else(|| {
+            DeepLinkError::SessionExpired("link code is unknown or expired".to_owned())
+        })?;
+    let user_id = match (
+        preview["channel_type"].as_str(),
+        preview["method"].as_str(),
+        preview["user_id"].as_str(),
+    ) {
+        (Some(started_on), Some("deep_link"), Some(user_id))
+            if started_on == channel && !user_id.is_empty() =>
+        {
+            user_id.to_owned()
+        }
+        _ => {
+            return Err(DeepLinkError::SessionExpired(
+                "link code was not started as a pairing code for this channel".to_owned(),
+            ))
+        }
+    };
+
+    db.consume_link_state(code, tenant_id)
         .await
         .map_err(|e| DeepLinkError::SessionExpired(e.to_string()))?;
-
-    let user_id = link_state["user_id"]
-        .as_str()
-        .unwrap_or_default()
-        .to_owned();
     let link_id = Uuid::new_v4().to_string();
 
     let link_params = CreateChannelLinkParams {
@@ -326,6 +350,129 @@ pub(super) async fn hydrate_analytics_consent(resources: &ServerContext, user_id
         Ok(None) => {}
         Err(e) => {
             error!(error = %e, user_id = %user_id, "Failed to load user for analytics consent hydration");
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{Duration, Utc};
+    use pierre_core::models::{Tenant, User};
+    use pierre_database::backends::{CreateLinkStateParams, TenantRepository};
+    use pierre_database::RepositoryRegistry;
+    use pierre_test_support::db::create_test_db;
+
+    use super::*;
+
+    const SENDER: &str = "4242";
+
+    /// An account with a tenant; returns `(user_id, tenant_id)`.
+    async fn account(repos: &RepositoryRegistry) -> (Uuid, TenantId) {
+        let user = User::new(
+            format!("{}@pairing.test", Uuid::new_v4()),
+            String::new(),
+            None,
+        );
+        let user_id = repos.users.create(&user).await.expect("user row");
+        let tenant_id = TenantId::generate();
+        let tenants: &dyn TenantRepository = repos.tenants.as_ref();
+        tenants
+            .create(&Tenant {
+                id: tenant_id,
+                name: "Pairing tenant".to_owned(),
+                slug: format!("pairing-{tenant_id}"),
+                domain: None,
+                plan: "starter".to_owned(),
+                owner_user_id: user_id,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            })
+            .await
+            .expect("tenant row");
+        (user_id, tenant_id)
+    }
+
+    /// A pending link the account started for `channel` by `method`.
+    async fn started(
+        db: &dyn MessagingRepository,
+        tenant_id: TenantId,
+        user_id: Uuid,
+        channel: &str,
+        method: &str,
+    ) -> String {
+        let code = Uuid::new_v4().simple().to_string();
+        let user = user_id.to_string();
+        let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+        db.create_link_state(&CreateLinkStateParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: Some(&user),
+            channel_type: channel,
+            code: &code,
+            method,
+            channel_user_id: None,
+            sender_name: None,
+            app_return_uri: None,
+            expires_at: &expires_at,
+        })
+        .await
+        .expect("link state");
+        code
+    }
+
+    #[tokio::test]
+    async fn a_pairing_code_links_the_sender_on_its_own_channel() {
+        let database = create_test_db().await.expect("test database");
+        let repos = database.repositories();
+        let db: &dyn MessagingRepository = repos.messaging.as_ref();
+        let (user_id, tenant_id) = account(repos).await;
+        let code = started(db, tenant_id, user_id, "telegram", "deep_link").await;
+
+        let linked = execute_link_code(db, tenant_id, "telegram", SENDER, &code).await;
+
+        assert_eq!(linked.ok(), Some(user_id.to_string()));
+        assert!(db
+            .get_channel_link(tenant_id, "telegram", SENDER)
+            .await
+            .expect("link read")
+            .is_some());
+    }
+
+    /// carnet#1580: an OAuth link's code rides in the provider's authorize URL
+    /// and is finished only by its starter. Typed into a chat as `/start <code>`
+    /// it would bind that sender to the starter's account.
+    #[tokio::test]
+    async fn an_oauth_link_code_is_never_redeemed_in_a_chat() {
+        let database = create_test_db().await.expect("test database");
+        let repos = database.repositories();
+        let db: &dyn MessagingRepository = repos.messaging.as_ref();
+        let (user_id, tenant_id) = account(repos).await;
+
+        for (started_on, method, typed_on) in [
+            ("slack", "oauth", "telegram"),
+            ("telegram", "oauth", "telegram"),
+            ("whatsapp", "deep_link", "telegram"),
+        ] {
+            let code = started(db, tenant_id, user_id, started_on, method).await;
+
+            let refused = execute_link_code(db, tenant_id, typed_on, SENDER, &code).await;
+
+            assert!(
+                matches!(refused, Err(DeepLinkError::SessionExpired(_))),
+                "a {method} code started on {started_on} must not link on {typed_on}"
+            );
+            assert!(
+                db.get_link_state(&code)
+                    .await
+                    .expect("state read")
+                    .is_some(),
+                "a refused code is left unspent"
+            );
+            assert!(db
+                .get_channel_link(tenant_id, typed_on, SENDER)
+                .await
+                .expect("link read")
+                .is_none());
         }
     }
 }

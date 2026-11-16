@@ -293,6 +293,7 @@ mod bot_links_settings {
             method: "otp",
             channel_user_id: Some(&tg_sender_str),
             sender_name: Some("Athlete"),
+            app_return_uri: None,
             expires_at: &(Utc::now() + Duration::minutes(10)).to_rfc3339(),
         })
         .await
@@ -453,6 +454,7 @@ mod bot_links_settings {
                     method: "channel_initiated",
                     channel_user_id: Some(chat),
                     sender_name: Some("Page Athlete"),
+                    app_return_uri: None,
                     expires_at: &(Utc::now() + Duration::minutes(10)).to_rfc3339(),
                 })
                 .await

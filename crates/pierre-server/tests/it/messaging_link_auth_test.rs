@@ -85,6 +85,7 @@ async fn create_channel_initiated_link_state(
         method: "channel_initiated",
         channel_user_id: Some(channel_user_id),
         sender_name,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.create_link_state(&params).await.unwrap();
@@ -614,6 +615,7 @@ async fn test_link_callback_channel_mismatch_rejected() {
         method: "deep_link",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.create_link_state(&params).await.unwrap();
@@ -659,6 +661,7 @@ async fn link_callback_never_links_a_channel_id_named_in_the_query() {
         method: "oauth",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.create_link_state(&params).await.unwrap();
@@ -703,9 +706,12 @@ async fn link_callback_never_links_a_channel_id_named_in_the_query() {
 /// HTTP round trip directly, so they never crossed the handler-to-exchange seam
 /// where the two codes get threaded. Only a live Slack link surfaced it.
 ///
-/// The channel is deliberately left unconfigured, which keeps the test offline:
-/// a correct implementation resolves the tenant, then fails at the config
-/// lookup. What it must never do is reject the link code we just created.
+/// The request carries no session and the channel is deliberately left
+/// unconfigured, which keeps the test offline: a correct implementation
+/// resolves the link state, then refuses the caller who did not start the link
+/// (carnet#1580; `messaging_link_binding_test` covers the starter's own
+/// session, which fails next at the config lookup). What it must never do is
+/// reject the link code we just created.
 #[tokio::test]
 async fn callback_resolves_the_link_state_by_state_not_by_the_provider_code() {
     let resources = common::create_test_server_resources().await.unwrap();
@@ -724,6 +730,7 @@ async fn callback_resolves_the_link_state_by_state_not_by_the_provider_code() {
         method: "oauth",
         channel_user_id: None,
         sender_name: None,
+        app_return_uri: None,
         expires_at: &expires_at,
     };
     db.create_link_state(&params).await.unwrap();
@@ -748,7 +755,7 @@ async fn callback_resolves_the_link_state_by_state_not_by_the_provider_code() {
         status,
         400,
         "a valid link code must not be rejected as bad input; the callback should get \
-         past state resolution and fail later on the unconfigured channel. body={}",
+         past state resolution and fail later, at the session binding. body={}",
         body.split("</head>").last().unwrap_or(&body)
     );
 }

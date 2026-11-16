@@ -502,6 +502,7 @@ mod messaging_eval_tool_called_happy_path_test;
 mod messaging_inbound_location_test;
 mod messaging_intake_test;
 mod messaging_link_auth_test;
+mod messaging_link_binding_test;
 mod messaging_linking_test;
 mod messaging_locale_test;
 mod messaging_onboarding_replies_test;

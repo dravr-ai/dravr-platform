@@ -152,6 +152,7 @@ fn a_link_state_never_prints_its_code_sender_or_display_name() {
         method: "deep_link",
         channel_user_id: Some("sentinel-channel-user-7f3a"),
         sender_name: Some("sentinel-name-7f3a"),
+        app_return_uri: None,
         expires_at: "2026-10-23T00:00:00Z",
     };
     let printed = printed_without(

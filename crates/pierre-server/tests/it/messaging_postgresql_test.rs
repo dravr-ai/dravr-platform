@@ -395,6 +395,7 @@ async fn test_pg_link_state_web_initiated() {
             method: "deep_link",
             channel_user_id: None,
             sender_name: None,
+            app_return_uri: None,
             expires_at: &expires_at,
         })
         .await
@@ -443,6 +444,7 @@ async fn test_pg_link_state_channel_initiated_then_complete() {
             method: "channel_initiated",
             channel_user_id: Some("+15551234567"),
             sender_name: Some("Bob"),
+            app_return_uri: None,
             expires_at: &expires_at,
         })
         .await
@@ -545,6 +547,7 @@ async fn test_pg_create_link_state_rejects_orphan_tenant() {
             method: "channel_initiated",
             channel_user_id: Some("sender-id"),
             sender_name: None,
+            app_return_uri: None,
             expires_at: &expires_at,
         })
         .await
