@@ -98,6 +98,9 @@ struct Seen {
 
 static SCRAPER: OnceLock<(Arc<Seen>, String)> = OnceLock::new();
 
+/// A read service nothing listens on: a sign-in step sent there fails.
+const UNREACHABLE_READ_SERVICE: &str = "http://127.0.0.1:9";
+
 fn scraper() -> &'static (Arc<Seen>, String) {
     SCRAPER.get_or_init(|| {
         let seen = Arc::new(Seen::default());
@@ -249,6 +252,19 @@ impl Athlete {
         )
         .await
         .unwrap();
+        Self::on(resources).await
+    }
+
+    /// An athlete of a platform whose sign-ins run on a service of their own
+    /// (carnet#1504): the stand-in serves sign-ins, and the read service is a
+    /// closed port no step of a sign-in may reach.
+    async fn on_a_separate_sign_in_service() -> Self {
+        let mut config =
+            common::test_server_config_with_sciotte_usr_pwd_garmin(UNREACHABLE_READ_SERVICE);
+        config.external_services.sciotte.login_url = Some(scraper().1.clone());
+        let resources = common::create_test_server_resources_with_config(config)
+            .await
+            .unwrap();
         Self::on(resources).await
     }
 
@@ -753,4 +769,36 @@ async fn the_service_ending_with_no_answer_cancels_the_attempt_and_says_it_ended
         !athlete.holds_garmin_session().await,
         "a takeover the service ended links nothing"
     );
+}
+
+/// The takeover socket, the step its relay sends and the export after it all
+/// reach the sign-in service, the one that parked the browser (carnet#1504).
+#[tokio::test]
+async fn a_takeover_signs_in_on_a_sign_in_service_of_its_own() {
+    let athlete = Athlete::on_a_separate_sign_in_service().await;
+    let token = athlete.park(&email(CHALLENGED), &attempt()).await;
+    let mut viewer = athlete
+        .open(&token)
+        .await
+        .expect("the relay upgrades against the sign-in service");
+    sign_in_through(&mut viewer).await;
+    assert!(
+        athlete.holds_garmin_session().await,
+        "the session the sign-in service exported is stored"
+    );
+}
+
+/// A cancel reaches the service that runs the attempt's step (carnet#1504).
+#[tokio::test]
+async fn a_cancel_reaches_a_sign_in_service_of_its_own() {
+    let athlete = Athlete::on_a_separate_sign_in_service().await;
+    let attempt_id = attempt();
+    athlete.park(&email(CHALLENGED), &attempt_id).await;
+    athlete.cancel(&attempt_id).await;
+
+    let key = athlete.cancel_key(&attempt_id);
+    eventually("the cancel reached the sign-in service", || {
+        scraper().0.cancels.lock().unwrap().contains(&key)
+    })
+    .await;
 }

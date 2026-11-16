@@ -53,6 +53,60 @@ pub fn startup_client(remote_url: Option<&str>, audience: Option<&str>) -> Optio
     }
 }
 
+/// The client sign-ins reach the scraper service through, as the server's
+/// configuration built it at startup.
+///
+/// A sign-in parks its browser in one instance's memory while the athlete
+/// fetches a code, so a deployment runs sign-ins on a service capped at one
+/// instance, apart from the read service (carnet#1504).
+#[derive(Clone)]
+pub enum SciotteLoginClient {
+    /// No sign-in service is configured (`DRAVR_SCIOTTE_LOGIN_URL` unset):
+    /// sign-ins go to the read service, the one-service shape of local
+    /// development and the test doubles.
+    Unconfigured,
+    /// The sign-in service's own client.
+    Built(SciotteClient),
+    /// A sign-in service is configured but its client could not be built.
+    /// Sign-ins are refused rather than sent to the read service, which may
+    /// run more than one instance and lose the parked browser.
+    Unbuildable,
+}
+
+impl fmt::Debug for SciotteLoginClient {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Unconfigured => "SciotteLoginClient::Unconfigured",
+            Self::Built(_) => "SciotteLoginClient::Built",
+            Self::Unbuildable => "SciotteLoginClient::Unbuildable",
+        })
+    }
+}
+
+/// The sign-in client for `login_url`, built with the read service's
+/// `audience`, which the sign-in service shares.
+///
+/// A configured URL whose client cannot be built (an off-loopback service with
+/// no audience included) is logged once here, naming the sign-in service and
+/// the cause, and refuses every sign-in.
+#[must_use]
+pub fn startup_login_client(login_url: Option<&str>, audience: Option<&str>) -> SciotteLoginClient {
+    let Some(base_url) = login_url else {
+        return SciotteLoginClient::Unconfigured;
+    };
+    match SciotteClient::new(base_url, audience) {
+        Ok(client) => SciotteLoginClient::Built(client),
+        Err(e) => {
+            error!(
+                error = %e,
+                "DRAVR_SCIOTTE_LOGIN_URL is set but its client could not be built; \
+                 sign-ins are refused until it is fixed"
+            );
+            SciotteLoginClient::Unbuildable
+        }
+    }
+}
+
 /// Factory for Strava — Sciotte provider
 ///
 /// Every factory holds a clone of the server's one [`SciotteClient`] (`None`

@@ -8,7 +8,7 @@
 # whole budget behind it (carnet#1035). The only signal was athletes failing.
 #
 # This job signs a dedicated canary account in through the deployed
-# dravr-mcp-server-sciotte service — the revision, flags and Cloud Run egress
+# sciotte sign-in service — the revision, flags and Cloud Run egress
 # athletes get — with `pierre-cli canary sciotte-login --provider garmin`,
 # and stops at the first decision point (a code step passes; a captcha, a
 # stall or a refusal fails). A failed run logs at ERROR, which the
@@ -100,7 +100,10 @@ module "sciotte_login_canary" {
   args    = ["canary", "sciotte-login", "--provider", "garmin"]
 
   env_vars = {
-    DRAVR_SCIOTTE_REMOTE_URL = module.sciotte[0].service_url
+    # The service athletes sign in through: the sign-in service once sign-ins
+    # are split off (carnet#1504). The canary only signs in and drops the
+    # session, so it never needs the read service.
+    DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_login_split ? module.sciotte_login[0].service_url : module.sciotte[0].service_url
     DRAVR_SCIOTTE_AUDIENCE   = local.sciotte_audience
     RUST_LOG                 = "info"
   }
@@ -123,10 +126,11 @@ module "sciotte_login_canary" {
 # -----------------------------------------------------------------------------
 # Cloud Scheduler — every 6 h, off the hour
 # -----------------------------------------------------------------------------
-# Idle-cost: each run wakes the sciotte service for one login (up to ~330 s of
-# headless Chrome). sciotte is request-billed (cpu_idle = true, min 0), and
-# every 6 h is far outside the ~15 min idle window, so no idle cost
-# (check-keep-warm-traffic.sh). Paused besides, see below.
+# Idle-cost: each run wakes the sciotte sign-in service (sciotte_login.tf;
+# the read service before backend_sciotte_login_split) for one login (up to
+# ~330 s of headless Chrome). The sign-in service is request-billed (cpu_idle
+# = true, min 0), and every 6 h is far outside the ~15 min idle window, so no
+# idle cost (check-keep-warm-traffic.sh). Paused besides, see below.
 
 resource "google_cloud_scheduler_job" "sciotte_login_canary" {
   count            = var.backend_sciotte_remote ? 1 : 0

@@ -339,6 +339,50 @@ variable "backend_sciotte_remote" {
   }
 }
 
+variable "enable_sciotte_login_service" {
+  description = "Deploy the sciotte sign-in Cloud Run service (sciotte_login.tf, carnet#1504): same image as the read service, min 0, max 1. Deploying it does NOT route sign-ins — backend_sciotte_login_split does. Requires enable_sciotte_service."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.enable_sciotte_login_service || var.enable_sciotte_service
+    error_message = "enable_sciotte_login_service requires enable_sciotte_service = true (it shares the read service's container settings and scripts bucket)."
+  }
+}
+
+variable "backend_sciotte_login_split" {
+  description = "Send sciotte sign-ins to the sign-in service (sets the API's DRAVR_SCIOTTE_LOGIN_URL and the login canary's service URL). Off = sign-ins run on the read service. Requires enable_sciotte_login_service and backend_sciotte_remote."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.backend_sciotte_login_split || (var.enable_sciotte_login_service && var.backend_sciotte_remote)
+    error_message = "backend_sciotte_login_split requires enable_sciotte_login_service = true and backend_sciotte_remote = true."
+  }
+}
+
+variable "sciotte_reads_single_request" {
+  description = "The deployed sciotte image and platform read in one request: the session goes in with the read and the rotated session comes back in its answer (carnet#1504 part B). Off while a read is an import, a read and an export that can each reach a different instance. Set it only once both have shipped; it guards nothing else."
+  type        = bool
+  default     = false
+}
+
+variable "sciotte_max_instances" {
+  description = "Most instances the sciotte read service runs. Above 1 only once sign-ins run on the sign-in service (a parked sign-in is instance-bound) and reads are one request (carnet#1504 part B: a read's import, read and export can otherwise reach different instances)."
+  type        = number
+  default     = 1
+
+  validation {
+    condition     = var.sciotte_max_instances >= 1
+    error_message = "sciotte_max_instances must be at least 1: one read instance always runs."
+  }
+
+  validation {
+    condition     = var.sciotte_max_instances <= 1 || (var.backend_sciotte_login_split && var.sciotte_reads_single_request)
+    error_message = "sciotte_max_instances above 1 requires backend_sciotte_login_split = true (a sign-in parked on one read instance would have its code step answered by another) and sciotte_reads_single_request = true (a read's export could return another instance's older copy)."
+  }
+}
+
 # -----------------------------------------------------------------------------
 # Frontend Cloud Run Configuration
 # -----------------------------------------------------------------------------

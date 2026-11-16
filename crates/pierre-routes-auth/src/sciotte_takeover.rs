@@ -137,7 +137,7 @@ pub(crate) async fn handle_sciotte_takeover_ws(
     }
     let remote = resources
         .provider_registry
-        .require_sciotte_client()?
+        .require_sciotte_login_client()?
         .clone();
     let service = match remote.takeover(&flow_id).await {
         Ok(service) => service,

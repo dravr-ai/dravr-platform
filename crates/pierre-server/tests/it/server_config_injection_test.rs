@@ -22,6 +22,7 @@ use axum::Router;
 use dravr_sciotte::client::SessionRemoval;
 use pierre_auth::strava_pool::strava_seat_summary;
 use pierre_config::environment::{ProviderEndpointOverride, SciotteServiceConfig};
+use pierre_core::errors::ErrorCode;
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use tokio::net::TcpListener;
 use url::Url;
@@ -101,6 +102,7 @@ async fn a_service_off_loopback_needs_its_audience() {
     without_audience.external_services.sciotte = SciotteServiceConfig {
         remote_url: Some("https://sciotte.example.run.app".to_owned()),
         audience: None,
+        login_url: None,
     };
     let refused = create_test_server_resources_with_config(without_audience)
         .await
@@ -114,6 +116,7 @@ async fn a_service_off_loopback_needs_its_audience() {
     with_audience.external_services.sciotte = SciotteServiceConfig {
         remote_url: Some("https://sciotte.example.run.app".to_owned()),
         audience: Some("dravr-sciotte-test".to_owned()),
+        login_url: None,
     };
     let built = create_test_server_resources_with_config(with_audience)
         .await
@@ -121,6 +124,35 @@ async fn a_service_off_loopback_needs_its_audience() {
     assert!(
         built.fitness.provider_registry.sciotte_client().is_some(),
         "the audience completes a remote service's configuration"
+    );
+}
+
+#[tokio::test]
+async fn a_sign_in_service_that_cannot_be_built_refuses_sign_ins_rather_than_falling_back() {
+    let mut config = test_server_config();
+    config.external_services.sciotte = SciotteServiceConfig {
+        remote_url: Some("http://127.0.0.1:9".to_owned()),
+        audience: None,
+        // Off loopback with no audience: the client cannot be built.
+        login_url: Some("https://sciotte-login.example.run.app".to_owned()),
+    };
+    let resources = create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let registry = &resources.fitness.provider_registry;
+    assert!(
+        registry.require_sciotte_client().is_ok(),
+        "the read service is configured"
+    );
+    let refused = registry
+        .require_sciotte_login_client()
+        .err()
+        .expect("a sign-in service that cannot be built refuses sign-ins");
+    assert_eq!(refused.code, ErrorCode::ConfigError, "{refused:?}");
+    assert!(
+        refused.message.contains("DRAVR_SCIOTTE_LOGIN_URL"),
+        "{}",
+        refused.message
     );
 }
 

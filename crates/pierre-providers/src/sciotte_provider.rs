@@ -60,8 +60,9 @@ mod rotation;
 mod streams;
 
 pub use factory::{
-    startup_client, SciotteCorosProviderFactory, SciotteGarminProviderFactory,
-    SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
+    startup_client, startup_login_client, SciotteCorosProviderFactory,
+    SciotteGarminProviderFactory, SciotteLoginClient, SciotteProviderFactory,
+    SciotteTrainingPeaksProviderFactory,
 };
 
 /// What a provider's own login form accepts as the account.

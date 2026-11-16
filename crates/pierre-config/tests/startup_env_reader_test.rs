@@ -33,27 +33,57 @@ const TIMEOUT_VARS: [&str; 6] = [
 fn startup_captures_the_sciotte_service_and_operator_settings() {
     env::remove_var("DRAVR_SCIOTTE_REMOTE_URL");
     env::remove_var("DRAVR_SCIOTTE_AUDIENCE");
+    env::remove_var("DRAVR_SCIOTTE_LOGIN_URL");
 
     let unset = SciotteServiceConfig::from_env();
     assert_eq!(unset.remote_url, None);
     assert_eq!(unset.audience, None);
+    assert_eq!(
+        unset.login_url, None,
+        "no DRAVR_SCIOTTE_LOGIN_URL leaves sign-ins on the read service"
+    );
 
     // A URL that is only slashes, or an empty audience, configures nothing.
     env::set_var("DRAVR_SCIOTTE_REMOTE_URL", "//");
     env::set_var("DRAVR_SCIOTTE_AUDIENCE", "");
+    env::set_var("DRAVR_SCIOTTE_LOGIN_URL", "/");
     let blank = SciotteServiceConfig::from_env();
     assert_eq!(blank.remote_url, None);
     assert_eq!(blank.audience, None);
+    assert_eq!(
+        blank.login_url, None,
+        "a login URL of only slashes configures no sign-in service"
+    );
 
     env::set_var(
         "DRAVR_SCIOTTE_REMOTE_URL",
         "https://sciotte.example.run.app",
     );
     env::set_var("DRAVR_SCIOTTE_AUDIENCE", "dravr-sciotte-production");
+    env::set_var(
+        "DRAVR_SCIOTTE_LOGIN_URL",
+        "https://sciotte-login.example.run.app",
+    );
     let configured = SciotteServiceConfig::from_env();
     assert_eq!(
         configured.remote_url.as_deref(),
         Some("https://sciotte.example.run.app")
+    );
+    assert_eq!(
+        configured.login_url.as_deref(),
+        Some("https://sciotte-login.example.run.app"),
+        "a set DRAVR_SCIOTTE_LOGIN_URL is read as the sign-in service"
+    );
+
+    // The read service named again is the one service, not a second one.
+    env::set_var(
+        "DRAVR_SCIOTTE_LOGIN_URL",
+        "https://sciotte.example.run.app/",
+    );
+    assert_eq!(
+        SciotteServiceConfig::from_env().login_url,
+        None,
+        "a login URL naming the read service is no sign-in service of its own"
     );
     assert_eq!(
         configured.audience.as_deref(),

@@ -793,6 +793,24 @@ pub(crate) fn test_server_config_with_sciotte(url: &str) -> ServerConfig {
     config.external_services.sciotte = SciotteServiceConfig {
         remote_url: Some(url.to_owned()),
         audience: None,
+        login_url: None,
+    };
+    config
+}
+
+/// [`test_server_config`] with the sciotte read service at `read_url` and the
+/// sign-in service at `login_url`, both on loopback: the two-service shape a
+/// deployment runs (carnet#1504).
+#[must_use]
+pub(crate) fn test_server_config_with_sciotte_planes(
+    read_url: &str,
+    login_url: &str,
+) -> ServerConfig {
+    let mut config = test_server_config();
+    config.external_services.sciotte = SciotteServiceConfig {
+        remote_url: Some(read_url.to_owned()),
+        audience: None,
+        login_url: Some(login_url.to_owned()),
     };
     config
 }

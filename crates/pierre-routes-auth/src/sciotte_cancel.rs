@@ -352,7 +352,7 @@ pub(crate) async fn cancel_attempt(
     attempt_id: &str,
 ) -> Result<bool, AppError> {
     let cancel_key = cancel_key_for(tenant_id, user_id, attempt_id)?;
-    let remote = resources.provider_registry.require_sciotte_client()?;
+    let remote = resources.provider_registry.require_sciotte_login_client()?;
     let filed = file_cancelled_attempt(&resources.cache, tenant_id, user_id, attempt_id).await;
     let stopped = stop_on_service(&resources.cache, remote, tenant_id, user_id, &cancel_key).await;
     info!(%user_id, filed, stopped, "Sciotte sign-in cancelled by its caller");

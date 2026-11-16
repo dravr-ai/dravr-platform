@@ -737,6 +737,14 @@ module "backend" {
       # Fallback to ephemeral SQLite when Cloud SQL is disabled
       DATABASE_URL = "sqlite:./data/users.db"
     },
+    # Where sign-ins go (carnet#1504): the sign-in service, capped at one
+    # instance because a parked 2FA browser lives in its memory. Absent until
+    # backend_sciotte_login_split, so the variable lands with the deliberate
+    # apply that turns the split on, never as an empty value on an unrelated
+    # one; absent sends sign-ins to DRAVR_SCIOTTE_REMOTE_URL.
+    var.backend_sciotte_login_split ? {
+      DRAVR_SCIOTTE_LOGIN_URL = module.sciotte_login[0].service_url
+    } : {},
     var.enable_cache ? {
       REDIS_URL = module.cache[0].redis_url
     } : {},
@@ -1062,11 +1070,10 @@ module "sql_client" {
 
 # -----------------------------------------------------------------------------
 # Sciotte scraper service (ADR-021) — the dedicated headless-Chrome service the
-# API routes sciotte logins/scrapes to when DRAVR_SCIOTTE_REMOTE_URL is set.
-# One multi-provider instance (garmin+strava, bare `serve`), scale-to-zero:
-# min=0 + cpu_idle=true make idle cost ~$0 (per-request billing), unlike the
-# API pod's ADR-019 floor. maxInstances=1 until the affinity-cookie scale-out
-# lands (parked 2FA browsers are instance-bound; scrapes re-import and are not).
+# API routes sciotte reads (and, until backend_sciotte_login_split, sign-ins)
+# to when DRAVR_SCIOTTE_REMOTE_URL is set. One multi-provider service; sign-ins
+# move to module.sciotte_login (sciotte_login.tf), which shares its container
+# settings, because a parked 2FA browser is instance-bound (carnet#1504).
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # photograveur — the chart press.
@@ -1159,7 +1166,9 @@ module "sciotte" {
   # 2 vCPU / 3Gi sized for DRAVR_SCIOTTE_MAX_CONCURRENT=3 headless Chromes
   # (~300-500MB each) plus the vision LLM subprocess headroom. Measured over
   # 2026-11-06..13 at 2Gi: CPU p99 10%, memory p99 12%, so the third Chrome
-  # (the login takeover, carnet#1508) is what the extra 1Gi is for.
+  # (the login takeover, carnet#1508) is what the extra 1Gi is for. Once
+  # sign-ins run on module.sciotte_login, the Chromes left here are Garmin's
+  # session renewals: re-measure before shrinking it (#1504 part B).
   cpu               = "2"
   memory            = "3Gi"
   cpu_idle          = true
@@ -1169,9 +1178,12 @@ module "sciotte" {
   # most of a chat turn's 15s read budget. cpu_idle keeps it CPU-throttled
   # between requests, so the warm instance bills at the idle rate.
   min_instances = 1
-  # One instance only: a parked 2FA login lives in that instance's memory and
-  # Cloud Run has no affinity to route its answer back (carnet#1504).
-  max_instances = 1
+  # 1 until reads are one request: a read imports the session, reads, then
+  # exports a rotated copy, and on a second instance that export can return an
+  # older copy the platform would store over the good one (carnet#1504 part B).
+  # The variable's validation refuses more than 1 while sign-ins still run
+  # here (backend_sciotte_login_split off).
+  max_instances = var.sciotte_max_instances
   # Scrapes are long-lived; keep the per-instance request budget near the
   # queue depth so overload sheds as app-level 503+Retry-After, not as a
   # Cloud Run queue pile-up.
@@ -1208,95 +1220,13 @@ module "sciotte" {
   # is creating. Environment-scoped, or a dev token replays against prod.
   custom_audiences = [local.sciotte_audience]
 
-  # Hot-swappable extraction scripts / prompt overrides. Only this service
-  # mounts the bucket: the API pod runs no scraper.
-  gcs_volumes = {
-    sciotte-scripts = {
-      bucket     = google_storage_bucket.sciotte_scripts.name
-      mount_path = "/sciotte-scripts"
-      read_only  = true
-    }
-  }
+  # Hot-swappable extraction scripts / prompt overrides (sciotte_login.tf).
+  gcs_volumes = local.sciotte_gcs_volumes
 
-  env_vars = {
-    # The audience this service requires in an identity token. It refuses to
-    # start without it: a scraper that cannot pin its audience would accept
-    # tokens minted for any other Google service.
-    DRAVR_SCIOTTE_AUDIENCE = local.sciotte_audience
+  # Shared with the sign-in service (sciotte_login.tf).
+  env_vars = local.sciotte_env_vars
 
-    # The one caller it admits: the API's service account. Any Google service
-    # account can mint a token for a given audience, so the audience alone would
-    # admit every one of them; the service refuses to start on a reachable bind
-    # without this list (carnet#567). Set whatever backend_sciotte_iam says,
-    # because the container's own verifier checks it on every platform route
-    # whether or not Cloud Run IAM is also in front.
-    DRAVR_SCIOTTE_ALLOWED_CALLERS = module.service_accounts.app_service_account_email
-
-    # Backpressure limiter — fail-fast required set (no crate defaults).
-    # max_concurrent=3 matches the 3Gi memory sizing above: the third Chrome
-    # is the athlete's login takeover (carnet#1508).
-    DRAVR_SCIOTTE_MAX_CONCURRENT          = "3"
-    DRAVR_SCIOTTE_MAX_QUEUE               = "8"
-    DRAVR_SCIOTTE_QUEUE_TIMEOUT_SECS      = "10"
-    DRAVR_SCIOTTE_WATCHDOG_INTERVAL_SECS  = "15"
-    DRAVR_SCIOTTE_RETRY_AFTER_HINT_SECS   = "5"
-    DRAVR_SCIOTTE_CLOSED_RETRY_AFTER_SECS = "60"
-    # Reads run over HTTP with a per-session cookie jar, not in a browser, so
-    # they are admitted apart from the Chrome logins above. Required from
-    # sciotte 1.0.0; the 0.28 image ignores it.
-    DRAVR_SCIOTTE_MAX_CONCURRENT_READS = tostring(var.sciotte_max_concurrent_reads)
-
-    # Interactive-login windows — one source of truth with the API pod's
-    # in-process path during the migration.
-    DRAVR_SCIOTTE_LOGIN_TIMEOUT         = tostring(var.backend_sciotte_login_timeout_secs)
-    DRAVR_SCIOTTE_PASSWORD_STEP_TIMEOUT = tostring(var.backend_sciotte_password_step_timeout_secs)
-    DRAVR_SCIOTTE_PHONE_TAP_TIMEOUT     = tostring(var.backend_sciotte_phone_tap_timeout_secs)
-
-    # Ceiling on detail-page navigations in one scrape request, ~3.4s each.
-    # Every detail pass is opted into per request (carnet#409): the Strava
-    # location backfill (detail=missing_location) and PIERRE_SCIOTTE_ENRICH_DETAILS
-    # on the API service (detail=every) alike, and a request's own cap is
-    # tightened to this. 10 bounds a pass at ~34s, inside the platform's 90s
-    # loopback bound; the crate default of 30 (~101s) overran it on 2026-09-08,
-    # when a completed scrape was discarded. 0 disables every detail pass.
-    DRAVR_SCIOTTE_MAX_DETAIL_NAVIGATIONS = "10"
-
-    # Hybrid login: selectors first, vision (Copilot screenshot reasoning) on
-    # failure — required for the Strava/Google OAuth path (validated live).
-    # COPILOT_HEADLESS_MODEL is the vision model: the service builds its
-    # analyzer from embacle's CopilotHeadlessConfig::from_env and sends each
-    # screenshot with no per-request model. claude-sonnet-5.5 is the model
-    # the chat chain's copilot_sdk tier runs (JF, 2026-10-01).
-    DRAVR_SCIOTTE_LOGIN_MODE  = "hybrid"
-    COPILOT_HEADLESS_MODEL    = "claude-sonnet-5.5"
-    DRAVR_SCIOTTE_SCRIPTS_DIR = "/sciotte-scripts"
-
-    # Same denial as the API pod — embacle defaults to AutoApprove, which
-    # leaves Copilot's shell/file tools live in this container too. The vision
-    # path sends the screenshot as an inline base64 PNG (`analyze_screenshot`),
-    # so the model never needs a tool to read one.
-    COPILOT_HEADLESS_PERMISSION_POLICY = "deny_all"
-
-    # The launch UA. Unset, dravr-browser falls back to a fixed Chrome/147 Mac
-    # string on a Linux Chromium 155, a mismatch Garmin's SSO may score as a
-    # bot (carnet#1035). Keep the major version in step with the image's
-    # Chromium when it moves.
-    DRAVR_BROWSER_USER_AGENT = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36"
-
-    # Credential logins launch headless. Unset, sciotte opens a headed Chrome
-    # for them, which in this display-less container met Garmin's SSO captcha
-    # at page render (button disabled before submit) on every login from
-    # 2026-10-09 to 10-16; headless reached the emailed-code step in 1.5 s on
-    # the first try (carnet#1035).
-    DRAVR_SCIOTTE_CREDENTIAL_LOGIN_HEADLESS = "true"
-  }
-
-  secret_env_vars = {
-    # Vision LLM credential (Copilot CLI), same secret the API pod uses.
-    # Request auth is the Google identity-token gate (DRAVR_SCIOTTE_AUDIENCE
-    # env above) — no shared key since the registre#36 cutover.
-    COPILOT_GITHUB_TOKEN = module.secrets.secret_ids["copilot_github_token"]
-  }
+  secret_env_vars = local.sciotte_secret_env_vars
 
   health_check_path           = "/health"
   startup_probe_initial_delay = 5

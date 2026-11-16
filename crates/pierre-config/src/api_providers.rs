@@ -53,19 +53,40 @@ pub struct SciotteServiceConfig {
     /// (`DRAVR_SCIOTTE_AUDIENCE`); `None` when unset or empty. A loopback
     /// service needs none.
     pub audience: Option<String>,
+    /// The base URL of the service that runs sign-ins
+    /// (`DRAVR_SCIOTTE_LOGIN_URL`); `None` when unset, empty or only slashes.
+    ///
+    /// A sign-in parks its browser in one instance's memory while the athlete
+    /// fetches a code, so logins go to a service capped at one instance while
+    /// reads go to `remote_url` (carnet#1504). It takes the same audience.
+    /// `None` sends sign-ins to `remote_url`, the one-service shape local
+    /// development and the test doubles run; so does a URL naming `remote_url`
+    /// itself.
+    pub login_url: Option<String>,
 }
 
 impl SciotteServiceConfig {
     /// Load the scraper service's address from the environment
     #[must_use]
     pub fn from_env() -> Self {
+        let remote_url = env::var("DRAVR_SCIOTTE_REMOTE_URL")
+            .ok()
+            .filter(|url| !url.trim_end_matches('/').is_empty());
+        // The read service named again is one service, not a sign-in service
+        // of its own: sign-ins would otherwise drop the session the reads use.
+        let login_url = env::var("DRAVR_SCIOTTE_LOGIN_URL")
+            .ok()
+            .filter(|url| !url.trim_end_matches('/').is_empty())
+            .filter(|url| {
+                remote_url.as_deref().map(|read| read.trim_end_matches('/'))
+                    != Some(url.trim_end_matches('/'))
+            });
         Self {
-            remote_url: env::var("DRAVR_SCIOTTE_REMOTE_URL")
-                .ok()
-                .filter(|url| !url.trim_end_matches('/').is_empty()),
+            remote_url,
             audience: env::var("DRAVR_SCIOTTE_AUDIENCE")
                 .ok()
                 .filter(|audience| !audience.is_empty()),
+            login_url,
         }
     }
 }

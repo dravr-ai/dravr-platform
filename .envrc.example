@@ -134,6 +134,13 @@ export PIERRE_DEFAULT_PROVIDER=strava
 # Never 8091: that is the isolated Pierre server's port, and setup refuses a
 # sciotte port equal to HTTP_PORT.
 # export DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:8096"
+#
+# Sign-ins on their own sciotte service (carnet#1504), optional. A sign-in that
+# asks for a code parks its browser in one instance's memory, so a deployment
+# runs sign-ins on a service capped at one instance and reads on the one above.
+# Unset sends sign-ins to DRAVR_SCIOTTE_REMOTE_URL, which is what one local
+# service wants.
+# export DRAVR_SCIOTTE_LOGIN_URL="http://127.0.0.1:8098"
 
 # ----------------------------------------------------------------------------
 # Strava Provider Configuration

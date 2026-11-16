@@ -49,8 +49,8 @@ use crate::intervals_icu_provider::{
 use crate::sciotte_error::require_client;
 #[cfg(feature = "provider-sciotte")]
 use crate::sciotte_provider::{
-    SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteProviderFactory,
-    SciotteTarget, SciotteTrainingPeaksProviderFactory,
+    SciotteCorosProviderFactory, SciotteGarminProviderFactory, SciotteLoginClient,
+    SciotteProviderFactory, SciotteTarget, SciotteTrainingPeaksProviderFactory,
 };
 #[cfg(feature = "provider-coros")]
 use crate::spi::CorosDescriptor;
@@ -116,6 +116,11 @@ pub struct ProviderRegistry {
     /// service configured) makes every scrape report the service missing.
     #[cfg(feature = "provider-sciotte")]
     sciotte_client: Option<SciotteClient>,
+    /// The client sign-ins go through: their own service when one is
+    /// configured, since a parked sign-in lives in one instance's memory
+    /// (carnet#1504).
+    #[cfg(feature = "provider-sciotte")]
+    sciotte_login: SciotteLoginClient,
 }
 
 impl fmt::Debug for ProviderRegistry {
@@ -141,6 +146,8 @@ impl ProviderRegistry {
             request_limiter: None,
             #[cfg(feature = "provider-sciotte")]
             sciotte_client: None,
+            #[cfg(feature = "provider-sciotte")]
+            sciotte_login: SciotteLoginClient::Unconfigured,
         };
 
         // Register all enabled providers
@@ -804,6 +811,46 @@ impl ProviderRegistry {
     #[cfg(feature = "provider-sciotte")]
     pub fn require_sciotte_client(&self) -> AppResult<&SciotteClient> {
         require_client(self.sciotte_client.as_ref())
+    }
+
+    /// This registry, sending sign-ins (logins, their code steps, cancels,
+    /// the takeover, the export that follows) through `client`.
+    #[cfg(feature = "provider-sciotte")]
+    #[must_use]
+    pub fn with_sciotte_login_client(mut self, client: SciotteLoginClient) -> Self {
+        self.sciotte_login = client;
+        self
+    }
+
+    /// Whether sign-ins run on a service of their own, apart from the read
+    /// service: only then does a signed-in session's copy there serve no read.
+    #[cfg(feature = "provider-sciotte")]
+    #[must_use]
+    pub const fn sciotte_sign_ins_separate(&self) -> bool {
+        matches!(self.sciotte_login, SciotteLoginClient::Built(_))
+    }
+
+    /// The client a sign-in calls the scraper service through.
+    ///
+    /// Every step of one sign-in must reach the instance that parked its
+    /// browser, so it is the sign-in service's client when one is configured,
+    /// and the read service's when none is.
+    ///
+    /// # Errors
+    ///
+    /// The not-configured error when no service serves sign-ins, and a
+    /// configuration error when a sign-in service is configured but its client
+    /// could not be built: the read service is never used in its place.
+    #[cfg(feature = "provider-sciotte")]
+    pub fn require_sciotte_login_client(&self) -> AppResult<&SciotteClient> {
+        match &self.sciotte_login {
+            SciotteLoginClient::Built(client) => Ok(client),
+            SciotteLoginClient::Unconfigured => require_client(self.sciotte_client.as_ref()),
+            SciotteLoginClient::Unbuildable => Err(AppError::config(
+                "DRAVR_SCIOTTE_LOGIN_URL is set but its sciotte client could not be built \
+                 (see the startup log); sign-ins are refused rather than sent to the read service",
+            )),
+        }
     }
 
     /// The budget of `app` (the signing OAuth client's id), with the app's own
