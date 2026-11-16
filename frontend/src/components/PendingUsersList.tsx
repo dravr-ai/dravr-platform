@@ -137,7 +137,7 @@ export default function PendingUsersList() {
                 <Button
                   onClick={() => handleApprove(user)}
                   size="sm"
-                  className="bg-activity hover:bg-activity/80 text-on-primary"
+                  variant="success"
                 >
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -147,8 +147,7 @@ export default function PendingUsersList() {
                 <Button
                   onClick={() => handleSuspend(user)}
                   size="sm"
-                  variant="outline"
-                  className="border-error/30 text-error hover:bg-error/10"
+                  variant="danger-outline"
                 >
                   <svg className="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />

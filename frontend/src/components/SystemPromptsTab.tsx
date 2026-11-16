@@ -12,7 +12,7 @@ import {
   type SupportedLanguage,
 } from "@pierre/i18n";
 import { adminApi } from "../services/api";
-import { BADGE_TONE, Card, Button, Textarea } from "./ui";
+import { ALERT_TONE, BADGE_TONE, Card, Button, Textarea } from "./ui";
 import { clsx } from "clsx";
 import { ADMIN_LOCALE } from "../utils/adminLocale";
 
@@ -296,7 +296,7 @@ export default function SystemPromptsTab() {
           </Button>
         </div>
         {syncMutation.isSuccess && syncMutation.data && (
-          <div className="mt-2 text-sm text-activity">
+          <div className={clsx("mt-2 text-sm", ALERT_TONE.success.ink)}>
             Synced {syncMutation.data.synced}, skipped{" "}
             {syncMutation.data.skipped}
             {syncMutation.data.failed > 0 &&
@@ -505,7 +505,7 @@ export default function SystemPromptsTab() {
                     )}
                     {updateMutation.isSuccess &&
                       updateMutation.data?.commit_sha && (
-                        <div className="text-sm text-activity">
+                        <div className={clsx("text-sm", ALERT_TONE.success.ink)}>
                           Committed to GitHub:{" "}
                           {updateMutation.data.commit_sha.slice(0, 8)}
                         </div>

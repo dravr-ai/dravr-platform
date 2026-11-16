@@ -14,20 +14,7 @@ import {
   localizedLabel,
   mapLayerStyle,
 } from '../src/index';
-
-/** WCAG 2.x relative luminance of a `#rrggbb` colour. */
-function luminance(hex: string): number {
-  const channel = (offset: number) => {
-    const c = parseInt(hex.slice(offset, offset + 2), 16) / 255;
-    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  return 0.2126 * channel(1) + 0.7152 * channel(3) + 0.0722 * channel(5);
-}
-
-function contrast(a: string, b: string): number {
-  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (high + 0.05) / (low + 0.05);
-}
+import { contrastHex as contrast } from '../src/wcag';
 
 /** Ground colours read out of the two OpenFreeMap styles' background and fill layers. */
 const GROUNDS = {

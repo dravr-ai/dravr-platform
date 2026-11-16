@@ -96,7 +96,7 @@ export default function EngagementTab({ onNavigate }: EngagementTabProps) {
             </p>
             <button
               onClick={() => onNavigate?.("agents")}
-              className="px-6 py-2.5 rounded-lg bg-primary/20 text-primary font-medium hover:bg-primary/30 transition-colors border border-primary/30"
+              className={`${BADGE_TONE.primary.tone} ${BADGE_TONE.primary.hover} px-6 py-2.5 rounded-lg font-medium transition-colors border border-primary/30`}
             >
               Go to Agents
             </button>
@@ -276,7 +276,7 @@ function TimeRangeSelector({
                 onClick={() => onChange(numValue)}
                 className={`px-3 py-1.5 text-sm rounded-lg transition-colors ${
                   timeRange === numValue
-                    ? "bg-primary/20 text-primary border border-primary/30"
+                    ? `${BADGE_TONE.primary.tone} border border-primary/30`
                     : "text-on-surface-variant hover:bg-surface-container-low hover:text-on-surface border border-transparent"
                 }`}
               >

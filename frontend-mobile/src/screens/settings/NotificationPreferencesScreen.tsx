@@ -3,7 +3,7 @@
 
 import React, { useMemo, useState } from 'react';
 import { View, Text, Pressable, Switch, ActivityIndicator } from 'react-native';
-import { PaneScrollView, Section, TextTabs } from '../../components/ui';
+import { PaneScrollView, Section, TextTabs, switchColors } from '../../components/ui';
 import type { NotificationCategory } from '@pierre/shared-types';
 import {
   NOTIFICATION_CATEGORY_BLURB_KEYS,
@@ -114,7 +114,7 @@ export function NotificationPreferencesScreen() {
                       onValueChange={(next) =>
                         updatePreference(notificationPreferenceUpdate(pref, { enabled: next }))
                       }
-                      trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                      {...switchColors(colors.tokens, pref.enabled)}
                     />
                   }
                 >

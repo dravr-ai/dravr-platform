@@ -11,7 +11,7 @@ import { FORM_BAND_LABEL_KEY } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { FORM_STRIP_STEPS, formStripIndex } from '@pierre/ui-logic';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
-import { InitialsAvatar } from '../../components/ui';
+import { BADGE_TONE, InitialsAvatar } from '../../components/ui';
 
 const AVATAR_SIZE = { sm: 32, md: 36, lg: 44 } as const;
 
@@ -124,25 +124,36 @@ const PHASE_FILL: Record<CoachRosterPhaseKind | 'draft', string> = {
   draft: 'border-[1.5px] border-dashed border-primary',
 };
 
-const PHASE_INK: Record<CoachRosterPhaseKind | 'draft', string> = {
-  prep: 'text-text-secondary',
-  base: 'text-text-secondary',
-  build: 'text-on-info-container',
-  specialty: 'text-on-primary-container',
-  peak: 'text-on-warning-container',
-  taper: 'text-on-warning-container',
-  race: 'text-surface',
-  transition: 'text-text-secondary',
-  recovery: 'text-text-secondary',
-  draft: 'text-primary',
+/**
+ * A band that carries its label — the athlete screen's plan row — keeps the
+ * light tint in both schemes and labels it in the ink bound to that tint. The
+ * season bars' dark lift above is for a fill read on its own; under a label
+ * it costs the words, which read 2.40:1 there (peak on `warning/50`, dark,
+ * `surface-container-highest`). The tints are the badge's, measured with
+ * their ink on every ground in both schemes (`CoachHomeParts.test.tsx`), so
+ * peak and taper sit at /15: at /20 their ink reads 4.41:1 on the top tier.
+ * A band tells its phase by its label here, so the light tints need not stay
+ * apart in dark.
+ */
+const PHASE_BAND: Record<CoachRosterPhaseKind | 'draft', { fill: string; ink: string }> = {
+  prep: { fill: BADGE_TONE.neutral.fill, ink: 'text-text-secondary' },
+  base: { fill: BADGE_TONE.neutral.fill, ink: 'text-text-secondary' },
+  build: { fill: BADGE_TONE.info.fill, ink: BADGE_TONE.info.ink },
+  specialty: { fill: 'bg-primary/20', ink: 'text-on-primary-container' },
+  peak: { fill: BADGE_TONE.warning.fill, ink: BADGE_TONE.warning.ink },
+  taper: { fill: BADGE_TONE.warning.fill, ink: BADGE_TONE.warning.ink },
+  race: { fill: 'bg-on-surface', ink: 'text-surface' },
+  transition: { fill: 'border border-dashed border-outline', ink: 'text-text-secondary' },
+  recovery: { fill: 'border border-dashed border-outline', ink: 'text-text-secondary' },
+  draft: { fill: 'border-[1.5px] border-dashed border-primary', ink: 'text-primary' },
 };
 
-/** The classes a phase band is filled with: a tint per kind, a dashed outline for the quiet ones and for a draft. */
+/** The classes a season bar is filled with: a tint per kind, lifted in dark, a dashed outline for the quiet ones and for a draft. */
 export function phaseFill(kind: CoachRosterPhaseKind | 'draft'): string {
   return PHASE_FILL[kind];
 }
 
-/** The ink a label on that band takes. */
-export function phaseInk(kind: CoachRosterPhaseKind | 'draft'): string {
-  return PHASE_INK[kind];
+/** A band that carries its label: the fill it takes in both schemes and the ink its label takes. */
+export function phaseBand(kind: CoachRosterPhaseKind | 'draft'): { fill: string; ink: string } {
+  return PHASE_BAND[kind];
 }

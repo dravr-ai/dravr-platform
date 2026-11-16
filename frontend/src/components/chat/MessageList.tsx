@@ -26,6 +26,7 @@ import MessageBubble from './MessageBubble';
 import DaySeparator from './DaySeparator';
 import TopicDivider from './TopicDivider';
 import CoachAvatar from './CoachAvatar';
+import { ALERT_TONE } from '../ui';
 import { FoldedTurnTrail, LiveTurnIndicator, LiveTurnLine } from './TurnTrail';
 import { PrivateLaneDivider, PrivateReplyTag } from './PrivateLane';
 import type { ChatMessageAction, ClaimVerdict, MessageAudience, ReplyBlock } from '@pierre/shared-types';
@@ -460,20 +461,20 @@ export default function MessageList({
       {/* Error message display */}
       {errorMessage && !isStreaming && (
         <MessageBubble side="assistant" authorLabel={author} avatar={<CoachAvatar label={author} />}>
-          <div className="w-fit max-w-full rounded-lg border border-error/30 bg-error/10 px-3 py-2" data-testid="turn-error-box">
-            <p className="text-sm text-error" data-testid="turn-error">{errorMessage}</p>
+          <div className={`${ALERT_TONE.error.tone} w-fit max-w-full rounded-lg border px-3 py-2`} data-testid="turn-error-box">
+            <p className="text-sm" data-testid="turn-error">{errorMessage}</p>
             <div className="mt-2 flex gap-3">
               {onRetryError && (
                 <button
                   onClick={onRetryError}
-                  className="touch-target text-xs font-medium text-error underline transition-colors hover:text-error"
+                  className="touch-target text-xs font-medium underline transition-colors"
                 >
                   {t('chat.retry')}
                 </button>
               )}
               <button
                 onClick={onDismissError}
-                className="touch-target text-xs text-error underline transition-colors hover:text-error"
+                className="touch-target text-xs underline transition-colors"
               >
                 {t('chat.dismiss')}
               </button>

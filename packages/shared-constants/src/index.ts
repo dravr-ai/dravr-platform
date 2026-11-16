@@ -477,3 +477,7 @@ export type {
 } from './coach-seat';
 // The pending coach's Home: who lands on it, whether they train too, and its words (carnet#1529)
 export { COACH_SETUP_KEYS, coachTrainsToo, landsOnPendingCoachHome } from './coach-setup';
+
+// The one WCAG contrast calculator (generators and both clients' tone tests).
+export { GRAPHIC_FLOOR, TEXT_FLOOR, contrast, contrastHex, hexToRgb, luminanceHex, over } from './wcag';
+export type { Rgb } from './wcag';

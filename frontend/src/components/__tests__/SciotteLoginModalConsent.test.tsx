@@ -133,17 +133,17 @@ describe('SciotteLoginModal — Boreal inks', () => {
     document.documentElement.classList.remove('dark');
   });
 
-  it('writes the notice in the amber tint\'s own ink, not the body ink', () => {
+  it('writes the notice in the warning alert\'s own ink, not the body ink', () => {
     renderModal('trainingpeaks', true);
 
+    // The alert tone carries the tint and the ink; the title and body take
+    // that ink by inheritance, so neither names a colour of its own.
     const notice = screen.getByRole('note');
-    expect(notice).toHaveClass('bg-warning/10');
+    expect(notice).toHaveClass('alert-warning');
     const title = screen.getByText('Before you connect TrainingPeaks');
-    expect(title).toHaveClass('text-on-warning-container');
-    expect(title).not.toHaveClass('text-on-surface');
+    expect(title.className).not.toMatch(/\btext-(on-surface|warning|nutrition)/);
     const body = notice.querySelectorAll('p')[1];
-    expect(body).toHaveClass('text-on-warning-container');
-    expect(body.className).not.toMatch(/text-on-surface/);
+    expect(body.className).not.toMatch(/\btext-(on-surface|warning|nutrition)/);
   });
 
   it('makes Log In the Boreal primary button, full width, disabled until the form is complete', () => {

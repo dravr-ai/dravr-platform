@@ -72,6 +72,8 @@ describe('ReconnectBanner', () => {
       'Reconnect Strava, Garmin to see your new activities.',
     );
     expect(screen.getByText('Reconnect needed')).toBeTruthy();
+    // The warning alert's ink on its tint (carnet#1584): React Native inherits no colour.
+    expect(screen.getByText('Reconnect needed').props.className).toContain('text-on-warning-container');
     expect(screen.getByTestId('reconnect-banner-action')).toHaveTextContent('Reconnect');
     expect(screen.queryByText(/COROS/)).toBeNull();
   });

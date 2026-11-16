@@ -248,9 +248,10 @@ describe('PublishedCoachesList', () => {
       expect(screen.getByText('Unpublish Agent')).toBeInTheDocument();
     });
 
-    // Find the confirm button in the dialog (it has btn-danger class)
+    // Find the confirm button in the dialog: the filled btn-danger, not the
+    // row's quiet btn-danger-outline that opened it.
     const allUnpublishButtons = screen.getAllByRole('button', { name: /^Unpublish$/i });
-    const confirmButton = allUnpublishButtons.find(btn => btn.className.includes('btn-danger'));
+    const confirmButton = allUnpublishButtons.find(btn => btn.classList.contains('btn-danger'));
     expect(confirmButton).toBeDefined();
     await user.click(confirmButton!);
 

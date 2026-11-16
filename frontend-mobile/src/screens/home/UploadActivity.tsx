@@ -10,6 +10,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import { useTranslation } from '@pierre/i18n';
 import { describeActivityUpload, type UseActivityUploadResult } from '@pierre/ui-logic';
+import { ALERT_TONE } from '../../components/ui';
 
 /**
  * Ask the system for one file and upload it. `.fit` has no registered type
@@ -67,19 +68,19 @@ export function UploadActivityStatus({ uploader }: { uploader: UseActivityUpload
   if (outcome === null) return null;
   return (
     <View
-      className="mx-4 mb-2 flex-row flex-wrap items-center rounded-lg bg-error/15 px-3"
+      className={`mx-4 mb-2 flex-row flex-wrap items-center rounded-lg ${ALERT_TONE.error.fill} px-3`}
       accessibilityRole="alert"
       accessibilityLiveRegion="polite"
       testID="home-upload-failed"
     >
-      <Text className="py-2 text-sm text-on-error-container">{describeActivityUpload(outcome, t)}</Text>
+      <Text className={`py-2 text-sm ${ALERT_TONE.error.ink}`}>{describeActivityUpload(outcome, t)}</Text>
       <Pressable
         onPress={uploader.dismiss}
         accessibilityRole="button"
         className="ml-1 min-h-11 justify-center px-2"
         testID="home-upload-dismiss"
       >
-        <Text className="text-sm font-medium text-on-error-container underline">{t('common.close')}</Text>
+        <Text className={`text-sm font-medium ${ALERT_TONE.error.ink} underline`}>{t('common.close')}</Text>
       </Pressable>
     </View>
   );

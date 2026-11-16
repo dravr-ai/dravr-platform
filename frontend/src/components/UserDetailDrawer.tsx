@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserTier } from '../types/api';
 import { hasAdminRole } from '@pierre/shared-types';
-import { Button, Card, Select } from './ui';
+import { ALERT_TONE, Button, Card, Select } from './ui';
 import { Badge } from './ui/Badge';
 import PasswordResetModal from './PasswordResetModal';
 import { useAuth } from '../hooks/useAuth';
@@ -196,8 +196,8 @@ export default function UserDetailDrawer({
 
   const getUsageColor = (percentage: number) => {
     if (percentage >= 90) return 'bg-error';
-    if (percentage >= 75) return 'bg-nutrition';
-    return 'bg-activity';
+    if (percentage >= 75) return 'bg-warning';
+    return 'bg-success';
   };
 
   return (
@@ -269,7 +269,7 @@ export default function UserDetailDrawer({
                       );
                       setTierEditing(true);
                     }}
-                    className="text-xs text-activity hover:underline"
+                    className="text-xs text-primary hover:underline"
                   >
                     Edit tier
                   </button>
@@ -305,7 +305,6 @@ export default function UserDetailDrawer({
                   <Button
                     onClick={() => setTierMutation.mutate(tierValue)}
                     disabled={setTierMutation.isPending}
-                    className="bg-activity text-on-primary"
                   >
                     {setTierMutation.isPending ? 'Saving…' : 'Save tier'}
                   </Button>
@@ -442,9 +441,9 @@ export default function UserDetailDrawer({
                 </div>
                 <div className="pt-2 border-t ghost-border space-y-2">
                   {rateLimit.override_active ? (
-                    <div className="rounded-md bg-activity/10 border border-activity/30 p-2 text-xs">
+                    <div className={`${ALERT_TONE.info.tone} rounded-md border p-2 text-xs`}>
                       <div className="flex items-center justify-between">
-                        <span className="font-medium text-activity">Per-user override active</span>
+                        <span className="font-medium">Per-user override active</span>
                         <button
                           type="button"
                           onClick={() => {
@@ -452,7 +451,7 @@ export default function UserDetailDrawer({
                             setOverrideNote(rateLimit.override_note ?? '');
                             setOverrideEditing(true);
                           }}
-                          className="text-activity hover:underline"
+                          className="hover:underline"
                         >
                           Edit
                         </button>
@@ -469,7 +468,7 @@ export default function UserDetailDrawer({
                         setOverrideNote('');
                         setOverrideEditing(true);
                       }}
-                      className="text-xs text-activity hover:underline"
+                      className="text-xs text-primary hover:underline"
                     >
                       Override limits for this user…
                     </button>
@@ -514,7 +513,6 @@ export default function UserDetailDrawer({
                         <Button
                           onClick={() => setOverrideMutation.mutate()}
                           disabled={setOverrideMutation.isPending}
-                          className="bg-activity text-on-primary"
                         >
                           {setOverrideMutation.isPending ? 'Saving…' : 'Save override'}
                         </Button>
@@ -677,7 +675,7 @@ export default function UserDetailDrawer({
                     <span className="text-sm font-medium text-on-surface">
                       {coach.title}
                       {coach.is_default && (
-                        <span className="ml-2 text-xs text-activity">(default)</span>
+                        <span className="ml-2 text-xs text-on-surface-variant">(default)</span>
                       )}
                     </span>
                     <span className="text-xs text-outline capitalize">{coach.category}</span>
@@ -737,7 +735,8 @@ export default function UserDetailDrawer({
               {user.user_status === 'pending' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-activity hover:bg-activity/80 text-on-primary"
+                  variant="success"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -749,8 +748,8 @@ export default function UserDetailDrawer({
               {offersSuspend(user, viewer) && (
                 <Button
                   onClick={() => onAction(user, 'suspend')}
-                  variant="secondary"
-                  className="w-full justify-start border-error/30 text-error hover:bg-error/10"
+                  variant="danger-outline"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18.364 5.636M5.636 18.364l12.728-12.728" />
@@ -762,7 +761,8 @@ export default function UserDetailDrawer({
               {user.user_status === 'suspended' && (
                 <Button
                   onClick={() => onAction(user, 'approve')}
-                  className="w-full justify-start bg-activity hover:bg-activity/80 text-on-primary"
+                  variant="success"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -817,8 +817,8 @@ export default function UserDetailDrawer({
                 <Button
                   onClick={handleImpersonate}
                   disabled={isImpersonating}
-                  variant="secondary"
-                  className="w-full justify-start border-nutrition/30 text-on-nutrition-container hover:bg-nutrition/10"
+                  variant="warning-outline"
+                  className="w-full justify-start"
                 >
                   <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />

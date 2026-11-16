@@ -101,8 +101,8 @@ export default function CoachStoreManagement() {
           )}
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-primary/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className={`${BADGE_TONE.primary.tone} w-10 h-10 rounded-lg flex items-center justify-center`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -128,13 +128,13 @@ export default function CoachStoreManagement() {
           className={clsx(
             'bg-surface-container-lowest border rounded-xl p-5 text-left transition-all',
             activeTab === 'published'
-              ? 'border-activity/50 ring-1 ring-activity/30'
-              : 'ghost-border hover:border-activity/30'
+              ? 'border-success/50 ring-1 ring-success/30'
+              : 'ghost-border hover:border-success/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-activity/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className={`${BADGE_TONE.success.tone} w-10 h-10 rounded-lg flex items-center justify-center`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
@@ -183,13 +183,13 @@ export default function CoachStoreManagement() {
           className={clsx(
             'bg-surface-container-lowest border rounded-xl p-5 text-left transition-all',
             activeTab === 'rejected'
-              ? 'border-nutrition/50 ring-1 ring-nutrition/30'
-              : 'ghost-border hover:border-nutrition/30'
+              ? 'border-warning/50 ring-1 ring-warning/30'
+              : 'ghost-border hover:border-warning/30'
           )}
         >
           <div className="flex items-center justify-between mb-3">
-            <div className="w-10 h-10 rounded-lg bg-nutrition/20 flex items-center justify-center">
-              <svg className="w-5 h-5 text-nutrition" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className={`${BADGE_TONE.warning.tone} w-10 h-10 rounded-lg flex items-center justify-center`}>
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
               </svg>
             </div>

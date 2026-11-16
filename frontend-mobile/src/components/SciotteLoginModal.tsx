@@ -24,6 +24,7 @@ import * as Linking from 'expo-linking';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Mail, ArrowLeft, Eye, EyeOff, Shield, CheckCircle2, AlertCircle, X, Key } from 'lucide-react-native';
 import { PROVIDER_COLORS, useCardStyle, useThemeColors } from '../constants/theme';
+import { ALERT_TONE, alertInkColor, BADGE_TONE, badgeInkColor } from './ui';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
@@ -749,9 +750,9 @@ export function SciotteLoginModal({
           </View>
 
           {error && (
-            <View className="flex-row items-center bg-error/10 rounded-lg px-3 py-2.5 mb-4">
-              <AlertCircle size={16} color={colors.error} />
-              <Text className="text-sm text-error ml-2 flex-1">{error}</Text>
+            <View className={`flex-row items-center ${ALERT_TONE.error.fill} rounded-lg px-3 py-2.5 mb-4`}>
+              <AlertCircle size={16} color={alertInkColor('error', colors)} />
+              <Text className={`text-sm ${ALERT_TONE.error.ink} ml-2 flex-1`}>{error}</Text>
             </View>
           )}
 
@@ -792,8 +793,8 @@ export function SciotteLoginModal({
     if (phase === 'logging-in' || phase === 'waiting-approval') {
       return (
         <View className="items-center py-10">
-          <View className="w-16 h-16 rounded-2xl items-center justify-center mb-5" style={{ backgroundColor: `${colors.tokens.primary}20` }}>
-            <ActivityIndicator size="large" color={colors.tokens.primary} />
+          <View className={`w-16 h-16 rounded-2xl items-center justify-center mb-5 ${BADGE_TONE.primary.fill}`}>
+            <ActivityIndicator size="large" color={badgeInkColor('primary', colors)} />
           </View>
           <Text className="text-base font-medium text-text-primary mb-1">{status}</Text>
           <Text className="text-sm text-text-tertiary text-center px-6">
@@ -809,8 +810,8 @@ export function SciotteLoginModal({
     if (phase === 'verifying') {
       return (
         <View className="items-center py-10" testID="sciotte-verifying">
-          <View className="w-16 h-16 rounded-2xl items-center justify-center mb-5" style={{ backgroundColor: `${colors.tokens.primary}20` }}>
-            <ActivityIndicator size="large" color={colors.tokens.primary} />
+          <View className={`w-16 h-16 rounded-2xl items-center justify-center mb-5 ${BADGE_TONE.primary.fill}`}>
+            <ActivityIndicator size="large" color={badgeInkColor('primary', colors)} />
           </View>
           <Text accessibilityLiveRegion="polite" className="text-base font-medium text-text-primary">{status}</Text>
         </View>
@@ -822,8 +823,8 @@ export function SciotteLoginModal({
       return (
         <View>
           <View className="items-center mb-5">
-            <View className="w-12 h-12 rounded-2xl items-center justify-center mb-3" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
-              <Shield size={24} color={colors.pierre.violet} />
+            <View className={`w-12 h-12 rounded-2xl items-center justify-center mb-3 ${BADGE_TONE.primary.fill}`}>
+              <Shield size={24} color={badgeInkColor('primary', colors)} />
             </View>
             <Text className="text-base font-medium text-text-primary">{t('app.twoFactorAuth')}</Text>
             <Text className="text-sm text-text-tertiary mt-1">{t('app.chooseVerificationMethod')}</Text>
@@ -851,8 +852,8 @@ export function SciotteLoginModal({
     if (phase === 'number-match') {
       return (
         <View className="items-center py-6">
-          <View className="w-12 h-12 rounded-2xl items-center justify-center mb-4" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
-            <Shield size={24} color={colors.pierre.violet} />
+          <View className={`w-12 h-12 rounded-2xl items-center justify-center mb-4 ${BADGE_TONE.primary.fill}`}>
+            <Shield size={24} color={badgeInkColor('primary', colors)} />
           </View>
           <Text className="text-sm text-text-secondary mb-4">{t('app.tapThisNumber')}</Text>
           {matchNumber && (
@@ -885,8 +886,8 @@ export function SciotteLoginModal({
       return (
         <View>
           <View className="items-center mb-5">
-            <View className="w-12 h-12 rounded-2xl items-center justify-center mb-3" style={{ backgroundColor: `${colors.pierre.violet}20` }}>
-              <Shield size={24} color={colors.pierre.violet} />
+            <View className={`w-12 h-12 rounded-2xl items-center justify-center mb-3 ${BADGE_TONE.primary.fill}`}>
+              <Shield size={24} color={badgeInkColor('primary', colors)} />
             </View>
             <Text className="text-base font-medium text-text-primary">{t('app.verificationCode')}</Text>
             <Text className="text-sm text-text-tertiary mt-1 text-center">
@@ -946,8 +947,8 @@ export function SciotteLoginModal({
     if (phase === 'success') {
       return (
         <View className="items-center py-10">
-          <View className="w-16 h-16 rounded-full items-center justify-center mb-4" style={{ backgroundColor: `${colors.success}15` }}>
-            <CheckCircle2 size={32} color={colors.success} />
+          <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${ALERT_TONE.success.fill}`}>
+            <CheckCircle2 size={32} color={alertInkColor('success', colors)} />
           </View>
           <Text className="text-lg font-bold text-text-primary">{t('app.connectedBang')}</Text>
           <Text className="text-sm text-text-secondary mt-1 text-center" testID="sciotte-success-line">
@@ -963,8 +964,8 @@ export function SciotteLoginModal({
     if (phase === 'error') {
       return (
         <View className="items-center py-6">
-          <View className="w-16 h-16 rounded-full items-center justify-center mb-4" style={{ backgroundColor: `${colors.error}15` }}>
-            <AlertCircle size={32} color={colors.error} />
+          <View className={`w-16 h-16 rounded-full items-center justify-center mb-4 ${ALERT_TONE.error.fill}`}>
+            <AlertCircle size={32} color={alertInkColor('error', colors)} />
           </View>
           <Text className="text-base font-medium text-text-primary mb-1">{t('app.connectionFailed')}</Text>
           <Text className="text-sm text-error text-center mb-5 px-4">{error}</Text>
@@ -1039,7 +1040,9 @@ export function SciotteLoginModal({
                   <Text className="text-lg font-bold text-text-primary">
                     {platformName}
                   </Text>
-                  {status && phase !== 'choose' && phase !== 'credentials' ? (
+                  {/* A refused sign-in's body names its state; the status the attempt
+                      set on its way ("Signing in to …") must not outlive it here (carnet#1584). */}
+                  {status && phase !== 'choose' && phase !== 'credentials' && phase !== 'error' ? (
                     <Text className="text-xs text-text-tertiary">{status}</Text>
                   ) : historyMode ? (
                     <Text className="text-xs text-text-secondary" testID="sciotte-history-intro">

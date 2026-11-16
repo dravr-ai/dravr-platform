@@ -183,8 +183,7 @@ export default function CoachSeatInvitations() {
                   </Button>
                   <Button
                     size="sm"
-                    variant="outline"
-                    className="border-error/50 text-error hover:bg-error/10"
+                    variant="danger-outline"
                     onClick={() => revokeMutation.mutate(invitation.email)}
                     disabled={busy}
                   >

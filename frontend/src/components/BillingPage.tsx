@@ -25,11 +25,15 @@ import {
 } from '@pierre/shared-constants';
 import { useAuth } from '../hooks/useAuth';
 import { useFeatureFlags, FEATURE_KEYS } from '../hooks/useFeatureFlags';
-import { Button, Card } from './ui';
+import { ALERT_TONE, Button, Card } from './ui';
+import { WASH_TONE } from './ui/washTone';
 import { Badge } from './ui/Badge';
 import { useTranslation } from '@pierre/i18n';
 import { formatCompactNumber, formatCount, formatDate, formatMajorCurrency, formatMinorCurrency } from '@pierre/chat-utils';
 import { describeApiError } from '@pierre/ui-logic';
+
+/** The plan card's wash and inks: the same text on the current plan's tint as on the others' paper. */
+const CURRENT = WASH_TONE.currentPlan;
 
 function formatCurrency(amount: number | undefined, currency: string | undefined, language: string): string {
   if (amount == null) return '—';
@@ -127,10 +131,10 @@ export default function BillingPage() {
   return (
     <div className="space-y-6 max-w-5xl mx-auto">
       {paymentProblem && (
-        <Card variant="dark" className="p-4 border border-error/60 bg-error/10">
+        <div className={`${ALERT_TONE.error.tone} rounded-xl p-4 border`}>
           <div className="flex items-start justify-between gap-4">
             <div>
-              <h3 className="text-sm font-semibold text-error">
+              <h3 className="text-sm font-semibold">
                 {t('shell.billingPaymentProblem')}
               </h3>
               <p className="mt-1 text-sm text-on-surface-variant">
@@ -140,12 +144,13 @@ export default function BillingPage() {
             <Button
               onClick={() => portalMutation.mutate()}
               disabled={portalMutation.isPending}
-              className="shrink-0 bg-error hover:bg-error/80 text-on-primary"
+              variant="danger"
+              className="shrink-0"
             >
               {portalMutation.isPending ? t('shell.billingPortalOpening') : t('shell.billingUpdatePayment')}
             </Button>
           </div>
-        </Card>
+        </div>
       )}
       {showBillingHeader && (
       <Card variant="dark" className="p-6">
@@ -195,7 +200,6 @@ export default function BillingPage() {
             <Button
               onClick={() => checkoutMutation.mutate('professional')}
               disabled={checkoutMutation.isPending}
-              className="bg-activity hover:bg-activity/80 text-on-primary"
             >
               {checkoutMutation.isPending ? t('shell.billingRedirecting') : t('shell.billingUpgradeProfessional')}
             </Button>
@@ -279,8 +283,8 @@ export default function BillingPage() {
               const color = c.burst_zone
                 ? 'bg-error'
                 : c.warning
-                ? 'bg-nutrition'
-                : 'bg-activity';
+                ? 'bg-warning'
+                : 'bg-success';
               return (
                 <div key={c.counter_type}>
                   <div className="flex justify-between text-sm mb-1">
@@ -396,18 +400,18 @@ function PlanCard({
   return (
     <div
       className={`rounded-xl border p-5 flex flex-col ${
-        isCurrent ? 'border-activity bg-activity/5' : 'ghost-border'
+        isCurrent ? `border-success ${CURRENT.fill}` : 'ghost-border'
       }`}
     >
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-base font-semibold text-on-surface">{plan.label}</h3>
+        <h3 className={`text-base font-semibold ${CURRENT.inks.value}`}>{plan.label}</h3>
         {isCurrent && <Badge variant="success">{t('shell.billingCurrentBadge')}</Badge>}
       </div>
       <ul className="space-y-2 text-sm flex-1">
         {features.map(([label, value]) => (
           <li key={label} className="flex justify-between gap-2">
-            <span className="text-on-surface-variant">{label}</span>
-            <span className="font-medium text-on-surface">{value}</span>
+            <span className={CURRENT.inks.label}>{label}</span>
+            <span className={`font-medium ${CURRENT.inks.value}`}>{value}</span>
           </li>
         ))}
       </ul>
@@ -424,7 +428,7 @@ function PlanCard({
           <Button
             onClick={onUpgrade}
             disabled={checkoutPending}
-            className="w-full bg-activity hover:bg-activity/80 text-on-primary"
+            className="w-full"
           >
             {checkoutPending ? t('shell.billingRedirecting') : t('shell.billingUpgrade')}
           </Button>

@@ -146,6 +146,8 @@ describe('ChatTab — a failed turn, in French', () => {
     // sentence does not say "réessaie" on top of it (carnet#1363).
     const note = await screen.findByTestId('turn-error');
     expect(note).toHaveTextContent(i18n.t('chat.turn.failed.unavailable'));
+    // The failed turn's box is the error alert: its tint and the ink bound to it.
+    expect(screen.getByTestId('turn-error-box')).toHaveClass('alert-error');
     expect(i18n.t('chat.turn.failed.unavailable')).toContain('temporairement indisponible');
     expect(note.textContent ?? '').not.toMatch(/r[ée]essai/i);
     expect(screen.getAllByRole('button', { name: i18n.t('chat.retry') })).toHaveLength(1);

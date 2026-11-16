@@ -385,8 +385,7 @@ export default function UserManagement() {
                     <Button
                       onClick={() => handleUserAction(user, 'suspend')}
                       size="sm"
-                      variant="outline"
-                      className="border-error/50 text-error hover:bg-error/10"
+                      variant="danger-outline"
                     >
                       Suspend
                     </Button>

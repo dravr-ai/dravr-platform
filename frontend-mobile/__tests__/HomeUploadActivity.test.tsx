@@ -114,6 +114,7 @@ describe('Home .fit upload', () => {
     fireEvent.press(screen.getByTestId('home-upload-action'));
 
     const alert = await screen.findByTestId('home-upload-failed');
+    expect(alert.props.className).toContain('bg-error/10');
     expect(alert).toHaveTextContent(
       "This file isn't a completed workout. Choose the .fit file your watch or bike computer recorded.Close",
     );

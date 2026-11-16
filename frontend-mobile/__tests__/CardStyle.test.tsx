@@ -7,7 +7,7 @@
 import React from 'react';
 import { renderHook, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BOREAL_DARK, BOREAL_LIGHT } from '@pierre/shared-constants';
+import { BOREAL_DARK, BOREAL_LIGHT, luminanceHex as luminance } from '@pierre/shared-constants';
 
 // NativeWind's own hook needs a stub under jest; the resolved scheme comes
 // from the persisted appearance preference, which each test writes.
@@ -23,16 +23,6 @@ import { ThemeProvider } from '../src/contexts/ThemeContext';
 import { useCardStyle } from '../src/constants/theme';
 
 const APPEARANCE_KEY = 'pierre.appearance_pref';
-
-/** WCAG relative luminance, so "lighter than" is measured rather than eyeballed. */
-function luminance(hex: string): number {
-  const value = hex.replace('#', '');
-  const channels = [0, 2, 4].map((offset) => {
-    const c = parseInt(value.slice(offset, offset + 2), 16) / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  });
-  return 0.2126 * channels[0] + 0.7152 * channels[1] + 0.0722 * channels[2];
-}
 
 /** Render the hook under a real ThemeProvider resolved to `pref`. */
 async function cardStyleFor(pref: 'light' | 'dark') {

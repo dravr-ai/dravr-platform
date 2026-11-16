@@ -8,6 +8,7 @@ import { AlertTriangle } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
 import type { GearItem } from '@pierre/shared-types';
 import { formatGearDistance, useDistanceUnit } from '@pierre/ui-logic';
+import { ALERT_TONE } from '../ui';
 
 /**
  * "This pair has 512 km, past the 500 km you set." on the warning tint, with
@@ -18,7 +19,7 @@ export function GearWarning({ pair }: { pair: GearItem }) {
   const unit = useDistanceUnit();
   return (
     <p
-      className="mt-2 flex items-start gap-2 rounded-lg bg-warning/10 px-3 py-2 text-sm text-on-warning-container"
+      className={`${ALERT_TONE.warning.tone} mt-2 flex items-start gap-2 rounded-lg px-3 py-2 text-sm`}
       data-testid={`gear-warning-${pair.id}`}
     >
       <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />

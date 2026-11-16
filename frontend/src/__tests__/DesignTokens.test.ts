@@ -15,6 +15,8 @@ import {
   SEMANTIC_COLORS,
   SEMANTIC_COLORS_DARK,
   ghostBorder,
+  contrastHex as contrast,
+  luminanceHex as luminance,
 } from '@pierre/shared-constants';
 
 // The WCAG 4.5:1 floors — every text role on every tier, every bound ink on
@@ -41,24 +43,6 @@ const DESIGN_MD = fs.readFileSync(path.join(REPO, 'frontend', 'DESIGN.md'), 'utf
  */
 const TIER_STEP_MIN = 1.06;
 const RAISED_STEP_MIN = 1.18;
-
-function channel(value: number): number {
-  const c = value / 255;
-  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-/** WCAG relative luminance of a `#rrggbb` string. */
-function luminance(hex: string): number {
-  const n = hex.replace('#', '');
-  const [r, g, b] = [0, 2, 4].map((i) => channel(parseInt(n.slice(i, i + 2), 16)));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-/** WCAG 2.x contrast ratio between two `#rrggbb` strings. */
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
 
 /** Pull `| \`token\` | \`#hex\` |` style rows out of a DESIGN.md table. */
 function designMdHex(token: string): string {

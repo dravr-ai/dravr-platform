@@ -168,7 +168,7 @@ export default function PendingApproval() {
               <DravrLogo size={64} />
 
               <div className="mt-6 mb-4">
-                <ClockIcon className="w-16 h-16 text-nutrition mx-auto" />
+                <ClockIcon className="w-16 h-16 text-warning mx-auto" />
               </div>
 
               <h1 className="font-display text-2xl font-semibold text-on-surface">
@@ -344,30 +344,30 @@ export default function PendingApproval() {
                 {needsEmailConfirmation ? (
                   <>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.openConfirmationLink')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.activatesOnConfirm')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.thenConnectService')}</span>
                     </li>
                   </>
                 ) : (
                   <>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.adminWillReview')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.emailOnApproval')}</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span className="text-activity mt-0.5">•</span>
+                      <span className="text-primary mt-0.5">•</span>
                       <span>{t('auth.afterApprovalAccess')}</span>
                     </li>
                   </>

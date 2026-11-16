@@ -76,6 +76,7 @@ describe('AiConsentSettings', () => {
     renderPane();
     const whoop = await screen.findByTestId('ai-consent-switch-whoop');
     expect(whoop).toHaveAttribute('aria-checked', 'true');
+    expect(screen.getByRole('switch', { name: 'Let my AI agent read WHOOP data' })).toBe(whoop);
     expect(screen.queryByTestId('ai-consent-switch-strava')).not.toBeInTheDocument();
     expect(screen.queryByTestId('ai-consent-switch-nolio')).not.toBeInTheDocument();
   });

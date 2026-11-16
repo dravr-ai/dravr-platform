@@ -6,7 +6,7 @@
 
 import React, { useState } from 'react';
 import { invitationsApi } from '../services/api';
-import { Button, Input, RevealButton } from './ui';
+import { Button, Input, RevealButton, Alert } from './ui';
 import { DravrLogo } from './DravrLogo';
 import AnalyticsConsentOptIn from './AnalyticsConsentOptIn';
 import { useTranslation } from '@pierre/i18n';
@@ -176,13 +176,9 @@ export default function AcceptInvitation({ token, kind = 'account', onSignIn, on
 
             <form className="space-y-5" onSubmit={handleSubmit}>
               {error && (
-                <div
-                  role="alert"
-                  aria-live="polite"
-                  className="bg-error/10 border border-error/30 text-error px-4 py-3 rounded-lg text-sm"
-                >
+                <Alert tone="error" role="alert" aria-live="polite" className="border px-4 py-3">
                   {error}
-                </div>
+                </Alert>
               )}
 
               <div className="space-y-4">

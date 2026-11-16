@@ -5,7 +5,7 @@ import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { a2aApi } from '../services/api';
 import type { A2AClient, A2AUsageStats, A2ARateLimitStatus } from '../types/api';
-import { Button, Section, Badge, StatusIndicator, StatusFilter, ConfirmDialog } from './ui';
+import { ALERT_TONE, Button, Section, Badge, StatusIndicator, StatusFilter, ConfirmDialog } from './ui';
 import type { StatusFilterValue } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useTranslation } from '@pierre/i18n';
@@ -312,7 +312,7 @@ export default function A2AClientList({ onCreateClient }: A2AClientListProps) {
                     clientRateLimit.is_rate_limited
                       || clientRateLimit.remaining < clientRateLimit.rate_limit_requests * 0.1
                       ? 'text-error'
-                      : 'text-activity'
+                      : ALERT_TONE.success.ink
                   }`}>
                     {clientRateLimit.remaining.toLocaleString()}
                   </span>

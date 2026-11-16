@@ -4,7 +4,7 @@
 // ABOUTME: The one table placing an agent category under a pillar on the web, and the classes its three readers derive
 // ABOUTME: The admin pill's tone, the store's dot and the team picker's avatar — each with its own fallback, as the phone's readers keep theirs
 
-import type { BadgeTone } from './ui';
+import { BADGE_TONE, type BadgeTone } from './ui/badgeTone';
 
 /** The pillar a coach category draws its hue from. */
 export type CategoryPillar = 'activity' | 'nutrition' | 'recovery' | 'mobility';
@@ -51,19 +51,13 @@ export function coachCategoryDotClass(category: string): string {
   return pillar ? PILLAR_DOT[pillar] : 'bg-outline-variant';
 }
 
-const PILLAR_AVATAR: Record<CategoryPillar, string> = {
-  activity: 'bg-activity/15 text-on-activity-container',
-  nutrition: 'bg-nutrition/15 text-on-nutrition-container',
-  recovery: 'bg-recovery/15 text-on-recovery-container',
-  mobility: 'bg-mobility/15 text-on-mobility-container',
-};
-
 /**
- * An agent's initials avatar in the team picker: its pillar's tint under the
- * pillar's bound ink (hue as ground, never as text on paper), and the primary
- * container pair for a category with no pillar.
+ * An agent's initials avatar in the team picker: its pillar's badge tone (the
+ * tint under the pillar's bound ink, hue as ground, never as text on paper),
+ * and the accent tone — the primary container pair — for a category with no
+ * pillar.
  */
 export function coachCategoryAvatarClass(category: string): string {
   const pillar = coachCategoryPillar(category);
-  return pillar ? PILLAR_AVATAR[pillar] : 'bg-primary-container text-on-primary-container';
+  return BADGE_TONE[pillar ?? 'accent'].tone;
 }

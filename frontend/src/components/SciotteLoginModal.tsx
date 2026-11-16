@@ -21,7 +21,7 @@ import {
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { useDialog } from '../hooks/useDialog';
 import { useTheme } from '../hooks/useTheme';
-import { Button, RevealButton } from './ui';
+import { ALERT_TONE, Button, RevealButton } from './ui';
 import { ProviderNotice } from './ProviderNotice';
 import {
   SCIOTTE_CODE_REJECTED,
@@ -518,8 +518,11 @@ export default function SciotteLoginModal({
             <div>
               <h2 id={titleId} className="text-lg font-semibold text-on-surface">{t('frag.connectTo')} {providerLabel}</h2>
               {/* The logging-in and verifying bodies already print this line
-                  under their spinner; repeating it here would print it twice (carnet#1299). */}
-              {progressLabel && phase !== 'logging-in' && phase !== 'verifying' && (
+                  under their spinner; repeating it here would print it twice (carnet#1299).
+                  A refused sign-in's body names its state ("Login Failed") as its
+                  heading, and the status the attempt set on its way ("Connecting to
+                  TrainingPeaks…") would otherwise outlive it up here (carnet#1584). */}
+              {progressLabel && phase !== 'logging-in' && phase !== 'verifying' && phase !== 'error' && (
                 <p className="text-xs text-on-surface/50">{progressLabel}</p>
               )}
               {historyMode && (
@@ -709,8 +712,8 @@ export default function SciotteLoginModal({
           {phase === 'two-factor' && (
             <div>
               <div className="text-center mb-4">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-warning/10 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className={`${ALERT_TONE.warning.tone} w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center`}>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
                 </div>
@@ -750,7 +753,7 @@ export default function SciotteLoginModal({
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
                 <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-info/20 to-info/10 border-2 border-info/40 flex items-center justify-center">
-                  <span className="text-5xl font-bold text-info">{matchNumber}</span>
+                  <span className={`text-5xl font-bold ${ALERT_TONE.info.ink}`}>{matchNumber}</span>
                 </div>
                 <p className="text-on-surface font-medium mb-1">{t('shell.sciotteTapNumber')}</p>
                 <p className="text-on-surface/50 text-sm mb-4">{t('shell.sciotteGoogleNotificationHint')}</p>
@@ -764,8 +767,8 @@ export default function SciotteLoginModal({
           {phase === 'otp' && (
             <div>
               <div className="text-center mb-4">
-                <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-warning/10 flex items-center justify-center">
-                  <svg className="w-6 h-6 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div className={`${ALERT_TONE.warning.tone} w-12 h-12 mx-auto mb-3 rounded-full flex items-center justify-center`}>
+                  <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                   </svg>
                 </div>
@@ -821,10 +824,10 @@ export default function SciotteLoginModal({
           {phase === 'success' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-activity/10 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-activity" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                <div className={`${ALERT_TONE.success.tone} w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center`}>
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                 </div>
-                <p className="text-activity text-lg font-medium">{t('shell.sciotteConnected')}</p>
+                <p className={`${ALERT_TONE.success.ink} text-lg font-medium`}>{t('shell.sciotteConnected')}</p>
                 <p className="text-on-surface/50 text-sm mt-1">
                   {historyMode
                     ? t('providers.history.modalCopying')
@@ -838,8 +841,8 @@ export default function SciotteLoginModal({
           {phase === 'error' && (
             <div className="flex items-center justify-center py-12">
               <div className="text-center">
-                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-error/10 flex items-center justify-center">
-                  <svg className="w-8 h-8 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
+                <div className={`${ALERT_TONE.error.tone} w-16 h-16 mx-auto mb-4 rounded-full flex items-center justify-center`}>
+                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" /></svg>
                 </div>
                 <p className="text-error text-lg font-medium mb-2">{t('shell.sciotteLoginFailed')}</p>
                 <p className="text-on-surface/50 text-sm max-w-sm mb-4">{error}</p>

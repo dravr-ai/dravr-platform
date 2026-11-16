@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useId, useState } from 'react';
-import { Button, Textarea } from './ui';
+import { Button, Textarea, ALERT_TONE } from './ui';
 import { useDialog } from '../hooks/useDialog';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
@@ -60,13 +60,13 @@ const TokenSuccessModal: React.FC<TokenSuccessModalProps> = ({ isOpen, onClose, 
         </div>
 
         <div className="space-y-6">
-          <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-4">
+          <div className={`${ALERT_TONE.warning.tone} border rounded-lg p-4`}>
             <div className="flex items-start gap-3">
-              <svg className="w-6 h-6 text-nutrition mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
               </svg>
               <div>
-                <h4 className="font-medium text-nutrition">Important Security Notice</h4>
+                <h4 className="font-medium">Important Security Notice</h4>
                 <p className="text-sm text-on-surface mt-1">
                   This is the only time the full token will be displayed. Please copy it now and store it securely.
                 </p>
@@ -280,18 +280,17 @@ export default function UnifiedConnections() {
         />
       )}
       {errorMessage && (
-        <div className="mb-6 bg-error/15 border border-error/30 rounded-lg p-4">
+        <div className={`${ALERT_TONE.error.tone} mb-6 border rounded-lg p-4`}>
           <div className="flex items-start gap-3">
-            <svg className="w-6 h-6 text-error mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             <div className="flex-1">
-              <h4 className="font-medium text-error">Error</h4>
+              <h4 className="font-medium">Error</h4>
               <p className="text-sm text-on-surface mt-1">{errorMessage}</p>
             </div>
             <button
               onClick={() => setErrorMessage(null)}
-              className="text-error hover:text-error"
               aria-label="Dismiss error"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

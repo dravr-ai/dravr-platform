@@ -19,7 +19,7 @@ import { Stack, useFocusEffect, useRouter } from 'expo-router';
 import { Feather } from '@expo/vector-icons';
 import { filterRows, type ConversationRowModel } from '@pierre/chat-utils';
 import { spacing, useCardStyle, useThemeColors } from '../../constants/theme';
-import { BrandLockup, EmptyState, PromptDialog } from '../../components/ui';
+import { ALERT_TONE, BADGE_TONE, BrandLockup, EmptyState, PromptDialog } from '../../components/ui';
 import { AppearanceToggleButton } from '../../components/ui/AppearanceToggleButton';
 import { HeaderActions } from '../../components/ui/HeaderActions';
 import { NotificationBellButton } from '../../components/notifications/NotificationBellButton';
@@ -233,19 +233,19 @@ export function ConversationsScreen() {
 
       {errorMessage && (
         <View
-          className="mx-3 mt-2 p-3 bg-error/10 border border-error/30 rounded-lg flex-row items-center justify-between"
+          className={`mx-3 mt-2 p-3 ${ALERT_TONE.error.fill} border ${ALERT_TONE.error.edge} rounded-lg flex-row items-center justify-between`}
           testID="conversations-error"
         >
-          <Text className="flex-1 text-error text-sm mr-3">{errorMessage}</Text>
+          <Text className={`flex-1 ${ALERT_TONE.error.ink} text-sm mr-3`}>{errorMessage}</Text>
           <TouchableOpacity
-            className="px-3 py-1.5 bg-error/20 rounded-md"
+            className={`px-3 py-1.5 ${BADGE_TONE.error.fill} rounded-md`}
             onPress={() => {
               setActionError(null);
               void list.refetch();
             }}
             testID="conversations-retry"
           >
-            <Text className="text-error text-sm font-semibold">{t('common.retry')}</Text>
+            <Text className={`${BADGE_TONE.error.ink} text-sm font-semibold`}>{t('common.retry')}</Text>
           </TouchableOpacity>
         </View>
       )}

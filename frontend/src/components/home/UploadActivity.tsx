@@ -7,6 +7,7 @@
 import { useTranslation } from '@pierre/i18n';
 import { describeActivityUpload, type UseActivityUploadResult } from '@pierre/ui-logic';
 import { FilePickerButton } from '../ui/FilePickerButton';
+import { ALERT_TONE } from '../ui/alertTone';
 
 /** The upload action beside the section's title: a link-weight button over the system file picker. */
 export function UploadActivityAction({ uploader }: { uploader: UseActivityUploadResult }) {
@@ -52,7 +53,7 @@ export function UploadActivityStatus({ uploader }: { uploader: UseActivityUpload
     <p
       role="alert"
       data-testid="home-upload-failed"
-      className="mb-2 rounded-lg bg-error/15 px-3 py-2 text-sm text-on-error-container"
+      className={`${ALERT_TONE.error.tone} mb-2 rounded-lg px-3 py-2 text-sm`}
     >
       {describeActivityUpload(outcome, t)}{' '}
       <button

@@ -154,6 +154,7 @@ describe('CoachConsentsSection', () => {
 
     const notice = await findByTestId('coach-consent-wellness-notice');
     expect(notice).toHaveTextContent(/Wellness sharing now covers all your apps/);
+    expect(notice.props.className).toContain('bg-info/10');
     expect(notice).toHaveTextContent(
       /Sharing your wellness with Casey Coach now covers your sleep, HRV, resting heart rate, weight, readiness and daily notes from all your connected apps, not only Intervals\.icu\./,
     );

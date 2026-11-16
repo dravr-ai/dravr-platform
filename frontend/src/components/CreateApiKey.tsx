@@ -5,7 +5,7 @@ import React, { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { AdminPermission, CreateAdminTokenResponse } from '../types/api';
-import { BADGE_TONE, Textarea, Input } from './ui';
+import { BADGE_TONE, Textarea, Input, ALERT_TONE } from './ui';
 import { describeAdminError } from '../utils/adminLocale';
 
 interface CreateApiKeyProps {
@@ -136,7 +136,7 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
       <div className="bg-surface-container-low/60 border ghost-border rounded-lg p-6">
         <form onSubmit={handleSubmit} className="space-y-6">
           {createTokenMutation.error && (
-            <div className="bg-error/15 border border-error/30 text-error px-4 py-3 rounded">
+            <div className={`${ALERT_TONE.error.tone} border px-4 py-3 rounded`}>
               {describeAdminError(createTokenMutation.error, "Failed to create token")}
             </div>
           )}
@@ -187,13 +187,13 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
               </label>
 
               {isSuperAdmin && (
-                <div className="bg-error/15 border border-error/30 rounded-lg p-4">
+                <div className={`${ALERT_TONE.error.tone} border rounded-lg p-4`}>
                   <div className="flex items-start gap-3">
-                    <svg className="w-6 h-6 text-error mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.732-.833-2.5 0L4.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
                     </svg>
                     <div>
-                      <h4 className="font-medium text-error">Danger Zone</h4>
+                      <h4 className="font-medium">Danger Zone</h4>
                       <p className="text-sm text-on-surface mt-1">
                         Super admin API tokens have unrestricted access to all system operations.
                         Only create these for trusted, critical services.
@@ -240,8 +240,8 @@ export default function CreateApiKey({ onBack, onTokenCreated }: CreateApiKeyPro
               </div>
 
               {selectedPermissions.size === 0 && (
-                <div className="bg-nutrition/15 border border-nutrition/30 rounded-lg p-3">
-                  <p className="text-sm text-nutrition">
+                <div className={`${ALERT_TONE.warning.tone} border rounded-lg p-3`}>
+                  <p className="text-sm">
                     At least one permission must be selected for the token to be useful.
                   </p>
                 </div>

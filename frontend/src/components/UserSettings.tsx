@@ -35,7 +35,7 @@ import {
   providerGlyphInk,
   settingsPaneSections,
 } from '@pierre/shared-constants';
-import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState } from './ui';
+import { Button, Badge, ConfirmDialog, Input, Modal, ModalActions, Select, useErrorToast, Section, EmptyState, Alert, ALERT_TONE } from './ui';
 import { clsx } from 'clsx';
 import A2AClientList from './A2AClientList';
 import CreateA2AClient from './CreateA2AClient';
@@ -105,11 +105,11 @@ const CONNECTED_APPS_QUERY_KEY = ['user-connected-apps'] as const;
 
 /** Return Tailwind color class based on usage percentage: green < 70%, amber 70-90%, red > 90% */
 function getUsageBarColor(current: number, limit: number): string {
-  if (limit <= 0) return 'bg-activity';
+  if (limit <= 0) return 'bg-success';
   const pct = (current / limit) * 100;
   if (pct > 90) return 'bg-error';
-  if (pct > 70) return 'bg-nutrition';
-  return 'bg-activity';
+  if (pct > 70) return 'bg-warning';
+  return 'bg-success';
 }
 
 export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
@@ -710,15 +710,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                 </div>
 
                 {message && (
-                  <div
-                    className={`p-3 rounded-lg text-sm ${
-                      message.type === 'success'
-                        ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                        : 'bg-error/20 text-error border border-error/30'
-                    }`}
-                  >
+                  <Alert tone={message.type} className="border">
                     {message.text}
-                  </div>
+                  </Alert>
                 )}
 
                 <Button
@@ -801,16 +795,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             <Section title={t('providers.fitnessTitle')} description={t('providers.fitnessHint')}>
 
               {providerMessage && (
-                <div
-                  className={clsx(
-                    'p-3 rounded-lg text-sm mb-4',
-                    providerMessage.type === 'success'
-                      ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                      : 'bg-error/20 text-error border border-error/30'
-                  )}
-                >
+                <Alert tone={providerMessage.type} className="mb-4 border">
                   {providerMessage.text}
-                </div>
+                </Alert>
               )}
 
               {isLoadingProviders ? (
@@ -866,15 +853,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
             >
 
             {credentialMessage && (
-              <div
-                className={`p-3 rounded-lg text-sm mb-4 ${
-                  credentialMessage.type === 'success'
-                    ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                    : 'bg-error/20 text-error border border-error/30'
-                }`}
-              >
+              <Alert tone={credentialMessage.type} className="mb-4 border">
                 {credentialMessage.text}
-              </div>
+              </Alert>
             )}
 
             {isLoadingApps ? (
@@ -957,13 +938,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
               <p className="text-sm text-on-surface-variant mb-5">{t('credentials.useOwnAppHint')}</p>
 
               {credentialMessage && (
-                <div className={`p-3 rounded-lg text-sm mb-4 ${
-                  credentialMessage.type === 'success'
-                    ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                    : 'bg-error/20 text-error border border-error/30'
-                }`}>
+                <Alert tone={credentialMessage.type} className="mb-4 border">
                   {credentialMessage.text}
-                </div>
+                </Alert>
               )}
 
               <div className="space-y-4">
@@ -1026,9 +1003,9 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
           <>
             {/* Created Token Display */}
             {createdToken && (
-              <div className="bg-success/10 border border-success/30 rounded-lg p-6">
+              <div className={`${ALERT_TONE.success.tone} border rounded-lg p-6`}>
                 <div className="flex items-start gap-3">
-                  <svg className="w-6 h-6 text-success mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-6 h-6 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path
                       strokeLinecap="round"
                       strokeLinejoin="round"
@@ -1037,8 +1014,8 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                     />
                   </svg>
                   <div className="flex-1">
-                    <h3 className="text-lg font-medium text-success">{t('frag.tokenCreatedLabel')} {createdToken.name}</h3>
-                    <p className="text-success/80 mt-1 mb-3">{t('settingsUi.copyTokenNow')}</p>
+                    <h3 className="text-lg font-medium">{t('frag.tokenCreatedLabel')} {createdToken.name}</h3>
+                    <p className="mt-1 mb-3">{t('settingsUi.copyTokenNow')}</p>
                     <div className="flex items-center gap-2">
                       <code className="flex-1 px-3 py-2 bg-surface-container-low border border-success/30 rounded font-mono text-sm break-all text-on-surface">
                         {createdToken.token_value}
@@ -1154,8 +1131,7 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                           <Button
                             onClick={() => setTokenToRevoke(token)}
                             disabled={revokeTokenMutation.isPending}
-                            variant="secondary"
-                            className="text-error hover:bg-error/20"
+                            variant="danger-outline"
                             size="sm"
                           >
                             {t('settingsUi.revoke')}
@@ -1478,12 +1454,12 @@ Authorization: Bearer <your-token-here>`}
                             <div className="pierre-spinner w-6 h-6"></div>
                           </div>
                         ) : connectedAppsError ? (
-                          <div className="p-3 rounded-lg text-sm bg-error/20 text-error border border-error/30">
+                          <Alert tone="error" className="border">
                             {describeApiError(connectedAppsError, {
                               t,
                               fallbackKey: 'settingsErr.loadAppsFailed',
                             })}
-                          </div>
+                          </Alert>
                         ) : connectedApps && connectedApps.length > 0 ? (
                           <div>
                             {connectedApps.map((app) => (
@@ -1502,11 +1478,11 @@ Authorization: Bearer <your-token-here>`}
                                   </p>
                                 </div>
                                 <Button
-                                  variant="secondary"
+                                  variant="danger-outline"
                                   size="sm"
                                   onClick={() => setAppToRevoke(app)}
                                   disabled={revokeConnectedAppMutation.isPending}
-                                  className="flex-shrink-0 text-error hover:bg-error/20"
+                                  className="flex-shrink-0"
                                 >
                                   {t('settingsUi.revoke')}
                                 </Button>
@@ -1582,15 +1558,9 @@ Authorization: Bearer <your-token-here>`}
       >
         <div className="space-y-4">
           {passwordMessage && (
-            <div
-              className={`p-3 rounded-lg text-sm ${
-                passwordMessage.type === 'success'
-                  ? 'bg-activity/20 text-on-activity-container border border-activity/30'
-                  : 'bg-error/20 text-error border border-error/30'
-              }`}
-            >
+            <Alert tone={passwordMessage.type} className="border">
               {passwordMessage.text}
-            </div>
+            </Alert>
           )}
           <Input
             variant="dark"

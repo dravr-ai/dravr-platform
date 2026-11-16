@@ -18,7 +18,7 @@ export interface TabsProps {
   tabs: Tab[];
   activeTab: string;
   onChange: (tabId: string) => void;
-  variant?: 'underline' | 'pills' | 'bordered';
+  variant?: 'underline' | 'pills';
   size?: 'sm' | 'md' | 'lg';
   className?: string;
 }
@@ -64,13 +64,6 @@ export const Tabs: React.FC<TabsProps> = ({
             : 'text-on-surface-variant hover:bg-surface-container hover:text-on-surface'
         }`;
 
-      case 'bordered':
-        return `${baseClasses} border-2 rounded-lg ${
-          isActive
-            ? 'border-primary text-primary bg-primary/5'
-            : 'border-transparent text-on-surface-variant hover:ghost-border hover:text-on-surface'
-        }`;
-
       case 'underline':
       default:
         return `${baseClasses} -mb-px touch-target justify-center border-b-2 ${
@@ -88,7 +81,6 @@ export const Tabs: React.FC<TabsProps> = ({
   const containerClasses = {
     underline: 'flex gap-5 border-b ghost-border overflow-x-auto',
     pills: 'flex gap-2 p-1 bg-surface-container-low/60 rounded-lg overflow-x-auto',
-    bordered: 'flex gap-2 overflow-x-auto',
   };
 
   return (

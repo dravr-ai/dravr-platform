@@ -215,6 +215,7 @@ describe("a coach's draft on the plan card", () => {
     await user.click(await screen.findByRole('button', { name: 'Publish to Alice Runner' }));
 
     const conflict = await screen.findByTestId('plan-draft-conflict');
+    expect(conflict).toHaveClass('alert-warning');
     expect(conflict).toHaveTextContent("Alice Runner's plan changed since this draft began");
     expect(conflict).toHaveTextContent(
       'Weeks changed in both the draft and the live plan: 2026-10-19 and 2026-10-26',
@@ -241,6 +242,7 @@ describe("a coach's draft on the plan card", () => {
     expect(await screen.findByTestId('plan-draft-consent-revoked')).toHaveTextContent(
       "Alice Runner stopped sharing with you, so their plan can't be changed.",
     );
+    expect(screen.getByTestId('plan-draft-consent-revoked')).toHaveClass('alert-error');
   });
 
   it('asks before discarding, then discards and takes the controls away', async () => {

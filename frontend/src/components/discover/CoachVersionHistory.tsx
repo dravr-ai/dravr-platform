@@ -14,6 +14,10 @@ import { coachCategoryLabelKey } from '@pierre/shared-constants';
 import { coachesApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { Button, ConfirmDialog, Section } from '../ui';
+import { WASH_TONE } from '../ui/washTone';
+
+const BEFORE = WASH_TONE.versionBefore;
+const AFTER = WASH_TONE.versionAfter;
 
 /** Cache slot for one agent's history, under the `coaches` prefix every agent mutation invalidates. */
 const coachVersionsKey = (agentId: string) =>
@@ -62,15 +66,15 @@ function FieldChangeRow({ change }: { change: AgentFieldChange }) {
     <li className="py-2" data-testid={`agent-version-change-${change.field}`}>
       <p className="text-xs font-semibold text-on-surface">{labelKey ? t(labelKey) : change.field}</p>
       <div className="mt-1 grid gap-2 sm:grid-cols-2">
-        <div className="rounded-lg bg-error/10 px-2 py-1.5">
-          <p className="text-xs font-medium text-on-surface-variant">{t('discover.versionThen')}</p>
-          <p className="text-xs text-on-surface whitespace-pre-wrap break-words" data-testid="agent-version-old-value">
+        <div className={`rounded-lg px-2 py-1.5 ${BEFORE.fill}`}>
+          <p className={`text-xs font-medium ${BEFORE.inks.label}`}>{t('discover.versionThen')}</p>
+          <p className={`text-xs whitespace-pre-wrap break-words ${BEFORE.inks.value}`} data-testid="agent-version-old-value">
             {displayValue(change.field, change.old_value, t)}
           </p>
         </div>
-        <div className="rounded-lg bg-success/10 px-2 py-1.5">
-          <p className="text-xs font-medium text-on-surface-variant">{t('discover.versionNow')}</p>
-          <p className="text-xs text-on-surface whitespace-pre-wrap break-words" data-testid="agent-version-new-value">
+        <div className={`rounded-lg px-2 py-1.5 ${AFTER.fill}`}>
+          <p className={`text-xs font-medium ${AFTER.inks.label}`}>{t('discover.versionNow')}</p>
+          <p className={`text-xs whitespace-pre-wrap break-words ${AFTER.inks.value}`} data-testid="agent-version-new-value">
             {displayValue(change.field, change.new_value, t)}
           </p>
         </div>

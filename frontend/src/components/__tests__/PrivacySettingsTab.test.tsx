@@ -48,7 +48,7 @@ describe('PrivacySettingsTab — analytics consent', () => {
     signedInWith(true)
     renderTab()
 
-    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('switch', { name: 'Usage Analytics' })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('writes a grant and puts it on the session user, so analytics start now', async () => {
@@ -56,11 +56,11 @@ describe('PrivacySettingsTab — analytics consent', () => {
     mockUpdateAnalyticsConsent.mockResolvedValue({ message: 'Analytics consent updated', enabled: true })
     renderTab()
 
-    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Usage Analytics' }))
 
     await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: true, analytics_consent_answered: true }))
     expect(mockUpdateAnalyticsConsent).toHaveBeenCalledWith(true)
-    expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByRole('switch', { name: 'Usage Analytics' })).toHaveAttribute('aria-checked', 'true')
   })
 
   it('writes a revoke and puts it on the session user, so analytics stop now', async () => {
@@ -68,7 +68,7 @@ describe('PrivacySettingsTab — analytics consent', () => {
     mockUpdateAnalyticsConsent.mockResolvedValue({ message: 'Analytics consent updated', enabled: false })
     renderTab()
 
-    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Usage Analytics' }))
 
     await waitFor(() => expect(mockUpdateUser).toHaveBeenCalledWith({ analytics_consent: false, analytics_consent_answered: true }))
     expect(mockUpdateAnalyticsConsent).toHaveBeenCalledWith(false)
@@ -79,9 +79,9 @@ describe('PrivacySettingsTab — analytics consent', () => {
     mockUpdateAnalyticsConsent.mockRejectedValue(new Error('network down'))
     renderTab()
 
-    fireEvent.click(screen.getByRole('switch'))
+    fireEvent.click(screen.getByRole('switch', { name: 'Usage Analytics' }))
 
-    await waitFor(() => expect(screen.getByRole('switch')).toHaveAttribute('aria-checked', 'false'))
+    await waitFor(() => expect(screen.getByRole('switch', { name: 'Usage Analytics' })).toHaveAttribute('aria-checked', 'false'))
     expect(mockUpdateAnalyticsConsent).toHaveBeenCalledWith(true)
     expect(mockUpdateUser).not.toHaveBeenCalled()
   })

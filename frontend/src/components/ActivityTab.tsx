@@ -11,7 +11,7 @@ import type { RecentActivityResponse, RecentLlmCall, RecentConversation } from '
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useAdminScope } from '../hooks/useAdminScope';
 import AdminScopeBar from './AdminScopeBar';
-import { BADGE_TONE, Input } from './ui';
+import { BADGE_TONE, Input, ALERT_TONE } from './ui';
 import { formatCost } from '../utils/formatCost';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
 
@@ -167,7 +167,7 @@ export default function ActivityTab() {
       <AdminScopeBar scope={activity?.scope} />
 
       {isError ? (
-        <p role="alert" className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container">
+        <p role="alert" className={`${ALERT_TONE.warning.tone} rounded px-3 py-2 text-sm`}>
           The last refresh failed. These numbers are from the previous successful read.
         </p>
       ) : null}
@@ -254,8 +254,8 @@ export default function ActivityTab() {
                     {/* Type icon */}
                     <div className="col-span-1">
                       {entry.type === 'llm' ? (
-                        <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-primary/20">
-                          <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <span className={`${BADGE_TONE.primary.tone} inline-flex items-center justify-center w-8 h-8 rounded-lg`}>
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                           </svg>
                         </span>
@@ -413,7 +413,7 @@ function SummaryStats({ summary }: { summary: RecentActivityResponse['summary'] 
         <div className="text-sm text-on-surface-variant">Tokens Today (UTC)</div>
       </div>
       <div className="stat-card-dark">
-        <div className="text-2xl font-bold text-nutrition">
+        <div className="text-2xl font-bold text-on-surface">
           {formatCost(summary?.cost_today_usd ?? 0)}
         </div>
         <div className="text-sm text-on-surface-variant">Cost Today (UTC, at current prices)</div>

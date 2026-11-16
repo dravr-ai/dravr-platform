@@ -208,6 +208,7 @@ describe('TakeoverViewer', () => {
     expect(screen.getByTestId('takeover-notice')).toHaveTextContent(
       i18n.t('shell.sciotteTakeoverPopupRefused', { provider: 'Garmin' }),
     );
+    expect(screen.getByTestId('takeover-notice')).toHaveClass('alert-warning');
     act(() => socket.event({ type: 'navigation_reset' }));
     expect(screen.getByTestId('takeover-notice')).toHaveTextContent(
       i18n.t('shell.sciotteTakeoverPageReset', { provider: 'Garmin' }),

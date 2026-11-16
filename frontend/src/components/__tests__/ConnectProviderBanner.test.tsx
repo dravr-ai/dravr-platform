@@ -54,6 +54,7 @@ describe('ConnectProviderBanner — reconnect', () => {
 
     const banner = await screen.findByRole('alert');
     expect(banner).toHaveAttribute('data-testid', 'provider-reconnect-banner');
+    expect(banner).toHaveClass('alert-warning');
     expect(banner).toHaveTextContent('Reconnect needed');
     expect(banner).toHaveTextContent('Reconnect Garmin to see your new activities.');
     expect(banner).not.toHaveTextContent('Strava');

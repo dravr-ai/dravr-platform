@@ -24,7 +24,7 @@ import {
 import { refusalProvider, refusalReason } from '@pierre/ui-logic';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../../constants/theme';
-import { Button, Row, Sheet, StatusDot } from '../../components/ui';
+import { Button, Row, Sheet, StatusDot, switchColors } from '../../components/ui';
 import {
   useConfirmDelegatedConnection,
   useDelegationRoster,
@@ -346,7 +346,7 @@ function MemberLink({ groupId, link }: { groupId: string; link: DelegatedConnect
                   value={isGranted(consent)}
                   onValueChange={(granted) => onChange(consent, granted)}
                   disabled={disabled}
-                  trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                  {...switchColors(colors.tokens, isGranted(consent))}
                   accessibilityLabel={label}
                   testID={`delegation-consent-${consent}`}
                 />

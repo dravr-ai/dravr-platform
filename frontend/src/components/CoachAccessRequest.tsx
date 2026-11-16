@@ -20,7 +20,7 @@ import { useTranslation } from '@pierre/i18n';
 import { providersApi, userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { useSeatAfterPlatformLink } from '../hooks/coachAccessHooks';
-import { Button } from './ui';
+import { BADGE_TONE, Button } from './ui';
 import ProviderConnectionCards from './ProviderConnectionCards';
 
 /**
@@ -297,7 +297,7 @@ function SeatGlyph({ pending }: { pending: boolean }) {
       aria-hidden="true"
       className={clsx(
         'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
-        pending ? 'bg-warning/15 text-on-warning-container' : 'bg-primary-container text-on-primary-container',
+        pending ? BADGE_TONE.warning.tone : 'bg-primary-container text-on-primary-container',
       )}
     >
       {pending ? <Clock className="h-[18px] w-[18px]" /> : <UserCheck className="h-[18px] w-[18px]" />}

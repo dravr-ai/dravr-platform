@@ -184,9 +184,9 @@ export default function PublishedCoachesList() {
                 View
               </Button>
               <Button
-                variant="secondary"
+                variant="danger-outline"
                 size="sm"
-                className="flex-1 text-xs border-error/30 text-error hover:bg-error/10"
+                className="flex-1 text-xs"
                 onClick={() => setConfirmUnpublish(coach)}
               >
                 <svg className="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">

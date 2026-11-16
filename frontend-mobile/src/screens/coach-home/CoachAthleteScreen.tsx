@@ -39,7 +39,7 @@ import {
 import { Button, EmptyState, Row, Section, StatusDot } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { useCoachRoster } from '../../hooks/useCoachRoster';
-import { AthleteAvatar, FormStrip, phaseFill, phaseInk } from './parts';
+import { AthleteAvatar, FormStrip, phaseBand } from './parts';
 import { useCoachDestinations, type CoachDestinations } from './useCoachDestinations';
 import { useTreatment } from './useTreatment';
 
@@ -127,8 +127,8 @@ function PlanBlock({ athlete, today }: { athlete: CoachRosterAthlete; today: str
       <Section title={t('coachHome.detail.plan')} testID="coach-plan-block">
         <View className="gap-2 px-4" testID="coach-plan-ended">
           <Text className="text-sm text-text-primary">{t(COACH_PHASE_LABEL_KEY.transition)}</Text>
-          <View className={`h-[22px] justify-center rounded-md px-1.5 ${phaseFill('transition')}`}>
-            <Text numberOfLines={1} className={`text-xs font-medium ${phaseInk('transition')}`}>
+          <View className={`h-[22px] justify-center rounded-md px-1.5 ${phaseBand('transition').fill}`}>
+            <Text numberOfLines={1} className={`text-xs font-medium ${phaseBand('transition').ink}`}>
               {t(COACH_PHASE_LABEL_KEY.transition)}
             </Text>
           </View>
@@ -285,13 +285,13 @@ function PhaseBand({
       onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
       accessibilityLabel={t(COACH_PHASE_LABEL_KEY[kind])}
       testID={`coach-phase-${kind}`}
-      className={`h-[22px] min-w-0 justify-center overflow-hidden rounded-md px-1.5 ${active ? 'bg-primary-container' : phaseFill(kind)}`}
+      className={`h-[22px] min-w-0 justify-center overflow-hidden rounded-md px-1.5 ${active ? 'bg-primary-container' : phaseBand(kind).fill}`}
     >
       {fits && (
         <Text
           numberOfLines={1}
           testID="coach-phase-label"
-          className={`text-xs font-medium ${active ? 'text-on-primary-container' : phaseInk(kind)}`}
+          className={`text-xs font-medium ${active ? 'text-on-primary-container' : phaseBand(kind).ink}`}
         >
           {t(COACH_PHASE_LABEL_KEY[kind])}
         </Text>

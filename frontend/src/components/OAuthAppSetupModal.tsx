@@ -8,7 +8,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { userApi } from '../services/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
-import { Button, Input } from './ui';
+import { Button, Input, Alert } from './ui';
 import { useDialog } from '../hooks/useDialog';
 import { Trans, useTranslation } from '@pierre/i18n';
 
@@ -206,12 +206,9 @@ export default function OAuthAppSetupModal({
           </div>
 
           {error && (
-            <div
-              role="alert"
-              className="rounded-lg border border-error/40 bg-error/10 px-3 py-2 text-sm text-error"
-            >
+            <Alert tone="error" role="alert" className="border px-3 py-2">
               {error}
-            </div>
+            </Alert>
           )}
 
           <div className="flex gap-3 pt-2">

@@ -14,7 +14,7 @@ import { useTranslation } from '@pierre/i18n';
 import { useAuth } from '../../contexts/AuthContext';
 import { useThemeColors } from '../../constants/theme';
 import { usePlanDraftCard } from '../../hooks/useCoachPlan';
-import { Badge, Button } from '../../components/ui';
+import { ALERT_TONE, Badge, Button } from '../../components/ui';
 
 interface PlanDraftControlsProps {
   /** The coach's plan thread the card is in. */
@@ -95,9 +95,9 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
 
   if (state.kind === 'consentRevoked') {
     return (
-      <View className="mx-4 mb-3 rounded-lg bg-error/10 px-3 py-2" testID="plan-draft-controls">
+      <View className={`mx-4 mb-3 rounded-lg ${ALERT_TONE.error.fill} px-3 py-2`} testID="plan-draft-controls">
         <Text
-          className="text-sm text-on-error-container"
+          className={`text-sm ${ALERT_TONE.error.ink}`}
           accessibilityRole="alert"
           testID="plan-draft-consent-revoked"
         >
@@ -120,13 +120,13 @@ export default function PlanDraftControls({ conversationId, subject, draft }: Pl
 
       {conflict ? (
         <View
-          className="mt-2 rounded-lg bg-warning/10 px-3 py-2"
+          className={`mt-2 rounded-lg ${ALERT_TONE.warning.fill} px-3 py-2`}
           accessibilityRole="alert"
           testID="plan-draft-conflict"
         >
-          <Text className="text-sm font-semibold text-on-warning-container">{conflict.title}</Text>
+          <Text className={`text-sm font-semibold ${ALERT_TONE.warning.ink}`}>{conflict.title}</Text>
           {conflict.lines.map((line) => (
-            <Text key={line} className="mt-0.5 text-sm text-on-warning-container">
+            <Text key={line} className={`mt-0.5 text-sm ${ALERT_TONE.warning.ink}`}>
               {line}
             </Text>
           ))}

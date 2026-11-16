@@ -12,6 +12,7 @@ import { dayLabelFor } from '@pierre/chat-utils';
 import {
   NOTIFICATION_CATEGORIES,
   NOTIFICATION_CATEGORY_COLORS,
+  contrastHex as contrast,
 } from '@pierre/shared-constants';
 import type { NotificationItem } from '@pierre/shared-types';
 
@@ -159,18 +160,6 @@ describe('NotificationCenterScreen', () => {
   // `--color-surface` from global.css, which `bg-background-primary` resolves
   // to and the category word sits on.
   const SURFACE = { light: '#f7f6f2', dark: '#11130f' } as const;
-
-  /** WCAG 2.1 relative luminance. */
-  function luminance(hex: string): number {
-    const channels = [1, 3, 5].map((at) => parseInt(hex.slice(at, at + 2), 16) / 255);
-    const linear = channels.map((c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4));
-    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
-  }
-
-  function contrast(a: string, b: string): number {
-    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-    return (hi + 0.05) / (lo + 0.05);
-  }
 
   // The category word is text, so it owes 4.5:1 against the surface it sits
   // on. One flat hex per category could not pay that in both schemes: the

@@ -20,7 +20,7 @@ import {
   type HarnessConfigResponse,
   type LocaleGuardrails,
 } from "../services/api/admin";
-import { Card, Button, Badge, Input } from "./ui";
+import { ALERT_TONE, Card, Button, Badge, Input } from "./ui";
 import { ADMIN_LOCALE, describeAdminError } from "../utils/adminLocale";
 
 const HARNESS_CONFIG_QUERY_KEY = ["admin", "harness-config"] as const;
@@ -560,7 +560,7 @@ export default function HarnessConfigTab() {
       {data?.degraded_reason ? (
         <p
           role="alert"
-          className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container"
+          className={`${ALERT_TONE.warning.tone} rounded px-3 py-2 text-sm`}
         >
           Showing what this instance holds, not the stored row:{" "}
           {data.degraded_reason}. Saving replaces the row.
@@ -652,7 +652,7 @@ function ConflictPanel({ children }: { children: ReactNode }) {
   return (
     <div
       role="alert"
-      className="rounded bg-warning/15 px-3 py-2 text-sm text-on-warning-container"
+      className={`${ALERT_TONE.warning.tone} rounded px-3 py-2 text-sm`}
     >
       {children}
     </div>

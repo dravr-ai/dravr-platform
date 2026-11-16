@@ -400,7 +400,7 @@ export function StoreCoachDetailScreen() {
                 <ActivityIndicator size="small" color={colors.text.primary} />
               ) : (
                 <>
-                  <Feather name="check" size={18} color={colors.pierre.activity} />
+                  <Feather name="check" size={18} color={colors.success} />
                   <Text className="text-text-primary text-base font-medium ml-2">{t('app.installed')}</Text>
                 </>
               )}

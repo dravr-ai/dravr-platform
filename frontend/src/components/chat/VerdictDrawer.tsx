@@ -266,14 +266,14 @@ function VerdictCard({
       {operator ? (
         <div className="flex flex-wrap gap-2 text-xs">
           <span className={`rounded-full px-2 py-0.5 ${statusTone}`}>{statusLabel}</span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>
             {categoryLabel}
           </span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">{evidenceLabel}</span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>{evidenceLabel}</span>
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>
             {verdict.layer_fired}
           </span>
-          <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">{confidenceLabel}</span>
+          <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>{confidenceLabel}</span>
         </div>
       ) : (
         <div className="flex items-center gap-2">

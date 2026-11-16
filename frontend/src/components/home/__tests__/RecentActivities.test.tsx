@@ -381,6 +381,7 @@ describe('RecentActivities', () => {
 
     const failed = await screen.findByTestId('home-sync-failed');
     expect(failed).toHaveAttribute('role', 'alert');
+    expect(failed).toHaveClass('alert-error');
     expect(failed).toHaveTextContent('Strava · Sync failed');
     expect(failed).not.toHaveTextContent(/Last synced/);
     const synced = screen.getAllByText(/Last synced: /);

@@ -68,7 +68,7 @@ function KnobPanel({ knob }: { knob: VerdictKnob | undefined }) {
       {knob ? (
         <div className="space-y-2 rounded-lg bg-surface-container-low p-3">
           <div className="flex flex-wrap items-center gap-2 text-xs">
-            <span className="rounded-full bg-surface-container-high px-2 py-0.5 text-on-surface">
+            <span className={`rounded-full px-2 py-0.5 ${BADGE_TONE.neutral.tone}`}>
               {KNOB_KIND_LABEL[knob.kind]}
             </span>
             <code className="font-mono text-xs text-on-surface break-all">{knob.location}</code>

@@ -11,6 +11,7 @@ import { useTranslation } from '@pierre/i18n';
 import type { GearItem } from '@pierre/shared-types';
 import { formatGearDistance, useDistanceUnit } from '@pierre/ui-logic';
 import { useThemeColors } from '../../constants/theme';
+import { ALERT_TONE, alertInkColor } from '../../components/ui';
 
 /**
  * "This pair has 512 km, past the 500 km you set." on the warning tint, the
@@ -22,13 +23,13 @@ export function GearWarning({ pair }: { pair: GearItem }) {
   const colors = useThemeColors();
   return (
     <View
-      className="mt-2 flex-row items-start gap-2 rounded-lg bg-warning/10 px-3 py-2"
+      className={`mt-2 flex-row items-start gap-2 rounded-lg ${ALERT_TONE.warning.fill} px-3 py-2`}
       testID={`gear-warning-${pair.id}`}
     >
       <View className="mt-0.5">
-        <Feather name="alert-triangle" size={16} color={colors.ink.warning} />
+        <Feather name="alert-triangle" size={16} color={alertInkColor('warning', colors)} />
       </View>
-      <Text className="flex-1 text-sm text-on-warning-container">
+      <Text className={`flex-1 text-sm ${ALERT_TONE.warning.ink}`}>
         {t('gear.warnReached', {
           distance: formatGearDistance(pair.distance_meters, unit, language),
           warn: formatGearDistance(pair.warn_distance_meters, unit, language),

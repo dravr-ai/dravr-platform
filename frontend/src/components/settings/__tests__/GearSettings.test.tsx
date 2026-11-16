@@ -91,6 +91,7 @@ describe('GearSettings', () => {
     expect(within(road).getByTestId('gear-warning-road')).toHaveTextContent(
       'This pair has 512 km, past the 500 km you set.',
     );
+    expect(within(road).getByTestId('gear-warning-road')).toHaveClass('alert-warning');
     // A pair with activities is retired, never deleted.
     expect(within(road).queryByTestId('gear-delete-road')).not.toBeInTheDocument();
 

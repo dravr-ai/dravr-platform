@@ -24,7 +24,7 @@ import {
   ghostBorder,
   type ColorScheme,
 } from '../src/design-system';
-import { GRAPHIC_FLOOR, TEXT_FLOOR, contrast, hexToRgb, over, triple, type Rgb } from './wcag';
+import { GRAPHIC_FLOOR, TEXT_FLOOR, contrast, hexToRgb, over, triple, type Rgb } from '../src/wcag';
 
 const PACKAGE_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const REPO_ROOT = resolve(PACKAGE_ROOT, '../..');

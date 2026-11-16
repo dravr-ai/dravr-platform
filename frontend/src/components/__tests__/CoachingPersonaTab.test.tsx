@@ -118,6 +118,8 @@ describe('CoachingPersonaTab', () => {
     await waitFor(() => expect(userApi.setCoachingPersona).toHaveBeenCalledWith('power_athlete'));
     // The confirmation names the persona the way the card does.
     expect(await screen.findByTestId('persona-status')).toHaveTextContent('Power-athlete');
+    // A confirmation is a state: the success alert's tint and ink (carnet#1584).
+    expect(screen.getByTestId('persona-status')).toHaveClass('alert', 'alert-success');
   });
 
   it('shows the cards nothing rather than a hand-written fallback when the read fails', async () => {

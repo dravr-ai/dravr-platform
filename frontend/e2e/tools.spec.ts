@@ -213,10 +213,10 @@ test.describe('Engagement Tab - Time Range Interaction', () => {
     await thirtyDayButton.click();
     await page.waitForTimeout(300);
 
-    // Active styling is the primary token. Asserting the token rather than a
-    // literal colour name means this survives a palette rename but still
-    // fails if the button stops looking selected.
-    await expect(thirtyDayButton).toHaveClass(/bg-primary\/20/);
+    // Active styling is the primary badge tone (BADGE_TONE.primary). Asserting
+    // the tone rather than a literal colour means this survives a palette
+    // change but still fails if the button stops looking selected.
+    await expect(thirtyDayButton).toHaveClass(/\bbadge-primary\b/);
   });
 
   test('clicking 90 Days changes selection', async ({ page }) => {
@@ -227,8 +227,8 @@ test.describe('Engagement Tab - Time Range Interaction', () => {
     await ninetyDayButton.click();
     await page.waitForTimeout(300);
 
-    // Active styling is the primary token — see the 30 Days case above.
-    await expect(ninetyDayButton).toHaveClass(/bg-primary\/20/);
+    // Active styling is the primary badge tone — see the 30 Days case above.
+    await expect(ninetyDayButton).toHaveClass(/\bbadge-primary\b/);
   });
 });
 

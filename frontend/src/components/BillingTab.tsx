@@ -96,7 +96,6 @@ export default function BillingTab() {
           <Button
             onClick={() => handleExport('csv')}
             disabled={busy}
-            className="bg-activity hover:bg-activity/80 text-on-primary"
           >
             {busy ? 'Exporting…' : 'Export CSV'}
           </Button>

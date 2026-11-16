@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, X } from 'lucide-react';
 import { chatApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
-import { Input, useErrorToast, useSuccessToast } from '../ui';
+import { BADGE_TONE, Input, useErrorToast, useSuccessToast } from '../ui';
 import type { ConversationParticipant } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
 import { useEscapeLayer } from '../../hooks/useDialog';
@@ -152,7 +152,7 @@ export default function ConversationParticipants({
             <button
               type="submit"
               disabled={addParticipant.isPending || newUserId.trim() === ''}
-              className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-primary bg-primary/10 hover:bg-primary/20 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+              className={`${BADGE_TONE.primary.tone} ${BADGE_TONE.primary.hover} inline-flex items-center gap-1 px-2 py-1 text-xs font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed`}
             >
               <UserPlus className="w-3.5 h-3.5" aria-hidden="true" />
               {t('chat.addParticipant')}

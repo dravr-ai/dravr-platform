@@ -8,7 +8,7 @@ import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { StorePackageReview } from '../services/api/admin';
-import { BADGE_TONE, Button, Card, Section } from './ui';
+import { BADGE_TONE, Button, Card, Section, Alert } from './ui';
 import { clsx } from 'clsx';
 import { coachCategoryTone } from './coachCategory';
 import CoachRejectionModal from './CoachRejectionModal';
@@ -219,7 +219,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
                 {coach.package.artefacts.map((artefact) => (
                   <li key={`${artefact.kind}:${artefact.slug}`} className="text-sm" data-testid="package-artefact">
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 text-xs rounded-full bg-surface-container-high text-on-surface">
+                      <span className={`${BADGE_TONE.neutral.tone} px-2 py-0.5 text-xs rounded-full`}>
                         {artefact.kind}
                       </span>
                       <span className="font-mono text-on-surface">{artefact.slug}</span>
@@ -258,7 +258,7 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
               <h4 className="text-sm font-medium text-on-surface mb-3">Tags</h4>
               <div className="flex flex-wrap gap-2">
                 {coach.tags.map((tag) => (
-                  <span key={tag} className="px-3 py-1 text-sm bg-surface-container-high text-on-surface rounded-full">
+                  <span key={tag} className={`${BADGE_TONE.neutral.tone} px-3 py-1 text-sm rounded-full`}>
                     {tag}
                   </span>
                 ))}
@@ -307,8 +307,8 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
         <div className="sticky bottom-0 bg-surface/95 backdrop-blur-lg border-t ghost-border px-6 py-4 flex gap-3">
           <Button
             onClick={() => setShowRejectionModal(true)}
-            variant="secondary"
-            className="flex-1 border-error/30 text-error hover:bg-error/10"
+            variant="danger-outline"
+            className="flex-1"
           >
             <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -318,7 +318,8 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
           <Button
             onClick={handleApprove}
             disabled={approveMutation.isPending}
-            className="flex-1 bg-activity hover:bg-activity/80 text-on-primary"
+            variant="success"
+            className="flex-1"
           >
             {approveMutation.isPending ? (
               <span className="flex items-center">
@@ -339,11 +340,9 @@ export default function CoachReviewDrawer({ coach, isOpen, onClose }: CoachRevie
         {/* Error Message */}
         {approveMutation.isError && (
           <div className="px-6 pb-4">
-            <div className="p-3 bg-error/15 border border-error/30 rounded-md">
-              <p className="text-sm text-error">
-                Failed to approve agent. Please try again.
-              </p>
-            </div>
+            <Alert tone="error" className="border rounded-md">
+              <p>Failed to approve agent. Please try again.</p>
+            </Alert>
           </div>
         )}
       </div>

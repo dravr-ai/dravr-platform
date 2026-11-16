@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Unit tests for mobile UsageWarningBanner component
-// ABOUTME: Tests rendering states, accessibility roles, and dismiss behavior
+// ABOUTME: Tests rendering states, each level's alert tone, accessibility roles, and dismiss behavior
 
 import React from 'react';
 import { render, fireEvent } from '@testing-library/react-native';
@@ -45,6 +45,22 @@ describe('UsageWarningBanner', () => {
     );
     expect(getByTestId('usage-warning-banner')).toBeTruthy();
     expect(getByText('Daily messages limit reached')).toBeTruthy();
+  });
+
+  // Each level draws through the alert table: warning and burst on the
+  // warning tint (burst with the deeper edge), blocked on the error tint, the
+  // message in the tone's bound ink — never the bare hue, which falls under
+  // AA on its own tint.
+  it.each([
+    ['warning', 'bg-warning/10', 'border-warning/30', 'text-on-warning-container'],
+    ['burst', 'bg-warning/10', 'border-warning/60', 'text-on-warning-container'],
+    ['blocked', 'bg-error/10', 'border-error/30', 'text-on-error-container'],
+  ] as const)('draws the %s level on the alert table', (level, fill, edge, ink) => {
+    const { getByTestId, getByText } = render(<UsageWarningBanner level={level} message="Usage" />);
+    const banner = getByTestId('usage-warning-banner');
+    expect(banner.props.className).toContain(fill);
+    expect(banner.props.className).toContain(edge);
+    expect(getByText('Usage').props.className).toContain(ink);
   });
 
   it('has accessibility role alert', () => {

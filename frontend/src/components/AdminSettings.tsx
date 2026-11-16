@@ -10,44 +10,12 @@ import { adminApi } from '../services/api';
 import type { AutoApprovalSetting, SignupSetting, SignupSettingUpdate } from '../services/api/admin';
 import { useAuth } from '../hooks/useAuth';
 import { useGroupPermissions } from '../hooks/useGroups';
-import { Button, Card, ConfirmDialog, Input, Select } from './ui';
+import { Button, Card, ConfirmDialog, Input, Select, Alert, ALERT_TONE, Switch } from './ui';
 import { formatDateTime } from '@pierre/chat-utils';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import FeatureFlagsPanel from './FeatureFlagsPanel';
 import { featureFlagsQuery } from './featureFlagsQuery';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
-
-interface SettingSwitchProps {
-  checked: boolean;
-  label: string;
-  onToggle: () => void;
-  disabled?: boolean;
-  title?: string;
-}
-
-/** The on/off switch every toggle on this page draws. */
-function SettingSwitch({ checked, label, onToggle, disabled = false, title }: SettingSwitchProps) {
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={disabled}
-      title={title}
-      className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-surface-container ${
-        checked ? 'bg-activity' : 'bg-surface-container-high'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-    >
-      <span
-        className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-          checked ? 'translate-x-6' : 'translate-x-1'
-        }`}
-      />
-    </button>
-  );
-}
 
 export default function AdminSettings() {
   const queryClient = useQueryClient();
@@ -195,10 +163,10 @@ export default function AdminSettings() {
               ) : error ? (
                 <span className="text-xs text-error">Error loading</span>
               ) : (
-                <SettingSwitch
+                <Switch
                   checked={autoApprovalData?.enabled === true}
                   label="Auto-Approve Registrations"
-                  onToggle={handleToggleAutoApproval}
+                  onChange={handleToggleAutoApproval}
                   disabled={updateAutoApprovalMutation.isPending || autoApprovalLockedByEnv}
                   title={
                     autoApprovalLockedByEnv
@@ -212,10 +180,10 @@ export default function AdminSettings() {
 
           {/* Status indicator */}
           {autoApprovalData && (
-            <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+            <div className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${
               autoApprovalData.enabled
-                ? 'bg-activity/15 text-on-activity-container border border-activity/30'
-                : 'bg-surface-container-low text-on-surface-variant border ghost-border'
+                ? ALERT_TONE.success.tone
+                : 'bg-surface-container-low text-on-surface-variant ghost-border'
             }`}>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {autoApprovalData.enabled ? (
@@ -234,14 +202,14 @@ export default function AdminSettings() {
 
           {/* Mutation status */}
           {updateAutoApprovalMutation.isSuccess && (
-            <div className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30">
+            <Alert tone="success" className="border">
               Setting updated successfully.
-            </div>
+            </Alert>
           )}
           {updateAutoApprovalMutation.isError && (
-            <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
+            <Alert tone="error" className="border">
               Failed to update setting. Please try again.
-            </div>
+            </Alert>
           )}
 
           {/* Sign-up guards (carnet#1063) */}
@@ -268,10 +236,10 @@ export default function AdminSettings() {
                     </p>
                   </div>
                   <div className="flex-shrink-0">
-                    <SettingSwitch
+                    <Switch
                       checked={signupData.open}
                       label="Sign-up open"
-                      onToggle={() => updateSignupMutation.mutate({ open: !signupData.open })}
+                      onChange={(open) => updateSignupMutation.mutate({ open })}
                       disabled={updateSignupMutation.isPending}
                     />
                   </div>
@@ -318,13 +286,11 @@ export default function AdminSettings() {
                     </p>
                   </div>
                   <div className="flex-shrink-0">
-                    <SettingSwitch
+                    <Switch
                       checked={signupData.activate_on_verified_email}
                       label="Activate on verified email"
-                      onToggle={() =>
-                        updateSignupMutation.mutate({
-                          activate_on_verified_email: !signupData.activate_on_verified_email,
-                        })
+                      onChange={(activate_on_verified_email) =>
+                        updateSignupMutation.mutate({ activate_on_verified_email })
                       }
                       disabled={updateSignupMutation.isPending}
                     />
@@ -362,30 +328,24 @@ export default function AdminSettings() {
                 </dl>
 
                 {updateSignupMutation.isSuccess && (
-                  <div className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30">
+                  <Alert tone="success" className="border">
                     Sign-up settings updated.
-                  </div>
+                  </Alert>
                 )}
                 {updateSignupMutation.isError && (
-                  <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
+                  <Alert tone="error" className="border">
                     Failed to update the sign-up settings. Please try again.
-                  </div>
+                  </Alert>
                 )}
                 {resetCountMutation.isSuccess && (
-                  <div
-                    role="status"
-                    className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30"
-                  >
+                  <Alert tone="success" role="status" className="border">
                     Today&apos;s count restarted from zero.
-                  </div>
+                  </Alert>
                 )}
                 {resetCountMutation.isError && (
-                  <div
-                    role="alert"
-                    className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30"
-                  >
+                  <Alert tone="error" role="alert" className="border">
                     Failed to reset the count. Please try again.
-                  </div>
+                  </Alert>
                 )}
                 <ConfirmDialog
                   isOpen={confirmResetCount}
@@ -439,10 +399,10 @@ export default function AdminSettings() {
           </div>
 
           {/* Status indicator */}
-          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
+          <div className={`flex items-center gap-2 p-3 rounded-lg text-sm border ${
             groupCreationPolicy === 'everyone'
-              ? 'bg-activity/15 text-on-activity-container border border-activity/30'
-              : 'bg-surface-container-low text-on-surface-variant border ghost-border'
+              ? ALERT_TONE.success.tone
+              : 'bg-surface-container-low text-on-surface-variant ghost-border'
           }`}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {groupCreationPolicy === 'everyone' ? (
@@ -460,14 +420,14 @@ export default function AdminSettings() {
 
           {/* Mutation status */}
           {updateGroupPolicyMutation.isSuccess && (
-            <div className="p-3 rounded-lg bg-activity/15 text-on-activity-container text-sm border border-activity/30">
+            <Alert tone="success" className="border">
               Group creation policy updated successfully.
-            </div>
+            </Alert>
           )}
           {updateGroupPolicyMutation.isError && (
-            <div className="p-3 rounded-lg bg-error/15 text-error text-sm border border-error/30">
+            <Alert tone="error" className="border">
               Failed to update policy. Please try again.
-            </div>
+            </Alert>
           )}
         </div>
       </Card>

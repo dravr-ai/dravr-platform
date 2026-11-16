@@ -758,10 +758,10 @@ export function MessageList({
                   key={`${action.value}-${idx}`}
                   accessibilityRole="button"
                   accessibilityLabel={action.label}
-                  className="px-3 py-2 rounded-lg bg-primary/15"
+                  className={`px-3 py-2 rounded-lg ${BADGE_TONE.primary.fill}`}
                   onPress={() => onActionClick?.(action, context.audience)}
                 >
-                  <Text className="text-sm text-primary font-medium">{action.label}</Text>
+                  <Text className={`text-sm ${BADGE_TONE.primary.ink} font-medium`}>{action.label}</Text>
                 </TouchableOpacity>
               ))}
             </View>

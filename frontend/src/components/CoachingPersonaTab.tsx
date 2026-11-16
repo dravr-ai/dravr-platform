@@ -9,7 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type { CoachingPersona, PersonaCard } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import { personasApi, userApi } from '../services/api';
-import { BADGE_TONE, Section } from './ui';
+import { BADGE_TONE, Section, Alert } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { useTranslation } from '@pierre/i18n';
 import HomeSettings from './settings/HomeSettings';
@@ -155,17 +155,9 @@ export default function CoachingPersonaTab() {
       </div>
 
       {message && (
-        <div
-          role="status"
-          data-testid="persona-status"
-          className={`mt-4 p-3 rounded-lg text-sm ${
-            message.type === 'success'
-              ? 'bg-success/10 text-on-success-container border border-success/20'
-              : 'bg-error/10 text-error border border-error/20'
-          }`}
-        >
+        <Alert tone={message.type} role="status" data-testid="persona-status" className="mt-4 border">
           {message.text}
-        </div>
+        </Alert>
       )}
 
       {/* Whether Home suggests building a plan sits with how the agent coaches. */}

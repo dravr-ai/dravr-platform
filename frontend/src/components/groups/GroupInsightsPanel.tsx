@@ -116,7 +116,7 @@ export default function GroupInsightsPanel({
                     className="flex items-start gap-2 text-sm text-on-surface"
                     data-testid="group-report-highlight"
                   >
-                    <CheckCircle2 className="w-3.5 h-3.5 text-activity mt-0.5 flex-shrink-0" />
+                    <CheckCircle2 className="w-3.5 h-3.5 text-success mt-0.5 flex-shrink-0" />
                     <span>{freshMemberLine(t, member)}</span>
                   </li>
                 ))}

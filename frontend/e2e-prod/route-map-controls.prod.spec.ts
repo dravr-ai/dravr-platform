@@ -9,6 +9,7 @@ import { setupDashboardMocks, loginToDashboard, openPersonalConversation } from 
 import { serveBasemapStandIn } from './basemap-stand-in';
 import { CHAT_ROUTE_QUESTION, CHAT_ROUTE_TITLE, mockChatRoute } from './chat-route-fixture';
 import { mockHome, paintedPixels, recordCspViolations } from './home-map-fixture';
+import { contrast, over, type Rgb } from '@pierre/shared-constants';
 
 /** A tile from the keyless ArcGIS Online pyramid: `/tile/{z}/{y}/{x}`, no token. */
 const ESRI_TILE =
@@ -403,28 +404,19 @@ test('on a phone the Esri credit over full-screen imagery is not covered by the 
   }
 });
 
-/** WCAG contrast of `ink` over `ground`, each an rgb()/rgba() string; ground over white, ink over the result. */
+/**
+ * WCAG contrast of `ink` over `ground`, each an rgb()/rgba() string; ground
+ * over white, ink over the result, through the one shared calculator.
+ */
 function creditContrast(ink: string, ground: string): number {
-  const parse = (css: string) => {
-    const [r, g, b, a = 1] = (css.match(/[\d.]+/g) ?? []).map(Number);
-    return { r, g, b, a };
+  const parse = (css: string): { rgb: Rgb; alpha: number } => {
+    const [r, g, b, alpha = 1] = (css.match(/[\d.]+/g) ?? []).map(Number);
+    return { rgb: [r, g, b], alpha };
   };
-  const over = (top: ReturnType<typeof parse>, under: { r: number; g: number; b: number }) => ({
-    r: top.r * top.a + under.r * (1 - top.a),
-    g: top.g * top.a + under.g * (1 - top.a),
-    b: top.b * top.a + under.b * (1 - top.a),
-  });
-  const luminance = ({ r, g, b }: { r: number; g: number; b: number }) => {
-    const channel = (c: number) => {
-      const s = c / 255;
-      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-    };
-    return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
-  };
-  const pill = over(parse(ground), { r: 255, g: 255, b: 255 });
-  const text = over(parse(ink), pill);
-  const [light, dark] = [luminance(pill), luminance(text)].sort((x, y) => y - x);
-  return (light + 0.05) / (dark + 0.05);
+  const back = parse(ground);
+  const front = parse(ink);
+  const pill = over(back.rgb, back.alpha, [255, 255, 255]);
+  return contrast(over(front.rgb, front.alpha, pill), pill);
 }
 
 for (const scheme of ['light', 'dark'] as const) {

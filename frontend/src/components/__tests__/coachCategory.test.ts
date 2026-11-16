@@ -11,6 +11,7 @@ import {
   coachCategoryPillar,
   coachCategoryTone,
 } from '../coachCategory';
+import { BADGE_TONE } from '../ui/badgeTone';
 
 describe('coachCategoryPillar', () => {
   it.each([
@@ -42,7 +43,7 @@ describe('the readers derive their class from the pillar and keep their own fall
   });
 
   it('tints an avatar with the pillar pair, or the primary container pair', () => {
-    expect(coachCategoryAvatarClass('recovery')).toBe('bg-recovery/15 text-on-recovery-container');
-    expect(coachCategoryAvatarClass('custom')).toBe('bg-primary-container text-on-primary-container');
+    expect(coachCategoryAvatarClass('recovery')).toBe(BADGE_TONE.recovery.tone);
+    expect(coachCategoryAvatarClass('custom')).toBe(BADGE_TONE.accent.tone);
   });
 });

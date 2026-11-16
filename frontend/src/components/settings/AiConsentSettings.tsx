@@ -12,6 +12,7 @@ import { oauthApi } from '../../services/api';
 import { QUERY_KEYS } from '../../constants/queryKeys';
 import { useAuth } from '../../hooks/useAuth';
 import { useAiConsent } from '../../hooks/useAiConsent';
+import { Switch } from '../ui';
 
 /**
  * One switch per connected provider whose consent to AI use the athlete can
@@ -59,24 +60,13 @@ export default function AiConsentSettings() {
           return (
             <li key={card.provider} className="flex items-center justify-between gap-4">
               <span className="text-sm text-on-surface">{label}</span>
-              <button
-                type="button"
-                role="switch"
-                aria-checked={allowed}
-                aria-label={label}
-                data-testid={`ai-consent-switch-${card.provider}`}
-                onClick={() => toggle(card.provider, card.display_name, !allowed)}
+              <Switch
+                checked={allowed}
+                onChange={(next) => toggle(card.provider, card.display_name, next)}
+                label={label}
                 disabled={consent.isPending}
-                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-zinc-900 disabled:opacity-50 ${
-                  allowed ? 'bg-primary' : 'bg-surface-container-high'
-                }`}
-              >
-                <span
-                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                    allowed ? 'translate-x-5' : 'translate-x-0'
-                  }`}
-                />
-              </button>
+                data-testid={`ai-consent-switch-${card.provider}`}
+              />
             </li>
           );
         })}

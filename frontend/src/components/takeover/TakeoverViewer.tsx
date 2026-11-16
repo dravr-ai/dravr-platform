@@ -8,7 +8,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from '@pierre/i18n';
 import { takeoverResult, type TakeoverResult } from '@pierre/ui-logic';
 import type { SciotteTakeoverInput, SciotteTakeoverOutcome } from '@pierre/shared-types';
-import { Button, Input } from '../ui';
+import { Button, Input, ALERT_TONE } from '../ui';
 import { useTakeoverSocket, type TakeoverStage } from './useTakeoverSocket';
 import { beforeInputMessages, forwardedKey, framePoint, textInputs } from './takeoverInput';
 
@@ -312,7 +312,7 @@ export default function TakeoverViewer({
           {noticeKey && live && (
             <p
               role="status"
-              className="text-sm text-on-warning-container rounded-lg bg-warning/10 border border-warning/20 px-3 py-2"
+              className={`${ALERT_TONE.warning.tone} text-sm rounded-lg border px-3 py-2`}
               data-testid="takeover-notice"
             >
               {t(noticeKey, { provider: providerLabel })}

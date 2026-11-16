@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Coach Home's shared pieces in both themes — the phase fills the season bars are told apart by, the switch's raised chip
+// ABOUTME: Coach Home's shared pieces in both themes — the season bars' phase fills, the labelled bands' measured ink, the switch's raised chip
 // ABOUTME: Red if a dark phase fill goes back to the light tint that vanished on the dark canvas, or the chip sinks below its track
 
 import React from 'react';
 import { render } from '@testing-library/react-native';
-import { phaseFill } from '../src/screens/coach-home/parts';
+import { phaseBand, phaseFill } from '../src/screens/coach-home/parts';
+import { AA_TEXT, classColor, contrast, fillOver, GROUNDS, SCHEMES } from '../src/test/contrast';
 import { Text } from 'react-native';
 import { CoachHomeSwitch } from '../src/screens/coach-home/CoachHomeSwitch';
 import { Section } from '../src/components/ui/Section';
@@ -20,6 +21,37 @@ describe('phase fills', () => {
     }
     expect(darkClass(phaseFill('base'))).not.toBe(darkClass(phaseFill('build')));
     expect(darkClass(phaseFill('build'))).not.toBe(darkClass(phaseFill('specialty')));
+  });
+});
+
+/**
+ * `text-text-secondary` is the phone's alias for `on-surface-variant`
+ * (tailwind.config.js, `text.secondary`); the generated block names the token.
+ */
+const inkToken = (ink: string) => (ink === 'text-text-secondary' ? 'text-on-surface-variant' : ink);
+
+describe('labelled phase bands', () => {
+  const KINDS = ['prep', 'base', 'build', 'specialty', 'peak', 'taper', 'race', 'transition', 'recovery', 'draft'] as const;
+
+  it.each(SCHEMES)('every label clears AA on its band over every ground, in %s', (scheme) => {
+    const failures: string[] = [];
+    for (const kind of KINDS) {
+      const { fill, ink } = phaseBand(kind);
+      // An outlined band has no fill: its label sits on the ground.
+      const bg = fill.split(/\s+/).find((c) => /^bg-/.test(c));
+      for (const [groundName, ground] of GROUNDS[scheme]) {
+        const behind = bg ? fillOver(bg, scheme, ground) : ground;
+        const ratio = contrast(classColor(inkToken(ink), scheme), behind);
+        if (ratio < AA_TEXT) failures.push(`${kind} over ${groundName}: ${ratio.toFixed(2)}:1`);
+      }
+    }
+    expect(failures).toEqual([]);
+  });
+
+  it('keeps the dark lift off a band that carries its label', () => {
+    // The season bars' dark fills lift to ~3:1 against the page, and a label
+    // on them reads 2.40:1 (peak on warning/50, dark, top tier).
+    for (const kind of KINDS) expect(darkClass(phaseBand(kind).fill)).toBeNull();
   });
 });
 

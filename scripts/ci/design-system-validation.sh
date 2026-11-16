@@ -40,7 +40,9 @@ PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 # ============================================================================
 BASELINE_WEB_RAW_INPUT=28
 BASELINE_WEB_RAW_PALETTE=2
-BASELINE_WEB_WHITE_LITERAL=9
+# White literals 9 -> 2: the seven hand-written switches' `bg-white` thumbs
+# went with them onto ui/Switch, whose thumb is a token (carnet#1584).
+BASELINE_WEB_WHITE_LITERAL=2
 BASELINE_MOBILE_RAW_PALETTE=0
 BASELINE_MOBILE_RAW_TEXTINPUT=12
 BASELINE_WEB_LEGACY_PIERRE=0
@@ -53,7 +55,11 @@ BASELINE_WEB_HERO_GRADIENT=4
 # legacy card-dark/card-admin wrappers are flat sections by CSS until their
 # consumers move; display sizes above 18px belong to auth and hero numbers.
 # All three are ratcheted from the count the density pass left.
-BASELINE_WEB_CARD_SITES=85
+# Cards 85 -> 82: three error banners that borrowed a Card for its shape
+# (ToolAvailability's globally-disabled notice, CoachRejectionModal's warning,
+# BillingPage's payment problem) draw through the alert tone table instead
+# (carnet#1584).
+BASELINE_WEB_CARD_SITES=82
 BASELINE_WEB_LEGACY_CARD_CLASSES=12
 BASELINE_WEB_LARGE_TEXT=46
 
@@ -98,6 +104,19 @@ BASELINE_MOBILE_CARD_SITES=9
 # counted here instead of below; the inline-radius baseline falls 32 -> 31.
 BASELINE_MOBILE_ROUNDED_FULL=35
 BASELINE_MOBILE_INLINE_BORDER_RADIUS=31
+
+# Feedback tints written by hand instead of read from a tone table
+# (DESIGN.md §5 "Alerts", carnet#1584). A banner, notice, inline error or
+# tinted chip takes ALERT_TONE or BADGE_TONE, whose inks are measured on their
+# tints; what is left draws a neutral or bound ink on a wash, never the bare
+# hue on its own tint. Web 0: the four washes left (the version history's
+# before/after cells, the private lane, the current plan card) are WASH_TONE,
+# a third table alertTone.test.tsx reads and measures (5 -> 0).
+# Phone 7: the season bars' phase fills (3, unlabelled — a labelled band reads
+# phaseBand, on the badge tones), private-lane washes (2) and version cells (2),
+# each body or bound ink on a wash (DESIGN.md §5 "A wash is not an alert").
+BASELINE_WEB_HAND_TINT=0
+BASELINE_MOBILE_HAND_TINT=7
 
 # Tailwind's stock palette. Project tokens (primary, surface, on-surface,
 # outline, and the pillar tokens) never match: the colour name must follow the
@@ -394,6 +413,14 @@ WEB_HARD_44=$(grep -rEo 'min-[hw]-\[44px\]' "$PROJECT_ROOT/frontend/src" --inclu
 check_ratchet "web hard-coded 44px targets" "$WEB_HARD_44" 0 \
     "Use the touch-target class: 44px on a coarse pointer and under lg, the 32px scale on a fine pointer (DESIGN.md §8)."
 
+# Hand-written feedback tints: `bg-<feedback>/NN` that is not a `hover:`
+# variant, outside the two tone tables. The tables themselves are excluded by
+# path, so the path has to survive into the piped text (no -h).
+WEB_HAND_TINT=$(grep -rEo '(^|[^:a-z-])bg-(success|warning|error|info)/[0-9]+' "$PROJECT_ROOT/frontend/src" --include='*.tsx' --include='*.ts' 2>/dev/null \
+    | grep -v '__tests__' | grep -vE 'components/ui/(badgeTone|alertTone|washTone)\.ts:' | wc -l | tr -d ' ')
+check_ratchet "web hand-written feedback tints" "$WEB_HAND_TINT" "$BASELINE_WEB_HAND_TINT" \
+    "Draw a banner through ALERT_TONE (ui/Alert) and a tinted chip or button through BADGE_TONE; their inks are measured on the tint (DESIGN.md §5 Alerts)."
+
 WEB_AI_BUBBLE=$(grep -rEo 'chat-bubble-ai' "$PROJECT_ROOT/frontend/src" 2>/dev/null | wc -l | tr -d ' ')
 check_ratchet "web agent bubble class" "$WEB_AI_BUBBLE" 0 \
     "The agent's turn is prose on the canvas; only .chat-bubble-user remains (DESIGN.md §5)."
@@ -502,6 +529,11 @@ MOBILE_ROUNDED_FULL=$(grep -rEo '\brounded-full\b' "$PROJECT_ROOT/frontend-mobil
     | grep -v '__tests__' | wc -l | tr -d ' ')
 check_ratchet "mobile rounded-full sites" "$MOBILE_ROUNDED_FULL" "$BASELINE_MOBILE_ROUNDED_FULL" \
     "Confirm it is an avatar/dot; a badge is ui/Badge, and a card or button belongs on the radius ladder instead (DESIGN.md §10)."
+
+MOBILE_HAND_TINT=$(grep -rEo '(^|[^:a-z-])bg-(success|warning|error|info)/[0-9]+' "$PROJECT_ROOT/frontend-mobile/src" --include='*.tsx' --include='*.ts' 2>/dev/null \
+    | grep -v '__tests__' | grep -vE 'components/ui/(Badge\.tsx|alertTone\.ts):' | wc -l | tr -d ' ')
+check_ratchet "mobile hand-written feedback tints" "$MOBILE_HAND_TINT" "$BASELINE_MOBILE_HAND_TINT" \
+    "Draw a banner through ALERT_TONE and a tinted chip through BADGE_TONE (components/ui); each Text names the tone's ink (DESIGN.md §5 Alerts)."
 
 # 999/9999 is the circular-dot idiom (NotificationRow's unread dot) and is as
 # legitimate as rounded-full above; every other inline value, including 0

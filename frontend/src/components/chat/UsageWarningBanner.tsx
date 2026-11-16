@@ -2,13 +2,14 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Dismissible usage warning banner for the chat interface
-// ABOUTME: Shows yellow/orange/red warnings based on quota usage percentage
+// ABOUTME: Draws the warning, burst and blocked levels through the alert tone table
 
 import { useState } from 'react';
 import { AlertTriangle, X, Ban } from 'lucide-react';
 import type { WarningLevel } from '../../hooks/useUsageStatus';
 import { useTranslation } from '@pierre/i18n';
 import type { TranslatableText } from '@pierre/chat-utils';
+import { ALERT_TONE } from '../ui';
 
 interface UsageWarningBannerProps {
   /** The warning severity level */
@@ -17,29 +18,16 @@ interface UsageWarningBannerProps {
   text: TranslatableText | null;
 }
 
-// Three escalation steps on a four-token palette, so the ladder is built from
-// emphasis rather than a fourth hue: warning reads as a quiet tint, burst keeps
-// the same hue at roughly double the weight, blocked switches to error. Giving
-// warning and burst identical styling would make the escalation invisible.
-const BANNER_STYLES: Record<Exclude<WarningLevel, 'none'>, { bg: string; border: string; text: string; icon: string }> = {
-  warning: {
-    bg: 'bg-warning/10',
-    border: 'border-warning/30',
-    text: 'text-on-warning-container',
-    icon: 'text-warning',
-  },
-  burst: {
-    bg: 'bg-warning/25',
-    border: 'border-warning/60',
-    text: 'text-on-warning-container',
-    icon: 'text-warning',
-  },
-  blocked: {
-    bg: 'bg-error/10',
-    border: 'border-error/30',
-    text: 'text-error',
-    icon: 'text-error',
-  },
+// Three escalation steps on the alert table, so every level's ink is the one
+// measured on its tint (DESIGN.md "Alerts"): warning is the warning alert,
+// burst keeps that tone and doubles its edge, blocked switches to error. A
+// deeper tint (/25) would drop the warning ink under AA on the upper tiers;
+// the edge is not text, so it carries the weight without costing contrast. Giving warning and burst identical styling
+// would make the escalation invisible.
+const BANNER_STYLES: Record<Exclude<WarningLevel, 'none'>, string> = {
+  warning: ALERT_TONE.warning.tone,
+  burst: `${ALERT_TONE.warning.tone} border-warning/60`,
+  blocked: ALERT_TONE.error.tone,
 };
 
 export default function UsageWarningBanner({ level, text }: UsageWarningBannerProps) {
@@ -57,9 +45,9 @@ export default function UsageWarningBanner({ level, text }: UsageWarningBannerPr
     <div
       role="alert"
       data-testid="usage-warning-banner"
-      className={`flex items-center gap-3 px-4 py-2.5 ${styles.bg} border-b ${styles.border} ${styles.text} text-sm`}
+      className={`flex items-center gap-3 px-4 py-2.5 border-b text-sm ${styles}`}
     >
-      <Icon className={`w-4 h-4 flex-shrink-0 ${styles.icon}`} />
+      <Icon className="w-4 h-4 flex-shrink-0" />
       <span className="flex-1">{t(text.key, text.params)}</span>
       {level !== 'blocked' && (
         <button

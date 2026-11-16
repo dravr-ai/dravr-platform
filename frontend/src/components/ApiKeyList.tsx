@@ -4,7 +4,7 @@
 import { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { format } from 'date-fns';
-import { Button, Section, Badge, StatusFilter, ConfirmDialog } from './ui';
+import { Button, Section, Badge, StatusFilter, ConfirmDialog, ALERT_TONE } from './ui';
 import type { StatusFilterValue } from './ui';
 import { useAuth } from '../hooks/useAuth';
 import { adminApi } from '../services/api';
@@ -121,13 +121,13 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
 
   if (error) {
     return (
-      <div className="bg-error/15 border border-error/30 rounded-lg p-6">
+      <div className={`${ALERT_TONE.error.tone} border rounded-lg p-6`}>
         <div className="flex items-center gap-3">
-          <svg className="w-6 h-6 text-error" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <div>
-            <h3 className="text-lg font-medium text-error">Failed to load API tokens</h3>
+            <h3 className="text-lg font-medium">Failed to load API tokens</h3>
             <p className="text-on-surface mt-1">
               {describeAdminError(error)}
             </p>
@@ -159,8 +159,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                 <Button
                   onClick={handleBulkRevoke}
                   disabled={revokeTokenMutation.isPending}
-                  variant="secondary"
-                  className="text-error hover:bg-error/10"
+                  variant="danger-outline"
                   size="sm"
                 >
                   Revoke Selected
@@ -246,8 +245,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                           <Button
                             onClick={() => handleSingleRevoke(token)}
                             disabled={revokeTokenMutation.isPending}
-                            variant="secondary"
-                            className="text-error hover:bg-error/10"
+                            variant="danger-outline"
                             size="sm"
                           >
                             Revoke

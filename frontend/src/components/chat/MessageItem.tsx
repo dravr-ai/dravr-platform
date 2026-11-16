@@ -179,7 +179,7 @@ function FeedbackReasonForm({
       <button
         type="button"
         onClick={submit}
-        className="touch-target rounded bg-primary/15 px-2 py-1 text-xs text-primary transition-colors hover:bg-primary/25"
+        className={`${BADGE_TONE.primary.tone} ${BADGE_TONE.primary.hover} touch-target rounded px-2 py-1 text-xs transition-colors`}
       >
         {saved ? t('chat.feedbackReasonSaved') : t('chat.feedbackReasonSend')}
       </button>
@@ -446,7 +446,7 @@ const MessageItem = memo(function MessageItem({
                   key={`${action.value}-${idx}`}
                   type="button"
                   onClick={() => onActionClick?.(action)}
-                  className="touch-target inline-flex items-center rounded-lg bg-primary/15 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/25"
+                  className={`${BADGE_TONE.primary.tone} ${BADGE_TONE.primary.hover} touch-target inline-flex items-center rounded-lg px-3 py-1.5 text-sm transition-colors`}
                 >
                   {action.label}
                 </button>

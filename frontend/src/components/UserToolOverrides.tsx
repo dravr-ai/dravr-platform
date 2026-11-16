@@ -9,7 +9,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { UserEffectiveTool, UserToolSource } from '../services/api/admin';
 import type { User } from '../types/api';
-import { BADGE_TONE, Card, Input, Button } from './ui';
+import { BADGE_TONE, Card, Input, Button, Alert, Switch } from './ui';
 import type { BadgeTone } from './ui';
 import { QUERY_KEYS } from '../constants/queryKeys';
 
@@ -235,9 +235,9 @@ export default function UserToolOverrides() {
           </div>
 
           {(setOverrideMutation.isError || removeOverrideMutation.isError) && (
-            <div className="p-3 bg-error/20 text-error rounded-lg text-sm">
+            <Alert tone="error">
               Failed to update the tool override. Please try again.
-            </div>
+            </Alert>
           )}
 
           {toolsLoading ? (
@@ -282,27 +282,13 @@ export default function UserToolOverrides() {
                           {sourceBadge(tool.source)}
 
                           {/* Toggle switch */}
-                          <button
-                            onClick={() => handleToggleTool(tool)}
+                          <Switch
+                            checked={tool.is_enabled}
+                            onChange={() => handleToggleTool(tool)}
+                            label={`Toggle ${tool.display_name}`}
                             disabled={globallyDisabled || setOverrideMutation.isPending}
-                            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2 ${
-                              tool.is_enabled ? 'bg-success' : 'bg-outline'
-                            } ${globallyDisabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-                            role="switch"
-                            aria-checked={tool.is_enabled}
-                            aria-label={`Toggle ${tool.display_name}`}
-                            title={
-                              globallyDisabled
-                                ? 'Cannot toggle globally disabled tools'
-                                : undefined
-                            }
-                          >
-                            <span
-                              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                                tool.is_enabled ? 'translate-x-6' : 'translate-x-1'
-                              }`}
-                            />
-                          </button>
+                            title={globallyDisabled ? 'Cannot toggle globally disabled tools' : undefined}
+                          />
 
                           {/* Reset affordance — only when a per-user override is in effect */}
                           {tool.source === 'user_override' && (

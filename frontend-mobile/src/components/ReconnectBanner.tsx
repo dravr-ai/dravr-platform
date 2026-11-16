@@ -11,6 +11,7 @@ import { usePathname, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useTranslation } from '@pierre/i18n';
 import { useThemeColors } from '../constants/theme';
+import { ALERT_TONE, alertInkColor } from './ui';
 import { useProviderConnected } from '../hooks/useHome';
 import { CONNECTIONS_ROUTE } from '../navigation/routes';
 
@@ -78,7 +79,7 @@ export function ReconnectBanner({ insetTop }: ReconnectBannerProps) {
   return (
     <View className="bg-background-primary" testID="reconnect-banner">
       <View
-        className="bg-warning/15 border-b border-warning/40 px-4 pb-3 flex-row items-center"
+        className={`${ALERT_TONE.warning.fill} border-b ${ALERT_TONE.warning.edge} px-4 pb-3 flex-row items-center`}
         // The status bar's height is only known at runtime.
         style={{ paddingTop: (insetTop ? insets.top : 0) + 12 }}
       >
@@ -89,13 +90,13 @@ export function ReconnectBanner({ insetTop }: ReconnectBannerProps) {
           testID="reconnect-banner-message"
         >
           <View className="mt-0.5">
-            <Feather name="alert-triangle" size={16} color={colors.ink.warning} />
+            <Feather name="alert-triangle" size={16} color={alertInkColor('warning', colors)} />
           </View>
           <View className="flex-1 ml-2">
-            <Text className="text-sm font-semibold text-on-warning-container">
+            <Text className={`text-sm font-semibold ${ALERT_TONE.warning.ink}`}>
               {t('providers.reconnectNeeded')}
             </Text>
-            <Text className="text-sm text-on-warning-container" testID="reconnect-banner-providers">
+            <Text className={`text-sm ${ALERT_TONE.warning.ink}`} testID="reconnect-banner-providers">
               {t('home.activities.reconnect', { providers })}
             </Text>
           </View>
@@ -107,7 +108,7 @@ export function ReconnectBanner({ insetTop }: ReconnectBannerProps) {
           className="min-h-11 px-3 justify-center rounded-lg border border-on-warning-container/40"
           testID="reconnect-banner-action"
         >
-          <Text className="text-sm font-semibold text-on-warning-container">{t('providers.reconnect')}</Text>
+          <Text className={`text-sm font-semibold ${ALERT_TONE.warning.ink}`}>{t('providers.reconnect')}</Text>
         </Pressable>
       </View>
     </View>

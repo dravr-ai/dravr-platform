@@ -10,7 +10,7 @@ import { clsx } from 'clsx';
 import { ArrowLeft, Pencil, Plus, Trash2 } from 'lucide-react';
 import { storeApi, coachesApi } from '../services/api';
 import { track } from '../services/analytics';
-import { SearchField, TabHeader } from './ui';
+import { SearchField, TabHeader, Alert } from './ui';
 import { NotificationBell } from './notifications/NotificationBell';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import CoachEditSheet from './discover/CoachEditSheet';
@@ -896,9 +896,9 @@ function CoachDetailView({
 
           {/* Install/remove failure */}
           {actionError && (
-            <div className="p-4 bg-error/10 border border-error/30 rounded-lg">
-              <p className="text-sm text-error">{actionError}</p>
-            </div>
+            <Alert tone="error" className="border p-4">
+              <p>{actionError}</p>
+            </Alert>
           )}
 
           {/* After an install: the hint that teaches how to use the coach from
@@ -915,9 +915,9 @@ function CoachDetailView({
 
           {/* Removal confirmation */}
           {successMessage && (
-            <div className="p-4 bg-success/20 border border-success/30 rounded-lg">
-              <p className="text-sm text-success">{successMessage}</p>
-            </div>
+            <Alert tone="success" className="border p-4">
+              <p>{successMessage}</p>
+            </Alert>
           )}
 
           {/* Bottom spacer for fixed button */}

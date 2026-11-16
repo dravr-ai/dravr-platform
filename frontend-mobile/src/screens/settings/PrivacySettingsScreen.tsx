@@ -5,7 +5,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { View, Text, Switch, Alert } from 'react-native';
-import { PaneScrollView, Section } from '../../components/ui';
+import { PaneScrollView, Section, switchColors } from '../../components/ui';
 import { useMutation } from '@tanstack/react-query';
 import { Feather } from '@expo/vector-icons';
 import { spacing, useThemeColors } from '../../constants/theme';
@@ -90,7 +90,7 @@ export function PrivacySettingsScreen(): React.JSX.Element {
                 testID="analytics-consent-switch"
                 value={analyticsConsent}
                 onValueChange={handleToggle}
-                trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                {...switchColors(colors.tokens, analyticsConsent)}
                 disabled={consentMutation.isPending}
               />
             }

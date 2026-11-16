@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: The WCAG 2.x colour math both stylesheet generators measure their pairings with
+// ABOUTME: The one WCAG 2.x colour calculator — the stylesheet generators and every contrast test on both clients measure with it
 // ABOUTME: Hex parsing, alpha compositing over a ground, relative luminance, contrast ratio and the two floors
 
 /** WCAG 1.4.3 for text, 1.4.11 for a graphic or a component's edge. */
@@ -29,11 +29,17 @@ export function over(top: Rgb, alpha: number, ground: Rgb): Rgb {
   return [0, 1, 2].map((i) => Math.round(top[i] * alpha + ground[i] * (1 - alpha))) as unknown as Rgb;
 }
 
+/**
+ * One sRGB channel, linearised. 0.04045 is the sRGB standard's threshold,
+ * which WCAG 2.x now cites; the 0.03928 of WCAG 2.0's text moves no 8-bit
+ * value across the line, so every ratio is the same either way.
+ */
 function channel(value: number): number {
   const c = value / 255;
-  return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
 }
 
+/** WCAG relative luminance of an opaque colour. */
 function luminance([r, g, b]: Rgb): number {
   return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
 }
@@ -42,4 +48,14 @@ function luminance([r, g, b]: Rgb): number {
 export function contrast(a: Rgb, b: Rgb): number {
   const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
   return (hi + 0.05) / (lo + 0.05);
+}
+
+/** The WCAG contrast ratio between two opaque `#rrggbb` colours. */
+export function contrastHex(a: string, b: string): number {
+  return contrast(hexToRgb(a), hexToRgb(b));
+}
+
+/** The relative luminance of an opaque `#rrggbb` colour. */
+export function luminanceHex(hex: string): number {
+  return luminance(hexToRgb(hex));
 }

@@ -9,7 +9,8 @@ import { readFileSync } from 'fs';
 import { join } from 'path';
 import { renderHook, waitFor } from '@testing-library/react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { BOREAL_DARK, BOREAL_LIGHT } from '@pierre/shared-constants';
+import { BOREAL_DARK, BOREAL_LIGHT, contrastHex as contrast } from '@pierre/shared-constants';
+import { hexOver } from '../src/test/contrast';
 
 // NativeWind's own hook needs a stub under jest; the resolved scheme comes
 // from the persisted appearance preference, which each test writes.
@@ -46,35 +47,6 @@ const NOMINAL_TINT = 0.2;
 /** Every key `categoryAccent` answers for, plus one it has no pillar for. */
 const CATEGORIES = ['training', 'nutrition', 'recipes', 'recovery', 'mobility', 'custom'] as const;
 
-function channel(value: number): number {
-  const c = value / 255;
-  return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-}
-
-/** WCAG relative luminance of a `#rrggbb` string. */
-function luminance(hex: string): number {
-  const n = hex.replace('#', '');
-  const [r, g, b] = [0, 2, 4].map((i) => channel(parseInt(n.slice(i, i + 2), 16)));
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-}
-
-/** WCAG 2.x contrast ratio between two `#rrggbb` strings. */
-function contrast(a: string, b: string): number {
-  const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
-  return (hi + 0.05) / (lo + 0.05);
-}
-
-/** Composite `fg` at `alpha` over opaque `bg` — how a tint resolves on screen. */
-function composite(fg: string, alpha: number, bg: string): string {
-  const parse = (hex: string) =>
-    [0, 2, 4].map((i) => parseInt(hex.replace('#', '').slice(i, i + 2), 16));
-  const front = parse(fg);
-  const back = parse(bg);
-  return `#${front
-    .map((f, i) => Math.round(alpha * f + (1 - alpha) * back[i]))
-    .map((v) => v.toString(16).padStart(2, '0'))
-    .join('')}`;
-}
 
 /**
  * The grounds a category tint sits on: the page canvas, the resting card fill
@@ -141,9 +113,9 @@ describe('the contrast helper agrees with WCAG', () => {
   });
 
   it('composites a tint the way a renderer does', () => {
-    expect(composite('#000000', 0.5, '#ffffff')).toBe('#808080');
-    expect(composite('#0f7d68', 0, '#f7f6f2')).toBe('#f7f6f2');
-    expect(composite('#0f7d68', 1, '#f7f6f2')).toBe('#0f7d68');
+    expect(hexOver('#000000', 0.5, '#ffffff')).toBe('#808080');
+    expect(hexOver('#0f7d68', 0, '#f7f6f2')).toBe('#f7f6f2');
+    expect(hexOver('#0f7d68', 1, '#f7f6f2')).toBe('#0f7d68');
   });
 });
 
@@ -256,7 +228,7 @@ describe('the ink clears AA on a tint of its own accent', () => {
 
         for (const [groundName, ground] of GROUNDS[scheme]) {
           for (const alpha of [FAINTEST_TINT, NOMINAL_TINT]) {
-            const tinted = composite(accent, alpha, ground);
+            const tinted = hexOver(accent, alpha, ground);
             const ratio = contrast(ink, tinted);
             if (ratio < AA_TEXT) {
               failures.push(
@@ -281,8 +253,8 @@ describe('the ink clears AA on a tint of its own accent', () => {
     const accent = categoryAccent(light, 'nutrition');
     const ink = categoryInk(light, 'nutrition');
 
-    const onCanvas = composite(accent, FAINTEST_TINT, BOREAL_LIGHT.surface);
-    const onCard = composite(accent, FAINTEST_TINT, BOREAL_LIGHT.surfaceContainerLowest);
+    const onCanvas = hexOver(accent, FAINTEST_TINT, BOREAL_LIGHT.surface);
+    const onCard = hexOver(accent, FAINTEST_TINT, BOREAL_LIGHT.surfaceContainerLowest);
 
     expect(contrast(accent, onCanvas)).toBeLessThan(AA_TEXT);
     expect(contrast(accent, onCard)).toBeLessThan(AA_TEXT);

@@ -37,7 +37,7 @@ import {
 } from '../../../../packages/shared-constants/src/notifications';
 import type { NotificationCategory, NotificationItem } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
-import { EmptyState, SwipeableRow, type SwipeAction } from '../../components/ui';
+import { BADGE_TONE, badgeInkColor, EmptyState, SwipeableRow, type SwipeAction } from '../../components/ui';
 import { NotificationRow } from './NotificationRow';
 import { presentNotificationMenu } from './presentNotificationMenu';
 
@@ -230,20 +230,14 @@ export function NotificationCenterScreen() {
           return (
             <TouchableOpacity
               key={key}
-              className="flex-row items-center px-3 py-1.5 rounded-full"
-              style={{
-                backgroundColor: isActive ? `${colors.pierre.violet}26` : colors.background.tertiary,
-                borderWidth: isActive ? 1 : 0,
-                borderColor: isActive ? `${colors.pierre.violet}66` : 'transparent',
-              }}
+              className={`flex-row items-center px-3 py-1.5 rounded-full ${
+                isActive ? `${BADGE_TONE.primary.fill} border border-primary/40` : 'bg-background-tertiary'
+              }`}
               onPress={() => setSelectedCategory(key)}
               testID={`filter-${key}`}
             >
-              <Icon size={12} color={isActive ? colors.pierre.violet : colors.text.tertiary} />
-              <Text
-                className="text-xs ml-1"
-                style={{ color: isActive ? colors.pierre.violet : colors.text.tertiary }}
-              >
+              <Icon size={12} color={isActive ? badgeInkColor('primary', colors) : colors.text.tertiary} />
+              <Text className={`text-xs ml-1 ${isActive ? BADGE_TONE.primary.ink : 'text-text-tertiary'}`}>
                 {label}
               </Text>
             </TouchableOpacity>

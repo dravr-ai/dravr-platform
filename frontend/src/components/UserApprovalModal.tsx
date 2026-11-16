@@ -5,7 +5,7 @@ import { useId, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { adminApi } from '../services/api';
 import type { User, UserManagementResponse } from '../types/api';
-import { Button, Card, Textarea } from './ui';
+import { Button, Card, Textarea, Alert } from './ui';
 import { Badge } from './ui/Badge';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { ADMIN_LOCALE, describeAdminError } from '../utils/adminLocale';
@@ -73,7 +73,6 @@ export default function UserApprovalModal({
   if (!isOpen || !user) return null;
 
   const actionTitle = action === 'approve' ? 'Approve User' : 'Suspend User';
-  const actionColor = action === 'approve' ? 'bg-activity hover:bg-activity/80' : 'bg-error hover:bg-error';
   const actionVerb = action === 'approve' ? 'approve' : 'suspend';
 
   return (
@@ -149,7 +148,8 @@ export default function UserApprovalModal({
             <Button
               onClick={handleSubmit}
               disabled={approvalMutation.isPending}
-              className={`flex-1 text-on-surface ${actionColor}`}
+              variant={action === 'approve' ? 'success' : 'danger'}
+              className="flex-1"
             >
               {approvalMutation.isPending ? (
                 <div className="flex items-center justify-center">
@@ -163,16 +163,16 @@ export default function UserApprovalModal({
           </div>
 
           {approvalMutation.isError && (
-            <div className="mt-3 p-3 bg-error/15 border border-error/30 rounded-md">
+            <Alert tone="error" className="mt-3 border rounded-md">
               {/* The server's own sentence when it refused the request ("Cannot
                   suspend the last active admin"): only it knows why. */}
-              <p role="alert" className="text-sm text-error">
+              <p role="alert">
                 {describeAdminError(
                   approvalMutation.error,
                   `Failed to ${actionVerb} user. Please try again.`,
                 )}
               </p>
-            </div>
+            </Alert>
           )}
         </div>
       </div>

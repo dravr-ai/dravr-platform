@@ -19,7 +19,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import type { StoreAgent, AgentCategory } from '../../types';
 import { useTranslation } from '@pierre/i18n';
 import { COACH_CATEGORY_LABEL_KEY } from '@pierre/shared-constants';
-import { TextTabs, HeaderActions, type TextTabItem } from '../../components/ui';
+import { ALERT_TONE, BADGE_TONE, TextTabs, HeaderActions, type TextTabItem } from '../../components/ui';
 import { DiscoverRow } from './DiscoverRow';
 import { presentMenu } from '../../utils/presentMenu';
 import { describeApiError } from '@pierre/ui-logic';
@@ -204,18 +204,18 @@ export function StoreScreen() {
   );
 
   const renderError = () => (
-    <View className="mx-4 my-2 p-3 bg-error/10 border border-error/30 rounded-lg flex-row items-center justify-between">
+    <View className={`mx-4 my-2 p-3 ${ALERT_TONE.error.fill} border ${ALERT_TONE.error.edge} rounded-lg flex-row items-center justify-between`}>
       <View className="flex-1 mr-3">
-        <Text className="text-error text-sm font-medium">{error}</Text>
+        <Text className={`${ALERT_TONE.error.ink} text-sm font-medium`}>{error}</Text>
       </View>
       <TouchableOpacity
-        className="px-3 py-1.5 bg-error/20 rounded-md"
+        className={`px-3 py-1.5 ${BADGE_TONE.error.fill} rounded-md`}
         onPress={() => {
           setError(null);
           loadCoaches();
         }}
       >
-        <Text className="text-error text-sm font-semibold">{t('common.retry')}</Text>
+        <Text className={`${BADGE_TONE.error.ink} text-sm font-semibold`}>{t('common.retry')}</Text>
       </TouchableOpacity>
     </View>
   );

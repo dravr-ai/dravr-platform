@@ -138,19 +138,19 @@ describe('UsageWarningBanner', () => {
     expect(banner.textContent).toContain('80%');
     expect(banner.textContent).toContain('your daily messages');
     expect(banner.textContent).toContain('(80/100)');
-    expect(banner.className).toContain('bg-warning/10');
+    expect(banner).toHaveClass('alert-warning');
   });
 
-  it('renders burst banner on the warning token at heavier weight', () => {
+  it('renders burst banner on the warning tone with a heavier edge', () => {
     render(<UsageWarningBanner level="burst" text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
-    expect(banner.className).toContain('bg-warning/25');
+    expect(banner).toHaveClass('alert-warning', 'border-warning/60');
   });
 
   it('renders blocked banner on the error token', () => {
     render(<UsageWarningBanner level="blocked" text={{ key: 'usage.used.dailyMessages', params: SAMPLE_PARAMS }} />);
     const banner = screen.getByTestId('usage-warning-banner');
-    expect(banner.className).toContain('bg-error/10');
+    expect(banner).toHaveClass('alert-error');
   });
 
   // The three levels form an escalation ladder. Collapsing any two into the

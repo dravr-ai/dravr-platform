@@ -8,7 +8,7 @@ import { Alert, Switch, Text, View } from 'react-native';
 import { useQuery } from '@tanstack/react-query';
 import { AI_CONSENT_KEYS, QUERY_KEYS, aiConsentCards } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
-import { Section } from '../../components/ui';
+import { Section, switchColors } from '../../components/ui';
 import { useThemeColors } from '../../constants/theme';
 import { oauthApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
@@ -53,7 +53,7 @@ export function AiConsentSection(): React.JSX.Element | null {
                     { onError: () => Alert.alert(t('common.error'), t(AI_CONSENT_KEYS.failed)) },
                   )
                 }
-                trackColor={{ false: colors.border.default, true: colors.tokens.primary }}
+                {...switchColors(colors.tokens, card.ai_consent === true)}
                 disabled={consent.isPending}
               />
             </View>

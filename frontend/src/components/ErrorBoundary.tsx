@@ -7,6 +7,7 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import { i18n } from '@pierre/i18n';
+import { ALERT_TONE } from './ui/alertTone';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -128,8 +129,8 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
               <div className="px-8 py-10">
                 {/* Error Icon */}
                 <div className="flex justify-center mb-6">
-                  <div className="p-4 bg-error/10 rounded-full">
-                    <AlertTriangle className="w-12 h-12 text-error" />
+                  <div className={`${ALERT_TONE.error.tone} p-4 rounded-full`}>
+                    <AlertTriangle className="w-12 h-12" />
                   </div>
                 </div>
 

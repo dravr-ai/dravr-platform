@@ -271,3 +271,22 @@ describe('Toast System', () => {
     });
   });
 });
+
+describe('Toast tones', () => {
+  // A toast reports a state, so each type draws in its feedback hue, never a
+  // pillar, which marks a category and nothing else (DESIGN.md "Alerts").
+  it.each(['success', 'error', 'warning', 'info'] as const)('draws a %s toast in its feedback hue', async (type) => {
+    const user = userEvent.setup();
+    render(
+      <ToastProvider>
+        <TestComponent type={type} />
+      </ToastProvider>,
+    );
+    await user.click(screen.getByText('Show Toast'));
+    const title = `${type.charAt(0).toUpperCase()}${type.slice(1)} Title`;
+    const card = (await screen.findByText(title)).closest('.border-l-4');
+    expect(card).toHaveClass(`border-${type}`);
+    expect(card?.querySelector(`.text-${type}`)).not.toBeNull();
+    expect(card?.className).not.toMatch(/activity|nutrition|recovery/);
+  });
+});

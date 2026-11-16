@@ -480,11 +480,11 @@ export default function SystemCoachesTab() {
             <div className="text-xs text-outline">Tokens</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-activity">{selectedCoach.use_count}</div>
+            <div className="text-2xl font-bold text-on-surface">{selectedCoach.use_count}</div>
             <div className="text-xs text-outline">Uses</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-nutrition">{assignments.length}</div>
+            <div className="text-2xl font-bold text-on-surface">{assignments.length}</div>
             <div className="text-xs text-outline">Assigned Users</div>
           </div>
           <div className="text-center">
@@ -509,7 +509,7 @@ export default function SystemCoachesTab() {
             <h3 className="text-sm font-medium text-on-surface mb-2">Tags</h3>
             <div className="flex flex-wrap gap-2">
               {selectedCoach.tags.map((tag) => (
-                <span key={tag} className="px-3 py-1 text-sm bg-surface-container-high text-on-surface rounded-full">
+                <span key={tag} className={`${BADGE_TONE.neutral.tone} px-3 py-1 text-sm rounded-full`}>
                   {tag}
                 </span>
               ))}

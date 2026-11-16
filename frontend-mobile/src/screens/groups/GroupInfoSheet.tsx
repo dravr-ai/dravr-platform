@@ -17,7 +17,7 @@ import {
 } from '@pierre/shared-constants';
 import { distanceSymbol } from '@pierre/chat-utils';
 import { useThemeColors } from '../../constants/theme';
-import { Button, CollapsibleSection, Input, Row } from '../../components/ui';
+import { Button, CollapsibleSection, Input, Row, switchColors } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCoachSeat } from '../../hooks/useCoachSeat';
 import { CoachAccessRequest } from '../../components/CoachAccessRequest';
@@ -586,7 +586,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={approvesSignup}
                       onValueChange={setApprovesSignup}
                       disabled={isCreatingInvite}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, approvesSignup)}
                       testID="group-invite-approves-signup-switch"
                     />
                   }
@@ -678,7 +678,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={group.peer_data_sharing}
                       onValueChange={(value) => void setGroupFlag({ peer_data_sharing: value })}
                       disabled={isUpdatingGroup}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, group.peer_data_sharing)}
                       testID="group-peer-sharing-switch"
                     />
                   }
@@ -692,7 +692,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={group.respond_mode === 'mentions'}
                       onValueChange={(value) => void setGroupFlag({ respond_mode: value ? 'mentions' : 'all' })}
                       disabled={isUpdatingGroup}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, group.respond_mode === 'mentions')}
                       testID="group-respond-mode-switch"
                     />
                   }
@@ -746,7 +746,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                     value={myMembership.peer_sharing_consent}
                     onValueChange={(value) => void handleConsentChange(value)}
                     disabled={isSavingConsent}
-                    trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                    {...switchColors(colors.tokens, myMembership.peer_sharing_consent)}
                     testID="peer-consent-switch"
                   />
                 }
@@ -766,7 +766,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                       value={coachSharing?.consent ?? false}
                       onValueChange={(value) => void handleCoachSharingChange(value)}
                       disabled={!coachSharing || isSavingCoachSharing}
-                      trackColor={{ false: colors.border.default, true: colors.pierre.violet }}
+                      {...switchColors(colors.tokens, coachSharing?.consent ?? false)}
                       testID="coach-sharing-switch"
                     />
                   }

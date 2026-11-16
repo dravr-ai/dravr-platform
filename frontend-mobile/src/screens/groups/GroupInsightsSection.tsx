@@ -19,6 +19,19 @@ import {
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
 import { useDistanceUnit } from '@pierre/ui-logic';
+import { BADGE_TONE, type BadgeVariant } from '../../components/ui';
+
+/**
+ * The badge tone for each severity, read through the badge table so each
+ * label takes the ink its tint binds. A warning flag is a state and takes the
+ * warning tone, never a pillar, which marks a category and nothing else
+ * (DESIGN.md "Badges").
+ */
+const SEVERITY_TONE: Record<HealthFlagSeverity, BadgeVariant> = {
+  info: 'info',
+  warning: 'warning',
+  critical: 'error',
+};
 
 /** Corpus key per flag. Module scope, so the section resolves it at render. */
 const FLAG_LABEL_KEYS: Record<MemberFlag, string> = {
@@ -72,19 +85,6 @@ export function GroupInsightsSection({
   const { report, isLoading: isReportLoading } = useGroupWeeklyReport(groupId, enabled);
   const { flags, isLoading: isFlagsLoading } = useGroupHealthFlags(groupId, enabled);
 
-  /**
-   * The badge for each severity: `fill` grounds it as a tint of the hue, `ink`
-   * is what the label draws in. A hue set as text on a tint of itself does not
-   * clear AA — `warning` measures 4.28:1 that way — so each label takes the ink
-   * its hue binds. `info` is a hue of its own, the informational slate, rather
-   * than the `outline` text role, which has no bound ink to pair with.
-   */
-  const severityBadges: Record<HealthFlagSeverity, { fill: string; ink: string }> = {
-    info: { fill: colors.info, ink: colors.ink.info },
-    warning: { fill: colors.pierre.activity, ink: colors.ink.activity },
-    critical: { fill: colors.error, ink: colors.tokens.onErrorContainer },
-  };
-
   if (!isAdmin) {
     return null;
   }
@@ -124,7 +124,7 @@ export function GroupInsightsSection({
               <Text className="text-text-tertiary text-xs font-semibold mb-1">{t('groups.highlights')}</Text>
               {report.fresh_members.map((member) => (
                 <View key={member.user_id} className="flex-row items-start mt-1" testID="group-report-highlight">
-                  <Feather name="check-circle" size={12} color={colors.pierre.activity} />
+                  <Feather name="check-circle" size={12} color={colors.success} />
                   <Text className="text-text-secondary text-sm ml-2 flex-1">{freshMemberLine(t, member)}</Text>
                 </View>
               ))}
@@ -186,14 +186,8 @@ export function GroupInsightsSection({
                 </Text>
                 <Text className="text-text-tertiary text-xs mt-0.5">{healthFlagDetail(t, flag)}</Text>
               </View>
-              <View
-                className="px-2 py-0.5 rounded"
-                style={{ backgroundColor: `${severityBadges[flag.severity].fill}20` }}
-              >
-                <Text
-                  className="text-xs font-semibold"
-                  style={{ color: severityBadges[flag.severity].ink }}
-                >
+              <View className={`px-2 py-0.5 rounded ${BADGE_TONE[SEVERITY_TONE[flag.severity]].fill}`}>
+                <Text className={`text-xs font-semibold ${BADGE_TONE[SEVERITY_TONE[flag.severity]].ink}`}>
                   {t(FLAG_LABEL_KEYS[flag.flag_type])}
                 </Text>
               </View>

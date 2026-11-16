@@ -20,7 +20,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { useThemeColors } from '../../constants/theme';
-import { Button } from '../../components/ui';
+import { ALERT_TONE, Button } from '../../components/ui';
 import { OnboardingProgressBar } from '../../components/ui/OnboardingProgressBar';
 import { ProviderGlyph } from '../../components/ProviderGlyph';
 import { ImportOwnDataRow } from '../../components/ImportOwnDataRow';
@@ -568,9 +568,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         {connectError && (
           <View
             accessibilityLiveRegion="polite"
-            className="mt-4 rounded-lg border border-error/40 bg-error/10 px-4 py-3"
+            className={`mt-4 rounded-lg border ${ALERT_TONE.error.edge} ${ALERT_TONE.error.fill} px-4 py-3`}
           >
-            <Text className="text-sm text-error">{connectError}</Text>
+            <Text className={`text-sm ${ALERT_TONE.error.ink}`}>{connectError}</Text>
           </View>
         )}
 

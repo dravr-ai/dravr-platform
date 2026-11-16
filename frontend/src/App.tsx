@@ -26,7 +26,7 @@ import { IMPORT_PATH } from './components/import/openImportWindow';
 import ErrorBoundary from './components/ErrorBoundary';
 import UnitsProvider from './components/UnitsProvider';
 import { AuthProvider } from './contexts/AuthContext';
-import { ToastProvider } from './components/ui';
+import { ALERT_TONE, ToastProvider } from './components/ui';
 import { ThemeProvider } from './hooks/useTheme';
 import { useAuth } from './hooks/useAuth';
 import { useOnboardingState } from './hooks/useOnboardingState';
@@ -401,7 +401,7 @@ function AppContent() {
           <div
             className="fixed top-4 left-1/2 transform -translate-x-1/2 z-50 max-w-md w-full px-4 pad-safe-top"
           >
-            <div className="bg-activity/20 border border-activity text-on-surface px-4 py-3 rounded-lg backdrop-blur-sm">
+            <div className={`${ALERT_TONE.success.tone} border px-4 py-3 rounded-lg backdrop-blur-sm`}>
               <div className="flex items-center justify-between">
                 <p className="text-sm font-medium">{registrationMessage}</p>
                 <button
