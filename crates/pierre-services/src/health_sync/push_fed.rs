@@ -158,6 +158,49 @@ pub async fn wellness_pull_stands_down(
     }
 }
 
+/// Whether a pull sync of `provider` for `user_id` that ended on `error`
+/// stood down for the push rather than failed (carnet#1590).
+///
+/// [`wellness_pull_stands_down`] is asked once, before a sync starts. A
+/// push grant stored while the sync runs (the Garmin OAuth callback that
+/// follows a sciotte login) turns its next cursor read, write or credential
+/// read into [`EnformeError::PushFed`], and the sync ends on it. That is the
+/// same stand-down, reached late: nothing to tell the athlete and nothing to
+/// alert on, and the connect's history walk reads what came before the
+/// grant.
+///
+/// It keys on that variant, never on any store error: a database that
+/// fails while a grant happens to land is still a failure. It then reads the
+/// athlete's plan again ([`pull_fed_by_push`]) and counts only when the push
+/// does serve them now; a lookup that fails reads as not standing down, so
+/// the failure is reported. A stand-down is logged here, at info, as
+/// [`wellness_pull_stands_down`] logs its own, so a caller only skips its
+/// failure report.
+pub async fn sync_error_is_push_stand_down(
+    registry: &RepositoryRegistry,
+    user_id: &str,
+    provider: &str,
+    error: &EnformeError,
+) -> bool {
+    if !matches!(error, EnformeError::PushFed { .. }) {
+        return false;
+    }
+    match pull_fed_by_push(registry, user_id, provider).await {
+        Ok(true) => {
+            info!(
+                user_id,
+                provider, "Wellness arrives by push since the sync started; it stood down"
+            );
+            true
+        }
+        Ok(false) => false,
+        Err(e) => {
+            warn!(user_id, provider, error = %e, "Could not confirm the push now serves this wellness; reporting the sync failure");
+            false
+        }
+    }
+}
+
 /// [`wellness_pull_stands_down`]'s fallible half.
 async fn pull_fed_by_push(
     registry: &RepositoryRegistry,
@@ -183,5 +226,50 @@ async fn pull_fed_by_push(
     match row {
         Some(row) => wellness_fed_by_push(registry, user, token_tenant_id(row)?, provider).await,
         None => Ok(false),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use pierre_test_support::db::create_test_db;
+    use pierre_test_support::garmin::{connect_garmin_session, create_athlete, grant_garmin_push};
+
+    use super::*;
+
+    /// `PushFed` stands down only when the push does serve the athlete now;
+    /// a store error stands down never, whatever its message says.
+    #[tokio::test]
+    async fn push_fed_stands_down_only_once_the_grant_serves() {
+        let db = create_test_db().await.unwrap();
+        let registry = Arc::clone(db.repositories());
+        let (user, tenant) = create_athlete(&registry).await.unwrap();
+        connect_garmin_session(&registry, user, tenant)
+            .await
+            .unwrap();
+        let user_id = user.to_string();
+        let push_fed = EnformeError::push_fed(&user_id, "garmin");
+
+        assert!(
+            !sync_error_is_push_stand_down(&registry, &user_id, "garmin", &push_fed).await,
+            "bug: without a push grant nothing serves the athlete, so PushFed is reported"
+        );
+
+        grant_garmin_push(&registry, user, tenant).await.unwrap();
+        assert!(
+            sync_error_is_push_stand_down(&registry, &user_id, "garmin", &push_fed).await,
+            "bug: once the grant serves the athlete, PushFed is the stand-down"
+        );
+        assert!(
+            !sync_error_is_push_stand_down(
+                &registry,
+                &user_id,
+                "garmin",
+                &EnformeError::store("garmin data arrives by push; the pull stands down"),
+            )
+            .await,
+            "bug: a store error is never a stand-down, whatever its message"
+        );
     }
 }

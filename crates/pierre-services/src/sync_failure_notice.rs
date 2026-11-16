@@ -113,12 +113,19 @@ impl SyncFailureNotices {
 /// Expired credentials are the disconnect notice's: the refresh that found
 /// them flips the connection and tells the athlete to reconnect. A rate limit
 /// is the shared app's quota at the provider, which the next cycle retries on
-/// its own and the athlete can do nothing about. Every other failure is one.
+/// its own and the athlete can do nothing about. A pull that a push grant
+/// overtook ([`EnformeError::PushFed`]) is nothing they can act on either:
+/// a caller whose re-check confirms the push serves them stands down before
+/// it gets here ([`crate::health_sync::sync_error_is_push_stand_down`]), and
+/// one that cannot confirm it logs the failure without telling them. Every
+/// other failure is one.
 #[cfg(feature = "health-sync")]
 #[must_use]
 pub const fn health_sync_failure_is_told(error: &EnformeError) -> bool {
     !matches!(
         error,
-        EnformeError::CredentialsExpired { .. } | EnformeError::RateLimited { .. }
+        EnformeError::CredentialsExpired { .. }
+            | EnformeError::RateLimited { .. }
+            | EnformeError::PushFed { .. }
     )
 }

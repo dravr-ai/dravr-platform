@@ -53,7 +53,7 @@ use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, Welln
 
 mod push_fed;
 
-pub use push_fed::{history_walk_scope, wellness_pull_stands_down};
+pub use push_fed::{history_walk_scope, sync_error_is_push_stand_down, wellness_pull_stands_down};
 use push_fed::{history_walk_writes, history_walk_writes_night, wellness_fed_by_push};
 
 /// Adapter bridging dravr-enforme's store traits to Pierre's repository layer.
@@ -184,6 +184,17 @@ pub trait SyncCredentialRefresher: Send + Sync {
         member: Uuid,
         provider: &str,
     ) -> EnformeResult<Option<DelegatedWellness>>;
+}
+
+/// What serves a user's `provider` pull ([`PierreSyncStorage::serving_token`]).
+enum Serving {
+    /// The token row of the provider's sync backend.
+    Token(Box<UserOAuthToken>),
+    /// The user holds that row, but the provider's wellness reaches them by
+    /// push, so nothing of theirs is pulled.
+    PushFed,
+    /// The user holds no row for it.
+    NoRow,
 }
 
 /// One sync of a member by the scheduler's delegated wellness pass.
@@ -343,16 +354,14 @@ impl PierreSyncStorage {
     }
 
     /// The token row that serves `provider` for this user: the row of its
-    /// [`sync_backend`], or `None` when the user holds none — or when, in
-    /// that row's tenant, the provider's wellness reaches them by push
-    /// ([`wellness_fed_by_push`]). Such a user's days arrive by push, so every
-    /// pull of them (scheduled, on request, after a connect) finds nothing of
-    /// their own to read, as the roster already leaves them out.
-    async fn serving_token(
-        &self,
-        user_uuid: Uuid,
-        provider: &str,
-    ) -> EnformeResult<Option<UserOAuthToken>> {
+    /// [`sync_backend`], [`Serving::NoRow`] when the user holds none, or
+    /// [`Serving::PushFed`] when, in that row's tenant, the provider's
+    /// wellness reaches them by push ([`wellness_fed_by_push`]). Such a
+    /// user's days arrive by push, so every pull of them (scheduled, on
+    /// request, after a connect) finds nothing of their own to read, as the
+    /// roster already leaves them out. The two are told apart so a write that
+    /// stands down says so ([`Self::resolve_tenant_id`]).
+    async fn serving_token(&self, user_uuid: Uuid, provider: &str) -> EnformeResult<Serving> {
         let backend = sync_backend(provider);
         let tokens = self
             .auth
@@ -360,12 +369,14 @@ impl PierreSyncStorage {
             .get_tokens(user_uuid, None)
             .await
             .map_err(|e| EnformeError::store(format!("Failed to look up user tokens: {e}")))?;
-        let Some(serving) = tokens.iter().find(|t| t.provider == backend) else {
-            return Ok(None);
+        let Some(serving) = tokens.into_iter().find(|t| t.provider == backend) else {
+            return Ok(Serving::NoRow);
         };
-        let tenant = token_tenant_id(serving)?;
-        let fed_by_push = wellness_fed_by_push(&self.registry, user_uuid, tenant, provider).await?;
-        Ok((!fed_by_push).then(|| serving.clone()))
+        let tenant = token_tenant_id(&serving)?;
+        if wellness_fed_by_push(&self.registry, user_uuid, tenant, provider).await? {
+            return Ok(Serving::PushFed);
+        }
+        Ok(Serving::Token(Box::new(serving)))
     }
 
     /// Resolve the tenant a user's `provider` rows are written under: the
@@ -385,16 +396,24 @@ impl PierreSyncStorage {
             .parse::<Uuid>()
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
-        if let Some(token) = self.serving_token(user_uuid, provider).await? {
-            return token_tenant_id(&token);
+        let push_fed = match self.serving_token(user_uuid, provider).await? {
+            Serving::Token(token) => return token_tenant_id(&token),
+            Serving::PushFed => true,
+            Serving::NoRow => false,
+        };
+        if let Some(tenant) = self.wellness_link_tenant(user_uuid, provider).await? {
+            return Ok(tenant);
         }
-        self.wellness_link_tenant(user_uuid, provider)
-            .await?
-            .ok_or_else(|| {
-                EnformeError::store(format!(
-                    "No token serves provider '{provider}' for user '{user_id}'"
-                ))
-            })
+        // A pull a push grant overtook mid-sync ends here: it still fails, so
+        // no day the push holds is written twice, but it says why
+        // (carnet#1590).
+        Err(if push_fed {
+            EnformeError::push_fed(user_id, provider)
+        } else {
+            EnformeError::store(format!(
+                "No token serves provider '{provider}' for user '{user_id}'"
+            ))
+        })
     }
 
     /// The tenant `member`'s confirmed `provider` link files their wellness
@@ -496,6 +515,12 @@ impl PierreSyncStorage {
     /// The worker ledger the delegated pass claims each link's sync in.
     pub(crate) fn worker_runs(&self) -> &dyn WorkerRunRepository {
         self.registry.worker_runs.as_ref()
+    }
+
+    /// The registry this adapter reads and writes through: the scheduled
+    /// cycle's stamps, notices and stand-down checks read the same rows.
+    pub(crate) const fn registry(&self) -> &Arc<RepositoryRegistry> {
+        &self.registry
     }
 }
 
@@ -797,6 +822,12 @@ impl CredentialStore for PierreSyncStorage {
     /// pass's sync of them ([`delegated_sync_scope`]), and has no credentials
     /// anywhere else: an on-demand refresh or a webhook never spends the
     /// coach's key.
+    ///
+    /// # Errors
+    ///
+    /// [`EnformeError::PushFed`] when the athlete holds the row but its
+    /// wellness reaches them by push and no coach's link serves them: the
+    /// pull stands down rather than reading as expired credentials.
     async fn get_credentials(
         &self,
         user_id: &str,
@@ -806,8 +837,20 @@ impl CredentialStore for PierreSyncStorage {
             .parse::<Uuid>()
             .map_err(|e| EnformeError::store(format!("Invalid user_id UUID: {e}")))?;
 
-        let Some(token) = self.serving_token(user_uuid, provider).await? else {
-            return self.delegated_credentials(user_uuid, provider).await;
+        let token = match self.serving_token(user_uuid, provider).await? {
+            Serving::Token(token) => *token,
+            Serving::NoRow => return self.delegated_credentials(user_uuid, provider).await,
+            // A grant stored between the caller's stand-down check and this
+            // read ends the sync as the stand-down it is, not as expired
+            // credentials (carnet#1590): enforme hands this error back
+            // unchanged, where `Ok(None)` would read as a dead credential.
+            Serving::PushFed => {
+                return self
+                    .delegated_credentials(user_uuid, provider)
+                    .await?
+                    .map(Some)
+                    .ok_or_else(|| EnformeError::push_fed(user_id, provider));
+            }
         };
         let tenant_id = token_tenant_id(&token)?;
         let backend = sync_backend(provider);
@@ -877,9 +920,10 @@ impl CredentialStore for PierreSyncStorage {
         // An athlete served through their coach's link holds nothing of their
         // own to refresh, and the coach's key is the coach's to renew: the
         // sync ends as expired, and no connection is touched.
-        let Some(token) = self.serving_token(user_uuid, provider).await? else {
+        let Serving::Token(token) = self.serving_token(user_uuid, provider).await? else {
             return Err(expired());
         };
+        let token = *token;
         // A scrape session has no refresh grant: the refusal is the verdict,
         // flagged on the session's own backend while its row still carries it.
         if token.token_type == TOKEN_TYPE_SESSION {

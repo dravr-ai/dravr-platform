@@ -23,11 +23,13 @@ use crate::db_fixtures;
 use secrecy::SecretString;
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, NaiveDate, Utc};
 use db_fixtures::seed_user;
+use dravr_enforme::error::EnformeError;
 use dravr_enforme::models::connection::ConnectedUser;
 use dravr_enforme::providers::sciotte_reader::{
     AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
@@ -45,11 +47,12 @@ use pierre_core::models::{
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_services::health_sync::{
-    history_walk_scope, wellness_pull_stands_down, PierreSyncStorage,
+    history_walk_scope, sync_error_is_push_stand_down, wellness_pull_stands_down, PierreSyncStorage,
 };
 use pierre_services::provider_refresh::{scrape_sync_not_due, RefreshService, SyncNotifier};
 use pierre_services::sciotte_health_reader::{SciotteServiceReader, SessionRows};
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_test_support::garmin::{connect_garmin_session, grant_garmin_push};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -496,6 +499,10 @@ async fn no_row_is_written_under_another_providers_tenant() {
         err.to_string().contains("No token serves provider 'coros'"),
         "{err}"
     );
+    assert!(
+        !sync_error_is_push_stand_down(&repos, &user_id.to_string(), "coros", &err).await,
+        "bug: holding no row is never a push stand-down"
+    );
 
     let (start, end) = window();
     assert!(repos
@@ -840,43 +847,6 @@ async fn the_service_reader_imports_the_session_and_maps_every_answer() {
 
 // ── carnet#1386: a push grant feeds Garmin wellness, whatever usr/pwd session stands beside it ──
 
-/// A Garmin API grant whose connection pushes the athlete's wellness, as the
-/// OAuth callback and Garmin's permission report leave it.
-async fn connect_garmin_push(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId) {
-    connect_oauth(repos, user_id, tenant, "garmin").await;
-    repos
-        .provider_connections
-        .register_connection(user_id, tenant, "garmin", &ConnectionType::OAuth, None)
-        .await
-        .unwrap();
-    let grants = vec!["ACTIVITY_EXPORT".to_owned(), "HEALTH_EXPORT".to_owned()];
-    assert!(
-        repos
-            .provider_connections
-            .set_provider_grants(user_id, tenant, "garmin", &grants)
-            .await
-            .unwrap(),
-        "test setup: the Garmin connection registered above takes its grants"
-    );
-}
-
-/// A usr/pwd Garmin session and its live connection, as the hosted login
-/// writes them.
-async fn connect_garmin_session(repos: &RepositoryRegistry, user_id: Uuid, tenant: TenantId) {
-    connect_scrape(repos, user_id, tenant, "sciotte_garmin").await;
-    repos
-        .provider_connections
-        .register_connection(
-            user_id,
-            tenant,
-            "sciotte_garmin",
-            &ConnectionType::Manual,
-            None,
-        )
-        .await
-        .unwrap();
-}
-
 /// The refresh service over `storage`'s sync, reading through `reader`.
 fn refresh_service(
     repos: &Arc<RepositoryRegistry>,
@@ -912,8 +882,10 @@ async fn a_live_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_garmin_session(&repos, user_id, tenant).await;
-    connect_garmin_push(&repos, user_id, tenant).await;
+    connect_garmin_session(&repos, user_id, tenant)
+        .await
+        .unwrap();
+    grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
 
@@ -922,13 +894,13 @@ async fn a_live_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
         !roster.iter().any(|u| u.user_id == user_id.to_string()),
         "bug: the grant serves Garmin, so the pushes feed the athlete's days: {roster:?}"
     );
+    let err = storage
+        .get_credentials(&user_id.to_string(), "garmin")
+        .await
+        .expect_err("bug: a session beside the grant serves no wellness pull");
     assert!(
-        storage
-            .get_credentials(&user_id.to_string(), "garmin")
-            .await
-            .unwrap()
-            .is_none(),
-        "bug: a session beside the grant serves no wellness pull"
+        sync_error_is_push_stand_down(&repos, &user_id.to_string(), "garmin", &err).await,
+        "bug: the pull stands down for the pushes, not as expired credentials: {err}"
     );
     assert!(
         wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
@@ -964,7 +936,7 @@ async fn a_push_only_garmin_athlete_stands_down_quietly() {
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_garmin_push(&repos, user_id, tenant).await;
+    grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
 
@@ -994,6 +966,197 @@ async fn a_push_only_garmin_athlete_stands_down_quietly() {
     );
 }
 
+/// carnet#1590: the sciotte login's backfill starts on the session, then the
+/// Garmin OAuth callback stores the push grant while it runs. The sync's
+/// next cursor read still fails, so no day the push holds is written twice,
+/// but it says the wellness arrives by push, and that error — only that one —
+/// reads as the stand-down it is.
+#[tokio::test]
+async fn a_push_grant_stored_mid_sync_ends_the_pull_as_a_stand_down() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_garmin_session(&repos, user_id, tenant)
+        .await
+        .unwrap();
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let user = user_id.to_string();
+    storage
+        .get_cursor(&user, "garmin", "recovery")
+        .await
+        .expect("test setup: before the grant the session serves the pull");
+
+    grant_garmin_push(&repos, user_id, tenant).await.unwrap();
+    let err = storage
+        .get_cursor(&user, "garmin", "sleep")
+        .await
+        .expect_err("bug: the grant feeds the wellness now, so the pull must not go on");
+    assert!(
+        matches!(&err, EnformeError::PushFed { provider, .. } if provider == "garmin"),
+        "bug: the pull says why it stopped, not that no token serves it: {err}"
+    );
+    assert!(
+        !err.to_string().contains("No token serves provider"),
+        "bug: the athlete holds the session row: {err}"
+    );
+    assert!(
+        sync_error_is_push_stand_down(&repos, &user, "garmin", &err).await,
+        "bug: a grant stored mid-sync is the stand-down, reached late"
+    );
+    let store_down = EnformeError::store("Failed to look up user tokens: pool timed out");
+    assert!(
+        !sync_error_is_push_stand_down(&repos, &user, "garmin", &store_down).await,
+        "bug: a store failure coinciding with the grant is still a failure"
+    );
+}
+
+/// carnet#1590: the grant can also land after a caller's stand-down check
+/// and before the sync's first credential read. That read ends the sync on
+/// the same stand-down, not on expired credentials: enforme's
+/// `stored_credentials` hands a credential store's error back unchanged
+/// (`?`), where `Ok(None)` would read as a dead credential.
+#[tokio::test]
+async fn a_push_grant_stored_before_the_credential_read_ends_the_sync_as_a_stand_down() {
+    let db = create_test_db().await;
+    let (user_id, tenant) = seed_user(&db).await;
+    let repos = Arc::clone(db.repositories());
+    connect_garmin_session(&repos, user_id, tenant)
+        .await
+        .unwrap();
+    grant_garmin_push(&repos, user_id, tenant).await.unwrap();
+    let storage = Arc::new(PierreSyncStorage::new(&repos));
+    let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
+    let user = user_id.to_string();
+
+    let err = storage
+        .get_credentials(&user, "garmin")
+        .await
+        .expect_err("bug: the grant feeds the wellness, so the session hands out no credential");
+    assert!(
+        sync_error_is_push_stand_down(&repos, &user, "garmin", &err).await,
+        "bug: the credential read says the pull stands down: {err}"
+    );
+    let err = storage
+        .build_orchestrator_with_reader(&reader)
+        .unwrap()
+        .sync_user(&user, "garmin")
+        .await
+        .expect_err("bug: the sync must not read the session the grant overtook");
+    assert!(
+        !matches!(err, EnformeError::CredentialsExpired { .. }),
+        "bug: a grant is not a dead credential: {err}"
+    );
+    assert!(
+        sync_error_is_push_stand_down(&repos, &user, "garmin", &err).await,
+        "bug: the sync ends on the stand-down, as enforme handed it back: {err}"
+    );
+    assert!(
+        fake.asked.lock().unwrap().is_empty(),
+        "bug: the session is never read"
+    );
+}
+
+/// What a session's reader does to the athlete's rows on its first read,
+/// while the sync runs.
+#[derive(Clone, Copy, Debug)]
+enum MidSync {
+    /// The Garmin OAuth callback stores the push grant.
+    GrantPush,
+    /// The session's token row goes away.
+    DropSession,
+}
+
+/// A Garmin session's reader that does `action` on its first read and
+/// answers every day as empty.
+struct ActsMidSync {
+    repos: Arc<RepositoryRegistry>,
+    user_id: Uuid,
+    tenant: TenantId,
+    action: MidSync,
+    acted: AtomicBool,
+}
+
+#[async_trait]
+impl DailySummaryReader for ActsMidSync {
+    async fn daily_summary(
+        &self,
+        provider: &str,
+        _session: &AuthSession,
+        date: NaiveDate,
+    ) -> ScraperResult<DailySummary> {
+        if !self.acted.swap(true, Ordering::SeqCst) {
+            match self.action {
+                MidSync::GrantPush => {
+                    grant_garmin_push(&self.repos, self.user_id, self.tenant)
+                        .await
+                        .unwrap();
+                }
+                MidSync::DropSession => self
+                    .repos
+                    .oauth_tokens
+                    .delete_token(self.user_id, self.tenant, "sciotte_garmin")
+                    .await
+                    .unwrap(),
+            }
+        }
+        Ok(summary(date, provider, ""))
+    }
+}
+
+/// carnet#1590: the Garmin grant lands while a refresh the athlete waits on
+/// pulls their session. The sync ends on the push-fed error, and the refresh
+/// answers as the stand-down it is — a success that pulled nothing — while a
+/// session dropped mid-sync, ending it on another store error, still fails.
+#[tokio::test]
+async fn a_push_grant_landing_mid_refresh_answers_as_the_stand_down() {
+    for action in [MidSync::GrantPush, MidSync::DropSession] {
+        let db = create_test_db().await;
+        let (user_id, tenant) = seed_user(&db).await;
+        let repos = Arc::clone(db.repositories());
+        connect_garmin_session(&repos, user_id, tenant)
+            .await
+            .unwrap();
+        let storage = Arc::new(PierreSyncStorage::new(&repos));
+        let acting = Arc::new(ActsMidSync {
+            repos: Arc::clone(&repos),
+            user_id,
+            tenant,
+            action,
+            acted: AtomicBool::new(false),
+        });
+        let reader: Arc<dyn DailySummaryReader> = Arc::<ActsMidSync>::clone(&acting);
+
+        let refreshed = refresh_service(&repos, &storage, &reader)
+            .refresh_provider(user_id, tenant, "garmin", true)
+            .await;
+        assert!(
+            acting.acted.load(Ordering::SeqCst),
+            "test setup: {action:?} happened while the sync read the session"
+        );
+        match action {
+            MidSync::GrantPush => {
+                assert!(
+                    refreshed.success,
+                    "bug: a grant landing mid-sync is the stand-down, not a failure: {refreshed:?}"
+                );
+                assert_eq!(
+                    refreshed.message,
+                    "nothing to pull: the provider pushes this data as it is recorded",
+                    "bug: the refresh says the pushes carry the data: {refreshed:?}"
+                );
+                assert_eq!(
+                    refreshed.records_synced, 0,
+                    "bug: a stand-down pulls nothing: {refreshed:?}"
+                );
+            }
+            MidSync::DropSession => assert!(
+                !refreshed.success,
+                "bug: a store error is still a failed refresh: {refreshed:?}"
+            ),
+        }
+    }
+}
+
 /// A usr/pwd session flagged for a reconnect serves nothing, so beside a push
 /// grant the pushes feed the wellness: the athlete leaves the roster and a
 /// refresh stands down quietly, without reading the dead session.
@@ -1002,8 +1165,10 @@ async fn a_dead_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_garmin_session(&repos, user_id, tenant).await;
-    connect_garmin_push(&repos, user_id, tenant).await;
+    connect_garmin_session(&repos, user_id, tenant)
+        .await
+        .unwrap();
+    grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     repos
         .provider_connections
         .mark_needs_reauth(
@@ -1023,13 +1188,13 @@ async fn a_dead_garmin_session_beside_a_push_grant_leaves_the_wellness_to_the_pu
         !roster.iter().any(|u| u.user_id == user_id.to_string()),
         "bug: a dead session serves nothing, so the pushes feed the days: {roster:?}"
     );
+    let err = storage
+        .get_credentials(&user_id.to_string(), "garmin")
+        .await
+        .expect_err("bug: a dead session beside the push grant has nothing of its own to pull");
     assert!(
-        storage
-            .get_credentials(&user_id.to_string(), "garmin")
-            .await
-            .unwrap()
-            .is_none(),
-        "bug: a dead session beside the push grant has nothing of its own to pull"
+        sync_error_is_push_stand_down(&repos, &user_id.to_string(), "garmin", &err).await,
+        "bug: the pull stands down for the pushes, not as expired credentials: {err}"
     );
     assert!(
         wellness_pull_stands_down(&repos, &user_id.to_string(), "garmin").await,
@@ -1061,8 +1226,10 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
     let db = create_test_db().await;
     let (user_id, tenant) = seed_user(&db).await;
     let repos = Arc::clone(db.repositories());
-    connect_garmin_session(&repos, user_id, tenant).await;
-    connect_garmin_push(&repos, user_id, tenant).await;
+    connect_garmin_session(&repos, user_id, tenant)
+        .await
+        .unwrap();
+    grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
     let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();

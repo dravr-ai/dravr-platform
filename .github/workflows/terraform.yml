@@ -45,10 +45,11 @@ permissions:
 # the dispatch passed, identical code, which reads as a flaky infra check and
 # is really state contention.
 #
-# cancel-in-progress is deliberately FALSE, here and in terraform-drift.yml,
-# which queues in this group too: cancelling a running `terraform apply` can
-# leave real infrastructure half-created with the state file not yet written
-# back. Queue instead.
+# cancel-in-progress is deliberately FALSE, here and on terraform-drift.yml's
+# dev leg, which queues its plan in this group too (job-level: its deploy-settle
+# wait runs outside the group, so it holds the lock only to plan): cancelling a
+# running `terraform apply` can leave real infrastructure half-created with the
+# state file not yet written back. Queue instead.
 concurrency:
   group: terraform-state
   cancel-in-progress: false

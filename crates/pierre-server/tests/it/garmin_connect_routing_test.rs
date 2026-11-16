@@ -35,6 +35,7 @@ use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::{Duration, Utc};
+use dravr_enforme::error::EnformeError;
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_tronc::mcp::tool::{McpTool, ToolContext};
@@ -488,23 +489,15 @@ async fn a_garmin_api_user_leaves_the_health_sync_roster_whatever_session_stands
     );
 
     // A sync asked for on request reads the same way: no session beside the
-    // grant, live or dead, has anything of its own to pull.
-    assert!(
-        storage
-            .get_credentials(&both.to_string(), "garmin")
+    // grant, live or dead, has anything of its own to pull, and the sync
+    // stands down for the pushes rather than reading as expired (carnet#1590).
+    for pushed in [both, dead] {
+        let err = storage
+            .get_credentials(&pushed.to_string(), "garmin")
             .await
-            .unwrap()
-            .is_none(),
-        "bug: a live session beside the API grant has nothing of its own to pull"
-    );
-    assert!(
-        storage
-            .get_credentials(&dead.to_string(), "garmin")
-            .await
-            .unwrap()
-            .is_none(),
-        "bug: a dead session beside the API grant has nothing of its own to pull"
-    );
+            .expect_err("bug: a session beside the API grant has nothing of its own to pull");
+        assert!(matches!(err, EnformeError::PushFed { .. }), "bug: {err}");
+    }
     assert!(storage
         .get_credentials(&usr_pwd.to_string(), "garmin")
         .await
@@ -584,14 +577,11 @@ async fn a_garmin_api_user_without_the_health_grant_keeps_the_usr_pwd_wellness_p
             .is_none(),
         "bug: a sync must not read a usr/pwd session flagged for a reconnect"
     );
-    assert!(
-        storage
-            .get_credentials(&granted.to_string(), "garmin")
-            .await
-            .unwrap()
-            .is_none(),
-        "an on-request pull finds no credential while the API pushes their wellness"
-    );
+    let err = storage
+        .get_credentials(&granted.to_string(), "garmin")
+        .await
+        .expect_err("an on-request pull finds no credential while the API pushes their wellness");
+    assert!(matches!(err, EnformeError::PushFed { .. }), "bug: {err}");
 }
 
 /// A listener standing in for Garmin's API that counts every connection it

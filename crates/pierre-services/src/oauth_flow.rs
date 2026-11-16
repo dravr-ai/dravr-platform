@@ -301,16 +301,9 @@ impl OAuthService {
         self.store_oauth_notification(user_id, provider, expires_at)
             .await?;
 
-        // Health data backfill is triggered by the callback handler after this returns.
-        // The scheduler will also auto-detect this user on subsequent cycles.
-        #[cfg(feature = "health-sync")]
-        {
-            tracing::info!(
-                user_id = %user_id,
-                provider = provider,
-                "Health data sync: provider connected, backfill triggered from callback handler"
-            );
-        }
+        // What the connect owes next (a backfill, or none for a provider that
+        // pushes its data) is the callback handler's to start and to log; the
+        // scheduler also picks this user up on its next cycle.
 
         Ok(expires_at)
     }

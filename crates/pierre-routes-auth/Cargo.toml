@@ -66,5 +66,9 @@ futures = { version = "0.3", optional = true }
 # Health backfill (health-sync feature)
 dravr-enforme = { workspace = true, optional = true }
 
+[dev-dependencies]
+# Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.
+pierre-test-support = { version = "0.3.0", path = "../pierre-test-support" }
+
 [lints]
 workspace = true

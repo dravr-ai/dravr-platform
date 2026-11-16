@@ -17,6 +17,8 @@
 //!   ([`db::create_test_db`] and friends), honouring `DATABASE_URL`.
 //! - [`delegation`] — the group, agent and membership a coach's delegated
 //!   link rests on.
+//! - [`garmin`] — an athlete's Garmin session and the API grant that pushes
+//!   their wellness.
 //! - [`server`] — `User` fixtures in a consistent default shape.
 //! - `sse` (feature `sse`) — the frames a client reads off a streaming chat
 //!   turn's body.
@@ -58,6 +60,8 @@ pub mod delegation;
 pub mod fault_proxy;
 /// Small, valid FIT activity files written for tests.
 pub mod fit;
+/// A Garmin athlete's usr/pwd session and the API grant pushing their wellness.
+pub mod garmin;
 /// `User` fixtures in a consistent default shape.
 pub mod server;
 /// The frames a client reads off a streaming chat turn's SSE body.

@@ -14,6 +14,7 @@
 //! history walk, runs once the backfill or the first read, and the first
 //! post either leads to, let go of the connection (carnet#1482).
 
+use tracing::info;
 #[cfg(feature = "health-sync")]
 use tracing::warn;
 #[cfg(feature = "health-sync")]
@@ -36,6 +37,12 @@ pub(crate) fn spawn_connect_follow_ups(
     provider: &str,
 ) {
     let pushed = backend_resolver::pushed_backend_for(provider) == Some(provider);
+    if pushed {
+        info!(
+            user_id,
+            provider, "Pushed provider connected: no connect backfill, its data arrives by push"
+        );
+    }
     #[cfg(feature = "health-sync")]
     let backfill = (!pushed)
         .then(|| spawn_health_backfill(resources, user_id, provider, None))

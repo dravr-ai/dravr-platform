@@ -108,7 +108,8 @@ pub(crate) enum BackfillVerdict {
     /// It failed in a way the athlete is told about.
     Failed,
     /// It failed in a way the athlete is not told about — a dead credential
-    /// is the reconnect notice's, a rate limit the shared quota's.
+    /// is the reconnect notice's, a rate limit the shared quota's, and a pull a
+    /// push grant overtook nothing the athlete could change.
     FailedUntold,
 }
 

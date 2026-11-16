@@ -994,11 +994,9 @@ impl ServerContext {
                 AppError::internal(format!("health sync providers could not be built: {e}"))
             })?;
         let notifier: Arc<dyn SyncNotifier> = Arc::<SseManager>::clone(sse_manager);
-        let auth_repos = repos.auth_repos();
         let abort_handle = start_scheduled_sync(
             Arc::clone(&orchestrator),
             Arc::clone(&adapter),
-            &auth_repos,
             notifier,
             notices,
         );

@@ -12,13 +12,13 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
-use dravr_enforme::error::EnformeResult;
+use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::ConnectedUser;
 use dravr_enforme::SyncOrchestrator;
 use dravr_equilibre_sync::{SyncResult, SyncStatus};
 use pierre_core::models::{DelegatedConnection, OAuthNotification, SmartScheduleWeights, TenantId};
 use pierre_database::repositories::WorkerRunRepository;
-use pierre_database::AuthRepos;
+use pierre_database::{AuthRepos, RepositoryRegistry};
 use pierre_logging::record_identity;
 use pierre_providers::backend_resolver::{is_mirror_backend, sync_backend};
 use pierre_providers::registry::global_registry;
@@ -33,7 +33,7 @@ use super::{
     compute_smart_interval, record_sync_latency, SyncNotifier, SYNC_FAILURES, SYNC_SUCCESSES,
 };
 use crate::coach_platform::coach_platforms;
-use crate::health_sync::{delegated_sync_scope, PierreSyncStorage};
+use crate::health_sync::{delegated_sync_scope, sync_error_is_push_stand_down, PierreSyncStorage};
 use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices};
 
 /// Start the scheduled sync loop with post-sync SSE notifications.
@@ -56,14 +56,12 @@ use crate::sync_failure_notice::{health_sync_failure_is_told, SyncFailureNotices
 pub fn start_scheduled_sync(
     orchestrator: Arc<SyncOrchestrator>,
     storage: Arc<PierreSyncStorage>,
-    repos: &AuthRepos,
     sse_manager: Arc<dyn SyncNotifier>,
     notices: SyncFailureNotices,
 ) -> AbortHandle {
     use dravr_enforme::orchestrator::scheduler::with_jitter;
     use tokio::time::sleep;
 
-    let repos = repos.clone();
     let poll_interval = Duration::from_secs(orchestrator.config().poll_interval_secs);
 
     let handle = tokio::spawn(async move {
@@ -79,7 +77,6 @@ pub fn start_scheduled_sync(
             run_scheduled_sync_cycle(
                 &orchestrator,
                 &storage,
-                &repos,
                 &sse_manager,
                 &notices,
                 SCHEDULED_SYNC_DEADLINE,
@@ -110,7 +107,6 @@ const SCHEDULED_SYNC_DEADLINE: Duration = Duration::from_mins(10);
 async fn run_scheduled_sync_cycle(
     orchestrator: &Arc<SyncOrchestrator>,
     storage: &PierreSyncStorage,
-    repos: &AuthRepos,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
     deadline: Duration,
@@ -136,7 +132,7 @@ async fn run_scheduled_sync_cycle(
 
         sync_provider_users(
             orchestrator,
-            repos,
+            storage.registry(),
             sse_manager,
             notices,
             &users,
@@ -360,21 +356,22 @@ fn millis(duration: Duration) -> i64 {
 /// only the users counted in it.
 async fn sync_provider_users(
     orchestrator: &Arc<SyncOrchestrator>,
-    repos: &AuthRepos,
+    registry: &Arc<RepositoryRegistry>,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
     users: &[ConnectedUser],
     provider_name: &str,
     deadline: Duration,
 ) {
+    let repos = registry.auth_repos();
     for user in users {
-        if !user.is_active || scrape_sync_not_due(repos, user, provider_name).await {
+        if !user.is_active || scrape_sync_not_due(&repos, user, provider_name).await {
             continue;
         }
 
         sync_single_user_within(
             orchestrator,
-            repos,
+            registry,
             sse_manager,
             notices,
             user,
@@ -399,7 +396,7 @@ async fn sync_provider_users(
 )]
 async fn sync_single_user_within(
     orchestrator: &Arc<SyncOrchestrator>,
-    repos: &AuthRepos,
+    registry: &Arc<RepositoryRegistry>,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
     user: &ConnectedUser,
@@ -408,7 +405,7 @@ async fn sync_single_user_within(
 ) {
     let sync = sync_single_user(
         orchestrator,
-        repos,
+        registry,
         sse_manager,
         notices,
         user,
@@ -439,12 +436,13 @@ async fn sync_single_user_within(
 /// foreground budget (carnet#1491).
 async fn sync_single_user(
     orchestrator: &Arc<SyncOrchestrator>,
-    repos: &AuthRepos,
+    registry: &RepositoryRegistry,
     sse_manager: &Arc<dyn SyncNotifier>,
     notices: &SyncFailureNotices,
     user: &ConnectedUser,
     provider_name: &str,
 ) {
+    let repos = &registry.auth_repos();
     let backend = sync_backend(provider_name);
     let user_uuid = user.user_id.parse::<Uuid>().ok();
     let tenant = sync_tenant(repos, user_uuid, &backend).await;
@@ -480,6 +478,11 @@ async fn sync_single_user(
                 .await;
             }
         }
+        // A push grant stored while the sync ran: the roster's stand-down
+        // reached late (logged there), so nothing failed and nobody is told
+        // (carnet#1590).
+        Err(e)
+            if sync_error_is_push_stand_down(registry, &user.user_id, provider_name, &e).await => {}
         Err(e) => {
             SYNC_FAILURES.fetch_add(1, Ordering::Relaxed);
             warn!(
@@ -489,9 +492,7 @@ async fn sync_single_user(
                 error = %e,
                 "Scheduled sync failed"
             );
-            if health_sync_failure_is_told(&e) {
-                report_failed_sync(notices, user_uuid, tenant, &backend).await;
-            }
+            report_failed_sync(notices, &e, user_uuid, tenant, &backend).await;
         }
     }
 }
@@ -506,15 +507,19 @@ async fn sync_tenant(
     token_tenant(repos, user_uuid?, backend).await
 }
 
-/// Tell the athlete, once, that the scheduled sync of `backend` failed —
-/// when the sync knew whose token row it read.
+/// Tell the athlete, once, that the scheduled sync of `backend` failed on
+/// `error` — when it is a failure they are told of
+/// ([`health_sync_failure_is_told`]) and the sync knew whose token row it read.
 async fn report_failed_sync(
     notices: &SyncFailureNotices,
+    error: &EnformeError,
     user_uuid: Option<Uuid>,
     tenant: Option<TenantId>,
     backend: &str,
 ) {
-    if let (Some(user_uuid), Some(tenant)) = (user_uuid, tenant) {
+    if let (true, Some(user_uuid), Some(tenant)) =
+        (health_sync_failure_is_told(error), user_uuid, tenant)
+    {
         notices.sync_failed(user_uuid, tenant, backend).await;
     }
 }
@@ -652,6 +657,7 @@ mod tests {
     use dravr_enforme::models::connection::ProviderCredentials;
     use dravr_enforme::models::cursor::{SyncBatch, SyncCursor};
     use dravr_enforme::models::webhook::{WebhookConfig, WebhookEvent};
+    use dravr_enforme::traits::credential_store::CredentialStore;
     use dravr_enforme::traits::sync_provider::{DataType, SyncProvider};
     use dravr_enforme::{SyncConfig, SyncDeps, SyncOrchestrator};
     use dravr_equilibre_sync::ContinuousMetricBatch;
@@ -668,6 +674,7 @@ mod tests {
         BACKGROUND_SHARE_PERCENT, ONE_DAY, PLATFORM_SCOPE,
     };
     use pierre_test_support::db::create_test_db;
+    use pierre_test_support::garmin::{create_push_fed_athlete, SESSION_BACKEND};
     use pierre_test_support::server::create_test_user;
     use serde_json::{Map, Value as Json};
     use std::sync::PoisonError;
@@ -685,6 +692,7 @@ mod tests {
     /// every other athlete with nothing new. It records whose sleep it read,
     /// in a list the test keeps a handle to (`Arc`) while the orchestrator
     /// owns the provider.
+    #[derive(Default)]
     struct StallsFor {
         stalled: String,
         read: Arc<Mutex<Vec<String>>>,
@@ -961,7 +969,7 @@ mod tests {
             Duration::from_secs(30),
             sync_provider_users(
                 &orchestrator,
-                &auth_repos,
+                &repos,
                 &notifier,
                 &notices,
                 &athletes,
@@ -1025,7 +1033,6 @@ mod tests {
                 read: Arc::new(Mutex::new(Vec::new())),
             },
         );
-        let auth_repos = repos.auth_repos();
         let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
         let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
         let user = ConnectedUser {
@@ -1039,7 +1046,7 @@ mod tests {
         let subscriber = registry().with(SpanFieldStorage).with(capture.clone());
         sync_single_user_within(
             &orchestrator,
-            &auth_repos,
+            &repos,
             &notifier,
             &notices,
             &user,
@@ -1120,7 +1127,7 @@ mod tests {
         };
         sync_single_user_within(
             &orchestrator,
-            &repos.auth_repos(),
+            &repos,
             &notifier,
             &notices,
             &user,
@@ -1138,5 +1145,52 @@ mod tests {
             .admit("whoop")
             .await
             .expect("a read an athlete waits on keeps the rest of the day");
+    }
+
+    /// carnet#1590: a Garmin grant stored after the roster listed the athlete
+    /// ends their scheduled sync on the push-fed error, which tells them
+    /// nothing; a sync failing otherwise ("provider not registered") is told.
+    #[tokio::test]
+    async fn a_push_grant_stored_after_the_roster_tells_the_athlete_nothing() {
+        let db = create_test_db().await.unwrap();
+        let repos = Arc::clone(db.repositories());
+        let storage = Arc::new(PierreSyncStorage::new(&repos));
+        let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
+        let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
+        let unregistered = whoop_orchestrator(&repos, StallsFor::default());
+        for (orchestrator, told) in [
+            (storage.build_orchestrator(None).unwrap(), false),
+            (unregistered, true),
+        ] {
+            let (athlete, tenant) = create_push_fed_athlete(&repos).await.unwrap();
+            let user = ConnectedUser {
+                user_id: athlete.to_string(),
+                provider: "garmin".to_owned(),
+                connected_at: Utc::now(),
+                is_active: true,
+            };
+            // Never landing, so a quiet sync cannot pass by re-arming.
+            let ended = storage.get_credentials(&user.user_id, "garmin").await;
+            assert!(
+                ended.is_err(),
+                "test setup: the sync ends on the stand-down"
+            );
+            sync_single_user_within(
+                &orchestrator,
+                &repos,
+                &notifier,
+                &notices,
+                &user,
+                "garmin",
+                Duration::from_secs(30),
+            )
+            .await;
+            let unclaimed = repos
+                .provider_connections
+                .claim_sync_failure_notification(athlete, tenant, SESSION_BACKEND)
+                .await
+                .unwrap();
+            assert_eq!(unclaimed, !told, "bug: a stand-down is never told");
+        }
     }
 }
