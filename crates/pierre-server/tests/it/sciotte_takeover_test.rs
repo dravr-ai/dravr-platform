@@ -34,7 +34,6 @@ use common::{create_test_user_with_email, generate_test_token};
 use futures_util::{SinkExt, StreamExt};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::constants::oauth::providers::provider_terms_version;
-use pierre_core::constants::oauth_providers::GARMIN;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
 use pierre_core::models::TenantId;
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -554,31 +553,26 @@ async fn sign_in_through(viewer: &mut Viewer) -> Value {
     outcome["body"].clone()
 }
 
-/// A Garmin sign-in a takeover concluded goes on to the grant it owes, as
-/// the same sign-in over HTTP does (carnet#1494): the app starts it from the
-/// provider it names.
+/// A Garmin sign-in a takeover concluded ends at `connected`, as the same
+/// sign-in over HTTP does, even with Garmin's OAuth configured: nothing sends
+/// the athlete on to Garmin's own sign-in page.
 #[tokio::test]
-async fn a_takeover_sign_in_goes_on_to_the_garmin_grant_it_owes() {
+async fn a_takeover_sign_in_ends_connected_without_a_garmin_grant_redirect() {
     let athlete = Athlete::with_garmin_oauth().await;
     let token = athlete.park(&email(CHALLENGED), &attempt()).await;
     let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
 
     let answer = sign_in_through(&mut viewer).await;
-    assert_eq!(
-        answer["oauth_follow_on"]["provider"], GARMIN,
-        "bug: a takeover sign-in does not go on to its grant: {answer}"
-    );
     assert!(
-        answer["oauth_follow_on"].get("authorization_url").is_none(),
-        "the app starts the authorization its own way: {answer}"
+        answer.get("oauth_follow_on").is_none(),
+        "bug: a takeover sign-in sends the athlete on to Garmin's grant: {answer}"
     );
 }
 
-/// The hosted connect picker starts a grant with its own token, but a
-/// takeover concludes on the takeover page, where that page is gone: the
-/// answer carries Garmin's authorization URL itself.
+/// A hosted takeover (the connect picker's link) ends at `connected` too: the
+/// answer carries no Garmin authorization URL to navigate to.
 #[tokio::test]
-async fn a_hosted_takeover_sign_in_carries_its_grants_authorization_url() {
+async fn a_hosted_takeover_sign_in_carries_no_grant_authorization_url() {
     let athlete = Athlete::with_garmin_oauth().await;
     let attempt_id = attempt();
     athlete.park(&email(CHALLENGED), &attempt_id).await;
@@ -601,13 +595,9 @@ async fn a_hosted_takeover_sign_in_carries_its_grants_authorization_url() {
     let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
 
     let answer = sign_in_through(&mut viewer).await;
-    assert_eq!(answer["oauth_follow_on"]["provider"], GARMIN, "{answer}");
-    let url = answer["oauth_follow_on"]["authorization_url"]
-        .as_str()
-        .unwrap_or_else(|| panic!("bug: the takeover page has no way on to the grant: {answer}"));
     assert!(
-        url.contains("client_id="),
-        "bug: the follow-on is not Garmin's authorization: {url}"
+        answer.get("oauth_follow_on").is_none(),
+        "bug: a hosted takeover sign-in navigates on to Garmin's grant: {answer}"
     );
 }
 

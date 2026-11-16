@@ -418,12 +418,11 @@ async fn a_garmin_reconnect_offers_the_sign_in_whatever_the_seats() {
     }
 }
 
-/// A sign-in over the athlete's own dead Garmin grant goes on to Garmin's
-/// authorization even with the pool full: the dead grant's seat, freed when
-/// the sign-in deletes it, is the one the athlete authorizes again
-/// (carnet#1494, JF's directive 8).
+/// A sign-in over the athlete's own dead Garmin grant ends at `connected`
+/// with the pool full: nothing sends the athlete on to Garmin's own sign-in
+/// page. The grant is asked for when a write needs it.
 #[tokio::test]
-async fn a_sign_in_over_a_dead_grant_goes_on_to_it_with_the_pool_full() {
+async fn a_sign_in_over_a_dead_grant_ends_connected_with_the_pool_full() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
     let resources = server(config_with_cap(&scraper, 1)).await;
     let (user_id, _user, tenant, token) = athlete(&resources).await;
@@ -444,26 +443,9 @@ async fn a_sign_in_over_a_dead_grant_goes_on_to_it_with_the_pool_full() {
 
     let (status, body) = sign_in(&resources, &token).await;
     assert_eq!(status, 200, "{body}");
-    assert_eq!(
-        body["oauth_follow_on"]["provider"],
-        oauth_providers::GARMIN,
-        "bug: reconnecting lost the athlete's own Garmin seat: {body}"
-    );
-}
-
-/// With the pool full, a sign-in of an athlete who never held a Garmin grant
-/// is not sent on to an authorization that cannot finish.
-#[tokio::test]
-async fn a_full_pool_sends_no_sign_in_on_to_the_grant() {
-    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
-    let resources = server(config_with_cap(&scraper, 1)).await;
-    fill_a_seat(&resources).await;
-    let (_user_id, _user, _tenant, token) = athlete(&resources).await;
-
-    let (status, body) = sign_in(&resources, &token).await;
-    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["status"], "connected", "{body}");
     assert!(
-        body["oauth_follow_on"].is_null(),
-        "bug: a full pool sends the sign-in into Garmin's authorization: {body}"
+        body.get("oauth_follow_on").is_none(),
+        "bug: a sign-in sends the athlete on to Garmin's authorization: {body}"
     );
 }

@@ -388,15 +388,14 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 
 /// Store a successful sciotte session in Pierre's encrypted DB and register the connection.
 /// After storing, raises `provider.connected`, warms the account's data from
-/// the session (see [`warm_from_session`]) and answers `connected` with the
-/// grant authorization it goes on to ([`connected_response`]).
+/// the session (see [`warm_from_session`]) and answers `connected`
+/// ([`connected_response`]).
 async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
     session: &AuthSession,
     provider_name: &str,
-    link: Option<&LinkContext>,
 ) -> Result<Response, AppError> {
     let stored = persist_sciotte_session(
         &resources.repos,
@@ -426,7 +425,7 @@ async fn store_sciotte_session(
         provider_name,
     );
 
-    Ok(connected_response(resources, user_id, tenant_id, provider_name, link, false).await)
+    Ok(connected_response(provider_name, false))
 }
 
 /// Start what a freshly stored session owes the account: an activity
@@ -668,15 +667,7 @@ async fn store_signed_in(
     if let Some(link) = link_context {
         emit_provider_linked_webhook(user_id, tenant_id, provider_name, link);
     }
-    store_sciotte_session(
-        resources,
-        user_id,
-        tenant_id,
-        &session,
-        provider_name,
-        link_context,
-    )
-    .await
+    store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
 }
 
 /// Drop the session a separate sign-in service still holds once the platform
@@ -982,9 +973,7 @@ pub(crate) async fn handle_sciotte_login(
     // provider), so no other athlete's session or connection can seed it.
     let prior_session = match stored_session_use(&resources, user_id, tenant_id, provider).await? {
         StoredSessionUse::Reused => {
-            let link = link_context.as_ref();
-            let reused = connected_response(&resources, user_id, tenant_id, provider, link, true);
-            return Ok(reused.await);
+            return Ok(connected_response(provider, true));
         }
         StoredSessionUse::SignIn { prior_session } => prior_session,
     };
