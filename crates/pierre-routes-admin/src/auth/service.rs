@@ -176,7 +176,10 @@ impl AdminAuthService {
             .clone_from(&stored_token.service_name);
 
         // Step 5: Log usage (no permission check), and count the use on the
-        // token's own row, which the token list reads.
+        // token's own row, which the token list reads. The row read above
+        // can be retired by now. When its admin's account was deleted, the
+        // writes below leave the caller's address out; a token revoked
+        // meanwhile keeps this request's address.
         self.log_token_usage(&stored_token.id, "auth_check", None, ip_address, true, None)
             .await?;
         self.admin

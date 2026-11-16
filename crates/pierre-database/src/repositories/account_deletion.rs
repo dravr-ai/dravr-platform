@@ -24,7 +24,10 @@
 //!    (`RETIRE_DEVICE_LOGINS_SQL`): each row is kept, inactive, under a name
 //!    that names no one and an operator that is no account, so its request
 //!    log and its record of the keys it provisioned stay while a deleted
-//!    admin's tokens end in this transaction and never after it. A token
+//!    admin's tokens end in this transaction and never after it. The log
+//!    keeps each request's action, target and time; the IP address and
+//!    user agent it came from are set `NULL` first
+//!    (`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`). A token
 //!    that carries the id only in its name has the id rewritten out of it
 //!    (`SCRUB_TOKEN_NAME_SQL`). Then it clears the account itself
 //!    (`clear_user_in_transaction`), re-reading every purged table, and the
@@ -522,7 +525,10 @@ macro_rules! impl_account_deletion_repository {
                 // The device logins the account approved: the live ones are
                 // what this deletion revokes, read before it retires them
                 // all. Each row stays, inactive and acting as no account, so
-                // its request log and provisioned-keys record stay with it.
+                // its request log and provisioned-keys record stay with it;
+                // the log loses the address and user agent of each request,
+                // found by the `operator_user_id` the retirement is about to
+                // rewrite.
                 // A token that only carries the id in its name is someone
                 // else's, and loses the id from it.
                 let admin_token = |e: sqlx::Error| {
@@ -538,6 +544,11 @@ macro_rules! impl_account_deletion_repository {
                     .iter()
                     .map(|row| row.try_get("id").map_err(admin_token))
                     .collect::<AppResult<Vec<String>>>()?;
+                sqlx::query(SCRUB_DEVICE_LOGIN_REQUESTS_SQL)
+                    .bind(&owner)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(admin_token)?;
                 sqlx::query(RETIRE_DEVICE_LOGINS_SQL)
                     .bind(DELETED_ACCOUNT_OPERATOR.to_string())
                     .bind(DEVICE_CLI_DELETED_ACCOUNT_SERVICE)

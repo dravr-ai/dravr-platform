@@ -11,7 +11,7 @@ use chrono::{DateTime, Utc};
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
     AdminAction, AdminPermissions, AdminToken, AdminTokenUsage, CreateAdminTokenRequest,
-    GeneratedAdminToken,
+    GeneratedAdminToken, DELETED_ACCOUNT_OPERATOR,
 };
 use pierre_core::admin::{AdminJwtManager, TokenScope};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
@@ -148,10 +148,21 @@ pub trait AdminRepository: Send + Sync {
         admin_jwt_secret: &str,
         jwks_manager: &dyn JwtSigner,
     ) -> AppResult<GeneratedAdminToken>;
-    /// Record admin token usage for audit trail
+    /// Record admin token usage for audit trail.
+    ///
+    /// The address and the user agent are the caller's, and one retirement
+    /// clears them: the deletion of the account a device login acted as,
+    /// which takes both out of the log it keeps. A login retired that way
+    /// between a request's authentication and this write still gets its
+    /// row, with what the request did and when, and without who sent it.
+    /// Every other token keeps both, a revoked one included: the request in
+    /// flight when a leaked token is revoked is the one whose address
+    /// matters.
     async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()>;
     /// Count one authenticated use of a token on its own row: one more
     /// request, used at `used_at`, from `ip_address` when the edge named one.
+    /// A deleted account's device login counts no use: its row keeps the
+    /// count it had, and the address the deletion cleared stays cleared.
     async fn record_token_use(
         &self,
         token_id: &str,
@@ -233,6 +244,33 @@ pub(crate) const DEACTIVATE_OPERATOR_TOKENS_SQL: &str =
     "UPDATE admin_tokens SET is_active = FALSE \
      WHERE operator_user_id = $1 AND is_active = TRUE RETURNING id";
 
+/// Whether an `admin_tokens` row still takes a caller's address: every row
+/// but the device login of a deleted account, which acts as no account
+/// (`$deleted` is the placeholder `DELETED_ACCOUNT_OPERATOR` binds to, as
+/// text). The deletion cleared the address under that row and its log, and
+/// a request still in flight must not write it back.
+///
+/// `operator_user_id` is `NULL` on a service token, and `NULL <> x` is not
+/// true, so the service token is named first.
+macro_rules! token_takes_a_caller_sql {
+    ($deleted:literal) => {
+        concat!(
+            "(operator_user_id IS NULL OR operator_user_id <> ",
+            $deleted,
+            ")"
+        )
+    };
+}
+pub(crate) use token_takes_a_caller_sql;
+
+/// What the `$deleted` placeholder of [`token_takes_a_caller_sql!`] binds:
+/// what a deleted account's device logins act as
+/// (`DELETED_ACCOUNT_OPERATOR`), as the text `operator_user_id` holds on
+/// both engines.
+pub(crate) fn deleted_account_column() -> String {
+    DELETED_ACCOUNT_OPERATOR.to_string()
+}
+
 /// The statements that touch an address column, resolved once per backend.
 ///
 /// The caller's address is the one thing the two schemas spell apart: an
@@ -270,25 +308,35 @@ macro_rules! admin_statements_sql {
 
         /// Append one audit row. `id` is assigned by the engine on both
         /// backends (`SERIAL` there, `INTEGER PRIMARY KEY AUTOINCREMENT`
-        /// here) and `method` stays NULL, so neither is named.
+        /// here) and `method` stays NULL, so neither is named. The address
+        /// and the user agent are read through the token's row: a scalar
+        /// subquery that finds no row taking a caller is NULL
+        /// ([`token_takes_a_caller_sql!`], `$10` a deleted account's mark).
         const RECORD_ADMIN_TOKEN_USAGE_SQL: &str = concat!(
             "INSERT INTO admin_token_usage ( \
                 admin_token_id, timestamp, action, target_resource, \
                 ip_address, user_agent, request_size_bytes, success, \
                 response_time_ms \
-            ) VALUES ($1, $2, $3, $4, $5",
+            ) VALUES ($1, $2, $3, $4, \
+                (SELECT $5",
             $inet,
-            ", $6, $7, $8, $9)"
+            " FROM admin_tokens WHERE id = $1 AND ",
+            token_takes_a_caller_sql!("$10"),
+            "), (SELECT CAST($6 AS TEXT) FROM admin_tokens WHERE id = $1 AND ",
+            token_takes_a_caller_sql!("$10"),
+            "), $7, $8, $9)"
         );
 
-        /// One authenticated use of a token: the request count, the time and
-        /// the address the token list shows. An absent address keeps the last
-        /// one known.
+        /// One authenticated use of a token: the request count, the time
+        /// and the address the token list shows. An absent address keeps
+        /// the last one known. No row that takes no caller is written
+        /// ([`token_takes_a_caller_sql!`], `$4` a deleted account's mark).
         const RECORD_ADMIN_TOKEN_USE_SQL: &str = concat!(
             "UPDATE admin_tokens SET usage_count = usage_count + 1, last_used_at = $1, \
              last_used_ip = COALESCE($2",
             $inet,
-            ", last_used_ip) WHERE id = $3"
+            ", last_used_ip) WHERE id = $3 AND ",
+            token_takes_a_caller_sql!("$4")
         );
 
         /// A token's audit rows inside a window, newest first. `id` is
@@ -749,6 +797,7 @@ macro_rules! impl_admin_repository {
                     .bind(usage.request_size_bytes.map(count_to_column))
                     .bind(usage.success)
                     .bind(usage.response_time_ms.map(count_to_column))
+                    .bind(deleted_account_column())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
@@ -768,6 +817,7 @@ macro_rules! impl_admin_repository {
                     .bind(used_at)
                     .bind(ip_address)
                     .bind(token_id)
+                    .bind(deleted_account_column())
                     .execute(self.pool())
                     .await
                     .map_err(|e| {

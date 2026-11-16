@@ -370,6 +370,11 @@ async fn mint_approved_token(
 /// is recorded, so the minted token acts as the same person. A service token
 /// names no one, and the token its approval mints has no operator.
 ///
+/// An expired login answers 410 only until the next login starts: starting
+/// one deletes the expired rows, and the code then answers 404, as a code
+/// that was never issued does. The 404 says "unknown or expired" for that
+/// reason.
+///
 /// # Errors
 /// Returns an error if the lookup or status update fails.
 pub async fn handle_device_approve(
@@ -399,7 +404,9 @@ pub async fn handle_device_approve(
         return Ok(admin_json(
             AdminResponse {
                 success: false,
-                message: format!("Unknown user_code: {user_code}"),
+                message: format!(
+                    "Unknown or expired user_code: {user_code}. Start a new login for a new code."
+                ),
                 data: None,
             },
             StatusCode::NOT_FOUND,

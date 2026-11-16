@@ -1,5 +1,5 @@
 // ABOUTME: The Approve and Reject buttons of a sign-up notice act on sign-ups and never on an admin account
-// ABOUTME: Pins the refusal on an admin, the sign-up approved and rejected, and the Slack row for credentials a rejection withdraws
+// ABOUTME: Pins the refusal on an admin and on an account no longer pending, the sign-up approved and rejected, and the Slack row for credentials a rejection withdraws
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -16,6 +16,10 @@
 //! console and `pierre-cli` take, so an account that still holds what an
 //! admin did loses it in the same write, on the trail under the Slack
 //! source.
+//!
+//! carnet#1589: a sign-up is a pending account. A tap on a card whose
+//! account was approved or suspended since changes nothing either, and one
+//! that matches what the account already is decides it no second time.
 
 #[cfg(feature = "client-messaging")]
 mod slack_sign_up_action {
@@ -42,6 +46,7 @@ mod slack_sign_up_action {
 
     use crate::common::{create_test_server_resources_with_config, test_server_config};
     use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::notify_capture::{capture_logs, named, CapturedEvents};
 
     const SIGNING_SECRET: &str = "slack_sign_up_secret_1574";
     const ACTIONS_PATH: &str = "/api/ops/slack/actions";
@@ -72,10 +77,13 @@ mod slack_sign_up_action {
         }
     }
 
-    /// A server whose `SLACK_SIGNING_SECRET` is [`SIGNING_SECRET`].
+    /// A server whose `SLACK_SIGNING_SECRET` is [`SIGNING_SECRET`], and
+    /// which holds no bot token whatever the process exports: no test calls
+    /// Slack, and a redraw stops at the warning [`CARD_DRAWN`] counts.
     async fn signing_server() -> Arc<ServerContext> {
         let mut config = test_server_config();
         config.webhooks.slack_signing_secret = Some(SecretString::from(SIGNING_SECRET));
+        config.webhooks.slack_bot_token = None;
         create_test_server_resources_with_config(config)
             .await
             .unwrap()
@@ -322,19 +330,206 @@ mod slack_sign_up_action {
         );
     }
 
+    /// A card decides a pending sign-up and nothing else (carnet#1589).
+    /// The Reject button of a card whose account was approved since
+    /// suspends no one: the account stays active and keeps what it holds,
+    /// and nothing reaches the trail. The Approve button of a card whose
+    /// account was suspended since reinstates no one. Neither account is an
+    /// admin, so the admin refusal is not what answers.
+    #[tokio::test]
+    #[serial]
+    async fn a_tap_on_an_account_that_is_no_longer_pending_changes_nothing() {
+        let _room = SignUpRoom::routed();
+        let resources = signing_server().await;
+        account(&resources, "staying@example.com", UserRole::Admin).await;
+        let approved = account(&resources, "approved-since@example.com", UserRole::User).await;
+        let suspended = account_in(
+            &resources,
+            "suspended-since@example.com",
+            UserRole::User,
+            UserStatus::Suspended,
+        )
+        .await;
+        // What a suspension would withdraw, so a suspension would show.
+        let token_id = device_login_of(&resources, approved).await;
+
+        tap_reject(&resources, approved).await;
+        tap_approve(&resources, suspended).await;
+
+        assert_eq!(
+            status_of(&resources, approved).await,
+            UserStatus::Active,
+            "a stale Reject suspends no active account"
+        );
+        assert!(token_is_live(&resources, &token_id).await);
+        assert!(revocations(&resources).await.is_empty());
+        assert_eq!(
+            status_of(&resources, suspended).await,
+            UserStatus::Suspended,
+            "a stale Approve reinstates no suspended account"
+        );
+    }
+
+    /// The line a redraw of a card logs in a test. No test server holds a
+    /// bot token, so `update_card` stops at its first line, this warning:
+    /// one per card a tap draws, and the only trace a draw leaves here.
+    const CARD_DRAWN: &str = "SLACK_BOT_TOKEN not configured; the Slack card was not updated";
+
+    /// The line a tap logs when it leaves the card as the deciding tap drew
+    /// it.
+    const CARD_LEFT: &str =
+        "Sign-up tap found the account already decided that way; the card is left as it is";
+
+    /// How many times the notify event `event` was raised about `user_id`.
+    fn raised(events: &CapturedEvents, event: &str, user_id: Uuid) -> usize {
+        let user_id = user_id.to_string();
+        events
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|line| line.fields.get("event").is_some_and(|name| name == event))
+            .filter(|line| line.fields.get("user_id") == Some(&user_id))
+            .count()
+    }
+
+    /// A tap that matches the account's standing is the same decision
+    /// arriving twice (carnet#1589), one tap after the other or both at
+    /// once. The sign-up is decided once: one approval is announced and
+    /// provisions one tenant, a rejection none, and nothing reaches the
+    /// trail. The second tap draws nothing, so the card keeps the name of
+    /// whoever decided: each sign-up's card is drawn once and left once.
+    ///
+    /// Two Approves at once both read a pending account, so only the write
+    /// tells them apart. Unguarded, both went on to provision the tenant,
+    /// the second failed on the tenant's slug and drew its failure over the
+    /// card: a fourth card, which is what this counts. A second tap that
+    /// was told "no longer pending" drew one too.
+    #[tokio::test]
+    #[serial]
+    async fn the_same_button_tapped_twice_decides_a_sign_up_once() {
+        let _room = SignUpRoom::routed();
+        let resources = signing_server().await;
+        let tenants = &resources.common.repos.tenants;
+        let mut sign_ups = Vec::new();
+        for name in ["welcomed", "raced", "turned-away"] {
+            let email = format!("{name}@example.com");
+            sign_ups
+                .push(account_in(&resources, &email, UserRole::User, UserStatus::Pending).await);
+        }
+        let [welcomed, raced, turned_away] = sign_ups[..] else {
+            panic!("three sign-ups");
+        };
+
+        let (lines, _guard) = capture_logs();
+        tap_approve(&resources, welcomed).await;
+        tap_approve(&resources, welcomed).await;
+        tokio::join!(
+            tap_approve(&resources, raced),
+            tap_approve(&resources, raced)
+        );
+        tap_reject(&resources, turned_away).await;
+        tap_reject(&resources, turned_away).await;
+
+        for approved in [welcomed, raced] {
+            assert_eq!(status_of(&resources, approved).await, UserStatus::Active);
+            assert_eq!(
+                raised(&lines, "user.approved", approved),
+                1,
+                "one approval is announced once"
+            );
+            assert_eq!(
+                tenants.list_for_user(approved).await.unwrap().len(),
+                1,
+                "one approval provisions one tenant"
+            );
+        }
+        assert_eq!(
+            status_of(&resources, turned_away).await,
+            UserStatus::Suspended
+        );
+        assert_eq!(raised(&lines, "user.suspended", turned_away), 1);
+        assert!(tenants.list_for_user(turned_away).await.unwrap().is_empty());
+        assert!(revocations(&resources).await.is_empty());
+        assert_eq!(
+            named(&lines, CARD_DRAWN).len(),
+            3,
+            "the tap that decides each sign-up draws its card"
+        );
+        assert_eq!(
+            named(&lines, CARD_LEFT).len(),
+            3,
+            "and the tap that repeats it draws nothing"
+        );
+    }
+
+    /// How many sign-ups the two buttons are raced on: the order two taps
+    /// reach the store in is the runtime's, so one round proves little.
+    const TAP_RACE_ROUNDS: usize = 8;
+
+    /// Two reviewers tap the two buttons of one card at once (carnet#1589).
+    /// Both taps read a pending account, so the read cannot be what decides:
+    /// the write is, and only one of the two finds the account still
+    /// pending. The sign-up ends as that one tap made it. Checked and then
+    /// written, the rejection suspended the account the approval had just
+    /// made active, and the approval went on to provision its tenant: a
+    /// suspended account with the tenant of an approved one.
+    #[tokio::test]
+    #[serial]
+    async fn two_taps_at_once_decide_a_sign_up_once() {
+        let _room = SignUpRoom::routed();
+        let resources = signing_server().await;
+        let tenants = &resources.common.repos.tenants;
+
+        for round in 0..TAP_RACE_ROUNDS {
+            let contested = account_in(
+                &resources,
+                &format!("contested-{round}@example.com"),
+                UserRole::User,
+                UserStatus::Pending,
+            )
+            .await;
+
+            tokio::join!(
+                tap_approve(&resources, contested),
+                tap_reject(&resources, contested)
+            );
+
+            let provisioned = !tenants.list_for_user(contested).await.unwrap().is_empty();
+            match status_of(&resources, contested).await {
+                UserStatus::Active => assert!(
+                    provisioned,
+                    "round {round}: the approval that landed provisions the tenant"
+                ),
+                UserStatus::Suspended => assert!(
+                    !provisioned,
+                    "round {round}: a rejected sign-up was never approved, so it has no tenant"
+                ),
+                UserStatus::Pending => panic!("round {round}: one of the two taps decides"),
+            }
+        }
+    }
+
     /// The withdrawal a rejection carries is still reachable without an
     /// admin target. Before the role's writes withdrew what an admin held, a
     /// demotion left the device logins it had approved and the
     /// impersonations it had opened live in their tables, under an account
-    /// that is a plain user now. Rejecting that account suspends it through
-    /// the one suspension path, which ends both, and the trail says Slack.
+    /// that is a plain user now. Such an account waiting as a pending
+    /// sign-up (a card acts on no other) is suspended by a rejection
+    /// through the one suspension path, which ends both, and the trail says
+    /// Slack.
     #[tokio::test]
     #[serial]
     async fn a_rejected_account_loses_what_an_older_demotion_left_it_and_the_trail_says_slack() {
         let _room = SignUpRoom::routed();
         let resources = signing_server().await;
         account(&resources, "staying@example.com", UserRole::Admin).await;
-        let former = account(&resources, "former-admin@example.com", UserRole::User).await;
+        let former = account_in(
+            &resources,
+            "former-admin@example.com",
+            UserRole::User,
+            UserStatus::Pending,
+        )
+        .await;
         let athlete = account(&resources, "athlete@example.com", UserRole::User).await;
         // Written as that build left them: rows naming an account that
         // holds no admin role.

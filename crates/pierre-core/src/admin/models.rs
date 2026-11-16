@@ -11,7 +11,7 @@ use chrono::{DateTime, Duration, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 use uuid::Uuid;
 
@@ -19,7 +19,14 @@ use super::scope::{no_tenant_refusal, other_tenant_refusal};
 use crate::errors::{AppError, AppResult, ErrorCode};
 
 /// Admin token with full details
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// The row holds two values no line of output is a place for: the hash a
+/// presented token is verified against and the hash of the secret it was
+/// signed under. `Debug` is written by hand and prints a fixed placeholder
+/// for each. The type neither serializes nor deserializes, so no JSON can
+/// carry a hash out: a row comes from the store, and an API answers with
+/// [`AdminTokenSummary`].
+#[derive(Clone)]
 pub struct AdminToken {
     /// Unique token identifier (UUID)
     pub id: String,
@@ -55,6 +62,34 @@ pub struct AdminToken {
     pub last_used_ip: Option<String>,
     /// Total number of times token has been used
     pub usage_count: u64,
+}
+
+/// What stands where a hash would print.
+const REDACTED_HASH: &str = "[REDACTED]";
+
+/// Every field as stored, except the two hashes, which print as
+/// `[REDACTED]` whatever they hold.
+impl Debug for AdminToken {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("AdminToken")
+            .field("id", &self.id)
+            .field("service_name", &self.service_name)
+            .field("service_description", &self.service_description)
+            .field("token_hash", &REDACTED_HASH)
+            .field("token_prefix", &self.token_prefix)
+            .field("jwt_secret_hash", &REDACTED_HASH)
+            .field("permissions", &self.permissions)
+            .field("is_super_admin", &self.is_super_admin)
+            .field("is_active", &self.is_active)
+            .field("tenant_id", &self.tenant_id)
+            .field("operator_user_id", &self.operator_user_id)
+            .field("created_at", &self.created_at)
+            .field("expires_at", &self.expires_at)
+            .field("last_used_at", &self.last_used_at)
+            .field("last_used_ip", &self.last_used_ip)
+            .field("usage_count", &self.usage_count)
+            .finish()
+    }
 }
 
 /// Redacted admin token for API responses (excludes sensitive hash fields)

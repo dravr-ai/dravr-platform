@@ -32,7 +32,7 @@
 use std::thread;
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{TimeDelta, Utc};
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::{
     AdminAction, AdminPermission, AdminPermissions, AdminToken, AdminTokenUsage,
@@ -40,7 +40,7 @@ use pierre_core::admin::models::{
     DEVICE_CLI_DELETED_ACCOUNT_SERVICE, DEVICE_CLI_SERVICE_PREFIX,
 };
 use pierre_core::errors::{AppResult, ErrorCode};
-use pierre_core::models::{User, UserStatus};
+use pierre_core::models::{DeviceAuthorization, User, UserStatus};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
@@ -417,6 +417,302 @@ async fn token(repos: &RepositoryRegistry, id: &str) -> Option<AdminToken> {
     repos.admin.get_token_by_id(id).await.unwrap()
 }
 
+/// Log one request made with `token_id` from [`LAST_USED_FROM`] by
+/// [`CLI_USER_AGENT`], as the admin API's middleware records one.
+async fn log_a_request_with_its_caller(repos: &RepositoryRegistry, token_id: &str) {
+    repos
+        .admin
+        .record_token_usage(&AdminTokenUsage {
+            id: None,
+            admin_token_id: token_id.to_owned(),
+            timestamp: Utc::now(),
+            action: AdminAction::PurgeProviderData,
+            target_resource: Some("provider:whoop".to_owned()),
+            ip_address: Some(LAST_USED_FROM.to_owned()),
+            user_agent: Some(CLI_USER_AGENT.to_owned()),
+            request_size_bytes: Some(128),
+            success: true,
+            error_message: None,
+            response_time_ms: Some(12),
+        })
+        .await
+        .unwrap();
+}
+
+/// The user agent a logged request came from, in these tests.
+const CLI_USER_AGENT: &str = "pierre-cli/0.3.0 (darwin; sentinel-agent-1589)";
+
+/// Every request the log holds for `token_id`, as the repository reads it.
+async fn requests_of(repos: &RepositoryRegistry, token_id: &str) -> Vec<AdminTokenUsage> {
+    repos
+        .admin
+        .get_token_usage_history(
+            token_id,
+            Utc::now() - TimeDelta::hours(1),
+            Utc::now() + TimeDelta::hours(1),
+        )
+        .await
+        .unwrap()
+}
+
+/// A request that was authenticated just before its admin's account was
+/// deleted still writes its log row and its use afterwards (carnet#1589).
+/// Neither write puts the caller back under the retired login: the log row
+/// says what the request did and when, without the address or the user
+/// agent, and the use is not counted, so the address the deletion cleared
+/// stays cleared.
+///
+/// Only the deletion clears a caller: the address is the deleted admin's
+/// own. A service token revoked under a request in flight, and the login
+/// withdrawn from an admin who was demoted and whose account remains, keep
+/// the address, the user agent and the use of that request, as a live token
+/// does. When a token is revoked because it leaked, that request's address
+/// is the one an admin looks for.
+#[tokio::test]
+async fn only_a_deleted_admins_login_records_no_caller_for_a_request_in_flight() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let leaving = account(repos, "leaving@example.com", true).await;
+    let demoted = account(repos, "demoted@example.com", true).await;
+    account(repos, "staying@example.com", true).await;
+    let label = format!("{DEVICE_CLI_SERVICE_PREFIX}{}", leaving.id);
+    let demoted_label = format!("{DEVICE_CLI_SERVICE_PREFIX}{}", demoted.id);
+    let retired_login = mint(repos, &label, Some(leaving.id)).await;
+    let withdrawn_login = mint(repos, &demoted_label, Some(demoted.id)).await;
+    let revoked = mint(repos, "revoked-job", None).await;
+    let live = mint(repos, "nightly-job", None).await;
+    delete_account(repos, leaving.id, None).await.unwrap();
+    repos
+        .users
+        .set_admin_status(demoted.id, false)
+        .await
+        .unwrap();
+    repos.admin.deactivate_token(&revoked).await.unwrap();
+    for retired in [&retired_login, &withdrawn_login, &revoked] {
+        let row = token(repos, retired).await.expect("the row stays");
+        assert!(!row.is_active, "retired before the request is logged");
+    }
+
+    for token_id in [&retired_login, &withdrawn_login, &revoked, &live] {
+        log_a_request_with_its_caller(repos, token_id).await;
+        repos
+            .admin
+            .record_token_use(token_id, Utc::now(), Some(LAST_USED_FROM))
+            .await
+            .unwrap();
+    }
+
+    let requests = requests_of(repos, &retired_login).await;
+    assert_eq!(requests.len(), 1, "the request is still logged");
+    assert_eq!(requests[0].ip_address, None, "without its address");
+    assert_eq!(requests[0].user_agent, None, "or its user agent");
+    assert_eq!(requests[0].action, AdminAction::PurgeProviderData);
+    assert_eq!(
+        requests[0].target_resource.as_deref(),
+        Some("provider:whoop")
+    );
+    let row = token(repos, &retired_login).await.expect("the row stays");
+    assert_eq!(row.last_used_ip, None, "no address returns to the row");
+    assert_eq!(row.usage_count, 0, "a deleted admin's login counts no use");
+
+    for kept in [&withdrawn_login, &revoked, &live] {
+        let requests = requests_of(repos, kept).await;
+        assert_eq!(requests.len(), 1, "{kept}");
+        assert_eq!(
+            requests[0].ip_address.as_deref(),
+            Some(LAST_USED_FROM),
+            "the request keeps its address: {kept}"
+        );
+        assert_eq!(
+            requests[0].user_agent.as_deref(),
+            Some(CLI_USER_AGENT),
+            "and its user agent: {kept}"
+        );
+        let row = token(repos, kept).await.expect("the row");
+        assert_eq!(row.last_used_ip.as_deref(), Some(LAST_USED_FROM), "{kept}");
+        assert_eq!(row.usage_count, 1, "the use is counted: {kept}");
+    }
+}
+
+/// The request log a deleted admin's device logins keep says what each
+/// request did, to what and when, and no longer where it came from
+/// (carnet#1589): the deletion sets the IP address and the user agent of
+/// every row under the account's logins, the live one and the one already
+/// withdrawn, to `NULL` in its own transaction. Each row stays, with its
+/// action, target, time and outcome. Another admin's log, and a service
+/// token's, keep both.
+#[tokio::test]
+async fn deleting_an_account_takes_the_caller_out_of_its_kept_request_log() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let leaving = account(repos, "leaving@example.com", true).await;
+    let staying = account(repos, "staying@example.com", true).await;
+    let label = format!("{DEVICE_CLI_SERVICE_PREFIX}{}", leaving.id);
+    let staying_label = format!("{DEVICE_CLI_SERVICE_PREFIX}{}", staying.id);
+
+    let live_login = mint(repos, &label, Some(leaving.id)).await;
+    let withdrawn_login = mint(repos, &label, Some(leaving.id)).await;
+    let kept = mint(repos, &staying_label, Some(staying.id)).await;
+    let service = mint(repos, "nightly-job", None).await;
+    for token_id in [&live_login, &withdrawn_login, &kept, &service] {
+        log_a_request_with_its_caller(repos, token_id).await;
+        log_a_request_with_its_caller(repos, token_id).await;
+        for request in requests_of(repos, token_id).await {
+            assert_eq!(request.ip_address.as_deref(), Some(LAST_USED_FROM));
+            assert_eq!(request.user_agent.as_deref(), Some(CLI_USER_AGENT));
+        }
+    }
+    repos
+        .admin
+        .deactivate_token(&withdrawn_login)
+        .await
+        .unwrap();
+    let before = requests_of(repos, &live_login).await;
+
+    repos
+        .account_deletion
+        .delete_account(&AccountDeletionPlan {
+            user_id: leaving.id,
+            actor: DeletionActor::Operator,
+            firebase_project: None,
+            backends: Vec::new(),
+            revocations: "[]".to_owned(),
+            not_deleted: Vec::new(),
+        })
+        .await
+        .unwrap();
+
+    for retired in [&live_login, &withdrawn_login] {
+        let requests = requests_of(repos, retired).await;
+        assert_eq!(requests.len(), 2, "every row stays: {retired}");
+        for request in &requests {
+            assert_eq!(
+                request.ip_address, None,
+                "the address goes with the account: {retired}"
+            );
+            assert_eq!(request.user_agent, None, "and the user agent: {retired}");
+            assert_eq!(request.action, AdminAction::PurgeProviderData);
+            assert_eq!(request.target_resource.as_deref(), Some("provider:whoop"));
+            assert!(request.success);
+            assert_eq!(request.request_size_bytes, Some(128));
+            assert_eq!(request.response_time_ms, Some(12));
+        }
+    }
+    let after = requests_of(repos, &live_login).await;
+    assert_eq!(
+        after
+            .iter()
+            .map(|r| (r.id, r.timestamp))
+            .collect::<Vec<_>>(),
+        before
+            .iter()
+            .map(|r| (r.id, r.timestamp))
+            .collect::<Vec<_>>(),
+        "the same rows, at the times they were logged"
+    );
+
+    // The control: nobody else's log lost anything.
+    for untouched in [&kept, &service] {
+        let requests = requests_of(repos, untouched).await;
+        assert_eq!(requests.len(), 2);
+        for request in &requests {
+            assert_eq!(request.ip_address.as_deref(), Some(LAST_USED_FROM));
+            assert_eq!(request.user_agent.as_deref(), Some(CLI_USER_AGENT));
+        }
+    }
+}
+
+/// Open a `pierre-cli` login under `user_code`, approved by `approver` when
+/// one is given; its device code hash.
+async fn device_login_waiting(
+    repos: &RepositoryRegistry,
+    user_code: &str,
+    approver: Option<Uuid>,
+) -> String {
+    let now = Utc::now().timestamp();
+    let da = DeviceAuthorization {
+        device_code_hash: format!("hash-{}", Uuid::new_v4()),
+        user_code: user_code.to_owned(),
+        status: "pending".to_owned(),
+        approved_by: None,
+        created_at: now,
+        expires_at: now + 600,
+    };
+    repos
+        .oauth2_server
+        .create_device_authorization(&da)
+        .await
+        .unwrap();
+    if let Some(approver) = approver {
+        assert!(repos
+            .oauth2_server
+            .approve_device_authorization(user_code, &approver.to_string())
+            .await
+            .unwrap());
+    }
+    da.device_code_hash
+}
+
+/// Whether the device authorization `device_code_hash` is still stored.
+async fn device_login_is_waiting(repos: &RepositoryRegistry, device_code_hash: &str) -> bool {
+    repos
+        .oauth2_server
+        .get_device_authorization_by_code_hash(device_code_hash)
+        .await
+        .unwrap()
+        .is_some()
+}
+
+/// A `pierre-cli` login an admin approved and nobody collected yet names
+/// that admin (`device_authorization.approved_by`), and would mint a token
+/// in its name. Deleting the account removes it, in the deletion's own
+/// transaction, and the survivor read the deletion commits on covers the
+/// table (carnet#1589). A login still pending and one another admin
+/// approved are not the account's, and stay.
+#[tokio::test]
+async fn deleting_an_account_removes_the_device_logins_it_approved_and_no_one_elses() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let leaving = account(repos, "leaving@example.com", true).await;
+    let staying = account(repos, "staying@example.com", true).await;
+    let approved_by_leaving = device_login_waiting(repos, "UC-LEAVING", Some(leaving.id)).await;
+    let approved_by_staying = device_login_waiting(repos, "UC-STAYING", Some(staying.id)).await;
+    let pending = device_login_waiting(repos, "UC-PENDING", None).await;
+    assert!(
+        tables_naming(&db, leaving.id)
+            .await
+            .iter()
+            .any(|table| table == "device_authorization"),
+        "the survivor read finds the approval before the delete"
+    );
+
+    let deletion = repos
+        .account_deletion
+        .delete_account(&AccountDeletionPlan {
+            user_id: leaving.id,
+            actor: DeletionActor::Operator,
+            firebase_project: None,
+            backends: Vec::new(),
+            revocations: "[]".to_owned(),
+            not_deleted: Vec::new(),
+        })
+        .await
+        .unwrap();
+
+    assert_eq!(
+        deletion.removed_from("device_authorization"),
+        1,
+        "the receipt counts the approval removed"
+    );
+    assert!(
+        !device_login_is_waiting(repos, &approved_by_leaving).await,
+        "nothing is left to mint a token in the deleted admin's name"
+    );
+    assert_eq!(tables_naming(&db, leaving.id).await, Vec::<String>::new());
+    assert!(device_login_is_waiting(repos, &approved_by_staying).await);
+    assert!(device_login_is_waiting(repos, &pending).await);
+}
+
 /// Deleting an account ends its device logins, in the deletion's own
 /// transaction, and keeps their record: the live one and the one already
 /// withdrawn both stay as rows, inactive, under the name that names no one
@@ -439,11 +735,6 @@ async fn deleting_an_account_leaves_no_token_row_that_names_it() {
 
     let live_login = mint(repos, &label, Some(leaving.id)).await;
     let withdrawn_login = mint(repos, &label, Some(leaving.id)).await;
-    repos
-        .admin
-        .deactivate_token(&withdrawn_login)
-        .await
-        .unwrap();
     let rotated_away = mint(repos, &label, None).await;
     let rotated_away_revoked = mint(repos, &label, None).await;
     repos
@@ -476,6 +767,12 @@ async fn deleting_an_account_leaves_no_token_row_that_names_it() {
         let row = token(repos, token_id).await.expect("the row");
         assert_eq!(row.last_used_ip.as_deref(), Some(LAST_USED_FROM));
     }
+    // Withdrawn after its last use: only a live token records one.
+    repos
+        .admin
+        .deactivate_token(&withdrawn_login)
+        .await
+        .unwrap();
     assert!(rows_naming(&db, leaving.id).await >= 5, "the id is there");
     // The survivor read the delete commits on covers both kept tables: it
     // finds the id in them now, and would refuse a delete that left it.

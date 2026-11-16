@@ -1503,8 +1503,8 @@ async fn a_deleted_admins_device_login_is_kept_and_refused_reactivated_or_rotate
     let declared = device_logins_declared_kept(&body);
     assert_eq!(declared.len(), 1, "{body}");
     assert!(
-        declared[0].contains("IP address"),
-        "the entry names what the kept request log carries: {declared:?}"
+        declared[0].contains("without its IP address or user agent"),
+        "the entry says what the kept request log no longer carries: {declared:?}"
     );
 
     let kept = admin_tokens
@@ -1928,4 +1928,71 @@ async fn a_device_login_does_not_demote_its_own_admin() {
     let (status, body) = set_role(&resources, &cli, acting.id, "owner").await;
     assert_eq!(status, 400, "{body}");
     assert!(body.contains("expected admin or user"), "{body}");
+}
+
+/// What a promotion of an account that is not active is told (carnet#1589).
+const APPROVE_FIRST: &str = "Approve the account first, then promote it.";
+
+/// An admin is approved first, then promoted. A pending account and a
+/// suspended one are refused the role on the console, over the token API
+/// and from the host (`pierre-cli user promote` makes the same write), each
+/// told its status and what to do first, and none of them holds the role
+/// afterwards. Approved, the same account is promoted.
+#[tokio::test]
+async fn an_account_that_is_not_active_is_not_promoted() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let (acting, session) = account(&resources, "acting@example.com", UserRole::Admin).await;
+    let cli = device_login(&resources, &acting.email).await;
+    let waiting = pending_account(&resources, "waiting@example.com", UserRole::User).await;
+    let (barred, _) = account(&resources, "barred@example.com", UserRole::User).await;
+    let (status, body) = suspend(&resources, &session, barred.id).await;
+    assert_eq!(status, 200, "{body}");
+
+    for (target, standing) in [(waiting.id, "pending"), (barred.id, "suspended")] {
+        let told = format!("this one is {standing}");
+
+        let (status, body) = change_admin(&resources, &session, target, "promote").await;
+        assert_eq!(
+            status, 400,
+            "the console promotes no {standing} account: {body}"
+        );
+        assert!(
+            body.contains(&told) && body.contains(APPROVE_FIRST),
+            "{body}"
+        );
+
+        let (status, body) = set_role(&resources, &cli, target, "admin").await;
+        assert_eq!(status, 400, "nor does the token API: {body}");
+        assert!(
+            body.contains(&told) && body.contains(APPROVE_FIRST),
+            "{body}"
+        );
+
+        let on_the_host = admin_ops::grant_admin_role(repos, &stored(&resources, target).await)
+            .await
+            .expect_err("nor does the host");
+        assert_eq!(on_the_host.code, ErrorCode::InvalidInput, "{standing}");
+        assert!(
+            on_the_host.to_string().contains(APPROVE_FIRST),
+            "{on_the_host}"
+        );
+
+        assert_eq!(
+            stored(&resources, target).await.role,
+            UserRole::User,
+            "a refused promotion wrote nothing: {standing}"
+        );
+    }
+    assert!(
+        role_changes_on_the_trail(&resources).await.is_empty(),
+        "and put no role change on the trail"
+    );
+
+    // Approved first, then promoted.
+    let (status, body) = approve(&resources, &session, waiting.id).await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = change_admin(&resources, &session, waiting.id, "promote").await;
+    assert_eq!(status, 200, "an approved account is promoted: {body}");
+    assert!(stored(&resources, waiting.id).await.is_active_admin());
 }

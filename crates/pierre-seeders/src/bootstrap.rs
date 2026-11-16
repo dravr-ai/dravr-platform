@@ -13,6 +13,10 @@
 //! All operations are idempotent via `seed_check_user_exists`. An account
 //! that already exists gets its credentials refreshed and its role brought
 //! to the seed's through `UserRepository::set_admin_status`, never by SQL.
+//! Only an active account is the bootstrap admin: one `ADMIN_EMAIL` names
+//! that is pending or suspended is left as it is, with the role, the
+//! password, the display name and the locale it has, and the run says so in
+//! a warning.
 //!
 //! Usage:
 //! ```bash
@@ -32,10 +36,11 @@ use pierre_database::seed_models::{SeedDemoUser, SeedTenant, SEED_LOCALE};
 use pierre_database::RepositoryRegistry;
 use pierre_middleware::mask_email;
 use pierre_services::admin_ops::{
-    record_withdrawn_admin_credentials, AdminStandingLost, StandingChange,
+    record_withdrawn_admin_credentials, refuse_promoting_unless_active, AdminStandingLost,
+    StandingChange,
 };
 use std::fmt;
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 /// Password assigned to seed users (not the admin — admin password comes from env/CLI)
@@ -142,7 +147,10 @@ async fn upsert_user_credentials(
 ///
 /// The bootstrap admin is made an admin again on every run, and a demo
 /// account someone promoted goes back to a plain user: its password is in
-/// this file. The repository refuses to demote the last active admin, which
+/// this file. Only an active account reaches a promotion here
+/// ([`left_as_it_is`] is asked first). A demotion takes no such look: it
+/// removes standing, whatever the status.
+/// The repository refuses to demote the last active admin, which
 /// fails the run rather than leaving the platform without one, and a demoted
 /// admin loses the device logins and impersonations it held, on the trail
 /// under the `pierre-cli` database source.
@@ -178,6 +186,37 @@ async fn sync_role(repos: &RepositoryRegistry, user_id: Uuid, role: UserRole) ->
     )
     .await;
     Ok(())
+}
+
+/// Whether the run leaves alone the existing account `user_id`, which
+/// `ADMIN_EMAIL` names: it is pending or suspended.
+///
+/// An admin is an approved account first, the rule every other promotion
+/// takes ([`refuse_promoting_unless_active`]), so the run does not make such
+/// an account the bootstrap admin, whatever role it holds. It does not take
+/// its sign-in either: the password, the display name and the locale the
+/// run asserts are the bootstrap admin's, and replacing them on an account
+/// the run does not make one would lock its holder out and hand the account
+/// to whoever holds `ADMIN_PASSWORD`. The run goes on with a warning naming
+/// the account.
+///
+/// # Errors
+///
+/// Returns the repository's error when the account cannot be read.
+async fn left_as_it_is(repos: &RepositoryRegistry, user_id: Uuid) -> AppResult<bool> {
+    let Some(stored) = repos.users.get_global(user_id).await? else {
+        return Ok(false);
+    };
+    let Err(refusal) = refuse_promoting_unless_active(&stored) else {
+        return Ok(false);
+    };
+    warn!(
+        user_id = %user_id,
+        status = %stored.user_status,
+        "Seeder left an existing account as it is, with the role and the credentials it \
+         has: {refusal}"
+    );
+    Ok(true)
 }
 
 /// Create a single user with a personal tenant (reuses the `seed_demo_data` pattern)
@@ -276,6 +315,9 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
 }
 
 /// Idempotently create or update a single user, picking the right path based on existence.
+///
+/// An existing account the run would make the bootstrap admin is written
+/// only while it is active ([`left_as_it_is`]).
 async fn sync_user(
     repos: &RepositoryRegistry,
     email: &str,
@@ -284,13 +326,17 @@ async fn sync_user(
     tier: &str,
     role: UserRole,
 ) -> AppResult<()> {
-    let existing = repos.seeder.seed_check_user_exists(email).await?;
-    if let Some(id) = existing {
-        upsert_user_credentials(repos, id, email, display_name, password, tier, role).await?;
-        info!("Updated user credentials: {} ({id})", mask_email(email));
-    } else {
+    let Some(id) = repos.seeder.seed_check_user_exists(email).await? else {
         let id = create_user(repos, email, display_name, password, tier, role).await?;
         info!("Created user: {} ({id})", mask_email(email));
+        return Ok(());
+    };
+    // Asked before anything is written on the account, its credentials
+    // included.
+    if role.is_admin() && left_as_it_is(repos, id).await? {
+        return Ok(());
     }
+    upsert_user_credentials(repos, id, email, display_name, password, tier, role).await?;
+    info!("Updated user credentials: {} ({id})", mask_email(email));
     Ok(())
 }

@@ -286,8 +286,9 @@ async fn initialize_admin_jwt_secret(repos: &RepositoryRegistry) -> Result<()> {
 
 /// Promote an existing user to admin
 ///
-/// Operates directly on the database — no HTTP layer involved. The `set_admin_status`
-/// repo method handles the privilege transition.
+/// Operates directly on the database — no HTTP layer involved. The write is
+/// the one the admin API's promotion makes (`admin_ops::grant_admin_role`),
+/// so an account that is not active is refused here too: approve it first.
 pub(crate) async fn promote(repos: &RepositoryRegistry, email: String) -> Result<()> {
     let user = repos
         .users
@@ -301,7 +302,7 @@ pub(crate) async fn promote(repos: &RepositoryRegistry, email: String) -> Result
         return Ok(());
     }
 
-    let updated = repos.users.set_admin_status(user.id, true).await?.user;
+    let updated = admin_ops::grant_admin_role(repos, &user).await?;
     println!(
         "User {} promoted to admin (id={}, role={})",
         updated.email,

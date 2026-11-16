@@ -59,30 +59,3 @@ impl ImpersonationSession {
         (end - self.started_at).num_seconds()
     }
 }
-
-/// JWT claims extension for impersonation
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ImpersonationClaims {
-    /// Original user ID (the admin)
-    pub original_user_id: Uuid,
-    /// User being impersonated
-    pub impersonated_user_id: Uuid,
-    /// Impersonation session ID for audit
-    pub session_id: String,
-}
-
-impl ImpersonationClaims {
-    /// Create new impersonation claims
-    #[must_use]
-    pub const fn new(
-        original_user_id: Uuid,
-        impersonated_user_id: Uuid,
-        session_id: String,
-    ) -> Self {
-        Self {
-            original_user_id,
-            impersonated_user_id,
-            session_id,
-        }
-    }
-}

@@ -25,7 +25,7 @@ use secrecy::ExposeSecret;
 
 use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
-use helpers::axum_test::AxumTestRequest;
+use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use pierre_core::admin::models::{
     AdminPermission, AdminPermissions, CreateAdminTokenRequest, GeneratedAdminToken,
 };
@@ -438,8 +438,7 @@ async fn a_scoped_token_rotates_only_a_token_whose_permissions_it_holds() -> Res
         .json(&json!({}))
         .send(token_api(&resources))
         .await;
-    let status = response.status();
-    let body = response.text();
+    let (status, body) = quotable(response);
     assert_eq!(
         status, 403,
         "a rotation must not hand out a permission the caller lacks: {body}"
@@ -502,7 +501,11 @@ async fn an_admin_rotates_a_service_token_and_the_old_one_retires() -> Result<()
     let new_id = body["data"]["token_id"].as_str().expect("new token id");
     assert_ne!(new_id, seeded.token_id, "rotation mints a new token");
     let new_jwt = body["data"]["jwt_token"].as_str().expect("new jwt");
-    assert_ne!(new_jwt, seeded.jwt_token.expose_secret());
+    // Not `assert_ne!`, which would print both tokens.
+    assert!(
+        new_jwt != seeded.jwt_token.expose_secret(),
+        "a rotation hands out a new credential"
+    );
     assert!(
         !is_active(&resources, &seeded.token_id).await?,
         "the old credential is retired"
@@ -543,8 +546,7 @@ async fn a_revoked_token_is_not_rotated_back_to_life() -> Result<()> {
             .send(token_api(&resources))
             .await;
     for response in [on_the_console, on_the_token_api] {
-        let status = response.status();
-        let body = response.text();
+        let (status, body) = quotable(response);
         assert_eq!(status, 400, "a revoked token must not rotate: {body}");
         assert!(body.contains("cannot be rotated"), "{body}");
         assert!(!body.contains("jwt_token"), "no credential is handed out");
@@ -781,7 +783,8 @@ async fn a_token_minted_with_no_list_carries_only_what_its_caller_holds() -> Res
             .send(token_api(&resources))
             .await;
         assert_eq!(response.status(), 403, "{name}");
-        let body: Value = response.json();
+        let mut body: Value = response.json();
+        unquote_minted_token(&mut body);
         assert_eq!(body["message"].as_str(), Some(refused), "{name}");
         assert!(
             body["data"].is_null(),
@@ -888,14 +891,16 @@ async fn a_lifetime_past_any_date_is_refused_and_changes_nothing() -> Result<()>
         .json(&too_many)
         .send(token_api(&resources))
         .await;
-    assert_eq!(minted.status(), 400, "mint: {}", minted.text());
+    let (status, answer) = quotable(minted);
+    assert_eq!(status, 400, "mint: {answer}");
 
     let rotated = AxumTestRequest::post(&format!("/admin/tokens/{}/rotate", seeded.token_id))
         .header("authorization", &bearer(&cli))
         .json(&too_many)
         .send(token_api(&resources))
         .await;
-    assert_eq!(rotated.status(), 400, "rotate: {}", rotated.text());
+    let (status, answer) = quotable(rotated);
+    assert_eq!(status, 400, "rotate: {answer}");
 
     assert_eq!(
         resources.common.repos.admin.list_tokens(true).await?.len(),
@@ -913,6 +918,283 @@ async fn a_lifetime_past_any_date_is_refused_and_changes_nothing() -> Result<()>
         .json(&json!({ "service_name": "svc-month", "expires_in_days": 30 }))
         .send(token_api(&resources))
         .await;
-    assert_eq!(minted.status(), 201, "mint: {}", minted.text());
+    let (status, answer) = quotable(minted);
+    assert_eq!(status, 201, "mint: {answer}");
+    Ok(())
+}
+
+/// Mint an admin token bound to `tenant` straight into the table, as
+/// `pierre-cli token generate --tenant-id` does.
+async fn mint_bound(
+    resources: &Arc<ServerContext>,
+    service: &str,
+    permissions: Vec<AdminPermission>,
+    tenant: TenantId,
+) -> Result<GeneratedAdminToken> {
+    let request = CreateAdminTokenRequest {
+        service_name: service.to_owned(),
+        service_description: Some("seeded by admin_token_routes_test".to_owned()),
+        permissions: Some(permissions),
+        expires_in_days: Some(90),
+        is_super_admin: false,
+        tenant_id: Some(tenant.to_string()),
+        operator_user_id: None,
+    };
+    Ok(resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &request,
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await?)
+}
+
+/// The tenant the stored token `token_id` is bound to.
+async fn tenant_of(resources: &Arc<ServerContext>, token_id: &str) -> Result<Option<String>> {
+    Ok(resources
+        .common
+        .repos
+        .admin
+        .get_token_by_id(token_id)
+        .await?
+        .expect("the token row exists")
+        .tenant_id)
+}
+
+/// What stands where an answer carried a minted token.
+const TOKEN_NOT_QUOTED: &str = "[a minted token, not quoted]";
+
+/// Replace the token an answer that minted carries. Its `jwt_token` key
+/// stays, so an answer that handed a credential out still shows that it
+/// did.
+fn unquote_minted_token(answer: &mut Value) {
+    if let Some(token) = answer.pointer_mut("/data/jwt_token") {
+        *token = json!(TOKEN_NOT_QUOTED);
+    }
+}
+
+/// The status and the answer of `response`, fit to quote in a failed
+/// assertion: an answer that mints carries the token, on the very failure
+/// where a mint or a rotation that should have been refused went through,
+/// and the token is replaced before the answer is returned
+/// ([`unquote_minted_token`]). An answer that is not JSON carries none and
+/// is returned as it is.
+fn quotable(response: AxumTestResponse) -> (u16, String) {
+    let status = response.status();
+    let text = response.text();
+    let Ok(mut answer) = serde_json::from_str::<Value>(&text) else {
+        return (status, text);
+    };
+    unquote_minted_token(&mut answer);
+    (status, answer.to_string())
+}
+
+/// `POST {path}` on the token mount as `caller`, with `body`: the status
+/// and the answer, fit to quote ([`quotable`]).
+async fn post_as(
+    resources: &Arc<ServerContext>,
+    caller: &GeneratedAdminToken,
+    path: &str,
+    body: Value,
+) -> (u16, String) {
+    let response = AxumTestRequest::post(path)
+        .header("authorization", &bearer(caller))
+        .json(&body)
+        .send(token_api(resources))
+        .await;
+    quotable(response)
+}
+
+/// A `ManageAdminTokens` holder bound to one tenant stays inside it on
+/// every token write (carnet#1589). It neither revokes nor rotates a token
+/// bound to no tenant or to another one: revoking is a denial of service
+/// outside its tenant, and a rotation would hand it a replacement that
+/// reaches the platform, or a tenant it does not. Each refusal leaves the
+/// token live and mints nothing. Inside its tenant it revokes and rotates,
+/// the replacement keeping the tenant, and what it mints is bound to its
+/// tenant too. A holder bound to no tenant is the control: it revokes the
+/// token bound to none and mints one bound to none.
+#[tokio::test]
+#[serial]
+async fn a_tenant_bound_token_revokes_rotates_and_mints_only_inside_its_tenant() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let (own_tenant, other_tenant) = (TenantId::generate(), TenantId::generate());
+    let managing = vec![
+        AdminPermission::ManageAdminTokens,
+        AdminPermission::ListKeys,
+    ];
+    let lister = vec![AdminPermission::ListKeys];
+    let bound = mint_bound(&resources, "club-desk", managing.clone(), own_tenant).await?;
+    let platform = mint(&resources, "platform-lister", lister.clone(), false).await?;
+    let elsewhere = mint_bound(&resources, "other-club", lister.clone(), other_tenant).await?;
+    let rotated_here = mint_bound(&resources, "club-rotated", lister.clone(), own_tenant).await?;
+    let revoked_here = mint_bound(&resources, "club-revoked", lister.clone(), own_tenant).await?;
+    let refusal = |act: &str| {
+        format!(
+            "Token is scoped to tenant {own_tenant}; it can {act} only admin tokens bound to that tenant"
+        )
+    };
+    let before = resources.common.repos.admin.list_tokens(true).await?.len();
+
+    for outside in [&platform, &elsewhere] {
+        let path = format!("/admin/tokens/{}/revoke", outside.token_id);
+        let (status, body) = post_as(&resources, &bound, &path, json!({})).await;
+        assert_eq!(status, 403, "{}: {body}", outside.service_name);
+        assert!(body.contains(&refusal("revoke")), "{body}");
+
+        let path = format!("/admin/tokens/{}/rotate", outside.token_id);
+        let (status, body) = post_as(&resources, &bound, &path, json!({})).await;
+        assert_eq!(status, 403, "{}: {body}", outside.service_name);
+        assert!(body.contains(&refusal("rotate")), "{body}");
+        assert!(!body.contains("jwt_token"), "no credential is handed out");
+
+        assert!(
+            is_active(&resources, &outside.token_id).await?,
+            "a refused write leaves {} live",
+            outside.service_name
+        );
+    }
+    assert_eq!(
+        resources.common.repos.admin.list_tokens(true).await?.len(),
+        before,
+        "nothing was minted"
+    );
+
+    // Inside its tenant: a rotation, whose replacement keeps the tenant.
+    let path = format!("/admin/tokens/{}/rotate", rotated_here.token_id);
+    let (status, body) = post_as(&resources, &bound, &path, json!({})).await;
+    assert_eq!(status, 200, "a token of its own tenant rotates: {body}");
+    let rotated: Value = serde_json::from_str(&body)?;
+    let replacement = rotated["data"]["token_id"].as_str().expect("new token id");
+    assert!(!is_active(&resources, &rotated_here.token_id).await?);
+    assert!(is_active(&resources, replacement).await?);
+    assert_eq!(
+        tenant_of(&resources, replacement).await?,
+        Some(own_tenant.to_string())
+    );
+
+    // A revocation.
+    let path = format!("/admin/tokens/{}/revoke", revoked_here.token_id);
+    let (status, body) = post_as(&resources, &bound, &path, json!({})).await;
+    assert_eq!(status, 200, "a token of its own tenant is revoked: {body}");
+    assert!(!is_active(&resources, &revoked_here.token_id).await?);
+
+    // And a mint: the request names no tenant, and the token is bound to
+    // the caller's.
+    let (status, body) = post_as(
+        &resources,
+        &bound,
+        "/admin/tokens",
+        json!({ "service_name": "club-minted", "permissions": ["list_keys"] }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    let minted: Value = serde_json::from_str(&body)?;
+    let minted_id = minted["data"]["token_id"].as_str().expect("token id");
+    assert_eq!(
+        tenant_of(&resources, minted_id).await?,
+        Some(own_tenant.to_string()),
+        "a bound caller mints nothing that reaches the platform"
+    );
+
+    // The control: the same permissions, bound to no tenant.
+    let unbound = mint(&resources, "platform-desk", managing, false).await?;
+    let (status, body) = post_as(
+        &resources,
+        &unbound,
+        "/admin/tokens",
+        json!({ "service_name": "platform-minted", "permissions": ["list_keys"] }),
+    )
+    .await;
+    assert_eq!(status, 201, "{body}");
+    let minted: Value = serde_json::from_str(&body)?;
+    let minted_id = minted["data"]["token_id"].as_str().expect("token id");
+    assert_eq!(tenant_of(&resources, minted_id).await?, None);
+    let path = format!("/admin/tokens/{}/revoke", platform.token_id);
+    let (status, body) = post_as(&resources, &unbound, &path, json!({})).await;
+    assert_eq!(status, 200, "{body}");
+    assert!(!is_active(&resources, &platform.token_id).await?);
+    Ok(())
+}
+
+/// A `ManageAdminTokens` holder bound to no tenant, without the super-admin
+/// flag, reads no tenant's data, so it neither revokes nor rotates a token
+/// bound to one (carnet#1589): the replacement would read what it cannot.
+/// Each refusal leaves the token live and mints nothing. A token bound to
+/// no tenant it rotates and revokes, and the platform's callers, a
+/// super-admin token and an admin's console session, write the tenant's.
+#[tokio::test]
+#[serial]
+async fn an_unbound_token_revokes_and_rotates_only_tokens_bound_to_no_tenant() -> Result<()> {
+    let resources = create_test_server_resources().await?;
+    let tenant = TenantId::generate();
+    let managing = vec![
+        AdminPermission::ManageAdminTokens,
+        AdminPermission::ListKeys,
+    ];
+    let lister = vec![AdminPermission::ListKeys];
+    let unbound = mint(&resources, "platform-desk", managing, false).await?;
+    let club = mint_bound(&resources, "club-lister", lister.clone(), tenant).await?;
+    let club_too = mint_bound(&resources, "club-second", lister.clone(), tenant).await?;
+    let free = mint(&resources, "free-lister", lister.clone(), false).await?;
+    let before = resources.common.repos.admin.list_tokens(true).await?.len();
+
+    for act in ["revoke", "rotate"] {
+        let path = format!("/admin/tokens/{}/{act}", club.token_id);
+        let (status, body) = post_as(&resources, &unbound, &path, json!({})).await;
+        assert_eq!(status, 403, "{act}: {body}");
+        let refusal = format!(
+            "Token is bound to no tenant; it can {act} only admin tokens bound to no tenant"
+        );
+        assert!(body.contains(&refusal), "{body}");
+        assert!(!body.contains("jwt_token"), "no credential is handed out");
+    }
+    assert!(
+        is_active(&resources, &club.token_id).await?,
+        "a refused write leaves the tenant's token live"
+    );
+    assert_eq!(
+        resources.common.repos.admin.list_tokens(true).await?.len(),
+        before,
+        "nothing was minted"
+    );
+
+    // Within its reach: a token bound to no tenant rotates, the replacement
+    // bound to none as well, and is revoked.
+    let path = format!("/admin/tokens/{}/rotate", free.token_id);
+    let (status, body) = post_as(&resources, &unbound, &path, json!({})).await;
+    assert_eq!(status, 200, "a token bound to no tenant rotates: {body}");
+    let rotated: Value = serde_json::from_str(&body)?;
+    let replacement = rotated["data"]["token_id"].as_str().expect("new token id");
+    assert_eq!(tenant_of(&resources, replacement).await?, None);
+    let path = format!("/admin/tokens/{replacement}/revoke");
+    let (status, body) = post_as(&resources, &unbound, &path, json!({})).await;
+    assert_eq!(status, 200, "a token bound to no tenant is revoked: {body}");
+    assert!(!is_active(&resources, replacement).await?);
+
+    // The platform's callers are not restricted: a super-admin token rotates
+    // the tenant's token, and an admin's console session revokes one.
+    let root = mint(&resources, "root-desk", lister, true).await?;
+    let path = format!("/admin/tokens/{}/rotate", club.token_id);
+    let (status, body) = post_as(&resources, &root, &path, json!({})).await;
+    assert_eq!(status, 200, "a super-admin token rotates it: {body}");
+    let rotated: Value = serde_json::from_str(&body)?;
+    let replacement = rotated["data"]["token_id"].as_str().expect("new token id");
+    assert_eq!(
+        tenant_of(&resources, replacement).await?,
+        Some(tenant.to_string())
+    );
+    let admin = session(&resources, "admin-unbound@example.com", UserRole::Admin).await?;
+    let path = format!("/api/admin/tokens/{}/revoke", club_too.token_id);
+    let response = AxumTestRequest::post(&path)
+        .header("authorization", &admin)
+        .json(&json!({}))
+        .send(console(&resources))
+        .await;
+    assert_eq!(response.status(), 200, "an admin's session revokes it");
+    assert!(!is_active(&resources, &club_too.token_id).await?);
     Ok(())
 }

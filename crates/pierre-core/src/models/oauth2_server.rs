@@ -70,7 +70,9 @@ pub struct DeviceAuthorization {
     pub user_code: String,
     /// Lifecycle status: `pending`, `approved`, or `denied`.
     pub status: String,
-    /// Email of the admin who approved, set once `status = approved`.
+    /// The id of the admin who approved, as text, set once
+    /// `status = approved`; empty for an approval a service token made.
+    /// Never an email: the row is deleted with its approver's account.
     pub approved_by: Option<String>,
     /// Creation time, Unix epoch seconds.
     pub created_at: i64,

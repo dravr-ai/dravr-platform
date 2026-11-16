@@ -23,13 +23,13 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{normalize_email, UserStatus};
+use pierre_core::models::{normalize_email, User, UserStatus};
 use pierre_database::RepositoryRegistry;
 use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::admin_ops::{create_default_mcp_token_for_user, transition_user_status};
+use crate::admin_ops::{activate_pending_sign_up, create_default_mcp_token_for_user};
 use crate::auth::AuthService;
 use crate::invitation;
 
@@ -198,13 +198,14 @@ pub struct AllowedEmail {
 /// exactly as `user approve` would, default MCP token included; an active
 /// account is a no-op; a suspended account is left untouched, because
 /// suspension is a deliberate operator act reversed explicitly, never as a
-/// side effect of allowing an address.
+/// side effect of allowing an address. That holds for an account suspended
+/// while the allow is being recorded too ([`approve_pending`]).
 ///
 /// # Errors
 ///
-/// Returns [`AppError::invalid_input`] for a malformed address, or the
-/// repository's error when a lookup, the insert, or the status transition
-/// fails.
+/// Returns [`AppError::invalid_input`] for a malformed address or an account
+/// whose standing changed twice under the allow, or the repository's error
+/// when a lookup, the insert, or the status write fails.
 pub async fn allow(
     repos: &RepositoryRegistry,
     email: &str,
@@ -217,23 +218,7 @@ pub async fn allow(
         let (outcome, approved_user) = match user.user_status {
             UserStatus::Active => (AllowOutcome::AlreadyActive, None),
             UserStatus::Suspended => (AllowOutcome::SuspendedUnchanged, None),
-            UserStatus::Pending => {
-                transition_user_status(repos, user.id, UserStatus::Active, allowed_by, None)
-                    .await?;
-                create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
-                info!(
-                    target_user_id = %user.id,
-                    "Pending user approved via pre-approval allow"
-                );
-                (
-                    AllowOutcome::PendingApproved,
-                    Some(ApprovedUser {
-                        id: user.id,
-                        email: user.email.clone(),
-                        display_name: user.display_name.clone(),
-                    }),
-                )
-            }
+            UserStatus::Pending => approve_pending(repos, &user, allowed_by).await?,
         };
         return Ok(AllowResult {
             email,
@@ -258,6 +243,45 @@ pub async fn allow(
         },
         approved_user: None,
     })
+}
+
+/// Approve the account `user`, which the allow read as pending: what the
+/// allow did, and the account to announce when it approved one.
+///
+/// The approval lands only while the account is still pending
+/// ([`activate_pending_sign_up`]). An admin who decided the sign-up between
+/// the allow's read and this write has the last word: the allow answers
+/// what it would have answered had it read the account then, announces
+/// nobody and provisions nothing.
+async fn approve_pending(
+    repos: &RepositoryRegistry,
+    user: &User,
+    allowed_by: Option<Uuid>,
+) -> AppResult<(AllowOutcome, Option<ApprovedUser>)> {
+    let activation = activate_pending_sign_up(repos, user.id, allowed_by).await?;
+    if !activation.activated {
+        return match activation.user.user_status {
+            UserStatus::Active => Ok((AllowOutcome::AlreadyActive, None)),
+            UserStatus::Suspended => Ok((AllowOutcome::SuspendedUnchanged, None)),
+            UserStatus::Pending => Err(AppError::invalid_input(
+                "This account's standing changed while the allow was recorded. Nothing was \
+                 changed; allow the address again.",
+            )),
+        };
+    }
+    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
+    info!(
+        target_user_id = %user.id,
+        "Pending user approved via pre-approval allow"
+    );
+    Ok((
+        AllowOutcome::PendingApproved,
+        Some(ApprovedUser {
+            id: user.id,
+            email: user.email.clone(),
+            display_name: user.display_name.clone(),
+        }),
+    ))
 }
 
 /// Remove a standing pre-approval, and revoke the invitation link sent with it.

@@ -12,8 +12,9 @@ use crate::common;
 use pierre_core::admin::jwt::JwtSigner;
 use pierre_core::admin::models::CreateAdminTokenRequest;
 use pierre_core::errors::AppResult;
-use pierre_core::models::UserStatus;
+use pierre_core::models::{User, UserStatus};
 use pierre_core::permissions::UserRole;
+use pierre_database::seed_models::SEED_LOCALE;
 use pierre_database::RepositoryRegistry;
 use pierre_seeders::bootstrap::{self, SeedArgs};
 use serde_json::Value;
@@ -74,9 +75,14 @@ async fn bootstrap_admin_is_an_admin_demo_users_are_plain() {
 
 /// A seeding run in a fresh database, as `pierre-cli seed bootstrap` does it.
 async fn seed(repos: &RepositoryRegistry) -> AppResult<()> {
+    seed_naming(repos, "operator@dravr.ai").await
+}
+
+/// A seeding run whose `ADMIN_EMAIL` is `admin_email`.
+async fn seed_naming(repos: &RepositoryRegistry, admin_email: &str) -> AppResult<()> {
     bootstrap::run(
         SeedArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
+            admin_email: admin_email.to_owned(),
             admin_password: "OperatorPass123!".to_owned(),
         },
         repos,
@@ -178,4 +184,96 @@ async fn a_rerun_never_demotes_the_last_active_admin() {
         UserRole::Admin,
         "the one admin in standing stays"
     );
+}
+
+/// The seeder never makes an account that is not active an admin
+/// (carnet#1589). `ADMIN_EMAIL` can name an account that signed up and
+/// still waits for approval, or one an admin suspended: an admin is an
+/// approved account first, the rule every other promotion takes, so the run
+/// writes nothing on that account. Its role and status stay, and so do its
+/// password, its display name and its locale: the run once replaced those
+/// three before it asked the rule, which locked the holder out and gave
+/// whoever holds `ADMIN_PASSWORD` the sign-in of an account the run said it
+/// had left alone. It does not fail either: the demo users are seeded all
+/// the same.
+///
+/// The rule is asked of the status, whatever role the account holds: an
+/// account that already holds the admin role and is pending or suspended
+/// keeps its own password too, and is not handed the bootstrap admin's.
+#[tokio::test]
+async fn a_run_writes_nothing_on_a_pending_or_suspended_account() {
+    for (role, status) in [
+        (UserRole::User, UserStatus::Pending),
+        (UserRole::User, UserStatus::Suspended),
+        (UserRole::Admin, UserStatus::Pending),
+        (UserRole::Admin, UserStatus::Suspended),
+    ] {
+        let case = format!("{role:?}, {status}");
+        let database = common::create_test_database().await.unwrap();
+        let repos = database.repositories();
+        let mut waiting = User::new(
+            "waiting@dravr.ai".to_owned(),
+            "not-a-login-path".to_owned(),
+            Some("Waiting Holder".to_owned()),
+        );
+        waiting.role = role;
+        waiting.user_status = status;
+        repos.users.create(&waiting).await.unwrap();
+        let created = repos.users.get_global(waiting.id).await.unwrap().unwrap();
+        assert_eq!(created.role, role, "{case}: stored with its role");
+        assert_ne!(created.locale, SEED_LOCALE, "the seed's locale would show");
+
+        seed_naming(repos, "waiting@dravr.ai")
+            .await
+            .unwrap_or_else(|e| panic!("{case}: the run goes on: {e}"));
+
+        let stored = repos.users.get_global(waiting.id).await.unwrap().unwrap();
+        assert_eq!(
+            stored.role, role,
+            "{case}: an account that is not active is not made an admin, and keeps its role"
+        );
+        assert_eq!(stored.user_status, status, "the run decides no sign-up");
+        assert_eq!(
+            stored.password_hash, "not-a-login-path",
+            "{case}: the account keeps its own password"
+        );
+        assert_eq!(
+            stored.display_name.as_deref(),
+            Some("Waiting Holder"),
+            "{case}: and its own name"
+        );
+        assert_eq!(stored.locale, created.locale, "{case}: and its locale");
+        let alice = repos.users.get_by_email("alice@demo.pierre.dev").await;
+        assert!(
+            alice.unwrap().is_some(),
+            "{case}: the rest of the run is seeded"
+        );
+    }
+}
+
+/// The control of the rule above: an active account `ADMIN_EMAIL` names is
+/// the bootstrap admin. The run makes it one and asserts its credentials, as
+/// it does on every run.
+#[tokio::test]
+async fn a_run_makes_an_active_account_the_bootstrap_admin_with_its_credentials() {
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+    let standing = User::new(
+        "standing@dravr.ai".to_owned(),
+        "not-a-login-path".to_owned(),
+        Some("Standing Holder".to_owned()),
+    );
+    assert_eq!(standing.user_status, UserStatus::Active);
+    repos.users.create(&standing).await.unwrap();
+
+    seed_naming(repos, "standing@dravr.ai").await.unwrap();
+
+    let stored = repos.users.get_global(standing.id).await.unwrap().unwrap();
+    assert_eq!(stored.role, UserRole::Admin);
+    assert_ne!(
+        stored.password_hash, "not-a-login-path",
+        "the run asserts the bootstrap admin's password"
+    );
+    assert_eq!(stored.display_name.as_deref(), Some("Admin"));
+    assert_eq!(stored.locale, SEED_LOCALE);
 }

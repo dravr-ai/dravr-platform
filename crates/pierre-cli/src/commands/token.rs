@@ -7,6 +7,7 @@
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_core::admin::models::{AdminPermission, AdminToken, CreateAdminTokenRequest};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::TenantId;
 use pierre_database::repositories::TokenRotation;
 use pierre_database::RepositoryRegistry;
 
@@ -37,12 +38,15 @@ pub(crate) async fn generate(
 ) -> Result<()> {
     info!("Key Generating admin token for service: {}", service);
 
+    // Refused before anything is read or minted.
+    let tenant_id = opts.tenant_id.as_deref().map(bound_tenant).transpose()?;
+
     // Check for existing active token
     check_existing_token(repos, &service).await?;
 
     // Build token request
     let mut request = build_token_request(service, description, expires_days, super_admin);
-    request.tenant_id = opts.tenant_id;
+    request.tenant_id = tenant_id;
 
     // Apply custom permissions if provided
     apply_custom_permissions(&mut request, opts.permissions, super_admin)?;
@@ -59,6 +63,23 @@ pub(crate) async fn generate(
     display_generated_token(&generated_token);
 
     Ok(())
+}
+
+/// The tenant `--tenant-id` binds a token to, as the id the server reads
+/// back off the token.
+///
+/// The scope rule parses the stored value on every tenant-scoped request
+/// and on every token write, and refuses a token whose tenant is not a
+/// tenant id: minted with one, a token could do none of what it was bound
+/// for. So a value that is not a tenant id mints nothing.
+fn bound_tenant(raw: &str) -> Result<String> {
+    TenantId::parse_str(raw.trim())
+        .map(|tenant| tenant.to_string())
+        .map_err(|_| {
+            AppError::invalid_input(format!(
+                "--tenant-id must be a tenant id (a UUID), and '{raw}' is not one"
+            ))
+        })
 }
 
 async fn check_existing_token(repos: &RepositoryRegistry, service: &str) -> Result<()> {

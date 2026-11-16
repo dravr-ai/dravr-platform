@@ -220,7 +220,7 @@ async fn resolve_approval(
     let Ok(Some(record)) = repo.get_device_authorization_by_user_code(user_code).await else {
         return Html(render_message(
             "Login request not found",
-            "That code is unknown or has already been used. Start a new login from the CLI.",
+            "That code is unknown, has expired or has already been used. Start a new login from the CLI.",
         ));
     };
     if record.status != "pending" {

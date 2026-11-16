@@ -56,15 +56,6 @@ impl UserRole {
             _ => Self::User,
         }
     }
-
-    /// Get display name for UI
-    #[must_use]
-    pub const fn display_name(&self) -> &'static str {
-        match self {
-            Self::User => "User",
-            Self::Admin => "Admin",
-        }
-    }
 }
 
 impl fmt::Display for UserRole {

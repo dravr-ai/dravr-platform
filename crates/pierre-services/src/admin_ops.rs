@@ -309,8 +309,10 @@ pub struct StatusTransition {
 /// Shared user-status state transition: global lookup, already-in-target-state
 /// guard, and status update.
 ///
-/// Used by [`approve_user`], the admin suspend handler, the pre-approval path
-/// and `pierre-cli`'s local user commands. The last active admin cannot be
+/// Used by [`approve_user`], the admin suspend handler and `pierre-cli`'s
+/// local user commands: an admin's decision, which may bring a suspended
+/// account back. A sign-up rule's activation is not one and does not come
+/// through here ([`activate_pending_sign_up`]). The last active admin cannot be
 /// suspended: `UserRepository::update_status` refuses it. Nor does an admin
 /// take itself out of `Active`, as it does not demote itself
 /// ([`demote_user_from_admin`]): it would be signed out with its device
@@ -329,8 +331,9 @@ pub struct StatusTransition {
 /// admin of a console session, the approving admin of a device login. `None`
 /// when no admin's session is behind the call, which then has no self to
 /// refuse: a service token, `pierre-cli` on the host (its `approved_by` is
-/// an audit identity it looks up, not a session), the Slack sign-up room, a
-/// sign-up path.
+/// an audit identity it looks up, not a session). The Slack sign-up room
+/// does not come through here: its taps decide a pending account only,
+/// through `UserRepository::update_status_from`.
 ///
 /// # Errors
 ///
@@ -389,6 +392,75 @@ pub async fn transition_user_status(
     Ok(StatusTransition {
         user: write.user,
         withdrawn: write.withdrawn,
+    })
+}
+
+/// What became of a sign-up rule's activation of an account
+/// ([`activate_pending_sign_up`]).
+#[derive(Debug)]
+pub struct PendingActivation {
+    /// The account as the store holds it after the attempt.
+    pub user: User,
+    /// Whether this call activated it. `false` when the account was decided
+    /// before the write, which then changed nothing: `user` says how.
+    pub activated: bool,
+}
+
+/// Activate the sign-up `user_id` for a rule that lets pending accounts in:
+/// a standing allow, a signup code, a proven address, an auto-approved
+/// domain.
+///
+/// Such a rule admits a sign-up nobody has decided, and every caller read
+/// the account pending some time before it gets here: a login verifies a
+/// password in between, a redemption claims a code. An admin who suspends
+/// the account in that time has decided it, so the status is checked by the
+/// statement that changes it (`UserRepository::update_status_from`): the
+/// activation lands only while the account is still pending, and a
+/// suspension is never undone by a rule. When it does not land the account
+/// is read again, and the caller acts on what it is now; nothing an
+/// activation brings (a default MCP token, an announcement, a redemption
+/// marked) belongs to an account this call did not activate.
+///
+/// `approved_by` is recorded against the activation, as
+/// [`transition_user_status`] records it.
+///
+/// # Errors
+///
+/// Returns `NotFound` for an account deleted since the caller read it, and
+/// the repository's error if a call fails.
+pub async fn activate_pending_sign_up(
+    repos: &RepositoryRegistry,
+    user_id: Uuid,
+    approved_by: Option<Uuid>,
+) -> Result<PendingActivation, AppError> {
+    let write = repos
+        .users
+        .update_status_from(
+            user_id,
+            UserStatus::Pending,
+            UserStatus::Active,
+            approved_by,
+        )
+        .await?;
+    if let Some(write) = write {
+        return Ok(PendingActivation {
+            user: write.user,
+            activated: true,
+        });
+    }
+    let user = repos
+        .users
+        .get_global(user_id)
+        .await?
+        .ok_or_else(|| AppError::not_found("User not found"))?;
+    info!(
+        user_id = %user_id,
+        status = %user.user_status,
+        "A sign-up rule found the account already decided; it was not activated"
+    );
+    Ok(PendingActivation {
+        user,
+        activated: false,
     })
 }
 
@@ -472,15 +544,68 @@ pub struct AdminUserSummary {
     pub created_at: String,
 }
 
+/// Give `user` the admin role: the write every promotion makes.
+///
+/// The admin API and the console reach it through
+/// [`promote_user_to_admin`], which checks the caller first; `pierre-cli
+/// user promote` on the host calls it as it is, since no admin's session is
+/// behind that command.
+///
+/// An admin is approved first, then promoted (carnet#1589). An account that
+/// is not active is refused: a pending one holding the role would hold
+/// every power the moment any sign-up rule let it in, without an admin ever
+/// having approved it, and a suspended one is reinstated by an approval,
+/// which is where the decision to bring it back belongs.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` if `user` is already an admin or is not active,
+/// or `Internal` when the write fails.
+pub async fn grant_admin_role(repos: &RepositoryRegistry, user: &User) -> Result<User, AppError> {
+    if user.role.is_admin() {
+        return Err(AppError::invalid_input("User is already an admin"));
+    }
+    refuse_promoting_unless_active(user)?;
+
+    Ok(repos
+        .users
+        .set_admin_status(user.id, true)
+        .await
+        .map_err(|e| AppError::internal(format!("Failed to promote user: {e}")))?
+        .user)
+}
+
+/// Refuse the promotion of an account that is not active, saying what its
+/// status is and what to do first.
+///
+/// The one statement of the rule that an admin is an approved account
+/// first: [`grant_admin_role`] refuses with it, and the bootstrap seeder
+/// asks it before bringing an existing account to the admin role.
+///
+/// # Errors
+///
+/// Returns `InvalidInput` if `user` is pending or suspended.
+pub fn refuse_promoting_unless_active(user: &User) -> Result<(), AppError> {
+    if user.user_status == UserStatus::Active {
+        return Ok(());
+    }
+    Err(AppError::invalid_input(format!(
+        "Only an active account is promoted to admin, and this one is {}. \
+         Approve the account first, then promote it.",
+        user.user_status
+    )))
+}
+
 /// Promote a user to admin: give them the `Admin` role.
 ///
-/// Any admin may do this; nobody else can, so a user cannot escalate.
+/// Any admin may do this; nobody else can, so a user cannot escalate. The
+/// target is an active account ([`grant_admin_role`]).
 ///
 /// # Errors
 ///
 /// Returns `PermissionDenied` if the caller is not an admin, `InvalidInput`
-/// if the target is already an admin, `NotFound` if the target does not exist,
-/// or `Internal` on repository failures.
+/// if the target is already an admin or is not active, `NotFound` if the
+/// target does not exist, or `Internal` on repository failures.
 pub async fn promote_user_to_admin(
     repos: &RepositoryRegistry,
     admin_user_id: Uuid,
@@ -496,16 +621,7 @@ pub async fn promote_user_to_admin(
         .map_err(|e| AppError::internal(format!("Failed to fetch target user: {e}")))?
         .ok_or_else(|| AppError::not_found("User not found"))?;
 
-    if user.role.is_admin() {
-        return Err(AppError::invalid_input("User is already an admin"));
-    }
-
-    let updated = repos
-        .users
-        .set_admin_status(target_user_id, true)
-        .await
-        .map_err(|e| AppError::internal(format!("Failed to promote user: {e}")))?
-        .user;
+    let updated = grant_admin_role(repos, &user).await?;
 
     info!(
         admin_user_id = %admin_user_id,

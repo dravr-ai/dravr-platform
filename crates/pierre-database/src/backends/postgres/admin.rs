@@ -18,9 +18,10 @@ use super::PostgresDatabase;
 use crate::backends::shared::transactions::TransactionGuard;
 use crate::repositories::admin::{
     admin_statements_sql, admin_token_columns, admin_token_from_row, admin_token_usage_from_row,
-    count_to_column, impl_admin_repository, mint_admin_token, replacement_request, AdminRepository,
-    MintedAdminToken, TokenRotation, CLAIM_ADMIN_TOKEN_SQL, CREATE_ADMIN_TOKEN_SQL,
-    DEACTIVATE_ADMIN_TOKEN_SQL, RECORD_PROVISIONED_KEY_SQL,
+    count_to_column, deleted_account_column, impl_admin_repository, mint_admin_token,
+    replacement_request, token_takes_a_caller_sql, AdminRepository, MintedAdminToken,
+    TokenRotation, CLAIM_ADMIN_TOKEN_SQL, CREATE_ADMIN_TOKEN_SQL, DEACTIVATE_ADMIN_TOKEN_SQL,
+    RECORD_PROVISIONED_KEY_SQL,
 };
 use crate::repositories::users::admin_removal_lock_sql;
 use crate::repositories::uuid_columns::NativeUuid;

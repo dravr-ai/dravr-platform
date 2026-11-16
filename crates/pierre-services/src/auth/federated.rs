@@ -118,8 +118,11 @@ impl AuthService {
 
         let first_proof = self.record_federated_email_proof(&user, &identity).await?;
 
-        // Retroactively approve pending users whose domain now qualifies
+        // Retroactively approve pending users whose domain now qualifies. An
+        // account a rule admits is read again by that write: one suspended
+        // since the check above is refused here.
         self.auto_approve_if_eligible(&mut user).await?;
+        Self::reject_if_suspended(&user)?;
         if first_proof {
             self.mail_admins_if_pending(&user);
         }

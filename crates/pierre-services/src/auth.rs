@@ -503,9 +503,12 @@ impl AuthService {
         // The auth middleware enforces status on subsequent API calls.
         Self::reject_if_suspended(&user)?;
 
-        // Retroactively approve pending users whose domain now qualifies
+        // Retroactively approve pending users whose domain now qualifies. An
+        // account a rule admits is read again by that write: one suspended
+        // while its password was being verified is refused here.
         let mut user = user;
         self.auto_approve_if_eligible(&mut user).await?;
+        Self::reject_if_suspended(&user)?;
 
         // Update last active timestamp
         self.data
@@ -887,60 +890,6 @@ impl AuthService {
                 "Your account has been suspended",
             ));
         }
-        Ok(())
-    }
-
-    /// Re-evaluate auto-approval for existing Pending users.
-    ///
-    /// When `AUTO_APPROVE_DOMAINS` gains a domain — or an operator allow-lists
-    /// the exact address — after a user registered, their account stays
-    /// Pending forever. This method promotes them to Active on their next
-    /// login if their email now qualifies, attributing `approved_by` to the
-    /// allow-listing operator when the promotion comes from a per-email
-    /// pre-approval.
-    ///
-    /// With sign-up open to verified addresses, a proven address qualifies
-    /// too ([`Self::verified_and_self_activating`]); an unproven one never
-    /// does, at login or anywhere else. Nor does one a deleted account's
-    /// tombstone holds, until it is explicitly cleared.
-    async fn auto_approve_if_eligible(&self, user: &mut User) -> AppResult<()> {
-        if user.user_status != UserStatus::Pending
-            || email_held(self.data.repos(), &user.email).await
-        {
-            return Ok(());
-        }
-
-        // A signup code entered before the address was proven (carnet#1128).
-        if let Some(redemption) = self.code_awaiting_activation(user).await {
-            self.activate_by_code(user, redemption.granted_by).await?;
-            user.user_status = UserStatus::Active;
-            user.approved_at = Some(Utc::now());
-            return Ok(());
-        }
-
-        if !self.should_auto_approve_email(&user.email).await
-            && !self.verified_and_self_activating(user.id).await
-        {
-            return Ok(());
-        }
-
-        tracing::info!(user_id = %user.id, "Retroactive auto-approval for pending user");
-
-        let allowed_by = self
-            .pre_approval_for(&user.email)
-            .await
-            .and_then(|entry| entry.allowed_by);
-        let approver = self.existing_operator(allowed_by).await;
-        let updated = self
-            .data
-            .repos()
-            .users
-            .update_status(user.id, UserStatus::Active, approver)
-            .await?
-            .user;
-        user.user_status = updated.user_status;
-        user.approved_at = updated.approved_at;
-
         Ok(())
     }
 

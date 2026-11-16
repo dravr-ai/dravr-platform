@@ -414,7 +414,9 @@ pub trait OAuth2ServerRepository: Send + Sync {
         client_id: &str,
     ) -> AppResult<bool>;
 
-    /// Store a new pending device authorization (RFC 8628).
+    /// Store a new pending device authorization (RFC 8628), after deleting
+    /// every authorization that expired at or before its `created_at`:
+    /// nothing else removes a login its device stopped polling for.
     async fn create_device_authorization(&self, da: &DeviceAuthorization) -> AppResult<()>;
     /// Look up a device authorization by the SHA-256 hash of its `device_code`.
     async fn get_device_authorization_by_code_hash(

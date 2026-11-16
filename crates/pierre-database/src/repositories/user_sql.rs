@@ -157,6 +157,15 @@ pub(crate) const UPDATE_USER_STATUS_SQL: &str = r"
             WHERE id = $4
             ";
 
+/// [`UPDATE_USER_STATUS_SQL`] for an account whose status is still `$5`:
+/// the check and the write are one statement, so of two decisions on one
+/// account only the first finds its row.
+pub(crate) const UPDATE_USER_STATUS_FROM_SQL: &str = r"
+            UPDATE users
+            SET user_status = $1, approved_by = $2, approved_at = $3
+            WHERE id = $4 AND user_status = $5
+            ";
+
 /// Write the role; the database derives `users.is_admin` from it.
 pub(crate) const SET_USER_ADMIN_STATUS_SQL: &str = "UPDATE users SET role = $1 WHERE id = $2";
 

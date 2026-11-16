@@ -10,15 +10,17 @@
 use std::fmt::Debug;
 
 use chrono::Utc;
+use pierre_core::admin::models::{AdminPermissions, AdminToken};
 use pierre_core::models::agents::AgentCategory;
 use pierre_core::models::groups::GroupInviteKind;
 use pierre_core::models::{
     AddMessageParams, AgentRuntimeContext, ConversationLastMessage, ConversationRecord,
-    ConversationSummary, DeviceAuthorization, GroupInvite, MessageFeedbackRecord, MessagePage,
-    MessageRecord, OAuth2AuthCode, OAuth2State, OAuthClientState, TenantId, ThreadTopic,
-    UpsertMessageFeedbackParams,
+    ConversationSummary, DeviceAuthorization, EncryptedToken, GroupInvite, MessageFeedbackRecord,
+    MessagePage, MessageRecord, OAuth2AuthCode, OAuth2State, OAuthClientState, TenantId,
+    ThreadTopic, UpsertMessageFeedbackParams, User,
 };
 use pierre_core::transport::TransportPolicy;
+use secrecy::SecretString;
 use uuid::Uuid;
 
 /// Formats `value` both ways, asserts none of `secrets` appears in either,
@@ -389,4 +391,108 @@ fn an_agent_context_prints_the_size_of_its_prompt_never_the_prompt() {
         printed.contains(&format!("startup_query_len: Some({})", startup.len())),
         "{printed}"
     );
+}
+
+/// An admin token row with a distinctive sentinel as each of its two hashes.
+fn admin_token_with_sentinel_hashes() -> AdminToken {
+    AdminToken {
+        id: "admin_1".to_owned(),
+        service_name: "ops-bot".to_owned(),
+        service_description: None,
+        token_hash: "sentinel-tokenhash-7f3a".to_owned(),
+        token_prefix: "eyJhbGci".to_owned(),
+        jwt_secret_hash: "sentinel-secrethash-7f3a".to_owned(),
+        permissions: AdminPermissions::default_admin(),
+        is_super_admin: false,
+        is_active: true,
+        tenant_id: None,
+        operator_user_id: None,
+        created_at: Utc::now(),
+        expires_at: None,
+        last_used_at: None,
+        last_used_ip: None,
+        usage_count: 3,
+    }
+}
+
+#[test]
+fn an_admin_token_never_prints_the_hash_it_is_verified_against_or_its_secret_hash() {
+    let token = admin_token_with_sentinel_hashes();
+    let printed = printed_without(
+        &token,
+        &["sentinel-tokenhash-7f3a", "sentinel-secrethash-7f3a"],
+    );
+    assert!(printed.contains("AdminToken"), "{printed}");
+    assert!(printed.contains(r#"token_hash: "[REDACTED]""#), "{printed}");
+    assert!(
+        printed.contains(r#"jwt_secret_hash: "[REDACTED]""#),
+        "{printed}"
+    );
+    // What identifies the row still prints.
+    assert!(printed.contains(r#"id: "admin_1""#), "{printed}");
+    assert!(printed.contains(r#"service_name: "ops-bot""#), "{printed}");
+}
+
+/// Every field of a [`User`], in declaration order: each one still prints
+/// its name, so a row in a log line is still a row someone can read.
+const USER_FIELDS: [&str; 22] = [
+    "id",
+    "email",
+    "display_name",
+    "password_hash",
+    "tier",
+    "strava_token",
+    "created_at",
+    "last_active",
+    "is_active",
+    "user_status",
+    "role",
+    "approved_by",
+    "approved_at",
+    "firebase_uid",
+    "auth_provider",
+    "analytics_consent",
+    "analytics_consent_at",
+    "locale",
+    "coaching_persona",
+    "manages_roster",
+    "timezone",
+    "theme",
+];
+
+#[test]
+fn a_user_never_prints_its_password_hash_or_its_provider_tokens() {
+    let mut user = User::new(
+        "athlete@example.com".to_owned(),
+        "sentinel-pwhash-7f3a".to_owned(),
+        Some("Athlete".to_owned()),
+    );
+    user.strava_token = Some(EncryptedToken {
+        access_token: SecretString::from("sentinel-access-7f3a"),
+        refresh_token: SecretString::from("sentinel-refresh-7f3a"),
+        expires_at: Utc::now(),
+        scope: "activity:read".to_owned(),
+    });
+    let printed = printed_without(
+        &user,
+        &[
+            "sentinel-pwhash-7f3a",
+            "sentinel-access-7f3a",
+            "sentinel-refresh-7f3a",
+        ],
+    );
+    assert!(printed.starts_with("User {"), "{printed}");
+    assert!(
+        printed.contains(r#"password_hash: "[REDACTED]""#),
+        "{printed}"
+    );
+    for field in USER_FIELDS {
+        assert!(
+            printed.contains(&format!("{field}: ")),
+            "{field}: {printed}"
+        );
+    }
+    // What identifies the account still prints.
+    assert!(printed.contains(&format!("id: {}", user.id)), "{printed}");
+    assert!(printed.contains("role: User"), "{printed}");
 }

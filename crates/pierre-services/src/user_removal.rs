@@ -712,7 +712,7 @@ fn copies_not_deleted(
         // `admin_provisioned_keys` with nothing removed; this is what says
         // rows were there and stayed.
         copies.push(
-            "admin_device_logins: the device logins the account approved as an admin are kept as inactive rows that name no account and no address; the record of the keys they provisioned and the log of the requests they made stay under them, the log with each request's IP address and user agent".to_owned(),
+            "admin_device_logins: the device logins the account approved as an admin are kept as inactive rows that name no account and no address; the record of the keys they provisioned and the log of the requests they made stay under them, the log with each request's action, target and time and without its IP address or user agent".to_owned(),
         );
     }
     copies.push(

@@ -15,6 +15,19 @@
 //! them — and a caller that is not super-admin grants only permissions it
 //! holds, by minting a token or by rotating one: the ones a request names,
 //! and the defaults one that names none is given.
+//!
+//! A caller bound to one tenant stays inside it on every write: it revokes
+//! and rotates only tokens bound to that tenant, and what it mints is bound
+//! to that tenant too ([`ScopeCaller::BoundTo`]). A token bound to none, or
+//! to another tenant, is out of its reach, so a `ManageAdminTokens` holder
+//! scoped to one tenant cannot rotate or mint its way to the platform.
+//!
+//! A caller bound to no tenant that does not carry the super-admin flag
+//! ([`ScopeCaller::Unbound`]) reads no tenant's data, so it revokes and
+//! rotates only tokens bound to no tenant, and mints only those: a rotation
+//! would otherwise hand it a credential that reads a tenant it cannot. An
+//! admin's console session and a super-admin token
+//! ([`ScopeCaller::Platform`]) write every token.
 
 use secrecy::ExposeSecret;
 use std::sync::Arc;
@@ -33,7 +46,9 @@ use pierre_core::admin::models::{
     AdminPermission, AdminPermission as AdminPerm, AdminToken, AdminTokenSummary,
     CreateAdminTokenRequest, GeneratedAdminToken, ValidatedAdminToken,
 };
+use pierre_core::admin::scope::ScopeCaller;
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::TenantId;
 use pierre_database::repositories::TokenRotation;
 
 use super::api_keys::json_response;
@@ -115,6 +130,66 @@ fn deny_granting_beyond_the_caller(
     })
 }
 
+/// The tenant what a caller mints is bound to: `Some` for a token scoped to
+/// one tenant that does not carry the super-admin flag, `None` for every
+/// other caller. `None` is not one standing: an admin's console session and
+/// a super-admin token reach every tenant, and a token bound to no tenant
+/// without the flag reaches none, so what each may write is not read from
+/// here ([`deny_outside_the_callers_reach`]). The one definition is the
+/// scope rule's ([`ValidatedAdminToken::scope_caller`]).
+///
+/// # Errors
+/// `InvalidInput` when the tenant the caller carries is not a tenant id.
+fn bound_tenant(caller: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
+    Ok(match caller.scope_caller()? {
+        ScopeCaller::BoundTo(tenant) => Some(tenant),
+        ScopeCaller::Platform | ScopeCaller::Unbound => None,
+    })
+}
+
+/// Deny a write (`act`: "revoke", "rotate") on a token outside what the
+/// caller reaches. Revoking one is a denial of service there, and rotating
+/// one hands the caller its replacement, which carries the old token's
+/// tenant, or none.
+///
+/// A caller that reaches the platform, an admin's console session or a
+/// super-admin token, writes every token. A caller bound to one tenant
+/// writes only tokens bound to that tenant: one bound to none reaches
+/// further than it does, and one bound elsewhere reaches a tenant it does
+/// not. A caller bound to no tenant, without the super-admin flag, writes
+/// only tokens bound to no tenant: it reads no tenant's data itself
+/// ([`ValidatedAdminToken::require_tenant_access`], [`ScopeCaller::resolve`]),
+/// and the replacement of a tenant-bound token would.
+///
+/// # Errors
+/// `InvalidInput` when the tenant the caller carries is not a tenant id.
+fn deny_outside_the_callers_reach(
+    caller: &ValidatedAdminToken,
+    token: &AdminToken,
+    act: &str,
+) -> AppResult<Option<Response>> {
+    Ok(match caller.scope_caller()? {
+        ScopeCaller::Platform => None,
+        ScopeCaller::BoundTo(own) => {
+            let bound_to_own = token
+                .tenant_id
+                .as_deref()
+                .and_then(|raw| TenantId::parse_str(raw).ok())
+                == Some(own);
+            (!bound_to_own).then(|| {
+                forbidden(&format!(
+                    "Token is scoped to tenant {own}; it can {act} only admin tokens bound to that tenant"
+                ))
+            })
+        }
+        ScopeCaller::Unbound => token.tenant_id.is_some().then(|| {
+            forbidden(&format!(
+                "Token is bound to no tenant; it can {act} only admin tokens bound to no tenant"
+            ))
+        }),
+    })
+}
+
 /// Load a token by id, answering 404 for an unknown one. `deactivate_token` is
 /// an unconditional UPDATE, so without this a miss would report a revocation
 /// that touched no row.
@@ -137,6 +212,10 @@ async fn load_token(ctx: &AdminApiContext, token_id: &str) -> AppResult<AdminTok
 /// names none, the set the store would give it
 /// ([`CreateAdminTokenRequest::granted_permissions`]): either way the first
 /// permission the caller lacks refuses the request, and nothing is minted.
+///
+/// A caller bound to one tenant mints a token bound to that tenant, never
+/// one that reaches the platform: the request names no tenant, so the
+/// caller's own is the only one it can be.
 pub(crate) async fn handle_create_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -185,7 +264,9 @@ pub(crate) async fn handle_create_admin_token(
         permissions,
         expires_in_days: request.expires_in_days,
         is_super_admin: request.is_super_admin,
-        tenant_id: None,
+        // The caller's own tenant, when it is bound to one: what it mints
+        // reaches no further than it does.
+        tenant_id: bound_tenant(&admin_token)?.map(|tenant| tenant.to_string()),
         operator_user_id: None,
     }
     .for_creator()?;
@@ -343,7 +424,10 @@ pub(crate) async fn handle_get_admin_token(
 ///
 /// An unknown id answers 404, and a super-admin token can be revoked only by a
 /// super-admin caller: revoking one is a denial of service against the
-/// platform's own operators.
+/// platform's own admins. A caller bound to one tenant revokes only a
+/// token bound to that tenant, and one bound to no tenant, without the
+/// super-admin flag, only a token bound to none (403 otherwise, the token
+/// left live).
 pub(crate) async fn handle_revoke_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -363,6 +447,9 @@ pub(crate) async fn handle_revoke_admin_token(
         return Ok(forbidden(
             "Only super-admin tokens can revoke super-admin tokens",
         ));
+    }
+    if let Some(denied) = deny_outside_the_callers_reach(&admin_token, &existing, "revoke")? {
+        return Ok(denied);
     }
 
     context
@@ -396,7 +483,10 @@ pub(crate) async fn handle_revoke_admin_token(
 /// response. A revoked token answers 400 and mints nothing: it has no
 /// replacement. A caller without the super-admin flag rotates only a token
 /// without it whose every permission the caller holds (403 otherwise, the
-/// token left live): the replacement is the caller's to keep.
+/// token left live): the replacement is the caller's to keep. A caller bound
+/// to one tenant rotates only a token bound to that tenant, and one bound to
+/// no tenant, without the super-admin flag, only a token bound to none, for
+/// the same reason: the replacement carries the old token's tenant, or none.
 ///
 /// The deactivation and the mint are one transaction in the store
 /// ([`AdminRepository::rotate_token`]), which builds the replacement from
@@ -435,6 +525,13 @@ pub(crate) async fn handle_rotate_admin_token(
         return Ok(forbidden(
             "Only super-admin tokens can rotate super-admin tokens",
         ));
+    }
+
+    // The replacement carries the old token's tenant scope, so a caller
+    // without the super-admin flag receives it only when that scope is its
+    // own: its tenant, or none.
+    if let Some(denied) = deny_outside_the_callers_reach(&admin_token, &existing_token, "rotate")? {
+        return Ok(denied);
     }
 
     // The replacement carries the old token's permissions and is returned to

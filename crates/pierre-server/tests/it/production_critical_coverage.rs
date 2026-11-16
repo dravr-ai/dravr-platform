@@ -15,10 +15,9 @@
 use anyhow::Result;
 use pierre_auth::rate_limiting::{calculate_jwt_rate_limit, RequestBudget};
 use pierre_core::models::{CoachingPersona, JwtMonthlyUsage, MonthlyLimitOverride};
-use pierre_core::models::{EncryptedToken, User, UserStatus, UserTier};
+use pierre_core::models::{User, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
-use secrecy::SecretString;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -76,53 +75,6 @@ async fn test_mcp_request_processing_flow() -> Result<()> {
 
     // This exercises the core MCP request processing path
     // Currently this would be tested via HTTP/WebSocket, but we can test the core logic
-
-    Ok(())
-}
-
-/// Test model serialization/deserialization paths
-#[tokio::test]
-async fn test_model_serialization_coverage() -> Result<()> {
-    // Test User model edge cases
-    let user = User {
-        id: Uuid::new_v4(),
-        email: "test@example.com".to_owned(),
-        display_name: None, // Test None case
-        password_hash: "hash".to_owned(),
-        tier: UserTier::Enterprise, // Test different tier
-        role: UserRole::User,
-        created_at: chrono::Utc::now(),
-        last_active: chrono::Utc::now(),
-        is_active: false, // Test inactive user
-        user_status: UserStatus::Suspended,
-        approved_by: None,
-        approved_at: Some(chrono::Utc::now()),
-        strava_token: Some(EncryptedToken {
-            access_token: SecretString::from("encrypted_access_token"),
-            refresh_token: SecretString::from("encrypted_refresh_token"),
-            expires_at: chrono::Utc::now() + chrono::Duration::hours(1),
-            scope: "read,activity:read_all".to_owned(),
-        }),
-        firebase_uid: None,
-        auth_provider: String::new(),
-        analytics_consent: false,
-        analytics_consent_at: None,
-        locale: "fr".to_owned(),
-        coaching_persona: CoachingPersona::Casual,
-        manages_roster: false,
-        timezone: None,
-        theme: None,
-    };
-
-    // Test serialization
-    let serialized = serde_json::to_string(&user)?;
-    assert_ne!(serialized, "");
-
-    // Test deserialization
-    let deserialized: User = serde_json::from_str(&serialized)?;
-    assert_eq!(user.id, deserialized.id);
-    assert_eq!(user.email, deserialized.email);
-    assert!(!user.is_active);
 
     Ok(())
 }

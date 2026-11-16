@@ -30,6 +30,7 @@ import {
   type MobileNavTab,
 } from "./layout/MobileNav";
 import {
+  ACCOUNT_ROLE_LABEL_KEY,
   ADMIN_HIDDEN_PANES,
   COMMAND_DRAFTS,
   PRODUCT_WORDMARK,
@@ -119,9 +120,6 @@ function isUnservedTab(tab: string, isAdminUser: boolean): boolean {
     GATED_TABS.has(tab)
   );
 }
-
-/** The console is English whatever the viewer's locale (see `untranslatedScan.ts`). */
-const ADMIN_ROLE_LABEL = "Admin";
 
 // Lazy load heavy components to reduce initial bundle size
 const AnalyticsTab = lazy(() => import("./AnalyticsTab"));
@@ -338,8 +336,11 @@ export default function Dashboard({
   const isTablet = useIsTablet();
   const sidebarCollapsed = userSidebarCollapsed || isTablet;
   // An admin's role is worth a line under the name; an athlete's is not —
-  // "user" under one's own name reads as a label with nothing to say.
-  const adminRoleBadge = isAdminUser ? ADMIN_ROLE_LABEL : null;
+  // "user" under one's own name reads as a label with nothing to say. The
+  // label is the catalogue's, the one the Account pane prints; every locale
+  // writes it the same, so the console stays English whatever the viewer's
+  // locale (see `untranslatedScan.ts`).
+  const adminRoleBadge = isAdminUser ? t(ACCOUNT_ROLE_LABEL_KEY.admin) : null;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit

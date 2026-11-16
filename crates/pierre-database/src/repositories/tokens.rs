@@ -327,7 +327,20 @@ pub(crate) const REVOKE_WITHDRAWN_OAUTH2_REFRESH_TOKENS_SQL: &str = r"
               )
             ";
 
-/// Open an RFC 8628 device authorization, pending until an operator acts.
+/// Delete every device authorization past its expiry: `$1` is now, in epoch
+/// seconds. `<=` is the comparison the token endpoint and the approval read
+/// an expired row by, so what goes is exactly what neither would honour.
+///
+/// Nothing else removes a row whose device never polled again (a login
+/// started and abandoned, or one denied and never collected), so the store
+/// runs this each time it opens a new authorization: the table holds the
+/// logins still inside their window, and each abandoned row is deleted
+/// once, by the next login to start. `idx_device_authorization_expires_at`
+/// serves the range.
+pub(crate) const SWEEP_EXPIRED_DEVICE_AUTHORIZATIONS_SQL: &str =
+    "DELETE FROM device_authorization WHERE expires_at <= $1";
+
+/// Open an RFC 8628 device authorization, pending until an admin acts.
 pub(crate) const CREATE_DEVICE_AUTHORIZATION_SQL: &str = r"
             INSERT INTO device_authorization
                 (device_code_hash, user_code, status, approved_by, created_at, expires_at)
@@ -980,6 +993,17 @@ macro_rules! impl_oauth2_server_repository {
             }
 
             async fn create_device_authorization(&self, da: &DeviceAuthorization) -> AppResult<()> {
+                // Housekeeping first, as of the moment this login starts:
+                // the rows no poll will ever consume.
+                sqlx::query(SWEEP_EXPIRED_DEVICE_AUTHORIZATIONS_SQL)
+                    .bind(da.created_at)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to sweep expired device authorizations: {e}"
+                        ))
+                    })?;
                 sqlx::query(CREATE_DEVICE_AUTHORIZATION_SQL)
                     .bind(&da.device_code_hash)
                     .bind(&da.user_code)

@@ -43,9 +43,13 @@
 //! the device logins it approved as an admin (`admin_tokens`) and the keys
 //! those provisioned (`admin_provisioned_keys`). The trail keeps that an
 //! action happened, never whom a deleted account was, so the rows stay, with
-//! the request log under them, renamed and acting as no account. Each
-//! engine's purge names them apart ([`UserPurge::kept`]), and the same
-//! survivor read refuses to commit while one still carries the id.
+//! the request log under them, renamed and acting as no account. The log
+//! (`admin_token_usage`) keeps what each request did, to what and when, and
+//! loses where it came from: its address and user agent are the admin's,
+//! and are set `NULL` in the same transaction
+//! (`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`). Each engine's purge names the two
+//! tables apart ([`UserPurge::kept`]), and the same survivor read refuses to
+//! commit while one still carries the id.
 //!
 //! A row can also be the user's through a parent the account delete cascades
 //! to, under a foreign key that does not cascade from that parent: a
@@ -237,10 +241,23 @@ macro_rules! user_owned_tables {
         /// rewrites each such row instead (`RETIRE_DEVICE_LOGINS_SQL`):
         /// inactive, named as no one's, acting as an operator that is no
         /// account. Never as none: a row scrubbed to `NULL` would read as a
-        /// service credential, which no admin's standing guards. The two
-        /// tables are named apart ([`UserPurge::kept`]): nothing clears
+        /// service credential, which no admin's standing guards. The log
+        /// under each row keeps its requests and loses the address and
+        /// user agent each came from (`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`).
+        /// The two tables are named apart ([`UserPurge::kept`]): nothing clears
         /// them, and the survivor read refuses the delete while a row of
         /// either still carries the id, as an operator or inside a name.
+        ///
+        /// The `pierre-cli` logins the user approved as an admin and nobody
+        /// has collected yet go too (`device_authorization`, by its
+        /// `approved_by`, the approver's id as text; carnet#1589). An
+        /// approved row is a token waiting to be minted in its approver's
+        /// name: left behind, its poll would be refused only by the read of
+        /// an account that no longer exists, and the row would name the
+        /// deleted account until it expired. It is deleted, never cleared
+        /// to `NULL`: an approved row with no approver mints a service
+        /// token. A login still pending, or one another admin approved, is
+        /// not the account's.
         ///
         /// A coaching group the user owns and archived goes too (carnet#1161),
         /// once their own conversations are gone and while no other user's
@@ -273,6 +290,7 @@ user_owned_tables!(
     "oauth2_auth_codes",
     "oauth2_refresh_tokens",
     "oauth2_states",
+    "device_authorization" where "approved_by = $1",
     "oauth2_clients" where "client_id IN (SELECT c.client_id FROM a2a_clients c WHERE CAST(c.user_id AS TEXT) = $1)",
     "a2a_tasks" where "session_token = 'user:' || $1 OR session_token IN (SELECT c.client_id FROM a2a_clients c WHERE CAST(c.user_id AS TEXT) = $1)",
     "a2a_clients",
@@ -354,6 +372,20 @@ user_owned_tables!(
 pub(crate) const RETIRE_DEVICE_LOGINS_SQL: &str = "UPDATE admin_tokens \
      SET is_active = FALSE, operator_user_id = $1, service_name = $2, last_used_ip = NULL \
      WHERE operator_user_id = $3";
+
+/// Take the caller out of the request log a deleted account's device logins
+/// keep: `$1` the account's id as text. Each `admin_token_usage` row stays
+/// with its action, its target and its time, which is the record of what the
+/// login did; the IP address and the user agent the request came from are
+/// the admin's own, and nothing reads them off a retired login's log.
+///
+/// It runs before [`RETIRE_DEVICE_LOGINS_SQL`], which rewrites the
+/// `operator_user_id` this finds the account's logins by, and in the same
+/// transaction, so the two cannot come apart. Both columns are nullable on
+/// both engines (`INET` and `TEXT` on Postgres, `TEXT` on `SQLite`).
+pub(crate) const SCRUB_DEVICE_LOGIN_REQUESTS_SQL: &str = "UPDATE admin_token_usage \
+     SET ip_address = NULL, user_agent = NULL \
+     WHERE admin_token_id IN (SELECT id FROM admin_tokens WHERE operator_user_id = $1)";
 
 /// Take a deleted account's id out of every token name that carries it:
 /// `$1` what stands in its place (`DELETED_ACCOUNT_LABEL`), `$2` the

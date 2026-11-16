@@ -17,11 +17,12 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Response;
 use axum::{Extension, Json};
+use chrono::Utc;
 use pierre_contremaitre::cageux_config::CageuxConfigRegistry;
 use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 use pierre_contremaitre::persona_contracts::PersonaContractRegistry;
 use pierre_core::admin::models::{AdminPermission, AdminPermissions, ValidatedAdminToken};
-use pierre_core::models::{User, UserStatus};
+use pierre_core::models::{DeviceAuthorization, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_routes_admin::handlers::device_auth::{
@@ -189,6 +190,55 @@ async fn unknown_device_code_is_rejected() {
         .expect("poll unknown");
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     assert_eq!(body_json(resp).await["error"], "expired_token");
+}
+
+/// A login nobody approved in time answers 410 "expired" until the next
+/// login starts, which deletes the expired rows (carnet#1589). From then on
+/// its code is no row at all, and the answer is the 404 of a code that was
+/// never issued: so that 404 says the code is unknown or expired, not only
+/// unknown, and tells the admin to start a new login.
+#[tokio::test]
+async fn an_expired_login_swept_by_the_next_one_is_answered_as_unknown_or_expired() {
+    let context = build_context().await;
+    let lapsed = "LAPS-ED00";
+    let now = Utc::now().timestamp();
+    context
+        .repos
+        .oauth2_server
+        .create_device_authorization(&DeviceAuthorization {
+            device_code_hash: "hash-of-a-lapsed-device-code".to_owned(),
+            user_code: lapsed.to_owned(),
+            status: "pending".to_owned(),
+            approved_by: None,
+            created_at: now - 700,
+            expires_at: now - 100,
+        })
+        .await
+        .unwrap();
+    let approve = || {
+        handle_device_approve(
+            State(context.clone()),
+            Extension(super_admin_token()),
+            Json(json!({ "user_code": lapsed })),
+        )
+    };
+
+    let resp = approve().await.expect("approve an expired login");
+    assert_eq!(resp.status(), StatusCode::GONE, "expired, and still a row");
+
+    handle_device_authorization(State(context.clone()))
+        .await
+        .expect("the next login");
+    let resp = approve().await.expect("approve a swept login");
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+    let message = body_json(resp).await["message"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    assert_eq!(
+        message,
+        format!("Unknown or expired user_code: {lapsed}. Start a new login for a new code.")
+    );
 }
 
 #[tokio::test]

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 use crate::transport::TransportPolicy;
-use std::fmt::{Display, Formatter, Result as FmtResult};
+use std::fmt::{Debug, Display, Formatter, Result as FmtResult};
 use std::str::FromStr;
 
 use chrono::{DateTime, Utc};
@@ -432,7 +432,12 @@ pub struct OperatorRosterGrant {
 /// Multi-tenant membership is managed via the `tenant_users` junction table,
 /// allowing users to belong to multiple tenants (like Slack workspaces).
 /// The active tenant context is determined per-session via JWT claims.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// A `User` carries its `password_hash`, so it neither serializes nor
+/// deserializes: an API answers with a response type that names the fields
+/// it returns, and a row is read by the repository. `Debug` is written by
+/// hand for the same reason and prints a fixed placeholder for the hash.
+#[derive(Clone)]
 pub struct User {
     /// Unique user identifier
     pub id: Uuid,
@@ -474,14 +479,12 @@ pub struct User {
     /// [`default_locale()`] when not explicitly set. Resolved at messaging
     /// dispatch time via `messaging_channel_links.locale` override →
     /// `users.locale` → `DEFAULT_LOCALE`.
-    #[serde(default = "default_locale")]
     pub locale: String,
     /// Agent output persona controlling format / citation density /
     /// notification cadence. Defaults to [`CoachingPersona::Casual`] for
     /// new users; users opt up via the post-auth onboarding prompt or
     /// the Settings UI. Persisted serde-side as `snake_case` (`"casual"`,
     /// `"enthusiast"`, `"power_athlete"`, `"coach"`).
-    #[serde(default)]
     pub coaching_persona: CoachingPersona,
     /// Whether this user may redeem a coach invite, joining a coaching group
     /// as its human coach (`coaching_groups.coach_user_id`). Independent from
@@ -496,7 +499,6 @@ pub struct User {
     /// admin console or `pierre-cli user set --manages-roster`, and an
     /// operator grant ([`OperatorRosterGrant`]) is never revoked by the
     /// TrainingPeaks reconciler.
-    #[serde(default)]
     pub manages_roster: bool,
     /// IANA timezone database name (e.g. `"America/Toronto"`,
     /// `"Europe/Paris"`). Captured client-side via
@@ -509,7 +511,6 @@ pub struct User {
     /// prompt-assembly stage to resolve `{{CURRENT_DATE}}` to the
     /// user's local calendar day so the agent interprets "today"
     /// correctly.
-    #[serde(default)]
     pub timezone: Option<String>,
     /// Colour-scheme preference pinned across the user's devices:
     /// `"light"` or `"dark"`. `None` means no pin — clients follow the
@@ -517,8 +518,40 @@ pub struct User {
     /// (messaging chart PNGs) fall back to dark, the scheme messaging
     /// clients overwhelmingly draw media bubbles on. Written via
     /// `PUT /api/user/theme`.
-    #[serde(default)]
     pub theme: Option<String>,
+}
+
+/// Every field as stored, except `password_hash`, which prints as
+/// `[REDACTED]` whatever it holds. The Strava tokens are `SecretString`s,
+/// which print as redacted themselves. A field prints only once it is
+/// listed here, so a new one is left out until someone decides it may.
+impl Debug for User {
+    fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
+        f.debug_struct("User")
+            .field("id", &self.id)
+            .field("email", &self.email)
+            .field("display_name", &self.display_name)
+            .field("password_hash", &"[REDACTED]")
+            .field("tier", &self.tier)
+            .field("strava_token", &self.strava_token)
+            .field("created_at", &self.created_at)
+            .field("last_active", &self.last_active)
+            .field("is_active", &self.is_active)
+            .field("user_status", &self.user_status)
+            .field("role", &self.role)
+            .field("approved_by", &self.approved_by)
+            .field("approved_at", &self.approved_at)
+            .field("firebase_uid", &self.firebase_uid)
+            .field("auth_provider", &self.auth_provider)
+            .field("analytics_consent", &self.analytics_consent)
+            .field("analytics_consent_at", &self.analytics_consent_at)
+            .field("locale", &self.locale)
+            .field("coaching_persona", &self.coaching_persona)
+            .field("manages_roster", &self.manages_roster)
+            .field("timezone", &self.timezone)
+            .field("theme", &self.theme)
+            .finish()
+    }
 }
 
 /// Every locale the platform speaks, in the order the language menus list them.
@@ -530,11 +563,10 @@ pub struct User {
 /// sixth locale is added here first. The first entry is the default.
 pub const SUPPORTED_LOCALES: [&str; 5] = ["fr", "en", "es", "de", "pt"];
 
-/// Default locale (`"fr"`) used when deserializing a pre-locale `User`.
+/// Default locale (`"fr"`) of a user who has not set one.
 ///
-/// Backward-compat for in-memory JSON payloads (e.g. tests) that predate the
-/// `locale` column. The DB column has `NOT NULL DEFAULT 'fr'` so persisted
-/// rows always carry a concrete value.
+/// The DB column has `NOT NULL DEFAULT 'fr'`, so persisted rows always carry
+/// a concrete value; this is what a row that cannot be read falls back to.
 #[must_use]
 pub fn default_locale() -> String {
     SUPPORTED_LOCALES[0].to_owned()

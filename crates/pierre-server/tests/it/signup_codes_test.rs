@@ -38,8 +38,10 @@ use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_logs_and_spans, capture_notify, named};
 use pierre_config::constants::oauth_rate_limiting::SIGNUP_CODE_ATTEMPTS;
 use pierre_core::admin::models::{AdminPermission, CreateAdminTokenRequest};
+use pierre_core::errors::ErrorCode;
 use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::{CreateGroupRequest, TenantId, User, UserStatus};
+use pierre_core::permissions::UserRole;
 use pierre_database::database::system_settings::SETTING_SIGNUP_DAILY_LIMIT_RESET_AT;
 use pierre_database::repositories::DeletionActor;
 use pierre_groups::strategies::tier::EnterpriseTierStrategy;
@@ -51,7 +53,7 @@ use pierre_routes_groups::GroupRoutes;
 use pierre_services::signup_codes::{self, hash_code, normalize_code, MintRequest};
 use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate, SIGNUP_PAUSED};
 use pierre_services::user_removal::remove_user;
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -505,6 +507,173 @@ async fn a_suspended_account_or_a_deleted_accounts_address_cannot_redeem() {
             .await
             .user_status,
         UserStatus::Pending
+    );
+}
+
+/// A suspension that lands while a code is being redeemed stands
+/// (carnet#1589): whichever order the two land in, the account ends
+/// suspended. A redemption that finds the sign-up decided is refused as a
+/// suspended account's is, provisions nothing and leaves the redemption
+/// unmarked. The activation re-read the account and refused only one
+/// already active, so it set a suspended account active again.
+#[tokio::test]
+async fn a_code_never_reactivates_an_account_suspended_while_it_was_redeemed() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let admin = minter(&resources, "race-admin@example.com").await;
+    let code = mint(&resources, Some(admin), None).await;
+    register(auth_routes(&resources), "raced@example.com", None).await;
+    let user = account(&resources, "raced@example.com").await;
+    assert_eq!(user.user_status, UserStatus::Pending);
+    repos
+        .email_verification
+        .mark_verified(user.id)
+        .await
+        .unwrap();
+    let service = resources.auth_routes_context().account_service();
+    let code = SecretString::from(code);
+
+    let (redeemed, suspension) = tokio::join!(
+        service.redeem_signup_code(user.id, &code),
+        repos
+            .users
+            .update_status(user.id, UserStatus::Suspended, None),
+    );
+
+    suspension.expect("the suspension is written");
+    assert_eq!(
+        account(&resources, "raced@example.com").await.user_status,
+        UserStatus::Suspended,
+        "the suspension stands"
+    );
+    // The code either activated the account first, which was then suspended
+    // like any active account, or found the sign-up decided.
+    match redeemed {
+        Ok(redeemed) => assert_eq!(redeemed.status, UserStatus::Active),
+        Err(refused) => {
+            assert_eq!(refused.code, ErrorCode::AccountSuspended, "{refused}");
+            let tokens = repos.user_mcp_tokens.list_tokens(user.id).await.unwrap();
+            assert!(tokens.is_empty(), "nothing is provisioned");
+            let redemption = repos.signup_codes.redemption_for(user.id).await.unwrap();
+            assert!(
+                redemption.is_none_or(|kept| kept.activated_at.is_none()),
+                "the redemption activated nothing"
+            );
+        }
+    }
+}
+
+/// Give the stored account `email` the admin role past the promotion, which
+/// refuses an account that is not active: the pending admin a status reset
+/// or an older build's promotion left behind.
+async fn hold_the_admin_role(resources: &ServerContext, email: &str) -> User {
+    let mut user = account(resources, email).await;
+    user.role = UserRole::Admin;
+    resources.common.repos.users.update(&user).await.unwrap();
+    let stored = account(resources, email).await;
+    assert!(stored.role.is_admin(), "the fixture holds the role");
+    assert_eq!(stored.user_status, UserStatus::Pending);
+    stored
+}
+
+/// An admin is approved by an admin (carnet#1589). A pending account that
+/// holds the admin role redeems no code from the waiting screen, proven
+/// address or not, and the refusal spends no use of the code; a sign-up
+/// beside it still redeems the same code.
+#[tokio::test]
+async fn a_pending_admin_redeems_no_code_and_spends_no_use() {
+    let resources = create_test_server_resources().await.unwrap();
+    let repos = &resources.common.repos;
+    let code = mint(&resources, None, Some(1)).await;
+    register(auth_routes(&resources), "pending-admin@example.com", None).await;
+    let admin = hold_the_admin_role(&resources, "pending-admin@example.com").await;
+    repos
+        .email_verification
+        .mark_verified(admin.id)
+        .await
+        .unwrap();
+
+    let (status, body) = redeem(auth_routes(&resources), &admin, &resources, &code).await;
+    assert_eq!(status, 400, "a code activates no admin: {body}");
+    assert!(
+        body.to_string().contains("approved by another admin"),
+        "the refusal says who approves an admin: {body}"
+    );
+    assert_eq!(
+        account(&resources, "pending-admin@example.com")
+            .await
+            .user_status,
+        UserStatus::Pending
+    );
+    assert!(
+        repos
+            .signup_codes
+            .redemption_for(admin.id)
+            .await
+            .unwrap()
+            .is_none(),
+        "nothing was recorded against the account"
+    );
+
+    // The positive control, and the proof the single use was not spent.
+    register(auth_routes(&resources), "sign-up@example.com", None).await;
+    let athlete = account(&resources, "sign-up@example.com").await;
+    repos
+        .email_verification
+        .mark_verified(athlete.id)
+        .await
+        .unwrap();
+    let (status, body) = redeem(auth_routes(&resources), &athlete, &resources, &code).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["user_status"], "active");
+}
+
+/// With sign-up open to verified addresses, proving the address activates a
+/// sign-up and never an account that holds the admin role: it stays pending
+/// for an admin to approve, and is told it is in review, not sent after a
+/// confirmation link.
+#[tokio::test]
+async fn proving_its_address_activates_a_sign_up_and_never_a_pending_admin() {
+    let resources = create_test_server_resources().await.unwrap();
+    set_policy(
+        &resources,
+        SignupPolicyUpdate {
+            activate_on_verified_email: Some(true),
+            ..SignupPolicyUpdate::default()
+        },
+    )
+    .await;
+    register(auth_routes(&resources), "pending-admin@example.com", None).await;
+    let admin = hold_the_admin_role(&resources, "pending-admin@example.com").await;
+    register(auth_routes(&resources), "sign-up@example.com", None).await;
+    let athlete = account(&resources, "sign-up@example.com").await;
+    assert_eq!(athlete.user_status, UserStatus::Pending);
+
+    let service = resources.auth_routes_context().account_service();
+    assert!(
+        service.awaits_email_proof(&athlete).await,
+        "the control: a sign-up waits on its address"
+    );
+    assert!(
+        !service.awaits_email_proof(&admin).await,
+        "an admin waits on an approval, not on its address"
+    );
+
+    assert_eq!(
+        confirm_email(&resources, admin.id).await,
+        UserStatus::Pending,
+        "a proven address activates no admin"
+    );
+    assert_eq!(
+        account(&resources, "pending-admin@example.com")
+            .await
+            .user_status,
+        UserStatus::Pending
+    );
+    assert_eq!(
+        confirm_email(&resources, athlete.id).await,
+        UserStatus::Active,
+        "the same rule still lets a sign-up in"
     );
 }
 

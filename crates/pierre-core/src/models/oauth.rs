@@ -45,13 +45,14 @@ pub struct OAuthAppCredentials {
 /// Tokens are encrypted at rest using AES-256-GCM encryption.
 /// Only decrypted when needed for `API` calls.
 /// Each encrypted token has its nonce prepended to the ciphertext.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// It is held in memory and written through the token repositories, never
+/// serialized: no serde derive, so no JSON can carry the ciphertext out.
+#[derive(Debug, Clone)]
 pub struct EncryptedToken {
     /// Encrypted access token with prepended nonce (base64 encoded: \[12-byte nonce\]\[ciphertext\])
-    #[serde(serialize_with = "crate::secret::serialize_exposed")]
     pub access_token: SecretString,
     /// Encrypted refresh token with prepended nonce (base64 encoded: \[12-byte nonce\]\[ciphertext\])
-    #[serde(serialize_with = "crate::secret::serialize_exposed")]
     pub refresh_token: SecretString,
     /// When the access token expires
     pub expires_at: DateTime<Utc>,

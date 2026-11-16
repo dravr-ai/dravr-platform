@@ -126,6 +126,17 @@ pub trait UserRepository: Send + Sync {
         new_status: UserStatus,
         approved_by: Option<Uuid>,
     ) -> AppResult<StandingWrite>;
+    /// [`UserRepository::update_status`] for an account whose status is still
+    /// `from`. The check and the write are one statement, so of two
+    /// decisions on one account only the first is written. `None`, with
+    /// nothing written, when no account of that id holds `from`.
+    async fn update_status_from(
+        &self,
+        user_id: Uuid,
+        from: UserStatus,
+        new_status: UserStatus,
+        approved_by: Option<Uuid>,
+    ) -> AppResult<Option<StandingWrite>>;
     /// Grant or revoke the admin role: granting writes the `Admin` role,
     /// revoking resets it to `User`, and the database keeps `users.is_admin`
     /// equal to it.
@@ -559,6 +570,66 @@ macro_rules! impl_user_repository {
                 Ok(())
             }
 
+            /// The one status write: `from` is the status the row must
+            /// still hold, `None` for any. `Ok(None)` when no row matched,
+            /// and then nothing was written.
+            async fn write_status(
+                &self,
+                user_id: Uuid,
+                from: Option<UserStatus>,
+                new_status: UserStatus,
+                approved_by: Option<Uuid>,
+            ) -> AppResult<Option<StandingWrite>> {
+                let failed = |e: sqlx::Error| {
+                    AppError::database(format!("Failed to update user status: {e}"))
+                };
+                let mut tx = self.begin_admin_removal().await?;
+                let activating = new_status == UserStatus::Active;
+                // The approver and the moment are recorded on activation only.
+                let (approved_by, approved_at) = if activating {
+                    (approved_by, Some(Utc::now()))
+                } else {
+                    Self::refuse_removing_the_last_active_admin(&mut *tx, user_id, "suspend")
+                        .await?;
+                    (None, None)
+                };
+
+                let statement = if from.is_some() {
+                    UPDATE_USER_STATUS_FROM_SQL
+                } else {
+                    UPDATE_USER_STATUS_SQL
+                };
+                let mut write = sqlx::query(statement)
+                    .bind(user_status_to_str(&new_status))
+                    .bind($ids::bind_opt(approved_by))
+                    .bind(approved_at)
+                    .bind($ids::bind(user_id));
+                if let Some(from) = &from {
+                    write = write.bind(user_status_to_str(from));
+                }
+                if write
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(failed)?
+                    .rows_affected()
+                    == 0
+                {
+                    return Ok(None);
+                }
+                let withdrawn = if activating {
+                    WithdrawnAdminCredentials::default()
+                } else {
+                    Self::withdraw_admin_credentials(&mut *tx, user_id).await?
+                };
+                tx.commit().await.map_err(failed)?;
+
+                let user = self
+                    .get_global(user_id)
+                    .await?
+                    .ok_or_else(|| AppError::not_found("User after status update"))?;
+                Ok(Some(StandingWrite { user, withdrawn }))
+            }
+
             /// Open the transaction a write that can remove an admin runs in.
             async fn begin_admin_removal(
                 &self,
@@ -848,44 +919,20 @@ macro_rules! impl_user_repository {
                 new_status: UserStatus,
                 approved_by: Option<Uuid>,
             ) -> AppResult<StandingWrite> {
-                let failed = |e: sqlx::Error| {
-                    AppError::database(format!("Failed to update user status: {e}"))
-                };
-                let mut tx = self.begin_admin_removal().await?;
-                let activating = new_status == UserStatus::Active;
-                // The approver and the moment are recorded on activation only.
-                let (approved_by, approved_at) = if activating {
-                    (approved_by, Some(Utc::now()))
-                } else {
-                    Self::refuse_removing_the_last_active_admin(&mut *tx, user_id, "suspend")
-                        .await?;
-                    (None, None)
-                };
-
-                let result = sqlx::query(UPDATE_USER_STATUS_SQL)
-                    .bind(user_status_to_str(&new_status))
-                    .bind($ids::bind_opt(approved_by))
-                    .bind(approved_at)
-                    .bind($ids::bind(user_id))
-                    .execute(&mut *tx)
-                    .await
-                    .map_err(failed)?;
-
-                if result.rows_affected() == 0 {
-                    return Err(AppError::not_found(format!("User with ID: {user_id}")));
-                }
-                let withdrawn = if activating {
-                    WithdrawnAdminCredentials::default()
-                } else {
-                    Self::withdraw_admin_credentials(&mut *tx, user_id).await?
-                };
-                tx.commit().await.map_err(failed)?;
-
-                let user = self
-                    .get_global(user_id)
+                self.write_status(user_id, None, new_status, approved_by)
                     .await?
-                    .ok_or_else(|| AppError::not_found("User after status update"))?;
-                Ok(StandingWrite { user, withdrawn })
+                    .ok_or_else(|| AppError::not_found(format!("User with ID: {user_id}")))
+            }
+
+            async fn update_status_from(
+                &self,
+                user_id: Uuid,
+                from: UserStatus,
+                new_status: UserStatus,
+                approved_by: Option<Uuid>,
+            ) -> AppResult<Option<StandingWrite>> {
+                self.write_status(user_id, Some(from), new_status, approved_by)
+                    .await
             }
 
             async fn set_admin_status(
