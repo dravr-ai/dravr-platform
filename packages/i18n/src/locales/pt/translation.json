@@ -3243,6 +3243,7 @@
     },
     "link": {
       "cancelled": "Ligação cancelada. Envia uma mensagem a qualquer momento para começar de novo.",
+      "confirm_prompt": "Este link liga esta conta de {0} à conta Dravr {1}. Responde «sim» para a ligar, ou «cancel» se não for a tua conta.",
       "email_not_configured": "O envio de e-mails não está configurado. Contacta o teu administrador.",
       "email_prompt": "Olá! Para ligares a tua conta Dravr, escreve o teu e-mail.\nEscreve «cancel» para parar.",
       "email_send_failed": "Não foi possível enviar o e-mail de verificação. Tenta de novo mais tarde.",

@@ -3243,6 +3243,7 @@
     },
     "link": {
       "cancelled": "Vinculación cancelada. Envía un mensaje cuando quieras para empezar de nuevo.",
+      "confirm_prompt": "Este enlace vincula esta cuenta de {0} con la cuenta de Dravr {1}. Responde «si» para vincularla, o «cancel» si no es tu cuenta.",
       "email_not_configured": "El envío de correos no está configurado. Contacta con tu administrador.",
       "email_prompt": "¡Hola! Para vincular tu cuenta de Dravr, escribe tu correo electrónico.\nEscribe «cancel» para detener.",
       "email_send_failed": "No se pudo enviar el correo de verificación. Inténtalo de nuevo más tarde.",

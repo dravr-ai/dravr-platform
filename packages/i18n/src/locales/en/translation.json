@@ -3243,6 +3243,7 @@
     },
     "link": {
       "cancelled": "Linking cancelled. Send a message anytime to start again.",
+      "confirm_prompt": "This link connects this {0} account to the Dravr account {1}. Reply \"yes\" to link it, or \"cancel\" if that is not your account.",
       "email_not_configured": "Email delivery is not configured. Please contact your administrator.",
       "email_prompt": "Hi! To link your Dravr account, please type your email address.\nType \"cancel\" to stop.",
       "email_send_failed": "Failed to send the verification email. Please try again later.",

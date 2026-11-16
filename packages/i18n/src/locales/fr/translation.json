@@ -3243,6 +3243,7 @@
     },
     "link": {
       "cancelled": "Liaison annulée. Envoie un message à tout moment pour recommencer.",
+      "confirm_prompt": "Ce lien associe ce compte {0} au compte Dravr {1}. Réponds « oui » pour le lier, ou « cancel » si ce n'est pas ton compte.",
       "email_not_configured": "L'envoi d'e-mails n'est pas configuré. Contacte ton administrateur.",
       "email_prompt": "Salut ! Pour relier ton compte Dravr, écris ton adresse e-mail.\nTape « cancel » pour arrêter.",
       "email_send_failed": "Impossible d'envoyer l'e-mail de vérification. Réessaie dans un moment.",

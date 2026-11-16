@@ -3243,6 +3243,7 @@
     },
     "link": {
       "cancelled": "Verknüpfung abgebrochen. Schreib jederzeit eine Nachricht, um neu zu beginnen.",
+      "confirm_prompt": "Dieser Link verknüpft dieses {0}-Konto mit dem Dravr-Konto {1}. Antworte mit „ja\", um es zu verknüpfen, oder „cancel\", wenn das nicht dein Konto ist.",
       "email_not_configured": "E-Mail-Versand ist nicht konfiguriert. Wende dich an deinen Administrator.",
       "email_prompt": "Hallo! Um dein Dravr-Konto zu verknüpfen, tippe deine E-Mail-Adresse.\nTippe „cancel\", um abzubrechen.",
       "email_send_failed": "Die Bestätigungs-E-Mail konnte nicht gesendet werden. Bitte versuch es später erneut.",
