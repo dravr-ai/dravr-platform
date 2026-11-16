@@ -180,6 +180,14 @@ export const SCIOTTE_LOGIN_PRESETS: Record<SciotteTarget, SciotteLoginPreset> = 
 export const SCIOTTE_CODE_REJECTED = 'code_rejected' as const;
 
 /**
+ * Milliseconds between two polls of a number-match sign-in. Google shows the
+ * digit until the athlete taps it on their phone, and a poll answers
+ * `number_match` at once while it shows, so a client polls again at this
+ * pace until the sign-in moves on: connected, a code step or a refusal.
+ */
+export const SCIOTTE_NUMBER_MATCH_REPOLL_MS = 2000;
+
+/**
  * `details.reason` of the refusal a sciotte sign-in step gets once its flow
  * has lapsed: the sign-in has to start again. Mirrors the server's
  * `LOGIN_FLOW_EXPIRED_REASON`; read it with `refusalReason` from

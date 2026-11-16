@@ -28,6 +28,7 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   loginIdentifierField,
   oauthFollowOn,
   providerGlyphInk,
@@ -332,6 +333,9 @@ export default function SciotteLoginModal({
     [refusalMessage]
   );
 
+  // How many number-match polls have answered `number_match` again.
+  const [pollRound, setPollRound] = useState(0);
+
   // 2FA option selection
   const handleSelectTwoFactor = useCallback(
     async (optionId: string) => {
@@ -367,6 +371,7 @@ export default function SciotteLoginModal({
           setStatus(isRealNumber
             ? t('shell.sciotteTapMatchingNumber')
             : t('shell.sciotteApproveOnPhone'));
+          if (optionId === 'poll') setPollRound((round) => round + 1);
         } else {
           // The provider's refusal is in its own words and in English; the
           // modal words it in the user's language, as the hosted pages do.
@@ -397,16 +402,17 @@ export default function SciotteLoginModal({
     ? t('shell.sciotteEnterCodeFrom', { provider: providerLabel })
     : t('shell.sciotteEnterCode');
 
-  const [pollingStarted, setPollingStarted] = useState(false);
+  // While the number shows, poll: at once when it first appears, then every
+  // SCIOTTE_NUMBER_MATCH_REPOLL_MS after a poll that answered it again, until
+  // the athlete's tap moves the sign-in on or the modal leaves the phase.
   useEffect(() => {
-    if (phase === 'number-match' && matchNumber && !pollingStarted) {
-      setPollingStarted(true);
-      handleSelectTwoFactor('poll');
-    }
-    if (phase !== 'number-match') {
-      setPollingStarted(false);
-    }
-  }, [phase, matchNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (phase !== 'number-match' || !matchNumber) return undefined;
+    const timer = setTimeout(
+      () => handleSelectTwoFactor('poll'),
+      pollRound === 0 ? 0 : SCIOTTE_NUMBER_MATCH_REPOLL_MS
+    );
+    return () => clearTimeout(timer);
+  }, [phase, matchNumber, pollRound]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Elapsed seconds + cycling status text while the sciotte browser runs.
   // The single-shot POST gives no real-time progress; this keeps the modal

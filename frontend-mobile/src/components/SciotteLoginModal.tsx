@@ -37,6 +37,7 @@ import {
   SCIOTTE_LOGIN_CHALLENGE,
   SCIOTTE_LOGIN_FLOW_EXPIRED,
   SCIOTTE_LOGIN_PRESETS,
+  SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   loginIdentifierField,
   oauthFollowOn,
   signInFallsBackToOAuth,
@@ -479,6 +480,9 @@ export function SciotteLoginModal({
     [refusalMessage]
   );
 
+  // How many number-match polls have answered `number_match` again.
+  const [pollRound, setPollRound] = useState(0);
+
   const handleSelect2FA = useCallback(async (optionId: string) => {
     setIsLoading(true);
     if (optionId === 'app') setPhase('waiting-approval');
@@ -503,6 +507,7 @@ export function SciotteLoginModal({
         setMatchNumber(data.number || null);
         setPhase('number-match');
         setStatus(t('app.confirmOnDevice'));
+        if (optionId === 'poll') setPollRound((round) => round + 1);
       } else {
         // The provider's refusal is in its own words and in English; the
         // modal words it in the user's language, as the hosted pages do.
@@ -522,16 +527,17 @@ export function SciotteLoginModal({
     }
   }, [beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]);
 
-  const [pollingStarted, setPollingStarted] = useState(false);
+  // While the number shows, poll: at once when it first appears, then every
+  // SCIOTTE_NUMBER_MATCH_REPOLL_MS after a poll that answered it again, until
+  // the athlete's tap moves the sign-in on or the modal leaves the phase.
   useEffect(() => {
-    if (phase === 'number-match' && matchNumber && !pollingStarted) {
-      setPollingStarted(true);
-      handleSelect2FA('poll');
-    }
-    if (phase !== 'number-match') {
-      setPollingStarted(false);
-    }
-  }, [phase, matchNumber]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (phase !== 'number-match' || !matchNumber) return undefined;
+    const timer = setTimeout(
+      () => handleSelect2FA('poll'),
+      pollRound === 0 ? 0 : SCIOTTE_NUMBER_MATCH_REPOLL_MS
+    );
+    return () => clearTimeout(timer);
+  }, [phase, matchNumber, pollRound]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleOtpSubmit = useCallback(async () => {
     if (!otpCode) return;
