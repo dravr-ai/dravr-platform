@@ -26,7 +26,9 @@ use pierre_core::models::groups::GroupInvite;
 use pierre_core::models::{SignupCodeRedemption, SignupCodeSource, User, UserStatus};
 
 use super::AuthService;
-use crate::admin_ops::{activate_pending_sign_up, create_default_mcp_token_for_user};
+use crate::admin_ops::{
+    activate_pending_sign_up, create_default_mcp_token_for_user, AccountCaller,
+};
 use crate::import_tombstones::email_held;
 use crate::signup_codes::{self, invalid_signup_code};
 use crate::signup_policy::admit_signup_code;
@@ -311,7 +313,8 @@ impl AuthService {
     ) -> AppResult<User> {
         let repos = self.data.repos();
         let approver = self.existing_operator(granted_by).await;
-        let activation = activate_pending_sign_up(repos, user.id, approver).await?;
+        let rule = AccountCaller::sign_up_rule(approver);
+        let activation = activate_pending_sign_up(repos, &rule.acting_on(user.clone())?).await?;
         if !activation.activated {
             return Ok(activation.user);
         }

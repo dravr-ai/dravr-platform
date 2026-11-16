@@ -23,13 +23,15 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{normalize_email, User, UserStatus};
+use pierre_core::models::{normalize_email, UserStatus};
 use pierre_database::RepositoryRegistry;
 use serde::Serialize;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::admin_ops::{activate_pending_sign_up, create_default_mcp_token_for_user};
+use crate::admin_ops::{
+    activate_pending_sign_up, create_default_mcp_token_for_user, AccountCaller, ActingOn,
+};
 use crate::auth::AuthService;
 use crate::invitation;
 
@@ -201,32 +203,59 @@ pub struct AllowedEmail {
 /// side effect of allowing an address. That holds for an account suspended
 /// while the allow is being recorded too ([`approve_pending`]).
 ///
+/// `caller` is who allows the address; the allow is recorded against
+/// [`AccountCaller::recorded_as`]. Approving a pending account is acting on
+/// it, so a pending admin's address takes the caller approving that admin
+/// by id takes ([`AccountCaller::acting_on`]). The account is read, and
+/// that rule applied, before the address is checked for its form, so an
+/// address is refused for the account it names before anything else. An
+/// address with no account, or whose account is not pending, changes no
+/// account and is any caller's to allow.
+///
 /// # Errors
 ///
-/// Returns [`AppError::invalid_input`] for a malformed address or an account
-/// whose standing changed twice under the allow, or the repository's error
-/// when a lookup, the insert, or the status write fails.
+/// Returns a permission error for a pending admin's address and a caller
+/// that may not act on an admin account, [`AppError::invalid_input`] for a
+/// malformed address or an account whose standing changed twice under the
+/// allow, or the repository's error when a lookup, the insert, or the
+/// status write fails.
 pub async fn allow(
     repos: &RepositoryRegistry,
+    caller: &AccountCaller,
     email: &str,
-    allowed_by: Option<Uuid>,
     note: Option<&str>,
 ) -> AppResult<AllowResult> {
+    // SECURITY: Global lookup — an allow names an address, which is in no tenant
+    let account = repos.users.get_by_email(&normalize_email(email)).await?;
+    let (pending, decided) = match account {
+        Some(user) if user.user_status == UserStatus::Pending => {
+            (Some(caller.acting_on(user)?), None)
+        }
+        Some(user) if user.user_status == UserStatus::Active => {
+            (None, Some(AllowOutcome::AlreadyActive))
+        }
+        Some(_) => (None, Some(AllowOutcome::SuspendedUnchanged)),
+        None => (None, None),
+    };
     let email = valid_email(email)?;
 
-    if let Some(user) = repos.users.get_by_email(&email).await? {
-        let (outcome, approved_user) = match user.user_status {
-            UserStatus::Active => (AllowOutcome::AlreadyActive, None),
-            UserStatus::Suspended => (AllowOutcome::SuspendedUnchanged, None),
-            UserStatus::Pending => approve_pending(repos, &user, allowed_by).await?,
-        };
+    if let Some(acting) = pending {
+        let (outcome, approved_user) = approve_pending(repos, &acting).await?;
         return Ok(AllowResult {
             email,
             outcome,
             approved_user,
         });
     }
+    if let Some(outcome) = decided {
+        return Ok(AllowResult {
+            email,
+            outcome,
+            approved_user: None,
+        });
+    }
 
+    let allowed_by = caller.recorded_as();
     let added = repos
         .pre_approved_emails
         .allow(&email, allowed_by, note)
@@ -245,8 +274,8 @@ pub async fn allow(
     })
 }
 
-/// Approve the account `user`, which the allow read as pending: what the
-/// allow did, and the account to announce when it approved one.
+/// Approve the account `acting` names, which the allow read as pending:
+/// what the allow did, and the account to announce when it approved one.
 ///
 /// The approval lands only while the account is still pending
 /// ([`activate_pending_sign_up`]). An admin who decided the sign-up between
@@ -255,10 +284,10 @@ pub async fn allow(
 /// nobody and provisions nothing.
 async fn approve_pending(
     repos: &RepositoryRegistry,
-    user: &User,
-    allowed_by: Option<Uuid>,
+    acting: &ActingOn<'_>,
 ) -> AppResult<(AllowOutcome, Option<ApprovedUser>)> {
-    let activation = activate_pending_sign_up(repos, user.id, allowed_by).await?;
+    let user = acting.account();
+    let activation = activate_pending_sign_up(repos, acting).await?;
     if !activation.activated {
         return match activation.user.user_status {
             UserStatus::Active => Ok((AllowOutcome::AlreadyActive, None)),

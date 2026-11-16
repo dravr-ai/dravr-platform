@@ -34,7 +34,8 @@ use uuid::Uuid;
 /// Multi-tenant management repository
 #[async_trait]
 pub trait TenantRepository: Send + Sync {
-    /// Create a new tenant
+    /// Create a tenant with its owner as first member, in one transaction:
+    /// when either row cannot be written, neither is.
     async fn create(&self, tenant: &Tenant) -> AppResult<()>;
     /// Get tenant by ID
     async fn get_by_id(&self, tenant_id: TenantId) -> AppResult<Tenant>;
@@ -370,6 +371,12 @@ macro_rules! impl_tenant_repository {
             }
 
             async fn create(&self, tenant: &Tenant) -> AppResult<()> {
+                // One transaction: a tenant row whose owner could not be
+                // recorded is found by no read, which all join the owner,
+                // and keeps its slug from every later creation.
+                let mut tx = self.pool().begin().await.map_err(|e| {
+                    AppError::database(format!("Failed to begin a tenant creation: {e}"))
+                })?;
                 sqlx::query(CREATE_TENANT_SQL)
                     .bind(tenant.id)
                     .bind(&tenant.name)
@@ -378,7 +385,7 @@ macro_rules! impl_tenant_repository {
                     .bind(&tenant.plan)
                     .bind(tenant.created_at)
                     .bind(tenant.updated_at)
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| AppError::database(format!("Failed to create tenant: {e}")))?;
 
@@ -387,11 +394,14 @@ macro_rules! impl_tenant_repository {
                     .bind(tenant.id)
                     .bind($ids::bind(tenant.owner_user_id))
                     .bind(Utc::now())
-                    .execute(self.pool())
+                    .execute(&mut *tx)
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to add owner to tenant: {e}"))
                     })?;
+                tx.commit().await.map_err(|e| {
+                    AppError::database(format!("Failed to commit a tenant creation: {e}"))
+                })?;
 
                 info!(
                     "Created tenant: {} ({}) and added owner to tenant_users",

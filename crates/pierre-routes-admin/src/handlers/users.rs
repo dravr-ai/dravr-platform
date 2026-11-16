@@ -23,21 +23,17 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::pagination::{Cursor, PaginationParams};
 use pierre_database::backends::shared::enums::user_tier_to_str;
 use pierre_middleware::redaction::mask_email;
-use pierre_services::admin_ops::{self, AdminStandingLost};
+use pierre_services::admin_ops::{self, AccountCaller, AdminStandingLost};
 use pierre_services::analytics::cache_user_email;
 use pierre_services::onboarding_reset::kept_for_groups;
-use pierre_services::pre_approval;
 use pierre_services::user_removal::held_providers;
 
 use super::api_keys::json_response;
-use super::invitations::{self, send_invite_if_eligible};
 use super::linked_channels;
 use super::types::{
-    AdminResponse, AllowEmailRequest, ApproveUserRequest, ListUsersQuery, SuspendUserRequest,
-    UserActivityQuery,
+    AdminResponse, ApproveUserRequest, ListUsersQuery, SuspendUserRequest, UserActivityQuery,
 };
-use super::user_removal::{require_rank_over_target, require_rank_to_allow, status_write_target};
-use crate::audit::{record_withdrawn_credentials, AuditDetail};
+use super::user_removal::{require_within_token_tenant, status_write_target};
 use crate::context::AdminApiContext;
 
 /// User list response
@@ -111,7 +107,12 @@ pub(crate) const fn user_status_str(status: UserStatus) -> &'static str {
     }
 }
 
-/// Handle user listing
+/// Handle user listing.
+///
+/// A token scoped to one tenant lists the members of that tenant only, the
+/// accounts its read by id finds ([`user_read_scope`]); an admin's console
+/// session, a super-admin token and a token bound to no tenant list every
+/// tenant's.
 pub(crate) async fn handle_list_users(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -150,7 +151,7 @@ pub(crate) async fn handle_list_users(
     let page = ctx
         .repos
         .users
-        .get_by_status_cursor(status, &pagination)
+        .get_by_status_cursor(status, user_read_scope(&admin_token)?, &pagination)
         .await
         // Propagated as is: an unknown status is the caller's 400, not a 500.
         .inspect_err(|e| error!(error = %e, "Failed to fetch users from database"))?;
@@ -239,11 +240,7 @@ pub async fn handle_get_user(
     // A scoped token reads only the users of its tenant, and one outside it
     // answers 404 like a missing one, as the password reset does: the read
     // names the account's providers and its linked messaging identities.
-    let scope = if admin_token.is_super_admin {
-        None
-    } else {
-        token_tenant(&admin_token)?
-    };
+    let scope = user_read_scope(&admin_token)?;
     let user = admin_ops::find_user_in_admin_scope(&context.repos, scope, user_uuid)
         .await
         .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
@@ -318,7 +315,35 @@ pub async fn handle_get_user(
     ))
 }
 
-/// Handle pending users listing
+/// Every pending member of `tenant`, newest first: the pending list of a
+/// token scoped to one tenant, read through the listing the user list pages.
+async fn pending_members(ctx: &AdminApiContext, tenant: TenantId) -> AppResult<Vec<User>> {
+    let mut members = Vec::new();
+    let mut cursor = None;
+    loop {
+        let page = PaginationParams::forward(cursor, PENDING_MEMBERS_PAGE);
+        let page = ctx
+            .repos
+            .users
+            .get_by_status_cursor("pending", Some(tenant), &page)
+            .await?;
+        members.extend(page.items);
+        match page.next_cursor {
+            Some(next) if page.has_more => cursor = Some(next),
+            _ => return Ok(members),
+        }
+    }
+}
+
+/// How many accounts [`pending_members`] reads at a time.
+const PENDING_MEMBERS_PAGE: usize = 100;
+
+/// Handle pending users listing.
+///
+/// A token scoped to one tenant lists the pending members of that tenant
+/// only ([`user_read_scope`]). A sign-up is a member of no tenant until it
+/// is approved, so such a token is listed none of the sign-ups its read by
+/// id would not find either; every other caller lists them all.
 pub(crate) async fn handle_pending_users(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -341,15 +366,14 @@ pub(crate) async fn handle_pending_users(
 
     let ctx = context.as_ref();
 
-    let users = ctx
-        .repos
-        .users
-        .get_by_status("pending", None)
-        .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to fetch pending users from database");
-            AppError::internal(format!("Failed to fetch pending users: {e}"))
-        })?;
+    let users = match user_read_scope(&admin_token)? {
+        None => ctx.repos.users.get_by_status("pending", None).await,
+        Some(tenant) => pending_members(ctx, tenant).await,
+    }
+    .map_err(|e| {
+        error!(error = %e, "Failed to fetch pending users from database");
+        AppError::internal(format!("Failed to fetch pending users: {e}"))
+    })?;
 
     let user_summaries: Vec<UserSummary> = users.iter().map(UserSummary::from).collect();
 
@@ -369,6 +393,30 @@ pub(crate) async fn handle_pending_users(
         },
         StatusCode::OK,
     ))
+}
+
+/// The tenant a caller's reads of users are confined to, `None` for a
+/// caller that reads every tenant's.
+///
+/// One rule for the read of a user by id, the two lists and the per-user
+/// reads (rate limits, activity), and for which account a password reset
+/// finds before the rule of the writes decides it
+/// ([`handle_reset_user_password`]):
+/// an admin's console session, like a super-admin token, reads every user;
+/// a token scoped to one tenant reads the members of that tenant
+/// (`admin_ops::find_user_in_admin_scope`, the paged listing's tenant
+/// filter), and anyone else is answered as a missing account is. A token
+/// bound to no tenant names none and reads every tenant's users, as it
+/// acts on them (`user_removal`).
+///
+/// The scope decides which account is found, not what of it is shown: the
+/// read by id, the rate limits and the activity of a member answer for the
+/// whole account, its providers and channels in other tenants included.
+pub(super) fn user_read_scope(token: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
+    if token.is_super_admin {
+        return Ok(None);
+    }
+    token_tenant(token)
 }
 
 /// The tenant an admin token acts in: a console session's active tenant, or
@@ -392,7 +440,7 @@ pub(super) fn token_tenant(token: &ValidatedAdminToken) -> AppResult<Option<Tena
 /// `user_email` when the record carries `user_id` and that id resolves — an
 /// approved account is not otherwise guaranteed to be cached, and without both
 /// the Slack message loses the subject entirely.
-async fn announce_approval(
+pub(super) async fn announce_approval(
     ctx: &AdminApiContext,
     user_id: &str,
     user_uuid: Uuid,
@@ -465,23 +513,20 @@ pub(crate) async fn handle_approve_user(
     );
 
     let ctx = context.as_ref();
+    let caller = AccountCaller::of_token(&admin_token);
     // Approving a suspended admin hands back every power, so it takes the
     // rank suspending one does, and sets the account active in every tenant
     // it is in, so it takes the token's tenant too.
-    let user_uuid = status_write_target(ctx, &admin_token, &user_id).await?;
+    let acting = status_write_target(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
 
     // One approval path for the CLI and the console: the operator behind the
     // token is recorded as the approver, and the user joins the tenant the
     // approver works in. Whether an approved user needs a tenant of their own
     // is decided by the user, not by an operator's request body — the Slack
     // approval path provisions one only `if !has_tenants` (registre#407).
-    let updated_user = admin_ops::approve_user(
-        &ctx.repos,
-        admin_token.operator_user_id,
-        token_tenant(&admin_token)?,
-        user_uuid,
-    )
-    .await?;
+    let updated_user =
+        admin_ops::approve_user(&ctx.repos, &acting, token_tenant(&admin_token)?).await?;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
@@ -492,7 +537,7 @@ pub(crate) async fn handle_approve_user(
         user_uuid,
         &updated_user.email,
         updated_user.display_name.as_deref(),
-        &admin_token.service_name,
+        caller.name(),
     )
     .await;
 
@@ -549,32 +594,28 @@ pub(crate) async fn handle_suspend_user(
     );
 
     let ctx = context.as_ref();
+    let caller = AccountCaller::of_token(&admin_token);
     // Suspending an admin withdraws its device logins and impersonations, so
     // it takes the rank removing one does: a token without the super-admin
     // flag suspends users, never the admins above it. And it signs the
     // account out of every tenant it is in, so it takes the token's tenant.
-    let user_uuid = status_write_target(ctx, &admin_token, &user_id).await?;
+    let acting = status_write_target(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
 
     // Shared get/guard/update-status core (no tenant step on suspension); the
     // operator behind the token is recorded against the transition, and is
     // the actor an admin's own suspension is refused to: a console session
     // or a device login acts as its admin, a service token as no one.
-    let transition = admin_ops::transition_user_status(
-        &ctx.repos,
-        user_uuid,
-        UserStatus::Suspended,
-        admin_token.operator_user_id,
-        admin_token.operator_user_id,
-    )
-    .await?;
-    record_withdrawn_credentials(
-        &ctx.repos,
-        &admin_token,
-        &transition.withdrawn,
-        AdminStandingLost::Deactivated,
-        Some(user_uuid),
-    )
-    .await;
+    let transition =
+        admin_ops::transition_user_status(&ctx.repos, &acting, UserStatus::Suspended).await?;
+    caller
+        .record_withdrawn(
+            &ctx.repos,
+            &transition.withdrawn,
+            AdminStandingLost::Deactivated,
+            Some(user_uuid),
+        )
+        .await;
     let updated_user = transition.user;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
@@ -588,7 +629,7 @@ pub(crate) async fn handle_suspend_user(
         target: "notify",
         event = "user.suspended",
         user_id = %user_id,
-        suspended_by = %admin_token.service_name,
+        suspended_by = %caller.name(),
         "user account suspended"
     );
 
@@ -616,6 +657,13 @@ pub(crate) async fn handle_suspend_user(
 /// delivers the token to the user, who then calls `POST /api/auth/complete-reset`
 /// with the token and their chosen new password. The token expires after 1 hour
 /// and can only be used once.
+///
+/// A token scoped to one tenant finds the account as its reads do, a member
+/// of its tenant ([`user_read_scope`]), and is handed a reset token as it
+/// suspends or deletes: only for a user held entirely within that tenant
+/// (`require_within_token_tenant`, 403 otherwise, nothing issued). Whoever
+/// holds the reset token signs in as the whole account, in every tenant it
+/// is in.
 pub(crate) async fn handle_reset_user_password(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -650,23 +698,23 @@ pub(crate) async fn handle_reset_user_password(
     // user; a scoped token reaches only the users of the tenant it acts in (a
     // platform-wide token names none), and a user outside it answers 404
     // exactly like a missing one.
-    let scope = if admin_token.is_super_admin {
-        None
-    } else {
-        token_tenant(&admin_token)?
-    };
+    let scope = user_read_scope(&admin_token)?;
     let user = admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid)
         .await
         .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
     // The reset token signs its holder in as the account, so a token without
     // the super-admin flag is handed none for an admin (403).
-    require_rank_over_target(&admin_token, &user)?;
+    let caller = AccountCaller::of_token(&admin_token);
+    let acting = caller.acting_on(user)?;
+    // A write to the whole account, so it takes the tenant rule of the
+    // other writes, in their order: after the rank.
+    let held = held_providers(&ctx.repos, user_uuid).await?;
+    require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
+    let user = acting.account();
 
     // Audit identity: the operator when the token names one, else the service.
-    let reset_by = admin_token
-        .operator_user_id
-        .map_or_else(|| admin_token.service_name.clone(), |id| id.to_string());
-    let raw_token = admin_ops::issue_password_reset_token(&ctx.repos, user_uuid, &reset_by).await?;
+    let reset_by = caller.audit_name();
+    let raw_token = admin_ops::issue_password_reset_token(&ctx.repos, &acting).await?;
 
     info!(
         "Password reset token issued for user {} by token {}",
@@ -691,7 +739,10 @@ pub(crate) async fn handle_reset_user_password(
     ))
 }
 
-/// Handle getting rate limit info for a user
+/// Handle getting rate limit info for a user.
+///
+/// A token scoped to one tenant reads a member of that tenant only; anyone
+/// else answers 404, as a missing account does ([`user_read_scope`]).
 pub(crate) async fn handle_get_user_rate_limit(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -715,6 +766,8 @@ pub(crate) async fn handle_get_user_rate_limit(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
+    let scope = user_read_scope(&admin_token)?;
+    admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid).await?;
     let limits = admin_ops::compute_user_rate_limits(&ctx.repos, user_uuid).await?;
 
     Ok(json_response(
@@ -727,7 +780,10 @@ pub(crate) async fn handle_get_user_rate_limit(
     ))
 }
 
-/// Handle getting user activity logs
+/// Handle getting user activity logs.
+///
+/// A token scoped to one tenant reads a member of that tenant only; anyone
+/// else answers 404, as a missing account does ([`user_read_scope`]).
 pub(crate) async fn handle_get_user_activity(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -752,6 +808,8 @@ pub(crate) async fn handle_get_user_activity(
     let user_uuid = Uuid::parse_str(&user_id)
         .map_err(|e| AppError::invalid_input(format!("Invalid user ID format: {e}")))?;
 
+    let scope = user_read_scope(&admin_token)?;
+    admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid).await?;
     let activity = admin_ops::compute_user_activity(&ctx.repos, user_uuid, params.days).await?;
 
     Ok(json_response(
@@ -1003,194 +1061,4 @@ pub(crate) fn deny_without_manage_users(token: &ValidatedAdminToken) -> Option<i
             StatusCode::FORBIDDEN,
         )
     })
-}
-
-/// `GET /admin/pre-approved-emails` — the standing allow-list.
-pub(crate) async fn handle_list_pre_approved_emails(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-) -> AppResult<impl IntoResponse> {
-    if let Some(denied) = deny_without_manage_users(&admin_token) {
-        return Ok(denied.into_response());
-    }
-
-    let entries = pre_approval::list(&context.repos).await?;
-
-    info!(
-        count = entries.len(),
-        token_id = %admin_token.token_id,
-        "Pre-approved emails listed"
-    );
-
-    Ok(json_response(
-        AdminResponse {
-            success: true,
-            message: format!("{} pre-approved email(s)", entries.len()),
-            data: to_value(json!({
-                "emails": entries,
-                "total": entries.len(),
-            }))
-            .ok(),
-        },
-        StatusCode::OK,
-    )
-    .into_response())
-}
-
-/// `POST /admin/pre-approved-emails` — pre-approve one address.
-///
-/// The address needs no account: that is what a standing allow is for. When an
-/// account does exist and is pending, the allow approves it now, and the user
-/// is notified through the same announcement path as `POST /admin/approve-user`.
-pub(crate) async fn handle_allow_email(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Json(request): Json<AllowEmailRequest>,
-) -> AppResult<impl IntoResponse> {
-    if let Some(denied) = deny_without_manage_users(&admin_token) {
-        return Ok(denied.into_response());
-    }
-
-    let ctx = context.as_ref();
-    // Refused before anything is written: a link answered to the caller is
-    // super-admin only (see the invitations module).
-    let delivery = match invitations::delivery(ctx, &request, &admin_token) {
-        Ok(delivery) => delivery,
-        Err(refused) => return Ok(*refused),
-    };
-    // An allow approves a pending account on the spot, so it takes the rank
-    // approving one by id does: a token without the flag approves no admin.
-    require_rank_to_allow(ctx, &admin_token, &request.email).await?;
-    // The operator behind the token — the approving admin of a device
-    // login, the admin of a console session. A service token names no person,
-    // so `allowed_by` stays NULL rather than attributing its allow to some
-    // arbitrary admin account.
-    let allowed_by = admin_token.operator_user_id;
-    let result = pre_approval::allow(
-        &ctx.repos,
-        &request.email,
-        allowed_by,
-        request.note.as_deref(),
-    )
-    .await?;
-
-    if let Some(approved) = result.approved_user.as_ref() {
-        announce_approval(
-            ctx,
-            &approved.id.to_string(),
-            approved.id,
-            &approved.email,
-            approved.display_name.as_deref(),
-            &admin_token.service_name,
-        )
-        .await;
-    }
-
-    let invite =
-        send_invite_if_eligible(ctx, &result, request.send_invite, &delivery, &admin_token).await?;
-    let invited = invite.invited();
-    let recipient = mask_email(&result.email);
-
-    info!(
-        %recipient,
-        outcome = ?result.outcome,
-        send_invite = request.send_invite,
-        invited,
-        token_id = %admin_token.token_id,
-        "Pre-approval allow recorded"
-    );
-
-    // The address is in the body, which the audit recorder never reads.
-    let audit = AuditDetail::new(
-        "pre_approval.allow",
-        format!("Pre-approved {}", result.email),
-    )
-    .target(json!({
-        "email": result.email,
-        "outcome": format!("{:?}", result.outcome),
-        "invited": invited,
-    }));
-    Ok(audit.attach(
-        json_response(
-            AdminResponse {
-                success: true,
-                message: format!("{}{}", result.message(), invite.sentence()),
-                data: Some(allow_data(&result, &invite)),
-            },
-            StatusCode::OK,
-        )
-        .into_response(),
-    ))
-}
-
-/// The allow's answer body; `invite_url` appears only when the link was asked
-/// for and issued.
-fn allow_data(result: &pre_approval::AllowResult, invite: &invitations::InviteReport) -> Value {
-    let mut data = json!({
-        "email": result.email,
-        "outcome": result.outcome,
-        "approved_user_id": result.approved_user.as_ref().map(|u| u.id.to_string()),
-        "invited": invite.invited(),
-        "invitation_expires_at": invite.expires_at().map(|t| t.to_rfc3339()),
-    });
-    if let (Some(url), Some(fields)) = (invite.invite_url(), data.as_object_mut()) {
-        fields.insert("invite_url".to_owned(), Value::String(url.to_owned()));
-    }
-    data
-}
-
-/// `DELETE /admin/pre-approved-emails/{email}` — drop a standing allow, and
-/// revoke the invitation link sent with it.
-///
-/// An account that already registered against the address keeps whatever
-/// status it holds; removing the allow only stops a *future* registration from
-/// skipping the queue, or an outstanding invitation from creating one.
-pub(crate) async fn handle_disallow_email(
-    State(context): State<Arc<AdminApiContext>>,
-    Extension(admin_token): Extension<ValidatedAdminToken>,
-    Path(email): Path<String>,
-) -> AppResult<impl IntoResponse> {
-    if let Some(denied) = deny_without_manage_users(&admin_token) {
-        return Ok(denied.into_response());
-    }
-
-    let result = pre_approval::disallow(&context.repos, &email).await?;
-
-    info!(
-        removed = result.removed,
-        token_id = %admin_token.token_id,
-        "Pre-approval removal processed"
-    );
-
-    // Said plainly: removing a pre-approval never deletes an account, and an
-    // operator once read this action as a user delete (carnet#1391).
-    let audit = AuditDetail::new(
-        "pre_approval.remove",
-        format!(
-            "Removed the pre-approval of {} (no account deleted)",
-            result.email
-        ),
-    )
-    .target(json!({
-        "email": result.email,
-        "removed": result.removed,
-        "account_status": result.account_status,
-    }));
-    Ok(audit.attach(
-        json_response(
-            AdminResponse {
-                success: true,
-                message: result.message(),
-                data: to_value(json!({
-                    "email": result.email,
-                    "removed": result.removed,
-                    "invitation_revoked": result.invitation_revoked,
-                    "account_status": result.account_status,
-                }))
-                .ok(),
-            },
-            StatusCode::OK,
-        )
-        .into_response(),
-    ))
 }

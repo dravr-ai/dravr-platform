@@ -18,7 +18,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::common;
+use crate::common::{self, acting_on};
 use pierre_config::environment::ProviderEndpointOverride;
 use secrecy::ExposeSecret;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -53,7 +53,7 @@ use pierre_core::models::{
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
 use pierre_database::backends::factory::DatabaseBackend;
-use pierre_database::repositories::{athlete_marker, DeletionActor};
+use pierre_database::repositories::athlete_marker;
 use pierre_database::RepositoryRegistry;
 #[cfg(feature = "client-chat")]
 use pierre_llm::ChatMessage;
@@ -63,6 +63,7 @@ use pierre_mcp_server::services::health_sync_refresher::install_health_sync_refr
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_routes_auth::AuthRoutes;
 use pierre_runtime_context::IdentityCtx;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::import_tombstones::{clear_for_account, refused_tombstone_id};
 use pierre_services::oauth_flow::{AuthUrlOptions, OAuthService};
 use pierre_services::oauth_redirects::oauth_failure_url;
@@ -2275,8 +2276,7 @@ async fn a_strava_account_of_a_deleted_account_is_refused_until_cleared() {
         Some(&service),
         None,
         Some(resources.data().cache().as_ref()),
-        deleted,
-        DeletionActor::Athlete,
+        &acting_on(repos, &AccountCaller::account_holder(), deleted).await,
     )
     .await
     .unwrap() else {

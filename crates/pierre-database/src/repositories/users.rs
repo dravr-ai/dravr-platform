@@ -33,11 +33,13 @@ use pierre_core::models::{
     CoachingPersona, OperatorRosterGrant, User, UserReference, UserStatus, UserTier,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
-use serde_json::Value;
 use std::collections::HashMap;
 use uuid::Uuid;
 
+mod listing_status;
 mod tokens;
+pub use listing_status::ALL_USER_STATUSES;
+pub(crate) use listing_status::{listing_status_filter, user_status_filter};
 pub use tokens::{EmailVerificationRepository, PasswordResetRepository};
 
 use super::admin_standing::{StandingWrite, WithdrawnAdminCredentials};
@@ -61,9 +63,9 @@ pub trait UserRepository: Send + Sync {
     ///
     /// Every mutable column is written, so the caller must hand a `User` it loaded
     /// and then modified. `email` and `created_at` are not writable. This is the
-    /// escape hatch for callers changing several fields at once (Firebase account
-    /// linking, `pierre-cli user create --force`); single-field changes keep their
-    /// dedicated setters below.
+    /// escape hatch for a caller changing several fields at once (`pierre-cli
+    /// user create --force`); a single-field change keeps its dedicated setter
+    /// below, and a federated link its own write ([`Self::link_federated_identity`]).
     ///
     /// The role decides who is an admin, as [`UserRepository::create`] writes
     /// it. A write that would take the last active admin out of that standing
@@ -76,6 +78,19 @@ pub trait UserRepository: Send + Sync {
     /// impersonations it opened, which are returned, and a row left with the
     /// admin role is no longer impersonated by anyone.
     async fn update(&self, user: &User) -> AppResult<WithdrawnAdminCredentials>;
+    /// Link a federated identity to the account `user_id`: one statement
+    /// that writes what the link owns ([`FederatedLink`]) and stamps
+    /// `last_active`, as every write on the row does.
+    ///
+    /// The account's role, status and `is_active` flag are not written, so
+    /// the link cannot undo a suspension, a demotion or a promotion that
+    /// landed since its caller read the account. The row comes back as the
+    /// write left it, `None` for an id that is no account.
+    async fn link_federated_identity(
+        &self,
+        user_id: Uuid,
+        link: &FederatedLink<'_>,
+    ) -> AppResult<Option<User>>;
     /// Get user by ID, scoped to a specific tenant for multi-tenant isolation
     async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>>;
     /// Get user by ID without tenant scoping (for system-level operations)
@@ -104,10 +119,12 @@ pub trait UserRepository: Send + Sync {
         tenant_id: Option<TenantId>,
     ) -> AppResult<Vec<User>>;
     /// Get users by status with cursor-based pagination; the status
-    /// [`ALL_USER_STATUSES`] pages every account
+    /// [`ALL_USER_STATUSES`] pages every account. `tenant_id` keeps the
+    /// members of one tenant, whatever the status; `None` pages every tenant
     async fn get_by_status_cursor(
         &self,
         status: &str,
+        tenant_id: Option<TenantId>,
         params: &PaginationParams,
     ) -> AppResult<CursorPage<User>>;
     /// Update user status and approval information.
@@ -270,25 +287,19 @@ pub trait UserRepository: Send + Sync {
     async fn set_tier(&self, user_id: Uuid, tier: UserTier) -> AppResult<User>;
 }
 
-/// User profiles, goals, and configuration repository
-#[async_trait]
-pub trait ProfileRepository: Send + Sync {
-    /// Upsert user profile data
-    async fn upsert_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()>;
-    /// Get user profile data
-    async fn get_profile(&self, user_id: Uuid) -> AppResult<Option<Value>>;
-    /// Create a new goal for a user, returning the generated goal id.
-    ///
-    /// The id is also embedded into the stored `goal_data` under `goal_id`,
-    /// so every goal a [`Self::get_goals`] read returns identifies itself —
-    /// progress tracking looks goals up by that key.
-    async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String>;
-    /// Get all goals for a user
-    async fn get_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>>;
-    /// Get user configuration data
-    async fn get_configuration(&self, user_id: &str) -> AppResult<Option<String>>;
-    /// Save user configuration data
-    async fn save_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()>;
+/// What a first federated sign-in writes on the account it links to: the
+/// columns the link owns ([`UserRepository::link_federated_identity`]).
+#[derive(Debug, Clone, Copy)]
+pub struct FederatedLink<'identity> {
+    /// The Firebase UID the sign-in carries, when it carries one.
+    pub firebase_uid: Option<&'identity str>,
+    /// The sign-in provider, recorded as the account's `auth_provider`.
+    pub auth_provider: &'identity str,
+    /// The marker that replaces the password of an account whose earlier
+    /// credentials are retired, `None` when they are kept. Retired, the
+    /// Firebase UID becomes exactly `firebase_uid`; kept, a sign-in that
+    /// carries none leaves an earlier one.
+    pub retired_password_hash: Option<&'identity str>,
 }
 
 /// The columns every [`User`] read lists, in the order [`CREATE_USER_SQL`]
@@ -401,35 +412,6 @@ macro_rules! admin_removal_lock_sql {
     };
 }
 pub(crate) use admin_removal_lock_sql;
-
-/// The status strings a listing may ask for.
-///
-/// # Errors
-/// Returns an invalid-input error for any other string.
-pub(crate) fn user_status_filter(status: &str) -> AppResult<&str> {
-    match status {
-        "active" | "pending" | "suspended" => Ok(status),
-        _ => Err(AppError::invalid_input(format!(
-            "Invalid user status: {status}"
-        ))),
-    }
-}
-
-/// The listing status that selects every account, whatever its status. The
-/// paged SQL above spells the same literal.
-pub const ALL_USER_STATUSES: &str = "all";
-
-/// The status strings a paged listing may ask for: one status, or
-/// [`ALL_USER_STATUSES`].
-///
-/// # Errors
-/// Returns an invalid-input error for any other string.
-pub(crate) fn listing_status_filter(status: &str) -> AppResult<&str> {
-    if status == ALL_USER_STATUSES {
-        return Ok(status);
-    }
-    user_status_filter(status)
-}
 
 /// Decode one `users` row. The two uuid columns are read by the caller
 /// through its backend's codec; every other column decodes the same way on
@@ -730,6 +712,24 @@ macro_rules! impl_user_repository {
                 Ok(withdrawn)
             }
 
+            async fn link_federated_identity(
+                &self,
+                user_id: Uuid,
+                link: &FederatedLink<'_>,
+            ) -> AppResult<Option<User>> {
+                let row = sqlx::query(LINK_FEDERATED_IDENTITY_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind(link.firebase_uid)
+                    .bind(link.auth_provider)
+                    .bind(link.retired_password_hash)
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to link a federated identity: {e}"))
+                    })?;
+                row.as_ref().map(Self::user_row).transpose()
+            }
+
             async fn get(&self, user_id: Uuid, tenant_id: TenantId) -> AppResult<Option<User>> {
                 let row = sqlx::query(GET_USER_IN_TENANT_SQL)
                     .bind($ids::bind(user_id))
@@ -862,6 +862,7 @@ macro_rules! impl_user_repository {
             async fn get_by_status_cursor(
                 &self,
                 status: &str,
+                tenant_id: Option<TenantId>,
                 params: &PaginationParams,
             ) -> AppResult<CursorPage<User>> {
                 let status = listing_status_filter(status)?;
@@ -878,6 +879,7 @@ macro_rules! impl_user_repository {
                         .bind(timestamp)
                         .bind($ids::bind_text(&id)?)
                         .bind(fetch_limit)
+                        .bind(tenant_id)
                         .fetch_all(self.pool())
                         .await
                         .map_err(|e| {
@@ -889,6 +891,7 @@ macro_rules! impl_user_repository {
                     sqlx::query(USERS_BY_STATUS_PAGE_SQL)
                         .bind(status)
                         .bind(fetch_limit)
+                        .bind(tenant_id)
                         .fetch_all(self.pool())
                         .await
                         .map_err(|e| {

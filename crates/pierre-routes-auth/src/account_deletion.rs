@@ -47,7 +47,7 @@ use pierre_auth::password::verify_password;
 use pierre_auth::security::cookies::clear_auth_cookie;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{normalize_email, User, UserReference, FEDERATED_ONLY_PASSWORD_HASH};
-use pierre_database::repositories::DeletionActor;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::user_removal::{self, UserRemoval};
 
@@ -242,13 +242,13 @@ pub(crate) async fn handle_delete_account(
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     let firebase = FirebaseIdentityDeleter::from_config(&resources.config.firebase);
+    let holder = AccountCaller::account_holder();
     let outcome = user_removal::remove_user(
         &resources.repos,
         Some(&oauth_service),
         firebase.as_ref(),
         Some(resources.cache.as_ref()),
-        user_id,
-        DeletionActor::Athlete,
+        &holder.acting_on(user)?,
     )
     .await?;
 

@@ -7,11 +7,12 @@
 import { test, expect, type Page } from '@playwright/test';
 import {
   createAndLoginAsAdmin,
+  createAndLoginTestUser,
   navigateToTab,
   waitForDashboardLoad,
   getBackendUrl,
 } from '../helpers';
-import { timeouts } from '../fixtures';
+import { testUsers, timeouts } from '../fixtures';
 
 /**
  * The header a signed-in browser sends on every write. The session is the
@@ -232,5 +233,72 @@ test.describe('Admin Configuration Integration Tests', () => {
 
       expect(response.status()).toBe(401);
     });
+  });
+});
+
+/**
+ * The admin configuration surface belongs to an admin. A plain user who is
+ * signed in holds a real session, so the refusal is 403 with the admin
+ * guard's sentence, never the 401 a missing session gets: the user is known
+ * and is not allowed.
+ */
+test.describe('Admin Configuration: a signed-in plain user', () => {
+  /** What the admin guard answers a signed-in account that is not an admin. */
+  const ADMIN_REQUIRED = 'Admin privileges required';
+
+  test.beforeEach(async ({ page }) => {
+    const loginResult = await createAndLoginTestUser(page, testUsers.regularUser);
+    expect(loginResult.error, 'the plain user signs in').toBeUndefined();
+    expect(loginResult.success).toBe(true);
+  });
+
+  test('is refused the configuration catalog with 403', async ({ page }) => {
+    const backendUrl = getBackendUrl();
+
+    const response = await page.request.get(`${backendUrl}/api/admin/config/catalog`);
+
+    expect(response.status()).toBe(403);
+    const body = await response.json();
+    expect(body.message).toBe(ADMIN_REQUIRED);
+    expect(body.data, 'a refusal carries no catalog').toBeUndefined();
+  });
+
+  test('is refused the current configuration with 403', async ({ page }) => {
+    const backendUrl = getBackendUrl();
+
+    const response = await page.request.get(`${backendUrl}/api/admin/config`);
+
+    expect(response.status()).toBe(403);
+    expect((await response.json()).message).toBe(ADMIN_REQUIRED);
+  });
+
+  test('is refused a configuration update with 403', async ({ page }) => {
+    const backendUrl = getBackendUrl();
+
+    // The write header a session sends, so the refusal is the handler's and not the CSRF check's 401
+    const response = await page.request.put(`${backendUrl}/api/admin/config`, {
+      headers: await csrfHeader(page),
+      data: {
+        parameters: { 'usage_quotas.max_coaches_per_user': 4 },
+        reason: 'carnet#1589: a plain user is refused',
+      },
+    });
+
+    expect(response.status()).toBe(403);
+    expect((await response.json()).message).toBe(ADMIN_REQUIRED);
+  });
+
+  test('is refused a configuration reset with 403', async ({ page }) => {
+    const backendUrl = getBackendUrl();
+
+    const response = await page.request.post(`${backendUrl}/api/admin/config/reset`, {
+      headers: await csrfHeader(page),
+      data: {
+        category: 'usage_quotas',
+      },
+    });
+
+    expect(response.status()).toBe(403);
+    expect((await response.json()).message).toBe(ADMIN_REQUIRED);
   });
 });

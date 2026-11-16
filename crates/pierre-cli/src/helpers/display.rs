@@ -75,6 +75,24 @@ pub(crate) fn display_generated_token(token: &GeneratedAdminToken) {
     println!("\nSuccess Token is ready to use!");
 }
 
+/// Display the success message for a plain account `user create --role
+/// user` made or re-asserted
+pub(crate) fn display_plain_user_success(email: &str, name: &str) {
+    println!("\nSuccess User Created Successfully!");
+    println!("{}", "=".repeat(50));
+    println!("User USER DETAILS:");
+    println!("   Email: {email}");
+    println!("   Name: {name}");
+    println!("   Role: User (no admin access)");
+    println!("   Status: Active");
+
+    println!("\nKey LOGIN CREDENTIALS:");
+    println!("{}", "=".repeat(50));
+    println!("   Email: {email}");
+    println!("   Password: (the one you just entered — not echoed for security)");
+    println!("\nSuccess User is ready to use!");
+}
+
 /// Display admin user creation success message
 pub(crate) fn display_admin_user_success(email: &str, name: &str) {
     println!("\nSuccess Admin User Created Successfully!");

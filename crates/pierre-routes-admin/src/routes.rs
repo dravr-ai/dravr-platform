@@ -30,8 +30,8 @@ use crate::handlers::{
     admin_rate_limit_override, admin_scope, api_keys, audit_trail, barrage, claim_verdicts,
     coach_access, coach_seat_invitations, connect_order, deletion_ledger, device_auth, device_web,
     engagement, feature_flags, guardian_config, harness_config, memory_worker, new_users,
-    provider_clone, provider_data, settings, setup, signup_codes, strava_pool, tokens,
-    user_removal, user_role, users, website,
+    pre_approved_emails, provider_clone, provider_data, settings, setup, signup_codes, strava_pool,
+    tokens, user_removal, user_role, users, website,
 };
 
 /// Admin routes implementation (Axum).
@@ -374,11 +374,12 @@ impl AdminRoutes {
             )
             .route(
                 "/admin/pre-approved-emails",
-                get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
+                get(pre_approved_emails::handle_list_pre_approved_emails)
+                    .post(pre_approved_emails::handle_allow_email),
             )
             .route(
                 "/admin/pre-approved-emails/{email}",
-                delete(users::handle_disallow_email),
+                delete(pre_approved_emails::handle_disallow_email),
             )
             .route(
                 "/admin/signup-codes",
@@ -483,11 +484,12 @@ impl AdminRoutes {
             )
             .route(
                 "/api/admin/pre-approved-emails",
-                get(users::handle_list_pre_approved_emails).post(users::handle_allow_email),
+                get(pre_approved_emails::handle_list_pre_approved_emails)
+                    .post(pre_approved_emails::handle_allow_email),
             )
             .route(
                 "/api/admin/pre-approved-emails/{email}",
-                delete(users::handle_disallow_email),
+                delete(pre_approved_emails::handle_disallow_email),
             )
             .route(
                 "/api/admin/signup-codes",

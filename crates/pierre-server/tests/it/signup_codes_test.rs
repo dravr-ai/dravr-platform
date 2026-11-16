@@ -33,7 +33,9 @@ use axum::extract::connect_info::MockConnectInfo;
 use axum::http::StatusCode;
 use axum::Router;
 use chrono::{Duration, Utc};
-use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
+use common::{
+    acting_on, create_test_server_resources, create_test_user_with_plan, generate_test_token,
+};
 use helpers::axum_test::AxumTestRequest;
 use helpers::notify_capture::{capture_logs_and_spans, capture_notify, named};
 use pierre_config::constants::oauth_rate_limiting::SIGNUP_CODE_ATTEMPTS;
@@ -43,13 +45,13 @@ use pierre_core::models::agents::CreateAgentRequest;
 use pierre_core::models::{CreateGroupRequest, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::database::system_settings::SETTING_SIGNUP_DAILY_LIMIT_RESET_AT;
-use pierre_database::repositories::DeletionActor;
 use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes};
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::GroupRoutes;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::signup_codes::{self, hash_code, normalize_code, MintRequest};
 use pierre_services::signup_policy::{set_signup_policy, SignupPolicyUpdate, SIGNUP_PAUSED};
 use pierre_services::user_removal::remove_user;
@@ -487,9 +489,15 @@ async fn a_suspended_account_or_a_deleted_accounts_address_cannot_redeem() {
     // A deleted account tombstones its address.
     register(auth_routes(&resources), "returning@example.com", None).await;
     let deleted = account(&resources, "returning@example.com").await;
-    remove_user(repos, None, None, None, deleted.id, DeletionActor::Athlete)
-        .await
-        .unwrap();
+    remove_user(
+        repos,
+        None,
+        None,
+        None,
+        &acting_on(repos, &AccountCaller::account_holder(), deleted.id).await,
+    )
+    .await
+    .unwrap();
     register(auth_routes(&resources), "returning@example.com", None).await;
     let newcomer = account(&resources, "returning@example.com").await;
     repos
@@ -1261,9 +1269,15 @@ async fn a_code_at_a_deleted_accounts_address_waits_for_review_once_and_spends_n
         .unwrap();
     register(auth_routes(&resources), "held@example.com", None).await;
     let deleted = account(&resources, "held@example.com").await;
-    remove_user(repos, None, None, None, deleted.id, DeletionActor::Athlete)
-        .await
-        .unwrap();
+    remove_user(
+        repos,
+        None,
+        None,
+        None,
+        &acting_on(repos, &AccountCaller::account_holder(), deleted.id).await,
+    )
+    .await
+    .unwrap();
 
     let (events, guard) = capture_notify();
     let (status, body) = register(

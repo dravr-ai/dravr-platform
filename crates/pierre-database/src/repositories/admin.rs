@@ -53,6 +53,30 @@ impl fmt::Debug for TokenRotation<'_> {
     }
 }
 
+/// What became of a token someone asked to revoke
+/// ([`AdminRepository::deactivate_token`]).
+///
+/// A rotation retires a token as a revocation does, and mints a replacement
+/// that is still live: revoking the old token again ends nothing. The three
+/// answers are what the admin API and `pierre-cli token revoke` tell apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TokenRevocation {
+    /// The token was live, and this call retired it.
+    Revoked,
+    /// No live token has that id and none names a replacement: the token
+    /// was revoked earlier, withdrawn with its admin's standing, or rotated
+    /// before `admin_tokens.rotated_to_token_id` existed, which cannot be
+    /// told from a revocation; or the id is no token's, which the store
+    /// answers without an error. Nothing was written.
+    AlreadyRevoked,
+    /// A rotation retired the token and minted `replacement`, which this
+    /// call left as it is. Nothing was written.
+    Rotated {
+        /// The id of the token the rotation minted in its place.
+        replacement: String,
+    },
+}
+
 /// Admin token management repository.
 ///
 /// A permission surface, and a global one: admin tokens authenticate the
@@ -72,15 +96,29 @@ pub trait AdminRepository: Send + Sync {
     async fn get_token_by_id(&self, token_id: &str) -> AppResult<Option<AdminToken>>;
     /// List all admin tokens (super admin only)
     async fn list_tokens(&self, include_inactive: bool) -> AppResult<Vec<AdminToken>>;
-    /// Deactivate admin token
-    async fn deactivate_token(&self, token_id: &str) -> AppResult<()>;
+    /// Revoke a token: retire it while it is live, in one guarded statement
+    /// (`… WHERE id = $1 AND is_active = TRUE`), and say what the call
+    /// found ([`TokenRevocation`]).
+    ///
+    /// A token that was not live is read after the statement that left it
+    /// alone, so a rotation that commits between a caller's own read and
+    /// this call is answered as a rotation: the caller is told the
+    /// replacement instead of being told it revoked something. An id that
+    /// is no token's is no error here: a caller that owes its own caller a
+    /// 404 reads the token first, as the admin API and `pierre-cli` do.
+    ///
+    /// # Errors
+    /// Returns a database error when a statement fails.
+    async fn deactivate_token(&self, token_id: &str) -> AppResult<TokenRevocation>;
     /// Rotate a token: retire it and mint its replacement, in one
     /// transaction, so there is no moment in which the old token is gone
     /// and the new one is not there, and none in which both are live.
     ///
     /// The transaction claims the old row only while it is live (one
-    /// `UPDATE … WHERE id = $1 AND is_active = TRUE`), reads it back as
-    /// claimed, and builds the replacement from that row, never from
+    /// `UPDATE … WHERE id = $1 AND is_active = TRUE`), writing on it the id
+    /// the replacement is about to be minted under
+    /// (`rotated_to_token_id`), reads it back as claimed, and builds the
+    /// replacement from that row, never from
     /// `rotation.checked`, through the one definition of what a rotation
     /// carries over ([`CreateAdminTokenRequest::rotation_of`]). So a name an
     /// account deletion rewrote since the caller's read is the name the
@@ -158,6 +196,25 @@ pub trait AdminRepository: Send + Sync {
     /// Every other token keeps both, a revoked one included: the request in
     /// flight when a leaked token is revoked is the one whose address
     /// matters.
+    ///
+    /// # Against a concurrent account deletion
+    ///
+    /// The write and the deletion are ordered on the token's row, so no row
+    /// is left with a caller under a deleted account's login whichever
+    /// comes first. The deletion retires the login, then scrubs the log
+    /// under it, in one transaction (`super::account_deletion`). This
+    /// statement reads the token's row under a lock that waits for a
+    /// retirement in flight (`admin_statements_sql!`'s `$share`):
+    ///
+    /// - it reaches the row first: it commits its row, caller included,
+    ///   before the retirement can start, and the scrub that follows the
+    ///   retirement clears it;
+    /// - the retirement reaches the row first: this waits for the deletion
+    ///   to end and reads the row as it was left, so a committed deletion
+    ///   gets a row without a caller and a rolled-back one a row with it.
+    ///
+    /// On `SQLite` a writer holds the whole database, so the two never
+    /// overlap and no clause is needed.
     async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()>;
     /// Count one authenticated use of a token on its own row: one more
     /// request, used at `used_at`, from `ip_address` when the edge named one.
@@ -188,7 +245,7 @@ pub trait AdminRepository: Send + Sync {
     ) -> AppResult<()>;
 }
 
-/// The fifteen columns every read of `admin_tokens` returns, in the order
+/// The sixteen columns every read of `admin_tokens` returns, in the order
 /// [`admin_token_from_row`] reads them. One list, so a column added to
 /// `AdminToken` reaches every read at once.
 ///
@@ -201,7 +258,8 @@ macro_rules! admin_token_columns {
         concat!(
             "id, service_name, service_description, token_hash, token_prefix, \
              jwt_secret_hash, permissions, is_super_admin, is_active, \
-             tenant_id, operator_user_id, created_at, expires_at, last_used_at, ",
+             tenant_id, operator_user_id, rotated_to_token_id, created_at, expires_at, \
+             last_used_at, ",
             $ip_text,
             "(last_used_ip) AS last_used_ip, usage_count"
         )
@@ -225,16 +283,22 @@ pub(crate) const CREATE_ADMIN_TOKEN_SQL: &str = r"
             ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
             ";
 
-/// Retire a token. `FALSE` is the boolean spelling both engines accept.
+/// Revoke a token: retire it, only while it is live. Whether a row was
+/// affected is whether this statement is what retired it; a token already
+/// retired, by a revocation or by a rotation, is left exactly as it is.
+/// `FALSE` and `TRUE` are the boolean spellings both engines accept.
 pub(crate) const DEACTIVATE_ADMIN_TOKEN_SQL: &str =
-    "UPDATE admin_tokens SET is_active = FALSE WHERE id = $1";
-
-/// Claim a token for rotation: retire it, only while it is live. Whether a
-/// row was affected is whether the rotation holds it. `AND is_active` is
-/// what refuses a token revoked, or retired with its admin, since the
-/// caller read it.
-pub(crate) const CLAIM_ADMIN_TOKEN_SQL: &str =
     "UPDATE admin_tokens SET is_active = FALSE WHERE id = $1 AND is_active = TRUE";
+
+/// Claim a token for rotation: retire it, only while it is live, and name
+/// on it the replacement the same transaction mints (`$2`, the new token's
+/// id; `rotated_to_token_id` is `TEXT` on both engines, as `id` is).
+/// Whether a row was affected is whether the rotation holds it. `AND
+/// is_active` is what refuses a token revoked, or retired with its admin,
+/// since the caller read it. A rotation that fails further on rolls the
+/// name back with the claim.
+pub(crate) const CLAIM_ADMIN_TOKEN_SQL: &str = "UPDATE admin_tokens \
+     SET is_active = FALSE, rotated_to_token_id = $2 WHERE id = $1 AND is_active = TRUE";
 
 /// Retire every live token acting as one operator, naming the ones retired:
 /// the device logins an account loses with its admin standing, run by the
@@ -282,8 +346,19 @@ pub(crate) fn deleted_account_column() -> String {
 /// [`admin_token_columns!`]). Every other statement on these tables is
 /// shared verbatim. The expansion is the six `const`s the shared body
 /// reads, emitted into the shell that invokes it.
+///
+/// `$share` is the row lock the log write reads its token's row under:
+/// `" FOR SHARE"` on Postgres, `""` on `SQLite`. An account deletion retires
+/// a device login with an `UPDATE` of that row; a plain read would not wait
+/// for it, would see the row as it was before the uncommitted retirement,
+/// and would log a caller under a login the deletion then leaves scrubbed
+/// of every other. `FOR SHARE` conflicts with that `UPDATE`'s lock: the
+/// read waits for the deletion to end and is evaluated again on the row as
+/// it was left, and a deletion that arrives second waits for the log write
+/// to commit. Log writes share the lock among themselves, and each holds it
+/// for its one statement. `SQLite` has one writer and no such clause.
 macro_rules! admin_statements_sql {
-    ($inet:literal, $ip_text:literal) => {
+    ($inet:literal, $ip_text:literal, $share:literal) => {
         /// One token by its id.
         const GET_ADMIN_TOKEN_BY_ID_SQL: &str = concat!(
             "SELECT ",
@@ -312,6 +387,8 @@ macro_rules! admin_statements_sql {
         /// and the user agent are read through the token's row: a scalar
         /// subquery that finds no row taking a caller is NULL
         /// ([`token_takes_a_caller_sql!`], `$10` a deleted account's mark).
+        /// Each reads the row under `$share`, so it waits for an account
+        /// deletion that is retiring the token and reads what it left.
         const RECORD_ADMIN_TOKEN_USAGE_SQL: &str = concat!(
             "INSERT INTO admin_token_usage ( \
                 admin_token_id, timestamp, action, target_resource, \
@@ -322,8 +399,10 @@ macro_rules! admin_statements_sql {
             $inet,
             " FROM admin_tokens WHERE id = $1 AND ",
             token_takes_a_caller_sql!("$10"),
+            $share,
             "), (SELECT CAST($6 AS TEXT) FROM admin_tokens WHERE id = $1 AND ",
             token_takes_a_caller_sql!("$10"),
+            $share,
             "), $7, $8, $9)"
         );
 
@@ -331,6 +410,8 @@ macro_rules! admin_statements_sql {
         /// and the address the token list shows. An absent address keeps
         /// the last one known. No row that takes no caller is written
         /// ([`token_takes_a_caller_sql!`], `$4` a deleted account's mark).
+        /// An `UPDATE` of the row waits for a retirement in flight by
+        /// itself and checks the row again as it was left.
         const RECORD_ADMIN_TOKEN_USE_SQL: &str = concat!(
             "UPDATE admin_tokens SET usage_count = usage_count + 1, last_used_at = $1, \
              last_used_ip = COALESCE($2",
@@ -365,7 +446,7 @@ pub(crate) const RECORD_PROVISIONED_KEY_SQL: &str = r"
             ";
 
 /// The token id shape: `admin_` plus a simple uuid.
-fn new_admin_token_id() -> String {
+pub(crate) fn new_admin_token_id() -> String {
     format!("admin_{}", Uuid::new_v4().simple())
 }
 
@@ -384,9 +465,12 @@ pub(crate) struct MintedAdminToken {
     pub(crate) permissions_json: String,
 }
 
-/// Sign the token `request` asks for, under a fresh id: the one place a
-/// token is minted, for a new token and for a rotation's replacement alike.
-/// Nothing is stored here; the backend inserts the row.
+/// Sign the token `request` asks for, under `token_id`
+/// ([`new_admin_token_id`]): the one place a token is minted, for a new
+/// token and for a rotation's replacement alike. The id is the caller's so
+/// that a rotation can name its replacement on the row it claims before the
+/// replacement is signed. Nothing is stored here; the backend inserts the
+/// row.
 ///
 /// # Errors
 /// Returns an invalid-input error for a lifetime past any date, and an
@@ -394,11 +478,10 @@ pub(crate) struct MintedAdminToken {
 /// permissions cannot be encoded.
 pub(crate) fn mint_admin_token(
     request: &CreateAdminTokenRequest,
+    token_id: String,
     admin_jwt_secret: &str,
     jwks_manager: &dyn JwtSigner,
 ) -> AppResult<MintedAdminToken> {
-    let token_id = new_admin_token_id();
-
     debug!("Creating admin token with RS256 asymmetric signing");
 
     let permissions = request.granted_permissions();
@@ -551,6 +634,9 @@ where
             .map_err(|e| {
                 AppError::database(format!("Failed to parse column 'operator_user_id': {e}"))
             })?,
+        rotated_to_token_id: row.try_get("rotated_to_token_id").map_err(|e| {
+            AppError::database(format!("Failed to get column 'rotated_to_token_id': {e}"))
+        })?,
         created_at: row
             .try_get("created_at")
             .map_err(|e| AppError::database(format!("Failed to get column 'created_at': {e}")))?,
@@ -695,7 +781,12 @@ macro_rules! impl_admin_repository {
                 admin_jwt_secret: &str,
                 jwks_manager: &dyn JwtSigner,
             ) -> AppResult<GeneratedAdminToken> {
-                let minted = mint_admin_token(request, admin_jwt_secret, jwks_manager)?;
+                let minted = mint_admin_token(
+                    request,
+                    new_admin_token_id(),
+                    admin_jwt_secret,
+                    jwks_manager,
+                )?;
                 let mut conn = self.pool().acquire().await.map_err(|e| {
                     AppError::database(format!("Failed to create admin token: {e}"))
                 })?;
@@ -726,8 +817,13 @@ macro_rules! impl_admin_repository {
                     .await
                     .map_err(failed)?;
 
+                // The replacement's id is chosen before the claim, which
+                // writes it on the old row: a rotated token names what
+                // replaced it from the statement that retires it.
+                let replacement_id = new_admin_token_id();
                 let claimed = sqlx::query(CLAIM_ADMIN_TOKEN_SQL)
                     .bind(token_id)
+                    .bind(&replacement_id)
                     .execute(guard.executor()?)
                     .await
                     .map_err(failed)?
@@ -741,7 +837,8 @@ macro_rules! impl_admin_repository {
                     .ok_or_else(|| AppError::not_found(format!("Admin token {token_id}")))?;
                 let request = replacement_request(rotation, admin_token_from_row(&row)?, claimed)?;
 
-                let minted = mint_admin_token(&request, admin_jwt_secret, jwks_manager)?;
+                let minted =
+                    mint_admin_token(&request, replacement_id, admin_jwt_secret, jwks_manager)?;
                 Self::insert_admin_token(guard.executor()?, &request, &minted).await?;
                 guard.commit().await?;
                 Ok(minted.generated)
@@ -774,16 +871,29 @@ macro_rules! impl_admin_repository {
                 rows.iter().map(admin_token_from_row).collect()
             }
 
-            async fn deactivate_token(&self, token_id: &str) -> AppResult<()> {
-                sqlx::query(DEACTIVATE_ADMIN_TOKEN_SQL)
+            async fn deactivate_token(&self, token_id: &str) -> AppResult<TokenRevocation> {
+                let revoked = sqlx::query(DEACTIVATE_ADMIN_TOKEN_SQL)
                     .bind(token_id)
                     .execute(self.pool())
                     .await
                     .map_err(|e| {
                         AppError::database(format!("Failed to deactivate admin token: {e}"))
-                    })?;
-
-                Ok(())
+                    })?
+                    .rows_affected()
+                    == 1;
+                if revoked {
+                    return Ok(TokenRevocation::Revoked);
+                }
+                // Not live when the statement ran: read what retired it.
+                let replacement = self
+                    .get_token_by_id(token_id)
+                    .await?
+                    .and_then(|retired| retired.rotated_to_token_id);
+                Ok(
+                    replacement.map_or(TokenRevocation::AlreadyRevoked, |replacement| {
+                        TokenRevocation::Rotated { replacement }
+                    }),
+                )
             }
 
             async fn record_token_usage(&self, usage: &AdminTokenUsage) -> AppResult<()> {

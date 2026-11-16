@@ -15,6 +15,7 @@ export {
 
 export {
   createTestAdminUser,
+  createTestUser,
   generateApiToken,
   cleanupTestDatabase,
   ensureDataDirectory,
@@ -33,5 +34,6 @@ export {
   signInButton,
   navigateToTab,
   waitForDashboardLoad,
+  type LoginLanding,
   type LoginResult,
 } from './auth-helpers';

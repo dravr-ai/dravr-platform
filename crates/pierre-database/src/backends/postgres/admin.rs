@@ -19,17 +19,18 @@ use crate::backends::shared::transactions::TransactionGuard;
 use crate::repositories::admin::{
     admin_statements_sql, admin_token_columns, admin_token_from_row, admin_token_usage_from_row,
     count_to_column, deleted_account_column, impl_admin_repository, mint_admin_token,
-    replacement_request, token_takes_a_caller_sql, AdminRepository, MintedAdminToken,
-    TokenRotation, CLAIM_ADMIN_TOKEN_SQL, CREATE_ADMIN_TOKEN_SQL, DEACTIVATE_ADMIN_TOKEN_SQL,
-    RECORD_PROVISIONED_KEY_SQL,
+    new_admin_token_id, replacement_request, token_takes_a_caller_sql, AdminRepository,
+    MintedAdminToken, TokenRevocation, TokenRotation, CLAIM_ADMIN_TOKEN_SQL,
+    CREATE_ADMIN_TOKEN_SQL, DEACTIVATE_ADMIN_TOKEN_SQL, RECORD_PROVISIONED_KEY_SQL,
 };
 use crate::repositories::users::admin_removal_lock_sql;
 use crate::repositories::uuid_columns::NativeUuid;
 
 // This backend's resolved address statements: last_used_ip and ip_address
 // are INET columns here, so the text bind is cast on the way in and the
-// column is rendered with host() on the way out.
-admin_statements_sql!("::inet", "host");
+// column is rendered with host() on the way out. The log write reads its
+// token's row FOR SHARE, so it waits for an account deletion retiring it.
+admin_statements_sql!("::inet", "host", " FOR SHARE");
 
 impl_admin_repository!(
     PostgresDatabase,

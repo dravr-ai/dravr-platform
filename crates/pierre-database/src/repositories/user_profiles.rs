@@ -1,4 +1,4 @@
-// ABOUTME: Shared statements and body for ProfileRepository — the profile document, goals and the user configuration
+// ABOUTME: Repository trait, statements and shared body for the profile document, goals and the user configuration
 // ABOUTME: One SQL text per operation; each backend shell supplies only the uuid codec its user_id columns need
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -17,6 +17,32 @@
 //! and every reader parses it). The configuration stays the caller's text,
 //! as both backends always kept it. Timestamps bind as
 //! [`DateTime<Utc>`](chrono::DateTime).
+
+use async_trait::async_trait;
+use pierre_core::errors::AppResult;
+use serde_json::Value;
+use uuid::Uuid;
+
+/// User profiles, goals, and configuration repository
+#[async_trait]
+pub trait ProfileRepository: Send + Sync {
+    /// Upsert user profile data
+    async fn upsert_profile(&self, user_id: Uuid, profile_data: Value) -> AppResult<()>;
+    /// Get user profile data
+    async fn get_profile(&self, user_id: Uuid) -> AppResult<Option<Value>>;
+    /// Create a new goal for a user, returning the generated goal id.
+    ///
+    /// The id is also embedded into the stored `goal_data` under `goal_id`,
+    /// so every goal a [`Self::get_goals`] read returns identifies itself —
+    /// progress tracking looks goals up by that key.
+    async fn create_goal(&self, user_id: Uuid, goal_data: Value) -> AppResult<String>;
+    /// Get all goals for a user
+    async fn get_goals(&self, user_id: Uuid) -> AppResult<Vec<Value>>;
+    /// Get user configuration data
+    async fn get_configuration(&self, user_id: &str) -> AppResult<Option<String>>;
+    /// Save user configuration data
+    async fn save_configuration(&self, user_id: &str, config_json: &str) -> AppResult<()>;
+}
 
 /// Store or replace the user's profile document.
 pub(crate) const UPSERT_USER_PROFILE_SQL: &str = r"
@@ -57,8 +83,7 @@ pub(crate) const SAVE_USER_CONFIGURATION_SQL: &str = r"
                 updated_at = $3
             ";
 
-/// Emit the whole [`ProfileRepository`](super::ProfileRepository)
-/// implementation for one backend type.
+/// Emit the whole [`ProfileRepository`] implementation for one backend type.
 ///
 /// `$ids` is that backend's [`uuid_columns`](super::uuid_columns) codec,
 /// which spells how the `user_id` columns bind. The body is written once

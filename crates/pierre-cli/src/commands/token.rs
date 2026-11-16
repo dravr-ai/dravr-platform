@@ -5,10 +5,12 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_auth::admin::jwks::JwksManager;
-use pierre_core::admin::models::{AdminPermission, AdminToken, CreateAdminTokenRequest};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::admin::models::{
+    rotated_token_refusal, AdminPermission, AdminToken, CreateAdminTokenRequest,
+};
+use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
-use pierre_database::repositories::TokenRotation;
+use pierre_database::repositories::{TokenRevocation, TokenRotation};
 use pierre_database::RepositoryRegistry;
 
 type Result<T> = AppResult<T>;
@@ -251,6 +253,9 @@ pub(crate) async fn list(
                 "Inactive Inactive"
             }
         );
+        if let Some(replacement) = &token.rotated_to_token_id {
+            println!("   Rotated To: {replacement}");
+        }
         println!(
             "   Super Admin: {}",
             if token.is_super_admin {
@@ -292,7 +297,18 @@ pub(crate) async fn list(
     Ok(())
 }
 
-/// Revoke an admin token
+/// Revoke an admin token.
+///
+/// A token revoked earlier is left as it is and the command succeeds. A
+/// rotated token has a live replacement, so the command fails and names it
+/// ([`rotated_token_refusal`], the admin API's 409): revoking the old id
+/// again would end nothing. A token rotated before
+/// `admin_tokens.rotated_to_token_id` existed reads as a revoked one.
+///
+/// # Errors
+/// Returns a not-found error for an unknown id (the command reads the
+/// token first), a conflict for a rotated token, and the store's error
+/// when the write fails.
 pub(crate) async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Result<()> {
     info!("Revoking admin token: {}", token_id);
 
@@ -303,13 +319,21 @@ pub(crate) async fn revoke(repos: &RepositoryRegistry, token_id: String) -> Resu
         .await?
         .ok_or_else(|| AppError::not_found(format!("Admin token: {token_id}")))?;
 
-    if !token.is_active {
-        warn!("Token is already inactive");
-        return Ok(());
+    // The store decides on the row as its own guarded write left it, so a
+    // rotation that lands after the read above is still told apart.
+    match repos.admin.deactivate_token(&token_id).await? {
+        TokenRevocation::Revoked => {}
+        TokenRevocation::AlreadyRevoked => {
+            warn!("Token is already inactive");
+            return Ok(());
+        }
+        TokenRevocation::Rotated { replacement } => {
+            return Err(AppError::new(
+                ErrorCode::ResourceLocked,
+                rotated_token_refusal(&token_id, &replacement),
+            ));
+        }
     }
-
-    // Revoke token
-    repos.admin.deactivate_token(&token_id).await?;
 
     println!("Success Admin token revoked successfully!");
     println!("   Token ID: {token_id}");
@@ -516,6 +540,7 @@ mod tests {
             is_active: true,
             tenant_id: Some("3f0c1a52-0000-4000-8000-000000000001".to_owned()),
             operator_user_id: None,
+            rotated_to_token_id: None,
             created_at: Utc::now(),
             expires_at: None,
             last_used_at: None,

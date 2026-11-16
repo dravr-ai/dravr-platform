@@ -52,6 +52,10 @@ pub struct AdminToken {
     /// device login that minted it. `None` for a service token, which names
     /// no person.
     pub operator_user_id: Option<Uuid>,
+    /// The id of the token a rotation replaced this one with. `None` for a
+    /// live token and for a revoked one, and for a token rotated before the
+    /// column existed, which reads as a revoked one.
+    pub rotated_to_token_id: Option<String>,
     /// When the token was created
     pub created_at: DateTime<Utc>,
     /// Optional token expiration time
@@ -83,6 +87,7 @@ impl Debug for AdminToken {
             .field("is_active", &self.is_active)
             .field("tenant_id", &self.tenant_id)
             .field("operator_user_id", &self.operator_user_id)
+            .field("rotated_to_token_id", &self.rotated_to_token_id)
             .field("created_at", &self.created_at)
             .field("expires_at", &self.expires_at)
             .field("last_used_at", &self.last_used_at)
@@ -116,6 +121,9 @@ pub struct AdminTokenSummary {
     /// device login that minted it. `None` for a service token, which names
     /// no person.
     pub operator_user_id: Option<Uuid>,
+    /// The id of the token a rotation replaced this one with, when one did:
+    /// what tells a rotated token from a revoked one among the inactive.
+    pub rotated_to_token_id: Option<String>,
     /// When the token was created
     pub created_at: DateTime<Utc>,
     /// Optional token expiration time
@@ -124,6 +132,32 @@ pub struct AdminTokenSummary {
     pub last_used_at: Option<DateTime<Utc>>,
     /// Total number of times token has been used
     pub usage_count: u64,
+}
+
+/// What revoking a rotated token is answered.
+///
+/// One sentence for the admin API and `pierre-cli token revoke` alike: the
+/// token has a live replacement, so revoking it again would end nothing. It
+/// names the replacement by id, never a credential.
+#[must_use]
+pub fn rotated_token_refusal(token_id: &str, replacement_id: &str) -> String {
+    format!(
+        "Admin token {token_id} was rotated and is already retired; its replacement is \
+         {replacement_id}. To end the credential, revoke that one."
+    )
+}
+
+/// What rotating a rotated token is answered.
+///
+/// One sentence for the admin API (409) and `pierre-cli token rotate`
+/// alike: the token already has a live replacement, so the answer names it
+/// by id, never a credential, and asks for no new token beside it.
+#[must_use]
+pub fn rerotated_token_refusal(token_id: &str, replacement_id: &str) -> String {
+    format!(
+        "Admin token {token_id} was already rotated and cannot be rotated again; its \
+         replacement is {replacement_id}. To get a new credential, rotate that one."
+    )
 }
 
 impl From<AdminToken> for AdminTokenSummary {
@@ -138,6 +172,7 @@ impl From<AdminToken> for AdminTokenSummary {
             is_active: token.is_active,
             tenant_id: token.tenant_id,
             operator_user_id: token.operator_user_id,
+            rotated_to_token_id: token.rotated_to_token_id,
             created_at: token.created_at,
             expires_at: token.expires_at,
             last_used_at: token.last_used_at,
@@ -416,7 +451,8 @@ impl CreateAdminTokenRequest {
     /// Only a live token rotates. A revoked one stays revoked: its
     /// replacement would be a live credential with the scope someone took
     /// away, and for a token withdrawn with its admin's standing, one that
-    /// acts as no admin at all.
+    /// acts as no admin at all. A rotated one already has its replacement,
+    /// and the refusal names it ([`rerotated_token_refusal`]).
     ///
     /// # Errors
     /// Returns an invalid-input error for a token that is not active.
@@ -427,7 +463,10 @@ impl CreateAdminTokenRequest {
     ) -> AppResult<Self> {
         if !existing.is_active {
             return Err(AppError::invalid_input(
-                "A revoked admin token cannot be rotated; mint a new one",
+                existing.rotated_to_token_id.as_deref().map_or_else(
+                    || "A revoked admin token cannot be rotated; mint a new one".to_owned(),
+                    |replacement| rerotated_token_refusal(&existing.id, replacement),
+                ),
             ));
         }
         Ok(Self {

@@ -256,7 +256,7 @@ pub mod user_physiological_profiles;
 pub(crate) mod user_physiology_sport_anchors;
 /// Shared statements and bodies for the single-column preference writes on the users row.
 pub mod user_preferences;
-/// Shared statements and body for the profile document, goals and user configuration.
+/// Repository trait, statements and shared body for the profile document, goals and user configuration.
 pub mod user_profiles;
 /// Repository trait, statements and shared body for per-user rate-limit overrides.
 pub mod user_rate_limit_overrides;
@@ -396,6 +396,7 @@ pub use user_invitations::UserInvitationRepository;
 pub use user_mcp_tokens::*;
 pub use user_onboarding::*;
 pub use user_physiological_profiles::*;
+pub use user_profiles::ProfileRepository;
 pub use user_rate_limit_overrides::*;
 pub use user_references::{
     UserPurge, DELETION_BLOCKERS_SQL, POSTGRES_ONLY_USER_OWNED_TABLES, POSTGRES_USER_PURGE,

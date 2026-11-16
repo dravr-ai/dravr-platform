@@ -53,13 +53,13 @@ crates/pierre-providers/src/sciotte_error.rs:That athlete is not on this coach a
 crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_permission}
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/admin_scope.rs:Only an admin can list every tenant
+crates/pierre-routes-admin/src/handlers/admin_scope.rs:Token is scoped to tenant {own}; {subject} platform-wide, and it cannot {act}
 crates/pierre-routes-admin/src/handlers/audit_trail.rs:A scoped token names no tenant to read the audit trail of
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Admin privileges required for impersonation
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another admin
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for consumption analytics
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for tool-usage analytics
-crates/pierre-routes-admin/src/handlers/user_removal.rs:Acting on an admin account requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/handlers/user_role.rs:Changing an account's role requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_role.rs:Changing an account's role requires a token that acts as an admin
@@ -99,6 +99,7 @@ crates/pierre-server/src/routes/messaging/linking/oauth_link.rs:This link was st
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is raised only by an active admin
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active admin
 crates/pierre-server/src/services/archive_import/upload.rs:This origin may not upload
+crates/pierre-services/src/admin_ops/caller.rs:Acting on an admin account requires a super-admin token
 crates/pierre-services/src/auth.rs:User state error: User already exists
 crates/pierre-services/src/coach_access.rs:Only the group's owner can ask to coach it
 crates/pierre-services/src/coach_consents.rs:Grant what your human coach may do in the Dravr app; from here it can only be revoked

@@ -16,18 +16,27 @@
 //! holds, by minting a token or by rotating one: the ones a request names,
 //! and the defaults one that names none is given.
 //!
-//! A caller bound to one tenant stays inside it on every write: it revokes
-//! and rotates only tokens bound to that tenant, and what it mints is bound
-//! to that tenant too ([`ScopeCaller::BoundTo`]). A token bound to none, or
-//! to another tenant, is out of its reach, so a `ManageAdminTokens` holder
-//! scoped to one tenant cannot rotate or mint its way to the platform.
+//! A caller bound to one tenant stays inside it on every read and write: it
+//! lists, reads, revokes and rotates only tokens bound to that tenant, and
+//! what it mints is bound to that tenant too ([`ScopeCaller::BoundTo`]). A
+//! token bound to none, or to another tenant, is out of its reach, so a
+//! `ManageAdminTokens` holder scoped to one tenant cannot rotate or mint its
+//! way to the platform, nor read what the platform or another tenant holds.
 //!
 //! A caller bound to no tenant that does not carry the super-admin flag
-//! ([`ScopeCaller::Unbound`]) reads no tenant's data, so it revokes and
-//! rotates only tokens bound to no tenant, and mints only those: a rotation
-//! would otherwise hand it a credential that reads a tenant it cannot. An
-//! admin's console session and a super-admin token
-//! ([`ScopeCaller::Platform`]) write every token.
+//! ([`ScopeCaller::Unbound`]) reads no tenant's data, so it lists, reads,
+//! revokes and rotates only tokens bound to no tenant, and mints only
+//! those: a rotation would otherwise hand it a credential that reads a
+//! tenant it cannot. An admin's console session and a super-admin token
+//! ([`ScopeCaller::Platform`]) read and write every token.
+//!
+//! One rule decides the reach, for the reads and the writes alike
+//! ([`within_the_callers_reach`]). A read, a revoke or a rotation of one
+//! token outside it answers as a missing token does (404), and the list
+//! leaves it out: no answer says that a token the caller does not reach
+//! exists, where it is bound, or what kind it is. The reach is read before
+//! the super-admin flag for that reason. A super-admin token the caller
+//! does reach, read or written without the flag, is refused (403).
 
 use secrecy::ExposeSecret;
 use std::sync::Arc;
@@ -43,13 +52,14 @@ use serde_json::{json, to_value, Value};
 use tracing::{error, info};
 
 use pierre_core::admin::models::{
-    AdminPermission, AdminPermission as AdminPerm, AdminToken, AdminTokenSummary,
-    CreateAdminTokenRequest, GeneratedAdminToken, ValidatedAdminToken,
+    rerotated_token_refusal, rotated_token_refusal, AdminPermission, AdminPermission as AdminPerm,
+    AdminToken, AdminTokenSummary, CreateAdminTokenRequest, GeneratedAdminToken,
+    ValidatedAdminToken,
 };
 use pierre_core::admin::scope::ScopeCaller;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
-use pierre_database::repositories::TokenRotation;
+use pierre_database::repositories::{TokenRevocation, TokenRotation};
 
 use super::api_keys::json_response;
 use super::types::AdminResponse;
@@ -135,7 +145,7 @@ fn deny_granting_beyond_the_caller(
 /// other caller. `None` is not one standing: an admin's console session and
 /// a super-admin token reach every tenant, and a token bound to no tenant
 /// without the flag reaches none, so what each may write is not read from
-/// here ([`deny_outside_the_callers_reach`]). The one definition is the
+/// here ([`within_the_callers_reach`]). The one definition is the
 /// scope rule's ([`ValidatedAdminToken::scope_caller`]).
 ///
 /// # Errors
@@ -147,54 +157,49 @@ fn bound_tenant(caller: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
     })
 }
 
-/// Deny a write (`act`: "revoke", "rotate") on a token outside what the
-/// caller reaches. Revoking one is a denial of service there, and rotating
-/// one hands the caller its replacement, which carries the old token's
-/// tenant, or none.
+/// Whether `token` is one `caller` reaches: the one rule for listing,
+/// reading, revoking and rotating a token.
 ///
 /// A caller that reaches the platform, an admin's console session or a
-/// super-admin token, writes every token. A caller bound to one tenant
-/// writes only tokens bound to that tenant: one bound to none reaches
+/// super-admin token, reaches every token. A caller bound to one tenant
+/// reaches only tokens bound to that tenant: one bound to none reaches
 /// further than it does, and one bound elsewhere reaches a tenant it does
-/// not. A caller bound to no tenant, without the super-admin flag, writes
+/// not. A caller bound to no tenant, without the super-admin flag, reaches
 /// only tokens bound to no tenant: it reads no tenant's data itself
 /// ([`ValidatedAdminToken::require_tenant_access`], [`ScopeCaller::resolve`]),
 /// and the replacement of a tenant-bound token would.
-///
-/// # Errors
-/// `InvalidInput` when the tenant the caller carries is not a tenant id.
-fn deny_outside_the_callers_reach(
-    caller: &ValidatedAdminToken,
-    token: &AdminToken,
-    act: &str,
-) -> AppResult<Option<Response>> {
-    Ok(match caller.scope_caller()? {
-        ScopeCaller::Platform => None,
+fn within_the_callers_reach(caller: ScopeCaller, token: &AdminToken) -> bool {
+    match caller {
+        ScopeCaller::Platform => true,
         ScopeCaller::BoundTo(own) => {
-            let bound_to_own = token
+            token
                 .tenant_id
                 .as_deref()
                 .and_then(|raw| TenantId::parse_str(raw).ok())
-                == Some(own);
-            (!bound_to_own).then(|| {
-                forbidden(&format!(
-                    "Token is scoped to tenant {own}; it can {act} only admin tokens bound to that tenant"
-                ))
-            })
+                == Some(own)
         }
-        ScopeCaller::Unbound => token.tenant_id.is_some().then(|| {
-            forbidden(&format!(
-                "Token is bound to no tenant; it can {act} only admin tokens bound to no tenant"
-            ))
-        }),
-    })
+        ScopeCaller::Unbound => token.tenant_id.is_none(),
+    }
 }
 
-/// Load a token by id, answering 404 for an unknown one. `deactivate_token` is
-/// an unconditional UPDATE, so without this a miss would report a revocation
-/// that touched no row.
-async fn load_token(ctx: &AdminApiContext, token_id: &str) -> AppResult<AdminToken> {
-    ctx.repos
+/// Load the token `caller` names by id: the row every handler decides on
+/// before it reads, revokes or rotates. An unknown id answers 404, and so
+/// does a token outside what the caller reaches
+/// ([`within_the_callers_reach`]), in the same words ([`missing_token`]).
+/// Revoking a token outside it is a denial of service there, and rotating
+/// one hands the caller its replacement, which carries the old token's
+/// tenant, or none.
+///
+/// # Errors
+/// A not-found error for both, and `InvalidInput` when the tenant the
+/// caller carries is not a tenant id.
+async fn load_reachable_token(
+    ctx: &AdminApiContext,
+    caller: &ValidatedAdminToken,
+    token_id: &str,
+) -> AppResult<AdminToken> {
+    let token = ctx
+        .repos
         .admin
         .get_token_by_id(token_id)
         .await
@@ -202,7 +207,17 @@ async fn load_token(ctx: &AdminApiContext, token_id: &str) -> AppResult<AdminTok
             error!(error = %e, "Failed to get admin token");
             AppError::internal(format!("Failed to get admin token: {e}"))
         })?
-        .ok_or_else(|| AppError::not_found(format!("Admin token {token_id}")))
+        .ok_or_else(|| missing_token(token_id))?;
+    if !within_the_callers_reach(caller.scope_caller()?, &token) {
+        return Err(missing_token(token_id));
+    }
+    Ok(token)
+}
+
+/// What an id no token has is answered, and a token the caller may not
+/// know of: one error, so the two cannot be told apart.
+fn missing_token(token_id: &str) -> AppError {
+    AppError::not_found(format!("Admin token {token_id}"))
 }
 
 /// Handle admin token creation
@@ -346,7 +361,15 @@ fn minted_token_target(token: &GeneratedAdminToken) -> Value {
 
 /// Handle listing admin tokens
 ///
-/// A caller that is not super-admin is not shown super-admin tokens.
+/// A caller is shown the tokens it reaches ([`within_the_callers_reach`]):
+/// every token for an admin's console session or a super-admin token, its
+/// tenant's for a caller bound to one, and the ones bound to no tenant for
+/// a caller bound to none. A caller that is not super-admin is not shown
+/// super-admin tokens.
+///
+/// # Errors
+/// `InvalidInput` when the tenant the caller carries is not a tenant id,
+/// and an internal error when the tokens cannot be read.
 pub(crate) async fn handle_list_admin_tokens(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -371,9 +394,11 @@ pub(crate) async fn handle_list_admin_tokens(
             AppError::internal(format!("Failed to list admin tokens: {e}"))
         })?;
 
+    let scope = admin_token.scope_caller()?;
     let visible: Vec<AdminTokenSummary> = tokens
         .into_iter()
         .filter(|token| admin_token.is_super_admin || !token.is_super_admin)
+        .filter(|token| within_the_callers_reach(scope, token))
         .map(AdminTokenSummary::from)
         .collect();
 
@@ -393,6 +418,16 @@ pub(crate) async fn handle_list_admin_tokens(
 }
 
 /// Handle getting admin token details
+///
+/// A token outside what the caller reaches ([`within_the_callers_reach`])
+/// answers 404, in the words a missing id is answered with: the read does
+/// not say that a token it will not show exists. A super-admin token the
+/// caller does reach, read without the super-admin flag, answers 403.
+///
+/// # Errors
+/// A not-found error for an unknown id and for a token outside the caller's
+/// reach, and `InvalidInput` when the tenant the caller carries is not a
+/// tenant id.
 pub(crate) async fn handle_get_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -402,7 +437,7 @@ pub(crate) async fn handle_get_admin_token(
         return Ok(denied);
     }
 
-    let token = load_token(&context, &token_id).await?;
+    let token = load_reachable_token(&context, &admin_token, &token_id).await?;
     if token.is_super_admin && !admin_token.is_super_admin {
         return Ok(forbidden(
             "Only super-admin tokens can read super-admin tokens",
@@ -422,12 +457,25 @@ pub(crate) async fn handle_get_admin_token(
 
 /// Handle revoking admin token
 ///
-/// An unknown id answers 404, and a super-admin token can be revoked only by a
-/// super-admin caller: revoking one is a denial of service against the
-/// platform's own admins. A caller bound to one tenant revokes only a
+/// An unknown id answers 404. A caller bound to one tenant revokes only a
 /// token bound to that tenant, and one bound to no tenant, without the
-/// super-admin flag, only a token bound to none (403 otherwise, the token
-/// left live).
+/// super-admin flag, only a token bound to none: a token outside that
+/// reach answers 404 as an unknown id does, and is left live
+/// ([`load_reachable_token`]). A super-admin token the caller reaches can
+/// be revoked only by a super-admin caller (403): revoking one is a denial
+/// of service against the platform's own admins.
+///
+/// A rotated token is not revoked a second time (409): the rotation retired
+/// it and minted a replacement that is still live, so answering success
+/// would tell the caller a credential had ended that only changed id. The
+/// refusal names the replacement by id and says to revoke that one
+/// ([`rotated_token_refusal`]); it is answered after the checks above, so
+/// only to a caller that reaches the token. A token revoked earlier names
+/// no replacement and keeps its idempotent 200. So does a token rotated
+/// before `admin_tokens.rotated_to_token_id` existed, which cannot be told
+/// from a revoked one. The store decides on the row as its own guarded
+/// write left it ([`TokenRevocation`]), so a rotation that commits after
+/// the read here is still answered as a rotation.
 pub(crate) async fn handle_revoke_admin_token(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -442,25 +490,38 @@ pub(crate) async fn handle_revoke_admin_token(
         token_id, admin_token.token_id
     );
 
-    let existing = load_token(&context, &token_id).await?;
+    let existing = load_reachable_token(&context, &admin_token, &token_id).await?;
     if existing.is_super_admin && !admin_token.is_super_admin {
         return Ok(forbidden(
             "Only super-admin tokens can revoke super-admin tokens",
         ));
     }
-    if let Some(denied) = deny_outside_the_callers_reach(&admin_token, &existing, "revoke")? {
-        return Ok(denied);
-    }
 
-    context
+    let revocation = context
         .repos
         .admin
         .deactivate_token(&token_id)
         .await
-        .map_err(|e| {
-            error!(error = %e, "Failed to revoke admin token");
-            AppError::internal(format!("Failed to revoke admin token: {e}"))
-        })?;
+        .inspect_err(|e| error!(error = %e, "Failed to revoke admin token"))?;
+    if let TokenRevocation::Rotated { replacement } = revocation {
+        info!(
+            "Admin token {} was rotated into {}; nothing revoked",
+            token_id, replacement
+        );
+        return Ok(json_response(
+            AdminResponse {
+                success: false,
+                message: rotated_token_refusal(&token_id, &replacement),
+                data: to_value(json!({
+                    "token_id": token_id,
+                    "rotated_to_token_id": replacement,
+                }))
+                .ok(),
+            },
+            StatusCode::CONFLICT,
+        )
+        .into_response());
+    }
 
     info!("Admin token {} revoked successfully", token_id);
 
@@ -481,12 +542,17 @@ pub(crate) async fn handle_revoke_admin_token(
 /// permissions, scope and super-admin flag
 /// ([`CreateAdminTokenRequest::rotation_of`]), returned once in this
 /// response. A revoked token answers 400 and mints nothing: it has no
-/// replacement. A caller without the super-admin flag rotates only a token
-/// without it whose every permission the caller holds (403 otherwise, the
-/// token left live): the replacement is the caller's to keep. A caller bound
+/// replacement. A rotated token answers 409 and names the replacement it
+/// already has ([`rerotated_token_refusal`]), after the checks below, so
+/// only to a caller that could have rotated it. A caller without the
+/// super-admin flag rotates only a token without it whose every permission
+/// the caller holds (403 otherwise, the token left live): the replacement
+/// is the caller's to keep. A caller bound
 /// to one tenant rotates only a token bound to that tenant, and one bound to
 /// no tenant, without the super-admin flag, only a token bound to none, for
 /// the same reason: the replacement carries the old token's tenant, or none.
+/// A token outside that reach answers 404, as an unknown id does, and is
+/// left live ([`load_reachable_token`]).
 ///
 /// The deactivation and the mint are one transaction in the store
 /// ([`AdminRepository::rotate_token`]), which builds the replacement from
@@ -515,7 +581,10 @@ pub(crate) async fn handle_rotate_admin_token(
     );
 
     let ctx = context.as_ref();
-    let existing_token = load_token(ctx, &token_id).await?;
+    // The replacement carries the old token's tenant scope, so a caller
+    // without the super-admin flag receives it only when that scope is its
+    // own: its tenant, or none. Any other token is not found.
+    let existing_token = load_reachable_token(ctx, &admin_token, &token_id).await?;
 
     // Rotation mints the replacement at the old token's privilege level, so a
     // super-admin token rotated by a caller who is not super-admin would hand
@@ -527,13 +596,6 @@ pub(crate) async fn handle_rotate_admin_token(
         ));
     }
 
-    // The replacement carries the old token's tenant scope, so a caller
-    // without the super-admin flag receives it only when that scope is its
-    // own: its tenant, or none.
-    if let Some(denied) = deny_outside_the_callers_reach(&admin_token, &existing_token, "rotate")? {
-        return Ok(denied);
-    }
-
     // The replacement carries the old token's permissions and is returned to
     // the caller, so it is the caller's to receive only where it could have
     // minted it. Checked before the token is touched, as the flag is.
@@ -541,6 +603,29 @@ pub(crate) async fn handle_rotate_admin_token(
         if let Some(denied) = deny_granting_beyond_the_caller(&admin_token, &permission) {
             return Ok(denied);
         }
+    }
+
+    // A rotated token already has its replacement: the answer names it,
+    // as the revoke's does. One rotated after the read above is refused by
+    // the store in the same sentence, as a 400.
+    if let Some(replacement) = existing_token
+        .rotated_to_token_id
+        .as_deref()
+        .filter(|_| !existing_token.is_active)
+    {
+        return Ok(json_response(
+            AdminResponse {
+                success: false,
+                message: rerotated_token_refusal(&token_id, replacement),
+                data: to_value(json!({
+                    "token_id": token_id,
+                    "rotated_to_token_id": replacement,
+                }))
+                .ok(),
+            },
+            StatusCode::CONFLICT,
+        )
+        .into_response());
     }
 
     // The store claims the token and mints from the row it claimed: the

@@ -40,21 +40,16 @@ use axum::{
     middleware::Next,
     response::Response,
 };
-use pierre_core::admin::models::{ValidatedAdminToken, DEVICE_CLI_SERVICE_PREFIX};
+use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::auth_header::extract_bearer_token_owned;
 use pierre_database::repositories::{
     AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent,
 };
-use pierre_database::RepositoryRegistry;
 use pierre_middleware::{cookie_admin_token, extract_auth_from_headers, require_admin};
 use pierre_runtime_context::MiddlewareCtx;
-use pierre_services::admin_ops::{
-    record_withdrawn_admin_credentials, AdminStandingLost, StandingChange,
-    WithdrawnAdminCredentials,
-};
+use pierre_services::admin_ops::token_audit_source;
 use serde_json::{json, Map, Value};
 use tracing::{debug, error};
-use uuid::Uuid;
 
 use crate::auth::service::AdminAuthService;
 
@@ -176,17 +171,6 @@ impl<C: MiddlewareCtx> AuditRecorder<C> {
     }
 }
 
-/// Where a validated admin credential came from.
-fn source_of(token: &ValidatedAdminToken) -> AuditSource {
-    if token.token_id.starts_with("cookie:") {
-        AuditSource::Console
-    } else if token.service_name.starts_with(DEVICE_CLI_SERVICE_PREFIX) {
-        AuditSource::Cli
-    } else {
-        AuditSource::Service
-    }
-}
-
 /// The caller's address as the edge reported it: the first hop of
 /// `X-Forwarded-For`.
 fn client_ip(headers: &HeaderMap) -> Option<String> {
@@ -235,7 +219,7 @@ fn build_event(
 ) -> NewAuditEvent {
     let detail = detail.unwrap_or_default();
     let outcome = AuditOutcome::from_status(status);
-    let source = source_of(token);
+    let source = token_audit_source(token);
     let mut metadata = Map::new();
     metadata.insert("method".to_owned(), json!(method.as_str()));
     metadata.insert("route".to_owned(), json!(route));
@@ -308,25 +292,6 @@ pub(crate) async fn record_admin_read(
     }
 }
 
-/// Record what taking an account out of admin standing withdrew: the device
-/// logins it approved and the impersonations it had open. The row names the
-/// credential that made the change, as the write's own row does.
-pub(crate) async fn record_withdrawn_credentials(
-    repos: &RepositoryRegistry,
-    token: &ValidatedAdminToken,
-    withdrawn: &WithdrawnAdminCredentials,
-    cause: AdminStandingLost,
-    account: Option<Uuid>,
-) {
-    let change = StandingChange {
-        cause,
-        account,
-        actor: token.operator_user_id,
-        source: source_of(token),
-    };
-    record_withdrawn_admin_credentials(repos, withdrawn, change).await;
-}
-
 /// The layer: record every admin write (see the module docs).
 pub async fn record_admin_writes<C: MiddlewareCtx>(
     State(recorder): State<AuditRecorder<C>>,
@@ -392,25 +357,6 @@ mod tests {
             operator_user_id: Some(Uuid::nil()),
             user_info: None,
         }
-    }
-
-    #[test]
-    fn the_credential_names_the_surface() {
-        assert_eq!(
-            source_of(&token(&format!("cookie:{}", Uuid::nil()), "a@b.c")),
-            AuditSource::Console,
-            "bug: a cookie session is the console"
-        );
-        assert_eq!(
-            source_of(&token("t1", &format!("{DEVICE_CLI_SERVICE_PREFIX}a@b.c"))),
-            AuditSource::Cli,
-            "bug: a device-login token is pierre-cli"
-        );
-        assert_eq!(
-            source_of(&token("t2", "canary")),
-            AuditSource::Service,
-            "bug: any other token is a service"
-        );
     }
 
     #[test]

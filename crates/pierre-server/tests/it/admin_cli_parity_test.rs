@@ -10,11 +10,11 @@
 use pierre_core::feature_flags::FeatureKey;
 use pierre_core::models::{CoachingPersona, ToolEnablementSource, UserStatus, UserTier};
 use pierre_core::permissions::UserRole;
-use pierre_services::admin_ops;
+use pierre_services::admin_ops::{self, AccountCaller};
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::sync::Arc;
 
-use crate::common;
+use crate::common::{self, acting_on};
 
 #[tokio::test]
 async fn test_rate_limit_override_set_and_clear() {
@@ -120,37 +120,28 @@ async fn test_approve_and_suspend_transition_status_with_audit() {
         .await
         .unwrap();
 
-    let approved =
-        admin_ops::transition_user_status(repos, user_id, UserStatus::Active, Some(admin_id), None)
-            .await
-            .unwrap()
-            .user;
+    // `pierre-cli` on the host: no admin's session, its changes written
+    // against the admin it looks up.
+    let host = AccountCaller::host_cli(Some(admin_id));
+    let acting = acting_on(repos, &host, user_id).await;
+    let approved = admin_ops::transition_user_status(repos, &acting, UserStatus::Active)
+        .await
+        .unwrap()
+        .user;
     assert_eq!(approved.user_status, UserStatus::Active);
     assert_eq!(approved.approved_by, Some(admin_id), "audit actor recorded");
 
-    let suspended = admin_ops::transition_user_status(
-        repos,
-        user_id,
-        UserStatus::Suspended,
-        Some(admin_id),
-        None,
-    )
-    .await
-    .unwrap()
-    .user;
+    let suspended = admin_ops::transition_user_status(repos, &acting, UserStatus::Suspended)
+        .await
+        .unwrap()
+        .user;
     assert_eq!(suspended.user_status, UserStatus::Suspended);
     assert!(!suspended.user_status.can_login());
 
     // Idempotence guard: re-suspending an already-suspended user is rejected.
-    let err = admin_ops::transition_user_status(
-        repos,
-        user_id,
-        UserStatus::Suspended,
-        Some(admin_id),
-        None,
-    )
-    .await
-    .expect_err("double suspend must be rejected");
+    let err = admin_ops::transition_user_status(repos, &acting, UserStatus::Suspended)
+        .await
+        .expect_err("double suspend must be rejected");
     assert!(err.to_string().contains("already"), "got: {err}");
 }
 
@@ -160,9 +151,11 @@ async fn test_password_reset_token_issue() {
     let repos = db.repositories();
     let (user_id, _u) = common::create_test_user(&db).await.unwrap();
 
-    let token = admin_ops::issue_password_reset_token(repos, user_id, "pierre-cli")
-        .await
-        .unwrap();
+    let host = AccountCaller::host_cli(None);
+    let token =
+        admin_ops::issue_password_reset_token(repos, &acting_on(repos, &host, user_id).await)
+            .await
+            .unwrap();
 
     // Selector/verifier shape: "<selector>.<verifier>", both halves non-trivial.
     let (selector, verifier) = token

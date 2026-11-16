@@ -27,7 +27,7 @@ use serde_json::Value;
 use tracing::warn;
 
 use pierre_core::admin::models::ValidatedAdminToken;
-use pierre_core::admin::scope::AdminScope;
+use pierre_core::admin::scope::{AdminScope, ScopeCaller};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::repositories::RecentReadKey;
 
@@ -49,6 +49,43 @@ pub(crate) fn console_read_scope(
     requested: Option<&str>,
 ) -> AppResult<AdminScope> {
     admin_token.scope_caller()?.resolve(requested)
+}
+
+/// Refuse a caller bound to one tenant what belongs to the platform: the
+/// standing allow-list and the sign-up codes.
+///
+/// A standing allow and a sign-up code are platform-wide: each lets a
+/// pending account in on the spot, whatever tenant that account is or will
+/// be in, and their lists name addresses and accounts of every tenant. A
+/// `ManageUsers` token scoped to one tenant approves by id only a user
+/// held within its tenant (`status_write_target`), so through these doors
+/// it would approve the sign-ups it is refused there, and read what its
+/// user reads leave out. An admin's console session and a super-admin
+/// token pass, and so does a token bound to no tenant, as on the rest of
+/// the users surface.
+///
+/// The refusal reads "Token is scoped to tenant T; `subject` platform-wide,
+/// and it cannot `act`": `subject` is what is refused with its verb ("a
+/// sign-up code is"), `act` what the caller asked for ("mint one").
+///
+/// # Errors
+///
+/// A permission error for a caller bound to one tenant, and `InvalidInput`
+/// when the tenant the caller carries is not a tenant id.
+pub(super) fn require_platform_reach(
+    admin_token: &ValidatedAdminToken,
+    subject: &str,
+    act: &str,
+) -> AppResult<()> {
+    match admin_token.scope_caller()? {
+        ScopeCaller::Platform | ScopeCaller::Unbound => Ok(()),
+        ScopeCaller::BoundTo(own) => Err(AppError::new(
+            ErrorCode::PermissionDenied,
+            format!(
+                "Token is scoped to tenant {own}; {subject} platform-wide, and it cannot {act}"
+            ),
+        )),
+    }
 }
 
 /// The line an audit row carries when `scope` reaches past the tenant the

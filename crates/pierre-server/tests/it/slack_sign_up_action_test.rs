@@ -31,9 +31,10 @@ mod slack_sign_up_action {
     use hmac::{Hmac, Mac};
     use pierre_contremaitre::notify_routing::NOTIFY_ROUTING_PROVIDER;
     use pierre_core::admin::models::CreateAdminTokenRequest;
-    use pierre_core::models::{User, UserStatus};
+    use pierre_core::models::{Tenant, TenantId, User, UserStatus};
     use pierre_core::permissions::impersonation::ImpersonationSession;
     use pierre_core::permissions::UserRole;
+    use pierre_database::backends::factory::DatabaseBackend;
     use pierre_database::repositories::{AuditEventFilter, AuditEventRecord};
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -380,6 +381,11 @@ mod slack_sign_up_action {
     const CARD_LEFT: &str =
         "Sign-up tap found the account already decided that way; the card is left as it is";
 
+    /// The line a tap logs when its write found the sign-up decided by
+    /// another tap first: it draws nothing either.
+    const CARD_LOST: &str =
+        "Sign-up tap lost at the write: the sign-up was decided first; the card is left as it is";
+
     /// How many times the notify event `event` was raised about `user_id`.
     fn raised(events: &CapturedEvents, event: &str, user_id: Uuid) -> usize {
         let user_id = user_id.to_string();
@@ -455,8 +461,10 @@ mod slack_sign_up_action {
             3,
             "the tap that decides each sign-up draws its card"
         );
+        // The second of two Approves at once either read the account
+        // already active or lost at the write: it draws nothing both ways.
         assert_eq!(
-            named(&lines, CARD_LEFT).len(),
+            named(&lines, CARD_LEFT).len() + named(&lines, CARD_LOST).len(),
             3,
             "and the tap that repeats it draws nothing"
         );
@@ -473,6 +481,14 @@ mod slack_sign_up_action {
     /// written, the rejection suspended the account the approval had just
     /// made active, and the approval went on to provision its tenant: a
     /// suspended account with the tenant of an approved one.
+    ///
+    /// The tap that loses at the write draws nothing. It used to read the
+    /// account again and draw "no longer pending" over the card, which could
+    /// land after the winner's card and replace who decided: two cards a
+    /// round, every round. A tap that reads the account already decided,
+    /// before it writes anything, still draws that refusal, so every tap
+    /// either draws or loses at the write, and over the rounds at least one
+    /// loses there.
     #[tokio::test]
     #[serial]
     async fn two_taps_at_once_decide_a_sign_up_once() {
@@ -480,6 +496,7 @@ mod slack_sign_up_action {
         let resources = signing_server().await;
         let tenants = &resources.common.repos.tenants;
 
+        let (lines, _guard) = capture_logs();
         for round in 0..TAP_RACE_ROUNDS {
             let contested = account_in(
                 &resources,
@@ -507,6 +524,134 @@ mod slack_sign_up_action {
                 UserStatus::Pending => panic!("round {round}: one of the two taps decides"),
             }
         }
+
+        let (drawn, lost) = (
+            named(&lines, CARD_DRAWN).len(),
+            named(&lines, CARD_LOST).len(),
+        );
+        assert_eq!(
+            drawn + lost,
+            2 * TAP_RACE_ROUNDS,
+            "every tap draws its card or loses at the write: {drawn} drawn, {lost} lost"
+        );
+        assert!(
+            drawn < 2 * TAP_RACE_ROUNDS,
+            "a tap that loses at the write draws nothing, and over {TAP_RACE_ROUNDS} rounds \
+             at least one does: {drawn} cards drawn"
+        );
+    }
+
+    /// The line a tap logs when its approval was put back: the sign-up is
+    /// pending again and the card is not replaced.
+    const APPROVAL_PUT_BACK: &str = "Sign-up approval was put back: the sign-up is pending again and the card keeps its buttons";
+
+    /// A tenant owned by `owner` holding the slug an approval gives
+    /// `sign_up`'s own tenant, so that tenant cannot be provisioned. Its id.
+    async fn take_the_slug_of(resources: &ServerContext, sign_up: Uuid, owner: Uuid) -> TenantId {
+        let tenant_id = TenantId::generate();
+        resources
+            .common
+            .repos
+            .tenants
+            .create(&Tenant {
+                id: tenant_id,
+                name: "in the way".to_owned(),
+                slug: format!("user-{}", sign_up.as_simple()),
+                domain: None,
+                plan: "starter".to_owned(),
+                owner_user_id: owner,
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+            })
+            .await
+            .unwrap();
+        tenant_id
+    }
+
+    /// Remove the tenant `tenant_id` and its memberships, past the
+    /// repository, which has no delete.
+    async fn remove_tenant(resources: &ServerContext, tenant_id: TenantId) {
+        for statement in [
+            "DELETE FROM tenant_users WHERE CAST(tenant_id AS TEXT) = $1",
+            "DELETE FROM tenants WHERE CAST(id AS TEXT) = $1",
+        ] {
+            match resources.agent.database.backend() {
+                DatabaseBackend::SQLite(backend) => {
+                    sqlx::query(statement)
+                        .bind(tenant_id.to_string())
+                        .execute(backend.pool())
+                        .await
+                        .unwrap();
+                }
+                #[cfg(feature = "postgresql")]
+                DatabaseBackend::PostgreSQL(backend) => {
+                    sqlx::query(statement)
+                        .bind(tenant_id.to_string())
+                        .execute(backend.pool())
+                        .await
+                        .unwrap();
+                }
+            }
+        }
+    }
+
+    /// An Approve lands and then the account's own tenant cannot be made
+    /// (carnet#1589): here its slug is taken. The tap used to leave the
+    /// account active with no tenant, nobody told, and a card whose buttons
+    /// were gone, so neither the room nor the console could finish. The
+    /// approval is put back: the sign-up is pending again, nothing is
+    /// announced and the card is not replaced. Once the tenant can be made,
+    /// the next Approve on the same card finishes: one tenant, one
+    /// announcement, one card.
+    #[tokio::test]
+    #[serial]
+    async fn an_approval_that_cannot_make_the_tenant_is_put_back_and_the_next_tap_finishes() {
+        let _room = SignUpRoom::routed();
+        let resources = signing_server().await;
+        let tenants = &resources.common.repos.tenants;
+        let squatter = account(&resources, "squatter@example.com", UserRole::User).await;
+        let sign_up = account_in(
+            &resources,
+            "held-up@example.com",
+            UserRole::User,
+            UserStatus::Pending,
+        )
+        .await;
+        let in_the_way = take_the_slug_of(&resources, sign_up, squatter).await;
+
+        let (lines, _guard) = capture_logs();
+        tap_approve(&resources, sign_up).await;
+
+        assert_eq!(
+            status_of(&resources, sign_up).await,
+            UserStatus::Pending,
+            "an approval that could not make the tenant leaves the sign-up pending"
+        );
+        assert!(tenants.list_for_user(sign_up).await.unwrap().is_empty());
+        assert_eq!(
+            raised(&lines, "user.approved", sign_up),
+            0,
+            "an approval that was put back is not announced"
+        );
+        assert_eq!(named(&lines, APPROVAL_PUT_BACK).len(), 1);
+        assert_eq!(
+            named(&lines, CARD_DRAWN).len(),
+            0,
+            "the card is not replaced: its buttons are what the next tap needs"
+        );
+
+        remove_tenant(&resources, in_the_way).await;
+        tap_approve(&resources, sign_up).await;
+
+        assert_eq!(status_of(&resources, sign_up).await, UserStatus::Active);
+        assert_eq!(tenants.list_for_user(sign_up).await.unwrap().len(), 1);
+        assert_eq!(raised(&lines, "user.approved", sign_up), 1);
+        assert_eq!(
+            named(&lines, CARD_DRAWN).len(),
+            1,
+            "the tap that finishes draws the outcome"
+        );
+        assert_eq!(named(&lines, APPROVAL_PUT_BACK).len(), 1);
     }
 
     /// The withdrawal a rejection carries is still reachable without an

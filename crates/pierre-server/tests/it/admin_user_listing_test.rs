@@ -97,7 +97,7 @@ async fn a_page_returns_the_requested_size_not_everything() {
 
     let page = repos
         .users
-        .get_by_status_cursor("active", &PaginationParams::forward(None, 5))
+        .get_by_status_cursor("active", None, &PaginationParams::forward(None, 5))
         .await
         .unwrap();
 
@@ -130,7 +130,7 @@ async fn paging_covers_every_user_without_repeats() {
     for _ in 0..10 {
         let page = repos
             .users
-            .get_by_status_cursor("active", &PaginationParams::forward(cursor, 4))
+            .get_by_status_cursor("active", None, &PaginationParams::forward(cursor, 4))
             .await
             .unwrap();
         for u in &page.items {
@@ -172,7 +172,7 @@ async fn the_tier_filter_admits_only_that_tier() {
 
     let page = repos
         .users
-        .get_by_status_cursor("active", &PaginationParams::forward(None, 100))
+        .get_by_status_cursor("active", None, &PaginationParams::forward(None, 100))
         .await
         .unwrap();
 

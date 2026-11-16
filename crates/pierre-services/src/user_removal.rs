@@ -60,7 +60,7 @@ use serde_json::json;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::admin_ops::WithdrawnAdminCredentials;
+use crate::admin_ops::{ActingOn, WithdrawnAdminCredentials};
 use crate::analytics::evict_user_email;
 use crate::firebase_identity_outbox;
 use crate::oauth_flow::OAuthService;
@@ -419,8 +419,11 @@ pub async fn held_providers(
 /// Disconnect one provider for a user in every tenant `targets` names,
 /// through the chokepoint, and report each grant's revocation.
 ///
-/// `targets` comes from [`held_providers`], narrowed by the caller to the
-/// provider (and the tenants it may act in). An empty `Disconnected` means
+/// `acting` is the user and who disconnects for them
+/// ([`AccountCaller::acting_on`](crate::admin_ops::AccountCaller::acting_on),
+/// which holds an admin account to a platform caller). `targets` comes from
+/// [`held_providers`], narrowed by the caller to the provider (and the
+/// tenants it may act in). An empty `Disconnected` means
 /// there was nothing to disconnect and nothing was called; the caller turns
 /// that into its own refusal. A provider this build cannot disconnect is
 /// `NotRevocable`, before the chokepoint is called. A failed disconnect — a
@@ -428,9 +431,10 @@ pub async fn held_providers(
 /// tenants disconnected before it.
 pub async fn disconnect_user_provider(
     disconnector: &dyn ProviderDisconnector,
-    user_id: Uuid,
+    acting: &ActingOn<'_>,
     targets: Vec<HeldProvider>,
 ) -> ProviderDisconnection {
+    let user_id = acting.id();
     if targets
         .iter()
         .any(|target| !disconnector.supports(&target.provider))
@@ -450,9 +454,14 @@ pub fn providers_named(held: Vec<HeldProvider>, provider: &str) -> Vec<HeldProvi
     held.into_iter().filter(|h| h.provider == wanted).collect()
 }
 
-/// Remove a user completely, on an operator's request or the user's own
-/// (`actor` names who asked, on the receipt and as the reason of every
-/// `provider.disconnected` event).
+/// Remove a user completely, on an admin surface's request or the user's own.
+///
+/// `acting` is the account and who asked
+/// ([`AccountCaller::acting_on`](crate::admin_ops::AccountCaller::acting_on),
+/// which holds an admin account to a platform caller); the caller's
+/// [`deletion_actor`](crate::admin_ops::AccountCaller::deletion_actor) is
+/// named on the receipt and as the reason of every `provider.disconnected`
+/// event.
 ///
 /// In order: refuse the last active admin, whoever asks, their own
 /// self-serve deletion included (the platform always keeps one admin);
@@ -492,9 +501,10 @@ pub async fn remove_user(
     disconnector: Option<&dyn ProviderDisconnector>,
     firebase: Option<&FirebaseIdentityDeleter>,
     cache: Option<&Cache>,
-    user_id: Uuid,
-    actor: DeletionActor,
+    acting: &ActingOn<'_>,
 ) -> AppResult<UserRemoval> {
+    let user_id = acting.id();
+    let actor = acting.caller().deletion_actor();
     let user = repos.users.get_global(user_id).await?;
     // Refused here, before any grant is withdrawn upstream. The account
     // delete decides again in its own transaction, under the lock that makes

@@ -42,6 +42,7 @@ use pierre_core::models::{Tenant, TenantId, User, UserStatus, UserTier};
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_database::backends::factory::Database;
 use pierre_database::database::generate_encryption_key;
+use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_llm::ChatProvider;
 use pierre_mcp_server::services::archive_import::ArchiveImports;
@@ -54,6 +55,7 @@ use pierre_mcp_server::{
     utils,
 };
 use pierre_middleware::McpAuthMiddleware;
+use pierre_services::admin_ops::{AccountCaller, ActingOn};
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
@@ -355,6 +357,24 @@ pub(crate) async fn generate_test_token(resources: &Arc<ServerContext>, user: &U
         .auth_manager
         .generate_token_with_tenant(user, &resources.auth.jwks_manager, tenant_id)
         .unwrap()
+}
+
+/// The stored account `user_id`, taken by `caller`: what an account write of
+/// the service layer takes, for a test that calls one directly.
+pub(crate) async fn acting_on<'c>(
+    repos: &RepositoryRegistry,
+    caller: &'c AccountCaller,
+    user_id: Uuid,
+) -> ActingOn<'c> {
+    let account = repos
+        .users
+        .get_global(user_id)
+        .await
+        .unwrap()
+        .expect("the account exists");
+    caller
+        .acting_on(account)
+        .expect("the caller may act on the account")
 }
 
 /// Run `call`, a tool call `user` makes in `tenant`, as a turn of Dravr's web

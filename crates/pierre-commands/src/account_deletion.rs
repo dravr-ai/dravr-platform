@@ -36,7 +36,7 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::{normalize_email, UserReference, UserReferenceKind};
-use pierre_database::repositories::DeletionActor;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::user_removal::{self, UserRemoval};
 use std::collections::BTreeSet;
@@ -151,19 +151,20 @@ impl CommandHandler for DeleteAccountHandler {
         let runtime = &ctx.tool_runtime;
         let disconnector = OAuthService::new(runtime.data(), runtime.config().clone());
         let firebase = FirebaseIdentityDeleter::from_config(&runtime.config().firebase);
+        let user_id = user.id;
+        let holder = AccountCaller::account_holder_on_messaging();
         let outcome = user_removal::remove_user(
             repos,
             Some(&disconnector),
             firebase.as_ref(),
             Some(runtime.data().cache().as_ref()),
-            user.id,
-            DeletionActor::Messaging,
+            &holder.acting_on(user)?,
         )
         .await?;
         let text = match outcome {
             UserRemoval::Removed(report) => {
                 info!(
-                    user_id = %user.id,
+                    user_id = %user_id,
                     channel = %ctx.channel_type,
                     disconnected = report.disconnected.len(),
                     "Account deleted by its owner from a chat command"
@@ -173,7 +174,7 @@ impl CommandHandler for DeleteAccountHandler {
             UserRemoval::Blocked(blockers) => blocked_text(reg, locale, &blockers),
             UserRemoval::Interrupted(interruption) => {
                 warn!(
-                    user_id = %user.id,
+                    user_id = %user_id,
                     error = %interruption.error,
                     "Account deletion from a chat command was interrupted"
                 );

@@ -46,7 +46,7 @@
 //! the request log under them, renamed and acting as no account. The log
 //! (`admin_token_usage`) keeps what each request did, to what and when, and
 //! loses where it came from: its address and user agent are the admin's,
-//! and are set `NULL` in the same transaction
+//! and are set `NULL` in the same transaction, after the logins are retired
 //! (`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`). Each engine's purge names the two
 //! tables apart ([`UserPurge::kept`]), and the same survivor read refuses to
 //! commit while one still carries the id.
@@ -362,30 +362,37 @@ user_owned_tables!(
 );
 
 /// Retire every device login a deleted account approved, live or already
-/// withdrawn, and take the account out of it: `$1` the operator that is no
-/// account (`DELETED_ACCOUNT_OPERATOR`, as text), `$2` the name that names
-/// no one, `$3` the account's id as text. The row stays, inactive, so the
-/// request log and the record of the keys it provisioned stay under it; the
-/// address its admin last used it from does not, since that is the admin's
-/// and nothing reads it off a retired row. `operator_user_id` is text on
-/// both engines.
+/// withdrawn, and take the account out of it, naming the logins retired:
+/// `$1` the operator that is no account (`DELETED_ACCOUNT_OPERATOR`, as
+/// text), `$2` the name that names no one, `$3` the account's id as text.
+/// The row stays, inactive, so the request log and the record of the keys
+/// it provisioned stay under it; the address its admin last used it from
+/// does not, since that is the admin's and nothing reads it off a retired
+/// row. `operator_user_id` is text on both engines.
+///
+/// It runs before the log is scrubbed. From this statement on the login
+/// takes no caller, and a log write that reads the row waits for this
+/// transaction to end (`admin_statements_sql!`'s `$share`), so every log
+/// row that can carry a caller was committed before this ran, where
+/// [`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`] finds it.
 pub(crate) const RETIRE_DEVICE_LOGINS_SQL: &str = "UPDATE admin_tokens \
      SET is_active = FALSE, operator_user_id = $1, service_name = $2, last_used_ip = NULL \
-     WHERE operator_user_id = $3";
+     WHERE operator_user_id = $3 RETURNING id";
 
-/// Take the caller out of the request log a deleted account's device logins
-/// keep: `$1` the account's id as text. Each `admin_token_usage` row stays
-/// with its action, its target and its time, which is the record of what the
-/// login did; the IP address and the user agent the request came from are
-/// the admin's own, and nothing reads them off a retired login's log.
+/// Take the caller out of the request log one retired device login keeps:
+/// `$1` the login's token id, as [`RETIRE_DEVICE_LOGINS_SQL`] returned it.
+/// Each `admin_token_usage` row stays with its action, its target and its
+/// time, which is the record of what the login did; the IP address and the
+/// user agent the request came from are the admin's own, and nothing reads
+/// them off a retired login's log.
 ///
-/// It runs before [`RETIRE_DEVICE_LOGINS_SQL`], which rewrites the
-/// `operator_user_id` this finds the account's logins by, and in the same
-/// transaction, so the two cannot come apart. Both columns are nullable on
-/// both engines (`INET` and `TEXT` on Postgres, `TEXT` on `SQLite`).
+/// It runs after the retirement, in the same transaction and by the ids the
+/// retirement named: the retirement rewrote the `operator_user_id` the
+/// account's logins were found by, and a log row committed just before it
+/// is one this must see. Both columns are nullable on both engines (`INET`
+/// and `TEXT` on Postgres, `TEXT` on `SQLite`); `admin_token_id` is text.
 pub(crate) const SCRUB_DEVICE_LOGIN_REQUESTS_SQL: &str = "UPDATE admin_token_usage \
-     SET ip_address = NULL, user_agent = NULL \
-     WHERE admin_token_id IN (SELECT id FROM admin_tokens WHERE operator_user_id = $1)";
+     SET ip_address = NULL, user_agent = NULL WHERE admin_token_id = $1";
 
 /// Take a deleted account's id out of every token name that carries it:
 /// `$1` what stands in its place (`DELETED_ACCOUNT_LABEL`), `$2` the

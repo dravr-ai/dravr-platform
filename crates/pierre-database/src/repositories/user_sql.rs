@@ -40,6 +40,29 @@ pub(crate) const UPDATE_USER_SQL: &str = r"
             WHERE id = $1
             ";
 
+/// Link a federated identity to an existing account
+/// ([`FederatedLink`](super::users::FederatedLink)): the columns the link
+/// owns, the `last_active` stamp every write on the row makes, and the row
+/// as the write leaves it.
+///
+/// `$2` is the Firebase UID the sign-in carries, `$3` the provider, and
+/// `$4` the password marker of an account whose earlier credentials are
+/// retired, `NULL` when they are kept. Kept, the password stays and a
+/// sign-in that carries no UID leaves an earlier one; retired, the UID
+/// becomes exactly `$2`, dropping an earlier link. `role`, `user_status`
+/// and `is_active` are not named: a suspension, a demotion or a promotion
+/// that lands while a sign-in is being linked is not written over. All
+/// three binds are text on both engines.
+pub(crate) const LINK_FEDERATED_IDENTITY_SQL: &str = concat!(
+    "UPDATE users SET \
+         firebase_uid = CASE WHEN $4 IS NULL THEN COALESCE($2, firebase_uid) ELSE $2 END, \
+         auth_provider = $3, \
+         password_hash = COALESCE($4, password_hash), \
+         last_active = CURRENT_TIMESTAMP \
+     WHERE id = $1 RETURNING ",
+    user_columns!("")
+);
+
 /// One user, only when they are a member of the tenant.
 pub(crate) const GET_USER_IN_TENANT_SQL: &str = concat!(
     "SELECT ",
@@ -125,13 +148,35 @@ pub(crate) const USERS_BY_STATUS_IN_TENANT_SQL: &str = concat!(
             ORDER BY u.created_at DESC"
 );
 
+/// What keeps a status listing to the members of one tenant: `$n` is the
+/// tenant, or `NULL` for every tenant. Membership is a `tenant_users` row,
+/// the test [`GET_USER_IN_TENANT_SQL`] reads one user by, so a listing
+/// names exactly the accounts a read by id in that tenant finds. The bind
+/// is a tenant id on both engines (`UUID` on Postgres, `TEXT` on `SQLite`).
+macro_rules! member_of_tenant_sql {
+    ($n:literal) => {
+        concat!(
+            "(",
+            $n,
+            " IS NULL OR EXISTS (SELECT 1 FROM tenant_users tu \
+             WHERE tu.user_id = users.id AND tu.tenant_id = ",
+            $n,
+            "))"
+        )
+    };
+}
+
 /// The first page of a status listing under keyset pagination. The status
-/// [`ALL_USER_STATUSES`](super::users::ALL_USER_STATUSES) lists every account.
+/// [`ALL_USER_STATUSES`](super::users::ALL_USER_STATUSES) lists every account,
+/// and `$3` keeps one tenant's members ([`member_of_tenant_sql!`]).
 pub(crate) const USERS_BY_STATUS_PAGE_SQL: &str = concat!(
     "SELECT ",
     user_columns!(""),
     " FROM users
             WHERE ($1 = 'all' OR COALESCE(user_status, 'active') = $1)
+              AND ",
+    member_of_tenant_sql!("$3"),
+    "
             ORDER BY created_at DESC, id DESC
             LIMIT $2"
 );
@@ -140,12 +185,16 @@ pub(crate) const USERS_BY_STATUS_PAGE_SQL: &str = concat!(
 /// the listing's order, so an account created meanwhile neither repeats nor
 /// hides another. The id compares natively on both drivers: a uuid orders
 /// bytewise on Postgres, which is the order its hyphenated text has on `SQLite`.
+/// `$5` keeps one tenant's members ([`member_of_tenant_sql!`]).
 pub(crate) const USERS_BY_STATUS_AFTER_CURSOR_SQL: &str = concat!(
     "SELECT ",
     user_columns!(""),
     " FROM users
             WHERE ($1 = 'all' OR COALESCE(user_status, 'active') = $1)
               AND (created_at < $2 OR (created_at = $2 AND id < $3))
+              AND ",
+    member_of_tenant_sql!("$5"),
+    "
             ORDER BY created_at DESC, id DESC
             LIMIT $4"
 );

@@ -70,7 +70,8 @@ use commands::tenant::TenantCommand;
 use pierre_auth::key_management::KeyManager;
 #[cfg(feature = "postgresql")]
 use pierre_core::config::database::PostgresPoolConfig;
-use pierre_core::errors::AppResult;
+use pierre_core::errors::{AppError, AppResult};
+use pierre_core::permissions::UserRole;
 use pierre_core::redaction::redact_url;
 use pierre_database::backends::{factory::Database, DatabaseProvider};
 use secrecy::SecretString;
@@ -82,6 +83,14 @@ use std::sync::Arc;
 use tracing::info;
 
 use helpers::jwks::initialize_jwks_manager;
+
+/// The role `user create --role` names: `admin` or `user`, as `user set
+/// --role` spells them, case aside.
+fn parse_account_role(raw: &str) -> Result<UserRole> {
+    raw.to_ascii_lowercase().parse().map_err(|_| {
+        AppError::invalid_input(format!("unknown role '{raw}': expected admin or user"))
+    })
+}
 
 #[derive(Parser)]
 #[command(
@@ -365,6 +374,12 @@ enum UserCommand {
         /// Omitted: a new account takes the platform default, an existing one keeps its own.
         #[arg(long)]
         locale: Option<String>,
+
+        /// The account's role. `user` makes a plain active account, on the
+        /// starter tier, that holds no admin power; it does not demote an
+        /// existing admin (`user demote` does).
+        #[arg(long, value_name = "admin|user", default_value = "admin", value_parser = parse_account_role)]
+        role: UserRole,
     },
 
     /// Promote an existing user to admin
@@ -1015,13 +1030,18 @@ async fn main() -> Result<()> {
                     name,
                     force,
                     locale,
+                    role,
                 } => {
                     commands::user::create(
                         &repos,
                         email,
                         password,
                         name,
-                        commands::user::AdminUserOptions { force, locale },
+                        commands::user::AdminUserOptions {
+                            force,
+                            locale,
+                            role,
+                        },
                     )
                     .await?;
                 }

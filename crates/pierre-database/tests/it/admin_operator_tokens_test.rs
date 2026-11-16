@@ -47,7 +47,7 @@ use pierre_database::backends::factory::{Database, DatabaseBackend};
 #[cfg(feature = "postgresql")]
 use pierre_database::repositories::POSTGRES_USER_PURGE;
 use pierre_database::repositories::{
-    AccountDeletionPlan, DeletionActor, TokenRotation, SQLITE_USER_PURGE,
+    AccountDeletionPlan, DeletionActor, TokenRevocation, TokenRotation, SQLITE_USER_PURGE,
 };
 use pierre_database::seed_models::SeedDemoUser;
 use pierre_database::RepositoryRegistry;
@@ -70,7 +70,7 @@ impl JwtSigner for Unsigned {
 
 /// Mint a super-admin token as the device grant does, acting as `operator`,
 /// or as `pierre-cli token generate` does when there is none; its id.
-async fn mint(repos: &RepositoryRegistry, name: &str, operator: Option<Uuid>) -> String {
+pub(crate) async fn mint(repos: &RepositoryRegistry, name: &str, operator: Option<Uuid>) -> String {
     let mut request = CreateAdminTokenRequest::super_admin(name.to_owned());
     request.operator_user_id = operator;
     repos
@@ -145,7 +145,7 @@ async fn an_admins_tokens_are_deactivated_together_and_no_one_elses() {
 }
 
 /// A stored account: an admin when `admin`, a plain user otherwise.
-async fn account(repos: &RepositoryRegistry, email: &str, admin: bool) -> User {
+pub(crate) async fn account(repos: &RepositoryRegistry, email: &str, admin: bool) -> User {
     let user = if admin {
         create_test_admin_user(email, None)
     } else {
@@ -389,7 +389,7 @@ async fn tables_naming(db: &Database, id: Uuid) -> Vec<String> {
 }
 
 /// The address a token was last used from, in these tests (TEST-NET-3).
-const LAST_USED_FROM: &str = "203.0.113.7";
+pub(crate) const LAST_USED_FROM: &str = "203.0.113.7";
 
 /// Log one whole-provider purge made with `token_id`, as the route does.
 async fn log_a_purge(repos: &RepositoryRegistry, token_id: &str) {
@@ -413,13 +413,13 @@ async fn log_a_purge(repos: &RepositoryRegistry, token_id: &str) {
 }
 
 /// The stored token `id`, revoked ones included.
-async fn token(repos: &RepositoryRegistry, id: &str) -> Option<AdminToken> {
+pub(crate) async fn token(repos: &RepositoryRegistry, id: &str) -> Option<AdminToken> {
     repos.admin.get_token_by_id(id).await.unwrap()
 }
 
 /// Log one request made with `token_id` from [`LAST_USED_FROM`] by
 /// [`CLI_USER_AGENT`], as the admin API's middleware records one.
-async fn log_a_request_with_its_caller(repos: &RepositoryRegistry, token_id: &str) {
+pub(crate) async fn log_a_request_with_its_caller(repos: &RepositoryRegistry, token_id: &str) {
     repos
         .admin
         .record_token_usage(&AdminTokenUsage {
@@ -443,7 +443,10 @@ async fn log_a_request_with_its_caller(repos: &RepositoryRegistry, token_id: &st
 const CLI_USER_AGENT: &str = "pierre-cli/0.3.0 (darwin; sentinel-agent-1589)";
 
 /// Every request the log holds for `token_id`, as the repository reads it.
-async fn requests_of(repos: &RepositoryRegistry, token_id: &str) -> Vec<AdminTokenUsage> {
+pub(crate) async fn requests_of(
+    repos: &RepositoryRegistry,
+    token_id: &str,
+) -> Vec<AdminTokenUsage> {
     repos
         .admin
         .get_token_usage_history(
@@ -1150,6 +1153,112 @@ async fn a_rotation_retires_the_token_and_mints_one_replacement() {
         .expect_err("an unknown token is not rotated");
     assert_eq!(missing.code, ErrorCode::ResourceNotFound, "{missing:?}");
     assert_eq!(stored(repos).await, 3);
+}
+
+/// A rotation names its replacement on the row it retires, and a revoke
+/// reads that name (carnet#1589). A live token is revoked; a token revoked
+/// earlier is left alone and says so; a rotated token is left alone and
+/// names the replacement, which stays live. A rotation that is refused
+/// after its claim rolls the name back with the claim, and an id that is no
+/// token's revokes nothing, without an error.
+#[tokio::test]
+async fn a_revoke_tells_a_rotated_token_from_a_revoked_one() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let old = mint(repos, "nightly-job", None).await;
+    let read_while_live = token(repos, &old).await.expect("the token");
+    assert_eq!(read_while_live.rotated_to_token_id, None);
+
+    // Refused after the claim: the flag is not the one the caller checked.
+    let mut unflagged = read_while_live.clone();
+    unflagged.is_super_admin = false;
+    repos
+        .admin
+        .rotate_token(
+            &TokenRotation {
+                checked: &unflagged,
+                expires_in_days: 7,
+                rotated_by: None,
+            },
+            JWT_SECRET,
+            &Unsigned,
+        )
+        .await
+        .expect_err("a rotation on other terms than the row's is refused");
+    let untouched = token(repos, &old).await.expect("the token");
+    assert!(untouched.is_active, "the refused rotation retired nothing");
+    assert_eq!(
+        untouched.rotated_to_token_id, None,
+        "and named no replacement"
+    );
+
+    let replacement = repos
+        .admin
+        .rotate_token(
+            &TokenRotation {
+                checked: &read_while_live,
+                expires_in_days: 7,
+                rotated_by: None,
+            },
+            JWT_SECRET,
+            &Unsigned,
+        )
+        .await
+        .unwrap()
+        .token_id;
+    let rotated = token(repos, &old).await.expect("the old row");
+    assert!(!rotated.is_active);
+    assert_eq!(
+        rotated.rotated_to_token_id.as_deref(),
+        Some(replacement.as_str()),
+        "the claim names the replacement it minted"
+    );
+    assert_eq!(
+        token(repos, &replacement)
+            .await
+            .expect("the replacement")
+            .rotated_to_token_id,
+        None
+    );
+
+    assert_eq!(
+        repos.admin.deactivate_token(&old).await.unwrap(),
+        TokenRevocation::Rotated {
+            replacement: replacement.clone()
+        }
+    );
+    assert_eq!(
+        live(repos).await,
+        vec![replacement.clone()],
+        "revoking the rotated token left its replacement live"
+    );
+
+    assert_eq!(
+        repos.admin.deactivate_token(&replacement).await.unwrap(),
+        TokenRevocation::Revoked
+    );
+    assert_eq!(
+        repos.admin.deactivate_token(&replacement).await.unwrap(),
+        TokenRevocation::AlreadyRevoked,
+        "a token revoked earlier names no replacement"
+    );
+    assert_eq!(live(repos).await, Vec::<String>::new());
+    assert_eq!(
+        repos.admin.deactivate_token(&old).await.unwrap(),
+        TokenRevocation::Rotated { replacement },
+        "the rotated token still names what replaced it"
+    );
+
+    assert_eq!(
+        repos
+            .admin
+            .deactivate_token("admin_no_such_token")
+            .await
+            .unwrap(),
+        TokenRevocation::AlreadyRevoked,
+        "an id that is no token's revokes nothing"
+    );
+    assert_eq!(stored(repos).await, 2, "and stores nothing");
 }
 
 /// A rotation's terms print the token they were checked on by its id. The

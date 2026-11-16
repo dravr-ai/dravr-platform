@@ -29,5 +29,6 @@ mod signup_code_cli_test;
 mod strava_webhook_test;
 mod token_generate_output_test;
 mod token_rotate_cli_test;
+mod user_create_role_cli_test;
 mod user_promote_cli_test;
 mod user_removal_cli_test;

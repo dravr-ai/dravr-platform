@@ -21,13 +21,32 @@ fn cli_binary() -> String {
         .unwrap_or_else(|_| env!("CARGO_BIN_EXE_pierre-cli").to_owned())
 }
 
-/// Everything the binary printed, stdout then stderr.
+/// What stands where a command printed a token.
+const TOKEN_NOT_QUOTED: &str = "[a token, not quoted]";
+
+/// What a command printed, fit to quote in a failed assertion: `token
+/// generate` and `token rotate` print the minted token three times (alone,
+/// in an `export` line, in a `curl` example), and each is replaced. A
+/// token is a JWT, which starts `eyJ` and runs over base64url and dots.
 fn printed(output: &Output) -> String {
-    format!(
+    let text = format!(
         "{}{}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
-    )
+    );
+    let mut quotable = String::with_capacity(text.len());
+    let mut rest = text.as_str();
+    while let Some(start) = rest.find("eyJ") {
+        let token = &rest[start..];
+        let end = token
+            .find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')))
+            .unwrap_or(token.len());
+        quotable.push_str(&rest[..start]);
+        quotable.push_str(TOKEN_NOT_QUOTED);
+        rest = &token[end..];
+    }
+    quotable.push_str(rest);
+    quotable
 }
 
 /// The value after `label` on the first line of `text` that carries it.
@@ -132,5 +151,91 @@ fn a_rotation_keeps_the_name_the_description_and_the_permissions() {
         printed(&again).contains("cannot be rotated"),
         "{}",
         printed(&again)
+    );
+    assert!(
+        printed(&again).contains(&new_id) && !printed(&again).contains("mint a new one"),
+        "a second rotation names the replacement and asks for no new token: {}",
+        printed(&again)
+    );
+}
+
+/// `token revoke` on a rotated token fails and names the replacement
+/// (carnet#1589). It used to warn that the token was already inactive and
+/// exit 0, so a script that revoked the old id read a credential as ended
+/// while its replacement stayed live. The replacement is revoked like any
+/// token, and revoking it again, a token that names no replacement, keeps
+/// the idempotent success.
+#[test]
+fn revoking_a_rotated_token_fails_and_names_its_replacement() {
+    let path = env::temp_dir().join(format!("pierre-cli-revoke-rotated-{}.db", Uuid::new_v4()));
+    let url = format!("sqlite:{}?mode=rwc", path.display());
+    let run = |args: &[&str]| {
+        Command::new(cli_binary())
+            .env("DATABASE_URL", &url)
+            .env("PIERRE_MASTER_ENCRYPTION_KEY", MASTER_KEY)
+            .args(args)
+            .output()
+            .unwrap()
+    };
+    let created = run(&[
+        "user",
+        "create",
+        "--email",
+        "admin@example.com",
+        "--password",
+        "correct-horse-battery-staple",
+    ]);
+    assert!(created.status.success(), "{}", printed(&created));
+    let generated = run(&["token", "generate", "--service", "nightly-job"]);
+    assert!(generated.status.success(), "{}", printed(&generated));
+    let old_id = value_after(&printed(&generated), "Token ID: ").to_owned();
+    let rotated = run(&["token", "rotate", &old_id]);
+    assert!(rotated.status.success(), "{}", printed(&rotated));
+    let new_id = value_after(&printed(&rotated), "New Token: ")
+        .trim_end_matches(" (active)")
+        .to_owned();
+
+    let revoke_the_old = run(&["token", "revoke", &old_id]);
+    let listing_after_refusal = run(&["token", "list", "--include-inactive", "--detailed"]);
+    let revoke_the_new = run(&["token", "revoke", &new_id]);
+    let revoke_the_new_again = run(&["token", "revoke", &new_id]);
+    let listing = run(&["token", "list", "--include-inactive", "--detailed"]);
+    // Best-effort cleanup of the temp files.
+    drop(fs::remove_file(&path));
+
+    let refusal = printed(&revoke_the_old);
+    assert!(
+        !revoke_the_old.status.success(),
+        "a rotated token is not revoked again: {refusal}"
+    );
+    assert!(
+        refusal.contains(&new_id) && refusal.contains("revoke that one"),
+        "the refusal names the replacement and what to do: {refusal}"
+    );
+    let listing_after_refusal = printed(&listing_after_refusal);
+    assert_eq!(
+        value_after(listed(&listing_after_refusal, &new_id), "Status: "),
+        "Active Active",
+        "the refused revoke left the replacement live"
+    );
+    assert_eq!(
+        value_after(listed(&listing_after_refusal, &old_id), "Rotated To: "),
+        new_id,
+        "the listing names what replaced the rotated token"
+    );
+
+    assert!(
+        revoke_the_new.status.success(),
+        "{}",
+        printed(&revoke_the_new)
+    );
+    assert!(
+        revoke_the_new_again.status.success(),
+        "a token revoked earlier keeps the idempotent answer: {}",
+        printed(&revoke_the_new_again)
+    );
+    assert_eq!(
+        value_after(listed(&printed(&listing), &new_id), "Status: "),
+        "Inactive Inactive"
     );
 }

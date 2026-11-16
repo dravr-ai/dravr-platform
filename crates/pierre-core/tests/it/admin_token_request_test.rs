@@ -28,6 +28,7 @@ fn device_token(operator: Uuid) -> AdminToken {
         is_active: true,
         tenant_id: None,
         operator_user_id: Some(operator),
+        rotated_to_token_id: None,
         created_at: Utc::now(),
         expires_at: None,
         last_used_at: None,

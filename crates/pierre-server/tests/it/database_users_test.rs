@@ -1177,6 +1177,7 @@ async fn listings_return_the_columns_the_row_holds() {
         .users
         .get_by_status_cursor(
             "active",
+            None,
             &PaginationParams {
                 cursor: None,
                 limit: 500,
@@ -1205,6 +1206,7 @@ async fn an_unknown_status_is_refused() {
         .users
         .get_by_status_cursor(
             "archived",
+            None,
             &PaginationParams {
                 cursor: None,
                 limit: 10,

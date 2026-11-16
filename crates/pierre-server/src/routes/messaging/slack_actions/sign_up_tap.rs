@@ -7,18 +7,18 @@
 use axum::http::StatusCode;
 use axum::Json;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Tenant, User, UserStatus};
-use pierre_database::repositories::{AuditSource, StandingWrite};
+use pierre_core::models::{User, UserStatus};
 use pierre_middleware::mask_email;
 use pierre_services::admin_ops::{
-    record_withdrawn_admin_credentials, AdminStandingLost, StandingChange,
+    self, AccountCaller, ActingOn, AdminStandingLost, SignUpApproval, SignUpDecision,
+    StatusTransition,
 };
 use pierre_services::analytics::cache_user_email;
-use pierre_services::tenant_admin as tenant_admin_service;
 use serde_json::{json, Value};
 use tracing::info;
 use uuid::Uuid;
 
+use super::ops_card::{keep_card_with_reason, room_text};
 use super::{update_card, ActionType, SlackAction};
 use crate::mcp::resources::ServerContext;
 use crate::services::user_approval_notifier::ApprovalNotifier;
@@ -46,10 +46,11 @@ const ADMIN_IS_NO_SIGN_UP: &str = "This account is an admin, and a sign-up card 
 /// suspended or approved again: a tap on it then changes nothing, so Reject
 /// never suspends an active account and Approve never reinstates a
 /// suspended one. The card says the account is no longer pending and what
-/// its standing is. The write itself holds the rule ([`decide_pending`]):
-/// it lands only while the account is still pending, so of two taps that
-/// overlap, on one button or on both, the first decides and the second
-/// changes nothing.
+/// its standing is. The write itself holds the rule
+/// ([`admin_ops::decide_sign_up`], the service's one write for a surface
+/// that decides sign-ups): it lands only while the account is still
+/// pending, so of two taps that overlap, on one button or on both, the
+/// first decides and the second changes nothing.
 ///
 /// A tap that finds the account already where its button would put it,
 /// Approve on an active account or Reject on a suspended one, is the same
@@ -57,11 +58,24 @@ const ADMIN_IS_NO_SIGN_UP: &str = "This account is an admin, and a sign-up card 
 /// nothing: the card of the first tap says who decided, and a second card
 /// saying the account "is no longer pending" would replace that name.
 ///
+/// A tap that read the sign-up pending and whose write then found it
+/// decided lost to another tap, on either button, and draws nothing either
+/// ([`TapOutcome::LostAtTheWrite`]). The two cards are drawn by two
+/// detached calls to Slack, in no order: the loser's "no longer pending"
+/// could land after the winner's card and replace who decided. Only a tap
+/// that reads the account already decided says so on the card.
+///
 /// A rejection is the status write every other suspension makes. A pending
 /// account that is not an admin can still hold what one did (a device login
 /// or an impersonation left live by a build that demoted without
 /// withdrawing them): the suspension withdraws those, on the trail under
 /// the Slack source.
+///
+/// An approval gives the account a tenant of its own when it has none
+/// ([`admin_ops::approve_sign_up`]). When that fails after the approval
+/// landed, the sign-up is put back to pending and the card keeps its
+/// buttons, with what happened under them: the next tap, or an admin on
+/// the console, approves it ([`TapOutcome::PutBack`]).
 pub(super) async fn answer_sign_up_tap(
     resources: &ServerContext,
     action: &SlackAction,
@@ -84,15 +98,45 @@ pub(super) async fn answer_sign_up_tap(
         // Fire-and-forget message update via tronc SlackClient
         update_card(resources, action, &blocks);
     } else {
-        info!(
-            user_id = %user_uuid,
-            tapped_by = %approver,
-            "Sign-up tap found the account already decided that way; the card is left as it is"
-        );
+        leave_the_card(resources, action, &result, user_uuid, &approver);
     }
 
     // Return 200 immediately (Slack expects a response within 3 seconds)
     Ok((StatusCode::OK, Json(json!({ "status": "ok" }))))
+}
+
+/// What a tap that replaces no card does instead ([`outcome_text`] is `None`).
+///
+/// An approval that was put back says so under the card's buttons, which
+/// stay. A tap that lost at the write, or found the account already decided
+/// that way, draws nothing. Each leaves one log line.
+fn leave_the_card(
+    resources: &ServerContext,
+    action: &SlackAction,
+    result: &AppResult<TapOutcome>,
+    user_uuid: Uuid,
+    approver: &str,
+) {
+    match result {
+        Ok(TapOutcome::PutBack(cause)) => {
+            info!(
+                user_id = %user_uuid,
+                tapped_by = %approver,
+                "Sign-up approval was put back: the sign-up is pending again and the card keeps its buttons"
+            );
+            keep_card_with_reason(resources, action, &put_back_line(approver, cause));
+        }
+        Ok(TapOutcome::LostAtTheWrite) => info!(
+            user_id = %user_uuid,
+            tapped_by = %approver,
+            "Sign-up tap lost at the write: the sign-up was decided first; the card is left as it is"
+        ),
+        _ => info!(
+            user_id = %user_uuid,
+            tapped_by = %approver,
+            "Sign-up tap found the account already decided that way; the card is left as it is"
+        ),
+    }
 }
 
 /// What a tap came to.
@@ -103,6 +147,22 @@ enum TapOutcome {
     /// The account already stood where the tap's button would put it:
     /// nothing was written, and the card stays as the deciding tap left it.
     AlreadyStands,
+    /// The tap read a pending sign-up and its write found none: something
+    /// decided the sign-up in between. Nothing was written, and the card
+    /// stays as whatever decided it drew it.
+    LostAtTheWrite,
+    /// The approval landed, the account could not be given its tenant, and
+    /// the sign-up is pending again: what failed, as the room may read it.
+    /// The card keeps its buttons, for the tap that finishes.
+    PutBack(String),
+}
+
+/// What the room reads under a card whose approval was put back.
+fn put_back_line(approver: &str, cause: &str) -> String {
+    format!(
+        "{approver}: the approval did not complete ({cause}). The sign-up is pending again; \
+         approve it again here, or from the console."
+    )
 }
 
 /// What a tap finds when it reads the account it names.
@@ -146,15 +206,16 @@ fn read_tap(user: &User, decision: UserStatus) -> AppResult<TapReading> {
 }
 
 /// What the card becomes: the outcome and who tapped, or why nothing was
-/// done. `None` leaves the card as it is, for a tap that found the account
-/// already where it would put it.
+/// done. `None` leaves the card's notice and buttons as they are, for a tap
+/// that found the account already where it would put it, for one that lost
+/// at the write, and for an approval that was put back.
 fn outcome_text(
     action_type: ActionType,
     result: &AppResult<TapOutcome>,
     approver: &str,
 ) -> Option<String> {
     match result {
-        Ok(TapOutcome::AlreadyStands) => None,
+        Ok(TapOutcome::AlreadyStands | TapOutcome::LostAtTheWrite | TapOutcome::PutBack(_)) => None,
         Ok(TapOutcome::Decided(email)) => Some(match action_type {
             ActionType::Approve => format!(":white_check_mark: *{email}* approved by {approver}"),
             ActionType::Reject => {
@@ -166,15 +227,21 @@ fn outcome_text(
 }
 
 /// Take the decision a tap names on the account it names: the account's
-/// email when the tap decided the sign-up, or that the account already
-/// stood there.
+/// email when the tap decided the sign-up, that the account already stood
+/// there, that another decision reached the write first, or that the
+/// approval was put back.
+///
+/// The room acts as [`AccountCaller::slack_room`]: it decides sign-ups, is
+/// written against no admin account, and may not act on an admin one. An
+/// admin's card is refused in the card's own words before that
+/// ([`read_tap`]), so the service's rank rule is the second lock on the
+/// same door, never what the room reads.
 ///
 /// # Errors
 ///
 /// Returns a not-found error for an unknown account, an invalid-input error
-/// for an admin account and for one that is no longer pending, at this read
-/// or at the write ([`read_tap`], [`decide_pending`]), and whatever the
-/// approval or the rejection fails with.
+/// for an admin account and for one that is no longer pending at this read
+/// ([`read_tap`]), and whatever the approval or the rejection fails with.
 async fn decide(
     resources: &ServerContext,
     action_type: ActionType,
@@ -192,57 +259,12 @@ async fn decide(
     if read_tap(&user, decision_of(action_type))? == TapReading::AlreadyStands {
         return Ok(TapOutcome::AlreadyStands);
     }
+    let room = AccountCaller::slack_room(tapped_by);
+    let acting = room.acting_on(user)?;
     match action_type {
-        ActionType::Approve => approve_user(resources, user.id, tapped_by).await,
-        ActionType::Reject => reject_user(resources, user.id, tapped_by).await,
+        ActionType::Approve => approve_user(resources, &acting).await,
+        ActionType::Reject => reject_user(resources, &acting).await,
     }
-}
-
-/// Write a tap's decision on the sign-up `user_uuid`, only while it is
-/// still pending: the write, or `None` when another tap made the same
-/// decision first.
-///
-/// [`decide`] refused every account that was not pending when it read it,
-/// but another tap can decide the same sign-up between that read and this
-/// write. The status is therefore checked by the statement that changes it:
-/// a write that finds the account no longer pending changes nothing. The
-/// account is then read as a stale card's is ([`read_tap`]): decided the
-/// way this tap would have, there is nothing to say, and decided the other
-/// way, the refusal says what the account is now.
-///
-/// # Errors
-///
-/// Returns a not-found error for an account deleted since the read, an
-/// invalid-input error for one that is no longer pending and stands where
-/// this tap would not put it, or that left the pending status and came
-/// back to it under the tap, and the repository's error when the write
-/// fails.
-async fn decide_pending(
-    resources: &ServerContext,
-    user_uuid: Uuid,
-    decision: UserStatus,
-) -> AppResult<Option<StandingWrite>> {
-    let users = &resources.common.repos.users;
-    if let Some(write) = users
-        .update_status_from(user_uuid, UserStatus::Pending, decision, None)
-        .await?
-    {
-        return Ok(Some(write));
-    }
-    let decided_since = users
-        .get_global(user_uuid)
-        .await?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-    if read_tap(&decided_since, decision)? == TapReading::AlreadyStands {
-        return Ok(None);
-    }
-    // Pending again by the time of this read: nothing was written. The
-    // refusal is drawn like any other, so the card loses its buttons, and
-    // it says where the sign-up is decided now.
-    Err(AppError::invalid_input(
-        "This account's standing changed while the tap was handled. Nothing was changed; \
-         the account is pending again, and an admin approves or rejects it from the console.",
-    ))
 }
 
 /// Refuse a tap whose account holds the admin role, whatever its status: a
@@ -270,44 +292,29 @@ fn refuse_unless_pending(user: &User) -> AppResult<()> {
     )))
 }
 
-/// Approve a pending sign-up: set status to Active and create tenant if needed
-async fn approve_user(
-    resources: &ServerContext,
-    user_uuid: Uuid,
-    approved_by: &str,
-) -> AppResult<TapOutcome> {
-    let Some(StandingWrite {
-        user: updated_user, ..
-    }) = decide_pending(resources, user_uuid, UserStatus::Active).await?
-    else {
-        return Ok(TapOutcome::AlreadyStands);
+/// Approve a pending sign-up through the service's approval for the room
+/// ([`admin_ops::approve_sign_up`]: active while still pending, with a
+/// tenant of its own when it has none), then announce it.
+///
+/// A tap whose write found the sign-up decided draws nothing
+/// ([`TapOutcome::LostAtTheWrite`]): whatever decided it draws its own card,
+/// and a second card from here could land after it. That holds for the
+/// three ways a write finds no pending row: the other button won, the same
+/// button won, or the account left the queue another way (approved on the
+/// console, deleted). A card left with live buttons answers its next tap
+/// from that tap's own read.
+async fn approve_user(resources: &ServerContext, acting: &ActingOn<'_>) -> AppResult<TapOutcome> {
+    let repos = &resources.common.repos;
+    let user_uuid = acting.id();
+    let approved_by = acting.caller().name();
+    let approval = match admin_ops::approve_sign_up(repos, acting).await? {
+        SignUpApproval::Approved(approval) => *approval,
+        SignUpApproval::LostAtTheWrite => return Ok(TapOutcome::LostAtTheWrite),
+        SignUpApproval::PutBack(cause) => {
+            return Ok(TapOutcome::PutBack(room_text(&cause).to_owned()));
+        }
     };
-
-    // Create default tenant for the approved user if they don't have one
-    let tenants = resources
-        .common
-        .repos
-        .tenants
-        .list_for_user(user_uuid)
-        .await
-        .unwrap_or_default();
-
-    // The tenant user.approved is attributed to, the same one sign-up keyed
-    // its events on, so the two land on one identity.
-    let tenant_id = if tenants.is_empty() {
-        let provisioned = tenant_admin_service::provision_tenant_for_approval(
-            &resources.common.repos,
-            user_uuid,
-            &updated_user.email,
-            updated_user.display_name.as_deref(),
-            None,
-            None,
-        )
-        .await?;
-        Some(provisioned.id)
-    } else {
-        Tenant::attribution_tenant(&tenants, user_uuid)
-    };
+    let updated_user = approval.user;
 
     info!(
         user_id = %user_uuid,
@@ -319,11 +326,13 @@ async fn approve_user(
     // Warm the identity cache first: the notify enricher resolves user_email
     // from user_id, and without it the Slack message loses the subject.
     cache_user_email(&user_uuid.to_string(), &updated_user.email);
+    // The tenant user.approved is attributed to is the one sign-up keyed
+    // its events on, so the two land on one identity.
     info!(
         target: "notify",
         event = "user.approved",
         user_id = %user_uuid,
-        tenant_id = tenant_id.map(display),
+        tenant_id = approval.tenant_id.map(display),
         approved_by = approved_by,
         "user account approved"
     );
@@ -341,35 +350,31 @@ async fn approve_user(
 }
 
 /// Reject (suspend) a pending sign-up
-async fn reject_user(
-    resources: &ServerContext,
-    user_uuid: Uuid,
-    rejected_by: &str,
-) -> AppResult<TapOutcome> {
+async fn reject_user(resources: &ServerContext, acting: &ActingOn<'_>) -> AppResult<TapOutcome> {
     // The status write every suspension makes: what the account still held
     // from a time as an admin goes in the same write. A refusal is returned
     // as it is, so the card says why nothing changed.
     let repos = &resources.common.repos;
-    let Some(StandingWrite {
+    let user_uuid = acting.id();
+    let rejected_by = acting.caller().name();
+    let Some(StatusTransition {
         user: updated_user,
         withdrawn,
-    }) = decide_pending(resources, user_uuid, UserStatus::Suspended).await?
+    }) = admin_ops::decide_sign_up(repos, acting, SignUpDecision::Reject).await?
     else {
-        return Ok(TapOutcome::AlreadyStands);
+        return Ok(TapOutcome::LostAtTheWrite);
     };
     // The room is the authorization, so the trail row names no admin account:
     // the Slack source says which door, the log line below says which handle.
-    record_withdrawn_admin_credentials(
-        repos,
-        &withdrawn,
-        StandingChange {
-            cause: AdminStandingLost::Deactivated,
-            account: Some(user_uuid),
-            actor: None,
-            source: AuditSource::Slack,
-        },
-    )
-    .await;
+    acting
+        .caller()
+        .record_withdrawn(
+            repos,
+            &withdrawn,
+            AdminStandingLost::Deactivated,
+            Some(user_uuid),
+        )
+        .await;
 
     info!(
         user_id = %user_uuid,
@@ -540,5 +545,38 @@ mod tests {
             .as_deref(),
             Some(":white_check_mark: *new@example.com* rejected (suspended) by @reviewer")
         );
+    }
+
+    /// A tap that lost at the write (carnet#1589) draws no card: there is
+    /// no refusal to draw over the card of whatever decided. What the write
+    /// itself does with a sign-up that is no longer pending is the
+    /// service's, and is pinned there (`sign_up_decision_test`).
+    #[test]
+    fn a_tap_that_lost_at_the_write_draws_no_card() {
+        for action_type in [ActionType::Approve, ActionType::Reject] {
+            assert_eq!(
+                outcome_text(action_type, &Ok(TapOutcome::LostAtTheWrite), "@reviewer"),
+                None,
+                "{action_type:?}: the tap that lost at the write draws no card"
+            );
+        }
+    }
+
+    /// An approval that was put back replaces no card either: the notice
+    /// and its buttons stay for the tap that finishes, and the line under
+    /// them says the sign-up is pending again, who tapped and what failed.
+    #[test]
+    fn an_approval_that_was_put_back_keeps_the_card_and_says_so_under_it() {
+        let put_back = Ok(TapOutcome::PutBack("Database error".to_owned()));
+        assert_eq!(
+            outcome_text(ActionType::Approve, &put_back, "@reviewer"),
+            None,
+            "the card keeps its notice and its buttons"
+        );
+        let line = put_back_line("@reviewer", "Database error");
+        assert!(line.starts_with("@reviewer: "), "{line}");
+        assert!(line.contains("did not complete (Database error)"), "{line}");
+        assert!(line.contains("pending again"), "{line}");
+        assert!(line.contains("from the console"), "{line}");
     }
 }

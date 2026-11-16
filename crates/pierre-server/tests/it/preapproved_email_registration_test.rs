@@ -37,6 +37,7 @@ use pierre_core::models::{User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::admin_ops::AccountCaller;
 use pierre_services::auth::{FederatedIdentity, SignupSource};
 use pierre_services::pre_approval::{self, AllowOutcome};
 use secrecy::SecretString;
@@ -518,7 +519,8 @@ async fn an_allow_approves_a_pending_account_registered_in_another_casing() {
     assert_eq!(status, 201, "registration must succeed: {body}");
     assert_eq!(body["user_status"].as_str(), Some("pending"));
 
-    let result = pre_approval::allow(repos, "late.cohort@example.com", Some(operator), None)
+    let host = AccountCaller::host_cli(Some(operator));
+    let result = pre_approval::allow(repos, &host, "late.cohort@example.com", None)
         .await
         .expect("the allow must succeed");
     assert_eq!(result.outcome, AllowOutcome::PendingApproved);
@@ -671,8 +673,9 @@ async fn an_allow_never_reactivates_an_account_suspended_while_it_was_recorded()
     let email = "suspended-mid-allow@example.com";
     let user = pending_account(&resources, email, "securePassword123").await;
 
+    let host = AccountCaller::host_cli(None);
     let (allowed, suspension) = tokio::join!(
-        pre_approval::allow(repos, email, None, None),
+        pre_approval::allow(repos, &host, email, None),
         repos
             .users
             .update_status(user.id, UserStatus::Suspended, None),
@@ -694,4 +697,120 @@ async fn an_allow_never_reactivates_an_account_suspended_while_it_was_recorded()
         let tokens = repos.user_mcp_tokens.list_tokens(user.id).await.unwrap();
         assert!(tokens.is_empty(), "nothing is provisioned");
     }
+}
+
+/// What an admin does to an account while its first federated sign-in is
+/// being linked.
+#[derive(Clone, Copy, Debug)]
+enum MeanwhileWrite {
+    Suspends,
+    Demotes,
+    Promotes,
+}
+
+/// How many accounts each admin write is raced on: the order the link and
+/// the write reach the store in is the runtime's, so one round proves little.
+const LINK_RACE_ROUNDS: usize = 4;
+
+/// A first federated sign-in that finds an account by its email links the
+/// identity to it (carnet#1589). The link read the account, took its time
+/// over the account's earlier credentials, and then wrote the whole row
+/// back from what it had read, role, status and activity included: a
+/// suspension, a demotion or a promotion that landed in between was undone
+/// by a sign-in. The link writes the identity it proved and nothing else,
+/// so whichever order the two land in, the standing is the admin's.
+#[tokio::test]
+async fn a_first_federated_link_never_writes_back_the_standing_an_admin_changed_meanwhile() {
+    let resources = setup().await.expect("server context setup failed");
+    let repos = &resources.common.repos;
+    // A second admin in good standing, so a demotion is never the last one's.
+    let mut standing = User::new("standing@example.com".to_owned(), "hash".to_owned(), None);
+    standing.user_status = UserStatus::Active;
+    standing.role = UserRole::Admin;
+    repos.users.create(&standing).await.unwrap();
+    let service = resources.auth_routes_context().account_service();
+    let mut undone = Vec::new();
+
+    for write in [
+        MeanwhileWrite::Suspends,
+        MeanwhileWrite::Demotes,
+        MeanwhileWrite::Promotes,
+    ] {
+        for round in 0..LINK_RACE_ROUNDS {
+            let email = format!("{write:?}-mid-link-{round}@example.com").to_lowercase();
+            // Registered with a password and never verified: the link has
+            // the account's earlier credentials to retire before it writes.
+            let mut user = User::new(email.clone(), "not-a-login-path".to_owned(), None);
+            user.user_status = UserStatus::Active;
+            user.role = match write {
+                MeanwhileWrite::Demotes => UserRole::Admin,
+                MeanwhileWrite::Suspends | MeanwhileWrite::Promotes => UserRole::User,
+            };
+            repos.users.create(&user).await.unwrap();
+
+            // The sign-in is polled first, and its identity carries no
+            // provider id to look an account up by, so its read of the
+            // account by email is the first statement; the admin's write
+            // lands while it works.
+            let (sign_in, written) = tokio::join!(
+                service.login_with_federated_identity(FederatedIdentity {
+                    firebase_uid: None,
+                    google_subject: None,
+                    email: email.clone(),
+                    email_verified: true,
+                    display_name: None,
+                    provider: "google.com",
+                    signup_source: SignupSource::Google,
+                    locale: None,
+                }),
+                async {
+                    match write {
+                        MeanwhileWrite::Suspends => {
+                            repos
+                                .users
+                                .update_status(user.id, UserStatus::Suspended, None)
+                                .await
+                        }
+                        MeanwhileWrite::Demotes => {
+                            repos.users.set_admin_status(user.id, false).await
+                        }
+                        MeanwhileWrite::Promotes => {
+                            repos.users.set_admin_status(user.id, true).await
+                        }
+                    }
+                },
+            );
+
+            written.expect("the admin's write lands");
+            let stored = repos.users.get_global(user.id).await.unwrap().unwrap();
+            let standing = (stored.user_status, stored.role, stored.is_active);
+            let expected = match write {
+                MeanwhileWrite::Suspends => (UserStatus::Suspended, UserRole::User, true),
+                MeanwhileWrite::Demotes => (UserStatus::Active, UserRole::User, true),
+                MeanwhileWrite::Promotes => (UserStatus::Active, UserRole::Admin, true),
+            };
+            if standing != expected {
+                undone.push(format!(
+                    "{write:?}, round {round}: {standing:?}, not {expected:?}"
+                ));
+            }
+            match sign_in {
+                Ok(_) => assert_eq!(
+                    stored.auth_provider, "google.com",
+                    "{write:?}, round {round}: the sign-in that was answered linked the identity"
+                ),
+                // Suspended before the link was answered.
+                Err(refused) => {
+                    assert_eq!(refused.code, ErrorCode::AccountSuspended, "{refused}");
+                }
+            }
+        }
+    }
+    // Every case is raced before any is judged, so a failure names each
+    // kind of write a link undid.
+    assert_eq!(
+        undone,
+        Vec::<String>::new(),
+        "the admin's write stands, whichever order the two land in"
+    );
 }

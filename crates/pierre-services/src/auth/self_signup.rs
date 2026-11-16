@@ -16,7 +16,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{User, UserStatus};
 
 use super::AuthService;
-use crate::admin_ops::activate_pending_sign_up;
+use crate::admin_ops::{activate_pending_sign_up, AccountCaller};
 use crate::import_tombstones::email_held;
 use crate::signup_policy::{admit_self_signup, resolve_signup_policy};
 
@@ -120,8 +120,9 @@ impl AuthService {
             .pre_approval_for(&user.email)
             .await
             .and_then(|entry| entry.allowed_by);
-        let approver = self.existing_operator(allowed_by).await;
-        let activation = activate_pending_sign_up(self.data.repos(), user.id, approver).await?;
+        let rule = AccountCaller::sign_up_rule(self.existing_operator(allowed_by).await);
+        let activation =
+            activate_pending_sign_up(self.data.repos(), &rule.acting_on(user.clone())?).await?;
         // Said only of an activation that landed; one that did not is
         // logged where it was found decided.
         if activation.activated {

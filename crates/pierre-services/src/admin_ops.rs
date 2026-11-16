@@ -22,6 +22,10 @@ use serde::Serialize;
 use tracing::{debug, error, info, warn};
 use uuid::Uuid;
 
+/// Who acts on an account, and the rank rule an admin account is held to.
+mod caller;
+pub use caller::*;
+
 /// What an account held on its admin standing, withdrawn when it loses it.
 mod credentials;
 pub use credentials::*;
@@ -29,6 +33,13 @@ pub use credentials::*;
 /// Plan, tier, roster and override administration.
 mod overrides;
 pub use overrides::*;
+
+/// The decision of a pending sign-up by a sign-up rule or the Slack room.
+mod sign_up;
+pub use sign_up::{
+    activate_pending_sign_up, approve_sign_up, decide_sign_up, ApprovedSignUp, PendingActivation,
+    SignUpApproval, SignUpDecision,
+};
 
 // =========================================================================
 // Result types returned by service functions
@@ -323,32 +334,30 @@ pub struct StatusTransition {
 /// has open are withdrawn by the repository in the transaction that changes
 /// the status, so the two cannot come apart.
 ///
-/// `approved_by` is the audit identity recorded against the transition: the
-/// operator behind the request when there is one, `None` for a service token
-/// that is not tied to a user row.
-///
-/// `actor` is the admin whose own session makes the request: the signed-in
-/// admin of a console session, the approving admin of a device login. `None`
-/// when no admin's session is behind the call, which then has no self to
-/// refuse: a service token, `pierre-cli` on the host (its `approved_by` is
-/// an audit identity it looks up, not a session). The Slack sign-up room
-/// does not come through here: its taps decide a pending account only,
-/// through `UserRepository::update_status_from`.
+/// `acting` is the account and who changes its status
+/// ([`AccountCaller::acting_on`], which holds an admin account to a
+/// platform caller). The transition is written against
+/// [`AccountCaller::recorded_as`]. A caller that is an admin's own session
+/// ([`AccountCaller::acting_admin`]) is refused taking that admin out of
+/// `Active`; a service token and `pierre-cli` on the host act as no admin
+/// and have no self to refuse. The Slack sign-up room does not come
+/// through here: its taps decide a pending account only
+/// ([`decide_sign_up`]).
 ///
 /// # Errors
 ///
-/// Returns `InvalidInput` if `actor` is the target and `target_status` is
-/// not `Active`, if the user is already in `target_status` or is the last
-/// active admin being moved out of `Active`, `NotFound` if the user does
-/// not exist, or the repository's error if a call fails.
+/// Returns `InvalidInput` if the caller's own admin is the target and
+/// `target_status` is not `Active`, if the user is already in
+/// `target_status` or is the last active admin being moved out of `Active`,
+/// `NotFound` if the user does not exist, or the repository's error if a
+/// call fails.
 pub async fn transition_user_status(
     repos: &RepositoryRegistry,
-    target_user_id: Uuid,
+    acting: &ActingOn<'_>,
     target_status: UserStatus,
-    approved_by: Option<Uuid>,
-    actor: Option<Uuid>,
 ) -> Result<StatusTransition, AppError> {
-    if actor == Some(target_user_id) {
+    let target_user_id = acting.id();
+    if acting.caller().acting_admin() == Some(target_user_id) {
         let refusal = match target_status {
             UserStatus::Active => None,
             UserStatus::Suspended => Some("Cannot suspend yourself"),
@@ -386,7 +395,7 @@ pub async fn transition_user_status(
     // the last active admin is the caller's to read, not a server fault.
     let write = repos
         .users
-        .update_status(target_user_id, target_status, approved_by)
+        .update_status(target_user_id, target_status, acting.caller().recorded_as())
         .await
         .inspect_err(|e| error!(error = %e, "Failed to update user status in database"))?;
     Ok(StatusTransition {
@@ -395,83 +404,13 @@ pub async fn transition_user_status(
     })
 }
 
-/// What became of a sign-up rule's activation of an account
-/// ([`activate_pending_sign_up`]).
-#[derive(Debug)]
-pub struct PendingActivation {
-    /// The account as the store holds it after the attempt.
-    pub user: User,
-    /// Whether this call activated it. `false` when the account was decided
-    /// before the write, which then changed nothing: `user` says how.
-    pub activated: bool,
-}
-
-/// Activate the sign-up `user_id` for a rule that lets pending accounts in:
-/// a standing allow, a signup code, a proven address, an auto-approved
-/// domain.
-///
-/// Such a rule admits a sign-up nobody has decided, and every caller read
-/// the account pending some time before it gets here: a login verifies a
-/// password in between, a redemption claims a code. An admin who suspends
-/// the account in that time has decided it, so the status is checked by the
-/// statement that changes it (`UserRepository::update_status_from`): the
-/// activation lands only while the account is still pending, and a
-/// suspension is never undone by a rule. When it does not land the account
-/// is read again, and the caller acts on what it is now; nothing an
-/// activation brings (a default MCP token, an announcement, a redemption
-/// marked) belongs to an account this call did not activate.
-///
-/// `approved_by` is recorded against the activation, as
-/// [`transition_user_status`] records it.
-///
-/// # Errors
-///
-/// Returns `NotFound` for an account deleted since the caller read it, and
-/// the repository's error if a call fails.
-pub async fn activate_pending_sign_up(
-    repos: &RepositoryRegistry,
-    user_id: Uuid,
-    approved_by: Option<Uuid>,
-) -> Result<PendingActivation, AppError> {
-    let write = repos
-        .users
-        .update_status_from(
-            user_id,
-            UserStatus::Pending,
-            UserStatus::Active,
-            approved_by,
-        )
-        .await?;
-    if let Some(write) = write {
-        return Ok(PendingActivation {
-            user: write.user,
-            activated: true,
-        });
-    }
-    let user = repos
-        .users
-        .get_global(user_id)
-        .await?
-        .ok_or_else(|| AppError::not_found("User not found"))?;
-    info!(
-        user_id = %user_id,
-        status = %user.user_status,
-        "A sign-up rule found the account already decided; it was not activated"
-    );
-    Ok(PendingActivation {
-        user,
-        activated: false,
-    })
-}
-
 /// Approve a pending user: transition to Active, assign the approver's tenant,
 /// and auto-create a default MCP token.
 ///
-/// The one approval path behind `POST /admin/approve-user/{id}` and its console
-/// mount. `approved_by` is the operator recorded against the approval (the
-/// signed-in admin of a console session, the approving admin of a
-/// device-login token, `None` for a service token); `tenant` is the approver's
-/// tenant scope, see [`assign_user_to_admin_tenant`].
+/// The one approval path behind `POST /admin/approve-user/{id}`, its console
+/// mount and `pierre-cli user approve`. `acting` is the account and the
+/// admin surface approving it ([`transition_user_status`]); `tenant` is the
+/// approver's tenant scope, see [`assign_user_to_admin_tenant`].
 ///
 /// # Errors
 ///
@@ -479,23 +418,16 @@ pub async fn activate_pending_sign_up(
 /// does not exist, or `Internal` if any underlying repository call fails.
 pub async fn approve_user(
     repos: &RepositoryRegistry,
-    approved_by: Option<Uuid>,
+    acting: &ActingOn<'_>,
     tenant: Option<TenantId>,
-    target_user_id: Uuid,
 ) -> Result<User, AppError> {
-    let updated_user = transition_user_status(
-        repos,
-        target_user_id,
-        UserStatus::Active,
-        approved_by,
-        approved_by,
-    )
-    .await?
-    .user;
+    let updated_user = transition_user_status(repos, acting, UserStatus::Active)
+        .await?
+        .user;
 
-    assign_user_to_admin_tenant(repos, tenant, target_user_id).await?;
+    assign_user_to_admin_tenant(repos, tenant, acting.id()).await?;
 
-    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), target_user_id).await;
+    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), acting.id()).await;
 
     Ok(updated_user)
 }
@@ -741,19 +673,20 @@ pub const PASSWORD_RESET_TTL_SECONDS: u64 = 3600;
 /// Generate a cryptographically random password reset token and store its hash.
 ///
 /// The raw token is returned to be delivered to the user; only the SHA-256 hash
-/// is persisted. `reset_by` is the audit identity recorded against the token —
-/// the operator's UUID when the request names one, a service name otherwise.
-/// Shared by the admin reset handler and `pierre-cli`, each of which resolves
-/// the target user beforehand (the handler through
-/// [`find_user_in_admin_scope`]).
+/// is persisted. Whoever holds the token signs in as the account, so `acting`
+/// holds an admin account to a platform caller
+/// ([`AccountCaller::acting_on`]). The token is issued under the caller's
+/// [`AccountCaller::audit_name`]: the admin's id when the caller acts as
+/// one, a service name or `pierre-cli` otherwise. Shared by the admin reset
+/// handler and `pierre-cli`, each of which resolves the target user
+/// beforehand (the handler through [`find_user_in_admin_scope`]).
 ///
 /// # Errors
 ///
 /// Returns `Internal` if token persistence fails.
 pub async fn issue_password_reset_token(
     repos: &RepositoryRegistry,
-    target_user_id: Uuid,
-    reset_by: &str,
+    acting: &ActingOn<'_>,
 ) -> Result<String, AppError> {
     use crate::link_token::generate_link_token;
 
@@ -765,10 +698,10 @@ pub async fn issue_password_reset_token(
     repos
         .password_reset
         .store_token(
-            target_user_id,
+            acting.id(),
             &generated.selector,
             &generated.verifier_hash,
-            reset_by,
+            &acting.caller().audit_name(),
         )
         .await
         .map_err(|e| AppError::internal(format!("Failed to create reset token: {e}")))?;

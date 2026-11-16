@@ -21,6 +21,7 @@ use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_services::signup_codes::{self, CodeKind, MintRequest};
 
+use super::admin_scope::require_platform_reach;
 use super::api_keys::json_response;
 use super::types::AdminResponse;
 use super::users::deny_without_manage_users;
@@ -45,6 +46,11 @@ pub struct MintSignupCodeRequest {
 
 /// `GET /admin/signup-codes` — every admin code and every coach's code, with
 /// the accounts that came in on each.
+///
+/// A caller bound to one tenant is refused (403) on the three routes of
+/// this file ([`require_platform_reach`]): a code lets in whoever redeems
+/// it, whatever tenant that account is or will be in, and the list names
+/// the accounts of every tenant.
 pub(crate) async fn handle_list_signup_codes(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -52,6 +58,7 @@ pub(crate) async fn handle_list_signup_codes(
     if let Some(denied) = deny_without_manage_users(&admin_token) {
         return Ok(denied.into_response());
     }
+    require_platform_reach(&admin_token, "sign-up codes are", "list them")?;
     let codes = signup_codes::list(&context.repos).await?;
     Ok(json_response(
         AdminResponse {
@@ -65,7 +72,8 @@ pub(crate) async fn handle_list_signup_codes(
 }
 
 /// `POST /admin/signup-codes` — mint an admin code. The code is in this
-/// response and nowhere else: only its hash is stored.
+/// response and nowhere else: only its hash is stored. A caller bound to
+/// one tenant mints none (403).
 pub(crate) async fn handle_mint_signup_code(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -74,6 +82,7 @@ pub(crate) async fn handle_mint_signup_code(
     if let Some(denied) = deny_without_manage_users(&admin_token) {
         return Ok(denied.into_response());
     }
+    require_platform_reach(&admin_token, "a sign-up code is", "mint one")?;
     let minted = signup_codes::mint(
         &context.repos,
         admin_token.operator_user_id,
@@ -99,7 +108,8 @@ pub(crate) async fn handle_mint_signup_code(
 
 /// `DELETE /admin/signup-codes/{kind}/{id}` — withdraw an admin code
 /// (`kind` = `admin`) or a coach's code (`coach`). Accounts it already
-/// approved stay approved.
+/// approved stay approved. A caller bound to one tenant withdraws none
+/// (403), the code left live.
 pub(crate) async fn handle_revoke_signup_code(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -108,6 +118,7 @@ pub(crate) async fn handle_revoke_signup_code(
     if let Some(denied) = deny_without_manage_users(&admin_token) {
         return Ok(denied.into_response());
     }
+    require_platform_reach(&admin_token, "a sign-up code is", "revoke one")?;
     let kind = match kind.as_str() {
         "admin" => CodeKind::Admin,
         "coach" => CodeKind::Coach,

@@ -19,16 +19,17 @@ use crate::backends::shared::transactions::TransactionGuard;
 use crate::repositories::admin::{
     admin_statements_sql, admin_token_columns, admin_token_from_row, admin_token_usage_from_row,
     count_to_column, deleted_account_column, impl_admin_repository, mint_admin_token,
-    replacement_request, token_takes_a_caller_sql, AdminRepository, MintedAdminToken,
-    TokenRotation, CLAIM_ADMIN_TOKEN_SQL, CREATE_ADMIN_TOKEN_SQL, DEACTIVATE_ADMIN_TOKEN_SQL,
-    RECORD_PROVISIONED_KEY_SQL,
+    new_admin_token_id, replacement_request, token_takes_a_caller_sql, AdminRepository,
+    MintedAdminToken, TokenRevocation, TokenRotation, CLAIM_ADMIN_TOKEN_SQL,
+    CREATE_ADMIN_TOKEN_SQL, DEACTIVATE_ADMIN_TOKEN_SQL, RECORD_PROVISIONED_KEY_SQL,
 };
 use crate::repositories::users::admin_removal_lock_sql;
 use crate::repositories::uuid_columns::TextUuid;
 
 // This backend's resolved address statements: last_used_ip and ip_address
 // are TEXT columns here, so the bind needs no cast and the column reads as
-// it is.
-admin_statements_sql!("", "");
+// it is. A writer holds the whole database, so the log write's read of its
+// token's row takes no lock clause.
+admin_statements_sql!("", "", "");
 
 impl_admin_repository!(Database, SqliteRow, TextUuid, "BEGIN IMMEDIATE", "");

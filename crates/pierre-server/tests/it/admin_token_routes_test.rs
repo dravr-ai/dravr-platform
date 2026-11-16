@@ -62,17 +62,21 @@ fn admin_context(resources: &Arc<ServerContext>) -> AdminApiContext {
 }
 
 /// The console mount. A router is consumed by each `send`.
-fn console(resources: &Arc<ServerContext>) -> axum::Router {
+pub(crate) fn console(resources: &Arc<ServerContext>) -> axum::Router {
     AdminRoutes::cookie_admin_routes::<ServerContext>(admin_context(resources), resources)
 }
 
 /// The admin-token mount `pierre-cli` reaches.
-fn token_api(resources: &Arc<ServerContext>) -> axum::Router {
+pub(crate) fn token_api(resources: &Arc<ServerContext>) -> axum::Router {
     AdminRoutes::routes(admin_context(resources))
 }
 
 /// Create an active user with `role` owning a tenant; return `"Bearer <jwt>"`.
-async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) -> Result<String> {
+pub(crate) async fn session(
+    resources: &Arc<ServerContext>,
+    email: &str,
+    role: UserRole,
+) -> Result<String> {
     let password_hash = bcrypt::hash("password123", bcrypt::DEFAULT_COST)?;
     let mut user = User::new(
         email.to_owned(),
@@ -116,7 +120,7 @@ async fn session(resources: &Arc<ServerContext>, email: &str, role: UserRole) ->
 }
 
 /// Mint an admin token straight into the table.
-async fn mint(
+pub(crate) async fn mint(
     resources: &Arc<ServerContext>,
     service: &str,
     permissions: Vec<AdminPermission>,
@@ -143,11 +147,11 @@ async fn mint(
         .await?)
 }
 
-fn bearer(token: &GeneratedAdminToken) -> String {
+pub(crate) fn bearer(token: &GeneratedAdminToken) -> String {
     format!("Bearer {}", token.jwt_token.expose_secret())
 }
 
-async fn is_active(resources: &Arc<ServerContext>, token_id: &str) -> Result<bool> {
+pub(crate) async fn is_active(resources: &Arc<ServerContext>, token_id: &str) -> Result<bool> {
     Ok(resources
         .common
         .repos
@@ -158,7 +162,7 @@ async fn is_active(resources: &Arc<ServerContext>, token_id: &str) -> Result<boo
         .is_active)
 }
 
-fn listed_ids(body: &Value) -> Vec<String> {
+pub(crate) fn listed_ids(body: &Value) -> Vec<String> {
     body["data"]["tokens"]
         .as_array()
         .expect("data.tokens is an array")
@@ -925,7 +929,7 @@ async fn a_lifetime_past_any_date_is_refused_and_changes_nothing() -> Result<()>
 
 /// Mint an admin token bound to `tenant` straight into the table, as
 /// `pierre-cli token generate --tenant-id` does.
-async fn mint_bound(
+pub(crate) async fn mint_bound(
     resources: &Arc<ServerContext>,
     service: &str,
     permissions: Vec<AdminPermission>,
@@ -964,25 +968,31 @@ async fn tenant_of(resources: &Arc<ServerContext>, token_id: &str) -> Result<Opt
         .tenant_id)
 }
 
-/// What stands where an answer carried a minted token.
+/// What stands where an answer carried a credential.
 const TOKEN_NOT_QUOTED: &str = "[a minted token, not quoted]";
 
-/// Replace the token an answer that minted carries. Its `jwt_token` key
+/// Where an admin answer carries a credential it hands out: a minted or
+/// rotated admin token, a password reset token, a sign-up code.
+const HANDED_OUT: [&str; 3] = ["/data/jwt_token", "/data/reset_token", "/data/code"];
+
+/// Replace each credential an answer hands out ([`HANDED_OUT`]). Its key
 /// stays, so an answer that handed a credential out still shows that it
 /// did.
 fn unquote_minted_token(answer: &mut Value) {
-    if let Some(token) = answer.pointer_mut("/data/jwt_token") {
-        *token = json!(TOKEN_NOT_QUOTED);
+    for place in HANDED_OUT {
+        if let Some(credential) = answer.pointer_mut(place) {
+            *credential = json!(TOKEN_NOT_QUOTED);
+        }
     }
 }
 
 /// The status and the answer of `response`, fit to quote in a failed
-/// assertion: an answer that mints carries the token, on the very failure
-/// where a mint or a rotation that should have been refused went through,
-/// and the token is replaced before the answer is returned
+/// assertion: an answer that mints carries the credential, on the very
+/// failure where a mint, a rotation or a reset that should have been
+/// refused went through, and it is replaced before the answer is returned
 /// ([`unquote_minted_token`]). An answer that is not JSON carries none and
 /// is returned as it is.
-fn quotable(response: AxumTestResponse) -> (u16, String) {
+pub(crate) fn quotable(response: AxumTestResponse) -> (u16, String) {
     let status = response.status();
     let text = response.text();
     let Ok(mut answer) = serde_json::from_str::<Value>(&text) else {
@@ -994,7 +1004,7 @@ fn quotable(response: AxumTestResponse) -> (u16, String) {
 
 /// `POST {path}` on the token mount as `caller`, with `body`: the status
 /// and the answer, fit to quote ([`quotable`]).
-async fn post_as(
+pub(crate) async fn post_as(
     resources: &Arc<ServerContext>,
     caller: &GeneratedAdminToken,
     path: &str,
@@ -1012,8 +1022,12 @@ async fn post_as(
 /// every token write (carnet#1589). It neither revokes nor rotates a token
 /// bound to no tenant or to another one: revoking is a denial of service
 /// outside its tenant, and a rotation would hand it a replacement that
-/// reaches the platform, or a tenant it does not. Each refusal leaves the
-/// token live and mints nothing. Inside its tenant it revokes and rotates,
+/// reaches the platform, or a tenant it does not. Each is answered 404, as
+/// a token that does not exist is (`admin_token_reach_test` compares the
+/// two answers), leaves the token live and mints nothing. These answered
+/// 403 with a sentence naming the token's binding until the read of a
+/// token outside reach became a 404 and the writes followed it.
+/// Inside its tenant it revokes and rotates,
 /// the replacement keeping the tenant, and what it mints is bound to its
 /// tenant too. A holder bound to no tenant is the control: it revokes the
 /// token bound to none and mints one bound to none.
@@ -1032,23 +1046,16 @@ async fn a_tenant_bound_token_revokes_rotates_and_mints_only_inside_its_tenant()
     let elsewhere = mint_bound(&resources, "other-club", lister.clone(), other_tenant).await?;
     let rotated_here = mint_bound(&resources, "club-rotated", lister.clone(), own_tenant).await?;
     let revoked_here = mint_bound(&resources, "club-revoked", lister.clone(), own_tenant).await?;
-    let refusal = |act: &str| {
-        format!(
-            "Token is scoped to tenant {own_tenant}; it can {act} only admin tokens bound to that tenant"
-        )
-    };
     let before = resources.common.repos.admin.list_tokens(true).await?.len();
 
     for outside in [&platform, &elsewhere] {
         let path = format!("/admin/tokens/{}/revoke", outside.token_id);
         let (status, body) = post_as(&resources, &bound, &path, json!({})).await;
-        assert_eq!(status, 403, "{}: {body}", outside.service_name);
-        assert!(body.contains(&refusal("revoke")), "{body}");
+        assert_eq!(status, 404, "{}: {body}", outside.service_name);
 
         let path = format!("/admin/tokens/{}/rotate", outside.token_id);
         let (status, body) = post_as(&resources, &bound, &path, json!({})).await;
-        assert_eq!(status, 403, "{}: {body}", outside.service_name);
-        assert!(body.contains(&refusal("rotate")), "{body}");
+        assert_eq!(status, 404, "{}: {body}", outside.service_name);
         assert!(!body.contains("jwt_token"), "no credential is handed out");
 
         assert!(
@@ -1123,7 +1130,9 @@ async fn a_tenant_bound_token_revokes_rotates_and_mints_only_inside_its_tenant()
 /// A `ManageAdminTokens` holder bound to no tenant, without the super-admin
 /// flag, reads no tenant's data, so it neither revokes nor rotates a token
 /// bound to one (carnet#1589): the replacement would read what it cannot.
-/// Each refusal leaves the token live and mints nothing. A token bound to
+/// Each is answered 404, as a token that does not exist is (403 with a
+/// sentence naming the binding, until the writes followed the read), and
+/// leaves the token live and mints nothing. A token bound to
 /// no tenant it rotates and revokes, and the platform's callers, a
 /// super-admin token and an admin's console session, write the tenant's.
 #[tokio::test]
@@ -1145,11 +1154,7 @@ async fn an_unbound_token_revokes_and_rotates_only_tokens_bound_to_no_tenant() -
     for act in ["revoke", "rotate"] {
         let path = format!("/admin/tokens/{}/{act}", club.token_id);
         let (status, body) = post_as(&resources, &unbound, &path, json!({})).await;
-        assert_eq!(status, 403, "{act}: {body}");
-        let refusal = format!(
-            "Token is bound to no tenant; it can {act} only admin tokens bound to no tenant"
-        );
-        assert!(body.contains(&refusal), "{body}");
+        assert_eq!(status, 404, "{act}: {body}");
         assert!(!body.contains("jwt_token"), "no credential is handed out");
     }
     assert!(

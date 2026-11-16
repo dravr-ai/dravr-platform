@@ -37,7 +37,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::Router;
-use common::{create_test_server_resources, generate_test_token};
+use common::{acting_on, create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::models::{
     AdminPermission, CreateAdminTokenRequest, DELETED_ACCOUNT_LABEL, DELETED_ACCOUNT_OPERATOR,
@@ -51,10 +51,11 @@ use pierre_database::repositories::{AuditEventFilter, AuditEventRecord};
 use pierre_mcp_server::constants::system_config::STARTER_MONTHLY_LIMIT;
 use pierre_mcp_server::mcp::multitenant::ProviderToolRouter;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_middleware::cookie_admin_token;
 use pierre_routes_admin::{AdminApiContext, AdminApiContextInit, AdminRoutes, ImpersonationRoutes};
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_web_admin::WebAdminRoutes;
-use pierre_services::admin_ops::{self, ADMIN_CREDENTIALS_REVOKED};
+use pierre_services::admin_ops::{self, AccountCaller, ADMIN_CREDENTIALS_REVOKED};
 use secrecy::ExposeSecret;
 use serde_json::{json, Value};
 use serial_test::serial;
@@ -300,12 +301,11 @@ async fn the_only_admin_neither_demotes_nor_suspends_itself() {
     let (status, body) = change_admin(&resources, &only_auth, only.id, "demote").await;
     assert_eq!(status, 400, "an admin does not demote itself: {body}");
 
+    let host = AccountCaller::host_cli(Some(only.id));
     let refused = admin_ops::transition_user_status(
         &resources.common.repos,
-        only.id,
+        &acting_on(&resources.common.repos, &host, only.id).await,
         UserStatus::Suspended,
-        Some(only.id),
-        None,
     )
     .await
     .expect_err("the last active admin must not be suspended");
@@ -367,12 +367,11 @@ async fn an_admin_does_not_suspend_itself_and_suspends_another_admin() {
     // an admin acting on itself, in that rule's own words. The admin is
     // active and not the last one, so neither "already pending" nor the
     // last-admin rule can be what answers.
+    let own_session = AccountCaller::of_token(&cookie_admin_token(&acting, None));
     let refused = admin_ops::transition_user_status(
         &resources.common.repos,
-        acting.id,
+        &acting_on(&resources.common.repos, &own_session, acting.id).await,
         UserStatus::Pending,
-        None,
-        Some(acting.id),
     )
     .await
     .expect_err("an admin does not set itself back to pending");
@@ -1009,19 +1008,36 @@ async fn a_tenant_bound_token_suspends_and_approves_only_inside_its_tenant() {
     );
 }
 
+/// What stands where an answer carried a reset token.
+const RESET_TOKEN_NOT_QUOTED: &str = "[a reset token, not quoted]";
+
 /// Ask for a password reset of `target` on `router` (the token mount or the
-/// console), at `path`; the status and the body.
-async fn reset_password(router: Router, path: &str, bearer: &str) -> (u16, String) {
+/// console), at `path`: the status, the answer fit to quote in a failed
+/// assertion, and the reset token it handed out. The answer carries that
+/// token on the very failure where a reset that should have been refused
+/// went through, so it is replaced in what is quoted and returned apart
+/// for the one test that completes the reset.
+async fn reset_password(router: Router, path: &str, bearer: &str) -> (u16, String, Option<String>) {
     let response = AxumTestRequest::post(path)
         .header("authorization", bearer)
         .send(router)
         .await;
-    (response.status(), response.text())
+    let status = response.status();
+    let text = response.text();
+    let Ok(mut answer) = serde_json::from_str::<Value>(&text) else {
+        return (status, text, None);
+    };
+    let reset_token = answer.pointer_mut("/data/reset_token").and_then(|token| {
+        let handed_out = token.as_str().map(ToOwned::to_owned);
+        *token = json!(RESET_TOKEN_NOT_QUOTED);
+        handed_out
+    });
+    (status, answer.to_string(), reset_token)
 }
 
 /// How many password reset tokens were ever issued for `account`, read past
 /// the repository.
-async fn reset_tokens_issued_for(resources: &Arc<ServerContext>, account: Uuid) -> i64 {
+pub(crate) async fn reset_tokens_issued_for(resources: &Arc<ServerContext>, account: Uuid) -> i64 {
     const SQL: &str = "SELECT COUNT(*) FROM password_reset_tokens WHERE CAST(user_id AS TEXT) = $1";
     match resources.agent.database.backend() {
         DatabaseBackend::SQLite(backend) => sqlx::query_scalar(SQL)
@@ -1063,7 +1079,7 @@ async fn a_token_without_the_super_admin_flag_resets_a_users_password_and_never_
     let flagged = service_token(&resources, "platform-ops", true).await;
     let token_path = |target: Uuid| format!("/admin/users/{target}/reset-password");
 
-    let (status, body) =
+    let (status, body, _) =
         reset_password(token_api(&resources), &token_path(admin.id), &manage_users).await;
     assert_eq!(status, 403, "ManageUsers alone resets no admin: {body}");
     assert!(
@@ -1084,27 +1100,26 @@ async fn a_token_without_the_super_admin_flag_resets_a_users_password_and_never_
 
     // The positive control: the same token, the same route, a plain user,
     // and the reset it is handed is a working one.
-    let (status, body) = reset_password(
+    let (status, body, reset_token) = reset_password(
         token_api(&resources),
         &token_path(athlete.id),
         &manage_users,
     )
     .await;
     assert_eq!(status, 200, "ManageUsers resets a user: {body}");
-    let answered: Value = serde_json::from_str(&body).unwrap();
-    let reset_token = answered["data"]["reset_token"].as_str().unwrap();
+    let reset_token = reset_token.expect("the answer carries the reset token");
     assert_eq!(reset_tokens_issued_for(&resources, athlete.id).await, 1);
     assert_eq!(
-        complete_reset(&resources, reset_token, "Chosen-by-the-athlete-1574!").await,
+        complete_reset(&resources, &reset_token, "Chosen-by-the-athlete-1574!").await,
         200
     );
 
     // The flag is the rank: a super-admin token is handed an admin's reset,
     // and so is another admin's console session.
-    let (status, body) =
+    let (status, body, _) =
         reset_password(token_api(&resources), &token_path(admin.id), &flagged).await;
     assert_eq!(status, 200, "a super-admin token resets an admin: {body}");
-    let (status, body) = reset_password(
+    let (status, body, _) = reset_password(
         console(&resources),
         &format!("/api/admin/users/{}/reset-password", admin.id),
         &peer_auth,
@@ -1256,8 +1271,8 @@ async fn an_admin_deleting_itself_with_its_own_device_login_is_answered() {
 /// original its rotation already withdrew, and a login still live), which
 /// stay as rows naming no one, and takes its id out of the replacement's
 /// name, which goes on working for whoever holds it. No row names the
-/// account afterwards, and the retired original cannot be rotated back: a
-/// revoked token has no replacement.
+/// account afterwards, and the retired original is not rotated a second
+/// time: the answer names the replacement it already has (409).
 #[tokio::test]
 #[serial]
 async fn a_deleted_admin_is_named_by_no_token_row_however_it_was_rotated() {
@@ -1319,9 +1334,14 @@ async fn a_deleted_admin_is_named_by_no_token_row_however_it_was_rotated() {
         .await;
     assert_eq!(
         response.status(),
-        400,
+        409,
         "a retired row is not rotated back: {}",
         response.body_text()
+    );
+    let refusal: Value = response.json();
+    assert_eq!(
+        refusal["data"]["rotated_to_token_id"], replacement,
+        "and the answer names the replacement it has: {refusal}"
     );
 
     let kept = admin_tokens

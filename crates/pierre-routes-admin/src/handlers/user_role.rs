@@ -21,11 +21,11 @@ use pierre_core::admin::models::ValidatedAdminToken;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::permissions::UserRole;
 use pierre_middleware::redaction::mask_email;
-use pierre_services::admin_ops::{self, AdminStandingLost};
+use pierre_services::admin_ops::{self, AccountCaller, AdminStandingLost};
 
 use super::api_keys::json_response;
 use super::types::AdminResponse;
-use crate::audit::{record_withdrawn_credentials, AuditDetail};
+use crate::audit::AuditDetail;
 use crate::context::AdminApiContext;
 
 /// Body for [`handle_set_user_role`].
@@ -94,14 +94,14 @@ pub(crate) async fn handle_set_user_role(
         UserRole::User => {
             let demotion =
                 admin_ops::demote_user_from_admin(&context.repos, actor, user_uuid).await?;
-            record_withdrawn_credentials(
-                &context.repos,
-                &admin_token,
-                &demotion.withdrawn,
-                AdminStandingLost::Demoted,
-                Some(user_uuid),
-            )
-            .await;
+            AccountCaller::of_token(&admin_token)
+                .record_withdrawn(
+                    &context.repos,
+                    &demotion.withdrawn,
+                    AdminStandingLost::Demoted,
+                    Some(user_uuid),
+                )
+                .await;
             demotion.change
         }
     };

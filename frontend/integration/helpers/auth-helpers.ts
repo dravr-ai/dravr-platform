@@ -6,7 +6,7 @@
 
 import type { Locator, Page } from '@playwright/test';
 import { testUsers } from '../fixtures/test-data';
-import { createTestAdminUser, type TestUser } from './db-setup';
+import { createTestAdminUser, createTestUser, type TestUser } from './db-setup';
 
 export interface LoginResult {
   success: boolean;
@@ -28,6 +28,19 @@ function onHostedSignIn(page: Page): boolean {
 }
 
 /**
+ * What a sign-in waits for once the browser is back on the app.
+ *
+ * `dashboard`: the admin dashboard's content, which an admin lands on.
+ * `session`: the signed-in session alone. A plain user lands on whatever the
+ * app shows an athlete (onboarding, on a new account), so the wait is for
+ * the CSRF token the app stores when the session is established.
+ */
+export type LoginLanding = 'dashboard' | 'session';
+
+/** Where the SPA keeps the CSRF token of the signed-in session. */
+const CSRF_TOKEN_KEY = 'pierre_csrf_token';
+
+/**
  * Perform a real login the way an athlete does: the SPA's sign-in button, the
  * server's hosted login page (`#email`, `#password`, "Sign in"), then back to the
  * app at /auth/callback. This interacts with the actual backend server, not
@@ -36,7 +49,8 @@ function onHostedSignIn(page: Page): boolean {
 export async function loginWithCredentials(
   page: Page,
   email: string,
-  password: string
+  password: string,
+  landing: LoginLanding = 'dashboard'
 ): Promise<LoginResult> {
   try {
     console.log(`[Login] Starting login for ${email}`);
@@ -76,6 +90,23 @@ export async function loginWithCredentials(
     if (outcome === 'timeout') {
       console.log('[Login] Still on the hosted sign-in after timeout');
       return { success: false, error: 'Login timed out - never returned to the app' };
+    }
+
+    if (landing === 'session') {
+      // Back on the app: the session is established once its CSRF token is stored
+      console.log('[Login] Waiting for the signed-in session...');
+      try {
+        await page.waitForFunction(
+          (key) => window.localStorage.getItem(key) !== null,
+          CSRF_TOKEN_KEY,
+          { timeout: loginTimeout }
+        );
+      } catch {
+        console.log('[Login] The session was not established');
+        return { success: false, error: 'Login redirect occurred but no session was established' };
+      }
+      console.log('[Login] Success!');
+      return { success: true };
     }
 
     // Back on the app: wait for dashboard content to appear
@@ -126,18 +157,21 @@ export async function createAndLoginAsAdmin(page: Page): Promise<LoginResult> {
 }
 
 /**
- * Create a custom test user and log in.
+ * Create a custom test user, with the role it names (an admin when it names
+ * none), and log in. A plain user has no admin dashboard to land on, so its
+ * sign-in waits for the session alone.
  */
 export async function createAndLoginTestUser(
   page: Page,
   user: TestUser
 ): Promise<LoginResult> {
-  const createResult = await createTestAdminUser(user);
+  const createResult = await createTestUser(user);
   if (!createResult.success) {
     return { success: false, error: createResult.error };
   }
 
-  return loginWithCredentials(page, user.email, user.password);
+  const landing: LoginLanding = user.role === 'user' ? 'session' : 'dashboard';
+  return loginWithCredentials(page, user.email, user.password, landing);
 }
 
 /**
