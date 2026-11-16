@@ -119,7 +119,7 @@ use pierre_notifications::NotificationService;
 use pierre_providers::ai_scope;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
-use pierre_providers::sciotte_provider::{startup_client, startup_login_client};
+use pierre_providers::sciotte_provider::{startup_login_client, startup_reads};
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
 use pierre_services::coach_read_retention::start_coach_read_retention_task;
 #[cfg(feature = "health-sync")]
@@ -249,16 +249,16 @@ impl ServerContext {
 
         // Create the provider registry once, over the deployment's endpoint
         // overrides, admitting every provider call against the signing app's
-        // budget, and holding the server's sciotte clients: the read client
-        // every scraper call shares, and the sign-in client every step of a
-        // sign-in shares (carnet#1504)
+        // budget, and holding the server's sciotte clients: the read services
+        // (a session's calls on the one its id picks) and the sign-in client
+        // every step of a sign-in shares (carnet#1504)
         let sciotte = &config.external_services.sciotte;
         let provider_registry = Arc::new(
             ProviderRegistry::new()
                 .with_endpoint_overrides(&config.oauth.endpoints)
                 .with_request_limiter(Self::create_provider_rate_limiter(&config, &repos))
-                .with_sciotte_client(startup_client(
-                    sciotte.remote_url.as_deref(),
+                .with_sciotte_reads(startup_reads(
+                    &sciotte.read_urls,
                     sciotte.audience.as_deref(),
                 ))
                 .with_sciotte_login_client(startup_login_client(
@@ -989,7 +989,7 @@ impl ServerContext {
         use pierre_services::provider_refresh::SyncNotifier;
         let adapter = Arc::new(PierreSyncStorage::new(repos));
         let orchestrator = adapter
-            .build_orchestrator(provider_registry.sciotte_client().cloned())
+            .build_orchestrator(provider_registry.sciotte_reads().cloned())
             .map_err(|e| {
                 AppError::internal(format!("health sync providers could not be built: {e}"))
             })?;

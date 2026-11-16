@@ -47,7 +47,7 @@ use pierre_core::models::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::sciotte_provider::startup_client;
+use pierre_providers::sciotte_provider::startup_reads;
 use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -202,8 +202,8 @@ async fn resources_against(intervals_base: String, scraper_base: &str) -> Arc<Se
     config.api_base_url = intervals_base;
     // Built as the server builds its registry's sciotte client, so the
     // TrainingPeaks reads reach the scraper stand-in.
-    let mut registry =
-        ProviderRegistry::new().with_sciotte_client(startup_client(Some(scraper_base), None));
+    let mut registry = ProviderRegistry::new()
+        .with_sciotte_reads(startup_reads(&[String::from(scraper_base)], None));
     registry.set_default_config(INTERVALS_ICU, config);
     let mut context = (*resources).clone();
     context.fitness.provider_registry = Arc::new(registry);

@@ -661,7 +661,10 @@ async fn store_signed_in(
         .export_session(session_id)
         .await
         .map_err(to_app_error)?;
-    if resources.provider_registry.sciotte_sign_ins_separate() {
+    if !resources
+        .provider_registry
+        .sciotte_sign_in_copy_serves_reads(session_id)
+    {
         drop_signed_in_copy(remote, session_id, user_id).await;
     }
     if let Some(link) = link_context {
@@ -670,13 +673,14 @@ async fn store_signed_in(
     store_sciotte_session(resources, user_id, tenant_id, &session, provider_name).await
 }
 
-/// Drop the session a separate sign-in service still holds once the platform
-/// has its copy.
+/// Drop the session the sign-in's service still holds once the platform has
+/// its copy, when no read of the session meets that copy.
 ///
-/// Reads import the stored session on the read service, so the sign-in
-/// service's copy would only linger there, provider cookies included, until
-/// its idle lifetime ran out, out of reach of an athlete's disconnect
-/// (carnet#1504). With one service the copy is the one the next reads use, so
+/// Reads import the stored session on the read service the session's id
+/// picks, so a copy on a sign-in service of its own, or on a read service the
+/// session does not name, would only linger there, provider cookies included,
+/// until its idle lifetime ran out (carnet#1504). When the sign-in ran on the
+/// read service the session names, the copy is the one the next reads use, so
 /// it stays. A failed drop is logged and never fails the sign-in: the copy
 /// still lapses with the idle lifetime.
 async fn drop_signed_in_copy(remote: &SciotteClient, session_id: &str, user_id: Uuid) {

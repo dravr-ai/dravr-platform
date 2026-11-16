@@ -19,12 +19,11 @@
 //! built for it rather than through the environment.
 
 use chrono::{TimeZone, Utc};
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
-use pierre_providers::sciotte_provider::SciotteProviderFactory;
+use pierre_providers::sciotte_provider::{startup_reads, SciotteProviderFactory};
 use secrecy::SecretString;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -113,7 +112,8 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
         revoke_url: None,
         default_scopes: vec![],
     };
-    let client = SciotteClient::new(base_url, None).expect("a loopback client needs no audience"); // Safe: loopback URL
+    let client = startup_reads(&[String::from(base_url)], None)
+        .expect("a loopback client needs no audience"); // Safe: loopback URL
     let provider = SciotteProviderFactory::new(Some(client))
         .create(config)
         .expect("sciotte provider construction is infallible"); // Safe: factory returns Ok unconditionally

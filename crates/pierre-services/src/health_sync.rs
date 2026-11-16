@@ -31,7 +31,6 @@ use dravr_enforme::traits::timeseries_store::TimeSeriesPointStore;
 use dravr_enforme::{RequestGate, RequestGateHandle};
 use dravr_equilibre_sync::SyncStatus;
 use dravr_riviere::DataPoint;
-use dravr_sciotte::client::SciotteClient;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::{DelegatedConnection, DelegationStatus, TenantId, UserOAuthToken};
@@ -40,6 +39,7 @@ use pierre_database::{AuthRepos, FitnessRepos, RepositoryRegistry};
 use pierre_providers::backend_resolver::{pushed_backend_for, sync_backend};
 use pierre_providers::credential_kind;
 use pierre_providers::request_budget::RequestBudget;
+use pierre_providers::sciotte_provider::SciotteReads;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -299,8 +299,8 @@ impl PierreSyncStorage {
     /// storage for post-construction injection of the credential refresher.
     /// The orchestrator is ready to run the scheduler or handle webhook events.
     /// The scrape-backed providers read their daily summaries on the dedicated
-    /// sciotte service (ADR-021) through `sciotte`, the server's one client
-    /// for it: no browser runs in this pod.
+    /// sciotte services (ADR-021) through `sciotte`, the server's read
+    /// services: no browser runs in this pod.
     ///
     /// # Errors
     ///
@@ -308,7 +308,7 @@ impl PierreSyncStorage {
     /// vendor call with timeouts and never builds an untimed client instead.
     pub fn build_orchestrator(
         self: &Arc<Self>,
-        sciotte: Option<SciotteClient>,
+        sciotte: Option<SciotteReads>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader::new(
             sciotte,

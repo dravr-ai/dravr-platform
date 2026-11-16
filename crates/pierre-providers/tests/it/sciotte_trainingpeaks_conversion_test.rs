@@ -26,14 +26,13 @@ use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use chrono::{DateTime, TimeZone, Utc};
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
     CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::models::{ActivityComment, Feel};
 use pierre_providers::sciotte_provider::{
-    SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
+    startup_reads, SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
 };
 use pierre_providers::trainingpeaks_self_report::{
     feel_from_trainingpeaks, rpe_from_trainingpeaks,
@@ -390,7 +389,7 @@ async fn scraped_rows_reach_cageux_with_their_metrics_and_self_report() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, seen.clone());
 
-    let client = SciotteClient::new(&format!("http://{addr}"), None)
+    let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience"); // Safe: loopback URL
 
     let trainingpeaks = connected(

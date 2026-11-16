@@ -39,12 +39,12 @@ use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::providers::sciotte_reader::{
     AuthSession, DailySummary, DailySummaryReader, ScraperError, ScraperResult,
 };
-use dravr_sciotte::client::SciotteClient;
 use pierre_core::constants::oauth::providers::TOKEN_TYPE_SESSION;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::{connection_needs_reauth, TenantId, UserOAuthToken};
 use pierre_database::repositories::{OAuthTokenRepository, ProviderConnectionRepository};
 use pierre_providers::sciotte_error::{require_client, shed_retry_after_secs, to_app_error};
+use pierre_providers::sciotte_provider::SciotteReads;
 use pierre_providers::sciotte_session::{read_imported_persisting, store_over_row};
 use pierre_providers::token_writeback::{self, StoredTokenRow};
 use secrecy::ExposeSecret;
@@ -245,13 +245,15 @@ impl DailySummaryReader for RefusedSessionReader {
 
 /// Reads daily summaries on the dravr-sciotte scraper service.
 ///
-/// Every read goes through the client it was built with: the server's one
-/// [`SciotteClient`], whose clones share a pooled HTTP client and a cached
-/// identity token, so a health sync over many athletes opens one connection
-/// pool and mints one token rather than one per read.
+/// Every read goes through the read services it was built with
+/// ([`SciotteReads`]), on the one each session names: every day a sync reads
+/// of one session then meets the instance that holds its rotated cookie. The
+/// clients' clones share a pooled HTTP client and a cached identity token, so
+/// a health sync over many athletes opens one connection pool and mints one
+/// token per service rather than one per read.
 #[derive(Clone)]
 pub struct SciotteServiceReader {
-    client: Option<SciotteClient>,
+    reads: Option<SciotteReads>,
     rows: SessionRows,
 }
 
@@ -263,12 +265,12 @@ impl fmt::Debug for SciotteServiceReader {
 }
 
 impl SciotteServiceReader {
-    /// A reader calling the scraper service through `client`; `None` (no
-    /// service configured) makes every read report that. A session rotated
-    /// on a read is written back over the row `rows` handed it out of.
+    /// A reader calling the scraper's read services through `reads`; `None`
+    /// (no service configured) makes every read report that. A session
+    /// rotated on a read is written back over the row `rows` handed it out of.
     #[must_use]
-    pub const fn new(client: Option<SciotteClient>, rows: SessionRows) -> Self {
-        Self { client, rows }
+    pub const fn new(reads: Option<SciotteReads>, rows: SessionRows) -> Self {
+        Self { reads, rows }
     }
 }
 
@@ -280,7 +282,12 @@ impl DailySummaryReader for SciotteServiceReader {
         session: &AuthSession,
         date: NaiveDate,
     ) -> ScraperResult<DailySummary> {
-        let remote = require_client(self.client.as_ref()).map_err(scraper_error)?;
+        let remote = require_client(
+            self.reads
+                .as_ref()
+                .map(|reads| reads.for_session(&session.session_id)),
+        )
+        .map_err(scraper_error)?;
         read_imported_persisting(
             remote,
             session,

@@ -361,25 +361,19 @@ variable "backend_sciotte_login_split" {
   }
 }
 
-variable "sciotte_reads_single_request" {
-  description = "The deployed sciotte image and platform read in one request: the session goes in with the read and the rotated session comes back in its answer (carnet#1504 part B). Off while a read is an import, a read and an export that can each reach a different instance. Set it only once both have shipped; it guards nothing else."
-  type        = bool
-  default     = false
-}
-
-variable "sciotte_max_instances" {
-  description = "Most instances the sciotte read service runs. Above 1 only once sign-ins run on the sign-in service (a parked sign-in is instance-bound) and reads are one request (carnet#1504 part B: a read's import, read and export can otherwise reach different instances)."
+variable "sciotte_read_services" {
+  description = "How many sciotte read services run (module.sciotte), each one instance; the platform sends every call naming a session to the service its id picks (carnet#1504). The first stays warm, the others scale to zero. Change it at a quiet hour: about one session in N+1 moves to the new service, and while two API revisions disagree a session can be read on two instances at once."
   type        = number
   default     = 1
 
   validation {
-    condition     = var.sciotte_max_instances >= 1
-    error_message = "sciotte_max_instances must be at least 1: one read instance always runs."
+    condition     = var.sciotte_read_services >= 1
+    error_message = "sciotte_read_services must be at least 1: the first read service always runs."
   }
 
   validation {
-    condition     = var.sciotte_max_instances <= 1 || (var.backend_sciotte_login_split && var.sciotte_reads_single_request)
-    error_message = "sciotte_max_instances above 1 requires backend_sciotte_login_split = true (a sign-in parked on one read instance would have its code step answered by another) and sciotte_reads_single_request = true (a read's export could return another instance's older copy)."
+    condition     = var.sciotte_read_services == 1 || var.backend_sciotte_login_split
+    error_message = "sciotte_read_services above 1 requires backend_sciotte_login_split = true, so sign-ins have a service of their own before reads spread over several."
   }
 }
 

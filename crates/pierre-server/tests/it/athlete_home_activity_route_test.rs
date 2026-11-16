@@ -1235,7 +1235,7 @@ async fn a_mirror_detail_read_with_no_route_is_unavailable_and_read_again_once_i
     let recorded = weaving_track(900, 0.0);
     let (scraper, reads) = mock_scraper_missing_the_route_first(&recorded, 1).await;
     let mut config = common::test_server_config();
-    config.external_services.sciotte.remote_url = Some(scraper);
+    config.external_services.sciotte.read_urls = vec![scraper];
     let resources = common::create_test_server_resources_with_config(config)
         .await
         .unwrap();

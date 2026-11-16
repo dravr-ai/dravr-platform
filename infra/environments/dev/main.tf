@@ -662,10 +662,12 @@ module "backend" {
       COPILOT_HEADLESS_MODEL = "claude-sonnet-5.5"
 
       # ADR-021 remote toggle: when backend_sciotte_remote is on, sciotte
-      # logins/scrapes route to the dedicated scraper service. Empty string =
-      # toggle off (the client treats it as unset), and sciotte is then
-      # disabled: this pod runs no Chrome and has no in-process scraper.
-      DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? module.sciotte[0].service_url : ""
+      # logins/scrapes route to the dedicated scraper services, listed in
+      # order (the platform picks each session's service by its position).
+      # Empty string = toggle off (the client treats it as unset), and sciotte
+      # is then disabled: this pod runs no Chrome and has no in-process
+      # scraper.
+      DRAVR_SCIOTTE_REMOTE_URL = var.backend_sciotte_remote ? join(",", module.sciotte[*].service_url) : ""
 
       # Audience the API addresses its identity token to. Must equal what the
       # scraper accepts, which is why both read one local.
@@ -1071,9 +1073,12 @@ module "sql_client" {
 # -----------------------------------------------------------------------------
 # Sciotte scraper service (ADR-021) — the dedicated headless-Chrome service the
 # API routes sciotte reads (and, until backend_sciotte_login_split, sign-ins)
-# to when DRAVR_SCIOTTE_REMOTE_URL is set. One multi-provider service; sign-ins
-# move to module.sciotte_login (sciotte_login.tf), which shares its container
-# settings, because a parked 2FA browser is instance-bound (carnet#1504).
+# to when DRAVR_SCIOTTE_REMOTE_URL is set. sciotte_read_services services, each
+# one instance: a read's import, read and export, and the cookie jar holding
+# the provider's rotated cookie, live on one instance, so the platform sends
+# every call naming a session to the service its id picks (carnet#1504).
+# Sign-ins move to module.sciotte_login (sciotte_login.tf), which shares the
+# container settings, because a parked 2FA browser is instance-bound too.
 # -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # photograveur — the chart press.
@@ -1153,12 +1158,12 @@ module "photograveur" {
 }
 
 module "sciotte" {
-  count  = var.enable_sciotte_service ? 1 : 0
+  count  = var.enable_sciotte_service ? var.sciotte_read_services : 0
   source = "../../modules/cloud_run"
 
   project_id            = var.project_id
   region                = var.region
-  service_name          = "${var.service_name}-sciotte"
+  service_name          = count.index == 0 ? "${var.service_name}-sciotte" : "${var.service_name}-sciotte-read-${count.index}"
   container_image       = var.sciotte_image
   service_account_email = module.service_accounts.app_service_account_email
 
@@ -1168,22 +1173,23 @@ module "sciotte" {
   # 2026-11-06..13 at 2Gi: CPU p99 10%, memory p99 12%, so the third Chrome
   # (the login takeover, carnet#1508) is what the extra 1Gi is for. Once
   # sign-ins run on module.sciotte_login, the Chromes left here are Garmin's
-  # session renewals: re-measure before shrinking it (#1504 part B).
+  # session renewals: re-measure before shrinking it.
   cpu               = "2"
   memory            = "3Gi"
   cpu_idle          = true
   startup_cpu_boost = true
-  # One instance stays warm: every Strava and Garmin read goes to the session
-  # first (carnet#1494), and a cold start (p95 5.4s) plus a Chrome launch eats
-  # most of a chat turn's 15s read budget. cpu_idle keeps it CPU-throttled
-  # between requests, so the warm instance bills at the idle rate.
-  min_instances = 1
-  # 1 until reads are one request: a read imports the session, reads, then
-  # exports a rotated copy, and on a second instance that export can return an
-  # older copy the platform would store over the good one (carnet#1504 part B).
-  # The variable's validation refuses more than 1 while sign-ins still run
-  # here (backend_sciotte_login_split off).
-  max_instances = var.sciotte_max_instances
+  # The first read service stays warm: every Strava and Garmin read goes to
+  # the session first (carnet#1494), and a cold start (p95 7.1s over
+  # 2026-11-02..16) plus a Chrome launch eats most of a chat turn's 15s read
+  # budget. cpu_idle keeps it CPU-throttled between requests, so the warm
+  # instance bills at the idle rate. The others scale to zero (ChefFamille,
+  # 2026-11-16, carnet#1504): a session on one of them pays the cold start on
+  # its first read after a quiet spell, and its cookie jar lives only as long
+  # as the instance.
+  min_instances = count.index == 0 ? 1 : 0
+  # Never above 1: a read's import, read and export, and the session's cookie
+  # jar, must meet one instance. Reads scale by sciotte_read_services instead.
+  max_instances = 1
   # Scrapes are long-lived; keep the per-instance request budget near the
   # queue depth so overload sheds as app-level 503+Retry-After, not as a
   # Cloud Run queue pile-up.

@@ -51,7 +51,7 @@ use pierre_database::repositories::{
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, ONE_DAY};
-use pierre_providers::sciotte_provider::startup_client;
+use pierre_providers::sciotte_provider::startup_reads;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -261,8 +261,8 @@ pub(crate) fn with_window(resources: &Arc<ServerContext>, per_window: u32) -> Ar
         ProviderRegistry::new()
             .with_endpoint_overrides(&resources.common.config.oauth.endpoints)
             .with_request_limiter(Arc::new(limiter))
-            .with_sciotte_client(startup_client(
-                sciotte.remote_url.as_deref(),
+            .with_sciotte_reads(startup_reads(
+                &sciotte.read_urls,
                 sciotte.audience.as_deref(),
             )),
     );

@@ -134,6 +134,10 @@ export PIERRE_DEFAULT_PROVIDER=strava
 # Never 8091: that is the isolated Pierre server's port, and setup refuses a
 # sciotte port equal to HTTP_PORT.
 # export DRAVR_SCIOTTE_REMOTE_URL="http://127.0.0.1:8096"
+# A deployed API may list several read services, comma-separated, each one
+# instance; every call naming a session goes to the one its id picks
+# (carnet#1504). Local development runs one, and scripts/sciotte-local.sh and
+# the login canary read a single URL.
 #
 # Sign-ins on their own sciotte service (carnet#1504), optional. A sign-in that
 # asks for a code parks its browser in one instance's memory, so a deployment

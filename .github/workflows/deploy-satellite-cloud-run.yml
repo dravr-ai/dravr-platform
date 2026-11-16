@@ -10,7 +10,11 @@
 #   deploy     move the dev service onto the moving :latest tag, assert that the
 #              revision now serving is the digest the image job built and scanned,
 #              optionally probe it over HTTP, and roll back to the digest that was
-#              serving before if any of that fails
+#              serving before if any of that fails. With `also_label`, every other
+#              service carrying that label moves the same way, one after another,
+#              and a failure rolls back each one this run moved (carnet#1504:
+#              sciotte runs as several read services and a sign-in service on
+#              one image)
 #   tag        mark the deployed digest `deployed-dev` and the digest it replaced
 #              `deployed-dev-previous`, so registry retention keeps the image dev
 #              is running (the next deploy's rollback target) and the one before
@@ -34,8 +38,18 @@ on:
   workflow_call:
     inputs:
       service:
-        description: "Satellite service name: deploys `<GCP_DEV_SERVICE_NAME>-<service>` from `<GCP_ARTIFACTS_REGISTRY_URL>/<service>:latest`"
+        description: "Satellite service name: deploys `<GCP_DEV_SERVICE_NAME>-<service>` from `<GCP_ARTIFACTS_REGISTRY_URL>/<image_name or service>:latest`"
         required: true
+        type: string
+      image_name:
+        description: "Image name under `<GCP_ARTIFACTS_REGISTRY_URL>` every deployed service runs; empty means `service`"
+        required: false
+        default: ""
+        type: string
+      also_label:
+        description: "Cloud Run label (`key=value`) whose services named `<GCP_DEV_SERVICE_NAME>-<suffix>` are deployed after `service`, from the same image; empty deploys `service` alone. It must be the label wait-cloud-run-service-ready.sh discovers, or their settle wait fails"
+        required: false
+        default: ""
         type: string
       image:
         description: "Digest-pinned image reference the caller's image job published (its `image` output)"
@@ -85,7 +99,16 @@ jobs:
   deploy:
     name: Deploy ${{ inputs.service }} to dev
     runs-on: ubuntu-latest
-    timeout-minutes: 75  # 15-min quiesce + 10-min settle, twice when it rolls back
+    # Fixed, not computed from the services found: a job killed by its timeout
+    # skips the rollback, so the bound must cover the worst case, rollback
+    # included. Per wait: quiesce 15 min, settle 10, a probe under 3, the read
+    # probe 9. Three services (the read service, one extra read service and the
+    # sign-in service, the most carnet#1504 applies) sum to 144: quiesce 15,
+    # then the first service's settle and probe 13, each later one's quiesce,
+    # settle and probe 28, the read probe 9, the rollback's quiesce 15 and three
+    # rollback settles of 12; the rest covers checkout, auth and the capture. A
+    # fourth service adds about 40; raise this with it.
+    timeout-minutes: 150
     environment: development
     steps:
       # Before auth: checkout cleans the workspace, which would delete the
@@ -131,74 +154,157 @@ jobs:
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
         run: ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
 
-      - name: Capture the digest currently serving
+      - name: Capture the digest each service is serving
+        # The services this run moves, in the order it moves them, each with
+        # the digest it serves now as its own rollback target. `service` comes
+        # first: it is the one that always exists, and with no other service it
+        # moves alone. With `also_label` the listing must name it, since it
+        # carries that label too: a listing that does not is a wrong label or a
+        # broken list, which would leave every other service unseen. Then,
+        # with `also_label`, the extra read services `<service>-read-<n>` in
+        # numeric order, so service 0 and 1 move before 10, and last any other
+        # labelled service (sciotte's sign-in service): reads stay served by a
+        # moved service first, and a sign-in, the rarer call, moves once every
+        # read has proved the image.
+        #
+        # Every target is captured before anything moves: a service with no
+        # readable digest refuses the whole deploy, so no run ever moves one
+        # service and then finds the next has nothing to roll back to.
         id: prev
         env:
-          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
+          PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
+          SERVICE: ${{ inputs.service }}
+          ALSO_LABEL: ${{ inputs.also_label }}
         run: |
           set -euo pipefail
-          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
-                  --format='value(status.latestReadyRevisionName)')
-          PREV=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
-                   --format='value(status.imageDigest)')
-          # Refuse to deploy with no rollback target. A rollback step that silently has
-          # nothing to roll back to is worse than none, because the workflow would still
-          # report that it recovered.
-          if [ -z "${PREV}" ]; then
-            echo "::error::could not read the serving digest of ${REV} — refusing to deploy without a rollback target"
-            exit 1
-          fi
-          echo "image=${PREV}" >> "$GITHUB_OUTPUT"
-          echo "serving ${REV} at ${PREV}"
+          STATE="${RUNNER_TEMP}/satellite-deploy"
+          mkdir -p "${STATE}"
+          : > "${STATE}/targets"
+          : > "${STATE}/moved"
+          [[ "${SERVICE}" =~ ^[a-z][a-z0-9-]*$ ]] || { echo "::error::service '${SERVICE}' is not a Cloud Run service-name suffix"; exit 1; }
 
-      - name: Deploy
+          ORDER="${SERVICE}"
+          if [ -n "${ALSO_LABEL}" ]; then
+            if ! [[ "${ALSO_LABEL}" =~ ^[a-z][a-z0-9_-]*=[a-z0-9_-]+$ ]]; then
+              echo "::error::also_label '${ALSO_LABEL}' is not a key=value Cloud Run label"
+              exit 1
+            fi
+            # The wait script is the one reader of the labelled services, so
+            # this deploy moves exactly the ones every rollout waits on. A
+            # failed list fails the step, and so does one that does not name
+            # `service`: deploying it alone while others carry the label would
+            # leave them on the old image unseen.
+            NAMES=$(./scripts/ci/wait-cloud-run-service-ready.sh list --region "${REGION}" --prefix "${PREFIX}")
+            READS=""
+            OTHERS=""
+            LISTED_SELF=""
+            READ_RE="^${SERVICE}-read-([1-9][0-9]*)$"
+            while IFS= read -r suffix; do
+              [ -n "${suffix}" ] || continue
+              if [ "${suffix}" = "${SERVICE}" ]; then
+                LISTED_SELF="yes"
+                continue
+              fi
+              if [[ "${suffix}" =~ ${READ_RE} ]]; then
+                READS="${READS}${BASH_REMATCH[1]} ${suffix}"$'\n'
+              else
+                OTHERS="${OTHERS}${suffix}"$'\n'
+              fi
+            done <<<"${NAMES}"
+            if [ -z "${LISTED_SELF}" ]; then
+              echo "::error::the ${ALSO_LABEL} listing does not name ${PREFIX}-${SERVICE}, which carries that label: the label is wrong or the listing is incomplete, so no labelled service is known to move"
+              exit 1
+            fi
+            ORDER="${ORDER} $(printf '%s' "${READS}" | sort -n -u -k1,1 | cut -d' ' -f2 | tr '\n' ' ')$(printf '%s' "${OTHERS}" | sort -u | tr '\n' ' ')"
+          fi
+
+          for suffix in ${ORDER}; do
+            SVC="${PREFIX}-${suffix}"
+            REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                    --format='value(status.latestReadyRevisionName)')
+            PREV=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                     --format='value(status.imageDigest)')
+            # Refuse to deploy with no rollback target. A rollback step that silently has
+            # nothing to roll back to is worse than none, because the workflow would still
+            # report that it recovered.
+            if [ -z "${PREV}" ]; then
+              echo "::error::could not read the serving digest of ${REV} (${SVC}) — refusing to deploy without a rollback target"
+              exit 1
+            fi
+            printf '%s %s\n' "${suffix}" "${PREV}" >> "${STATE}/targets"
+            echo "${SVC} serves ${REV} at ${PREV}"
+          done
+          echo "captured=true" >> "$GITHUB_OUTPUT"
+
+      - name: Deploy each service, then assert its bytes and probe its health
+        # One service at a time, each settled, asserted and probed before the
+        # next moves, so a bad image stops at the first service it reaches.
+        # Every service after the first waits for quiescence again: its roll is
+        # a roll like any other (carnet#696), and a peer workflow released by
+        # the previous service's settle may be rolling now. A service is
+        # recorded as moved before its update is issued, so a failed or
+        # half-applied update is still rolled back below.
+        #
         # Deploys the moving :latest tag rather than the digest, because that is the
         # literal value terraform holds in the service's image variable
         # (sciotte_image, photograveur_image). Deploying a digest would leave the
         # service permanently disagreeing with its own terraform, so every later
-        # apply would bounce it. The digest is asserted immediately below, which
-        # closes the gap this opens.
+        # apply would bounce it. The digest is asserted right after, which
+        # closes the gap this opens. --update-labels stamps each revision with
+        # who deployed it and from which commit.
         #
         # Cloud Run refuses to shift traffic to a revision that fails its startup probe
         # (GET /health, 10 attempts at 5s), so a container that cannot boot leaves the
         # previous revision serving and fails this step. That probe is the health check;
         # the rollback below covers the rest.
-        uses: google-github-actions/deploy-cloudrun@v3
-        with:
-          service: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
-          region: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
-          image: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}/${{ inputs.service }}:latest
-
-      - name: Wait for the service to settle
+        #
+        # The digest assertion. buildx publishes an OCI *index*, because it
+        # attaches a provenance attestation alongside the image.
+        # build-push-action reports that index's digest, while Cloud Run
+        # resolves the tag down to the linux/amd64 child and records the child.
+        # The two are never equal, so comparing them directly fails every time
+        # on a deploy that in fact shipped the right bytes — which is exactly
+        # what it did on sciotte v0.8.6, rolling dev back to the previous digest
+        # over a correct rollout. The index digest or any of its children is
+        # accepted.
+        #
+        # The HTTP probe, run when the caller names an audience. Cloud Run's
+        # startup probe already proved the container answers /health, but only
+        # that it answered — a build that lost a provider still boots. This
+        # asserts what the service says about itself: ok, and every provider
+        # the caller names. A probed service is reachable from a runner (sciotte
+        # is INGRESS_TRAFFIC_ALL: the API pod egresses PRIVATE_RANGES_ONLY, so
+        # internal-only ingress would drop its calls) but NOT unauthenticated:
+        # Cloud Run verifies a Google-signed identity token for the caller's
+        # audience and checks roles/run.invoker. The deployer SA carries that
+        # permission through its project-level roles/run.admin, which includes
+        # run.routes.invoke — no extra grant is needed, only the token. Every
+        # labelled service declares the same audience, so one token serves
+        # them all; it is minted by the auth step and lives an hour, which a
+        # run that waits long behind peer rollouts can outlast, and the 401
+        # message below names that case too.
+        #
+        # The probe read as "the new image is unhealthy" for a week
+        # (carnet#164) while the real answer was a 403 it never named. The
+        # status code is reported on failure so an auth refusal can never again
+        # be mistaken for a sick container: curl exits 22 on any >=400, and -f
+        # prints no body to say why.
         env:
-          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
-          SERVICE: ${{ inputs.service }}
-        run: ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service "${SERVICE}" --timeout-seconds 600
-
-      - name: Assert the serving bytes are the bytes we built and scanned
-        env:
-          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           REGISTRY: ${{ vars.GCP_ARTIFACTS_REGISTRY_URL }}
-          IMAGE_NAME: ${{ inputs.service }}
+          IMAGE_NAME: ${{ inputs.image_name || inputs.service }}
           EXPECTED: ${{ inputs.digest }}
+          PROBE_AUDIENCE: ${{ inputs.probe_audience }}
+          ID_TOKEN: ${{ steps.auth.outputs.id_token }}
+          PROVIDERS: ${{ inputs.probe_providers }}
         run: |
           set -euo pipefail
-          REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
-                  --format='value(status.latestReadyRevisionName)')
-          GOT=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
-                  --format='value(status.imageDigest)')
+          STATE="${RUNNER_TEMP}/satellite-deploy"
+          SUFFIXES=$(cut -d' ' -f1 "${STATE}/targets")
+          [ -n "${SUFFIXES}" ] || { echo "::error::no service to deploy — the capture step recorded none"; exit 1; }
 
-          # buildx publishes an OCI *index*, because it attaches a provenance
-          # attestation alongside the image. build-push-action reports that index's
-          # digest, while Cloud Run resolves the tag down to the linux/amd64 child and
-          # records the child. The two are never equal, so comparing them directly
-          # fails every time on a deploy that in fact shipped the right bytes — which
-          # is exactly what it did on sciotte v0.8.6, rolling dev back to the previous
-          # digest over a correct rollout. Accept the index digest or any of its
-          # children.
           HOST="${REGISTRY%%/*}"
           PATH_PART="${REGISTRY#*/}/${IMAGE_NAME}"
           TOKEN=$(gcloud auth print-access-token)
@@ -207,62 +313,69 @@ jobs:
             "https://${HOST}/v2/${PATH_PART}/manifests/${EXPECTED}" \
             | jq -r '(.manifests // [])[].digest' || true)
 
-          for candidate in ${EXPECTED} ${CHILDREN}; do
-            if [ "${GOT}" = "${candidate}" ] || [ "${GOT##*@}" = "${candidate}" ]; then
-              echo "serving ${REV} at ${GOT} (matches ${candidate})"
-              exit 0
+          FIRST="yes"
+          for suffix in ${SUFFIXES}; do
+            SVC="${PREFIX}-${suffix}"
+            if [ -z "${FIRST}" ]; then
+              ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900
             fi
-          done
-          echo "::error::${REV} serves ${GOT}, which is neither ${EXPECTED} nor any manifest it indexes"
-          echo "index children were: ${CHILDREN:-<none>}"
-          exit 1
+            FIRST=""
+            echo "${suffix}" >> "${STATE}/moved"
+            echo "deploying ${SVC} from ${REGISTRY}/${IMAGE_NAME}:latest"
+            gcloud run services update "${SVC}" --region "${REGION}" \
+              --image "${REGISTRY}/${IMAGE_NAME}:latest" \
+              --update-labels "managed-by=github-actions,commit-sha=${GITHUB_SHA}" --quiet
+            ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service "${suffix}" --timeout-seconds 600
 
-      - name: Probe the service over HTTP
-        # Cloud Run's startup probe already proved the container answers /health, but
-        # only that it answered — a build that lost a provider still boots. This asserts
-        # what the service says about itself: ok, and every provider the caller names.
-        #
-        # A probed service is reachable from a runner (sciotte is INGRESS_TRAFFIC_ALL:
-        # the API pod egresses PRIVATE_RANGES_ONLY, so internal-only ingress would
-        # drop its calls) but NOT unauthenticated: Cloud Run verifies a
-        # Google-signed identity token for the caller's audience and checks
-        # roles/run.invoker. The deployer SA carries that permission through its
-        # project-level roles/run.admin, which includes run.routes.invoke — no extra
-        # grant is needed, only the token.
-        #
-        # This step read as "the new image is unhealthy" for a week (carnet#164) while
-        # the real answer was a 403 the probe never named. The status code is now
-        # reported on failure so an auth refusal can never again be mistaken for a
-        # sick container: curl exits 22 on any >=400, and -f prints no body to say why.
-        if: ${{ inputs.probe_audience != '' }}
-        env:
-          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
-          REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
-          ID_TOKEN: ${{ steps.auth.outputs.id_token }}
-          PROVIDERS: ${{ inputs.probe_providers }}
-        run: |
-          set -euo pipefail
-          URL=$(gcloud run services describe "${SVC}" --region "${REGION}" --format='value(status.url)')
-
-          CODE=$(curl -s -o /tmp/health.json -w '%{http_code}' -m 30 --retry 3 --retry-delay 5 \
-              -H "Authorization: Bearer ${ID_TOKEN}" "${URL}/health")
-          if [ "${CODE}" != "200" ]; then
-              echo "::error::GET ${URL}/health returned HTTP ${CODE} — 401 means the identity token was rejected (usually a custom_audiences mismatch), 403 means no run.invoker; neither is a sick container"
-              head -c 500 /tmp/health.json || true
+            REV=$(gcloud run services describe "${SVC}" --region "${REGION}" \
+                    --format='value(status.latestReadyRevisionName)')
+            GOT=$(gcloud run revisions describe "${REV}" --region "${REGION}" \
+                    --format='value(status.imageDigest)')
+            MATCH=""
+            for candidate in ${EXPECTED} ${CHILDREN}; do
+              if [ "${GOT}" = "${candidate}" ] || [ "${GOT##*@}" = "${candidate}" ]; then
+                MATCH="${candidate}"
+                break
+              fi
+            done
+            if [ -z "${MATCH}" ]; then
+              echo "::error::${SVC}: ${REV} serves ${GOT}, which is neither ${EXPECTED} nor any manifest it indexes"
+              echo "index children were: ${CHILDREN:-<none>}"
               exit 1
-          fi
-          BODY=$(cat /tmp/health.json)
-          echo "${BODY}" | jq .
+            fi
+            echo "${SVC}: serving ${REV} at ${GOT} (matches ${MATCH})"
 
-          STATUS=$(jq -r '.status' <<<"${BODY}")
-          [ "${STATUS}" = "ok" ] || { echo "::error::/health reports status=${STATUS}"; exit 1; }
-          for p in ${PROVIDERS}; do
-            jq -e --arg p "$p" '.providers | index($p)' <<<"${BODY}" >/dev/null \
-              || { echo "::error::/health does not advertise the ${p} provider"; exit 1; }
+            [ -n "${PROBE_AUDIENCE}" ] || continue
+            URL=$(gcloud run services describe "${SVC}" --region "${REGION}" --format='value(status.url)')
+            HEALTH="${STATE}/health-${suffix}.json"
+            # A token minted for this probe: the one the auth step minted
+            # lasts an hour, and with several services and quiesce waits
+            # between them a later probe can come after it. When gcloud cannot
+            # mint one here, that token is used as before.
+            TOKEN=$(gcloud auth print-identity-token --audiences="${PROBE_AUDIENCE}" --include-email 2>/dev/null || true)
+            [ -n "${TOKEN}" ] || TOKEN="${ID_TOKEN}"
+            CODE=$(curl -s -o "${HEALTH}" -w '%{http_code}' -m 30 --retry 3 --retry-delay 5 \
+                -H "Authorization: Bearer ${TOKEN}" "${URL}/health")
+            if [ "${CODE}" != "200" ]; then
+              echo "::error::GET ${URL}/health returned HTTP ${CODE} — 401 means the identity token was rejected (a custom_audiences mismatch, or a token past its hour), 403 means no run.invoker; neither is a sick container"
+              head -c 500 "${HEALTH}" || true
+              exit 1
+            fi
+            BODY=$(cat "${HEALTH}")
+            echo "${BODY}" | jq .
+            STATUS=$(jq -r '.status' <<<"${BODY}")
+            [ "${STATUS}" = "ok" ] || { echo "::error::${SVC}: /health reports status=${STATUS}"; exit 1; }
+            for p in ${PROVIDERS}; do
+              jq -e --arg p "$p" '.providers | index($p)' <<<"${BODY}" >/dev/null \
+                || { echo "::error::${SVC}: /health does not advertise the ${p} provider"; exit 1; }
+            done
+            echo "healthy: ${URL} advertises $(jq -c '.providers' <<<"${BODY}")"
           done
-          echo "healthy: ${URL} advertises $(jq -c '.providers' <<<"${BODY}")"
 
       - name: Read real heads through the deployed service
+        # It runs once, after every service moved: it reads through the
+        # platform, which picks the read service itself, so it judges the set.
+        #
         # /health proves the container boots and names its providers; it says
         # nothing about whether a read works. sciotte v1.0.0 (2026-10-30) passed
         # that probe and then answered 500 to every Strava read for hours, while
@@ -329,37 +442,59 @@ jobs:
           echo "read probe: $(cat /tmp/read-probe-summary.json)"
 
       - name: Roll back to the previously serving digest
-        # Only once a rollback target was captured: a failure before that (auth,
-        # or the quiescence wait timing out) deployed nothing to roll back.
-        if: failure() && steps.prev.outputs.image != ''
+        # Only once the targets were captured: a failure before that (auth, or
+        # the quiescence wait timing out) deployed nothing to roll back. Each
+        # service the run moved goes back to the digest it was serving itself,
+        # one after another; a service that does not come back does not stop
+        # the others, and is named with the command that rolls it back by hand.
+        if: failure() && steps.prev.outputs.captured == 'true'
         env:
-          SVC: ${{ vars.GCP_DEV_SERVICE_NAME }}-${{ inputs.service }}
           REGION: ${{ vars.GCP_DEV_CLOUD_RUN_REGION }}
           PREFIX: ${{ vars.GCP_DEV_SERVICE_NAME }}
-          SERVICE: ${{ inputs.service }}
-          PREV: ${{ steps.prev.outputs.image }}
         run: |
           set -euo pipefail
-          # Redeploy the previous digest rather than repointing traffic. Traffic pins
-          # applied with `update-traffic --to-revisions` stick to the service and make
-          # every subsequent deploy land without receiving traffic — the failure mode is
-          # a deploy that reports success while nothing it shipped is serving.
-          #
+          STATE="${RUNNER_TEMP}/satellite-deploy"
+          MOVED=$(cat "${STATE}/moved")
+          if [ -z "${MOVED}" ]; then
+            echo "no service was moved, so there is nothing to roll back"
+            exit 0
+          fi
+          prev_of() { grep "^${1} " "${STATE}/targets" | cut -d' ' -f2; }
           # The rollback is a roll too (carnet#696), so it waits for quiescence
           # first: another workflow may have started rolling during the digest
-          # assertion and probe, or this service may still be mid-rollout after
+          # assertion and probe, or a service may still be mid-rollout after
           # its own settle wait timed out. If dev never quiesces, rolling back
           # would be the concurrent cold start this wait exists to prevent, so
           # it does not roll back and says how to do it by hand.
           if ! ./scripts/ci/wait-cloud-run-service-ready.sh quiesce --region "${REGION}" --prefix "${PREFIX}" --timeout-seconds 900; then
-            echo "::error::not rolling ${SVC} back: dev Cloud Run never quiesced. Once it has, roll back by hand: gcloud run services update ${SVC} --region ${REGION} --image ${PREV}"
+            echo "::error::not rolling back: dev Cloud Run never quiesced. Once it has, roll back by hand:"
+            for suffix in ${MOVED}; do
+              echo "::error::gcloud run services update ${PREFIX}-${suffix} --region ${REGION} --image $(prev_of "${suffix}")"
+            done
             exit 1
           fi
-          echo "rolling back ${SVC} to ${PREV}"
-          gcloud run services update "${SVC}" --region "${REGION}" --image "${PREV}" --quiet
-          # The job is not done until the rollback settles.
-          ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service "${SERVICE}" --timeout-seconds 600
-          echo "::warning::rolled back to ${PREV}; main carries the bump, the deployed image does not"
+          # Redeploy each previous digest rather than repointing traffic. Traffic pins
+          # applied with `update-traffic --to-revisions` stick to the service and make
+          # every subsequent deploy land without receiving traffic — the failure mode is
+          # a deploy that reports success while nothing it shipped is serving. Each
+          # roll settles before the next starts, so they never cold-start together.
+          FAILED=""
+          for suffix in ${MOVED}; do
+            SVC="${PREFIX}-${suffix}"
+            PREV=$(prev_of "${suffix}")
+            echo "rolling back ${SVC} to ${PREV}"
+            if gcloud run services update "${SVC}" --region "${REGION}" --image "${PREV}" --quiet \
+                && ./scripts/ci/wait-cloud-run-service-ready.sh service --region "${REGION}" --prefix "${PREFIX}" --service "${suffix}" --timeout-seconds 600; then
+              echo "::warning::rolled ${SVC} back to ${PREV}; main carries the bump, the deployed image does not"
+            else
+              echo "::error::${SVC} did not roll back; once dev is quiet: gcloud run services update ${SVC} --region ${REGION} --image ${PREV}"
+              FAILED="${FAILED} ${SVC}"
+            fi
+          done
+          if [ -n "${FAILED}" ]; then
+            echo "::error::the rollback left${FAILED} on the new image"
+            exit 1
+          fi
 
   # ---------------------------------------------------------------------------
   # Mark the digest dev is serving so registry retention keeps it
@@ -412,6 +547,12 @@ jobs:
         # tag-deployed-dev runs for server and frontend, puts deployed-dev on this
         # digest and keeps the outgoing one as deployed-dev-previous, so the N-1
         # rollback target outlives the deploy that replaced it (carnet#137).
+        #
+        # One tag for every service an `also_label` deploy moved: after a
+        # success they all serve this digest. A service that served a
+        # different digest before the deploy (one aligned late by hand) does
+        # not get its own N-1 kept: deployed-dev-previous names the digest the
+        # tag moved off, which is the first service's.
         env:
           IMAGE: ${{ inputs.image }}
         run: ./scripts/ci/tag-deployed-digest.sh --image "${IMAGE}" --env dev

@@ -9,29 +9,33 @@
 # same browser. Cloud Run cannot route a request to a chosen instance, and its
 # session affinity is best effort (broken on termination, at max concurrency or
 # at max CPU), so every step of a sign-in must reach a service that runs at most
-# one instance. Reads have no such browser: they run on module.sciotte, which
-# can scale once a read no longer spans requests (#1504 part B).
+# one instance. Reads have no parked browser but a cookie jar per session, so
+# they spread over module.sciotte's read services, each one instance, with
+# every call naming a session sent to the service its id picks.
 #
 # Same image, same settings: one sciotte binary serves both, and the platform
 # sends each step to the right one (DRAVR_SCIOTTE_LOGIN_URL beside
 # DRAVR_SCIOTTE_REMOTE_URL on the API).
 #
+# Every sciotte service carries `component = "sciotte"`: the deploy lane and
+# the rollout quiesce find them by that label, so a service an apply creates
+# is released and waited on from then on, and one an apply removes is not.
+#
 # Rollout, in order (each step a deliberate tfvars change and a manual apply):
 #   1. enable_sciotte_login_service = true creates the service on
-#      var.sciotte_image. The sciotte deploy lane and the quiesce list name only
-#      the read service; they take this one once the apply has created it, so a
-#      release then moves both services to one build.
+#      var.sciotte_image; right after, align it to the image the read service
+#      serves (gcloud run services update ... --image <its digest>), since
+#      terraform ignores image changes after creation.
 #   2. backend_sciotte_login_split = true points the API and the login canary at
 #      it. A sign-in parked on the read service at that moment is answered as a
 #      lapsed sign-in once.
-#   3. Once a read is one request in the deployed sciotte image and platform
-#      (carnet#1504 part B), sciotte_reads_single_request = true lets
-#      sciotte_max_instances rise above 1; its validation refuses that while
-#      either the split or part B is missing.
+#   3. sciotte_read_services above 1, at a quiet hour, adds read services the
+#      same way (aligned by hand after the apply); its validation refuses it
+#      before step 2.
 #
 # Idle cost: min 0 and cpu_idle, so the service bills only while a sign-in runs
 # and for Cloud Run's idle window after it (up to ~15 min). The price is a cold
-# start (p95 5.4s plus a Chrome launch) on the first sign-in after a quiet spell,
+# start (p95 7.1s plus a Chrome launch) on the first sign-in after a quiet spell,
 # and a parked sign-in lost if Cloud Run stops the idle instance before the code
 # arrives: the athlete is told to start again (ChefFamille chose this over an
 # always-warm instance at about CA$65/mo, 2026-11-15, carnet#1504).
@@ -180,7 +184,7 @@ module "sciotte_login" {
   health_check_path           = "/health"
   startup_probe_initial_delay = 5
 
-  labels = merge(var.labels, { component = "sciotte-login" })
+  labels = merge(var.labels, { component = "sciotte" })
 
   depends_on = [module.service_accounts, module.secrets]
 }

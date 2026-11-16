@@ -21,7 +21,6 @@
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::{AuthSession, CookieData};
 use dravr_sciotte::wire::{
     PATH_ACTIVITIES, PATH_ATHLETE, PATH_IMPORT_SESSION, PATH_SESSIONS, SESSION_EXPORT_SEGMENT,
@@ -31,7 +30,9 @@ use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
     ProviderFactory, TokenRefreshCallback,
 };
-use pierre_providers::sciotte_provider::SciotteGarminProviderFactory;
+use pierre_providers::sciotte_provider::{
+    startup_reads, SciotteGarminProviderFactory, SciotteReads,
+};
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -255,7 +256,7 @@ fn credentials_for(session: &AuthSession) -> OAuth2Credentials {
 /// A Garmin provider holding the stored copy of `session_id`, and what its
 /// token-refresh callback received.
 async fn provider_holding(
-    client: &SciotteClient,
+    client: &SciotteReads,
     session_id: &str,
 ) -> (Box<dyn FitnessProvider>, Arc<Mutex<Vec<OAuth2Credentials>>>) {
     let provider = SciotteGarminProviderFactory::new(Some(client.clone()))
@@ -297,7 +298,8 @@ async fn a_session_rotated_on_a_read_is_stored_and_read_through_next() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let log = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, Arc::clone(&log));
-    let client = SciotteClient::new(&base, None).expect("a loopback client needs no audience"); // Safe: loopback URL
+    let client =
+        startup_reads(&[String::from(&base)], None).expect("a loopback client needs no audience"); // Safe: loopback URL
 
     a_rotated_read_hands_the_exported_session_on_and_reads_through_it(&client, &log).await;
     a_failed_read_that_rotated_still_stores_the_session(&client, &log).await;
@@ -306,7 +308,7 @@ async fn a_session_rotated_on_a_read_is_stored_and_read_through_next() {
 }
 
 async fn a_rotated_read_hands_the_exported_session_on_and_reads_through_it(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let (provider, stored) = provider_holding(client, ROTATES_ON_READ).await;
@@ -365,7 +367,7 @@ async fn a_rotated_read_hands_the_exported_session_on_and_reads_through_it(
 }
 
 async fn a_failed_read_that_rotated_still_stores_the_session(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let (provider, stored) = provider_holding(client, ROTATES_THEN_FAILS).await;
@@ -386,10 +388,7 @@ async fn a_failed_read_that_rotated_still_stores_the_session(
     );
 }
 
-async fn a_read_that_did_not_rotate_exports_nothing(
-    client: &SciotteClient,
-    log: &Mutex<Vec<Seen>>,
-) {
+async fn a_read_that_did_not_rotate_exports_nothing(client: &SciotteReads, log: &Mutex<Vec<Seen>>) {
     let (provider, stored) = provider_holding(client, NEVER_ROTATES).await;
 
     provider
@@ -410,7 +409,7 @@ async fn a_read_that_did_not_rotate_exports_nothing(
 }
 
 async fn a_failed_export_leaves_the_read_and_retries_on_the_next(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let (provider, stored) = provider_holding(client, EXPORT_FAILS_ONCE).await;
@@ -438,4 +437,56 @@ async fn a_failed_export_leaves_the_read_and_retries_on_the_next(
         .filter(|seen| is_export(&seen.path))
         .count();
     assert_eq!(exports, 2, "the failed export is tried again, once");
+}
+
+/// Session ids the read-service hash pins at two services: the first names
+/// the first service, the second the second (pinned in
+/// `sciotte_provider::reads`'s unit tests).
+const ON_FIRST_SERVICE: &str = "shard-session-f";
+const ON_SECOND_SERVICE: &str = "shard-session-b";
+
+/// With two read services, each session's import, read and the export of
+/// its rotation all reach the one service its id names, and nothing of it
+/// the other: the session meets one instance's cookie jar (carnet#1504).
+#[tokio::test]
+async fn every_call_of_a_session_reaches_the_read_service_its_id_names() {
+    let mut bases = Vec::new();
+    let mut logs = Vec::new();
+    for _ in 0..2 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        bases.push(format!("http://{}", listener.local_addr().unwrap()));
+        let log = Arc::new(Mutex::new(Vec::new()));
+        spawn_scraper_stub(listener, Arc::clone(&log));
+        logs.push(log);
+    }
+    let reads = startup_reads(&bases, None).expect("loopback services need no audience"); // Safe: loopback URLs
+
+    for (session, own, other) in [(ON_FIRST_SERVICE, 0, 1), (ON_SECOND_SERVICE, 1, 0)] {
+        let (provider, stored) = provider_holding(&reads, session).await;
+        provider
+            .get_athlete()
+            .await
+            .expect("the profile read is served");
+        let paths: Vec<String> = log_for(&logs[own], session)
+            .into_iter()
+            .map(|seen| seen.path)
+            .collect();
+        assert_eq!(
+            paths.len(),
+            3,
+            "{session}: import, read and export on its own service: {paths:?}"
+        );
+        assert_eq!(paths[0], PATH_IMPORT_SESSION, "{session}: {paths:?}");
+        assert_eq!(paths[1], PATH_ATHLETE, "{session}: {paths:?}");
+        assert!(is_export(&paths[2]), "{session}: {paths:?}");
+        assert!(
+            log_for(&logs[other], session).is_empty(),
+            "{session}: nothing reached the other service"
+        );
+        assert_eq!(
+            stored.lock().unwrap().len(),
+            1,
+            "{session}: the rotation its own service exported is stored"
+        );
+    }
 }

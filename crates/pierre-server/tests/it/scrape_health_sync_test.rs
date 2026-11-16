@@ -20,6 +20,7 @@
 #![allow(missing_docs)]
 
 use crate::db_fixtures;
+use pierre_providers::sciotte_provider::startup_reads;
 use secrecy::SecretString;
 
 use std::net::SocketAddr;
@@ -38,7 +39,6 @@ use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
 use dravr_enforme::traits::cursor_store::SyncCursorStore;
 use dravr_enforme::traits::recovery_store::RecoveryStore;
-use dravr_sciotte::client::SciotteClient;
 use pierre_core::errors::AppError;
 use pierre_core::models::{
     ConnectionType, OAuthNotification, RefreshConfig, StoredRecoveryMetrics, SyncStatus, TenantId,
@@ -644,7 +644,7 @@ fn spawn_scraper_stub(listener: TcpListener, seen: Seen, status: &'static str, b
 ///
 /// No row is handed out to it, so a rotation it noted would write nothing.
 async fn reader_for(addr: SocketAddr) -> SciotteServiceReader {
-    let client = SciotteClient::new(&format!("http://{addr}"), None)
+    let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience");
     let db = create_test_db().await;
     let rows = SessionRows::new(Arc::clone(&db.repositories().oauth_tokens));
@@ -1326,4 +1326,57 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
             .is_some(),
         "bug: the walk keeps the session for the next walk (B1)"
     );
+}
+
+/// With two read services, every day a sync reads of one session goes to the
+/// service its id names, where its rotated cookie lives (carnet#1504). The ids
+/// are the ones `sciotte_provider::reads`'s unit tests pin to each service.
+#[tokio::test]
+async fn a_sessions_daily_reads_reach_the_read_service_its_id_names() {
+    const MEASURED: &str = r#"{"date":"2026-09-22","provider":"coros","resting_heart_rate":47}"#;
+    let mut bases = Vec::new();
+    let mut seen = Vec::new();
+    for _ in 0..2 {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        bases.push(format!("http://{}", listener.local_addr().unwrap()));
+        let requests: Seen = Arc::new(Mutex::new(Vec::new()));
+        spawn_scraper_stub(listener, Arc::clone(&requests), "200 OK", MEASURED);
+        seen.push(requests);
+    }
+    let reads = startup_reads(&bases, None).expect("loopback services need no audience");
+    let db = create_test_db().await;
+    let reader = SciotteServiceReader::new(
+        Some(reads),
+        SessionRows::new(Arc::clone(&db.repositories().oauth_tokens)),
+    );
+    let day = NaiveDate::from_ymd_opt(2026, 9, 22).unwrap();
+
+    for (session_id, own, other) in [("shard-session-f", 0, 1), ("shard-session-b", 1, 0)] {
+        let mut session = session();
+        session.session_id = session_id.to_owned();
+        for _ in 0..2 {
+            reader
+                .daily_summary("coros", &session, day)
+                .await
+                .expect("the day is read");
+        }
+        let named = |requests: &Seen| {
+            requests
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|request| request.contains(session_id))
+                .count()
+        };
+        assert_eq!(
+            named(&seen[own]),
+            4,
+            "{session_id}: two imports and two reads on its own service"
+        );
+        assert_eq!(
+            named(&seen[other]),
+            0,
+            "{session_id}: nothing reached the other service"
+        );
+    }
 }

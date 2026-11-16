@@ -56,14 +56,15 @@ mod activity_times;
 mod factory;
 /// The field dictionary guard for the four scraped targets.
 mod field_guard;
+mod reads;
 mod rotation;
 mod streams;
 
 pub use factory::{
-    startup_client, startup_login_client, SciotteCorosProviderFactory,
-    SciotteGarminProviderFactory, SciotteLoginClient, SciotteProviderFactory,
-    SciotteTrainingPeaksProviderFactory,
+    startup_login_client, SciotteCorosProviderFactory, SciotteGarminProviderFactory,
+    SciotteLoginClient, SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
 };
+pub use reads::{startup_reads, SciotteReads};
 
 /// What a provider's own login form accepts as the account.
 ///
@@ -260,11 +261,11 @@ pub struct SciotteProvider {
     /// reported it. Starts `true`: nothing has been fetched, so nothing is
     /// known to be missing.
     head_complete: AtomicBool,
-    /// The server's one client for the scraper service, shared with every
-    /// other sciotte call so they reuse one connection pool and one cached
-    /// identity token. `None` when the server started with no service
-    /// configured: every remote call then reports that.
-    client: Option<SciotteClient>,
+    /// The server's read services, shared with every other sciotte call so
+    /// they reuse one connection pool and one cached identity token per
+    /// service. `None` when the server started with no service configured:
+    /// every remote call then reports that.
+    reads: Option<SciotteReads>,
     /// The credentials the session was given in, kept so a rotated session
     /// is stored with every other field as it came ([`rotation`]).
     credentials: RwLock<Option<OAuth2Credentials>>,
@@ -284,7 +285,7 @@ impl fmt::Debug for SciotteProvider {
 }
 
 impl SciotteProvider {
-    fn new(config: ProviderConfig, target: SciotteTarget, client: Option<SciotteClient>) -> Self {
+    fn new(config: ProviderConfig, target: SciotteTarget, reads: Option<SciotteReads>) -> Self {
         let provider_name = target.provider_name();
         info!(target = ?target, "Sciotte provider initialized (remote service)");
         Self {
@@ -293,15 +294,20 @@ impl SciotteProvider {
             provider_name,
             subject: None,
             head_complete: AtomicBool::new(true),
-            client,
+            reads,
             credentials: RwLock::new(None),
             token_refresh_callback: OnceLock::new(),
         }
     }
 
-    /// The scraper service client every remote call goes through.
-    fn remote(&self) -> AppResult<&SciotteClient> {
-        require_client(self.client.as_ref())
+    /// The client of the read service `session` lives on: every call of one
+    /// read through it — import, read, export — goes there (carnet#1504).
+    fn remote_for(&self, session: &AuthSession) -> AppResult<&SciotteClient> {
+        require_client(
+            self.reads
+                .as_ref()
+                .map(|reads| reads.for_session(&session.session_id)),
+        )
     }
 
     /// A `TrainingPeaks` provider that reads `athlete`'s calendar through the
@@ -314,12 +320,12 @@ impl SciotteProvider {
     pub fn delegated(
         config: ProviderConfig,
         athlete: AthleteId,
-        client: Option<SciotteClient>,
+        reads: Option<SciotteReads>,
     ) -> Self {
         info!("Sciotte provider initialized for a coached TrainingPeaks athlete (remote service)");
         Self {
             subject: Some(athlete),
-            ..Self::new(config, SciotteTarget::TrainingPeaks, client)
+            ..Self::new(config, SciotteTarget::TrainingPeaks, reads)
         }
     }
 
@@ -780,7 +786,7 @@ impl FitnessProvider for SciotteProvider {
         // fallback since the Phase 4 cutover). Import the platform-held session
         // — re-hydrates the service after a scale-to-zero / redeploy — then fetch.
         let target = SciotteTarget::from_backend_name(self.provider_name);
-        let remote = self.remote()?;
+        let remote = self.remote_for(session)?;
         let profile = self
             .read_through(remote, session, || remote.get_athlete(&session.session_id))
             .await?;
@@ -814,7 +820,7 @@ impl FitnessProvider for SciotteProvider {
         // before/after bound the scrape by date, matching the API providers
         // (Strava/Whoop); the client sends each as epoch seconds.
         let target = SciotteTarget::from_backend_name(self.provider_name);
-        let remote = self.remote()?;
+        let remote = self.remote_for(session)?;
         // A delegated provider names its athlete. Otherwise no athlete is
         // named: the platform reads the signed-in account's own activities,
         // and a TrainingPeaks coach account, which has none, answers the
@@ -898,7 +904,7 @@ impl FitnessProvider for SciotteProvider {
 
         // ADR-021: fetch the single activity's detail on the dedicated service.
         let target = SciotteTarget::from_backend_name(self.provider_name);
-        let remote = self.remote()?;
+        let remote = self.remote_for(session)?;
         let sciotte_activity = self
             .read_through(remote, session, || {
                 remote.get_activity(&session.session_id, id)
@@ -937,7 +943,7 @@ impl FitnessProvider for SciotteProvider {
         // platform-held session, exactly as the activity list does, and for
         // the same athlete: a delegated provider's, or else the signed-in
         // account's own.
-        let remote = self.remote()?;
+        let remote = self.remote_for(session)?;
         let planned = self
             .read_through(remote, session, || {
                 remote.get_planned_workouts(

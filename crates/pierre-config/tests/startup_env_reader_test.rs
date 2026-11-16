@@ -36,7 +36,10 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
     env::remove_var("DRAVR_SCIOTTE_LOGIN_URL");
 
     let unset = SciotteServiceConfig::from_env();
-    assert_eq!(unset.remote_url, None);
+    assert!(
+        unset.read_urls.is_empty(),
+        "no DRAVR_SCIOTTE_REMOTE_URL names no read service"
+    );
     assert_eq!(unset.audience, None);
     assert_eq!(
         unset.login_url, None,
@@ -44,11 +47,14 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
     );
 
     // A URL that is only slashes, or an empty audience, configures nothing.
-    env::set_var("DRAVR_SCIOTTE_REMOTE_URL", "//");
+    env::set_var("DRAVR_SCIOTTE_REMOTE_URL", "//, ,/");
     env::set_var("DRAVR_SCIOTTE_AUDIENCE", "");
     env::set_var("DRAVR_SCIOTTE_LOGIN_URL", "/");
     let blank = SciotteServiceConfig::from_env();
-    assert_eq!(blank.remote_url, None);
+    assert!(
+        blank.read_urls.is_empty(),
+        "empty and slash-only entries name no read service"
+    );
     assert_eq!(blank.audience, None);
     assert_eq!(
         blank.login_url, None,
@@ -66,8 +72,9 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
     );
     let configured = SciotteServiceConfig::from_env();
     assert_eq!(
-        configured.remote_url.as_deref(),
-        Some("https://sciotte.example.run.app")
+        configured.read_urls,
+        vec!["https://sciotte.example.run.app".to_owned()],
+        "one URL is the single read service"
     );
     assert_eq!(
         configured.login_url.as_deref(),
@@ -84,6 +91,30 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
         SciotteServiceConfig::from_env().login_url,
         None,
         "a login URL naming the read service is no sign-in service of its own"
+    );
+
+    // Several read services, in order; a login URL naming any one of them is
+    // that read service, not a sign-in service of its own.
+    env::set_var(
+        "DRAVR_SCIOTTE_REMOTE_URL",
+        " https://sciotte.example.run.app , https://sciotte-read-1.example.run.app/ ,",
+    );
+    env::set_var(
+        "DRAVR_SCIOTTE_LOGIN_URL",
+        "https://sciotte-read-1.example.run.app",
+    );
+    let sharded = SciotteServiceConfig::from_env();
+    assert_eq!(
+        sharded.read_urls,
+        vec![
+            "https://sciotte.example.run.app".to_owned(),
+            "https://sciotte-read-1.example.run.app/".to_owned(),
+        ],
+        "the read services keep their order, trimmed, without the empty entry"
+    );
+    assert_eq!(
+        sharded.login_url, None,
+        "a login URL naming the second read service is that read service"
     );
     assert_eq!(
         configured.audience.as_deref(),

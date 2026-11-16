@@ -354,8 +354,9 @@ async fn every_sign_in_step_reaches_the_sign_in_service_and_none_the_read_servic
         .resources
         .fitness
         .provider_registry
-        .require_sciotte_client()
+        .require_sciotte_reads()
         .unwrap()
+        .for_session(SESSION)
         .delete_session(SESSION)
         .await
         .unwrap();

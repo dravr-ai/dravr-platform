@@ -68,7 +68,7 @@ async fn a_config_with_no_scraper_service_builds_no_sciotte_client() {
         resources
             .fitness
             .provider_registry
-            .sciotte_client()
+            .sciotte_reads()
             .is_none(),
         "no service configured, no client"
     );
@@ -84,9 +84,13 @@ async fn the_sciotte_client_calls_the_service_its_config_names() {
     let client = resources
         .fitness
         .provider_registry
-        .sciotte_client()
+        .sciotte_reads()
         .expect("a configured service builds the client");
-    let removal = client.delete_session("sess-from-config").await.unwrap();
+    let removal = client
+        .for_session("sess-from-config")
+        .delete_session("sess-from-config")
+        .await
+        .unwrap();
 
     assert_eq!(removal, SessionRemoval::Removed);
     assert_eq!(
@@ -100,7 +104,7 @@ async fn the_sciotte_client_calls_the_service_its_config_names() {
 async fn a_service_off_loopback_needs_its_audience() {
     let mut without_audience = test_server_config();
     without_audience.external_services.sciotte = SciotteServiceConfig {
-        remote_url: Some("https://sciotte.example.run.app".to_owned()),
+        read_urls: vec!["https://sciotte.example.run.app".to_owned()],
         audience: None,
         login_url: None,
     };
@@ -108,13 +112,13 @@ async fn a_service_off_loopback_needs_its_audience() {
         .await
         .unwrap();
     assert!(
-        refused.fitness.provider_registry.sciotte_client().is_none(),
+        refused.fitness.provider_registry.sciotte_reads().is_none(),
         "a remote service with no audience would refuse every unsigned call"
     );
 
     let mut with_audience = test_server_config();
     with_audience.external_services.sciotte = SciotteServiceConfig {
-        remote_url: Some("https://sciotte.example.run.app".to_owned()),
+        read_urls: vec!["https://sciotte.example.run.app".to_owned()],
         audience: Some("dravr-sciotte-test".to_owned()),
         login_url: None,
     };
@@ -122,7 +126,7 @@ async fn a_service_off_loopback_needs_its_audience() {
         .await
         .unwrap();
     assert!(
-        built.fitness.provider_registry.sciotte_client().is_some(),
+        built.fitness.provider_registry.sciotte_reads().is_some(),
         "the audience completes a remote service's configuration"
     );
 }
@@ -131,7 +135,7 @@ async fn a_service_off_loopback_needs_its_audience() {
 async fn a_sign_in_service_that_cannot_be_built_refuses_sign_ins_rather_than_falling_back() {
     let mut config = test_server_config();
     config.external_services.sciotte = SciotteServiceConfig {
-        remote_url: Some("http://127.0.0.1:9".to_owned()),
+        read_urls: vec!["http://127.0.0.1:9".to_owned()],
         audience: None,
         // Off loopback with no audience: the client cannot be built.
         login_url: Some("https://sciotte-login.example.run.app".to_owned()),
@@ -141,7 +145,7 @@ async fn a_sign_in_service_that_cannot_be_built_refuses_sign_ins_rather_than_fal
         .unwrap();
     let registry = &resources.fitness.provider_registry;
     assert!(
-        registry.require_sciotte_client().is_ok(),
+        registry.require_sciotte_reads().is_ok(),
         "the read service is configured"
     );
     let refused = registry

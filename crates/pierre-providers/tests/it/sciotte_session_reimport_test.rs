@@ -31,7 +31,6 @@ use secrecy::SecretString;
 use std::sync::{Arc, Mutex};
 
 use chrono::{TimeZone, Utc};
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use pierre_providers::core::{
     ActivityQueryParams, CredentialKind, FitnessProvider, OAuth2Credentials, ProviderConfig,
@@ -39,7 +38,9 @@ use pierre_providers::core::{
 };
 use pierre_providers::errors::ErrorCode;
 use pierre_providers::models::Activity;
-use pierre_providers::sciotte_provider::{SciotteGarminProviderFactory, SciotteProviderFactory};
+use pierre_providers::sciotte_provider::{
+    startup_reads, SciotteGarminProviderFactory, SciotteProviderFactory, SciotteReads,
+};
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -265,7 +266,8 @@ async fn a_read_the_imports_instance_did_not_answer_is_reimported_once() {
     let base = format!("http://{}", listener.local_addr().unwrap());
     let log = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, Arc::clone(&log));
-    let client = SciotteClient::new(&base, None).expect("a loopback client needs no audience"); // Safe: loopback URL
+    let client =
+        startup_reads(&[String::from(&base)], None).expect("a loopback client needs no audience"); // Safe: loopback URL
 
     a_list_that_missed_the_import_once_is_served(&client, &log).await;
     a_list_that_missed_the_import_twice_asks_for_a_relogin(&client, &log).await;
@@ -280,7 +282,7 @@ async fn a_read_the_imports_instance_did_not_answer_is_reimported_once() {
 /// The incident's shape: the read after the import finds no session, the
 /// session is imported again, and the second read serves the athlete's ride.
 async fn a_list_that_missed_the_import_once_is_served(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let provider = provider_holding(
@@ -311,7 +313,7 @@ async fn a_list_that_missed_the_import_once_is_served(
 /// A second `session_not_found` is final: it reaches the caller auth-required
 /// under the backend that owns the session, and nothing is sent a third time.
 async fn a_list_that_missed_the_import_twice_asks_for_a_relogin(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let provider = provider_holding(
@@ -342,7 +344,7 @@ async fn a_list_that_missed_the_import_twice_asks_for_a_relogin(
 /// `session_expired` is the provider refusing the cookies the service holds:
 /// importing the same cookies again would only scrape into the same refusal.
 async fn a_session_the_provider_refused_is_never_reimported(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let provider = provider_holding(
@@ -368,7 +370,7 @@ async fn a_session_the_provider_refused_is_never_reimported(
     );
 }
 
-async fn a_session_the_service_holds_is_read_once(client: &SciotteClient, log: &Mutex<Vec<Seen>>) {
+async fn a_session_the_service_holds_is_read_once(client: &SciotteReads, log: &Mutex<Vec<Seen>>) {
     let provider = provider_holding(
         &SciotteProviderFactory::new(Some(client.clone())),
         "sciotte",
@@ -392,7 +394,7 @@ async fn a_session_the_service_holds_is_read_once(client: &SciotteClient, log: &
 
 /// The service refusing the import is its gate rejecting the platform's
 /// request, which no second import changes and no read may follow.
-async fn a_refused_import_sends_no_read(client: &SciotteClient, log: &Mutex<Vec<Seen>>) {
+async fn a_refused_import_sends_no_read(client: &SciotteReads, log: &Mutex<Vec<Seen>>) {
     let provider = provider_holding(
         &SciotteProviderFactory::new(Some(client.clone())),
         "sciotte",
@@ -420,7 +422,7 @@ async fn a_refused_import_sends_no_read(client: &SciotteClient, log: &Mutex<Vec<
 /// Every read follows its import the same way, so the profile read is
 /// re-imported as the list is.
 async fn a_profile_that_missed_the_import_once_is_served(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let provider = provider_holding(
@@ -451,7 +453,7 @@ async fn a_profile_that_missed_the_import_once_is_served(
 /// `sciotte_garmin`, which flags the connection and mints a Garmin reconnect
 /// link, instead of failing every read as a transient sync (carnet#1148).
 async fn a_garmin_session_the_provider_refused_asks_for_a_garmin_reconnect(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let provider = provider_holding(
@@ -483,7 +485,7 @@ async fn a_garmin_session_the_provider_refused_asks_for_a_garmin_reconnect(
 /// session: it stays a failed sync the next refresh retries, never a
 /// reconnect the athlete is asked for, whatever words its message carries.
 async fn a_garmin_scrape_that_failed_is_never_a_reconnect(
-    client: &SciotteClient,
+    client: &SciotteReads,
     log: &Mutex<Vec<Seen>>,
 ) {
     let provider = provider_holding(

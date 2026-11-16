@@ -23,8 +23,9 @@
 use std::sync::Arc;
 
 use chrono::{Duration, Utc};
-use dravr_sciotte::client::{ClientError, SciotteClient, SessionRemoval};
+use dravr_sciotte::client::{ClientError, SessionRemoval};
 use dravr_sciotte::models::AuthSession;
+use futures_util::future::join_all;
 use pierre_auth::oauth2_client::OAuth2Config;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::{AppError, AppResult};
@@ -36,6 +37,7 @@ use pierre_database::repositories::PurgeReason;
 use pierre_database::RepositoryRegistry;
 use pierre_groups::delegation::DelegationStore;
 use pierre_providers::backend_resolver::{backend_pair_for, is_mirror_backend};
+use pierre_providers::sciotte_provider::SciotteReads;
 use pierre_providers::utils::{refresh_oauth_token, RefreshRequest};
 use pierre_runtime_context::DataContext;
 use secrecy::{ExposeSecret, SecretString};
@@ -396,23 +398,27 @@ pub async fn revoke_upstream_grant(
     revocation_outcome(result, user_id, tenant_id, backend)
 }
 
-/// Drop the scrape session a disconnected mirror backend's row names from the
-/// sciotte service's memory (`DELETE /auth/sessions/{id}`).
+/// Drop the scrape session a disconnected mirror backend's row names from
+/// every sciotte read service's memory (`DELETE /auth/sessions/{id}`).
 ///
-/// The platform is the session-of-record and deletes its row next, but the
+/// The platform is the session-of-record and deletes its row next, but a
 /// service keeps its own copy of the provider cookies until the session idles
-/// out, so a disconnect asks it to drop them now. Like the upstream
-/// revocation this is best-effort: a service that is unreachable or refuses
-/// never blocks the local deletion, and its idle lifetime drops the session
-/// then. A service that no longer holds the session is the state asked for.
+/// out, so a disconnect asks it to drop them now. Every read service is
+/// asked, not only the one the session names: a sign-in that ran on the first
+/// read service, or a change in their number, can leave a copy on another
+/// (carnet#1504). Every service is asked at once and answers on its own; one
+/// that fails never stops the others. Like the upstream revocation this is
+/// best-effort: a service that is unreachable or refuses never blocks the
+/// local deletion, and its idle lifetime drops the session then. A service
+/// that no longer holds the session is the state asked for.
 ///
 /// The session id is the key to those cookies on the service, so no log line
 /// here carries it. A backend that is not a scrape mirror, or a user holding
 /// no row for it, has nothing to drop, and neither has a server started with
-/// no service configured (`remote` is `None`).
+/// no service configured (`reads` is `None`).
 pub async fn drop_scrape_session(
     repos: &RepositoryRegistry,
-    remote: Option<&SciotteClient>,
+    reads: Option<&SciotteReads>,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
@@ -423,7 +429,7 @@ pub async fn drop_scrape_session(
     let Some(session_id) = stored_session_id(repos, user_id, tenant_id, backend).await else {
         return;
     };
-    let Some(remote) = remote else {
+    let Some(reads) = reads else {
         debug!(
             user_id = %user_id,
             backend = %backend,
@@ -431,8 +437,18 @@ pub async fn drop_scrape_session(
         );
         return;
     };
-    let removal = remote.delete_session(&session_id).await;
-    log_session_removal(&removal, user_id, tenant_id, backend);
+    // Concurrently: a read service scaled to zero cold-starts to answer, and
+    // the disconnect waits on the slowest one rather than on their sum.
+    let removals = join_all(
+        reads
+            .all()
+            .iter()
+            .map(|remote| remote.delete_session(&session_id)),
+    )
+    .await;
+    for (service, removal) in removals.iter().enumerate() {
+        log_session_removal(removal, service, user_id, tenant_id, backend);
+    }
 }
 
 /// Log what the sciotte service said about a session drop: a removal at INFO,
@@ -440,23 +456,27 @@ pub async fn drop_scrape_session(
 /// error, since the local deletion proceeds regardless.
 fn log_session_removal(
     removal: &Result<SessionRemoval, ClientError>,
+    service: usize,
     user_id: Uuid,
     tenant_id: TenantId,
     backend: &str,
 ) {
     match removal {
         Ok(SessionRemoval::Removed) => info!(
+            sciotte_service = service,
             user_id = %user_id,
             tenant_id = %tenant_id,
             backend = %backend,
             "Dropped the scrape session from the sciotte service"
         ),
         Ok(SessionRemoval::AlreadyGone) => debug!(
+            sciotte_service = service,
             user_id = %user_id,
             backend = %backend,
             "The sciotte service no longer held the scrape session"
         ),
         Err(e) => warn!(
+            sciotte_service = service,
             user_id = %user_id,
             backend = %backend,
             error = %e,
@@ -801,7 +821,7 @@ pub async fn withdraw_upstream(
         outcomes.push(revoke_for_disconnect(service, user_id, tenant_id, &backend).await);
         drop_scrape_session(
             service.data.repos(),
-            service.data.provider_registry().sciotte_client(),
+            service.data.provider_registry().sciotte_reads(),
             user_id,
             tenant_id,
             &backend,
@@ -852,7 +872,7 @@ pub async fn clear_backend(
     };
     drop_scrape_session(
         data.repos(),
-        data.provider_registry().sciotte_client(),
+        data.provider_registry().sciotte_reads(),
         user_id,
         tenant_id,
         backend,

@@ -110,7 +110,6 @@ workflows:
     '.github/workflows/deploy-satellite-cloud-run.yml':
         - 'actions/checkout@v6'
         - 'google-github-actions/auth@v3'
-        - 'google-github-actions/deploy-cloudrun@v3'
         - 'google-github-actions/setup-gcloud@v3'
     '.github/workflows/design-system.yml':
         - 'actions/checkout@v6'

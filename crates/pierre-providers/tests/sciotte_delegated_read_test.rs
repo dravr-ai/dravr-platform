@@ -34,7 +34,6 @@ use std::env;
 use std::sync::{Arc, Mutex};
 
 use chrono::{NaiveDate, TimeZone, Utc};
-use dravr_sciotte::client::SciotteClient;
 use dravr_sciotte::models::AuthSession;
 use dravr_sciotte::wire::{ATHLETE_NOT_ACCESSIBLE, ATHLETE_REQUIRED};
 use pierre_providers::backend_resolver;
@@ -46,7 +45,8 @@ use pierre_providers::errors::{AppError, ErrorCode};
 use pierre_providers::registry::{global_registry, ProviderRegistry};
 use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::sciotte_provider::{
-    SciotteGarminProviderFactory, SciotteProviderFactory, SciotteTrainingPeaksProviderFactory,
+    startup_reads, SciotteGarminProviderFactory, SciotteProviderFactory,
+    SciotteTrainingPeaksProviderFactory,
 };
 use serde_json::{json, Value};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -546,7 +546,7 @@ async fn a_dead_coach_session_is_not_the_readers_to_renew(registry: &ProviderReg
 
     // The account's own reader still gets the reconnect it can act on.
     let own_dead = own(
-        &SciotteTrainingPeaksProviderFactory::new(registry.sciotte_client().cloned()),
+        &SciotteTrainingPeaksProviderFactory::new(registry.sciotte_reads().cloned()),
         "sciotte_trainingpeaks",
         DEAD_COACH_SESSION,
     )
@@ -564,7 +564,7 @@ async fn a_dead_coach_session_is_not_the_readers_to_renew(registry: &ProviderReg
 
 async fn an_own_trainingpeaks_profile_is_fenced_and_strava_is_not(registry: &ProviderRegistry) {
     let trainingpeaks = own(
-        &SciotteTrainingPeaksProviderFactory::new(registry.sciotte_client().cloned()),
+        &SciotteTrainingPeaksProviderFactory::new(registry.sciotte_reads().cloned()),
         "sciotte_trainingpeaks",
         ATHLETE_SESSION,
     )
@@ -587,7 +587,7 @@ async fn an_own_trainingpeaks_profile_is_fenced_and_strava_is_not(registry: &Pro
     );
 
     let strava = own(
-        &SciotteProviderFactory::new(registry.sciotte_client().cloned()),
+        &SciotteProviderFactory::new(registry.sciotte_reads().cloned()),
         "sciotte",
         STRAVA_SESSION,
     )
@@ -619,9 +619,9 @@ async fn a_delegated_read_names_its_athlete_and_reaches_no_other() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     spawn_scraper_stub(listener, seen.clone());
 
-    let client = SciotteClient::new(&format!("http://{addr}"), None)
+    let client = startup_reads(&[String::from(&format!("http://{addr}"))], None)
         .expect("a loopback client needs no audience"); // Safe: loopback URL
-    let registry = ProviderRegistry::new().with_sciotte_client(Some(client));
+    let registry = ProviderRegistry::new().with_sciotte_reads(Some(client));
     env::remove_var(ENRICH_DETAILS_ENV);
 
     every_read_names_the_athlete_under_the_coach_session(&registry, &seen).await;

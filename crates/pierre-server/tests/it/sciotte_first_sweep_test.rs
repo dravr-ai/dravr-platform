@@ -318,11 +318,11 @@ async fn the_sweeps_fallback_to_the_grant_keeps_to_the_background_share() {
     context.fitness.provider_registry = Arc::new(
         ProviderRegistry::new()
             .with_endpoint_overrides(&w.resources.common.config.oauth.endpoints)
-            .with_sciotte_client(
+            .with_sciotte_reads(
                 w.resources
                     .fitness
                     .provider_registry
-                    .sciotte_client()
+                    .sciotte_reads()
                     .cloned(),
             )
             .with_request_limiter(Arc::new(limiter)),

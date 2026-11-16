@@ -40,15 +40,21 @@ impl ExternalServicesConfig {
     }
 }
 
-/// Where the dravr-sciotte scraper service is, read once at startup.
+/// Where the dravr-sciotte scraper services are, read once at startup.
 ///
-/// The server builds its one sciotte client from this; a `None` URL means no
+/// The server builds its sciotte clients from this; no read URL means no
 /// scraper service is configured.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SciotteServiceConfig {
-    /// The service's base URL (`DRAVR_SCIOTTE_REMOTE_URL`); `None` when the
-    /// variable is unset, empty or only slashes.
-    pub remote_url: Option<String>,
+    /// The read services' base URLs, in order (`DRAVR_SCIOTTE_REMOTE_URL`, a
+    /// comma-separated list); empty when the variable is unset or names none.
+    ///
+    /// Each read service runs one instance, and every call naming a session
+    /// goes to the one its id picks, so the session meets one cookie jar
+    /// (carnet#1504). The order is the services' identity: every API instance
+    /// reads the same list. One URL is the single read service of local
+    /// development and the test doubles.
+    pub read_urls: Vec<String>,
     /// The audience identity tokens to the service are addressed to
     /// (`DRAVR_SCIOTTE_AUDIENCE`); `None` when unset or empty. A loopback
     /// service needs none.
@@ -58,37 +64,48 @@ pub struct SciotteServiceConfig {
     ///
     /// A sign-in parks its browser in one instance's memory while the athlete
     /// fetches a code, so logins go to a service capped at one instance while
-    /// reads go to `remote_url` (carnet#1504). It takes the same audience.
-    /// `None` sends sign-ins to `remote_url`, the one-service shape local
-    /// development and the test doubles run; so does a URL naming `remote_url`
-    /// itself.
+    /// reads go to `read_urls` (carnet#1504). It takes the same audience.
+    /// `None` sends sign-ins to the first read service, the one-service shape
+    /// local development and the test doubles run; so does a URL naming a
+    /// read service itself.
     pub login_url: Option<String>,
 }
 
 impl SciotteServiceConfig {
-    /// Load the scraper service's address from the environment
+    /// Load the scraper services' addresses from the environment
     #[must_use]
     pub fn from_env() -> Self {
-        let remote_url = env::var("DRAVR_SCIOTTE_REMOTE_URL")
-            .ok()
-            .filter(|url| !url.trim_end_matches('/').is_empty());
-        // The read service named again is one service, not a sign-in service
+        let read_urls = env::var("DRAVR_SCIOTTE_REMOTE_URL")
+            .map(|list| read_urls_of(&list))
+            .unwrap_or_default();
+        // A read service named again is that service, not a sign-in service
         // of its own: sign-ins would otherwise drop the session the reads use.
         let login_url = env::var("DRAVR_SCIOTTE_LOGIN_URL")
             .ok()
             .filter(|url| !url.trim_end_matches('/').is_empty())
             .filter(|url| {
-                remote_url.as_deref().map(|read| read.trim_end_matches('/'))
-                    != Some(url.trim_end_matches('/'))
+                !read_urls
+                    .iter()
+                    .any(|read| read.trim_end_matches('/') == url.trim_end_matches('/'))
             });
         Self {
-            remote_url,
+            read_urls,
             audience: env::var("DRAVR_SCIOTTE_AUDIENCE")
                 .ok()
                 .filter(|audience| !audience.is_empty()),
             login_url,
         }
     }
+}
+
+/// The read service URLs `list` names, in order: its comma-separated
+/// entries, trimmed, without the empty or slash-only ones.
+fn read_urls_of(list: &str) -> Vec<String> {
+    list.split(',')
+        .map(str::trim)
+        .filter(|url| !url.trim_end_matches('/').is_empty())
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Strava API configuration for OAuth and data fetching
