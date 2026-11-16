@@ -3025,6 +3025,12 @@
     "live_read": {
       "overtaken": "✅ Ya llegaron los datos de tu pregunta anterior."
     },
+    "name_place": {
+      "activity_has_no_route": "Esta actividad no tiene una ruta registrada, así que no se puede asociar a un lugar.",
+      "activity_not_found": "No encuentro esa actividad entre las tuyas.",
+      "invalid_name": "El nombre de un lugar debe tener entre 1 y {0} caracteres.",
+      "place_not_found": "No encuentro ese lugar entre tus lugares."
+    },
     "capability": {
       "refusal": "No puedo hacerlo con las herramientas que tengo."
     },
@@ -3192,6 +3198,7 @@
         "hide_agent": "Ocultar el agente",
         "import_provider_thresholds": "Importar los umbrales del servicio",
         "install_agent_from_store": "Instalar el agente desde la tienda",
+        "name_place": "Nombrar un lugar",
         "prescribe_workout": "Prescribir el entrenamiento",
         "propose_athlete_link": "Proponer un vínculo con el atleta",
         "publish_training_plan": "Publicar el plan de entrenamiento",

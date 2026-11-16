@@ -3025,6 +3025,12 @@
     "live_read": {
       "overtaken": "✅ The data for your earlier question has landed."
     },
+    "name_place": {
+      "activity_has_no_route": "This activity has no recorded route, so it cannot be placed.",
+      "activity_not_found": "I can't find that activity among yours.",
+      "invalid_name": "A place name must be 1 to {0} characters.",
+      "place_not_found": "I can't find that place among your places."
+    },
     "capability": {
       "refusal": "I can't do that with the tools I have."
     },
@@ -3192,6 +3198,7 @@
         "hide_agent": "Hide agent",
         "import_provider_thresholds": "Import provider thresholds",
         "install_agent_from_store": "Install agent from store",
+        "name_place": "Name place",
         "prescribe_workout": "Prescribe workout",
         "propose_athlete_link": "Propose athlete link",
         "publish_training_plan": "Publish training plan",

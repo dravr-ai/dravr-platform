@@ -3025,6 +3025,12 @@
     "live_read": {
       "overtaken": "✅ Os dados da tua pergunta anterior já chegaram."
     },
+    "name_place": {
+      "activity_has_no_route": "Esta atividade não tem um percurso registado, por isso não pode ser associada a um local.",
+      "activity_not_found": "Não encontro essa atividade entre as tuas.",
+      "invalid_name": "O nome de um local tem de ter entre 1 e {0} caracteres.",
+      "place_not_found": "Não encontro esse local entre os teus locais."
+    },
     "capability": {
       "refusal": "Não consigo fazer isso com as ferramentas que tenho."
     },
@@ -3192,6 +3198,7 @@
         "hide_agent": "Ocultar o agente",
         "import_provider_thresholds": "Importar os limiares do serviço",
         "install_agent_from_store": "Instalar o agente a partir da loja",
+        "name_place": "Dar nome a um local",
         "prescribe_workout": "Prescrever o treino",
         "propose_athlete_link": "Propor uma ligação com o atleta",
         "publish_training_plan": "Publicar o plano de treino",

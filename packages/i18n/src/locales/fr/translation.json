@@ -3025,6 +3025,12 @@
     "live_read": {
       "overtaken": "✅ Les données de ta question précédente sont arrivées."
     },
+    "name_place": {
+      "activity_has_no_route": "Cette activité n'a pas de trajet enregistré, elle ne peut donc pas être associée à un lieu.",
+      "activity_not_found": "Je ne trouve pas cette activité parmi les tiennes.",
+      "invalid_name": "Le nom d'un lieu doit compter de 1 à {0} caractères.",
+      "place_not_found": "Je ne trouve pas ce lieu parmi tes lieux."
+    },
     "capability": {
       "refusal": "Je ne peux pas faire ça avec les outils dont je dispose."
     },
@@ -3192,6 +3198,7 @@
         "hide_agent": "Masquer l'agent",
         "import_provider_thresholds": "Importer les seuils du service",
         "install_agent_from_store": "Installer l'agent depuis la boutique",
+        "name_place": "Nommer un lieu",
         "prescribe_workout": "Prescrire la séance",
         "propose_athlete_link": "Proposer un lien avec l'athlète",
         "publish_training_plan": "Publier le plan d'entraînement",

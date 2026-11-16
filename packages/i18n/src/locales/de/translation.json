@@ -3025,6 +3025,12 @@
     "live_read": {
       "overtaken": "✅ Die Daten zu deiner früheren Frage sind da."
     },
+    "name_place": {
+      "activity_has_no_route": "Diese Aktivität hat keine aufgezeichnete Strecke und kann daher keinem Ort zugeordnet werden.",
+      "activity_not_found": "Ich finde diese Aktivität nicht unter deinen.",
+      "invalid_name": "Ein Ortsname muss 1 bis {0} Zeichen lang sein.",
+      "place_not_found": "Ich finde diesen Ort nicht unter deinen Orten."
+    },
     "capability": {
       "refusal": "Das kann ich mit meinen Werkzeugen nicht tun."
     },
@@ -3192,6 +3198,7 @@
         "hide_agent": "Agent ausblenden",
         "import_provider_thresholds": "Schwellenwerte des Dienstes importieren",
         "install_agent_from_store": "Agent aus dem Store installieren",
+        "name_place": "Ort benennen",
         "prescribe_workout": "Einheit vorgeben",
         "propose_athlete_link": "Verbindung mit dem Athleten vorschlagen",
         "publish_training_plan": "Trainingsplan veröffentlichen",
