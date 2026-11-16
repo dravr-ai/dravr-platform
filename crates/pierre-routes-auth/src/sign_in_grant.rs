@@ -1,5 +1,5 @@
 // ABOUTME: What a completed account sign-in does to its pair's OAuth grant: replaces a dead one
-// ABOUTME: A sign-in ends at `connected`; Garmin's grant is asked for only when a write needs it
+// ABOUTME: A sign-in ends at `connected`: it never sends the athlete on to the provider's own authorization
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,11 +9,10 @@
 //! A sign-in over a dead grant deletes the grant's rows and keeps its data
 //! ([`replace_dead_grant`], JF's directive 3).
 //!
-//! A completed sign-in answers `connected` and nothing more. It no longer
-//! sends the athlete on to Garmin's own authorization: that redirect left a
-//! signed-in athlete on Garmin's sign-in page, which read as a failed
-//! connect. Garmin's grant, which only workout push and calendar writes
-//! need, is asked for when such a write is refused for it
+//! A completed sign-in answers `connected` and nothing more: the connect ends
+//! there, and no client is sent on to the provider's own authorization.
+//! Garmin's grant, which only workout push and calendar writes need, is asked
+//! for when such a write is refused for it
 //! (`backend_resolver::grant_owed_refusal`), with its authorization link.
 
 use axum::response::{IntoResponse, Response};

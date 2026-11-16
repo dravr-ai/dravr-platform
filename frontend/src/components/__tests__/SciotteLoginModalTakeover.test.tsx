@@ -37,7 +37,7 @@ const PROMPT = () => i18n.t('shell.sciotteTakeoverPrompt', { provider: 'Garmin' 
 
 interface Handlers {
   onClose: () => void;
-  onConnected: (followOn?: string) => void;
+  onConnected: () => void;
   onFallBackToOAuth?: () => void;
 }
 
@@ -93,12 +93,13 @@ describe('SciotteLoginModal — the takeover of a provider robot check', () => {
     expect(sciotteCancel).not.toHaveBeenCalled();
   });
 
-  it('hands on the grant a connected takeover goes on to (carnet#1494)', async () => {
+  it('ends the connect on a connected takeover, handing on no grant to authorize', async () => {
     const { socket, handlers } = await intoTakeover();
+    // A connected answer that still names Garmin's grant.
     const body = { status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } };
     act(() => socket.event({ type: 'outcome', status_code: 200, body }));
     expect((await screen.findAllByText(i18n.t('shell.sciotteConnected'))).length).toBeGreaterThan(0);
-    expect(handlers.onConnected).toHaveBeenCalledWith('garmin');
+    expect(vi.mocked(handlers.onConnected).mock.calls).toEqual([[]]);
   });
 
   it('shows wrong credentials as the login does, for another try', async () => {

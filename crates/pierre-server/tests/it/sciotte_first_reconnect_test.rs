@@ -20,12 +20,10 @@
 // withdrawn is told once to sign in again.
 //
 // Garmin's grant writes what its session cannot (workout and calendar push),
-// so Garmin signs in first and authorizes its grant right after (JF's
-// directive 8): the sign-in's answer names that authorization while the
-// grant is owed, the hosted sign-in's carries its URL, the picker keeps a
-// connected card with an owed grant pickable, an OAuth start of a dead grant
-// beside a live session authorizes it, and a write the grant alone makes is
-// refused with its authorization link.
+// yet a Garmin sign-in ends at `connected`: no sign-in answer, hosted page
+// or picker card sends the athlete on to Garmin's authorization. An OAuth
+// start of a dead grant beside a live session authorizes it, and a write the
+// grant alone makes is refused with its authorization link (JF's directive 8).
 #![cfg(all(feature = "provider-garmin", feature = "health-sync"))]
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -654,19 +652,36 @@ async fn the_hosted_picker_offers_no_garmin_grant_on_a_connected_card() {
     hold_grant(&resources, user_id, tenant).await;
     kill_grant(&resources, user_id, tenant).await;
     let page = picker(user_id, tenant).await.text();
+    let card = picker_garmin_card(&page);
+    assert_eq!(card["connected"], true, "{card}");
     assert!(
-        !page.contains("oauth_owed"),
-        "bug: the connected Garmin card offers Garmin's authorization"
+        card.get("oauth_owed").is_none() && !page.contains("oauth_owed"),
+        "bug: the connected Garmin card offers Garmin's authorization: {card}"
     );
 
     let (live, _user, live_tenant, _token) = athlete(&resources).await;
     hold_session(&resources, live, live_tenant, LIVE_SESSION).await;
     hold_grant(&resources, live, live_tenant).await;
     let page = picker(live, live_tenant).await.text();
+    let card = picker_garmin_card(&page);
+    assert_eq!(card["connected"], true, "{card}");
     assert!(
-        !page.contains(r#""oauth_owed":"#),
-        "bug: a live grant is offered again on the picker"
+        card.get("oauth_owed").is_none(),
+        "bug: a live grant is offered again on the picker: {card}"
     );
+}
+
+/// The Garmin card the hosted picker page embeds, as the page's script reads it.
+fn picker_garmin_card(page: &str) -> Value {
+    let start = page.find("providers: ").expect("the page embeds its cards") + "providers: ".len();
+    let json = &page[start..];
+    let end = json.find(",\n").expect("the card list ends its line");
+    let cards: Vec<Value> =
+        serde_json::from_str(&json[..end]).expect("the embedded cards are JSON");
+    cards
+        .into_iter()
+        .find(|card| card["provider"] == oauth_providers::SCIOTTE_GARMIN)
+        .expect("the picker offers the Garmin card")
 }
 
 /// A workout write the Garmin grant alone makes, for an athlete whose grant
@@ -755,7 +770,7 @@ async fn an_unnamed_prescription_for_a_dead_garmin_grant_gets_its_authorization_
 /// A workout prescribed for an athlete whose only Garmin connection is a dead
 /// grant, with no session, is refused, and the refusal is never Garmin's bare
 /// authorization: an athlete with no session reconnects through the hosted
-/// sign-in first, which goes on to the grant (JF's directives 1 and 8).
+/// sign-in first (JF's directives 1 and 8).
 #[tokio::test]
 async fn an_unnamed_prescription_for_a_dead_garmin_grant_alone_is_refused() {
     let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;

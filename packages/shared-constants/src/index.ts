@@ -220,7 +220,6 @@ export {
   connectPlan,
   credentialFallbackOnRefusal,
   oauthFallbackTarget,
-  oauthFollowOn,
   refusalReloadsCards,
   refusalReturnsToCard,
   signInFallsBackToOAuth,

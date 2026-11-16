@@ -520,15 +520,6 @@ export type SciotteLoginResponse =
       provider: string;
       /** Set when a recent stored session answered without a new login */
       short_circuit?: boolean;
-      /**
-       * The provider's own authorization this sign-in goes on to, while the
-       * grant that writes what the session cannot (Garmin's, which pushes
-       * workouts) is still owed and a seat is there for it: sign-in first,
-       * then the grant. `authorization_url` only for the hosted sign-in a
-       * provider's own link opens, and for a hosted sign-in a takeover
-       * concluded on `/sign-in-check`. Absent or `null` otherwise.
-       */
-      oauth_follow_on?: { provider: string; authorization_url?: string } | null;
     }
   | {
       status: 'two_factor_choice';
@@ -630,12 +621,11 @@ export type SciotteTakeoverEvent =
  * in a WebView (`window.ReactNativeWebView.postMessage`, as JSON): the
  * sign-in connected, or the takeover is over without connecting. `closed`
  * carries the step answer the takeover ended with, when one arrived, so the
- * app words it as it words the same answer to an HTTP step. `connected`
- * carries `follow_on`, the provider whose own authorization the sign-in goes
- * on to (the answer's `oauth_follow_on`, carnet#1494), when it has one.
+ * app words it as it words the same answer to an HTTP step. `connected` is
+ * the end of the connect: no authorization follows a sign-in.
  */
 export type SciotteTakeoverBridgeMessage =
-  | { type: 'connected'; follow_on?: string }
+  | { type: 'connected' }
   | { type: 'closed'; outcome?: SciotteTakeoverOutcome };
 
 /**

@@ -681,12 +681,9 @@ export function ConnectionsScreen() {
       <SciotteLoginModal
         visible={signIn.target !== null}
         onClose={signIn.close}
-        onConnected={(followOn) => {
+        onConnected={() => {
           loadConnectionStatus();
           signIn.close();
-          // Garmin signs in first and authorizes its grant, which pushes
-          // workouts, right after (carnet#1494).
-          if (followOn) void handleConnect(followOn, cardForSlug(followOn, providers)?.display_name ?? followOn);
         }}
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}

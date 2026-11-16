@@ -35,8 +35,7 @@ const SESSION_REUSE_WINDOW: ChronoDuration = ChronoDuration::minutes(2);
 pub(crate) enum StoredSessionUse {
     /// The session was written within [`SESSION_REUSE_WINDOW`] and is not
     /// observed dead (see [`SessionHealth`]): the login is answered from it
-    /// (`crate::sign_in_grant::connected_response`, `short_circuit`), with
-    /// the grant authorization it still goes on to.
+    /// (`crate::sign_in_grant::connected_response`, `short_circuit`).
     Reused,
     /// The login signs in with the credentials submitted.
     SignIn {

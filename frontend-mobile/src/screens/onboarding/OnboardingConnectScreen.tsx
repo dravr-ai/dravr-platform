@@ -621,12 +621,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
       <SciotteLoginModal
         visible={signIn.target !== null}
         onClose={signIn.close}
-        onConnected={(followOn) => {
+        onConnected={() => {
           signIn.close();
           void finalizeConnection();
-          // Garmin signs in first and authorizes its grant, which pushes
-          // workouts, right after (carnet#1494).
-          if (followOn) void launchOAuth(followOn, cardForSlug(followOn, providers)?.display_name ?? followOn);
         }}
         target={signIn.target ?? 'strava'}
         consentRequired={signIn.consentRequired}

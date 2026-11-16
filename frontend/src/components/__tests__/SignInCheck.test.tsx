@@ -49,28 +49,29 @@ describe('SignInCheck', () => {
     expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'connected' }));
   });
 
-  it('tells the app which grant a connected sign-in goes on to', async () => {
+  // A connected answer that still names Garmin's grant: the page ends the
+  // connect all the same.
+  const connectedNamingAGrant = {
+    status: 'connected',
+    provider: 'sciotte_garmin',
+    oauth_follow_on: { provider: 'garmin', authorization_url: 'https://connect.garmin.test/oauth2Confirm?state=s' },
+  };
+
+  it('tells the app only that it connected, never a grant to authorize', async () => {
     const socket = await running();
-    const body = { status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } };
-    act(() => socket.event({ type: 'outcome', status_code: 200, body }));
+    act(() => socket.event({ type: 'outcome', status_code: 200, body: connectedNamingAGrant }));
     await screen.findByTestId('sign-in-check-connected');
-    expect(postMessage).toHaveBeenCalledWith(JSON.stringify({ type: 'connected', follow_on: 'garmin' }));
+    expect(postMessage.mock.calls).toEqual([[JSON.stringify({ type: 'connected' })]]);
   });
 
-  it('opens the grant authorization a hosted sign-in goes on to, with no app to tell', async () => {
+  it('stays on its success with no app to tell, never opening an authorization', async () => {
     delete (window as Window & { ReactNativeWebView?: unknown }).ReactNativeWebView;
     const assign = vi.fn();
     vi.stubGlobal('location', { ...window.location, assign });
     const socket = await running();
-    const authorization_url = 'https://connect.garmin.test/oauth2Confirm?state=s';
-    const body = {
-      status: 'connected',
-      provider: 'sciotte_garmin',
-      oauth_follow_on: { provider: 'garmin', authorization_url },
-    };
-    act(() => socket.event({ type: 'outcome', status_code: 200, body }));
-    await screen.findByTestId('sign-in-check-connected');
-    expect(assign).toHaveBeenCalledWith(authorization_url);
+    act(() => socket.event({ type: 'outcome', status_code: 200, body: connectedNamingAGrant }));
+    expect(await screen.findByTestId('sign-in-check-connected')).toHaveTextContent(i18n.t('shell.sciotteConnected'));
+    expect(assign).not.toHaveBeenCalled();
     expect(postMessage).not.toHaveBeenCalled();
   });
 

@@ -30,7 +30,6 @@ import {
   SCIOTTE_LOGIN_PRESETS,
   SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   loginIdentifierField,
-  oauthFollowOn,
   providerGlyphInk,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
@@ -60,12 +59,8 @@ type LoginMethod = 'email' | 'google' | 'apple';
 interface SciotteLoginModalProps {
   isOpen: boolean;
   onClose: () => void;
-  /**
-   * The sign-in stored its session. `followOn` names the provider's own
-   * authorization the sign-in goes on to (Garmin's grant, which pushes
-   * workouts; carnet#1494), which the caller starts.
-   */
-  onConnected: (followOn?: string) => void;
+  /** The sign-in stored its session: the connect is done, and no authorization follows it. */
+  onConnected: () => void;
   /** Target platform: "strava", "garmin", "trainingpeaks" or "coros" */
   target?: SciotteTarget;
   /**
@@ -208,7 +203,7 @@ export default function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected(oauthFollowOn(data) ?? undefined);
+        onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'two_factor_choice') {
         setTwoFactorOptions(data.options || []);
@@ -352,7 +347,7 @@ export default function SciotteLoginModal({
         if (data.status === 'connected') {
           setPhase('success');
           setStatus(t('app.connectedBang'));
-          onConnected(oauthFollowOn(data) ?? undefined);
+          onConnected();
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');
@@ -457,7 +452,7 @@ export default function SciotteLoginModal({
         if (data.status === 'connected') {
           setPhase('success');
           setStatus(t('app.connectedBang'));
-          onConnected(oauthFollowOn(data) ?? undefined);
+          onConnected();
           setTimeout(onClose, 1500);
         } else if (data.status === 'otp_required') {
           setPhase('otp');

@@ -105,9 +105,8 @@ pub fn grant_writes_beside_mirror(
 /// (held and not revoked). `None` when the provider has no such grant, the
 /// athlete's grant is live, or no session is held: an athlete with no
 /// session connects by the hosted sign-in first, so nothing points them at
-/// the grant alone. A
-/// store that cannot be read reads the grant as live: nothing is asked on a
-/// guess.
+/// the grant alone. A store that cannot be read reads the grant as live:
+/// nothing is asked on a guess.
 pub async fn grant_owed(
     repos: &RepositoryRegistry,
     registry: &ProviderRegistry,

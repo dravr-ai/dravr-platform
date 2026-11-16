@@ -39,7 +39,6 @@ import {
   SCIOTTE_LOGIN_PRESETS,
   SCIOTTE_NUMBER_MATCH_REPOLL_MS,
   loginIdentifierField,
-  oauthFollowOn,
   signInFallsBackToOAuth,
 } from '@pierre/shared-constants';
 import { useTranslation } from '@pierre/i18n';
@@ -74,12 +73,8 @@ type LoginMethod = 'email' | 'google' | 'apple';
 interface SciotteLoginModalProps {
   visible: boolean;
   onClose: () => void;
-  /**
-   * The sign-in stored its session. `followOn` names the provider's own
-   * authorization the sign-in goes on to (Garmin's grant, which pushes
-   * workouts; carnet#1494), which the caller starts.
-   */
-  onConnected: (followOn?: string) => void;
+  /** The sign-in stored its session: the connect is done, and no authorization follows it. */
+  onConnected: () => void;
   target: SciotteTarget;
   /**
    * The account has not yet accepted this provider's exposure notice (the
@@ -379,7 +374,7 @@ export function SciotteLoginModal({
     if (data.status === 'connected') {
       setPhase('success');
       setStatus(t('app.connectedBang'));
-      onConnected(oauthFollowOn(data) ?? undefined);
+      onConnected();
       setTimeout(onClose, 1500);
     } else if (data.status === 'two_factor_choice') {
       setTwoFactorOptions(data.options || []);
@@ -453,8 +448,7 @@ export function SciotteLoginModal({
   const handleTakeoverMessage = useCallback((message: SciotteTakeoverBridgeMessage) => {
     setTakeoverUrl(null);
     if (message.type === 'connected') {
-      const followOn = message.follow_on ? { provider: message.follow_on } : null;
-      applyLoginAnswer({ status: 'connected', provider: preset.backend, oauth_follow_on: followOn });
+      applyLoginAnswer({ status: 'connected', provider: preset.backend });
       return;
     }
     const result = message.outcome ? takeoverResult(message.outcome) : { kind: 'ended' as const };
@@ -496,7 +490,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected(oauthFollowOn(data) ?? undefined);
+        onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');
@@ -554,7 +548,7 @@ export function SciotteLoginModal({
       if (data.status === 'connected') {
         setPhase('success');
         setStatus(t('app.connectedBang'));
-        onConnected(oauthFollowOn(data) ?? undefined);
+        onConnected();
         setTimeout(onClose, 1500);
       } else if (data.status === 'otp_required') {
         setPhase('otp');

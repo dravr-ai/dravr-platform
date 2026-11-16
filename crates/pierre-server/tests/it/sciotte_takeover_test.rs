@@ -267,8 +267,8 @@ impl Athlete {
         Self::on(resources).await
     }
 
-    /// An athlete of a platform whose Garmin OAuth is served too, so a
-    /// sign-in goes on to the grant it owes (carnet#1494).
+    /// An athlete of a platform whose Garmin OAuth is served too: a sign-in
+    /// still ends at `connected`, never at Garmin's authorization.
     async fn with_garmin_oauth() -> Self {
         Self::on(server_with_garmin_oauth(&scraper().1).await).await
     }
