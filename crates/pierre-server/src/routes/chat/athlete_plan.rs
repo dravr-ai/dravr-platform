@@ -62,9 +62,9 @@ fn refusal_error(refused: CoachedPlanRefusal) -> AppError {
 /// live plan projected on their today, in the coach's locale (or
 /// `?locale=`), with `live: null` when they have none.
 ///
-/// A refusal carries `details.reason`: 403 `not_group_coach`, 404
-/// `not_a_member`, 403 `coach_sharing_revoked`, 409 `several_tenants` or
-/// `no_tenant`, 403 `plans_disabled`.
+/// A refusal carries `details.reason`: 403 `no_coach_access`, 403
+/// `not_group_coach`, 404 `not_a_member`, 403 `coach_sharing_revoked`, 409
+/// `several_tenants` or `no_tenant`, 403 `plans_disabled`.
 pub(super) async fn get_athlete_plan(
     State(resources): State<Arc<ServerContext>>,
     auth: AuthenticatedUser,

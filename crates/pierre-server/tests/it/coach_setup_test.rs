@@ -22,10 +22,11 @@ use anyhow::Result;
 use common::{create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::models::{ConnectionType, Tenant, TenantId, User, UserStatus};
+use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::coach_access::CoachAccessRoutes;
 use pierre_test_support::delegation::{
-    add_group_member, create_coached_group, create_coachless_group, create_group_agent,
+    add_group_member, create_coachless_group, create_group_agent,
 };
 use serde_json::Value;
 use serial_test::serial;
@@ -79,6 +80,27 @@ async fn session(resources: &Arc<ServerContext>, email: &str, name: &str) -> Res
         user_id,
         tenant_id,
     })
+}
+
+/// An active group `owner` runs with `coach` attached as its coach, and its
+/// id. Nothing is granted: the checklist reads the attachment alone, with or
+/// without the coach access the `seat` row reports.
+async fn attached_group(
+    repos: &RepositoryRegistry,
+    owner: &Session,
+    agent: &str,
+    name: &str,
+    coach: Uuid,
+) -> Result<Uuid> {
+    let group = create_coachless_group(repos, owner.user_id, owner.tenant_id, agent, name).await?;
+    assert!(
+        repos
+            .groups
+            .set_group_coach_user(&group.to_string(), Some(coach), owner.tenant_id)
+            .await?,
+        "fixture: the coach is attached to the group"
+    );
+    Ok(group)
 }
 
 /// The caller's checklist.
@@ -180,15 +202,12 @@ async fn a_group_another_coach_runs_is_not_the_owners_to_coach() -> Result<()> {
     let owner = session(&resources, "owner@example.com", "Marc").await?;
     let other = session(&resources, "other-coach@example.com", "Julie").await?;
     let agent = create_group_agent(repos, owner.user_id, owner.tenant_id).await?;
-    let group = create_coached_group(
-        repos,
-        owner.user_id,
-        owner.tenant_id,
-        &agent,
-        "Coached elsewhere",
-        other.user_id,
-    )
-    .await?;
+    let group = attached_group(repos, &owner, &agent, "Coached elsewhere", other.user_id).await?;
+    let attached = repos.users.get_global(other.user_id).await?;
+    assert!(
+        attached.is_some_and(|user| !user.holds_coach_access()),
+        "premise: the checklist reads the attachment of a coach who holds no coach access"
+    );
     let athlete = session(&resources, "member@example.com", "Félix").await?;
     add_group_member(repos, group, athlete.user_id, athlete.tenant_id).await?;
 
@@ -278,15 +297,7 @@ async fn coach_access_ticks_the_seat_and_keeps_the_groups_it_attached() -> Resul
     let repos = &resources.common.repos;
     let coach = session(&resources, "granted-coach@example.com", "Marc").await?;
     let agent = create_group_agent(repos, coach.user_id, coach.tenant_id).await?;
-    let group = create_coached_group(
-        repos,
-        coach.user_id,
-        coach.tenant_id,
-        &agent,
-        "Léa · Marathon",
-        coach.user_id,
-    )
-    .await?;
+    let group = attached_group(repos, &coach, &agent, "Léa · Marathon", coach.user_id).await?;
     repos.users.set_manages_roster(coach.user_id, true).await?;
 
     let body = checklist(&resources, &coach.auth).await;

@@ -14,8 +14,10 @@
 //! published one, where the plan was pushed, and the agent's group replies
 //! this week.
 //!
-//! - **Who may call it.** A user with `manages_roster` or platform admin who
-//!   coaches at least one active group; anyone else gets 403.
+//! - **Who may call it.** A user who holds coach access (`manages_roster`,
+//!   or platform admin) and coaches at least one active group; anyone else
+//!   gets 403, with `details.reason = "no_coach_access"` for a caller still
+//!   attached to a group as its coach whose coach access is off.
 //! - **Consent.** Only a `shared` row carries anything beyond the athlete's
 //!   name, groups and status: no number, nothing inferred, for the others.
 //!   A shared row carries nothing from a provider whose AI use the athlete
@@ -55,7 +57,7 @@ use futures_util::stream::{self, StreamExt, TryStreamExt};
 use pierre_config::coach_home::CoachHomeConfig;
 use pierre_core::civil_time;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
-use pierre_core::models::groups::MemberFitnessSnapshot;
+use pierre_core::models::groups::{CoachingGroup, MemberFitnessSnapshot};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::training_plans::DraftOwner;
 use pierre_database::repositories::CoachReadSurface;
@@ -73,7 +75,7 @@ use pierre_services::coach_plan_draft::{draft_outline, CoachDraftTarget};
 use pierre_services::coach_replies::{self, CoachReplyView, ReplyPageQuery};
 use pierre_services::coach_roster::{
     gather_roster, order_roster, roster_access, OrderedMember, RosterAccess, RosterAthleteStatus,
-    RosterGroupRef, RosterGroupSummary, ROSTER_LOOKUP_CONCURRENCY,
+    RosterGroupRef, RosterGroupSummary, NO_COACH_ACCESS, ROSTER_LOOKUP_CONCURRENCY,
 };
 use pierre_services::coached_athlete::CoachedAthleteAccess;
 use pierre_tool_runtime::coach_roster::{
@@ -81,6 +83,7 @@ use pierre_tool_runtime::coach_roster::{
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use tracing::info;
 use uuid::Uuid;
 
@@ -274,13 +277,41 @@ impl CoachRosterRoutes {
     }
 }
 
-/// The refusal for a caller who may not read a roster, shared by every
-/// coach-roster route.
-pub(crate) fn not_a_coach() -> AppError {
+/// The refusal for a caller attached to no active group as its coach.
+fn not_a_coach() -> AppError {
     AppError::new(
         ErrorCode::PermissionDenied,
         "Only a coach attached to a group can read a roster",
     )
+}
+
+/// The refusal for a caller still attached to a group as its coach whose
+/// coach access is off, with the `details.reason` a client branches on.
+fn no_coach_access() -> AppError {
+    let mut error = AppError::new(
+        ErrorCode::PermissionDenied,
+        "Your coach access is off, so you cannot read a roster",
+    );
+    error.details = Some(Box::new(json!({ "reason": NO_COACH_ACCESS })));
+    error
+}
+
+/// The active groups `coach` reads a roster over, shared by every
+/// coach-roster route.
+///
+/// # Errors
+///
+/// 403 when the caller may not read a roster ([`roster_access`]); the
+/// repository error otherwise.
+pub(crate) async fn roster_groups(
+    repos: &RepositoryRegistry,
+    coach: Uuid,
+) -> AppResult<Vec<CoachingGroup>> {
+    match roster_access(repos, coach).await? {
+        RosterAccess::Granted(groups) => Ok(groups),
+        RosterAccess::NoCoachAccess(_) => Err(no_coach_access()),
+        RosterAccess::NotACoach => Err(not_a_coach()),
+    }
 }
 
 /// `GET /api/coach/roster` — the caller's athletes, one page.
@@ -295,9 +326,7 @@ pub async fn handle_roster(
 ) -> Result<Response, AppError> {
     let coach = auth.into_inner().user_id;
     let repos = &resources.common.repos;
-    let RosterAccess::Granted(groups) = roster_access(repos, coach).await? else {
-        return Err(not_a_coach());
-    };
+    let groups = roster_groups(repos, coach).await?;
 
     let gathered = gather_roster(repos, coach, &groups).await?;
     let scope = RosterScope {

@@ -14,10 +14,11 @@
 //!
 //! The coaching gates run again on every turn
 //! ([`coached_athlete_access`]): a consent withdrawn, a member who left, a
-//! coach detached or an athlete now in two tenants ends the coach's access on
-//! the next turn. Refused, the prompt carries one line saying so and why, and
-//! nothing of the athlete — not even the thread's own earlier turns, whose
-//! tool results read them ([`resolve_withholding_history`], carnet#1168).
+//! coach detached or whose coach access is off, or an athlete now in two
+//! tenants ends the coach's access on the next turn. Refused, the prompt
+//! carries one line saying so and why, and nothing of the athlete — not even
+//! the thread's own earlier turns, whose tool results read them
+//! ([`resolve_withholding_history`], carnet#1168).
 //! Granted, it carries the coach's view of them:
 //!
 //! - who the athlete is, that the thread is the coach's private workspace for
@@ -90,10 +91,15 @@ pub(crate) enum SubjectRefusal {
 }
 
 impl SubjectRefusal {
-    /// The one line a refused turn carries. The two gates that fail before
-    /// the athlete is shown to be the coach's name nobody.
+    /// The one line a refused turn carries. The gates that fail before the
+    /// athlete is shown to be the coach's name nobody.
     fn line(&self) -> String {
         let why = match self {
+            Self::Gate(CoachedAthleteRefusal::NoCoachAccess) => {
+                "the person writing is the group's coach of record, but their coach access is \
+                 off, so the athlete's data cannot be read"
+                    .to_owned()
+            }
             Self::Gate(CoachedAthleteRefusal::NotGroupCoach) => {
                 "the person writing no longer coaches the group they coached this athlete in"
                     .to_owned()
@@ -640,6 +646,7 @@ mod tests {
     #[test]
     fn a_refusal_before_the_membership_gate_names_nobody() {
         for refusal in [
+            SubjectRefusal::Gate(CoachedAthleteRefusal::NoCoachAccess),
             SubjectRefusal::Gate(CoachedAthleteRefusal::NotGroupCoach),
             SubjectRefusal::Gate(CoachedAthleteRefusal::NotAMember),
             SubjectRefusal::Unconfirmed,

@@ -47,7 +47,7 @@ use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_services::athlete_state::AthleteState;
 use pierre_services::plan_card::load_plan_card;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
@@ -131,6 +131,7 @@ async fn coached_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     // Redeeming a coach invite attaches the coach through this write.
     assert!(repos
         .groups

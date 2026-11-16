@@ -37,7 +37,7 @@ use pierre_core::models::TenantId;
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::group_member_plan::GetGroupMemberPlanStatusTool;
 use pierre_tool_runtime::implementations::training_plans::SaveTrainingPlanTool;
@@ -147,6 +147,7 @@ async fn create_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     assert!(
         repos
             .groups
@@ -453,6 +454,140 @@ async fn the_view_refuses_each_gate_by_its_reason() {
         reason(&body),
         "coach_sharing_revoked",
         "the athlete stopped sharing with the coach"
+    );
+}
+
+/// A coach still attached whose coach access was withdrawn reads no plan
+/// (carnet#1511): the view and the room's plan status refuse by the same
+/// reason before any name is looked up, `/plan <name>` answers as it does
+/// anyone who coaches no group, and the view reads again once access is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_reads_no_athletes_plan() {
+    let fx = Fixture::new().await;
+    let room = fx.room(&fx.group).await;
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+
+    let (status, body) = fx.view(fx.athlete.id, &fx.coach.auth).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(reason(&body), "no_coach_access", "{body}");
+
+    for conversation in [Some(room.as_str()), None] {
+        // "Zed" matches no member and "o" several: neither is looked up.
+        for member in ["Mira", "Zed", "o"] {
+            let refused = call(
+                &fx.res,
+                &fx.coach,
+                &GetGroupMemberPlanStatusTool,
+                conversation,
+                json!({ "member": member }),
+            )
+            .await;
+            assert_eq!(refused["reason"], "no_coach_access", "{member}: {refused}");
+            assert!(
+                refused["error"]
+                    .as_str()
+                    .is_some_and(|error| error.starts_with("Your coach access is off")),
+                "{member}: {refused}"
+            );
+            for absent in [ATHLETE_NAME, "Bruno Bare", GOAL_RACE] {
+                assert!(
+                    !refused.to_string().contains(absent),
+                    "bug: {absent:?} reached a caller whose coach access is off: {refused}"
+                );
+            }
+        }
+    }
+
+    let own = fx.plan_command(&fx.coach, &["Mira"]).await;
+    assert_eq!(
+        own,
+        fx.plan_command(&fx.outsider, &["Mira"]).await,
+        "the name is not read: the caller's own plan answers, as for anyone who coaches no group"
+    );
+    for absent in [ATHLETE_NAME, GOAL_RACE, "📋"] {
+        assert!(!own.contains(absent), "{absent:?} in {own}");
+    }
+
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, true)
+        .await
+        .unwrap();
+    let (status, body) = fx.view(fx.athlete.id, &fx.coach.auth).await;
+    assert_eq!(status, StatusCode::OK, "access is back: {body}");
+    let reply = fx.plan_command(&fx.coach, &["Mira"]).await;
+    assert!(reply.contains(GOAL_RACE), "access is back: {reply}");
+}
+
+/// carnet#1511: the room's plan status answers that coach access is off only
+/// in the room of a group the caller is attached to and in their own
+/// conversation. In the room of a group someone else coaches, a coach whose
+/// access was withdrawn is answered as one who holds it is — they are not
+/// this group's coach — so that room's members are not told about the
+/// caller's coach access.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_is_not_the_coach_of_another_groups_room() {
+    let fx = Fixture::new().await;
+    // A group the outsider coaches, which the fixture's coach belongs to as
+    // a plain member beside one athlete.
+    let other = create_group(fx.repos(), &fx.owner, &fx.outsider, "Other Squad").await;
+    join(fx.repos(), &other, &fx.coach).await;
+    join(fx.repos(), &other, &fx.bare).await;
+    let own_room = fx.room(&fx.group).await;
+    let other_room = fx.room(&other).await;
+
+    let reasons = || async {
+        let mut reasons = Vec::new();
+        for (place, conversation, member) in [
+            ("another room", Some(other_room.as_str()), "Bruno"),
+            ("another room", Some(other_room.as_str()), "Zed"),
+            ("their room", Some(own_room.as_str()), "Zed"),
+            ("own", None, "Zed"),
+        ] {
+            let refused = call(
+                &fx.res,
+                &fx.coach,
+                &GetGroupMemberPlanStatusTool,
+                conversation,
+                json!({ "member": member }),
+            )
+            .await;
+            assert!(
+                !refused.to_string().contains("Bruno Bare"),
+                "{place}: no member of the room is named: {refused}"
+            );
+            let reason = refused["reason"].as_str().unwrap_or("read").to_owned();
+            reasons.push((place, member, reason));
+        }
+        reasons
+    };
+    let expected = |held: &str| {
+        [
+            ("another room", "Bruno", "not_this_groups_coach".to_owned()),
+            ("another room", "Zed", "not_this_groups_coach".to_owned()),
+            ("their room", "Zed", held.to_owned()),
+            ("own", "Zed", held.to_owned()),
+        ]
+    };
+    assert_eq!(
+        reasons().await,
+        expected("no_match"),
+        "test setup bug: a coach who holds coach access is refused by the room they do not coach"
+    );
+
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+    assert_eq!(
+        reasons().await,
+        expected("no_coach_access"),
+        "bug: a room the caller is not the coach of is told their coach access is off"
     );
 }
 

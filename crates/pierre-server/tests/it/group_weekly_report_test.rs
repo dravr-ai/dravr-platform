@@ -23,6 +23,7 @@ use pierre_groups::strategies::tier::EnterpriseTierStrategy;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_routes_groups::group_analytics::GroupAnalyticsRoutes;
 use pierre_routes_groups::GroupRoutes;
+use pierre_test_support::delegation::grant_coach_access;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -431,6 +432,9 @@ struct ConsentSplit {
 async fn consent_split() -> ConsentSplit {
     let fx = Box::pin(owner_with_group()).await;
     let group_uuid = Uuid::parse_str(&fx.group_id).unwrap();
+    grant_coach_access(&fx.res.common.repos, fx.owner_id)
+        .await
+        .unwrap();
     assert!(
         fx.res
             .common

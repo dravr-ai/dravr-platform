@@ -18,15 +18,28 @@
 //! consent that standing calls for:
 //! - **the group's human coach** (`coaching_groups.coach_user_id`) reads a
 //!   member through the one answer every coach read of a coached athlete asks
-//!   ([`read_subject::coached_read`], training class): the coach attachment,
-//!   a live membership, the member's `coach_sharing_consent` and one home
-//!   tenant. Its refusal is the one a scoped read of the same athlete answers
-//!   with (carnet#1425). Joining grants the consent (ADR-002: membership is
-//!   consent to share with the coach), the member can revoke it, and the
-//!   group's peer switch does not govern it;
+//!   ([`read_subject::coached_read`], training class): the coach rule (coach
+//!   access and the attachment), a live membership, the member's
+//!   `coach_sharing_consent` and one home tenant. Its refusal is the one a
+//!   scoped read of the same athlete answers with (carnet#1425). Joining
+//!   grants the consent (ADR-002: membership is consent to share with the
+//!   coach), the member can revoke it, and the group's peer switch does not
+//!   govern it;
 //! - **any other member** reads a peer only when the target's
 //!   `peer_sharing_consent` is `true` AND the group's `peer_data_sharing`
 //!   kill-switch is `true` ([`member_reads::peer_read_allowed`]).
+//!
+//! Which groups the requester reads as their coach is the one coach rule's
+//! answer ([`roster_access`], carnet#1511), asked once for the scan; the
+//! coaching gates ask it again for the member a coach is about to read. A
+//! requester still attached to a group whose coach access is off reads
+//! nothing as its coach: the group's members are neither matched nor named
+//! for them, and a name that resolves to no one is refused as coach access
+//! being off ([`NO_COACH_ACCESS`]) — the same answer whether or not a member
+//! of that group carries the name, and only where the scan covered that
+//! group: narrowed to another group, by its room or by `group_id`, a miss
+//! is a miss. The groups they belong to are still read as any member reads
+//! them, a group they are also attached to included.
 //!
 //! In a group's room the scan is pinned to that room's group server-side,
 //! whatever `group_id` the model passes (carnet#1420): every member of the
@@ -84,6 +97,7 @@ use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_services::athlete_display_name::fetch_user_display_name;
+use pierre_services::coach_roster::{roster_access, RosterAccess, NO_COACH_ACCESS};
 use pierre_services::coached_athlete::CoachedAthleteAccess;
 use pierre_services::member_reads;
 use pierre_services::provider_notice;
@@ -131,17 +145,31 @@ struct ReadableGroup {
     requester_is_coach: bool,
 }
 
-/// Every group the requester belongs to, plus every group they are the
-/// attached human coach of — a coach has no membership row (the coach invite
-/// attaches `coaching_groups.coach_user_id` and nothing else), yet their
-/// prompt view already lists the consenting roster, so their fetch must
-/// resolve the same names. When `pin` is given the set is narrowed to that
-/// one group ([`ScanScope::pin`]).
+/// The groups a call scans, and the groups the coach rule kept out of it.
+struct Readable {
+    groups: Vec<ReadableGroup>,
+    /// The active groups the requester is attached to as their coach while
+    /// their coach access is off ([`RosterAccess::NoCoachAccess`]): none is
+    /// read as its coach. Empty for anyone else.
+    coach_access_off: Vec<Uuid>,
+}
+
+/// Every group the requester belongs to, plus every group the coach rule
+/// lets them read as its coach ([`roster_access`]: coach access, and the
+/// active groups they are attached to) — a coach has no membership row (the
+/// coach invite attaches `coaching_groups.coach_user_id` and nothing else),
+/// yet their prompt view already lists the consenting roster, so their fetch
+/// must resolve the same names. When `pin` is given the set is narrowed to
+/// that one group ([`ScanScope::pin`]).
+///
+/// A requester attached to a group while their coach access is off gets no
+/// coach side: that group is scanned only when they also belong to it, and
+/// then as a member reads it.
 async fn readable_groups(
     data: &DataContext,
     requester: Uuid,
     pin: Option<&str>,
-) -> AppResult<Vec<ReadableGroup>> {
+) -> AppResult<Readable> {
     let mut groups: Vec<ReadableGroup> = data
         .repos()
         .groups
@@ -155,32 +183,36 @@ async fn readable_groups(
             requester_is_coach: false,
         })
         .collect();
-    for coached in data
-        .repos()
-        .groups
-        .list_groups_coached_by(requester)
-        .await?
-    {
-        if !coached.is_active {
-            continue;
+    let mut coach_access_off = Vec::new();
+    match roster_access(data.repos(), requester).await? {
+        RosterAccess::Granted(coached) => {
+            for coached in coached {
+                // A coach who is also a member of the group they coach reads
+                // it as its coach.
+                if let Some(existing) = groups.iter_mut().find(|g| g.id == coached.id) {
+                    existing.requester_is_coach = true;
+                } else {
+                    groups.push(ReadableGroup {
+                        id: coached.id,
+                        name: coached.name,
+                        peer_data_sharing: coached.peer_data_sharing,
+                        requester_is_coach: true,
+                    });
+                }
+            }
         }
-        // A coach who is also a member of the group they coach reads it as
-        // its coach.
-        if let Some(existing) = groups.iter_mut().find(|g| g.id == coached.id) {
-            existing.requester_is_coach = true;
-        } else {
-            groups.push(ReadableGroup {
-                id: coached.id,
-                name: coached.name,
-                peer_data_sharing: coached.peer_data_sharing,
-                requester_is_coach: true,
-            });
+        RosterAccess::NoCoachAccess(attached) => {
+            coach_access_off = attached.into_iter().map(|group| group.id).collect();
         }
+        RosterAccess::NotACoach => {}
     }
     if let Some(pin) = pin {
         groups.retain(|g| g.id.to_string() == pin);
     }
-    Ok(groups)
+    Ok(Readable {
+        groups,
+        coach_access_off,
+    })
 }
 
 /// The groups a call resolves the named member in.
@@ -199,6 +231,18 @@ impl ScanScope {
             Self::Private(pin) => pin.as_deref(),
             Self::Room(group) => Some(group),
         }
+    }
+
+    /// Whether a name that resolved to no one here is answered as coach
+    /// access being off, for a requester attached to `attached` as their
+    /// coach while it is off: when the scan covered one of those groups —
+    /// every group they share, or the one group it was narrowed to. A scan
+    /// narrowed to any other group, by its room or by `group_id`, read that
+    /// group alone, so a miss there is a miss.
+    fn answers_coach_access_off(&self, attached: &[Uuid]) -> bool {
+        self.pin().map_or(!attached.is_empty(), |pin| {
+            attached.iter().any(|id| id.to_string() == pin)
+        })
     }
 }
 
@@ -224,9 +268,20 @@ async fn scan_scope(
     })
 }
 
+/// What a scan of the requester's readable groups found.
+struct Scan {
+    /// The peers whose display name matched.
+    matches: Vec<MemberMatch>,
+    /// Whether the requester themself matched — the signal for the
+    /// self-query redirect.
+    requester_matched: bool,
+    /// The groups the coach rule kept out of the scan
+    /// ([`Readable::coach_access_off`]).
+    coach_access_off: Vec<Uuid>,
+}
+
 /// Scan the requester's readable groups for members whose display name
-/// contains `query_lower`. Returns the peer matches plus whether the
-/// requester themself matched — the signal for the self-query redirect.
+/// contains `query_lower`.
 ///
 /// `list_groups_for_user` is requester-scoped and cross-tenant, so any match
 /// proves shared membership without trusting a conversation tenant; a `pin`
@@ -237,8 +292,11 @@ async fn scan_shared_rosters(
     requester: Uuid,
     query_lower: &str,
     pin: Option<&str>,
-) -> AppResult<(Vec<MemberMatch>, bool)> {
-    let groups = readable_groups(data, requester, pin).await?;
+) -> AppResult<Scan> {
+    let Readable {
+        groups,
+        coach_access_off,
+    } = readable_groups(data, requester, pin).await?;
     let mut matches: Vec<MemberMatch> = Vec::new();
     let mut requester_matched = false;
     for group in &groups {
@@ -269,7 +327,11 @@ async fn scan_shared_rosters(
             });
         }
     }
-    Ok((matches, requester_matched))
+    Ok(Scan {
+        matches,
+        requester_matched,
+        coach_access_off,
+    })
 }
 
 /// The refusal for a name no member of the scanned groups carries.
@@ -630,8 +692,11 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                 Ok(scope) => scope,
                 Err(refused) => return Ok(refused),
             };
-            let (matches, requester_matched) =
-                scan_shared_rosters(&data, requester, &query_lower, scope.pin()).await?;
+            let Scan {
+                matches,
+                requester_matched,
+                coach_access_off,
+            } = scan_shared_rosters(&data, requester, &query_lower, scope.pin()).await?;
 
             // A self-lookup used to fall through to the generic "no member
             // matching" error — a dead end with no gradient out, since no
@@ -649,6 +714,16 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberActivitiesTool {
                          with Dravr."
                     )
                 })));
+            }
+
+            // Attached to a group as its coach with coach access off: no
+            // member was matched for them as its coach, so a miss says that
+            // and never whether one of that group's members carries the name.
+            if matches.is_empty() && scope.answers_coach_access_off(&coach_access_off) {
+                return Ok(coach_scope::refusal(
+                    NO_COACH_ACCESS,
+                    read_subject::COACH_ACCESS_OFF,
+                ));
             }
 
             let rows = match resolve_unique_peer(&matches, member_query, &scope) {

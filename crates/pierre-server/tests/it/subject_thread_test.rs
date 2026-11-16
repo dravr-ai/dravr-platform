@@ -46,7 +46,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::{ChatRoutes, ConversationListResponse};
 use pierre_memory::training_plans::{GoalRace, RacePriority};
 use pierre_services::personal_thread::find_personal_thread;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::CONVERSATION_ID;
 use pierre_tool_runtime::implementations::training_plans::{
     GetTrainingPlanTool, SaveTrainingPlanTool,
@@ -120,6 +120,41 @@ async fn join(repos: &RepositoryRegistry, group: &CoachingGroup, who: &Person, s
         .unwrap();
 }
 
+/// An active group `owner` runs on `agent_id`, with no coach attached.
+async fn coachless_group(
+    repos: &RepositoryRegistry,
+    owner: &Person,
+    agent_id: String,
+    name: &str,
+) -> CoachingGroup {
+    let now = Utc::now();
+    repos
+        .groups
+        .create_group(
+            owner.tenant,
+            &CoachingGroup {
+                id: Uuid::new_v4(),
+                tenant_id: owner.tenant.to_string(),
+                name: name.to_owned(),
+                description: None,
+                agent_id,
+                owner_id: owner.id,
+                coach_user_id: None,
+                peer_data_sharing: false,
+                respond_mode: GroupRespondMode::default(),
+                digest_mode: GroupDigestMode::Off,
+                max_members: 20,
+                is_active: true,
+                channel_type: None,
+                channel_chat_id: None,
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await
+        .unwrap()
+}
+
 impl Fixture {
     async fn new() -> Self {
         let res = create_test_server_resources().await.unwrap();
@@ -131,32 +166,8 @@ impl Fixture {
         let agent_id = create_group_agent(repos, owner.id, owner.tenant)
             .await
             .unwrap();
-        let now = Utc::now();
-        let group = repos
-            .groups
-            .create_group(
-                owner.tenant,
-                &CoachingGroup {
-                    id: Uuid::new_v4(),
-                    tenant_id: owner.tenant.to_string(),
-                    name: "Tempo Squad".to_owned(),
-                    description: None,
-                    agent_id,
-                    owner_id: owner.id,
-                    coach_user_id: None,
-                    peer_data_sharing: false,
-                    respond_mode: GroupRespondMode::default(),
-                    digest_mode: GroupDigestMode::Off,
-                    max_members: 20,
-                    is_active: true,
-                    channel_type: None,
-                    channel_chat_id: None,
-                    created_at: now,
-                    updated_at: now,
-                },
-            )
-            .await
-            .unwrap();
+        let group = coachless_group(repos, &owner, agent_id, "Tempo Squad").await;
+        grant_coach_access(repos, coach.id).await.unwrap();
         // Redeeming a coach invite attaches the coach through this write.
         assert!(repos
             .groups
@@ -417,6 +428,84 @@ async fn every_gate_refuses_with_its_reason_and_opens_nothing() {
         .await
         .unwrap();
     assert_eq!(opened, 0, "no refusal opened a thread");
+}
+
+/// A coach still attached to the group whose coach access was withdrawn
+/// opens no thread (carnet#1511): the group is theirs by the attachment, and
+/// the coach rule refuses them for it until coach access is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_opens_no_thread_until_it_is_back() {
+    let fx = Fixture::new().await;
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+
+    let (status, body) = fx.open_as(&fx.coach_auth, fx.subject.id, fx.group.id).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(reason(&body), "no_coach_access", "{body}");
+    assert!(
+        !body.to_string().contains(SUBJECT_NAME),
+        "bug: a refusal before the membership gate names nobody: {body}"
+    );
+    let opened = fx
+        .repos()
+        .chat
+        .count_participating_conversations(
+            &fx.coach.id.to_string(),
+            fx.coach.tenant,
+            TransportPolicy::FirstPartyOnly,
+        )
+        .await
+        .unwrap();
+    assert_eq!(opened, 0, "the refusal opened no thread");
+
+    // Access returned: the same request opens the thread.
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, true)
+        .await
+        .unwrap();
+    let (status, body) = fx.open_as(&fx.coach_auth, fx.subject.id, fx.group.id).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    assert_eq!(body["title"], SUBJECT_NAME, "{body}");
+}
+
+/// Coach access off refuses for the groups the caller is attached to, and
+/// says nothing untrue of any other: asked about a group another coach holds
+/// (or none does), such a caller is told they are not its coach, as anyone
+/// is.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_is_not_the_coach_of_a_group_they_never_held() {
+    let fx = Fixture::new().await;
+    let repos = fx.repos();
+    let (elsewhere, _) = person(&fx.res, "elsewhere", "Elsa Elsewhere").await;
+    let agent_id = create_group_agent(repos, elsewhere.id, elsewhere.tenant)
+        .await
+        .unwrap();
+    let theirs = coachless_group(repos, &elsewhere, agent_id, "Hill Squad").await;
+    join(repos, &theirs, &fx.subject, true).await;
+    repos
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+
+    for group in [theirs.id, Uuid::new_v4()] {
+        let (status, body) = fx.open_as(&fx.coach_auth, fx.subject.id, group).await;
+        assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+        assert_eq!(
+            reason(&body),
+            "not_group_coach",
+            "bug: coach access off is the answer for a group the caller is attached to, not \
+             for one they never coached: {body}"
+        );
+    }
+    // The group they are attached to still answers with their own standing.
+    let (status, body) = fx.open_as(&fx.coach_auth, fx.subject.id, fx.group.id).await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body}");
+    assert_eq!(reason(&body), "no_coach_access", "{body}");
 }
 
 // ════════════════════════════════════════════════════════════════════════
@@ -866,6 +955,34 @@ async fn the_gates_run_again_on_every_call_in_the_thread() {
         error_text(&refused).contains("no longer a member of the group you coach them in"),
         "{refused}"
     );
+}
+
+/// Coach access withdrawn mid-thread refuses the next call in it, in the
+/// one sentence every coach tool says it with, and names nobody.
+#[tokio::test]
+async fn coach_access_withdrawn_mid_thread_refuses_the_next_call() {
+    let fx = Fixture::new().await;
+    fx.season(&fx.subject, SUBJECT_RACE).await;
+    let id = fx.open_subject().await;
+    let fetched = fx.coach_calls(&GetTrainingPlanTool, &id, json!({})).await;
+    assert_eq!(fetched["athlete"], SUBJECT_NAME, "premise: {fetched}");
+
+    fx.repos()
+        .users
+        .set_manages_roster(fx.coach.id, false)
+        .await
+        .unwrap();
+    let refused = fx.coach_calls(&GetTrainingPlanTool, &id, json!({})).await;
+    assert!(
+        error_text(&refused).contains("Your coach access is off"),
+        "{refused}"
+    );
+    for absent in [SUBJECT_NAME, SUBJECT_RACE] {
+        assert!(
+            !refused.to_string().contains(absent),
+            "bug: {absent:?} reached a caller whose coach access is off: {refused}"
+        );
+    }
 }
 
 /// The calendar tools resolve the thread's athlete exactly as a named one:

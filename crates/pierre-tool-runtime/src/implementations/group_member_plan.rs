@@ -17,9 +17,14 @@
 //! thread where it is changed.
 //!
 //! It reads only as the athlete's human coach, through the gates every
-//! coach read of a plan runs ([`coached_plan_read_access`]). In a group's
-//! room it reads that group's athletes alone, and a conversation that does
-//! not resolve for the caller is refused rather than published into.
+//! coach read of a plan runs ([`coached_plan_read_access`]), and looks no
+//! name up for a caller the coach rule does not grant ([`roster_access`]).
+//! In a group's room it reads that group's athletes alone, and a
+//! conversation that does not resolve for the caller is refused rather than
+//! published into. The room is asked before the caller's coach access: a
+//! caller attached to a group whose coach access is off is told so in their
+//! own conversation and in that group's room, and in any other group's room
+//! that they are not its coach, as anyone is.
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
@@ -39,6 +44,7 @@ use pierre_mcp_schema::PropertySchema;
 use pierre_memory::training_plans;
 use pierre_providers::ai_scope;
 use pierre_services::athlete_clock;
+use pierre_services::coach_roster::{roster_access, RosterAccess, NO_COACH_ACCESS};
 use pierre_services::coached_athlete::CoachedAthleteAccess;
 use pierre_tools_core::ToolResult;
 
@@ -49,7 +55,9 @@ use crate::context::ToolExecutionContext;
 use crate::conversions::{
     answers_with, object_schema, ok_typed, tool_definition, tool_result_to_response,
 };
-use crate::read_subject::{gate_message, match_coached_member, GateObject, MemberMiss};
+use crate::read_subject::{
+    gate_message, match_coached_member, GateObject, MemberMiss, COACH_ACCESS_OFF,
+};
 use crate::runtime::ToolRuntime;
 
 /// The goal race a published season is aimed at.
@@ -285,23 +293,25 @@ impl McpTool<dyn ToolRuntime> for GetGroupMemberPlanStatusTool {
 
             let requester = context.user_id;
             let repos = context.resources.repos();
-            let coached: Vec<Uuid> = repos
-                .groups
-                .list_groups_coached_by(requester)
-                .await?
-                .into_iter()
-                .filter(|group| group.is_active)
-                .map(|group| group.id)
-                .collect();
-            if coached.is_empty() {
-                return Ok(refusal(
-                    "not_a_coach",
-                    "You are not the human coach of any Dravr group, so no athlete's plan is \
-                     looked up here.",
-                ));
-            }
-            if within.is_some_and(|pin| !coached.contains(&pin)) {
+            let (attached, holds_coach_access) = match roster_access(repos, requester).await? {
+                RosterAccess::Granted(groups) => (groups, true),
+                RosterAccess::NoCoachAccess(groups) => (groups, false),
+                RosterAccess::NotACoach => {
+                    return Ok(refusal(
+                        "not_a_coach",
+                        "You are not the human coach of any Dravr group, so no athlete's plan \
+                         is looked up here.",
+                    ));
+                }
+            };
+            // The room is asked first: every member of it reads the reply,
+            // so the room of a group the caller is not attached to is told
+            // that alone, never that their coach access is off.
+            if within.is_some_and(|pin| attached.iter().all(|group| group.id != pin)) {
                 return Ok(not_this_groups_coach());
+            }
+            if !holds_coach_access {
+                return Ok(refusal(NO_COACH_ACCESS, COACH_ACCESS_OFF));
             }
 
             let found = match match_coached_member(repos, requester, query, within).await? {

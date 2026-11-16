@@ -56,7 +56,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::ai_scope::serve_over;
 use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
-use pierre_test_support::delegation::create_group_agent;
+use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
@@ -293,6 +293,7 @@ async fn coached_group(
         )
         .await
         .unwrap();
+    grant_coach_access(repos, coach.id).await.unwrap();
     assert!(repos
         .groups
         .set_group_coach_user(&group.id.to_string(), Some(coach.id), owner.tenant)

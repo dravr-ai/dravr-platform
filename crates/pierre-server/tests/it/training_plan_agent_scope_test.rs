@@ -47,6 +47,7 @@ use pierre_database::repositories::{
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_memory::training_plans::{GoalRace, RacePriority, TrainingPlan};
+use pierre_test_support::delegation::grant_coach_access;
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::implementations::training_plan_drafts::PublishTrainingPlanTool;
 use pierre_tool_runtime::implementations::training_plans::{
@@ -173,13 +174,14 @@ async fn create_group(
         .await
         .unwrap();
     // The insert never carries the human coach; redeeming a coach invite
-    // attaches one through this write, so the fixture does the same.
-    if coach_user_id.is_some() {
-        resources
-            .common
-            .repos
+    // attaches one through this write, so the fixture does the same, the
+    // coach holding the coach access a redeem takes.
+    if let Some(coach) = coach_user_id {
+        let repos = &resources.common.repos;
+        grant_coach_access(repos, coach).await.unwrap();
+        repos
             .groups
-            .set_group_coach_user(&id.to_string(), coach_user_id, tenant_id)
+            .set_group_coach_user(&id.to_string(), Some(coach), tenant_id)
             .await
             .unwrap();
     }
@@ -1004,6 +1006,81 @@ async fn a_name_matching_two_coached_athletes_lists_both() {
     assert!(
         err.contains("ambiguous") && err.contains("Marc Dubois") && err.contains("Marc Tremblay"),
         "both display names must be listed, got: {err}"
+    );
+}
+
+/// A coach still attached whose coach access was withdrawn acts on no
+/// athlete's plan by name (carnet#1511): the name is not matched, so neither
+/// a match nor the names an ambiguous one would list reach them, and the
+/// match runs again once access is back.
+#[tokio::test]
+async fn a_coach_whose_access_is_off_is_matched_no_athlete_by_name() {
+    let fx = coached_athlete(Some("Marc Dubois"), true).await;
+    let persona = seed_coach_persona(&fx.resources, fx.agent, fx.coach_tenant).await;
+    let other = seed_user(&fx.resources, "athlete2", Some("Marc Tremblay")).await;
+    let other_tenant = create_tenant_owned_by(&fx.resources, other).await;
+    let second = create_group(
+        &fx.resources,
+        fx.coach_tenant,
+        persona,
+        fx.agent,
+        Some(fx.agent),
+        true,
+        "Hill Squad",
+    )
+    .await;
+    add_member(
+        &fx.resources,
+        second,
+        other,
+        other_tenant,
+        GroupRole::Member,
+        true,
+    )
+    .await;
+    let users = &fx.resources.common.repos.users;
+    users.set_manages_roster(fx.agent, false).await.unwrap();
+
+    // "dubois" names one athlete, "marc" two, "zed" none: all read the same.
+    for name in ["dubois", "marc", "zed"] {
+        let saved = coach_saves(&fx, save_payload(name)).await;
+        let fetched = get_as(
+            &fx.resources,
+            fx.agent,
+            fx.coach_tenant,
+            json!({ "athlete": name }),
+        )
+        .await;
+        for refused in [&saved, &fetched] {
+            let err = error_text(refused);
+            assert!(
+                err.starts_with("Your coach access is off"),
+                "{name}: got: {err}"
+            );
+            for absent in ["Marc Dubois", "Marc Tremblay", "ambiguous", "No athlete"] {
+                assert!(
+                    !err.contains(absent),
+                    "bug: {name}: a name was looked up for a caller without coach access: {err}"
+                );
+            }
+        }
+    }
+    let plans = &fx.resources.common.repos.training_plans;
+    assert!(
+        plans
+            .get_active_plan(&fx.athlete_tenant.to_string(), &fx.athlete.to_string())
+            .await
+            .unwrap()
+            .is_none(),
+        "nothing may be written by a coach whose coach access is off"
+    );
+
+    users.set_manages_roster(fx.agent, true).await.unwrap();
+    let saved = coach_saves(&fx, save_payload("marc")).await;
+    let err = error_text(&saved);
+    assert!(
+        err.contains("ambiguous") && err.contains("Marc Dubois") && err.contains("Marc Tremblay"),
+        "access is back: the name is matched again, got: {err}"
     );
 }
 

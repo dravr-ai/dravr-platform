@@ -683,6 +683,15 @@ impl User {
     pub fn is_active_admin(&self) -> bool {
         self.is_active && self.user_status == UserStatus::Active && self.role.is_admin()
     }
+
+    /// Whether this user holds coach access: the [`Self::manages_roster`]
+    /// flag, or the platform admin role. It is what being attached to a group
+    /// as its coach takes, and what every act for that group's athletes asks
+    /// again, so access withdrawn after the attachment withdraws the acts.
+    #[must_use]
+    pub const fn holds_coach_access(&self) -> bool {
+        self.manages_roster || self.role.is_admin()
+    }
 }
 
 /// An athlete's physiological sex, as the published equations use it.
@@ -1128,5 +1137,20 @@ mod tests {
         let mut deactivated = with_role(UserRole::Admin);
         deactivated.is_active = false;
         assert!(!deactivated.is_active_admin());
+    }
+
+    #[test]
+    fn coach_access_is_the_roster_flag_or_the_admin_role() {
+        assert!(
+            !with_role(UserRole::User).holds_coach_access(),
+            "a user without the flag holds no coach access"
+        );
+        let mut flagged = with_role(UserRole::User);
+        flagged.manages_roster = true;
+        assert!(flagged.holds_coach_access(), "the flag alone grants it");
+        assert!(
+            with_role(UserRole::Admin).holds_coach_access(),
+            "an admin holds it without the flag"
+        );
     }
 }

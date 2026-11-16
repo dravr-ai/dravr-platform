@@ -17,8 +17,8 @@
 mod coach_roster_route_tests {
     use crate::common::create_test_server_resources;
     use crate::helpers::coach_roster_fixtures::{
-        agent_reply, coach, coached_group, get, group_agent, join, person, router, row, seed_ride,
-        ymd,
+        agent_reply, coach, coached_group, get, group_agent, join, person, post, router, row,
+        seed_ride, ymd,
     };
 
     use std::collections::BTreeMap;
@@ -209,6 +209,59 @@ mod coach_roster_route_tests {
         let (status, body) = get(&router, "/api/coach/roster", &casey.auth).await;
         assert_eq!(status, 403, "{body:#}");
         assert!(!body.to_string().contains("Alex"), "{body:#}");
+    }
+
+    /// The 403 tells a client which caller it refused (carnet#1511): one still
+    /// attached to a group whose coach access is off carries
+    /// `details.reason = "no_coach_access"`; one attached to no group carries
+    /// none. The roster reads again once coach access is back.
+    #[tokio::test]
+    async fn a_coach_whose_access_is_off_is_refused_with_its_reason() {
+        let res = create_test_server_resources().await.unwrap();
+        let router = router(&res);
+        let alex = person(&res, "alex@access-off.test", "Alex Athlete").await;
+        let casey = coach(&res, "casey@access-off.test", "Casey Coach").await;
+        let agent = group_agent(&res, &casey).await;
+        let group = coached_group(&res, casey.tenant, casey.id, &agent, "Squad").await;
+        join(&res, group, alex.id, alex.tenant, true).await;
+        let users = &res.common.repos.users;
+
+        // Attached to no group: the refusal names no reason.
+        let idle = coach(&res, "idle@access-off.test", "Idle Coach").await;
+        for caller in [&alex, &idle] {
+            let (status, body) = get(&router, "/api/coach/roster", &caller.auth).await;
+            assert_eq!(status, 403, "{body:#}");
+            assert!(body["details"]["reason"].is_null(), "{body:#}");
+            assert_eq!(
+                body["message"], "Only a coach attached to a group can read a roster",
+                "{body:#}"
+            );
+        }
+
+        users.set_manages_roster(casey.id, false).await.unwrap();
+        let (status, body) = get(&router, "/api/coach/roster", &casey.auth).await;
+        assert_eq!(status, 403, "{body:#}");
+        assert_eq!(body["details"]["reason"], "no_coach_access", "{body:#}");
+        assert_eq!(
+            body["message"], "Your coach access is off, so you cannot read a roster",
+            "{body:#}"
+        );
+        assert!(!body.to_string().contains("Alex"), "{body:#}");
+        // The dismissal routes read the roster through the same rule.
+        let (status, body) = post(
+            &router,
+            "/api/coach/attention/dismiss",
+            &casey.auth,
+            &json!({ "athlete_user_id": alex.id, "reason_id": "quiet", "fingerprint": "x" }),
+        )
+        .await;
+        assert_eq!(status, 403, "{body:#}");
+        assert_eq!(body["details"]["reason"], "no_coach_access", "{body:#}");
+
+        users.set_manages_roster(casey.id, true).await.unwrap();
+        let (status, body) = get(&router, "/api/coach/roster", &casey.auth).await;
+        assert_eq!(status, 200, "access is back: {body:#}");
+        assert!(row(&body, alex.id).is_some(), "{body:#}");
     }
 
     #[tokio::test]

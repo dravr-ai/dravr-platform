@@ -90,6 +90,7 @@ crates/pierre-server/src/routes/chat/conversations.rs:Only the conversation's ow
 crates/pierre-server/src/routes/chat/participants.rs:Cannot add a user who is not a member of this conversation's tenant
 crates/pierre-server/src/routes/chat/room_quote.rs:That message is not shared with you
 crates/pierre-server/src/routes/coach_roster.rs:Only a coach attached to a group can read a roster
+crates/pierre-server/src/routes/coach_roster.rs:Your coach access is off, so you cannot read a roster
 crates/pierre-server/src/routes/imports.rs:Imports are started and managed only from Dravr's own apps
 crates/pierre-server/src/routes/imports.rs:The import link names an account outside its tenant
 crates/pierre-server/src/routes/imports.rs:This origin may not upload
@@ -102,6 +103,7 @@ crates/pierre-services/src/auth.rs:User state error: User already exists
 crates/pierre-services/src/coach_access.rs:Only the group's owner can ask to coach it
 crates/pierre-services/src/coach_consents.rs:Grant what your human coach may do in the Dravr app; from here it can only be revoked
 crates/pierre-services/src/coached_athlete.rs:Only the group's coach can act for its athletes
+crates/pierre-services/src/coached_athlete.rs:Your coach access is off, so you cannot act for this group's athletes
 crates/pierre-services/src/coached_athlete.rs:{athlete} has stopped sharing their data with the coach of '{group}'
 crates/pierre-tool-runtime/src/context.rs:Admin privileges required for this operation
 crates/pierre-tool-runtime/src/context.rs:Tenant context required for this operation

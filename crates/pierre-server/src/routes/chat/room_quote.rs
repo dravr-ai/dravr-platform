@@ -17,8 +17,8 @@
 //!   thread about an athlete, or the message is a slash command or a
 //!   suggestion's postback, which store no question to carry it;
 //! - the coaching gates' own refusals, as opening the thread gives them
-//!   (403 `not_group_coach`, 404 `not_a_member`, 403 `coach_sharing_revoked`,
-//!   409 `no_tenant` / `several_tenants`);
+//!   (403 `no_coach_access`, 403 `not_group_coach`, 404 `not_a_member`, 403
+//!   `coach_sharing_revoked`, 409 `no_tenant` / `several_tenants`);
 //! - 404 `quote_not_found` — the thread's group holds no entry by that id (an
 //!   entry of another group included);
 //! - 403 `quote_withheld` — the room's consent rule withholds the entry from

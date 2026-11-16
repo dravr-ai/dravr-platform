@@ -192,6 +192,16 @@ async fn the_seeder_leaves_a_draft_the_coach_publishes_from_the_athletes_thread(
 
     run(args(), repos).await.unwrap();
 
+    // The coach is a plain user the seeder granted coach access: the gates
+    // below pass on that grant, not on an admin role.
+    let coach = repos.users.get_global(accounts.coach).await.unwrap();
+    let coach = coach.expect("the seeded coach");
+    assert!(coach.manages_roster, "the seeder grants coach access");
+    assert!(
+        !coach.role.is_admin(),
+        "premise: the coach holds coach access by the grant alone"
+    );
+
     // The group: owned by the athlete, its one member, sharing with the coach,
     // who coaches it and holds no membership row.
     let coached: Vec<_> = repos

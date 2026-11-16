@@ -11,10 +11,10 @@
 //!
 //! - **the group's human coach** (`coaching_groups.coach_user_id`) reads a
 //!   member only through the coaching gates,
-//!   [`coached_athlete_access`]: the coach attachment, a live membership,
-//!   the member's `coach_sharing_consent` and one home tenant. Every coach
-//!   read asks those gates, so no second rule here can drift from them
-//!   (carnet#1425).
+//!   [`coached_athlete_access`]: the coach rule (coach access and the
+//!   attachment), a live membership, the member's `coach_sharing_consent`
+//!   and one home tenant. Every coach read asks those gates, so no second
+//!   rule here can drift from them (carnet#1425).
 //! - **any other member** reads a live peer whose `peer_sharing_consent` is
 //!   on, and only while the group's `peer_data_sharing` switch is on
 //!   ([`peer_read_allowed`]).

@@ -36,10 +36,11 @@ use super::dto::{ConversationResponse, OpenSubjectThreadRequest};
 /// the group the body names.
 ///
 /// The gates are the ones every act in the thread runs again
-/// ([`coached_athlete_access`]): the caller is the active group's coach, the
-/// athlete a live member who still shares their data with them and has one
-/// home tenant. A refusal carries `details.reason`: 403 `not_group_coach`,
-/// 404 `not_a_member`, 403 `coach_sharing_revoked`, 409 `several_tenants` or
+/// ([`coached_athlete_access`]): the caller holds coach access and is the
+/// active group's coach, the athlete a live member who still shares their
+/// data with them and has one home tenant. A refusal carries
+/// `details.reason`: 403 `no_coach_access`, 403 `not_group_coach`, 404
+/// `not_a_member`, 403 `coach_sharing_revoked`, 409 `several_tenants` or
 /// `no_tenant`.
 ///
 /// The thread is bound to the group's agent, so the plan is built with the

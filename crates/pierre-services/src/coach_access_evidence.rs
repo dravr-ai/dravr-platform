@@ -91,7 +91,7 @@ async fn may_file_for(repos: &RepositoryRegistry, user_id: Uuid) -> AppResult<bo
         .get_global(user_id)
         .await?
         .ok_or_else(|| AppError::not_found("User"))?;
-    if user.manages_roster || user.role.is_admin() {
+    if user.holds_coach_access() {
         return Ok(false);
     }
     Ok(repos

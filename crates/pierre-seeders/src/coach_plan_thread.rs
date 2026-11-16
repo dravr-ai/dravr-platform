@@ -17,8 +17,10 @@
 //!
 //! - a group named [`GROUP_NAME`], owned by the athlete — its one member, who
 //!   shares with its coach — and coached by the coach, who holds no
-//!   membership row, as a coach invite leaves them; the coach's group thread
-//!   is filed, which is how they reach Group info;
+//!   membership row, as a coach invite leaves them; the coach is granted
+//!   coach access first, which attaching one takes and the coaching gates
+//!   ask on every act; the coach's group thread is filed, which is how they
+//!   reach Group info;
 //! - the athlete's live season, aimed at [`LIVE_RACE`], with this week's
 //!   sessions built around [`LIVE_WORKOUT`];
 //! - the coach's thread about the athlete, opened as Group info opens it;
@@ -136,6 +138,8 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         return Ok(());
     }
 
+    // Attaching a coach takes coach access, and the gates below ask it again.
+    repos.users.set_manages_roster(coach.id, true).await?;
     let group = seed_coached_group(
         repos,
         &GROUP,

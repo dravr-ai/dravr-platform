@@ -1,4 +1,4 @@
-// ABOUTME: Coaching-group fixtures: the group's agent, a coachless or coached group, an active member
+// ABOUTME: Coaching-group fixtures: the group's agent, a coachless or coached group, coach access, an active member
 // ABOUTME: Shared by the tests that seed a coach's confirmed link, so each one builds the same rows a deployment holds
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -92,12 +92,27 @@ pub async fn create_coachless_group(
     Ok(group.id)
 }
 
-/// Create an active group `owner` runs on `agent_id`, coached by `coach`, and
-/// return its id.
+/// Give `user` coach access (`manages_roster`), as an admin's grant does.
+///
+/// Attaching a coach to a group takes it, and every act for the group's
+/// athletes asks it again (`pierre_services::coach_roster::roster_access`),
+/// so a fixture that attaches a coach grants it first.
 ///
 /// # Errors
 ///
-/// Returns an error if the group cannot be stored or its coach not set.
+/// Returns an error if the user does not exist or the grant cannot be stored.
+pub async fn grant_coach_access(repos: &RepositoryRegistry, user: Uuid) -> AppResult<()> {
+    repos.users.set_manages_roster(user, true).await
+}
+
+/// Create an active group `owner` runs on `agent_id`, coached by `coach`, and
+/// return its id. The coach is granted coach access first, as attaching one
+/// takes ([`grant_coach_access`]).
+///
+/// # Errors
+///
+/// Returns an error if the group cannot be stored, the coach's access not
+/// granted, or the coach not set.
 pub async fn create_coached_group(
     repos: &RepositoryRegistry,
     owner: Uuid,
@@ -107,6 +122,7 @@ pub async fn create_coached_group(
     coach: Uuid,
 ) -> AppResult<Uuid> {
     let group = create_coachless_group(repos, owner, owner_tenant, agent_id, name).await?;
+    grant_coach_access(repos, coach).await?;
     let coach_set = repos
         .groups
         .set_group_coach_user(&group.to_string(), Some(coach), owner_tenant)

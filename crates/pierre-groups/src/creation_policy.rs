@@ -108,7 +108,7 @@ where
 /// (`POST /api/groups`, and `/group create` through [`creator_coaches_group`]).
 #[must_use]
 pub fn may_coach_group(user: &User, caller_tenant: TenantId, group_tenant: TenantId) -> bool {
-    (user.manages_roster || user.role.is_admin()) && caller_tenant == group_tenant
+    user.holds_coach_access() && caller_tenant == group_tenant
 }
 
 /// Whether the creator of a group in `tenant_id` becomes its human coach

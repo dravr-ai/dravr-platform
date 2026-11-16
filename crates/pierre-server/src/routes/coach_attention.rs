@@ -40,14 +40,14 @@ use pierre_database::RepositoryRegistry;
 use pierre_middleware::AuthenticatedUser;
 use pierre_providers::backend_resolver;
 use pierre_services::coach_attention::TrainingSignals;
-use pierre_services::coach_roster::{gather_members, roster_access, OrderedMember, RosterAccess};
+use pierre_services::coach_roster::{gather_members, OrderedMember};
 use pierre_tool_runtime::coach_roster::RosterReading;
 use serde::{Deserialize, Serialize};
 use tracing::info;
 use uuid::Uuid;
 
 use crate::mcp::resources::ServerContext;
-use crate::routes::coach_roster::not_a_coach;
+use crate::routes::coach_roster::roster_groups;
 
 /// Longest reason id or fingerprint a dismissal accepts. The server's own
 /// are a kind and an id or an instant; anything longer is not one of them.
@@ -235,9 +235,7 @@ async fn athlete_tenant(
     coach: Uuid,
     athlete: Uuid,
 ) -> AppResult<TenantId> {
-    let RosterAccess::Granted(groups) = roster_access(repos, coach).await? else {
-        return Err(not_a_coach());
-    };
+    let groups = roster_groups(repos, coach).await?;
     gather_members(repos, coach, &groups)
         .await?
         .members

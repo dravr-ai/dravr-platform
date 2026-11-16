@@ -70,6 +70,7 @@ use pierre_providers::sciotte_error::sciotte_refusal;
 use pierre_providers::CoreFitnessProvider;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::DelegatedConnectionRoutes;
+use pierre_test_support::delegation::grant_coach_access;
 use pierre_tool_runtime::activity_fetch::fetch_provider_head;
 use pierre_tool_runtime::capture_sweep::{
     refresh_captures, RefreshOutcome, SweepBudget, SweepSelection,
@@ -434,6 +435,7 @@ async fn world(scraper: Scraper, url: &str) -> World {
         .await
         .unwrap()
         .id;
+    grant_coach_access(&repos, coach.id).await.unwrap();
     assert!(repos
         .groups
         .set_group_coach_user(&group.to_string(), Some(coach.id), owner.tenant)

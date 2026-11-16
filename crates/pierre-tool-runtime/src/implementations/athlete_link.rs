@@ -17,7 +17,8 @@
 //! attached to ([`super::plan_scope::match_coached_member`]), and the roster
 //! athlete is the one their email binds, as
 //! [`pierre_services::delegated_link_states`] reads it. A member who stopped
-//! sharing with the coach is not proposed.
+//! sharing with the coach is not proposed, and a caller whose coach access
+//! is off is matched no member.
 //!
 //! Each candidate platform's terms are checked against the call's transport
 //! before its roster is read, the cache's included
@@ -47,6 +48,7 @@ use pierre_core::models::groups::CoachingGroup;
 use pierre_core::models::TenantId;
 use pierre_mcp_schema::PropertySchema;
 use pierre_services::coach_platform::{roster_platforms, CoachPlatform};
+use pierre_services::coach_roster::NO_COACH_ACCESS;
 use pierre_services::delegated_connections::{propose, Proposal};
 use pierre_services::delegated_link_states::{LinkState, RosterLinkState};
 use pierre_services::delegation_refusal::Refusal;
@@ -302,6 +304,7 @@ fn choose<'a>(
 /// The refusal for a member query that resolved to no one member.
 fn miss_refusal(miss: &MemberMiss, query: &str) -> ToolResult {
     let reason = match miss {
+        MemberMiss::NoCoachAccess => NO_COACH_ACCESS,
         MemberMiss::Requester => Refusal::MemberIsCoach.as_str(),
         MemberMiss::NoMatch => "member_not_found",
         MemberMiss::Ambiguous(_) => "member_ambiguous",
