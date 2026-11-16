@@ -25,7 +25,11 @@
 //!   the viewer receives what `POST /api/providers/sciotte/login` would have
 //!   answered — never the service's session id;
 //! - cancels the attempt when either side ends without an outcome: closing
-//!   the viewer ends the sign-in, and there is no reconnect.
+//!   the viewer ends the sign-in, and there is no reconnect. Sciotte sends
+//!   the outcome and closes at once while the viewer may still be sending
+//!   input, so the service's messages are read before the viewer's, and a
+//!   forward that fails reads what the service already sent before the
+//!   relay calls it gone.
 
 use std::time::{Duration, Instant};
 
@@ -46,6 +50,7 @@ use pierre_middleware::provider_link_token::{
 use pierre_providers::sciotte_error::to_app_error;
 use serde::Deserialize;
 use serde_json::Value;
+use tokio::time::sleep;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
@@ -72,6 +77,10 @@ const MAX_ANSWER_BYTES: usize = 64 * 1024;
 /// `details.reason` of the answer a viewer gets when the takeover ended with
 /// no outcome from the service.
 const TAKEOVER_ENDED_REASON: &str = "takeover_ended";
+
+/// How long a relay whose forward to the service failed keeps reading the
+/// service for the outcome it may already have sent.
+const OUTCOME_LEFT_BEHIND_WAIT: Duration = Duration::from_secs(2);
 
 /// Query of the takeover socket.
 #[derive(Deserialize)]
@@ -373,17 +382,46 @@ impl Relay {
     }
 }
 
-/// Relay both ways, the viewer's input served first, until one side ends.
+/// Relay both ways until one side ends. The service is read first: the
+/// outcome it sends just before closing is taken before another input is
+/// forwarded to a socket that is closing.
 async fn relay_until_end(viewer: &mut WebSocket, service: &mut ServiceWebSocket) -> Ended {
     let mut budget = InputBudget::new();
     loop {
         let ended = tokio::select! {
             biased;
-            from_viewer = viewer.recv() => from_viewer_to_service(from_viewer, service, &mut budget).await,
             from_service = service.next() => from_service_to_viewer(from_service, viewer).await,
+            from_viewer = viewer.recv() => from_viewer_to_service(from_viewer, service, &mut budget).await,
         };
-        if let Some(ended) = ended {
-            return ended;
+        match ended {
+            Some(Ended::ServiceGone) => return outcome_left_behind(service).await,
+            Some(ended) => return ended,
+            None => {}
+        }
+    }
+}
+
+/// The outcome the service sent before its socket went, read past a forward
+/// that failed: a write to a socket the service just closed fails while its
+/// last message, the outcome, is still unread. `ServiceGone` when the socket
+/// ends, breaks or stays quiet for [`OUTCOME_LEFT_BEHIND_WAIT`] with none.
+async fn outcome_left_behind(service: &mut ServiceWebSocket) -> Ended {
+    let quiet = sleep(OUTCOME_LEFT_BEHIND_WAIT);
+    tokio::pin!(quiet);
+    loop {
+        tokio::select! {
+            () = &mut quiet => return Ended::ServiceGone,
+            message = service.next() => match message {
+                Some(Ok(WebSocketMessage::Text(text))) => {
+                    if let Ok(TakeoverEvent::Outcome { status_code, body }) =
+                        serde_json::from_str::<TakeoverEvent>(&text)
+                    {
+                        return Ended::Outcome { status_code, body };
+                    }
+                }
+                Some(Ok(WebSocketMessage::Close(_)) | Err(_)) | None => return Ended::ServiceGone,
+                Some(Ok(_)) => {}
+            },
         }
     }
 }

@@ -536,6 +536,44 @@ async fn the_athlete_signs_in_through_the_relay_and_the_session_is_stored() {
     );
 }
 
+/// The athlete keeps moving the pointer after the click that signs them in:
+/// sciotte answers and closes while those moves are still on their way, and
+/// the sign-in concludes from that answer instead of ending as if the service
+/// had left without one.
+#[tokio::test]
+async fn a_sign_in_concludes_though_the_athlete_keeps_moving_after_it() {
+    let athlete = Athlete::new().await;
+    let token = athlete.park(&email(CHALLENGED), &attempt()).await;
+    let mut viewer = athlete.open(&token).await.expect("the relay upgrades");
+    read_event(&mut viewer, "status").await;
+
+    for action in ["down", "up"] {
+        send(
+            &mut viewer,
+            json!({"type": "pointer", "action": action, "x": 30.0, "y": 310.0}),
+        )
+        .await;
+    }
+    for step in 0..40_u32 {
+        send(
+            &mut viewer,
+            json!({"type": "pointer", "action": "move", "x": 31.0 + f64::from(step), "y": 310.0}),
+        )
+        .await;
+    }
+
+    let (outcome, _) = read_event(&mut viewer, "outcome").await;
+    assert_eq!(outcome["status_code"], 200, "{outcome}");
+    assert_eq!(
+        outcome["body"]["status"], "connected",
+        "bug: the moves after the sign-in made the relay drop its answer: {outcome}"
+    );
+    assert!(
+        athlete.holds_garmin_session().await,
+        "the session is stored"
+    );
+}
+
 /// Sign the athlete in through an open takeover: the stand-in's pointer `up`
 /// authenticates. The step answer the viewer receives.
 async fn sign_in_through(viewer: &mut Viewer) -> Value {
