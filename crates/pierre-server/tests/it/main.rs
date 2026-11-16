@@ -179,6 +179,7 @@ mod capture_staleness_test;
 mod capture_sweep_budget_share_test;
 mod capture_sweep_test;
 mod channel_config_classification_test;
+mod channel_menus_test;
 mod chat_awaiting_reply_test;
 mod chat_callable_tools_fixture_test;
 mod chat_database_test;

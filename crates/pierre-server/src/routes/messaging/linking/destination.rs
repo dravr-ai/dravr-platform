@@ -12,12 +12,15 @@ use pierre_config::utils::http_client::shared_client;
 use pierre_core::errors::AppError;
 use pierre_core::http_client::SharedHttpError;
 use pierre_core::models::messaging::ChannelType;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use tracing::info;
 
 /// The Telegram Bot API origin. Every method is `{origin}/bot{token}/{method}`.
 ///
-/// [`build_linking_url`] is the route's only way to a Telegram URL, and it
-/// takes no origin: it asks here, so the route cannot hand it another one.
+/// [`build_linking_url`] is the route's only way to a Telegram URL, and no
+/// request, config row or environment variable can hand it another origin:
+/// it asks here unless the adapter factory the server context was built on
+/// names one, and the production factory names none.
 const TELEGRAM_API: &str = "https://api.telegram.org";
 
 /// Cache of bot token -> username, so `getMe` is called once per token rather
@@ -336,27 +339,36 @@ async fn telegram_linking_url(
 /// is asked of the real Bot API, [`TELEGRAM_API`]; see [`telegram_linking_url`].
 /// A `WhatsApp` number is asked of `graph_api_base`, the server's configured
 /// Graph API, else [`DEFAULT_GRAPH_API_BASE`].
+///
+/// `adapters` is the factory the server context was built on. The production
+/// one names no origin, so both lookups go where the paragraph above says.
+/// A test context's names one of its own for each
+/// ([`ChannelAdapterFactory::destination_api_base`]), so a route-driven test
+/// never hands its fixture credential to the real host (carnet#1600).
 pub(super) async fn build_linking_url(
     channel_type: ChannelType,
     code: &str,
     config: &serde_json::Value,
     base_url: &str,
     graph_api_base: Option<&str>,
+    adapters: &dyn ChannelAdapterFactory,
 ) -> Result<String, AppError> {
+    let factory_origin = adapters.destination_api_base(channel_type);
     match channel_type {
-        ChannelType::Telegram => telegram_linking_url(code, config, TELEGRAM_API).await,
+        ChannelType::Telegram => {
+            let telegram_api = factory_origin.as_deref().unwrap_or(TELEGRAM_API);
+            telegram_linking_url(code, config, telegram_api).await
+        }
         // Same rule as Telegram, for the same reason. An empty number yields
         // `https://wa.me/?text=LINK+CODE`, which is not a dead link: WhatsApp
         // opens the contact picker with the athlete's one-time binding code
         // already typed, and whoever they pick receives it. The number is
         // asked of the Graph API; see `whatsapp_display_number`.
         ChannelType::WhatsApp => {
-            whatsapp_linking_url(
-                code,
-                config,
-                graph_api_base.unwrap_or(DEFAULT_GRAPH_API_BASE),
-            )
-            .await
+            let graph_api = graph_api_base
+                .or(factory_origin.as_deref())
+                .unwrap_or(DEFAULT_GRAPH_API_BASE);
+            whatsapp_linking_url(code, config, graph_api).await
         }
         ChannelType::Messenger => {
             // Same rule as Telegram and WhatsApp above: no guessed target. The
@@ -455,12 +467,16 @@ mod tests {
     //! set.
 
     use std::env;
+    use std::sync::Arc;
 
     use axum::extract::Path;
     use axum::http::{HeaderMap, StatusCode};
     use axum::response::IntoResponse;
     use axum::routing::get;
     use axum::{Json, Router};
+    use dravr_canot::channel::MessagingChannel;
+    use dravr_canot::error::MessagingResult;
+    use pierre_services::channel_adapters::{ChannelAdapterFactory, ConfigChannelAdapters};
     use serde_json::{json, Value};
     use serial_test::serial;
     use tokio::net::TcpListener;
@@ -692,8 +708,8 @@ mod tests {
         }
     }
 
-    /// Through the function the route calls, which takes no origin: the
-    /// token's resolved bot is the destination.
+    /// Through the function the route calls, on the production factory,
+    /// which names no origin: the token's resolved bot is the destination.
     #[tokio::test]
     async fn a_telegram_link_points_at_the_bot_its_token_resolved_to() {
         telegram_answered("111:resolved-token", "dravr_coach_bot");
@@ -704,6 +720,7 @@ mod tests {
             &json!({ "bot_token": "111:resolved-token" }),
             BASE_URL,
             None,
+            &ConfigChannelAdapters,
         )
         .await
         .unwrap();
@@ -761,7 +778,15 @@ mod tests {
                     "bot_token": "", "phone_number": "", "account_id": "", "api_key": ""
                 }),
             ] {
-                let result = build_linking_url(channel, CODE, &config, BASE_URL, None).await;
+                let result = build_linking_url(
+                    channel,
+                    CODE,
+                    &config,
+                    BASE_URL,
+                    None,
+                    &ConfigChannelAdapters,
+                )
+                .await;
                 assert!(
                     result.is_err(),
                     "{channel} built a URL from a config naming no destination: {result:?}"
@@ -797,7 +822,7 @@ mod tests {
                     .to_owned(),
             ),
         ] {
-            let url = build_linking_url(channel, CODE, &config, BASE_URL, None)
+            let url = build_linking_url(channel, CODE, &config, BASE_URL, None, &ConfigChannelAdapters)
                 .await
                 .unwrap();
             assert_eq!(url, expected, "{channel}");
@@ -841,6 +866,99 @@ mod tests {
 
         assert_eq!(url, "https://t.me/dravr_coach_bot?start=Code123");
         drop(typed_bot_name);
+    }
+
+    /// A factory that names a lookup origin, as a test context's does.
+    struct LookupsAt(String);
+
+    impl ChannelAdapterFactory for LookupsAt {
+        fn build(
+            &self,
+            channel_type: ChannelType,
+            config: &Value,
+        ) -> MessagingResult<Arc<dyn MessagingChannel>> {
+            ConfigChannelAdapters.build(channel_type, config)
+        }
+
+        fn destination_api_base(&self, _channel_type: ChannelType) -> Option<String> {
+            Some(self.0.clone())
+        }
+    }
+
+    /// carnet#1600: the route asks `getMe` at the origin its context's factory
+    /// names, so a test context's fixture token never reaches the real host.
+    #[tokio::test]
+    async fn the_bot_lookup_is_asked_at_the_origin_the_factory_names() {
+        let token = "777:factory-origin-token";
+        let telegram = telegram_answering(
+            token,
+            json!({ "ok": true, "result": { "id": 777, "username": "factory_origin_bot" } }),
+        )
+        .await;
+
+        let url = build_linking_url(
+            ChannelType::Telegram,
+            CODE,
+            &json!({ "bot_token": token }),
+            BASE_URL,
+            None,
+            &LookupsAt(telegram),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(url, "https://t.me/factory_origin_bot?start=Code123");
+    }
+
+    /// The Graph API the server configuration names outranks the factory's
+    /// origin; with none configured, the number is asked where the factory
+    /// says.
+    ///
+    /// Each half asks for a phone-number id of its own: a resolved number is
+    /// kept for the process, so a second lookup of the same id would be
+    /// answered from memory and reach neither origin.
+    #[tokio::test]
+    async fn the_number_lookup_is_asked_at_the_factory_origin_unless_one_is_configured() {
+        let factory_graph = graph_answering(
+            "1600160016",
+            "wa-factory-token",
+            json!({ "display_phone_number": "+1 819-555-0160", "id": "1600160016" }),
+        )
+        .await;
+        let by_factory = build_linking_url(
+            ChannelType::WhatsApp,
+            CODE,
+            &json!({ "phone_number": "1600160016", "api_key": "wa-factory-token" }),
+            BASE_URL,
+            None,
+            &LookupsAt(factory_graph.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(by_factory, "https://wa.me/18195550160?text=LINK%20Code123");
+
+        // The factory's origin knows nothing of this id, so only the
+        // configured Graph API can have stated its number.
+        let configured_graph = graph_answering(
+            "1600160017",
+            "wa-configured-token",
+            json!({ "display_phone_number": "+1 819-555-0161", "id": "1600160017" }),
+        )
+        .await;
+        let by_configuration = build_linking_url(
+            ChannelType::WhatsApp,
+            CODE,
+            &json!({ "phone_number": "1600160017", "api_key": "wa-configured-token" }),
+            BASE_URL,
+            Some(&configured_graph),
+            &LookupsAt(factory_graph),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            by_configuration,
+            "https://wa.me/18195550161?text=LINK%20Code123"
+        );
     }
 
     /// Telegram cannot be reached, so nobody knows which bot the token belongs

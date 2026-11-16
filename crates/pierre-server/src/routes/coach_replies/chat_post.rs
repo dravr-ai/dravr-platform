@@ -36,7 +36,10 @@ pub(super) async fn post(
     outcome: &CorrectionOutcome,
 ) -> bool {
     let repos = &resources.common.repos;
-    let poster = ServerGroupChatPoster::from_repos(Arc::clone(repos));
+    let poster = ServerGroupChatPoster::from_repos(
+        Arc::clone(repos),
+        Arc::clone(&resources.mcp.channel_adapters),
+    );
     post_through(
         repos,
         &resources.mcp.messaging_strings_registry,

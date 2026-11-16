@@ -30,6 +30,7 @@ mod bot_links_settings {
     use axum::{Json, Router};
     use chrono::{Duration, Utc};
     use hmac::{Hmac, Mac};
+    use pierre_config::environment::ChannelCredentials;
     use pierre_core::models::{TenantId, UserStatus};
     use pierre_database::backends::{
         CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository,
@@ -37,9 +38,10 @@ mod bot_links_settings {
     };
     use pierre_email::ResendEmailService;
     use pierre_mcp_server::mcp::resources::ServerContext;
-    use pierre_mcp_server::messaging_seed::seed_from_env;
+    use pierre_mcp_server::messaging_seed::seed_from_config;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_routes_auth::AuthRoutes;
+    use secrecy::SecretString;
     use serde_json::{json, Value};
     use sha2::{Digest, Sha256};
     use std::env;
@@ -251,23 +253,26 @@ mod bot_links_settings {
         let (admin, _admin_token) = create_test_tenant(&resources, ADMIN_EMAIL).await.unwrap();
         let bot_tenant = first_tenant(&resources, admin.id).await;
 
-        // The only test in this binary that touches these variables, and it
-        // removes them again before asserting anything.
-        let vars = [
-            ("ADMIN_EMAIL", ADMIN_EMAIL),
-            ("TELEGRAM_BOT_TOKEN", "439:platform-bot-token"),
-            ("TELEGRAM_WEBHOOK_SECRET", TELEGRAM_SECRET),
-            ("META_WHATSAPP_APP_SECRET", WHATSAPP_SECRET),
-            ("META_WHATSAPP_ACCESS_TOKEN", WHATSAPP_ACCESS_TOKEN),
-            ("META_WHATSAPP_PHONE_NUMBER_ID", WHATSAPP_PHONE_ID),
-        ];
-        for (key, value) in vars {
-            env::set_var(key, value);
-        }
-        seed_from_env(&resources.common.repos).await;
-        for (key, _) in vars {
-            env::remove_var(key);
-        }
+        // What `ServerConfig::from_env` captures for a deployment that runs
+        // a Telegram bot and a WhatsApp number. The seed is handed it; the
+        // admin's address is the one thing it still reads from the
+        // environment, set by this test alone and removed before any assert.
+        let channels = ChannelCredentials {
+            telegram_bot_token: Some(SecretString::from("439:platform-bot-token")),
+            telegram_webhook_secret: Some(SecretString::from(TELEGRAM_SECRET)),
+            whatsapp_app_secret: Some(SecretString::from(WHATSAPP_SECRET)),
+            whatsapp_access_token: Some(SecretString::from(WHATSAPP_ACCESS_TOKEN)),
+            whatsapp_phone_number_id: Some(WHATSAPP_PHONE_ID.to_owned()),
+            ..ChannelCredentials::default()
+        };
+        env::set_var("ADMIN_EMAIL", ADMIN_EMAIL);
+        seed_from_config(
+            &resources.common.repos,
+            &channels,
+            &resources.common.config.webhooks,
+        )
+        .await;
+        env::remove_var("ADMIN_EMAIL");
 
         let (athlete_id, athlete_token, athlete_tenant) =
             register_athlete(&resources, "bot-linked-athlete-439@example.com").await;

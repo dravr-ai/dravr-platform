@@ -554,8 +554,18 @@ fn collect_verified_matches(
     for config in configs {
         let enriched = enrich_slack_bot_allow_list(channel_type, config, allowed_bot_ids);
         let adapter_config = enriched.as_ref().unwrap_or(config);
-        let Some(adapter) = adapters.build(channel_type, adapter_config) else {
-            continue;
+        let adapter = match adapters.build(channel_type, adapter_config) {
+            Ok(adapter) => adapter,
+            Err(e) => {
+                let tenant_id = config.get("tenant_id").and_then(Value::as_str);
+                debug!(
+                    channel = %channel_type,
+                    tenant_id,
+                    error = %e,
+                    "Channel config builds no adapter, so it cannot verify this webhook"
+                );
+                continue;
+            }
         };
 
         if adapter.verify_signature(headers, body).is_ok() {

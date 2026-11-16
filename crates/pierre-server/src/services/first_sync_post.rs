@@ -523,7 +523,10 @@ pub fn install_first_sync_post(resources: &Arc<ServerContext>, post: Arc<dyn Pla
     let poster: Arc<dyn FirstSyncHook> = Arc::new(FirstSyncPoster::new(
         Arc::downgrade(resources),
         post,
-        config_adapter_resolver(Arc::clone(&resources.common.repos)),
+        config_adapter_resolver(
+            Arc::clone(&resources.common.repos),
+            Arc::clone(&resources.mcp.channel_adapters),
+        ),
     ));
     if resources.mcp.first_sync.set(poster).is_err() {
         warn!("First-sync hook already installed; skipping");

@@ -41,6 +41,7 @@ use pierre_mcp_server::constants;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
 use pierre_mcp_server::utils;
 use pierre_services::admin_ops;
+use pierre_services::channel_adapters::ConfigChannelAdapters;
 use uuid::Uuid;
 
 static INIT: Once = Once::new();
@@ -130,7 +131,12 @@ pub(crate) async fn build_server_context() -> Arc<ServerContext> {
             "bench_admin_secret",
             config,
             cache,
-            ServerContextOptions::testing().with_jwks_manager(Arc::new(jwks)),
+            // The production adapter factory, named on purpose: the benches
+            // dispatch tools over a database that stores no channel config
+            // and no channel link, and mount no messaging route, so nothing
+            // here routes a message and no adapter is ever built.
+            ServerContextOptions::testing(Arc::new(ConfigChannelAdapters))
+                .with_jwks_manager(Arc::new(jwks)),
         )
         .await
         .unwrap(),

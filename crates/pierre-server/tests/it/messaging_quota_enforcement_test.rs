@@ -192,9 +192,9 @@ mod messaging_quota_enforcement_tests {
     }
 
     /// The outbound message bodies stored for the sender's session, newest set
-    /// first. The denial reply is persisted (with a retry-queue entry) when
-    /// the adapter's live send fails in tests, so the body is observable here
-    /// either way.
+    /// first. The denial reply is persisted whether its send succeeds (the
+    /// context's offline adapter) or fails (with a retry-queue entry), so the
+    /// body is observable here either way.
     async fn outbound_bodies(
         db: &dyn MessagingRepository,
         tenant_id: TenantId,

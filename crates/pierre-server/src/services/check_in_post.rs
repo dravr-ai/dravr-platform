@@ -564,7 +564,10 @@ pub fn start_check_in_scheduler(resources: &Arc<ServerContext>, post: Arc<dyn Pl
     let poster = Arc::new(CheckInPoster::new(
         Arc::downgrade(resources),
         post,
-        config_adapter_resolver(Arc::clone(&resources.common.repos)),
+        config_adapter_resolver(
+            Arc::clone(&resources.common.repos),
+            Arc::clone(&resources.mcp.channel_adapters),
+        ),
     ));
     spawn_periodic(
         WORKER_NAME,

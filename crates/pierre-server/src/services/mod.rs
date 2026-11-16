@@ -79,6 +79,10 @@ pub mod gear_ledger;
 #[cfg(feature = "client-messaging")]
 pub mod discord_gateway;
 
+/// The startup publish of the command menus to Telegram and Messenger, for the bot and page the binary names
+#[cfg(feature = "client-messaging")]
+pub mod channel_menus;
+
 /// Slack Socket Mode WebSocket client — bridges real-time Slack events to the webhook pipeline
 #[cfg(feature = "client-messaging")]
 pub mod slack_socket;

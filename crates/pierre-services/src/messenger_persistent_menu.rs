@@ -27,12 +27,52 @@
 //! fail startup. The page access token rides in the query string, so neither
 //! the URL nor a response body reaches a log line.
 
-use std::env;
-
 use pierre_core::http_client::api_client;
 use reqwest::StatusCode;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::{json, Value};
 use tracing::{info, warn};
+
+/// The Graph API's own host.
+const GRAPH_API: &str = "https://graph.facebook.com";
+
+/// The Messenger page a persistent menu is published to: its access token,
+/// and the Graph API host the call goes to.
+#[derive(Debug, Clone)]
+pub struct MessengerPage {
+    /// Scheme and host of the Graph API, with no trailing slash.
+    graph_base: String,
+    /// The page access token, which rides in the query string.
+    token: SecretString,
+}
+
+impl MessengerPage {
+    /// The page `token` names, on Meta's own Graph API.
+    #[must_use]
+    pub fn new(token: SecretString) -> Self {
+        Self::at(GRAPH_API, token)
+    }
+
+    /// The page `token` names, on the Graph API served at `graph_base`: the
+    /// stand-in a test listens on.
+    #[must_use]
+    pub fn at(graph_base: &str, token: SecretString) -> Self {
+        Self {
+            graph_base: graph_base.trim_end_matches('/').to_owned(),
+            token,
+        }
+    }
+
+    /// The URL the page's profile is written at. It carries the token in its
+    /// query string, so it never reaches a log line.
+    fn profile_url(&self) -> String {
+        format!(
+            "{}/{GRAPH_API_VERSION}/me/messenger_profile?access_token={}",
+            self.graph_base,
+            self.token.expose_secret()
+        )
+    }
+}
 
 /// Graph API version the payload shape below was verified against.
 const GRAPH_API_VERSION: &str = "v25.0";
@@ -82,18 +122,13 @@ pub fn persistent_menu_payload(commands: &[(String, String)]) -> Value {
     })
 }
 
-/// Publish `commands` as the Messenger page's persistent menu.
+/// Publish `commands` as `page`'s persistent menu.
 ///
-/// Returns without acting when `META_MESSENGER_PAGE_ACCESS_TOKEN` is unset or
-/// empty — the same condition under which `messaging_seed` skips seeding the
-/// Messenger channel, so a deployment without Messenger stays silent.
-pub async fn publish_messenger_menu(commands: &[(String, String)]) {
-    let Ok(token) = env::var("META_MESSENGER_PAGE_ACCESS_TOKEN") else {
-        return;
-    };
-    if token.is_empty() {
-        return;
-    }
+/// The environment is not read here: the server binary builds `page` from the
+/// configuration it read at startup, and a caller that holds no page cannot
+/// publish (carnet#1600).
+pub async fn publish_messenger_menu(page: &MessengerPage, commands: &[(String, String)]) {
+    let token = page.token.expose_secret();
 
     let body = persistent_menu_payload(commands);
     let count = body
@@ -113,18 +148,15 @@ pub async fn publish_messenger_menu(commands: &[(String, String)]) {
         );
     }
 
-    let url = format!(
-        "https://graph.facebook.com/{GRAPH_API_VERSION}/me/messenger_profile?access_token={token}"
-    );
     // The token sits in the query string and a reqwest error carries that URL,
     // so it is masked out here, before anything reaches a log line.
     let outcome = api_client()
-        .post(&url)
+        .post(page.profile_url())
         .json(&body)
         .send()
         .await
         .map(|res| res.status())
-        .map_err(|e| e.to_string().replace(&token, "***"));
+        .map_err(|e| e.to_string().replace(token, "***"));
 
     log_publish_result(&outcome, count);
 }
@@ -147,5 +179,30 @@ fn log_publish_result(outcome: &Result<StatusCode, String>, count: usize) {
                 "messenger_profile request failed; the menu keeps its previous contents"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A page built on a stand-in sends there and nowhere else: a test that
+    /// hands `at` its local listener relies on this to stay off Meta.
+    ///
+    /// The literals are wire values: the Graph API's host, its version
+    /// segment and the Messenger profile path are Meta's, not this codebase's.
+    #[test]
+    fn a_page_built_at_a_base_calls_that_base_and_new_calls_meta() {
+        let token = || SecretString::from("test-page-token".to_owned());
+        assert_eq!(
+            MessengerPage::at("http://127.0.0.1:4010/", token()).profile_url(),
+            "http://127.0.0.1:4010/v25.0/me/messenger_profile?access_token=test-page-token",
+            "bug: a page built at a base must call that base, or a test's stand-in is bypassed"
+        );
+        assert_eq!(
+            MessengerPage::new(token()).profile_url(),
+            "https://graph.facebook.com/v25.0/me/messenger_profile?access_token=test-page-token",
+            "bug: a page built with `new` must call Meta's own Graph API"
+        );
     }
 }

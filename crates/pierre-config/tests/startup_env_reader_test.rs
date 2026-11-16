@@ -16,9 +16,10 @@ use std::env;
 
 use pierre_config::chat_tools::DEFER_TOOLS_VAR;
 use pierre_config::environment::{
-    ChatToolSettings, ExternalServicesConfig, SciotteServiceConfig, ServerTimeouts, WebhookSecrets,
+    ChannelCredentials, ChatToolSettings, ExternalServicesConfig, SciotteServiceConfig,
+    ServerConfig, ServerTimeouts, WebhookSecrets,
 };
-use secrecy::ExposeSecret;
+use secrecy::{ExposeSecret, SecretString};
 
 const TIMEOUT_VARS: [&str; 6] = [
     "PIERRE_MCP_TASK_FAST_PATH_MS",
@@ -171,6 +172,7 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
     env::remove_var(DEFER_TOOLS_VAR);
 
     assert_webhook_secrets_read_at_startup();
+    assert_channel_credentials_read_at_startup();
 
     // An empty Graph API base is no override.
     env::set_var("META_GRAPH_API_BASE", "");
@@ -200,6 +202,82 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
     }
     env::remove_var("DRAVR_SCIOTTE_REMOTE_URL");
     env::remove_var("DRAVR_SCIOTTE_AUDIENCE");
+}
+
+/// Channel credentials: the environment's are captured by the startup reader
+/// and by nothing else, an empty one names no channel, and Debug never prints
+/// one. Called from the one env-writing test.
+fn assert_channel_credentials_read_at_startup() {
+    const VARS: [(&str, &str); 6] = [
+        ("TELEGRAM_BOT_TOKEN", "1600:telegram-bot"),
+        ("TELEGRAM_WEBHOOK_SECRET", "telegram-hook-1600"),
+        ("META_MESSENGER_APP_SECRET", ""),
+        ("META_MESSENGER_PAGE_ACCESS_TOKEN", "page-token-1600"),
+        ("DISCORD_BOT_TOKEN", "discord-bot-1600"),
+        ("DISCORD_APPLICATION_ID", "160016001600"),
+    ];
+    for (key, value) in VARS {
+        env::set_var(key, value);
+    }
+
+    let read = ChannelCredentials::from_env();
+    let secret =
+        |field: &Option<SecretString>| field.as_ref().map(|s| s.expose_secret().to_owned());
+    assert_eq!(
+        secret(&read.telegram_bot_token).as_deref(),
+        Some("1600:telegram-bot"),
+        "bug: TELEGRAM_BOT_TOKEN was not read at startup"
+    );
+    assert_eq!(
+        secret(&read.telegram_webhook_secret).as_deref(),
+        Some("telegram-hook-1600"),
+        "bug: TELEGRAM_WEBHOOK_SECRET was not read at startup"
+    );
+    assert_eq!(
+        secret(&read.messenger_page_access_token).as_deref(),
+        Some("page-token-1600"),
+        "bug: META_MESSENGER_PAGE_ACCESS_TOKEN was not read at startup"
+    );
+    assert!(
+        read.messenger_app_secret.is_none(),
+        "an empty app secret names no Messenger channel"
+    );
+    assert_eq!(
+        secret(&read.discord_bot_token).as_deref(),
+        Some("discord-bot-1600"),
+        "bug: DISCORD_BOT_TOKEN was not read at startup"
+    );
+    assert_eq!(
+        read.discord_application_id.as_deref(),
+        Some("160016001600"),
+        "bug: DISCORD_APPLICATION_ID was not read at startup"
+    );
+
+    // A config the startup reader did not build names no channel, whatever
+    // the process exports: this is what keeps a test server, on a machine
+    // whose shell exports the deployment's bot token, away from the real bot
+    // (carnet#1600).
+    let unread = ServerConfig::default().channels;
+    assert!(
+        unread.telegram_bot_token.is_none()
+            && unread.telegram_webhook_secret.is_none()
+            && unread.messenger_page_access_token.is_none()
+            && unread.discord_bot_token.is_none(),
+        "bug: a default config carried a channel credential from the environment"
+    );
+
+    let shown = format!("{read:?}");
+    assert!(
+        !shown.contains("1600:telegram-bot")
+            && !shown.contains("telegram-hook-1600")
+            && !shown.contains("page-token-1600")
+            && !shown.contains("discord-bot-1600"),
+        "bug: Debug of the channel credentials printed a secret"
+    );
+
+    for (key, _) in VARS {
+        env::remove_var(key);
+    }
 }
 
 /// Webhook secrets: a blank secret configures none, the subscription list

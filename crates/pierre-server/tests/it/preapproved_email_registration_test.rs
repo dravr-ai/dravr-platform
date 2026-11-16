@@ -97,6 +97,8 @@ async fn setup() -> anyhow::Result<Arc<ServerContext>> {
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await

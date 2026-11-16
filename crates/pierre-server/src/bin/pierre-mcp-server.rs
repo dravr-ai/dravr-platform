@@ -55,6 +55,8 @@ use pierre_mcp_server::{
     utils::http_client::initialize_http_clients,
 };
 use pierre_services::agent_package_repair::repair_stored_flavours;
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ConfigChannelAdapters;
 use pierre_services::chat_provider_factory::spawn_llm_health_probe;
 use pierre_services::server_lifecycle;
 use secrecy::ExposeSecret;
@@ -488,12 +490,13 @@ async fn create_server(
     let rsa_key_size = get_rsa_key_size();
     info!("Using {}-bit RSA keys for JWT signing", rsa_key_size);
 
-    // Seed messaging channel configs from environment variables (idempotent upsert)
+    // Seed the messaging channel configs the configuration read from the
+    // environment (idempotent upsert)
     #[cfg(feature = "client-messaging")]
     {
         use pierre_mcp_server::messaging_seed;
         let repos = database.repositories();
-        messaging_seed::seed_from_env(repos).await;
+        messaging_seed::seed_from_config(repos, &config.channels, &config.webhooks).await;
     }
 
     // In-memory (test) databases run headless: skip building the ChatProvider so a
@@ -541,9 +544,29 @@ async fn create_server(
             archive_imports: Some(archive_imports),
             live_records: Some(Arc::clone(&live_records)),
             blobs: Some(blobs.clone()),
+            // The production factory, named by this binary and by no
+            // constructor of the options: the adapter each tenant's stored
+            // channel config names.
+            #[cfg(feature = "client-messaging")]
+            channel_adapters: Arc::new(ConfigChannelAdapters),
         },
     )
     .await?;
+
+    // Push the catalogue this context dispatches to the bot and the page the
+    // configuration names. A step of this binary's boot and of nothing else:
+    // a context built anywhere else publishes to no one. Detached; it no-ops
+    // for a channel the deployment does not run.
+    #[cfg(feature = "client-messaging")]
+    {
+        use pierre_mcp_server::services::channel_menus::{
+            spawn_channel_menu_publish, ChannelMenuTargets,
+        };
+        spawn_channel_menu_publish(
+            &resources_instance,
+            ChannelMenuTargets::from_config(&config.channels),
+        );
+    }
 
     let resources = spawn_background_workers(resources_instance, live_records, blobs.ok());
 

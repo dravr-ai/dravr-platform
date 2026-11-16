@@ -46,8 +46,9 @@ pub(crate) mod messaging_webhooks;
 pub(crate) mod notify_capture;
 /// A real adapter with only its outbound sends captured, for tests that
 /// drive the webhook route and must not depend on reaching a channel's API.
+/// It lives in `common`, which builds every test context on it.
 #[cfg(feature = "client-messaging")]
-pub(crate) mod offline_channel;
+pub(crate) use crate::common::offline_channel;
 /// A model that records every request it is sent, for tests that assert on
 /// what a turn put on the wire.
 pub(crate) mod recording_llm;

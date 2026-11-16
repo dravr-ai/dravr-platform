@@ -126,6 +126,7 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
         Some(ServerCommitmentReporter::from_handles(
             Arc::clone(&resources.common.repos),
             Arc::clone(&resources.mcp.messaging_strings_registry),
+            Arc::clone(&resources.mcp.channel_adapters),
             #[cfg(feature = "client-notifications")]
             resources.common.notification_service.clone(),
         ));

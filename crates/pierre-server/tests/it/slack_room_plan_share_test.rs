@@ -22,9 +22,9 @@
 //! The slash egress writes the delivery ledger (carnet#158): the athlete's
 //! `/…` line lands as an inbound `messaging_messages` row synchronously, and
 //! each spawned reply part lands as an outbound row after its send resolves.
-//! Through the real webhook the Slack API call fails (test credentials), so
-//! the observable outbound rows are the `failed-…`-keyed attempts — which is
-//! the point: the wire stays observable from the database either way. The
+//! The context's offline adapter takes the send and returns no Slack message
+//! id, so the observable outbound rows are the `sent-…`-keyed deliveries —
+//! which is the point: the wire stays observable from the database. The
 //! ledger is an operator surface with no member-readable reader (only the
 //! emoji-reaction resolver joins through it), so a durable operator copy of a
 //! privately-answered `/plan` is deliberate; the member-readable surfaces
@@ -40,6 +40,7 @@
 mod slack_room {
     use crate::common::create_test_server_resources;
     use crate::helpers::axum_test::AxumTestRequest;
+    use crate::helpers::offline_channel::OfflineSendAdapters;
     use axum::http::StatusCode;
     use chrono::Utc;
     use dravr_canot::channel::MessagingChannel;
@@ -333,6 +334,9 @@ mod slack_room {
     /// under the bot tenant.
     struct SlackRoom {
         resources: Arc<ServerContext>,
+        /// The factory the room's webhooks are routed on, kept so a test
+        /// reads back what the Slack adapter was asked to put on the wire.
+        adapters: Arc<OfflineSendAdapters>,
         bot_tenant: TenantId,
         group_id: Uuid,
         sharer: Uuid,
@@ -433,6 +437,7 @@ mod slack_room {
 
         SlackRoom {
             resources,
+            adapters: Arc::new(OfflineSendAdapters::default()),
             bot_tenant,
             group_id,
             sharer,
@@ -463,7 +468,10 @@ mod slack_room {
         .to_string();
         let timestamp = Utc::now().timestamp().to_string();
         let sig = compute_slack_sig(SIGNING_SECRET, &timestamp, &body);
-        let router = MessagingRoutes::routes(Arc::clone(&room.resources));
+        let router = MessagingRoutes::routes_with_adapters(
+            Arc::clone(&room.resources),
+            Arc::<OfflineSendAdapters>::clone(&room.adapters),
+        );
         let resp = AxumTestRequest::post("/api/messaging/webhook/slack")
             .header("content-type", "application/json")
             .header("x-slack-request-timestamp", &timestamp)
@@ -547,7 +555,7 @@ mod slack_room {
     }
 
     /// The reply parts are persisted by the spawned delivery task after the
-    /// real Slack call resolves (here: fails on test credentials), so the
+    /// send resolves (here: taken by the context's offline adapter), so the
     /// outbound rows appear asynchronously — poll up to ~30s.
     async fn wait_for_outbound_ledger_rows(
         resources: &Arc<ServerContext>,
@@ -637,8 +645,8 @@ mod slack_room {
         let outbound = wait_for_outbound_ledger_rows(&room.resources, PLAN_SESSION, 1).await;
         for row in &outbound {
             assert!(
-                row.1.starts_with("failed-"),
-                "the test-credential Slack send fails, and the attempt is the record: {row:?}"
+                row.1.starts_with("sent-"),
+                "the offline adapter takes the private send, and the delivery is the record: {row:?}"
             );
             assert!(
                 row.2.is_none(),
@@ -649,6 +657,34 @@ mod slack_room {
                 "reply and command share one correlation id (the inbound turn)"
             );
         }
+        // On the wire the plan left by Slack's private mechanism and by
+        // nothing else: every part carrying it was asked of the adapter as a
+        // private reply for the caller, still addressed to the room it is
+        // shown in, and no part of it as a plain send the room would read.
+        let private = room.adapters.private_replies();
+        let plan_parts: Vec<_> = private
+            .iter()
+            .filter(|(message, _)| format!("{:?}", message.content).contains(PLAN_SESSION))
+            .collect();
+        assert_eq!(
+            plan_parts.len(),
+            outbound.len(),
+            "each delivered part of the plan was a private reply: {private:?}"
+        );
+        for (message, recipient) in &plan_parts {
+            assert_eq!(recipient, SHARER_SENDER, "the reply is for the caller");
+            assert_eq!(
+                message.recipient_id, ROOM,
+                "Slack's private reply is an ephemeral inside the room, not a DM"
+            );
+        }
+        let room_sends = room.adapters.sends();
+        assert!(
+            !room_sends
+                .iter()
+                .any(|message| format!("{:?}", message.content).contains(PLAN_SESSION)),
+            "no part of the plan may be sent where the room reads it: {room_sends:?}"
+        );
         let entries = room
             .resources
             .common
@@ -790,9 +826,9 @@ mod slack_room {
         // The room-visible reply lands in the delivery ledger (carnet#158):
         // outbound rows carrying the shared plan, stamped with the assistant
         // chat row so an emoji reaction on the delivered message resolves to
-        // a message to rate. Through the real webhook the Slack send fails on
-        // test credentials, so the rows are `failed-…`-keyed attempts — the
-        // stamp and the correlation are what this pins.
+        // a message to rate. The context's offline adapter takes the send
+        // and returns no Slack message id, so the rows are `sent-…`-keyed —
+        // the stamp and the correlation are what this pins.
         let assistant_chat_id = assistant_chat_row_id(&room.resources).await;
         let outbound = wait_for_outbound_ledger_rows(&room.resources, PLAN_SESSION, 1).await;
         for row in &outbound {

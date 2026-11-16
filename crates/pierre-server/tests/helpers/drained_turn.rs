@@ -330,9 +330,10 @@ pub(crate) fn whatsapp_text_payload(
     })
 }
 
-/// Outbound bodies stored for the sender's session, oldest first. A reply
-/// whose live send fails in tests is still persisted alongside its
-/// retry-queue entry, so a notice or an answer is observable here either way.
+/// Outbound bodies stored for the sender's session, oldest first. A reply is
+/// persisted whether its send succeeds (the context's offline adapter) or
+/// fails (alongside its retry-queue entry), so a notice or an answer is
+/// observable here either way.
 pub(crate) async fn outbound_bodies(
     db: &dyn MessagingRepository,
     tenant_id: TenantId,

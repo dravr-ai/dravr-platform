@@ -62,7 +62,7 @@ async fn server_over(records: Arc<MemoryActivityRecordStore>) -> Arc<ServerConte
             ServerContextOptions {
                 jwks_manager: Some(common::get_shared_test_jwks()),
                 live_records: Some(live_records),
-                ..ServerContextOptions::testing()
+                ..ServerContextOptions::testing(common::offline_adapters())
             },
         )
         .await

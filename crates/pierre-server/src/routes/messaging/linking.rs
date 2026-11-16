@@ -7,7 +7,7 @@
 use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
-use axum::Json;
+use axum::{Extension, Json};
 use chrono::{Duration, Utc};
 use pierre_auth::http::oauth_client;
 use pierre_core::errors::messaging::MessagingError;
@@ -16,6 +16,7 @@ use pierre_core::models::TenantId;
 use pierre_database::backends::{
     CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository, TenantRepository,
 };
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use rand::Rng;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -179,6 +180,7 @@ fn qr_svg_for(url: &str) -> Option<String> {
 /// else is a code the bot can never redeem.
 pub(crate) async fn init_channel_link(
     State(resources): State<Arc<ServerContext>>,
+    Extension(adapters): Extension<Arc<dyn ChannelAdapterFactory>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
     body: Option<Json<LinkInitBody>>,
@@ -255,6 +257,7 @@ pub(crate) async fn init_channel_link(
             .external_services
             .meta_graph_api_base
             .as_deref(),
+        adapters.as_ref(),
     )
     .await?;
 

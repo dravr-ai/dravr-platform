@@ -98,7 +98,7 @@ async fn build_context_with_stored_keys(database: &Database) -> AppResult<Server
         "test_jwt_secret",
         Arc::new(ServerConfig::default()),
         common::create_test_cache().await.unwrap(),
-        ServerContextOptions::testing(),
+        ServerContextOptions::testing(common::offline_adapters()),
     )
     .await
 }

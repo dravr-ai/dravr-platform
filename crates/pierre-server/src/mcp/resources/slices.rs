@@ -98,6 +98,8 @@ use pierre_middleware::McpAuthMiddleware;
 use pierre_notifications::NotificationService;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::registry::ProviderRegistry;
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
 use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "health-sync")]
@@ -112,7 +114,7 @@ use pierre_tool_runtime::registry::ToolRegistry;
 use pierre_tool_runtime::runtime::BackfillNotifier;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 #[cfg(feature = "client-messaging")]
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::sync::Arc;
 #[cfg(feature = "client-messaging")]
@@ -207,6 +209,10 @@ pub struct CommonSlice {
     /// Messaging command handler registry.
     #[cfg(feature = "client-messaging")]
     pub command_handler_registry: Option<Arc<CommandHandlerRegistry>>,
+    /// Names of the commands that act on their caller alone, from the same
+    /// catalogue: what a shared room's menu marks as personal.
+    #[cfg(feature = "client-messaging")]
+    pub personal_commands: HashSet<String>,
 }
 
 impl fmt::Debug for CommonSlice {
@@ -409,6 +415,11 @@ pub struct McpSlice {
     /// task through [`pierre_tool_runtime::runtime::ToolRuntime::backfill_notifier`].
     #[cfg(feature = "client-messaging")]
     pub backfill_notifier: Option<Arc<dyn BackfillNotifier>>,
+    /// Builds the channel adapter a message is verified or sent through: the
+    /// one factory the webhook routes, the messaging workers and every
+    /// proactive sender of this context share.
+    #[cfg(feature = "client-messaging")]
+    pub channel_adapters: Arc<dyn ChannelAdapterFactory>,
     /// Posts into a group's own bound chat — the room post a coach's plan
     /// publish leaves there (carnet#1249). Exposed to the publish through
     /// [`pierre_tool_runtime::runtime::ToolRuntime::group_chat_poster`], and

@@ -56,6 +56,8 @@ use pierre_mcp_server::{
 };
 use pierre_middleware::McpAuthMiddleware;
 use pierre_services::admin_ops::{AccountCaller, ActingOn};
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_test_support::db::create_test_db_with_key;
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
 use pierre_tool_runtime::guardian::GuardianConfigDocument;
@@ -1202,6 +1204,25 @@ pub(crate) async fn create_test_server_resources_with_config_and_records(
     .await
 }
 
+/// The channel adapters whose sends, status placeholder and bot lookup stay
+/// in the process. Declared here, once per test binary, because every binary
+/// that builds a context needs it; `helpers` re-exports it.
+#[cfg(feature = "client-messaging")]
+#[path = "helpers/offline_channel.rs"]
+pub(crate) mod offline_channel;
+
+/// The adapter factory every test context is built on (carnet#1600).
+///
+/// The production factory posts each reply, notice and status placeholder to
+/// the channel's real host with whatever fixture token the test stored, so
+/// `ServerContextOptions` takes its factory by name and a test names this
+/// one. A test that reads its sends back builds its context, or mounts the
+/// messaging router, on an `OfflineSendAdapters` of its own.
+#[cfg(feature = "client-messaging")]
+pub(crate) fn offline_adapters() -> Arc<dyn ChannelAdapterFactory> {
+    Arc::new(offline_channel::OfflineSendAdapters::default())
+}
+
 /// The pieces a test context takes in place of the ones its database and
 /// the environment would select; `None` keeps the default.
 #[derive(Default)]
@@ -1217,6 +1238,32 @@ struct ContextParts {
     /// The record store live provider reads are kept in, in place of a
     /// memory store of the context's own.
     live_records: Option<Arc<dyn ActivityRecordStore>>,
+    /// The offline adapter factory a test keeps a handle on, in place of one
+    /// nobody reads back. Never the production factory.
+    #[cfg(feature = "client-messaging")]
+    channel_adapters: Option<Arc<dyn ChannelAdapterFactory>>,
+}
+
+/// [`create_test_server_resources`] on an offline adapter factory the test
+/// keeps, for a test that reads back what the context's own senders sent:
+/// the notification sink, the approval notice, the consent ask.
+#[cfg(feature = "client-messaging")]
+pub(crate) async fn create_test_server_resources_on_adapters(
+    adapters: Arc<dyn ChannelAdapterFactory>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        None,
+        ContextParts {
+            channel_adapters: Some(adapters),
+            ..ContextParts::default()
+        },
+    ))
+    .await
 }
 
 async fn create_test_server_resources_over(
@@ -1233,6 +1280,8 @@ async fn create_test_server_resources_over(
         archive_imports,
         blobs,
         live_records,
+        #[cfg(feature = "client-messaging")]
+        channel_adapters,
     } = parts;
     // As deployed, uploaded files share the imports' blob store; without
     // imports the context keeps them in a memory store of its own, since no
@@ -1284,6 +1333,8 @@ async fn create_test_server_resources_over(
                 archive_imports,
                 live_records,
                 blobs,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: channel_adapters.unwrap_or_else(offline_adapters),
             },
         )
         .await

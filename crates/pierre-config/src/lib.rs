@@ -33,6 +33,8 @@ pub mod api_providers;
 pub mod cache;
 /// Configuration parameter catalog and schema definitions
 pub mod catalog;
+/// The messaging channel credentials the environment names, captured at startup
+pub mod channels;
 /// How a chat turn sends its tool catalogue, captured at startup
 pub mod chat_tools;
 /// When Coach Home's attention queue raises a reason (product thresholds)

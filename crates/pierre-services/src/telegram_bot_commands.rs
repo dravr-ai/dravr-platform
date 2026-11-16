@@ -12,11 +12,11 @@
 //! `(command, description)` pairs the API wants — but nothing on the platform
 //! ever called it, so the menu was whatever had been set by hand, or empty.
 //!
-//! [`publish_telegram_commands`] closes that: it runs at startup, next to the
-//! channel seeding that reads the same `TELEGRAM_BOT_TOKEN`, and pushes the
-//! catalogue the server actually dispatches. A command added to `commands/*.md`
-//! therefore appears in the Telegram menu on the next boot rather than needing
-//! a manual BotFather edit.
+//! [`publish_telegram_commands`] closes that: the server binary calls it at
+//! startup, for the bot its configuration names (the one the channel seed
+//! stores), and pushes the catalogue the server actually dispatches. A command
+//! added to `commands/*.md` therefore appears in the Telegram menu on the next
+//! boot rather than needing a manual BotFather edit.
 //!
 //! Each scope is published once per locale the strings registry speaks, with
 //! Telegram's `language_code` naming the locale, plus one list with no
@@ -51,8 +51,10 @@
 //! pitch on the bot's profile and share link. Both come from the five-locale
 //! strings registry, one call per `language_code`, plus one with none for a
 //! viewer whose language has no text of its own.
-
-use std::env;
+//!
+//! Neither publisher reads the environment. Each is handed the [`TelegramBot`]
+//! to publish to, which the server binary builds from the configuration it
+//! read at startup; a caller that holds no bot cannot publish (carnet#1600).
 
 use pierre_contremaitre::messaging_strings::{
     MessagingStringsRegistry, DEFAULT_LOCALE, KEY_TELEGRAM_BOT_DESCRIPTION,
@@ -60,8 +62,50 @@ use pierre_contremaitre::messaging_strings::{
 };
 use pierre_core::http_client::api_client;
 use reqwest::StatusCode;
+use secrecy::{ExposeSecret, SecretString};
 use serde_json::{json, Map, Value};
 use tracing::{info, warn};
+
+/// The Bot API's own host.
+const BOT_API: &str = "https://api.telegram.org";
+
+/// The bot a menu or a description is published to: its token, and the Bot
+/// API host the calls go to.
+#[derive(Debug, Clone)]
+pub struct TelegramBot {
+    /// Scheme and host of the Bot API, with no trailing slash.
+    api_base: String,
+    /// The bot's token, which sits in every request path.
+    token: SecretString,
+}
+
+impl TelegramBot {
+    /// The bot `token` names, on Telegram's own API.
+    #[must_use]
+    pub fn new(token: SecretString) -> Self {
+        Self::at(BOT_API, token)
+    }
+
+    /// The bot `token` names, on the Bot API served at `api_base`: a
+    /// self-hosted Bot API server, or the stand-in a test listens on.
+    #[must_use]
+    pub fn at(api_base: &str, token: SecretString) -> Self {
+        Self {
+            api_base: api_base.trim_end_matches('/').to_owned(),
+            token,
+        }
+    }
+
+    /// The URL of the Bot API `method` for this bot. It carries the token in
+    /// its path, so it never reaches a log line.
+    fn method_url(&self, method: &str) -> String {
+        format!(
+            "{}/bot{}/{method}",
+            self.api_base,
+            self.token.expose_secret()
+        )
+    }
+}
 
 /// Telegram's cap on a command description.
 const MAX_DESCRIPTION_LEN: usize = 256;
@@ -138,25 +182,17 @@ impl CommandScope {
     }
 }
 
-/// Publish `commands` to Telegram's `setMyCommands` for the bot named by
-/// `TELEGRAM_BOT_TOKEN`, under `scope`.
-///
-/// Returns without acting when the env var is unset or empty — the same
-/// condition under which `messaging_seed` skips seeding the Telegram channel,
-/// so a deployment without Telegram stays silent.
+/// Publish `commands` to Telegram's `setMyCommands` for `bot`, under `scope`.
 ///
 /// Best-effort: a Telegram outage at boot must not fail startup, so failures
 /// are logged and swallowed. Neither the URL nor the response body is logged —
 /// the token sits in the request path, and a rejection description can echo it.
 pub async fn publish_telegram_commands(
+    bot: &TelegramBot,
     commands: &[(String, String)],
     scope: CommandScope,
     language_code: Option<&str>,
 ) {
-    let Some(token) = bot_token() else {
-        return;
-    };
-
     let payload = telegram_command_payload(commands);
     if payload.is_empty() {
         warn!(
@@ -175,17 +211,8 @@ pub async fn publish_telegram_commands(
         body["language_code"] = json!(code);
     }
 
-    let outcome = call_bot_api(&token, "setMyCommands", &body).await;
+    let outcome = call_bot_api(bot, "setMyCommands", &body).await;
     log_publish_result(&outcome, count, scope);
-}
-
-/// The bot token `TELEGRAM_BOT_TOKEN` names, or `None` when it is unset or
-/// empty — the same condition under which `messaging_seed` skips seeding the
-/// Telegram channel, so a deployment without Telegram stays silent.
-fn bot_token() -> Option<String> {
-    env::var("TELEGRAM_BOT_TOKEN")
-        .ok()
-        .filter(|token| !token.is_empty())
 }
 
 /// POST `body` to the Bot API `method` and return the HTTP status.
@@ -194,10 +221,10 @@ fn bot_token() -> Option<String> {
 /// so it is masked out here, before anything reaches a log line. Neither the
 /// URL nor the response body is returned: a rejection description can echo
 /// the token too.
-async fn call_bot_api(token: &str, method: &str, body: &Value) -> Result<StatusCode, String> {
-    let url = format!("https://api.telegram.org/bot{token}/{method}");
+async fn call_bot_api(bot: &TelegramBot, method: &str, body: &Value) -> Result<StatusCode, String> {
+    let token = bot.token.expose_secret();
     api_client()
-        .post(&url)
+        .post(bot.method_url(method))
         .json(body)
         .send()
         .await
@@ -347,15 +374,11 @@ fn description_call(
     })
 }
 
-/// Send each description call to the bot `TELEGRAM_BOT_TOKEN` names.
+/// Send each description call to `bot`.
 ///
-/// Returns without acting when the token is unset or empty. Best-effort like
-/// the command menu: a Telegram outage at boot must not fail startup, so a
-/// refusal is logged and the bot keeps the description it had.
-pub async fn publish_telegram_descriptions(calls: &[DescriptionCall]) {
-    let Some(token) = bot_token() else {
-        return;
-    };
+/// Best-effort like the command menu: a Telegram outage at boot must not fail
+/// startup, so a refusal is logged and the bot keeps the description it had.
+pub async fn publish_telegram_descriptions(bot: &TelegramBot, calls: &[DescriptionCall]) {
     for call in calls {
         let method = call.kind.method();
         let language = call
@@ -363,7 +386,7 @@ pub async fn publish_telegram_descriptions(calls: &[DescriptionCall]) {
             .get("language_code")
             .and_then(Value::as_str)
             .unwrap_or("default");
-        let outcome = call_bot_api(&token, method, &call.body).await;
+        let outcome = call_bot_api(bot, method, &call.body).await;
         log_description_result(&outcome, method, language);
     }
 }
@@ -420,6 +443,26 @@ mod tests {
             .filter(|call| call.kind == kind)
             .map(|call| &call.body)
             .collect()
+    }
+
+    /// A bot built on a stand-in sends there and nowhere else: a test that
+    /// hands `at` its local listener relies on this to stay off Telegram.
+    ///
+    /// The literals are wire values: the Bot API's host and its
+    /// `/bot<token>/<method>` path are Telegram's, not this codebase's.
+    #[test]
+    fn a_bot_built_at_a_base_calls_that_base_and_new_calls_telegram() {
+        let token = || SecretString::from("0:test".to_owned());
+        assert_eq!(
+            TelegramBot::at("http://127.0.0.1:4010/", token()).method_url("setMyCommands"),
+            "http://127.0.0.1:4010/bot0:test/setMyCommands",
+            "bug: a bot built at a base must call that base, or a test's stand-in is bypassed"
+        );
+        assert_eq!(
+            TelegramBot::new(token()).method_url("setMyCommands"),
+            "https://api.telegram.org/bot0:test/setMyCommands",
+            "bug: a bot built with `new` must call Telegram's own Bot API"
+        );
     }
 
     #[test]

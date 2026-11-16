@@ -114,16 +114,65 @@ mod cross_tenant_bot_tests {
         );
 
         // The outbound (assistant) row must also land under the user tenant —
-        // the other half of the DM unit. The fake bot token makes the real
-        // Telegram send fail, so the reply persists via the retry path
-        // (outbound_retry::enqueue_failed_outbound), which likewise uses
-        // session_tenant_id for the message row; it is written asynchronously
-        // after the failed delivery.
+        // the other half of the DM unit. The context's offline adapter takes
+        // the send, so the reply persists as a delivered row, which is filed
+        // under session_tenant_id; it is written asynchronously after the
+        // delivery.
         e2e.wait_outbound_for_session(&session, 1).await;
         assert_eq!(
             e2e.ledger_tenants_for_session(&session, "outbound").await,
-            vec![user_tenant],
+            vec![user_tenant.clone()],
             "outbound message must be stored under the user tenant, not the bot tenant"
+        );
+
+        // The retry path files its two rows under two tenants, and both are
+        // pinned here. A second turn goes through a bot that refuses every
+        // send, as the real host refused this fixture's token before the
+        // context sent offline: the ingress takes the failure arm of the
+        // turn reply (`enqueue_failed_outbound`), which records the reply in
+        // the ledger under the session's tenant and queues it under the
+        // bot's, whose channel config the retry worker re-sends with.
+        e2e.llm.set_turn_replies(&["Encore tes courses."]);
+        e2e.send_dm_to_a_bot_that_cannot_send(&user, "Et en 2023 ?")
+            .await;
+        assert!(
+            e2e.wait_llm_turns(2).await,
+            "the second turn never reached the LLM"
+        );
+        e2e.wait_outbound_for_session(&session, 2).await;
+        let ledger = e2e.outbound_ledger_keys_for_session(&session).await;
+        let undelivered: Vec<_> = ledger
+            .iter()
+            .filter(|(_, channel_message_id)| channel_message_id.starts_with("retry-"))
+            .collect();
+        assert_eq!(
+            undelivered.len(),
+            1,
+            "the reply the bot could not send is one retry-keyed ledger row: {ledger:?}"
+        );
+        assert_eq!(
+            undelivered[0].0, user_tenant,
+            "the undelivered reply is filed under the user tenant, like the delivered one"
+        );
+        assert_eq!(
+            ledger.len() - undelivered.len(),
+            1,
+            "the first reply stays the one delivered row: {ledger:?}"
+        );
+
+        let queued = e2e
+            .resources
+            .common
+            .repos
+            .messaging
+            .claim_due_outbound(10, 60_000)
+            .await
+            .unwrap();
+        assert_eq!(queued.len(), 1, "one reply waits for a retry: {queued:?}");
+        assert_eq!(
+            queued[0]["tenant_id"],
+            e2e.bot_tenant.to_string(),
+            "the queue entry is the bot tenant's, whose config re-sends it: {queued:?}"
         );
     }
 
@@ -260,6 +309,26 @@ mod cross_tenant_bot_tests {
             chat_consent,
             "/group consent yes must flip consent on the group bound to the chat \
              it was typed in, even though the member's tenant is not the bot's"
+        );
+
+        // The command is answered privately, so the bot is asked to delete
+        // its echo from the room: Telegram's own deletion call, which the
+        // offline adapter takes and records as a deletion.
+        let room = UNBOUND_CHAT_ID.to_string();
+        let mut deletes = e2e.adapters.deletes();
+        for _ in 0..50 {
+            if !deletes.is_empty() {
+                break;
+            }
+            sleep(Duration::from_millis(200)).await;
+            deletes = e2e.adapters.deletes();
+        }
+        assert!(
+            deletes
+                .iter()
+                .any(|(conversation, _)| conversation == &room),
+            "the command's echo must be deleted from the room it was typed in: {:?}",
+            e2e.adapters.egress()
         );
 
         let decoy_consent = groups

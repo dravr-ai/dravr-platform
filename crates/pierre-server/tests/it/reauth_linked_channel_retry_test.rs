@@ -208,8 +208,11 @@ impl ChannelAdapterFactory for ScriptedChannels {
         &self,
         channel_type: ChannelType,
         _config: &Value,
-    ) -> Option<Arc<dyn MessagingChannel>> {
+    ) -> MessagingResult<Arc<dyn MessagingChannel>> {
         self.get(channel_type)
+            .ok_or_else(|| MessagingError::ChannelNotConfigured {
+                channel: channel_type.to_string(),
+            })
     }
 }
 

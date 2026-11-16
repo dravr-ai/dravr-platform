@@ -40,6 +40,8 @@ pub use crate::chat_tools::ChatToolSettings;
 pub use crate::coach_home::CoachHomeConfig;
 // Inbound webhook secrets
 pub use crate::webhooks::WebhookSecrets;
+// Messaging channel credentials
+pub use crate::channels::ChannelCredentials;
 // Logging
 pub use crate::logging::LoggingConfig;
 // MCP
@@ -146,6 +148,11 @@ pub struct ServerConfig {
     pub chat_tools: ChatToolSettings,
     /// What inbound provider and messaging webhooks are verified against
     pub webhooks: WebhookSecrets,
+    /// The messaging channels the environment configured: what the channel
+    /// seed stores and the menu publishers send with. Empty unless
+    /// [`Self::from_env`] built this config.
+    #[serde(default)]
+    pub channels: ChannelCredentials,
     /// When Coach Home's attention queue raises a reason
     #[serde(default)]
     pub coach_home: CoachHomeConfig,
@@ -208,6 +215,7 @@ impl ServerConfig {
             timeouts: ServerTimeouts::from_env(),
             chat_tools: ChatToolSettings::from_env(),
             webhooks: WebhookSecrets::from_env(),
+            channels: ChannelCredentials::from_env(),
             coach_home: CoachHomeConfig::from_env(),
         };
 

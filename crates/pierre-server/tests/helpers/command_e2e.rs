@@ -25,10 +25,10 @@ use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use super::offline_channel::{name_fixture_bot, OfflineSendAdapters};
 use async_trait::async_trait;
 use axum::http::StatusCode;
 use chrono::Utc;
-use dravr_canot::channels::telegram::transport::TelegramTransport;
 use futures_util::stream;
 use pierre_core::errors::AppError;
 use pierre_core::llm::{
@@ -230,6 +230,9 @@ pub(crate) struct Member {
 pub(crate) struct CommandE2e {
     pub resources: Arc<ServerContext>,
     pub llm: Arc<RouterLlm>,
+    /// The offline factory every webhook of this fixture is routed on, kept
+    /// so a test reads back what the bot was asked to put on the wire.
+    pub adapters: Arc<OfflineSendAdapters>,
     /// The bot tenant's owner — the admin a system agent under that tenant
     /// is created by.
     pub bot_owner: Uuid,
@@ -328,8 +331,7 @@ impl CommandE2e {
     /// itself: `helpers/` compiles into every test binary, and `common` only
     /// exists in the binaries that declare it.
     pub(crate) async fn start(resources: Arc<ServerContext>, llm: Arc<RouterLlm>) -> Arc<Self> {
-        let _seed =
-            TelegramTransport::with_bot_identity("unused-secret".to_owned(), BOT_ID, BOT_USERNAME);
+        name_fixture_bot(BOT_ID, BOT_USERNAME);
 
         let (bot_owner, bot_tenant) = create_user_with_own_tenant(
             &resources,
@@ -357,6 +359,7 @@ impl CommandE2e {
         Arc::new(Self {
             resources,
             llm,
+            adapters: Arc::new(OfflineSendAdapters::default()),
             bot_owner,
             bot_tenant,
             update_id: AtomicI64::new(1_000),
@@ -406,8 +409,18 @@ impl CommandE2e {
     }
 
     async fn post_update(&self, message: Value) -> WebhookOutcome {
+        self.post_update_on(Arc::<OfflineSendAdapters>::clone(&self.adapters), message)
+            .await
+    }
+
+    /// Post one update through the webhook route mounted on `adapters`.
+    async fn post_update_on(
+        &self,
+        adapters: Arc<OfflineSendAdapters>,
+        message: Value,
+    ) -> WebhookOutcome {
         let update_id = self.update_id.fetch_add(1, Ordering::SeqCst);
-        let router = MessagingRoutes::routes(Arc::clone(&self.resources));
+        let router = MessagingRoutes::routes_with_adapters(Arc::clone(&self.resources), adapters);
         let resp = AxumTestRequest::post("/api/messaging/webhook/telegram")
             .header("content-type", "application/json")
             .header("x-telegram-bot-api-secret-token", TG_SECRET)
@@ -475,6 +488,51 @@ impl CommandE2e {
             "text": text
         }))
         .await
+    }
+
+    /// [`Self::send_dm`] through a bot whose every send is refused, as the
+    /// real host refused the fixture token: the turn runs, and its reply
+    /// cannot be delivered.
+    pub(crate) async fn send_dm_to_a_bot_that_cannot_send(
+        &self,
+        m: &Member,
+        text: &str,
+    ) -> WebhookOutcome {
+        let message_id = self.update_id.fetch_add(1, Ordering::SeqCst);
+        let sender: i64 = m.channel_user_id.parse().unwrap();
+        self.post_update_on(
+            Arc::new(OfflineSendAdapters::refusing_sends()),
+            json!({
+                "message_id": message_id,
+                "from": { "id": sender, "first_name": "Member" },
+                "chat": { "id": sender, "type": "private" },
+                "text": text
+            }),
+        )
+        .await
+    }
+
+    /// `(tenant id, channel message id)` of each outbound ledger row of
+    /// `session_id`, oldest first.
+    pub(crate) async fn outbound_ledger_keys_for_session(
+        &self,
+        session_id: &str,
+    ) -> Vec<(String, String)> {
+        const SQL: &str = "SELECT tenant_id, channel_message_id FROM messaging_messages \
+             WHERE direction = 'outbound' AND session_id = $1 ORDER BY created_at ASC";
+        match self.resources.agent.database.backend() {
+            DatabaseBackend::SQLite(db) => sqlx::query_as(SQL)
+                .bind(session_id)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+            #[cfg(feature = "postgresql")]
+            DatabaseBackend::PostgreSQL(db) => sqlx::query_as(SQL)
+                .bind(session_id)
+                .fetch_all(db.pool())
+                .await
+                .unwrap(),
+        }
     }
 
     /// A signed Telegram DM from `m` sharing a map pin instead of text — the
@@ -606,7 +664,7 @@ impl CommandE2e {
 
     /// Poll (≤30s) until at least `want` non-empty outbound ledger rows exist
     /// for `session_id`; the delivery task persists them asynchronously after
-    /// the channel send fails on test credentials.
+    /// the context's offline adapter takes the channel send.
     pub(crate) async fn wait_outbound_for_session(&self, session_id: &str, want: i64) -> i64 {
         for _ in 0..1200 {
             let n = self.outbound_count_for_session(session_id).await;

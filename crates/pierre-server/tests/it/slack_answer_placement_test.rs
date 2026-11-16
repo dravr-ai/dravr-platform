@@ -28,6 +28,7 @@ mod slack_answer_placement {
     use axum::{Json, Router};
     use chrono::Utc;
     use dravr_canot::channel::MessagingChannel;
+    use dravr_canot::error::MessagingResult;
     use hmac::{Hmac, Mac};
     use pierre_core::llm::LlmProvider;
     use pierre_core::models::messaging::{ChannelType, MessageContent, OutgoingMessage};
@@ -89,7 +90,7 @@ mod slack_answer_placement {
             &self,
             channel_type: ChannelType,
             config: &Value,
-        ) -> Option<Arc<dyn MessagingChannel>> {
+        ) -> MessagingResult<Arc<dyn MessagingChannel>> {
             self.offline.build(channel_type, config)
         }
 

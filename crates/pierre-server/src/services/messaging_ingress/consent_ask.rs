@@ -28,6 +28,7 @@ use pierre_core::models::messaging::{CardAction, ChannelType, MessageContent, Ou
 use pierre_core::models::{TenantId, User, UserStatus};
 use pierre_database::backends::{MessagingRepository, UserRepository};
 use pierre_database::RepositoryRegistry;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::locale::resolve_channel_locale;
 use pierre_services::messaging_broadcast::{resolve_linked_targets, resolve_target_sender};
 use tracing::warn;
@@ -151,17 +152,18 @@ pub(super) async fn consent_ask_after_link(
     })
 }
 
-/// Ask the account an operator has just approved, on every chat it is linked
+/// Ask the account an admin has just approved, on every chat it is linked
 /// to, when it has never answered, and return how many chats it reached.
 ///
 /// A chat sign-up made while sign-ups wait for review is linked while still
 /// pending, so the question at link time passes it by (a pending account's
 /// tap would be refused). The approval message is where its chat use starts,
 /// so the question follows it, through the same bot that posts that message
-/// into each chat. Best-effort like the approval message: a chat whose bot or
-/// send fails is logged and skipped.
+/// into each chat, built by the same `adapters`. Best-effort like the
+/// approval message: a chat whose bot or send fails is logged and skipped.
 pub(crate) async fn ask_linked_chats_after_approval(
     repos: &RepositoryRegistry,
+    adapters: &dyn ChannelAdapterFactory,
     registry: &MessagingStringsRegistry,
     user_id: Uuid,
 ) -> usize {
@@ -179,7 +181,8 @@ pub(crate) async fn ask_linked_chats_after_approval(
     let messaging: &dyn MessagingRepository = repos.messaging.as_ref();
     let mut reached = 0;
     for target in resolve_linked_targets(messaging, user_id).await {
-        let Some((adapter, config)) = resolve_target_sender(messaging, &target).await else {
+        let Some((adapter, config)) = resolve_target_sender(messaging, adapters, &target).await
+        else {
             continue;
         };
         let render = messaging_render_profile(target.channel_type, &target.locale).render;

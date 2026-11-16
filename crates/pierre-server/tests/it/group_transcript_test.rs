@@ -11,11 +11,10 @@
 mod group_transcript_tests {
     use crate::common::create_test_server_resources_with_llm;
     use crate::helpers::axum_test::AxumTestRequest;
-    use crate::helpers::offline_channel::OfflineSendAdapters;
+    use crate::helpers::offline_channel::{name_fixture_bot, OfflineSendAdapters};
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
-    use dravr_canot::channels::telegram::transport::TelegramTransport;
     use futures_util::stream;
     use pierre_core::errors::AppError;
     use pierre_core::llm::{
@@ -234,11 +233,7 @@ mod group_transcript_tests {
     async fn build_scenario(resources: Arc<ServerContext>) -> Scenario {
         // Seed canot's process-wide bot-username cache so mention detection
         // never issues a live getMe call from the test suite.
-        let _seed = TelegramTransport::with_bot_identity(
-            "unused-secret".to_owned(),
-            BOT_ID,
-            "dravr_transcript_bot",
-        );
+        name_fixture_bot(BOT_ID, "dravr_transcript_bot");
 
         let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
 

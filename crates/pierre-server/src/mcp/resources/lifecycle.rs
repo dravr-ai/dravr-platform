@@ -22,8 +22,6 @@ use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::platform_post::PlatformPost;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
-#[cfg(feature = "client-messaging")]
-use dravr_canot::commands::CommandDefinition;
 use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -78,10 +76,6 @@ use pierre_providers::originals::OriginalsStore;
 use pierre_services::barrage_live_store::live_store;
 use pierre_services::provider_purge::ProviderPurgeService;
 
-/// One `setMyCommands` call: the entries, the scope and the `language_code` they are for.
-#[cfg(feature = "client-messaging")]
-type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static str>);
-
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
@@ -91,8 +85,6 @@ use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::dummy::DummyProvider;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
-#[cfg(feature = "client-messaging")]
-use pierre_core::models::SUPPORTED_LOCALES;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "client-notifications")]
 use pierre_database::backends::factory::DatabaseBackend;
@@ -121,11 +113,11 @@ use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, FIFTEEN_MINUTES, ONE_DAY};
 use pierre_providers::sciotte_provider::{startup_login_client, startup_reads};
 use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::coach_read_retention::start_coach_read_retention_task;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
-#[cfg(feature = "client-messaging")]
-use pierre_services::messenger_persistent_menu::publish_messenger_menu;
 #[cfg(all(feature = "client-notifications", feature = "client-messaging"))]
 use pierre_services::notification_channel_sink::MessagingChannelSink;
 #[cfg(feature = "client-notifications")]
@@ -135,11 +127,6 @@ use pierre_services::persona_notification_policy_gate::PersonaNotificationPolicy
 use pierre_services::pricing_loader;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
-#[cfg(feature = "client-messaging")]
-use pierre_services::telegram_bot_commands::{
-    publish_telegram_commands, publish_telegram_descriptions, telegram_description_calls,
-    CommandScope, PERSONAL_MARKER,
-};
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 use pierre_services::usage_pruning::start_usage_pruning_task;
 #[cfg(feature = "transport-sse")]
@@ -412,7 +399,7 @@ impl ServerContext {
 
         // Load messaging slash commands + handlers (see `build_command_registries`).
         #[cfg(feature = "client-messaging")]
-        let (command_registry, command_handler_registry, command_arg_specs, personal) =
+        let (command_registry, command_handler_registry, command_arg_specs, personal_commands) =
             Self::build_command_registries();
 
         // Initialize contremaitre registries (prompts + tool descriptions +
@@ -428,88 +415,6 @@ impl ServerContext {
             messaging_strings: contremaitre_messaging_strings_registry,
             training_catalogue: contremaitre_training_catalogue_registry,
         } = init_contremaitre_registries(&cageux_config_registry, &persona_contract_registry);
-
-        // Push that same catalogue to Telegram's `/` menu, per locale and as
-        // two lists each: the default scope every chat falls back to, and a
-        // group list carrying the SAME commands with the personal ones
-        // marked, so a shared room can tell which entries act on one member
-        // alone without losing the ability to discover them. Descriptions
-        // come from the five-locale strings registry, so the menu reads in
-        // the athlete's language; a list with no `language_code` is the
-        // fallback for a locale the registry does not speak. Detached because
-        // a slow or unreachable Telegram API must not stall the bind path;
-        // the publisher no-ops when TELEGRAM_BOT_TOKEN is unset.
-        #[cfg(feature = "client-messaging")]
-        if let Some(registry) = command_registry.as_ref() {
-            let strings = Arc::clone(&contremaitre_messaging_strings_registry);
-            let mut lists: Vec<TelegramMenuList> = Vec::new();
-            // The `/` menu is published in every locale the platform speaks —
-            // the one list, not a copy of it.
-            for locale in SUPPORTED_LOCALES {
-                let describe = |d: &CommandDefinition| {
-                    strings.command_description(&d.name, &d.description, locale)
-                };
-                let all_commands = registry.bot_command_list_described(describe);
-                let group_commands = registry.bot_command_list_described(|d| {
-                    if personal.contains(&d.name) {
-                        format!("{PERSONAL_MARKER}{}", describe(d))
-                    } else {
-                        describe(d)
-                    }
-                });
-                lists.push((all_commands, CommandScope::Default, Some(locale)));
-                lists.push((group_commands, CommandScope::AllGroupChats, Some(locale)));
-            }
-            // The frontmatter's own English line is the fallback list.
-            lists.push((registry.bot_command_list(), CommandScope::Default, None));
-            lists.push((
-                registry.bot_command_list_described(|d| {
-                    if personal.contains(&d.name) {
-                        format!("{PERSONAL_MARKER}{}", d.description)
-                    } else {
-                        d.description.clone()
-                    }
-                }),
-                CommandScope::AllGroupChats,
-                None,
-            ));
-            // Messenger's menu is the plain DM list in the frontmatter's language.
-            let messenger_commands = registry.bot_command_list();
-            // The bot's description — the empty chat's text and the profile's
-            // one-line pitch — in the same languages as the menu (carnet#829).
-            let descriptions = telegram_description_calls(&strings, &SUPPORTED_LOCALES);
-            let publish = tokio::spawn(async move {
-                for (commands, scope, language_code) in &lists {
-                    publish_telegram_commands(commands, *scope, *language_code).await;
-                }
-                publish_telegram_descriptions(&descriptions).await;
-                // Messenger has no group thread, so its menu is the DM list —
-                // the same one, unmarked.
-                // `publish_messenger_menu` and `publish_telegram_commands` are
-                // the only always-on menu publishers, by decision: elsewhere
-                // `/help` is the menu. WhatsApp has no persistent-menu API; Slack's
-                // only programmatic path replaces the whole app config
-                // app-globally behind a 12h human-bootstrapped token, and its
-                // slash commands cannot be invoked in threads, where the
-                // agent conversation lives. Discord has a bulk-register
-                // endpoint (`PUT /applications/{app_id}/commands`), but a
-                // registered name moves `/name` off the Gateway text path it
-                // arrives on today and onto the Interactions webhook, which
-                // cannot serve it: dravr-canot keeps an APPLICATION_COMMAND's
-                // first option value and drops `data.name`, and the webhook
-                // answers `{"status":"ok"}` where Discord requires an
-                // interaction response. Publishing a menu there would turn
-                // working typed commands into failed ones.
-                publish_messenger_menu(&messenger_commands).await;
-            });
-            // A panic in a detached task is otherwise swallowed, leaving a
-            // stale menu with nothing in the logs to explain it.
-            tokio::spawn(async move {
-                if let Err(e) = publish.await {
-                    warn!(error = %e, "Telegram command-menu publish task failed");
-                }
-            });
-        }
 
         // Create and populate tool registry with all built-in tools. Any
         // `extra_tools` supplied via `ServerContextOptions` (used by
@@ -542,6 +447,12 @@ impl ServerContext {
         // notification service, which spawns every trigger dispatch onto it.
         let turns = Arc::new(InFlightTurns::new());
 
+        // The one adapter factory of this context (carnet#1600), named by
+        // whoever built it and never defaulted here. Taken ahead of the
+        // notification service because its messaging sink sends through it.
+        #[cfg(feature = "client-messaging")]
+        let channel_adapters: Arc<dyn ChannelAdapterFactory> = options.channel_adapters;
+
         // Create notification service and start scheduler if notifications
         // feature is enabled. Built after the contremaitre registries because
         // the messaging sink renders notification bodies through the localized
@@ -553,6 +464,8 @@ impl ServerContext {
             &contremaitre_messaging_strings_registry,
             &persona_contract_registry,
             &turns,
+            #[cfg(feature = "client-messaging")]
+            &channel_adapters,
         ));
 
         // Start the background notification scheduler if service is available.
@@ -640,6 +553,8 @@ impl ServerContext {
             command_handler_registry,
             #[cfg(feature = "client-messaging")]
             command_arg_specs,
+            #[cfg(feature = "client-messaging")]
+            personal_commands,
         };
 
         let auth = super::slices::AuthSlice {
@@ -715,6 +630,7 @@ impl ServerContext {
             platform_post.clone(),
             admin_jwt_secret.into(),
             base_url,
+            Arc::clone(&channel_adapters),
             // The in-app arm's ping. Cloned from the already-assembled common
             // slice, the same handle the commitment sweep is given.
             #[cfg(feature = "client-notifications")]
@@ -732,7 +648,12 @@ impl ServerContext {
             #[cfg(feature = "client-messaging")]
             backfill_notifier,
             #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
-            group_chat_poster: ServerGroupChatPoster::from_repos(common.repos.clone()),
+            group_chat_poster: ServerGroupChatPoster::from_repos(
+                common.repos.clone(),
+                Arc::clone(&channel_adapters),
+            ),
+            #[cfg(feature = "client-messaging")]
+            channel_adapters,
             #[cfg(feature = "client-messaging")]
             platform_post,
             // The coach's first post, installed post-`Arc` the same way.
@@ -894,6 +815,7 @@ impl ServerContext {
         messaging_strings: &Arc<MessagingStringsRegistry>,
         persona_contracts: &Arc<PersonaContractRegistry>,
         turns: &InFlightTurns,
+        #[cfg(feature = "client-messaging")] channel_adapters: &Arc<dyn ChannelAdapterFactory>,
     ) -> Arc<NotificationService> {
         let service = match database.backend() {
             DatabaseBackend::SQLite(db) => {
@@ -908,6 +830,7 @@ impl ServerContext {
         let service = service.with_channel_sink(Arc::new(MessagingChannelSink::new(
             Arc::clone(repos),
             Arc::clone(messaging_strings),
+            Arc::clone(channel_adapters),
         )));
         let service = service.with_policy_gate(Arc::new(PersonaNotificationPolicyGate::new(
             Arc::clone(repos),

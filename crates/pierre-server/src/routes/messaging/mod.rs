@@ -50,25 +50,26 @@ use std::sync::Arc;
 use crate::mcp::resources::ServerContext;
 use axum::Extension;
 use pierre_core::errors::AppError;
-use pierre_services::channel_adapters::{ChannelAdapterFactory, ConfigChannelAdapters};
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 
 /// Messaging gateway routes handler
 #[derive(Debug)]
 pub struct MessagingRoutes;
 
 impl MessagingRoutes {
-    /// Create all messaging routes
+    /// Create all messaging routes, on the context's own adapter factory.
     pub fn routes(resources: Arc<ServerContext>) -> Router {
-        Self::routes_with_adapters(resources, Arc::new(ConfigChannelAdapters))
+        let adapters = Arc::clone(&resources.mcp.channel_adapters);
+        Self::routes_with_adapters(resources, adapters)
     }
 
     /// The same router, built against a caller-supplied adapter factory.
     ///
-    /// Production goes through [`Self::routes`], which always supplies
-    /// [`ConfigChannelAdapters`]. This constructor exists so a test driving the
-    /// real webhook route can exercise our ingress without its outbound sends
-    /// leaving the process — see [`pierre_services::channel_adapters`] for why
-    /// that matters.
+    /// Production goes through [`Self::routes`], which supplies the factory
+    /// the context was built with. This constructor exists so a test driving
+    /// the real webhook route can read back the sends its own factory
+    /// captured — see [`pierre_services::channel_adapters`] for why that
+    /// matters.
     pub fn routes_with_adapters(
         resources: Arc<ServerContext>,
         adapters: Arc<dyn ChannelAdapterFactory>,

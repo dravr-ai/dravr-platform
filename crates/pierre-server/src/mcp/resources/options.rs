@@ -8,6 +8,8 @@ use pierre_auth::admin::jwks::JwksManager;
 use pierre_core::billing::BillingProvider;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
+#[cfg(feature = "client-messaging")]
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_tool_runtime::RuntimeTool;
 use std::fmt;
 use std::sync::Arc;
@@ -20,8 +22,9 @@ use dravr_barrage::store::ActivityRecordStore;
 /// Optional initialization parameters for `ServerContext`
 ///
 /// Used to pass optional configuration during server initialization without
-/// exceeding function argument limits. All fields have sensible defaults.
-#[derive(Default)]
+/// exceeding function argument limits. Every field has a sensible default
+/// but one: the channel adapter factory is named by whoever builds the
+/// context, so there is no `Default` and no constructor that picks it.
 pub struct ServerContextOptions {
     /// Size of RSA keys for JWT signing (2048 for tests, 4096 for production)
     pub rsa_key_size_bits: Option<usize>,
@@ -78,6 +81,22 @@ pub struct ServerContextOptions {
     /// import's originals (`services::originals::blob_store_from_env`), or
     /// why there is none. Unset, uploads are kept in memory, as a test wants.
     pub blobs: Option<Result<Arc<dyn BlobStore>, String>>,
+    /// What builds the channel adapter every message of this context is
+    /// verified or sent through: the webhook routes, the retry and resume
+    /// workers, and the proactive senders (carnet#1600). The server binary
+    /// names [`pierre_services::channel_adapters::ConfigChannelAdapters`],
+    /// the adapter the tenant's stored config names. A test names a factory
+    /// whose sends stay in the process. It is not optional: a context that
+    /// fell back to the production factory when a test forgot the field
+    /// would post that test's fixtures to the channel's real host.
+    ///
+    /// The notification sink, the approval notice and the consent ask send
+    /// through it too, and the linking route asks it where a pairing code's
+    /// destination is looked up. The Discord Gateway and Slack Socket Mode
+    /// clients do not go through it: only the server binary starts them, and
+    /// each builds the adapter its turns reply through.
+    #[cfg(feature = "client-messaging")]
+    pub channel_adapters: Arc<dyn ChannelAdapterFactory>,
 }
 
 impl fmt::Debug for ServerContextOptions {
@@ -91,26 +110,16 @@ impl fmt::Debug for ServerContextOptions {
 }
 
 impl ServerContextOptions {
-    /// Create options with production defaults (4096-bit RSA keys)
+    /// Create options for testing (2048-bit RSA keys for speed), on the
+    /// channel adapter factory the caller names.
+    ///
+    /// The factory is an argument so that no test context gets one by
+    /// omission: a suite passes its offline factory, and a fixture that
+    /// routes no message says so where it names the production one.
     #[must_use]
-    pub fn production() -> Self {
-        Self {
-            rsa_key_size_bits: Some(4096),
-            jwks_manager: None,
-            llm_provider: None,
-            chat_provider: None,
-            extra_tools: Vec::new(),
-            billing_provider: None,
-            turn_runner: None,
-            archive_imports: None,
-            live_records: None,
-            blobs: None,
-        }
-    }
-
-    /// Create options for testing (2048-bit RSA keys for speed)
-    #[must_use]
-    pub fn testing() -> Self {
+    pub fn testing(
+        #[cfg(feature = "client-messaging")] channel_adapters: Arc<dyn ChannelAdapterFactory>,
+    ) -> Self {
         Self {
             rsa_key_size_bits: Some(2048),
             jwks_manager: None,
@@ -122,6 +131,8 @@ impl ServerContextOptions {
             archive_imports: None,
             live_records: None,
             blobs: None,
+            #[cfg(feature = "client-messaging")]
+            channel_adapters,
         }
     }
 

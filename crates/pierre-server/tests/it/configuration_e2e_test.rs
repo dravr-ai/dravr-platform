@@ -93,6 +93,8 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
                 archive_imports: None,
                 live_records: None,
                 blobs: None,
+                #[cfg(feature = "client-messaging")]
+                channel_adapters: common::offline_adapters(),
             },
         )
         .await
