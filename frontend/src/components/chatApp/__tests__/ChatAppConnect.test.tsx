@@ -80,10 +80,12 @@ describe('ChatAppConnect', () => {
     expect(screen.queryByTestId('chat-app-use-another')).not.toBeInTheDocument();
   });
 
-  it('tells a Telegram athlete to press Start', async () => {
+  // carnet#1596: the bot names the account a pairing link reaches and links
+  // only on the athlete's yes, so the panel asks for that yes too.
+  it('tells a Telegram athlete to press Start, then reply yes', async () => {
     renderConfigure();
     const panel = await screen.findByTestId('channel-link-panel');
-    expect(panel).toHaveTextContent('Then press Start to finish.');
+    expect(panel).toHaveTextContent('Then press Start and reply yes to finish.');
   });
 
   // Found by the 2026-10-23 onboarding e2e on dev: the WhatsApp step said to
@@ -100,7 +102,7 @@ describe('ChatAppConnect', () => {
     });
     renderConfigure();
     const panel = await screen.findByTestId('channel-link-panel');
-    expect(panel).toHaveTextContent('Then press Send to finish.');
+    expect(panel).toHaveTextContent('Then press Send and reply yes to finish.');
     expect(panel).not.toHaveTextContent('Start');
   });
 
