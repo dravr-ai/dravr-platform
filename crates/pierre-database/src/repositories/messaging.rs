@@ -709,6 +709,57 @@ pub trait MessagingRepository: Send + Sync {
         channel_user_id: &str,
     ) -> AppResult<()>;
 
+    /// Hold a pairing code for the sender who redeemed it until they confirm,
+    /// parking it on `otp_step = 'awaiting_link_confirm'` (carnet#1596).
+    ///
+    /// In one transaction: any other code this sender held is handed back
+    /// unspent, the sender's own in-chat OTP flow is spent (the pairing link
+    /// supersedes it), and the code is bound to this sender. Nothing is linked
+    /// and the code stays unspent until the sender confirms.
+    ///
+    /// Returns `false` when the code is not a live deep-link code minted on an
+    /// account for `channel_type` in this tenant.
+    ///
+    /// # Errors
+    /// Returns a database error when a statement or the commit fails.
+    async fn hold_link_for_confirmation(
+        &self,
+        code: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Spend a pairing code this sender holds, once they confirm it
+    /// (carnet#1596). The hold is checked in the statement that spends the
+    /// code, so a sender another redeemer displaced cannot finish it.
+    ///
+    /// Returns `false`, spending nothing, when the code is not live or not
+    /// held by `channel_user_id` for `channel_type` in this tenant.
+    ///
+    /// # Errors
+    /// Returns a database error when the update fails.
+    async fn spend_held_link_code(
+        &self,
+        code: &str,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<bool>;
+
+    /// Hand back, unspent, every pairing code this sender holds, so the
+    /// account that started it can still finish it. A code another sender has
+    /// taken over since is theirs and stays held.
+    ///
+    /// # Errors
+    /// Returns a database error when the update fails.
+    async fn release_link_confirmations(
+        &self,
+        tenant_id: TenantId,
+        channel_type: &str,
+        channel_user_id: &str,
+    ) -> AppResult<()>;
+
     // ── Backfill Push Dedup ──
 
     /// Atomically claim the right to push the backfill-completion notice for a

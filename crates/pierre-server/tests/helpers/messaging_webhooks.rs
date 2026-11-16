@@ -134,6 +134,33 @@ pub(crate) fn telegram_webhook(
     }
 }
 
+/// Build a Telegram Bot API Update carrying a photo and no text.
+#[must_use]
+pub(crate) fn telegram_photo_webhook(
+    msg_id: i64,
+    sender_id: &str,
+    secrets: &ChannelSecrets,
+) -> WebhookRequest {
+    let numeric_sender: i64 = sender_id.parse().unwrap_or(99);
+    let body_value = json!({
+        "update_id": 2000 + msg_id,
+        "message": {
+            "message_id": msg_id,
+            "from": { "id": numeric_sender, "first_name": "CmdTest" },
+            "chat": { "id": numeric_sender, "type": "private" },
+            "photo": [{ "file_id": "photo_file_id", "width": 800 }],
+        }
+    });
+    WebhookRequest {
+        path: TestChannel::Telegram.webhook_path(),
+        headers: vec![(
+            "x-telegram-bot-api-secret-token".to_owned(),
+            secrets.telegram_webhook_secret.clone(),
+        )],
+        body_value,
+    }
+}
+
 /// Build a Slack `event_callback` webhook payload signed with HMAC-SHA256 v0.
 #[must_use]
 pub(crate) fn slack_webhook(
@@ -282,6 +309,41 @@ pub(crate) fn messenger_webhook(
                     "mid": format!("mid.test_{msg_id}"),
                     "text": text,
                 }
+            }]
+        }]
+    });
+    let body_bytes = serde_json::to_vec(&body_value).expect("serialize messenger body");
+    let signature = format!(
+        "sha256={}",
+        hmac_hex(&secrets.messenger_app_secret, &body_bytes)
+    );
+
+    WebhookRequest {
+        path: TestChannel::Messenger.webhook_path(),
+        headers: vec![("x-hub-signature-256".to_owned(), signature)],
+        body_value,
+    }
+}
+
+/// Build a Messenger webhook for an `m.me/{page}?ref={code}` deep-link
+/// referral, the shape a person who never messaged the page sends when they
+/// open a pairing link.
+pub(crate) fn messenger_referral_webhook(
+    code: &str,
+    sender_id: &str,
+    page_id: &str,
+    secrets: &ChannelSecrets,
+) -> WebhookRequest {
+    let body_value = json!({
+        "object": "page",
+        "entry": [{
+            "id": page_id,
+            "time": 1_700_000_000,
+            "messaging": [{
+                "sender": { "id": sender_id },
+                "recipient": { "id": page_id },
+                "timestamp": 1_700_000_000,
+                "referral": { "ref": code, "source": "SHORTLINK", "type": "OPEN_THREAD" }
             }]
         }]
     });

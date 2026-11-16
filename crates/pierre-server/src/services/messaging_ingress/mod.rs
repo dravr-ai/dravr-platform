@@ -529,7 +529,7 @@ async fn handle_pre_session_commands(
     let thread_id = extract_thread_id(&message.metadata);
 
     let mut reply = if let LinkingAction::LinkCode(code) =
-        detect_linking_code(channel_type, &message.content)
+        detect_linking_code(channel_type, &message.content, &message.metadata)
     {
         info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "link_code");

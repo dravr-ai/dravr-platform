@@ -36,8 +36,9 @@ static TELEGRAM_BOT_USERNAMES: LazyLock<RwLock<HashMap<String, String>>> =
 /// stale, and no second place for it to drift from.
 ///
 /// That matters more here than it usually would. This URL is where the athlete
-/// sends a one-time code that binds whoever sends it to their account, so a
-/// wrong handle is not a broken link, it is a credential disclosure. The
+/// sends a one-time code that binds whoever sends it and confirms to their
+/// account, so a wrong handle is not a broken link, it is a credential
+/// disclosure. The
 /// previous implementation defaulted to a hardcoded `PierreBot` — a real bot
 /// belonging to a stranger — and every link went there, because the config
 /// write path never persisted a `bot_username` for the default to fall back
@@ -315,10 +316,11 @@ async fn telegram_linking_url(
     // https://t.me/PierreBot, which is a real bot belonging to a
     // stranger.
     //
-    // That is worse than a dead link. `detect_linking_code` +
-    // `execute_link_code` bind whoever sends the code to the requesting
-    // athlete's account inside the TTL, so pressing Start on that
-    // third-party bot hands an account-binding credential off-platform.
+    // That is worse than a dead link. Whoever sends the code to our bot
+    // inside the TTL and answers yes is bound to the requesting athlete's
+    // account (`detect_linking_code`, then `confirm_held_link`), so pressing
+    // Start on that third-party bot hands an account-binding credential
+    // off-platform.
     //
     // Guessing a bot name is therefore never acceptable: an absent
     // username must fail loudly rather than produce a plausible URL
@@ -429,7 +431,7 @@ mod tests {
     //! `build_linking_url` used to default the Telegram handle to `PierreBot` —
     //! a real bot belonging to a stranger — and every link went there, because
     //! no config ever carried the `bot_username` the default fell back from.
-    //! `detect_linking_code` binds whoever sends a valid code to the requesting
+    //! Whoever sends a valid code and answers yes is bound to the requesting
     //! athlete's account, so a guessed destination is a credential disclosure.
     //!
     //! Each test builds a URL the way `init_channel_link` does and reads where

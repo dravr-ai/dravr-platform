@@ -424,6 +424,158 @@ async fn test_pg_link_state_web_initiated() {
     );
 }
 
+/// carnet#1596 on PostgreSQL: a held pairing code is bound to its sender and
+/// unspent, the latest redeemer takes it over, and a release hands it back.
+#[tokio::test]
+async fn test_pg_pairing_code_hold_and_release() {
+    let db = pg_db().await;
+    let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
+    let user_id = user_uuid.to_string();
+    let messaging = &db.repositories().messaging;
+    let code = Uuid::new_v4().to_string();
+    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    messaging
+        .create_link_state(&CreateLinkStateParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: Some(&user_id),
+            channel_type: "telegram",
+            code: &code,
+            method: "deep_link",
+            channel_user_id: None,
+            sender_name: None,
+            app_return_uri: None,
+            expires_at: &expires_at,
+        })
+        .await
+        .unwrap();
+
+    assert!(
+        messaging
+            .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-first")
+            .await
+            .unwrap(),
+        "bug: a live pairing code could not be held"
+    );
+    assert!(
+        messaging
+            .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-second")
+            .await
+            .unwrap(),
+        "bug: a later redeemer could not take the hold over"
+    );
+    assert!(
+        messaging
+            .get_active_otp_link_state(tenant_id, "telegram", "pg-first")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: the displaced redeemer still holds the code"
+    );
+    let held = messaging
+        .get_active_otp_link_state(tenant_id, "telegram", "pg-second")
+        .await
+        .unwrap()
+        .expect("the latest redeemer holds the code");
+    assert_eq!(
+        held["otp_step"], "awaiting_link_confirm",
+        "bug: a held code is not parked on the confirmation step"
+    );
+    assert!(
+        !messaging
+            .hold_link_for_confirmation(&code, tenant_id, "whatsapp", "pg-second")
+            .await
+            .unwrap(),
+        "bug: a Telegram pairing code was held on WhatsApp"
+    );
+
+    // The displaced redeemer's cancel releases nothing of the new holder's.
+    messaging
+        .release_link_confirmations(tenant_id, "telegram", "pg-first")
+        .await
+        .unwrap();
+    assert!(
+        messaging
+            .get_active_otp_link_state(tenant_id, "telegram", "pg-second")
+            .await
+            .unwrap()
+            .is_some(),
+        "bug: a displaced redeemer's release dropped the new holder's code"
+    );
+
+    messaging
+        .release_link_confirmations(tenant_id, "telegram", "pg-second")
+        .await
+        .unwrap();
+    assert!(
+        messaging
+            .get_active_otp_link_state(tenant_id, "telegram", "pg-second")
+            .await
+            .unwrap()
+            .is_none(),
+        "bug: a released code is still held"
+    );
+    assert!(
+        messaging.get_link_state(&code).await.unwrap().is_some(),
+        "bug: a release spent the code"
+    );
+}
+
+/// carnet#1596 on PostgreSQL: only the sender holding a pairing code spends
+/// it, and only once.
+#[tokio::test]
+async fn test_pg_pairing_code_spends_only_for_its_holder() {
+    let db = pg_db().await;
+    let (user_uuid, tenant_id) = seed_pg_user_and_tenant(&db).await;
+    let user_id = user_uuid.to_string();
+    let messaging = &db.repositories().messaging;
+    let code = Uuid::new_v4().to_string();
+    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    messaging
+        .create_link_state(&CreateLinkStateParams {
+            id: &Uuid::new_v4().to_string(),
+            tenant_id,
+            user_id: Some(&user_id),
+            channel_type: "telegram",
+            code: &code,
+            method: "deep_link",
+            channel_user_id: None,
+            sender_name: None,
+            app_return_uri: None,
+            expires_at: &expires_at,
+        })
+        .await
+        .unwrap();
+    messaging
+        .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-displaced")
+        .await
+        .unwrap();
+    messaging
+        .hold_link_for_confirmation(&code, tenant_id, "telegram", "pg-holder")
+        .await
+        .unwrap();
+
+    let displaced = messaging
+        .spend_held_link_code(&code, tenant_id, "telegram", "pg-displaced")
+        .await
+        .unwrap();
+    assert!(!displaced, "bug: a displaced sender spent the code");
+    assert!(
+        messaging.get_link_state(&code).await.unwrap().is_some(),
+        "bug: a refused spend must leave the code live"
+    );
+    let holder = messaging
+        .spend_held_link_code(&code, tenant_id, "telegram", "pg-holder")
+        .await
+        .unwrap();
+    assert!(holder, "bug: the holder could not spend its code");
+    let again = messaging
+        .spend_held_link_code(&code, tenant_id, "telegram", "pg-holder")
+        .await
+        .unwrap();
+    assert!(!again, "bug: a held code was spent twice");
+}
+
 #[tokio::test]
 async fn test_pg_link_state_channel_initiated_then_complete() {
     let db = pg_db().await;

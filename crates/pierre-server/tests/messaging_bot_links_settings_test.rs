@@ -355,6 +355,16 @@ mod bot_links_settings {
 
         let wa_sender = "15550439111";
         send_whatsapp_text(&resources, wa_sender, &format!("LINK {code}")).await;
+        // The code alone links nothing: the bot names the account and waits
+        // for the sender's yes (carnet#1596).
+        assert!(
+            db.get_channel_link(bot_tenant, "whatsapp", wa_sender)
+                .await
+                .unwrap()
+                .is_none(),
+            "bug: a WhatsApp pairing code linked before the sender's yes"
+        );
+        send_whatsapp_text(&resources, wa_sender, "yes").await;
         let wa_link = db
             .get_channel_link(bot_tenant, "whatsapp", wa_sender)
             .await

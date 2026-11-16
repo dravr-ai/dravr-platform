@@ -111,6 +111,39 @@ pub(crate) use link_state_by_code_sql;
 pub(crate) const CONSUME_LINK_STATE_SQL: &str = "UPDATE messaging_link_states SET used = TRUE \
      WHERE code = $1 AND tenant_id = $2 AND used = FALSE AND expires_at > $3";
 
+/// Hand back every pairing code a sender holds pending confirmation, unspent,
+/// so the starter's code outlives a sender who walked away from it.
+pub(crate) const RELEASE_SENDER_LINK_CONFIRMATIONS_SQL: &str = r"
+            UPDATE messaging_link_states
+            SET channel_user_id = NULL, otp_step = NULL
+            WHERE tenant_id = $1 AND channel_type = $2 AND channel_user_id = $3
+              AND otp_step = 'awaiting_link_confirm' AND used = FALSE
+            ";
+
+/// Hold a live pairing code for the sender who redeemed it, until they confirm.
+///
+/// Only a deep-link code minted on an account for this channel qualifies. A
+/// code another sender held is taken over, so a forwarded copy cannot lock the
+/// starter out of their own link.
+pub(crate) const HOLD_LINK_FOR_CONFIRMATION_SQL: &str = r"
+            UPDATE messaging_link_states
+            SET channel_user_id = $1, otp_step = 'awaiting_link_confirm', otp_attempts = 0
+            WHERE code = $2 AND tenant_id = $3 AND channel_type = $4
+              AND method = 'deep_link' AND user_id IS NOT NULL
+              AND used = FALSE AND expires_at > $5
+            ";
+
+/// Spend a pairing code only while this sender still holds it. The holder is
+/// checked in the same statement that spends it, so a sender displaced by a
+/// later redeemer cannot finish the code.
+pub(crate) const SPEND_HELD_LINK_CODE_SQL: &str = r"
+            UPDATE messaging_link_states
+            SET used = TRUE
+            WHERE code = $1 AND tenant_id = $2 AND channel_type = $3
+              AND channel_user_id = $4 AND otp_step = 'awaiting_link_confirm'
+              AND used = FALSE AND expires_at > $5
+            ";
+
 /// Complete a webhook-initiated code: bind the user and consume it in one
 /// statement, only while the code has no user yet. `$uuid` is the cast on
 /// the `user_id` bind.

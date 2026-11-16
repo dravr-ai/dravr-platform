@@ -970,6 +970,90 @@ macro_rules! impl_messaging_repository {
                 Ok(())
             }
 
+            async fn hold_link_for_confirmation(
+                &self,
+                code: &str,
+                tenant_id: TenantId,
+                channel_type: &str,
+                channel_user_id: &str,
+            ) -> AppResult<bool> {
+                let hold_error =
+                    |e: sqlx::Error| AppError::database(format!("Failed to hold pairing code: {e}"));
+                let mut tx = self.pool().begin().await.map_err(hold_error)?;
+                sqlx::query(RELEASE_SENDER_LINK_CONFIRMATIONS_SQL)
+                    .bind(tenant_id)
+                    .bind(channel_type)
+                    .bind(channel_user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(hold_error)?;
+                sqlx::query(INVALIDATE_OTP_LINK_STATES_SQL)
+                    .bind(tenant_id)
+                    .bind(channel_type)
+                    .bind(channel_user_id)
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(hold_error)?;
+                let held = sqlx::query(HOLD_LINK_FOR_CONFIRMATION_SQL)
+                    .bind(channel_user_id)
+                    .bind(code)
+                    .bind(tenant_id)
+                    .bind(channel_type)
+                    .bind(Utc::now())
+                    .execute(&mut *tx)
+                    .await
+                    .map_err(hold_error)?
+                    .rows_affected()
+                    == 1;
+                if held {
+                    tx.commit().await.map_err(hold_error)?;
+                } else {
+                    // Not a code this sender may hold: leave their own flow as it was.
+                    tx.rollback().await.map_err(hold_error)?;
+                }
+                Ok(held)
+            }
+
+            async fn spend_held_link_code(
+                &self,
+                code: &str,
+                tenant_id: TenantId,
+                channel_type: &str,
+                channel_user_id: &str,
+            ) -> AppResult<bool> {
+                let spent = sqlx::query(SPEND_HELD_LINK_CODE_SQL)
+                    .bind(code)
+                    .bind(tenant_id)
+                    .bind(channel_type)
+                    .bind(channel_user_id)
+                    .bind(Utc::now())
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to spend held pairing code: {e}"))
+                    })?
+                    .rows_affected();
+                Ok(spent == 1)
+            }
+
+            async fn release_link_confirmations(
+                &self,
+                tenant_id: TenantId,
+                channel_type: &str,
+                channel_user_id: &str,
+            ) -> AppResult<()> {
+                sqlx::query(RELEASE_SENDER_LINK_CONFIRMATIONS_SQL)
+                    .bind(tenant_id)
+                    .bind(channel_type)
+                    .bind(channel_user_id)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to release pairing code: {e}"))
+                    })?;
+                Ok(())
+            }
+
             // ── Backfill Push Dedup ──
 
             async fn claim_backfill_push(

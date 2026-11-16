@@ -502,6 +502,9 @@ pub const KEY_LINK_EMAIL_PROMPT: &str = "messaging.link.email_prompt";
 pub const KEY_LINK_LOGOUT_COMPLETE: &str = "messaging.link.logout_complete";
 /// Key: user typed `cancel` during the OTP flow.
 pub const KEY_LINK_CANCELLED: &str = "messaging.link.cancelled";
+/// Key: a pairing link was redeemed; asks the sender to confirm before linking.
+/// `{0}` = the channel's name, `{1}` = the masked email of the account it links to.
+pub const KEY_LINK_CONFIRM_PROMPT: &str = "messaging.link.confirm_prompt";
 /// Key: generic "something went wrong" for unexpected DB/infra errors.
 pub const KEY_LINK_GENERIC_ERROR: &str = "messaging.link.generic_error";
 /// Offer to create an account in-conversation when the address is unknown.
