@@ -48,7 +48,11 @@ public_domains = ["app.dravr.ai", "mcp.dravr.ai"]
 # (procedure in public_mcp_monitoring.tf). The ranges are Anthropic's outbound
 # IPv4 list, https://platform.claude.com/docs/en/api/ip-addresses (it publishes
 # no outbound IPv6), checked 2026-11-06.
-armor_enabled            = true
+#
+# Off: with every refusing rule in preview the policy refuses nothing and costs
+# its fixed fees (one policy, seven rules, about CA$17 a month, checked
+# 2026-11-16). Set true to bring it back; the rules return in preview.
+armor_enabled            = false
 marketplace_egress_cidrs = ["160.79.104.0/21", "153.61.208.0/20"]
 
 # The MCP resource identifier (MCP_RESOURCE_URL): the URL a user enters in the
