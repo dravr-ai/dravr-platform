@@ -5,7 +5,7 @@
 // ABOUTME: Nothing to choose: no "Bring in your history" sheet, and the card's Add history opens the same sign-in in one tap
 
 import { test, expect, type Page, type Route } from '@playwright/test';
-import { setupDashboardMocks, loginToDashboard } from './test-helpers';
+import { APP_SHELL_TIMEOUT_MS, setupDashboardMocks, loginToDashboard } from './test-helpers';
 
 const json = (route: Route, body: unknown, status = 200) =>
   route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
@@ -35,23 +35,42 @@ async function mockCards(page: Page) {
 }
 
 /**
- * Leave the result the server's return from a granted Garmin authorization
- * leaves (`settleOAuthReturn`), for the surface the athlete lands on.
+ * Come back from a granted Garmin authorization the way the server does: the
+ * connect started on the connections route, and the provider returns to the
+ * app root with the result, a page load of its own. `settleOAuthReturn` stores
+ * the result and puts the route back before the first render, so Settings is
+ * the first surface to read it, as it is for an athlete.
+ *
+ * Never leave the result by hand on Home and then change the hash: Home's
+ * thread reads and removes the same key when it mounts, and a mount that lands
+ * after the write takes the grant before Settings opens.
  */
-async function leaveGarminGrant(page: Page) {
-  await page.evaluate(() => {
-    localStorage.setItem(
-      'pierre_oauth_result',
-      JSON.stringify({
-        type: 'oauth_completed',
-        provider: 'garmin',
-        success: true,
-        hasError: false,
-        tombstoned: false,
-        timestamp: Date.now(),
-      }),
-    );
-  });
+async function returnFromGarminGrant(page: Page) {
+  // The return is a page load of its own: the session is restored on it the
+  // way every reload restores one.
+  await page.route('**/api/auth/session', (route) =>
+    json(route, {
+      access_token: 'test-jwt-token',
+      csrf_token: 'test-csrf-token',
+      user: {
+        id: 'user-123',
+        user_id: 'user-123',
+        email: 'alice@acme.com',
+        display_name: 'Alice Test',
+        role: 'user',
+        is_admin: false,
+        user_status: 'active',
+        tier: 'professional',
+        tenant_id: 'user-123',
+      },
+    }),
+  );
+  await page.goto('/#settings/connections');
+  await expect(page.getByTestId('provider-row-sciotte_garmin')).toBeVisible({ timeout: 10000 });
+  // What `startOAuthInThisTab` keeps: the route the connect started from.
+  await page.evaluate(() => sessionStorage.setItem('pierre_oauth_return', 'settings/connections'));
+  await page.goto('/?provider=garmin&success=true');
+  await page.waitForURL((url) => url.hash === '#settings/connections' && url.search === '', { timeout: APP_SHELL_TIMEOUT_MS });
 }
 
 async function expectHistorySignIn(page: Page) {
@@ -75,8 +94,7 @@ test.describe('Garmin grant chains into the sign-in (carnet#1472)', () => {
   for (const theme of ['light', 'dark'] as const) {
     test(`a grant with its history missing opens the Garmin sign-in at once, ${theme} theme`, async ({ page }, testInfo) => {
       await loginToDashboard(page);
-      await leaveGarminGrant(page);
-      await page.goto('/#settings/connections');
+      await returnFromGarminGrant(page);
       await page.evaluate((t) => document.documentElement.classList.toggle('dark', t === 'dark'), theme);
 
       const login = await expectHistorySignIn(page);
