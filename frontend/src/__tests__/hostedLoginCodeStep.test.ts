@@ -456,9 +456,9 @@ describe('connect_hosted — a sign-in-first card falls back to its OAuth (carne
   });
 });
 
-describe('a Garmin sign-in goes on to its grant (carnet#1494)', () => {
-  /** The Garmin card as the picker serves it; `connected` and `oauth_owed` as the server sets them. */
-  const garminCard = (connected: boolean, owed: boolean) => [
+describe('a Garmin sign-in ends connected, never on Garmin\'s own sign-in page', () => {
+  /** The Garmin card as the picker serves it. */
+  const garminCard = (connected: boolean) => [
     {
       provider: 'sciotte_garmin',
       display_name: 'Garmin',
@@ -471,10 +471,9 @@ describe('a Garmin sign-in goes on to its grant (carnet#1494)', () => {
       consent_required: false,
       login_identifier: 'email_or_username',
       oauth_fallback: false,
-      ...(owed ? { oauth_owed: 'garmin' } : {}),
     },
   ];
-  const GARMIN_OAUTH_INIT = '/api/providers/connect/oauth-init/garmin?token=link-token';
+  const isOAuth = (url: string) => url.includes('/oauth-init/') || url.includes('oauth2Confirm');
 
   function submit(view: ReturnType<typeof open>) {
     (view.byId('email') as HTMLInputElement).value = 'athlete@example.com';
@@ -482,55 +481,35 @@ describe('a Garmin sign-in goes on to its grant (carnet#1494)', () => {
     view.submit('login-form');
   }
 
-  it("the picker starts Garmin's authorization when the sign-in names it", async () => {
+  it('the picker shows success after a Garmin sign-in and starts no authorization', async () => {
     const view = open(
       'connect_hosted',
-      {
-        [LOGIN]: [
-          { status: 200, body: { status: 'connected', provider: 'sciotte_garmin', oauth_follow_on: { provider: 'garmin' } } },
-        ],
-      },
-      garminCard(false, false),
+      { [LOGIN]: [{ status: 200, body: { status: 'connected', provider: 'sciotte_garmin' } }] },
+      garminCard(false),
     );
     (view.document.querySelector('.provider-card') as HTMLButtonElement).click();
     submit(view);
 
-    await vi.waitFor(() => expect(view.navigations).toEqual([GARMIN_OAUTH_INIT]));
-    expect(view.visible('phase-success')).toBe(false);
+    await vi.waitFor(() => expect(view.visible('phase-success')).toBe(true));
+    expect(view.navigations.filter(isOAuth)).toEqual([]);
   });
 
-  it('the picker keeps a connected card that owes its grant pickable, and starts it', () => {
-    const view = open('connect_hosted', {}, garminCard(true, true));
+  it('the picker leaves a connected Garmin card inert', () => {
+    const view = open('connect_hosted', {}, garminCard(true));
     const card = view.document.querySelector('.provider-card') as HTMLButtonElement;
-    expect(card.disabled).toBe(false);
-    expect(card.textContent).toContain(text('hosted.picker.tagAuthorize'));
+    expect(card.disabled).toBe(true);
     card.click();
-    expect(view.navigations).toEqual([GARMIN_OAUTH_INIT]);
+    expect(view.navigations).toEqual([]);
   });
 
-  it('the picker leaves a connected card that owes nothing inert', () => {
-    const view = open('connect_hosted', {}, garminCard(true, false));
-    expect((view.document.querySelector('.provider-card') as HTMLButtonElement).disabled).toBe(true);
-  });
-
-  it("the hosted sign-in goes to the grant's authorization URL its answer carries", async () => {
-    const url = 'https://connect.garmin.test/oauth2Confirm?client_id=dravr';
+  it('the hosted sign-in shows success after a Garmin sign-in and starts no authorization', async () => {
     const view = open('sciotte_link_login', {
-      [LOGIN]: [
-        {
-          status: 200,
-          body: {
-            status: 'connected',
-            provider: 'sciotte_garmin',
-            oauth_follow_on: { provider: 'garmin', authorization_url: url },
-          },
-        },
-      ],
+      [LOGIN]: [{ status: 200, body: { status: 'connected', provider: 'sciotte_garmin' } }],
     });
     submit(view);
 
-    await vi.waitFor(() => expect(view.navigations).toEqual([url]));
-    expect(view.visible('phase-success')).toBe(false);
+    await vi.waitFor(() => expect(view.visible('phase-success')).toBe(true));
+    expect(view.navigations.filter(isOAuth)).toEqual([]);
   });
 });
 
