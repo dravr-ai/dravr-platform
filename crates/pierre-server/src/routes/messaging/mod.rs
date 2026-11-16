@@ -20,7 +20,7 @@ pub(crate) use config::connectable_channels;
 /// can drive the round trip against a local stub: the functions take their
 /// endpoints as parameters precisely so this is verifiable without real Slack
 /// and Discord apps.
-pub use linking::{exchange_code_for_identity, oauth_endpoints};
+pub use linking::{exchange_code_for_identity, oauth_endpoints, ProviderIdentity};
 /// The request Cloud Tasks delivers to run one recorded turn (registre#126).
 pub mod internal_turns;
 /// Slack interactive action handlers.

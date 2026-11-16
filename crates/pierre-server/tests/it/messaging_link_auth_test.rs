@@ -618,19 +618,71 @@ async fn test_link_callback_channel_mismatch_rejected() {
     };
     db.create_link_state(&params).await.unwrap();
 
-    // Call callback with "telegram" channel — should reject due to mismatch
+    // Call callback with "telegram" channel — should reject due to mismatch,
+    // before any provider exchange is attempted
     let app = MessagingRoutes::routes(resources);
     let uri = format!(
-        "/api/messaging/link/callback/telegram?state={}&channel_user_id=tg-123",
+        "/api/messaging/link/callback/telegram?state={}&code=provider-auth-code",
         code
     );
     let resp = AxumTestRequest::get(&uri).send(app).await;
 
-    // Should return 400 with channel mismatch error
+    assert_eq!(resp.status(), 400, "channel mismatch is bad input");
+    let body = resp.text();
     assert!(
-        resp.status() == 400 || resp.status() == 422,
-        "Channel mismatch should be rejected, got status: {}",
-        resp.status()
+        body.contains("Channel mismatch"),
+        "the refusal must be the mismatch, not a later exchange failure: {body}"
+    );
+}
+
+/// The link code proves which Dravr account is linking, never which channel
+/// identity. A `channel_user_id` in the query once linked any Slack id its
+/// holder named to their own account, so the victim's later DMs ran as the
+/// holder's account (carnet#1577). Only the provider's code exchange may name
+/// the identity now: a callback without one links nothing and leaves the code
+/// unspent.
+#[tokio::test]
+async fn link_callback_never_links_a_channel_id_named_in_the_query() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let db: &dyn MessagingRepository = &*resources.common.repos.messaging;
+    let (owner_id, tenant_id) = seed_tenant_with_owner(&resources).await;
+    let owner_id_str = owner_id.to_string();
+
+    let code = Uuid::new_v4().to_string();
+    let expires_at = (Utc::now() + Duration::minutes(10)).to_rfc3339();
+    let params = CreateLinkStateParams {
+        id: &Uuid::new_v4().to_string(),
+        tenant_id,
+        user_id: Some(&owner_id_str),
+        channel_type: "slack",
+        code: &code,
+        method: "oauth",
+        channel_user_id: None,
+        sender_name: None,
+        expires_at: &expires_at,
+    };
+    db.create_link_state(&params).await.unwrap();
+
+    let app = MessagingRoutes::routes(resources.clone());
+    let uri = format!("/api/messaging/link/callback/slack?state={code}&channel_user_id=UVICTIM01");
+    let resp = AxumTestRequest::get(&uri).send(app).await;
+
+    assert_eq!(resp.status(), 400, "no provider code, no identity");
+    let body = resp.text();
+    assert!(
+        body.contains("no OAuth code"),
+        "the refusal must name the missing provider code: {body}"
+    );
+    assert!(
+        db.get_channel_link(tenant_id, "slack", "UVICTIM01")
+            .await
+            .unwrap()
+            .is_none(),
+        "a Slack id named in the query must never be linked"
+    );
+    assert!(
+        db.get_link_state(&code).await.unwrap().is_some(),
+        "the refused callback leaves the link code unspent"
     );
 }
 

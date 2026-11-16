@@ -360,9 +360,9 @@ pub(super) async fn build_linking_url(
             // Same rule as Telegram and WhatsApp above: no guessed target. The
             // page id identifies which Messenger page the link opens, and an
             // absent one previously produced `.../link/callback/messenger?state=`
-            // — our own endpoint, which rejects the request for the
-            // `channel_user_id` nothing supplies. That is the 400 every Messenger
-            // link attempt hit.
+            // — our own endpoint, which rejects a request that carries no
+            // provider OAuth code. That is the 400 every Messenger link attempt
+            // hit.
             //
             // `ref` is Messenger's own deep-link parameter and comes back on the
             // webhook (dravr-canot >= 0.4.20 parses it from both the bare
@@ -381,8 +381,8 @@ pub(super) async fn build_linking_url(
             Ok(format!("https://m.me/{page_id}?ref={code}"))
         }
         // Genuine OAuth channels. These used to return our OWN callback with only
-        // a `state` param — an endpoint that rejects the request for the
-        // `channel_user_id` nothing supplies, so every attempt 400'd. The user
+        // a `state` param — an endpoint that rejects a request without the
+        // provider's OAuth code, so every attempt 400'd. The user
         // has to be sent to the provider first; the provider is what knows who
         // they are, which is the whole point of the round trip.
         //

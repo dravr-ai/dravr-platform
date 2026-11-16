@@ -28,7 +28,9 @@
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use pierre_core::models::messaging::ChannelType;
-use pierre_mcp_server::routes::messaging::{exchange_code_for_identity, oauth_endpoints};
+use pierre_mcp_server::routes::messaging::{
+    exchange_code_for_identity, oauth_endpoints, ProviderIdentity,
+};
 use serde_json::{json, Value};
 use tokio::net::TcpListener;
 
@@ -50,7 +52,10 @@ async fn spawn_provider_stub(token_body: Value, identity_body: Value) -> String 
 }
 
 /// Run the exchange against a stub returning these two bodies.
-async fn exchange_against(token_body: Value, identity_body: Value) -> Result<String, String> {
+async fn exchange_against(
+    token_body: Value,
+    identity_body: Value,
+) -> Result<ProviderIdentity, String> {
     let base = spawn_provider_stub(token_body, identity_body).await;
     exchange_code_for_identity(
         &format!("{base}/token"),
@@ -74,15 +79,21 @@ async fn a_slack_shaped_response_yields_the_sub_claim() {
             "ok": true,
             "sub": "U02ABCDEF",
             "https://slack.com/user_id": "U02ABCDEF",
-            "email": "maya@example.com"
+            "email": "maya@example.com",
+            "name": "Maya Roy"
         }),
     )
     .await
     .expect("a well-formed Slack exchange must succeed");
 
     assert_eq!(
-        identity, "U02ABCDEF",
+        identity.id, "U02ABCDEF",
         "Slack's stable identifier is `sub`, not the email or the namespaced claim"
+    );
+    assert_eq!(
+        identity.display_name.as_deref(),
+        Some("Maya Roy"),
+        "the link's name is the one Slack vouches for, never one the callback URL carries"
     );
 }
 
@@ -91,14 +102,37 @@ async fn a_slack_shaped_response_yields_the_sub_claim() {
 async fn a_discord_shaped_response_yields_the_id_field() {
     let identity = exchange_against(
         json!({"access_token": "discord-stub", "token_type": "Bearer", "scope": "identify"}),
-        json!({"id": "80351110224678912", "username": "maya", "discriminator": "0"}),
+        json!({"id": "80351110224678912", "username": "maya", "discriminator": "0", "global_name": "Maya R"}),
     )
     .await
     .expect("a well-formed Discord exchange must succeed");
 
     assert_eq!(
-        identity, "80351110224678912",
+        identity.id, "80351110224678912",
         "Discord's stable identifier is `id`, not the username"
+    );
+    assert_eq!(
+        identity.display_name.as_deref(),
+        Some("Maya R"),
+        "Discord's display name is `global_name`"
+    );
+}
+
+/// Discord's `global_name` is null for an account that never set one; the
+/// always-present `username` names the link then.
+#[tokio::test]
+async fn a_discord_account_without_a_global_name_is_named_by_its_username() {
+    let identity = exchange_against(
+        json!({"access_token": "discord-stub"}),
+        json!({"id": "80351110224678912", "username": "maya", "global_name": null}),
+    )
+    .await
+    .expect("a well-formed Discord exchange must succeed");
+
+    assert_eq!(
+        identity.display_name.as_deref(),
+        Some("maya"),
+        "a null global_name falls back to the username"
     );
 }
 
