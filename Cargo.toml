@@ -29,7 +29,7 @@ dravr-tronc = "6.9.0"
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.50.0" }
 
 # Messaging types and channel adapters.
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.10.0" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.11.0" }
 
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
