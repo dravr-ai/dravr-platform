@@ -88,6 +88,7 @@
 //!             provider: "custom".to_owned(),
 //!             sex: None,
 //!             created_at: None,
+//!             active_streak: None,
 //!         })
 //!     }
 //!

@@ -1,5 +1,5 @@
 // ABOUTME: Pins what the scraped Strava session carries beyond the core summary: segment efforts, grade and moving streams, gear id, streak
-// ABOUTME: Drives the provider against a loopback scraper stub; the streak rides on get_stats and never fails it
+// ABOUTME: Drives the provider against a loopback scraper stub; the streak rides get_athlete's one profile read, get_stats reads none
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -15,6 +15,8 @@ use pierre_providers::core::{
 use pierre_providers::sciotte_provider::{startup_reads, SciotteProviderFactory};
 use secrecy::SecretString;
 use serde_json::{json, Value};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -25,13 +27,16 @@ enum Profile {
     Streak,
     /// A profile with no streak on it.
     NoStreak,
+    /// A profile whose streak is not the shape the scraper documents.
+    MalformedStreak,
     /// The read service failing.
     Failing,
 }
 
-/// Serve the scraper endpoints a `get_stats` and a `get_activity` call:
-/// the session import, the profile, the activity list and one detail.
-fn spawn_scraper_stub(listener: TcpListener, profile: Profile) {
+/// Serve the scraper endpoints a `get_athlete`, a `get_stats` and a
+/// `get_activity` call: the session import, the profile, the activity list
+/// and one detail. Every profile read is counted in `profile_reads`.
+fn spawn_scraper_stub(listener: TcpListener, profile: Profile, profile_reads: Arc<AtomicUsize>) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
             let mut buf = vec![0_u8; 8192];
@@ -40,6 +45,7 @@ fn spawn_scraper_stub(listener: TcpListener, profile: Profile) {
             let (status, body) = if request.contains("/auth/import-session") {
                 ("200 OK", json!({ "session_id": "stub-session" }))
             } else if request.contains("/api/athlete") {
+                profile_reads.fetch_add(1, Ordering::SeqCst);
                 match profile {
                     Profile::Streak => (
                         "200 OK",
@@ -47,6 +53,10 @@ fn spawn_scraper_stub(listener: TcpListener, profile: Profile) {
                             "id": "900201",
                             "active_streak": { "length": 21, "status": "Ongoing", "valid_activity_count": 640 }
                         }),
+                    ),
+                    Profile::MalformedStreak => (
+                        "200 OK",
+                        json!({ "id": "900201", "active_streak": { "length": "many" } }),
                     ),
                     Profile::NoStreak => ("200 OK", json!({ "id": "900201" })),
                     Profile::Failing => ("500 Internal Server Error", json!({ "error": "down" })),
@@ -134,11 +144,18 @@ async fn connected_provider(base_url: &str) -> Box<dyn FitnessProvider> {
     provider
 }
 
-async fn provider_for(profile: Profile) -> Box<dyn FitnessProvider> {
+/// A provider on a fresh stub, with the count of profile reads it served.
+async fn provider_counting_reads(profile: Profile) -> (Box<dyn FitnessProvider>, Arc<AtomicUsize>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
     let addr = listener.local_addr().expect("address");
-    spawn_scraper_stub(listener, profile);
-    connected_provider(&format!("http://{addr}")).await
+    let profile_reads = Arc::new(AtomicUsize::new(0));
+    spawn_scraper_stub(listener, profile, Arc::clone(&profile_reads));
+    let provider = connected_provider(&format!("http://{addr}")).await;
+    (provider, profile_reads)
+}
+
+async fn provider_for(profile: Profile) -> Box<dyn FitnessProvider> {
+    provider_counting_reads(profile).await.0
 }
 
 #[tokio::test]
@@ -192,15 +209,17 @@ async fn a_detail_read_carries_efforts_channels_and_the_gear_id() {
 }
 
 #[tokio::test]
-async fn the_stats_carry_stravas_own_streak() {
-    let stats = provider_for(Profile::Streak)
-        .await
-        .get_stats()
-        .await
-        .expect("stats");
-    let streak = stats
+async fn the_athlete_carries_stravas_own_streak() {
+    let (provider, profile_reads) = provider_counting_reads(Profile::Streak).await;
+    let athlete = provider.get_athlete().await.expect("athlete");
+    assert_eq!(
+        profile_reads.load(Ordering::SeqCst),
+        1,
+        "bug: the streak cost a second profile read"
+    );
+    let streak = athlete
         .active_streak
-        .expect("bug: Strava's streak did not reach the stats");
+        .expect("bug: Strava's streak did not reach the athlete");
     assert_eq!(
         (
             streak.length,
@@ -208,41 +227,53 @@ async fn the_stats_carry_stravas_own_streak() {
             streak.valid_activity_count
         ),
         (21, "Ongoing", 640),
-        "bug: the streak figure was altered on its way to the stats"
-    );
-    assert_eq!(
-        stats.total_activities, 1,
-        "bug: the streak read disturbed the activity count"
+        "bug: the streak figure was altered on its way to the athlete"
     );
 }
 
 #[tokio::test]
-async fn a_profile_with_no_streak_leaves_the_stats_without_one() {
-    let stats = provider_for(Profile::NoStreak)
+async fn a_profile_with_no_streak_leaves_the_athlete_without_one() {
+    let athlete = provider_for(Profile::NoStreak)
         .await
-        .get_stats()
+        .get_athlete()
         .await
-        .expect("stats");
+        .expect("athlete");
     assert_eq!(
-        stats.active_streak, None,
+        athlete.active_streak, None,
         "bug: a streak was invented for a profile with none"
     );
+}
+
+#[tokio::test]
+async fn a_malformed_streak_leaves_the_athlete_working_with_none() {
+    let athlete = provider_for(Profile::MalformedStreak)
+        .await
+        .get_athlete()
+        .await
+        .expect("bug: a malformed streak failed the athlete");
     assert_eq!(
-        stats.total_activities, 1,
-        "bug: the profile read disturbed the activity count"
+        athlete.active_streak, None,
+        "bug: a figure was invented from a malformed streak"
     );
 }
 
 #[tokio::test]
-async fn a_failed_profile_read_never_fails_the_stats() {
-    let stats = provider_for(Profile::Failing)
-        .await
-        .get_stats()
-        .await
-        .expect("bug: a profile failure failed the stats it only decorates");
-    assert_eq!(stats.active_streak, None, "no figure is invented");
+async fn the_stats_read_no_profile_and_carry_no_streak() {
+    // The profile service is down: the stats never depend on it.
+    let (provider, profile_reads) = provider_counting_reads(Profile::Failing).await;
+    let stats = provider.get_stats().await.expect("stats");
+    assert_eq!(
+        profile_reads.load(Ordering::SeqCst),
+        0,
+        "bug: the stats read the profile"
+    );
     assert_eq!(
         stats.total_activities, 1,
-        "bug: the failed profile read disturbed the activity count"
+        "bug: the stats lost the stub's one activity"
+    );
+    let json = serde_json::to_value(&stats).expect("serialize");
+    assert!(
+        json.get("active_streak").is_none(),
+        "bug: the streak is on the athlete, not the stats: {json}"
     );
 }

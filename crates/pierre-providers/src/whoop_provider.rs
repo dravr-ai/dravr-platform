@@ -396,6 +396,7 @@ impl FitnessProvider for WhoopProvider {
         let profile: WhoopUserProfile = self.api_request("user/profile/basic").await?;
 
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: profile.user_id.to_string(),
             username: profile.email.clone().unwrap_or_default(),

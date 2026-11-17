@@ -204,6 +204,7 @@ impl FitnessProvider for OpenRunner {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: "open-athlete".to_owned(),
             username: "open_runner".to_owned(),
@@ -243,7 +244,6 @@ impl FitnessProvider for OpenRunner {
             total_elevation_gain: 0.0,
             coverage: Coverage::lifetime(1),
             year_to_date: None,
-            active_streak: None,
         })
     }
 }

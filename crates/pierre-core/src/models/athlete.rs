@@ -29,6 +29,7 @@ use super::{Activity, PhysiologicalSex};
 ///     provider: "strava".into(),
 ///     sex: None,
 ///     created_at: None,
+///     active_streak: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -57,6 +58,14 @@ pub struct Athlete {
     /// recorded before it, so a history walk stops there.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<Utc>>,
+    /// The athlete's current activity streak, as Strava itself reports it
+    /// on the profile (the scraped Strava session only, the athlete's own
+    /// account). It is Strava's own figure, never a
+    /// Dravr computation: nothing derives or recomputes it from activities,
+    /// and `None` means the provider did not report one, not that the
+    /// athlete has no streak.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_streak: Option<ActiveStreak>,
 }
 
 /// Aggregated fitness statistics for an athlete
@@ -83,7 +92,6 @@ pub struct Athlete {
 ///     total_elevation_gain: 25000.0, // 25km of elevation
 ///     coverage: Coverage::lifetime(150),
 ///     year_to_date: None,
-///     active_streak: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -105,13 +113,6 @@ pub struct Stats {
     /// (consumers must not treat the `total_*` fields as annual).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year_to_date: Option<PeriodTotals>,
-    /// The athlete's current activity streak, as Strava itself reports it
-    /// (the scraped Strava session only). It is Strava's own figure, never a
-    /// Dravr computation: nothing derives or recomputes it from activities,
-    /// and `None` means the provider did not report one, not that the
-    /// athlete has no streak.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub active_streak: Option<ActiveStreak>,
 }
 
 /// A provider's own report of the athlete's current streak of consecutive
@@ -159,7 +160,6 @@ impl Stats {
                 ..CoverageWindow::default()
             }),
             year_to_date: None,
-            active_streak: None,
         }
     }
 }

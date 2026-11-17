@@ -721,6 +721,9 @@ impl FitnessProvider for StravaProvider {
         let strava_athlete: StravaAthleteResponse = self.api_request("athlete").await?;
 
         Ok(Athlete {
+            // Strava's API serves no streak; only the scraped session's
+            // profile read carries one.
+            active_streak: None,
             created_at: strava_athlete.created_at,
             id: strava_athlete.id.to_string(),
             username: strava_athlete.username.unwrap_or_default(),
@@ -925,9 +928,6 @@ impl FitnessProvider for StravaProvider {
             total_elevation_gain: all_time.total_elevation_gain,
             coverage: Coverage::lifetime(all_time.total_activities),
             year_to_date: Some(year_to_date),
-            // Strava's API serves no streak; only the scraped session's
-            // profile read carries one.
-            active_streak: None,
         })
     }
 }

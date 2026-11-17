@@ -169,6 +169,7 @@ impl FitnessProvider for Relay {
 
     async fn get_athlete(&self) -> AppResult<Athlete> {
         Ok(Athlete {
+            active_streak: None,
             created_at: None,
             id: "relay-athlete".to_owned(),
             username: "relay_rider".to_owned(),
@@ -209,7 +210,6 @@ impl FitnessProvider for Relay {
             total_elevation_gain: 54_321.0,
             coverage: Coverage::lifetime(412),
             year_to_date: None,
-            active_streak: None,
         })
     }
 }
@@ -2076,6 +2076,7 @@ mod scraped {
 
         async fn get_athlete(&self) -> AppResult<Athlete> {
             Ok(Athlete {
+                active_streak: None,
                 created_at: None,
                 id: "scraped-athlete".to_owned(),
                 username: "scraped_runner".to_owned(),
@@ -2116,7 +2117,6 @@ mod scraped {
                 total_elevation_gain: 300.0,
                 coverage: Coverage::lifetime(2),
                 year_to_date: None,
-                active_streak: None,
             })
         }
     }

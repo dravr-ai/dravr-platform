@@ -581,6 +581,7 @@ async fn get_athlete_serves_canonical_cache_key_for_garmin_alias() {
     .await;
 
     let athlete = Athlete {
+        active_streak: None,
         created_at: None,
         id: "424242".to_owned(),
         username: "cached_runner".to_owned(),
@@ -1751,6 +1752,7 @@ async fn get_athlete_serves_canonical_cache_key_for_trainingpeaks_alias() {
     )
     .await;
     let athlete = Athlete {
+        active_streak: None,
         created_at: None,
         id: "6642427".to_owned(),
         username: "cached_triathlete".to_owned(),

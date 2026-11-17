@@ -476,7 +476,15 @@ fn profile_name(raw: Option<String>, target: SciotteTarget) -> Option<String> {
 /// stats cache keys on an id that parses as a number, and this profile has
 /// never offered one.
 fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
+    // Strava's own figure from this same profile read; a missing one stays
+    // `None`, and no other target reports one.
+    let active_streak = if matches!(target, SciotteTarget::Strava) {
+        profile.active_streak.map(streak::convert)
+    } else {
+        None
+    };
     Athlete {
+        active_streak,
         created_at: None,
         id: target.scraper_provider_name().to_owned(),
         username: profile_name(profile.display_name, target)
@@ -532,6 +540,7 @@ fn roster_athlete(profile: AthleteProfile, athlete: &AthleteId) -> AppResult<Ath
             .scraper_provider_name()
             .to_owned(),
         sex: None,
+        active_streak: None,
     })
 }
 
@@ -921,11 +930,10 @@ impl FitnessProvider for SciotteProvider {
             .get_activities_with_params(&ActivityQueryParams::with_pagination(Some(100), None))
             .await?;
 
-        // Strava's own streak rides with the totals; its read never fails them.
-        Ok(Stats {
-            active_streak: self.read_active_streak().await,
-            ..Stats::summed_over(&activities, WindowScope::RecentActivities)
-        })
+        Ok(Stats::summed_over(
+            &activities,
+            WindowScope::RecentActivities,
+        ))
     }
 
     /// Only the TrainingPeaks mirror reads a planned calendar — the one
