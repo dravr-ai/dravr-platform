@@ -165,6 +165,11 @@ backend_sciotte_remote = true
 # rev 00822) were serving the token auth this depends on.
 backend_sciotte_iam = true
 
+# carnet#1504: the sciotte sign-in service (sciotte_login.tf), min 0, max 1,
+# same image and settings as the read service. Creating it routes nothing;
+# backend_sciotte_login_split below sends sign-ins to it.
+enable_sciotte_login_service = true
+
 # Coach visuals: deploy the photograveur chart-press service (min=0,
 # cpu_idle=true — ~$0 idle).
 enable_photograveur_service = true
