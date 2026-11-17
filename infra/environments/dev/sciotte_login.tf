@@ -122,6 +122,16 @@ locals {
     # 2026-10-09 to 10-16; headless reached the emailed-code step in 1.5 s on
     # the first try (carnet#1035).
     DRAVR_SCIOTTE_CREDENTIAL_LOGIN_HEADLESS = "true"
+
+    # The login takeover (ADR-034, carnet#1508) is off: a login asked for one
+    # stops at a challenge with login_challenge, and Chrome runs without the
+    # takeover's lockdown policy. From 2026-11-16 afternoon Garmin's SSO puts
+    # a reCAPTCHA in front of every sign-in from dev (on sciotte v1.4.0 and
+    # v2.1.0 alike, from the reserved NAT address and a fresh one), and the
+    # takeover then served athletes captcha grids that never accepted an
+    # answer. Garmin connects through OAuth first meanwhile (ChefFamille,
+    # 2026-11-16). Needs sciotte >= 3339af3, which reads the flag.
+    DRAVR_SCIOTTE_TAKEOVER = "false"
   }
 
   sciotte_secret_env_vars = {
