@@ -175,6 +175,11 @@ enable_sciotte_login_service = true
 # DRAVR_SCIOTTE_LOGIN_URL and points the login canary at it.
 backend_sciotte_login_split = true
 
+# carnet#1504 step 3: reads spread over two one-instance read services; every
+# call naming a session goes to the one its id picks. The second scales to
+# zero (ChefFamille, 2026-11-16).
+sciotte_read_services = 2
+
 # Coach visuals: deploy the photograveur chart-press service (min=0,
 # cpu_idle=true — ~$0 idle).
 enable_photograveur_service = true
