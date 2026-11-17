@@ -1939,7 +1939,7 @@
     "originalsSealHint": "Mindestens 12 Zeichen. Dravr speichert deine Passphrase nie: Wenn du sie verlierst, lässt sich die Datei nicht öffnen, und du kannst eine neue vorbereiten.",
     "originalsSealLabel": "Datei mit einer Passphrase schützen (optional)",
     "originalsSealTooShort": "Verwende mindestens 12 Zeichen.",
-    "originalsSealed": "Diese Datei ist mit deiner Passphrase geschützt.",
+    "originalsSealed": "Diese Datei ist mit deiner Passphrase geschützt. Öffne sie mit age, einem kostenlosen Verschlüsselungswerkzeug (age-encryption.org): Führe age -d aus und gib deine Passphrase ein.",
     "originalsTitle": "Deine Originaldateien",
     "partial": "Deine Datei ist fertig, aber unvollständig: Ein Teil deiner Daten konnte nicht gelesen werden. Die Datei nennt die fehlenden Teile unter failed_tables. Versuche es gleich noch einmal.",
     "partialLimit": "Deine Datei ist fertig, aber unvollständig: Sie hat eine Grenze für einen Export erreicht, bevor alle deine Daten geschrieben waren. Die Datei nennt unter skipped_tables, was fehlt.",

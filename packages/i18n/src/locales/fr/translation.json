@@ -1939,7 +1939,7 @@
     "originalsSealHint": "Au moins 12 caractères. Dravr ne conserve jamais votre phrase secrète : si vous la perdez, le fichier ne peut pas être ouvert, et vous pouvez en préparer un nouveau.",
     "originalsSealLabel": "Protéger le fichier par une phrase secrète (facultatif)",
     "originalsSealTooShort": "Utilisez au moins 12 caractères.",
-    "originalsSealed": "Ce fichier est protégé par votre phrase secrète.",
+    "originalsSealed": "Ce fichier est protégé par votre phrase secrète. Ouvrez-le avec age, un outil de chiffrement gratuit (age-encryption.org) : lancez age -d et saisissez votre phrase secrète.",
     "originalsTitle": "Vos fichiers originaux",
     "partial": "Ton fichier est prêt, mais il est incomplet : une partie de tes données n'a pas pu être lue. Le fichier indique les parties manquantes sous failed_tables. Réessaie dans un instant.",
     "partialLimit": "Ton fichier est prêt, mais il est incomplet : il a atteint une limite d'exportation avant que toutes tes données soient écrites. Le fichier indique ce qui a été laissé de côté sous skipped_tables.",

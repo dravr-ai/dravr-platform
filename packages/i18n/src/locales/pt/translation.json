@@ -1939,7 +1939,7 @@
     "originalsSealHint": "Pelo menos 12 caracteres. O Dravr nunca guarda a sua frase-passe: se a perder, o ficheiro não pode ser aberto, e pode preparar um novo.",
     "originalsSealLabel": "Proteger o ficheiro com uma frase-passe (opcional)",
     "originalsSealTooShort": "Use pelo menos 12 caracteres.",
-    "originalsSealed": "Este ficheiro está protegido com a sua frase-passe.",
+    "originalsSealed": "Este ficheiro está protegido com a sua frase-passe. Abra-o com o age, uma ferramenta de cifragem gratuita (age-encryption.org): execute age -d e introduza a sua frase-passe.",
     "originalsTitle": "Os seus ficheiros originais",
     "partial": "O teu ficheiro está pronto, mas está incompleto: não foi possível ler parte dos teus dados. O ficheiro indica as partes em falta em failed_tables. Tenta novamente daqui a pouco.",
     "partialLimit": "O teu ficheiro está pronto, mas está incompleto: atingiu um limite de exportação antes de todos os teus dados serem escritos. O ficheiro indica o que ficou de fora em skipped_tables.",
