@@ -170,6 +170,11 @@ backend_sciotte_iam = true
 # backend_sciotte_login_split below sends sign-ins to it.
 enable_sciotte_login_service = true
 
+# carnet#1504 step 2: every sign-in step (login, code steps, cancel, takeover,
+# the export after it) goes to the sign-in service: sets the API's
+# DRAVR_SCIOTTE_LOGIN_URL and points the login canary at it.
+backend_sciotte_login_split = true
+
 # Coach visuals: deploy the photograveur chart-press service (min=0,
 # cpu_idle=true — ~$0 idle).
 enable_photograveur_service = true
