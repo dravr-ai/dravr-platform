@@ -1,4 +1,4 @@
-// ABOUTME: Which cached rows a rows read takes: a window, the keys it names, and the keyset cursor it pages below
+// ABOUTME: Which cached rows a rows read takes: a window, the keys and activity ids it names, and the cursor it pages below
 // ABOUTME: Re-exported from activity_cache, whose get_cached_activity_rows reads them newest first
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -24,6 +24,9 @@ pub struct CachedRowsQuery<'keys> {
     /// Only rows filed under these provider keys; `None` reads every key,
     /// and an empty set reads none.
     pub keys: Option<&'keys [&'keys str]>,
+    /// Only rows of these activity ids, whatever key each is filed under;
+    /// `None` reads every id, and an empty set reads none.
+    pub ids: Option<&'keys [&'keys str]>,
     /// Only rows that come after this one in the read's order: the next page.
     pub below: Option<CachedRowCursor>,
 }
@@ -37,6 +40,7 @@ impl<'keys> CachedRowsQuery<'keys> {
             end,
             limit,
             keys: None,
+            ids: None,
             below: None,
         }
     }
@@ -45,6 +49,14 @@ impl<'keys> CachedRowsQuery<'keys> {
     #[must_use]
     pub const fn under_keys(mut self, keys: &'keys [&'keys str]) -> Self {
         self.keys = Some(keys);
+        self
+    }
+
+    /// The same read over the rows of `ids` only: every copy of each named
+    /// activity, whatever key it is filed under, and no other row.
+    #[must_use]
+    pub const fn with_ids(mut self, ids: &'keys [&'keys str]) -> Self {
+        self.ids = Some(ids);
         self
     }
 

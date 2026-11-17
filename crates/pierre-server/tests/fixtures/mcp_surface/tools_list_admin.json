@@ -25024,6 +25024,76 @@
       }
     },
     {
+      "name": "name_place",
+      "description": "Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name.",
+      "inputSchema": {
+        "properties": {
+          "activity_id": {
+            "description": "Or an activity id.",
+            "type": "string"
+          },
+          "clear": {
+            "description": "true removes their name.",
+            "type": "boolean"
+          },
+          "name": {
+            "description": "1-60 characters.",
+            "type": "string"
+          },
+          "place_id": {
+            "description": "A row's place.id.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "NamedPlaceView": {
+            "description": "A place as `name_place` answers it: its id and its name.",
+            "properties": {
+              "id": {
+                "description": "The place id, as rows' `place.id` serves it.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The place's name as this reader may see it: the athlete's own name\neverywhere, an automatic one only on Dravr's own surfaces; `null`\notherwise.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "type": "object"
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "What `name_place` answers with.",
+        "properties": {
+          "place": {
+            "$ref": "#/$defs/NamedPlaceView",
+            "description": "The place named, as a row's `place` serves it."
+          }
+        },
+        "required": [
+          "place"
+        ],
+        "title": "NamePlaceResult",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Name place",
+        "readOnlyHint": false,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
+      }
+    },
+    {
       "name": "optimize_sleep_schedule",
       "description": "Get sleep schedule recommendations from training load and recovery needs; the load comes from synced activities against the thresholds saved with set_physiology.",
       "inputSchema": {

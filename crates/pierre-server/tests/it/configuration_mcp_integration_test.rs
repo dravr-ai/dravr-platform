@@ -273,9 +273,11 @@ async fn test_configuration_tools_count_in_total() {
     // 2026-11-14: get_segment_history added (115→116, total 121→122) — every
     // effort the athlete made on one segment, from the live listing or the
     // stored details, carnet#1483.
+    // 2026-11-15: name_place added (116→117, total 122→123) — the athlete
+    // names, renames or clears a place they train from, carnet#1484.
     assert_eq!(
-        fitness_tools, 116,
-        "Expected exactly 116 non-configuration tools"
+        fitness_tools, 117,
+        "Expected exactly 117 non-configuration tools"
     );
     // 2026-09-04: estimate_vo2max added (104→105, total 110→111) — the field-test
     // capture path for VO2max, closing carnet#265.
@@ -283,5 +285,5 @@ async fn test_configuration_tools_count_in_total() {
     // lactate step-test capture path, carnet#357.
     // 2026-09-07: recommend_plan_flavour added (106→107, total 112→113) — the
     // profile through the selection rule and the season it implies, carnet#343.
-    assert_eq!(tools.len(), 122, "Expected total of 122 tools"); // 116 non-configuration + 6 configuration
+    assert_eq!(tools.len(), 123, "Expected total of 123 tools"); // 117 non-configuration + 6 configuration
 }

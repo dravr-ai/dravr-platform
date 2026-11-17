@@ -31,6 +31,9 @@
 // Domain modules
 pub mod a2a;
 mod athlete;
+/// A cached activity row's key, and its place as it is served: id, name, and
+/// whether the athlete gave the name.
+pub mod athlete_place;
 /// The difficulty-calibration interview's topic table and next-topic policy.
 pub mod calibration;
 /// How often the coach checks in with an athlete on its own (carnet#831).
@@ -62,6 +65,8 @@ pub mod pillar;
 /// What a server-initiated agent post is for: its claim row's purpose.
 pub mod platform_post;
 mod provider_thresholds;
+/// Where an activity's route geometry came from (summary polyline or streams).
+pub mod route_geometry;
 /// The season walk's topic table and next-topic policy.
 pub mod season;
 mod sleep;
@@ -157,6 +162,10 @@ pub use delegated_connection::{
     DelegatedConnection, DelegationEndReason, DelegationStatus, RosterAccess, RosterAthlete,
 };
 pub use units::UnitSystem;
+
+// Places of activities (carnet#1484)
+pub use athlete_place::{CachedRowKey, PlaceRef};
+pub use route_geometry::RouteGeometrySource;
 
 pub use check_in::CheckInCadence;
 

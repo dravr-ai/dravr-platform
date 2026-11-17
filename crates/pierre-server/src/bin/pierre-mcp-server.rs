@@ -801,6 +801,14 @@ fn spawn_background_workers(
         start_upload_streams_backfill(&resources);
     }
 
+    // Start the athlete places worker (carnet#1484): every fifteen minutes,
+    // recomputes the places of up to twenty athletes whose cached activities
+    // changed since their last clustering, from their stored tracks only.
+    {
+        use pierre_mcp_server::start_places_worker;
+        start_places_worker(&resources);
+    }
+
     // Recompute every athlete's training history once after the rule their
     // workouts merge by changed (Athlete Data Consolidation S3): the rollup is
     // scored when computed, so days computed under the previous rule keep its

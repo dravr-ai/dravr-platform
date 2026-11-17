@@ -418,6 +418,9 @@ user_export_tables_sql!(
     "health_snapshots" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "daily_activity" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "activity_conversations" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "tenant_id", text "user_id", text "provider", text "activity_id"] },
+    // The places the athlete trains from, centroids included: the export is their own.
+    "athlete_places" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
+    "athlete_place_runs" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "tenant_id", text "user_id"] },
     // Training.
     "training_history" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [uuid "tenant_id", uuid "user_id", date "date"] },
     "training_plans" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 10, key: [text "id"] },

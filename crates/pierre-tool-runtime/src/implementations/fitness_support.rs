@@ -20,11 +20,11 @@
 //! `build_activities_success_response`, etc.) are `pub(crate)` so the same
 //! tool modules can call them directly.
 
-use crate::activity_detail_store::stored_details;
+use crate::activity_detail_store::{served_place, stored_served_rows};
 use crate::activity_fetch::{activity_date_span, activity_window_totals, WindowTotals};
 use crate::implementations::activities_output::ActivitiesPayload;
 use crate::implementations::activity_detail_promotion::{
-    detail_lookup_since, effective_mode, promote_to_detail, DetailPlan, Promoted,
+    effective_mode, promote_to_detail, DetailPlan, Promoted,
 };
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
@@ -45,7 +45,7 @@ use pierre_core::config::fitness::{DETAIL_WINDOW_DAYS, EXPLICIT_DETAIL_CAP};
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{
-    resolve_sport_type, sport_matches_family, Activity, SportType, TenantId,
+    resolve_sport_type, sport_matches_family, Activity, PlaceRef, SportType, TenantId,
 };
 use pierre_database::RepositoryRegistry;
 use pierre_formatters::{format_output, OutputFormat};
@@ -114,7 +114,9 @@ impl TokenEstimate {
                 "Using {usable_context_percent:.1}% of usable context. Consider filtering by sport_type or using a smaller time range."
             )
         } else if usable_context_percent > 25.0 {
-            format!("Using {usable_context_percent:.1}% of usable context. Plenty of room for analysis.")
+            format!(
+                "Using {usable_context_percent:.1}% of usable context. Plenty of room for analysis."
+            )
         } else {
             format!(
                 "Using {usable_context_percent:.1}% of usable context. Excellent - lots of room for detailed analysis."
@@ -462,6 +464,8 @@ pub(crate) struct CachedDetail<'a> {
     pub repos: &'a RepositoryRegistry,
     pub tenant_id: TenantId,
     pub window_start: DateTime<Utc>,
+    /// The provider key the list was read under.
+    pub serving: &'a str,
     pub provider_names: &'a [&'a str],
 }
 
@@ -469,13 +473,14 @@ pub(crate) struct CachedDetail<'a> {
 /// that stored the list stored its details too. An explicit `mode=detailed`
 /// never reaches a hit (`response_cache_eligible`). `None` when a recent row
 /// has no stored detail yet: the hit is then a miss, and the live read
-/// details it (D1, every activity of the last 14 days).
+/// details it (D1, every activity of the last 14 days). The same read of the
+/// served rows gives each activity's place.
 async fn detail_cached_list(
     detail: &CachedDetail<'_>,
     policies: &dyn ProviderTerms,
     user_id: Uuid,
     activities: &[Activity],
-) -> Option<Promoted> {
+) -> Option<(Promoted, HashMap<(String, String), PlaceRef>)> {
     let plan = DetailPlan {
         window_start: detail.window_start,
         explicit_cap: None,
@@ -483,15 +488,16 @@ async fn detail_cached_list(
         provider_names: detail.provider_names,
         terms: Some(policies),
     };
-    let stored = stored_details(
+    let served = stored_served_rows(
         detail.repos,
         policies,
         detail.tenant_id,
         user_id,
-        detail_lookup_since(activities, &plan),
+        detail.serving,
+        activities,
     )
     .await;
-    let promoted = promote_to_detail(None, activities, &plan, &stored).await;
+    let promoted = promote_to_detail(None, activities, &plan, &served.details).await;
     let unread = promoted.activities.iter().any(|a| {
         a.start_date() >= plan.window_start
             && plan.provider_names.contains(&a.provider())
@@ -501,7 +507,7 @@ async fn detail_cached_list(
         info!("Cache hit holds a recent activity with no stored detail; reading live");
         return None;
     }
-    Some(promoted)
+    Some((promoted, served.places))
 }
 
 /// Try to get activities from cache
@@ -532,7 +538,7 @@ pub(crate) async fn try_get_cached_activities(
         let window_totals = activity_window_totals(&sorted_activities);
         sorted_activities.truncate(params.limit);
 
-        let promoted = detail_cached_list(
+        let (promoted, places) = detail_cached_list(
             &params.detail,
             params.policies,
             params.user_uuid,
@@ -575,6 +581,7 @@ pub(crate) async fn try_get_cached_activities(
             pagination: Some(&pagination),
             analysis_type: params.analysis_type,
             backfill_temps: &backfill_temps,
+            places: &places,
             user_timezone: params.user_timezone,
             locale: params.locale,
             window_total: Some(window_total),
@@ -770,8 +777,37 @@ fn build_activities_metadata(
 ///
 /// `backfill_temps` is consulted when the provider didn't surface ambient
 /// temperature; values fill `ActivitySummary::temperature` so the JSON
-/// payload mirrors the inline activity-list rendering.
+/// payload mirrors the inline activity-list rendering. Every row of every
+/// shape whose activity has a place in `places` carries it as `place`
+/// ([`served_place`]).
 fn prepare_activity_data(
+    activities: &[Activity],
+    mode: &str,
+    detailed_ids: &HashSet<String>,
+    backfill_temps: &HashMap<String, f32>,
+    places: &HashMap<(String, String), PlaceRef>,
+    user_timezone: Option<&str>,
+) -> Result<(Value, &'static str), String> {
+    let (mut value, mode_used) = activity_rows(
+        activities,
+        mode,
+        detailed_ids,
+        backfill_temps,
+        user_timezone,
+    )?;
+    if let Some(rows) = value.as_array_mut() {
+        for (row, activity) in rows.iter_mut().zip(activities) {
+            let key = (activity.provider().to_owned(), activity.id().to_owned());
+            if let (Some(place), Some(map)) = (places.get(&key), row.as_object_mut()) {
+                map.insert("place".to_owned(), served_place(place));
+            }
+        }
+    }
+    Ok((value, mode_used))
+}
+
+/// The rows [`prepare_activity_data`] serves, before their places.
+fn activity_rows(
     activities: &[Activity],
     mode: &str,
     detailed_ids: &HashSet<String>,
@@ -851,6 +887,9 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// Empty when backfill is disabled or no candidates qualified
     /// (no GPS, no start time, or temp already present on the row).
     pub backfill_temps: &'a HashMap<String, f32>,
+    /// Each served activity's place, keyed by its provider and id
+    /// (`activity_detail_store::stored_served_rows`).
+    pub places: &'a HashMap<(String, String), PlaceRef>,
     /// User's IANA timezone (e.g. `"America/Toronto"`), when on file. Used to
     /// render `ActivitySummary::start_date_local` so the LLM displays start
     /// times in the user's local time rather than raw UTC. `None` → UTC only.
@@ -901,6 +940,7 @@ pub(crate) fn build_activities_success_response(
         pagination,
         analysis_type,
         backfill_temps,
+        places,
         user_timezone,
         locale,
         window_total,
@@ -917,6 +957,7 @@ pub(crate) fn build_activities_success_response(
         mode,
         detailed_ids,
         backfill_temps,
+        places,
         user_timezone.as_deref(),
     ) {
         Ok(result) => result,
@@ -926,7 +967,7 @@ pub(crate) fn build_activities_success_response(
                 result: None,
                 error: Some(error),
                 metadata: None,
-            }
+            };
         }
     };
 
@@ -1027,5 +1068,88 @@ pub(crate) fn build_activities_success_response(
         result: to_value_as_written(&payload).ok(),
         error: None,
         metadata: Some(metadata),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{HashMap, HashSet};
+
+    use chrono::Utc;
+    use pierre_core::models::{Activity, ActivityBuilder, PlaceRef, SportType};
+    use serde_json::{json, Value};
+
+    use super::prepare_activity_data;
+
+    fn ride(id: &str) -> Activity {
+        ActivityBuilder::new(id, "Ride", SportType::Ride, Utc::now(), 3_600, "strava").build()
+    }
+
+    fn placed(activities: &[Activity]) -> HashMap<(String, String), PlaceRef> {
+        activities
+            .iter()
+            .map(|a| {
+                (
+                    (a.provider().to_owned(), a.id().to_owned()),
+                    PlaceRef {
+                        id: format!("place-of-{}", a.id()),
+                        name: Some("Gai-Luron".to_owned()),
+                        athlete_named: true,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    fn places_of(rows: &Value) -> Vec<Value> {
+        rows.as_array()
+            .expect("rows are a list")
+            .iter()
+            .map(|row| row["place"].clone())
+            .collect()
+    }
+
+    /// Every row shape carries its place: a summary row and a detailed row
+    /// in one summary list, and every row of a detail-mode list.
+    #[test]
+    fn every_row_shape_carries_its_place() {
+        let activities = [ride("summary-row"), ride("detailed-row")];
+        let places = placed(&activities);
+        let detailed = HashSet::from(["detailed-row".to_owned()]);
+        let expected = vec![
+            json!({ "id": "place-of-summary-row", "name": "Gai-Luron" }),
+            json!({ "id": "place-of-detailed-row", "name": "Gai-Luron" }),
+        ];
+
+        for mode in ["summary", "detailed"] {
+            let (rows, _) =
+                prepare_activity_data(&activities, mode, &detailed, &HashMap::new(), &places, None)
+                    .expect("the rows serialize");
+            assert_eq!(
+                places_of(&rows),
+                expected,
+                "bug: a {mode} list lost a row's place: {rows}"
+            );
+        }
+    }
+
+    /// A row whose activity has no place carries no `place` key, never a
+    /// null one.
+    #[test]
+    fn a_row_with_no_place_carries_none() {
+        let activities = [ride("unplaced")];
+        let (rows, _) = prepare_activity_data(
+            &activities,
+            "summary",
+            &HashSet::new(),
+            &HashMap::new(),
+            &HashMap::new(),
+            None,
+        )
+        .expect("the rows serialize");
+        assert!(
+            rows[0].get("place").is_none(),
+            "bug: a row with no place was given a place key: {rows}"
+        );
     }
 }

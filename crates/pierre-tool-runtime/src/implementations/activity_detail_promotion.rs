@@ -156,14 +156,6 @@ pub(crate) async fn promote_to_detail(
     }
 }
 
-/// The oldest start a stored-detail lookup for `activities` must reach: the
-/// detail window, or the oldest row an explicit `mode=detailed` details.
-pub(crate) fn detail_lookup_since(activities: &[Activity], plan: &DetailPlan<'_>) -> DateTime<Utc> {
-    plan.explicit_cap
-        .and_then(|cap| activities.iter().take(cap).map(Activity::start_date).min())
-        .map_or(plan.window_start, |oldest| oldest.min(plan.window_start))
-}
-
 /// The mode a served list reports: `detailed` when every row carries its
 /// detail, `summary` when none does, and the call's own mode otherwise (the
 /// rows render one by one).

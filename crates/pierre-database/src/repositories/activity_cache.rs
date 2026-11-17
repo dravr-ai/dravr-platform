@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, TenantId};
+use pierre_core::models::{Activity, PlaceRef, TenantId};
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -131,6 +131,10 @@ pub struct CachedActivityRow {
     /// no later write of the same activity moves); `None` for a row built
     /// in memory, never read from the store.
     pub stored_at: Option<DateTime<Utc>>,
+    /// The place the row's start belongs to, as served; `None` when the row
+    /// has none, its `place_id` names a place that no longer exists, or the
+    /// row was built in memory.
+    pub place: Option<PlaceRef>,
 }
 
 /// How many cached activities one user holds under one key in a tenant.
@@ -479,6 +483,9 @@ pub(crate) mod sql;
 /// The `data_json` a row stores: the activity without its samples
 pub(crate) mod stored_json;
 
+/// The place a cached row's start belongs to, as every rows read returns it
+mod place;
+
 pub use records::{ActivityDetail, ActivityFetchFailure, ActivityFetchFailureRecord};
 /// Which rows a rows read takes
 mod rows_query;
@@ -620,11 +627,15 @@ macro_rules! impl_activity_cache_repository {
                 query: &$crate::repositories::activity_cache::CachedRowsQuery<'_>,
             ) -> AppResult<Vec<CachedActivityRow>> {
                 let keys = query.keys.unwrap_or_default();
-                if query.keys.is_some() && keys.is_empty() {
+                let ids = query.ids.unwrap_or_default();
+                if (query.keys.is_some() && keys.is_empty())
+                    || (query.ids.is_some() && ids.is_empty())
+                {
                     return Ok(Vec::new());
                 }
                 let sql = $crate::repositories::activity_cache::sql::cached_activity_rows_sql(
                     keys.len(),
+                    ids.len(),
                     query.below.is_some(),
                 );
                 let mut read = sqlx::query(&sql)
@@ -640,8 +651,9 @@ macro_rules! impl_activity_cache_repository {
                         .bind(&below.provider)
                         .bind(&below.activity_id);
                 }
-                for key in keys {
-                    read = read.bind(*key);
+                let values = keys.iter().chain(ids);
+                for value in values {
+                    read = read.bind(*value);
                 }
                 let rows = read.fetch_all(self.pool()).await.map_err(|e| {
                     AppError::database(format!("Failed to get cached activity rows: {e}"))

@@ -42,6 +42,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// The athlete's gear ledger (`SQLite`) backing `AthleteGearRepository`.
 pub mod athlete_gear;
+/// The places an athlete trains from (`SQLite`) backing `AthletePlaceRepository`.
+pub mod athlete_places;
 /// The calendar an athlete chose for Dravr's pushes (`SQLite`)
 pub mod calendar_preferences;
 /// Chat conversation and message storage

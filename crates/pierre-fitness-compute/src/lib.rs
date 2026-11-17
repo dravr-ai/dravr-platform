@@ -64,6 +64,8 @@ pub mod route_compose;
 pub mod geocoding;
 /// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data).
 pub mod osm_routes;
+/// Where an athlete trains: trimmed activity starts clustered into places with stable ids.
+pub mod places;
 /// Weather impact analysis + provider factory (delegates vendor logic to dravr-meteo).
 pub mod weather;
 // Outer doc intentionally omitted — `weather_cache_adapter.rs`'s

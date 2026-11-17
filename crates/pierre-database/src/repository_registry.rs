@@ -16,10 +16,11 @@ use crate::repositories::{
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
     ActivityRouteTrackRepository, ActivityStreamRepository, AdminAuditRepository, AdminRepository,
     AgentDraftsRepository, AgentsRepository, ApiKeyRepository, AppAttestKeyRepository,
-    ArchiveErasureRepository, AthleteGearRepository, CalendarPreferenceRepository, ChatRepository,
-    CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
-    CoachAttentionDismissalRepository, CoachDataReadRepository, CoachReplyReviewRepository,
-    CoachingGroupRepository, CommitmentRepository, DailyActivityRepository, DataSourceRepository,
+    ArchiveErasureRepository, AthleteGearRepository, AthletePlaceRepository,
+    CalendarPreferenceRepository, ChatRepository, CheckInPreferenceRepository,
+    ClaimVerdictRepository, CoachAccessRequestRepository, CoachAttentionDismissalRepository,
+    CoachDataReadRepository, CoachReplyReviewRepository, CoachingGroupRepository,
+    CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
     EngagementRepository, FeatureFlagsRepository, FederatedIdentityRepository,
     FeedbackMessageRepository, FirebaseIdentityDeletionRepository, FirstRunProgressRepository,
@@ -286,6 +287,9 @@ pub struct RepositoryRegistry {
     /// One stored route read per activity, so each activity's geometry costs
     /// at most one provider read.
     pub activity_route_tracks: Arc<dyn ActivityRouteTrackRepository>,
+    /// The places an athlete trains from, clustered from trimmed starts by
+    /// the places worker and named by the athlete.
+    pub athlete_places: Arc<dyn AthletePlaceRepository>,
     /// The one per-activity sample store (pushed, uploaded or imported
     /// samples), kept apart from the cached row every list read deserializes.
     pub activity_streams: Arc<dyn ActivityStreamRepository>,
@@ -405,6 +409,7 @@ impl RepositoryRegistry {
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
+            athlete_places: db.clone(),
             activity_streams: db.clone(),
             activity_conversations: db.clone(),
             uploaded_activity_files: db.clone(),
@@ -519,6 +524,7 @@ impl RepositoryRegistry {
             user_tool_overrides: db.clone(),
             activity_cache: db.clone(),
             activity_route_tracks: db.clone(),
+            athlete_places: db.clone(),
             activity_streams: db.clone(),
             activity_conversations: db.clone(),
             uploaded_activity_files: db.clone(),

@@ -285,6 +285,8 @@ account_reset_tables!(
     "cached_activities",
     "uploaded_activity_files",
     "activity_route_tracks",
+    "athlete_places",
+    "athlete_place_runs",
     "activity_streams",
     "pushed_activity_files",
     "activity_backfill_coverage",

@@ -141,6 +141,7 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   set_physiology: 'updateProfile',
   import_provider_thresholds: 'updateProfile',
   set_preferred_calendar: 'updateProfile',
+  name_place: 'updateProfile',
   get_roster_overview: 'readGroup',
   get_provider_roster: 'readGroup',
   propose_athlete_link: 'linkMember',

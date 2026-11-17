@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Guard — every provider's activities reach cached_activities only through the activity store's projection
-# ABOUTME: A production upsert_activities* or delete_*activit* call outside the store's sink, or any by-date DELETE, fails
+# ABOUTME: A cache write or row delete outside the store's sink, a by-date DELETE, or a place write outside its one writer fails
 #
 # Every provider read, push and upload is kept in dravr-barrage, the
 # activity store, which projects it into cached_activities through one sink
@@ -33,6 +33,12 @@
 #      again. A caller drops activities through the store
 #      (`LiveActivityStore::discard`, `discard_between`, `delete_source`) or
 #      the provider purge, which retract them through the sink.
+#   4. A row's place (slice 6, carnet#1484) has one writer:
+#      `replace_clustering` and `create_athlete_place` are called only by the
+#      places service (pierre-services athlete_places.rs), besides the
+#      repositories that define them and the test fixtures. A writer that
+#      calls neither fails closed, as a sink that writes nothing does: the
+#      writes it guarded moved, and the gate would pass on nothing.
 #
 # A file's trailing #[cfg(test)] module is not production code (ADR-027) and
 # is not scanned, through prod-src-scan.sh. Test suites under tests/ are not
@@ -48,6 +54,12 @@ SCAN="${PROD_SRC_SCAN:-$SCRIPT_DIR/prod-src-scan.sh}"
 SINK="crates/pierre-services/src/activity_cache_sink.rs"
 REPOSITORY="crates/pierre-database/src/repositories/activity_cache.rs"
 TEST_SUPPORT="crates/pierre-test-support/"
+PLACES_REPOSITORY="crates/pierre-database/src/repositories/athlete_places.rs"
+# method|the one production file that may call it
+PLACE_WRITERS=(
+    "replace_clustering|crates/pierre-services/src/athlete_places.rs"
+    "create_athlete_place|crates/pierre-services/src/athlete_places.rs"
+)
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -116,7 +128,29 @@ if [ -n "$deletes_outside" ]; then
     failed=1
 fi
 
+# 4. The place writes, each from its one writer.
+place_sites=0
+for entry in "${PLACE_WRITERS[@]}"; do
+    method="${entry%%|*}"
+    owner="${entry#*|}"
+    found="$(bash "$SCAN" "(\.|::)\s*${method}\s*\(" -U --vimgrep "${SRC_DIRS[@]}")"
+    owned="$(printf '%s\n' "$found" | grep -c "^$owner:" || true)"
+    if [ "$owned" -eq 0 ]; then
+        echo -e "${RED}❌ $owner calls no $method: the place write this gate guards moved${NC}" >&2
+        exit 2
+    fi
+    place_sites=$((place_sites + owned))
+    stray="$(printf '%s\n' "$found" | sed '/^$/d' \
+        | grep -v "^$owner:" | grep -v "^$PLACES_REPOSITORY:" | grep -v "^$TEST_SUPPORT" || true)"
+    if [ -n "$stray" ]; then
+        echo -e "${RED}❌ $method called outside $owner:${NC}"
+        printf '%s\n' "$stray" | sed 's/^/    /'
+        echo "   A row's place has one writer (carnet#1484); call it there."
+        failed=1
+    fi
+done
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
-echo -e "${GREEN}✅ cached_activities written and deleted only by the activity store's sink ($in_sink write site(s)), its repository and the test fixtures; no by-date prune${NC}"
+echo -e "${GREEN}✅ cached_activities written and deleted only by the activity store's sink ($in_sink write site(s)), its repository and the test fixtures; no by-date prune; places written only by their writer ($place_sites site(s))${NC}"

@@ -25,7 +25,7 @@ use pierre_core::models::{Activity, ProviderConnection, TenantId};
 use pierre_core::models::{FormBand, FormReading};
 use pierre_core::untrusted::{display_line, ACTIVITY_NAME_MAX_CHARS};
 use pierre_fitness_compute::route_track::RouteTrack;
-use pierre_fitness_compute::{decode_polyline, AthleteInputs};
+use pierre_fitness_compute::AthleteInputs;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_services::provider_notice::under_ai_consent;
 use tracing::{debug, info, warn};
@@ -784,9 +784,8 @@ fn compute_recent_activities(activities: &[Activity], now: DateTime<Utc>) -> Vec
             // shares no coordinates at all.
             let shared_start: Option<(f64, f64)> = a
                 .summary_polyline()
-                .and_then(|encoded| decode_polyline(encoded.trim()))
-                .and_then(|points| RouteTrack::from_overview(&points).ok())
-                .and_then(|track| track.coordinates.first().copied());
+                .and_then(RouteTrack::trimmed_overview)
+                .and_then(|track| track.first_point());
             RosterActivity {
                 start: a.start_date(),
                 sport: format!("{:?}", a.sport_type()),

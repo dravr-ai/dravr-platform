@@ -21,8 +21,8 @@ mod roster_start_tests {
     use pierre_core::models::{
         Activity, ActivityBuilder, ConnectionType, SportType, Tenant, TenantId, User, UserStatus,
     };
-    use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack};
-    use pierre_fitness_compute::{decode_polyline, encode_polyline};
+    use pierre_fitness_compute::encode_polyline;
+    use pierre_fitness_compute::route_track::RouteTrack;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_tool_runtime::group_fitness::fetch_member_snapshots;
     use pierre_tool_runtime::runtime::ToolRuntime;
@@ -151,9 +151,8 @@ mod roster_start_tests {
     #[tokio::test]
     async fn a_tracked_ride_shares_the_trimmed_start_not_the_door() {
         let overview = encode_polyline(&line_east_from_door(60));
-        let trimmed: (f64, f64) = decode_polyline(&overview)
-            .and_then(|points| RouteTrack::from_overview(&points).ok())
-            .and_then(|track| track.coordinates.first().copied())
+        let trimmed: (f64, f64) = RouteTrack::trimmed_overview(&overview)
+            .and_then(|track| track.first_point())
             .expect("bug: a 3 km overview survives the privacy trim");
 
         let roster = roster_of(&[ride_from_door("tracked", 1, Some(overview))]).await;
@@ -188,7 +187,7 @@ mod roster_start_tests {
     async fn an_overview_the_trim_consumes_shares_no_coordinates() {
         let overview = encode_polyline(&line_east_from_door(6));
         assert!(
-            trimmed_overview_polyline(&overview).is_none(),
+            RouteTrack::trimmed_overview(&overview).is_none(),
             "bug: the fixture must be too short to survive the 200 m trim at each end"
         );
 

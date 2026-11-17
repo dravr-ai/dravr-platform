@@ -191,6 +191,12 @@ pub mod barrage_live_store;
 /// The activity store's projection into the activity cache: the cache's one writer (carnet#1482)
 pub mod activity_cache_sink;
 
+/// The one stored route track read, and a cached row's provider-free local track (carnet#1484)
+pub mod activity_track;
+
+/// Athlete places: the places worker's recompute, and naming a place (carnet#1484)
+pub mod athlete_places;
+
 /// A deleted activity's gear released, and the workout merge the gear ledger reads (carnet#711)
 pub mod gear_release;
 

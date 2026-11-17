@@ -276,6 +276,9 @@ pub mod memory;
 /// The provider authorization URL tools mint, and the link a write refused
 /// for an owed grant carries.
 pub mod oauth_authorize;
+/// `name_place` — the athlete names, renames or clears a place they train from (`tools-memory`).
+#[cfg(feature = "tools-memory")]
+pub mod places;
 /// Whose plan the training-plan tools act on: the caller's own, or a coached athlete's.
 /// recommend_plan_flavour — the profile through the selection rule, and the season it implies.
 pub mod plan_flavour;

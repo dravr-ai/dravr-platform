@@ -14,9 +14,11 @@
 
 mod account_caller_rank_test;
 mod activity_sports_test;
+mod activity_track_test;
 mod advice_capture_test;
 mod agent_prerequisites_test;
 mod archetype_aggregation_test;
+mod athlete_places_test;
 mod commitment_sweep_test;
 mod debug_redaction_test;
 mod fact_sentence_test;

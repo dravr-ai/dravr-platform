@@ -54,6 +54,8 @@ pub mod app_attest_keys;
 pub mod archive_erasures;
 /// Repository trait, statements and shared body for the athlete's gear ledger (carnet#711).
 pub mod athlete_gear;
+/// `AthletePlaceRepository`: the places an athlete trains from, clustered from trimmed starts.
+pub mod athlete_places;
 /// Repository trait and shared body for the calendar an athlete chose for Dravr's pushes (carnet#1393).
 pub mod calendar_preferences;
 /// Repository traits for chat conversation persistence.
@@ -315,6 +317,9 @@ pub use api_keys::*;
 pub use app_attest_keys::AppAttestKeyRepository;
 pub use archive_erasures::{ArchiveErasureRepository, PendingArchiveErasure};
 pub use athlete_gear::{AthleteGearRepository, GearDeletion};
+pub use athlete_places::{
+    AthletePlace, AthletePlaceRepository, CachedRowsStamp, PlaceNameSource, PlaceRun,
+};
 pub use calendar_preferences::{CalendarPreference, CalendarPreferenceRepository};
 pub use chat::*;
 pub use chat_subject::{NewSubjectConversation, OpenedSubjectThread};

@@ -121,6 +121,9 @@ tracing-subscriber = { version = "0.3", features = ["std", "registry"], default-
 # The header type dravr-enforme's SyncProvider::validate_webhook takes, for
 # the scheduled-sync test's stand-in provider.
 http = "1"
+# Raw SQL in the places test, to store a row no repository writes so that
+# one athlete's recompute fails; `postgresql` adds the Postgres driver.
+sqlx = { version = "0.8", features = ["runtime-tokio-rustls", "sqlite"], default-features = false }
 
 [lints]
 workspace = true

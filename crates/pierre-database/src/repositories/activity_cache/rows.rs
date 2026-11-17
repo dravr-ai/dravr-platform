@@ -10,6 +10,7 @@ use pierre_core::models::Activity;
 use serde_json::{Map, Value};
 
 use super::super::activity_route_tracks::joined_route_outcome;
+use super::place::row_place_from_row;
 use super::{
     ActivityFetchFailure, ActivityFetchFailureRecord, BackfillCoverage, CachedActivityRow,
     CaptureFreshness, StoredActivityRow,
@@ -204,6 +205,7 @@ where
         detail_read,
         segment_read,
         stored_at: Some(timestamp_column(row, "stored_at")?),
+        place: row_place_from_row(row)?,
     })
 }
 

@@ -40,7 +40,7 @@ use crate::activity_backfill::{
     backfill_inline_and_serve, is_historical_backfill_window, provider_tenant_id_str,
     spawn_activity_backfill, ActivityBackfillJob, InlineHistoricalServe,
 };
-use crate::activity_detail_store::{listed_key, store_detail, stored_details};
+use crate::activity_detail_store::{listed_key, store_detail, stored_served_rows};
 use crate::activity_fetch::budgeted_read::{
     read_live_window_within_budget, BudgetedRead, OwnedLiveRead,
 };
@@ -57,7 +57,7 @@ use crate::conversions::{ok_typed, tool_result_to_response};
 use crate::implementations::activities_definition::get_activities_definition;
 use crate::implementations::activities_output::{BackfillPlaceholder, GetActivitiesResult};
 use crate::implementations::activity_detail_promotion::{
-    detail_lookup_since, effective_mode, promote_to_detail, DetailPlan,
+    effective_mode, promote_to_detail, DetailPlan,
 };
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
@@ -454,6 +454,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                         repos: context.resources.repos(),
                         tenant_id,
                         window_start: detail_window_start,
+                        serving: &provider_name,
                         provider_names: &[provider_name.as_str(), display_provider.as_str()],
                     },
                 })
@@ -998,22 +999,24 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 provider_names: &provider_names,
                 terms: Some(context.resources.provider_registry().as_ref()),
             };
+            // One read of the served rows, on every served list: their stored
+            // details and their places (carnet#1484).
+            let mut served_rows = stored_served_rows(
+                context.resources.repos(),
+                context.resources.provider_registry().as_ref(),
+                tenant_id,
+                context.user_id,
+                &provider_name,
+                &filtered_activities,
+            )
+            .await;
             let mut detailed_ids = HashSet::new();
             if let (false, Some(provider)) = (filtered_activities.is_empty(), provider.as_ref()) {
-                let since = detail_lookup_since(&filtered_activities, &detail_plan);
-                let stored = stored_details(
-                    context.resources.repos(),
-                    context.resources.provider_registry().as_ref(),
-                    tenant_id,
-                    context.user_id,
-                    since,
-                )
-                .await;
                 let promoted = promote_to_detail(
                     Some(provider.as_ref()),
                     &filtered_activities,
                     &detail_plan,
-                    &stored,
+                    &served_rows.details,
                 )
                 .await;
                 // Each detail goes beside the row its summary was listed
@@ -1030,6 +1033,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     )
                     .await;
                 }
+                served_rows.follow_details(&filtered_activities, &promoted.activities);
                 detailed_ids = promoted.detailed_ids;
                 filtered_activities = promoted.activities;
                 debug!(
@@ -1076,6 +1080,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 pagination: Some(&pagination),
                 analysis_type,
                 backfill_temps: &backfill_temps,
+                places: &served_rows.places,
                 user_timezone,
                 locale: user_locale,
                 window_total: Some(window_total),

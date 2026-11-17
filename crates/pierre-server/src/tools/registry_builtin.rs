@@ -131,6 +131,8 @@ pub fn register_builtin_tools(registry: &mut ToolRegistry) {
     #[cfg(feature = "tools-memory")]
     register_calendar_preference_tools(registry);
     #[cfg(feature = "tools-memory")]
+    register_place_tools(registry);
+    #[cfg(feature = "tools-memory")]
     register_training_plan_publish_tools(registry);
 
     // Coaching playbook GDPR/transparency tools (list / forget)
@@ -328,6 +330,27 @@ fn register_calendar_preference_tools(registry: &mut ToolRegistry) {
 
     info!(
         "Registered preferred-calendar tools (registry now has {} tools)",
+        registry.len()
+    );
+}
+
+/// Register the place-naming tool (`name_place`).
+///
+/// Chat-callable (category `memory`, beside the other athlete-authored
+/// writes): the athlete names the place a row serves, or the start of an
+/// activity, on every transport (carnet#1484). In no data class: it acts for
+/// the caller only, so a coach's thread about an athlete withholds it.
+#[cfg(feature = "tools-memory")]
+fn register_place_tools(registry: &mut ToolRegistry) {
+    use pierre_tool_runtime::implementations::places::create_place_tools;
+    use std::sync::Arc;
+
+    for tool in create_place_tools() {
+        registry.register_with_category(Arc::from(tool), "memory");
+    }
+
+    info!(
+        "Registered place tools (registry now has {} tools)",
         registry.len()
     );
 }

@@ -73,7 +73,13 @@ use crate::common;
 /// cut to a few words each, and a description that says how to read its
 /// coverage, whose first draft was cut by 202 bytes. Measured 95,871 (~849
 /// bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 95_900;
+///
+/// 2026-11-15: 95,900 → 96,400 for `name_place` (carnet#1484), the athlete
+/// naming a place they train from by a row's place id or an activity id:
+/// four arguments of a few words each, and a description whose first draft
+/// was cut by 60 bytes. Measured 96,358 against 95,871 without it (~487
+/// bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 96_400;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

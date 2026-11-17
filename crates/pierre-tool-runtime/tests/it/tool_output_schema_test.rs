@@ -168,6 +168,9 @@ use pierre_tool_runtime::implementations::physiology_import::{
 use pierre_tool_runtime::implementations::physiology_output::{
     PhysiologyProfile, SetPhysiologyResult,
 };
+use pierre_tool_runtime::implementations::places::{
+    NamePlaceResult, NamePlaceTool, NamedPlaceView,
+};
 use pierre_tool_runtime::implementations::plan_flavour_output::PlanFlavourResult;
 use pierre_tool_runtime::implementations::planned_workouts::{
     GetPlannedWorkoutsResult, GetPlannedWorkoutsTool, UnavailableCalendar,
@@ -3518,6 +3521,32 @@ fn a_duplicate_commitment_is_a_valid_answer_not_an_error() {
     }
 }
 
+/// A named place, and the same place read where its automatic name is not
+/// shown: `name` is `null`, never absent.
+#[test]
+fn name_place_declares_a_schema_that_accepts_both_of_its_answers() {
+    let declared = <NamePlaceTool as McpTool<dyn ToolRuntime>>::definition(&NamePlaceTool);
+    for name in [Some("Gai-Luron".to_owned()), None] {
+        let sample = NamePlaceResult {
+            place: NamedPlaceView {
+                id: "5f0c7a52-9d1e-4b1f-8f43-0c2f3e1a9b77".to_owned(),
+                name,
+            },
+        };
+        let value = serde_json::to_value(&sample).expect("serializes");
+        assert!(
+            value["place"].get("name").is_some(),
+            "bug: a place with no name shown dropped the key instead of answering null: {value}"
+        );
+        assert_declares_and_accepts(
+            declared.output_schema.clone(),
+            &output_schema_for::<NamePlaceResult>(),
+            &sample,
+            "name_place",
+        );
+    }
+}
+
 #[test]
 fn cancelling_nothing_is_a_valid_answer_too() {
     // False means nothing open matched. The athlete is not committed either
@@ -3746,6 +3775,11 @@ fn each_single_tool_schema_is_attached_to_the_tool_it_names() {
                 &SetPreferredCalendarTool,
             ),
             output_schema_for::<SetPreferredCalendarResult>(),
+        ),
+        (
+            "name_place",
+            <NamePlaceTool as McpTool<dyn ToolRuntime>>::definition(&NamePlaceTool),
+            output_schema_for::<NamePlaceResult>(),
         ),
     ] {
         assert_eq!(

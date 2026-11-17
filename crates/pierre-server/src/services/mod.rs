@@ -55,6 +55,9 @@ pub mod originals;
 /// The periodic backfill that stores the samples of activities uploaded before the sample store held uploads
 pub mod upload_streams_backfill;
 
+/// The periodic recompute of the places athletes train from (carnet#1484)
+pub mod places_worker;
+
 /// The one-time recompute of every athlete's training history after the workout precedence rule changed
 pub mod precedence_recompute;
 

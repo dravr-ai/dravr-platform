@@ -140,9 +140,11 @@ const ACTIVITY_ADDRESSING_FIELDS: [&str; 4] = ["id", "name", "sport_type", "star
 /// comments under the activity (a TrainingPeaks athlete or coach comment, a
 /// COROS note, each fenced the same way), the gear and device, the moving time
 /// beside the elapsed one, the workout tag, and the segment efforts of a
-/// detailed row, capped by [`cap_segment_efforts`]. The athlete-visible prose
-/// list never holds free text, so these reach the model only here.
-const ACTIVITY_CONTEXT_FIELDS: [&str; 11] = [
+/// detailed row, capped by [`cap_segment_efforts`], and the row's place
+/// (`{id, name}`, whose name is athlete text where the athlete gave it). The
+/// athlete-visible prose list never holds free text, so these reach the model
+/// only here.
+const ACTIVITY_CONTEXT_FIELDS: [&str; 12] = [
     "description",
     "description_excerpt",
     "private_note",
@@ -154,6 +156,7 @@ const ACTIVITY_CONTEXT_FIELDS: [&str; 11] = [
     "trainer",
     "commute",
     "segment_efforts",
+    "place",
 ];
 
 /// Most segment efforts one activity carries in the chat projection.

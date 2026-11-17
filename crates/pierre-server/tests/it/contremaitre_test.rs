@@ -832,6 +832,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "list_stretching_exercises",
     "list_workout_templates",
     "list_yoga_poses",
+    "name_place",
     "optimize_sleep_schedule",
     "predict_performance",
     "prescribe_workout",

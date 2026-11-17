@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 79
+// Tool count: 80
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -909,6 +909,25 @@ export interface ListYogaPosesParams {
 
   /** Recovery context: post_cardio, rest_day, morning, evening */
   recovery_context?: string;
+}
+
+
+/**
+ * Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name.
+ */
+export interface NamePlaceParams {
+
+  /** Or an activity id. */
+  activity_id?: string;
+
+  /** true removes their name. */
+  clear?: boolean;
+
+  /** 1-60 characters. */
+  name?: string;
+
+  /** A row's place.id. */
+  place_id?: string;
 }
 
 
@@ -1897,6 +1916,7 @@ export const TOOL_NAMES = [
   "list_stretching_exercises",
   "list_workout_templates",
   "list_yoga_poses",
+  "name_place",
   "optimize_sleep_schedule",
   "predict_performance",
   "prescribe_workout",
@@ -1987,6 +2007,7 @@ export interface ToolParamsMap {
   "list_stretching_exercises": ListStretchingExercisesParams;
   "list_workout_templates": ListWorkoutTemplatesParams;
   "list_yoga_poses": ListYogaPosesParams;
+  "name_place": NamePlaceParams;
   "optimize_sleep_schedule": OptimizeSleepScheduleParams;
   "predict_performance": PredictPerformanceParams;
   "prescribe_workout": PrescribeWorkoutParams;

@@ -130,6 +130,31 @@ fn the_projection_keeps_every_field_a_chained_call_needs() {
     );
 }
 
+/// A row's place reaches the model: without it, "call where I rode Saturday
+/// Gai-Luron" has no id to pass to `name_place`, and "where did I ride" no
+/// answer (carnet#1484).
+#[test]
+fn the_projection_keeps_each_rows_place() {
+    let mut envelope = activities_envelope(2);
+    envelope["activities"][0]["place"] = json!({ "id": "place-1", "name": "Gai-Luron" });
+    envelope["activities"][1]["place"] = json!({ "id": "place-2" });
+
+    let projected = project_activities_payload("get_activities", &envelope)
+        .expect("a real get_activities envelope is recognised");
+
+    let rows = projected["activities"].as_array().unwrap();
+    assert_eq!(
+        rows[0]["place"],
+        json!({ "id": "place-1", "name": "Gai-Luron" }),
+        "bug: the projection dropped a row's place: {projected}"
+    );
+    assert_eq!(
+        rows[1]["place"],
+        json!({ "id": "place-2" }),
+        "bug: the projection dropped a nameless place: {projected}"
+    );
+}
+
 #[test]
 fn the_projection_drops_the_duplicate_copies_and_the_sidecars() {
     let projected = project_activities_payload("get_activities", &activities_envelope(3)).unwrap();

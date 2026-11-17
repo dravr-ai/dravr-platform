@@ -56,6 +56,8 @@ pub mod narration_vocab;
 pub mod notify_routing;
 /// Hot-reloadable coaching-persona contract registry — populated by the sync engine.
 pub mod persona_contracts;
+/// Catalogue keys of the refusals `name_place` answers with
+pub mod place_strings;
 /// Catalogue keys of the reconnect copy for a session its grant still serves,
 /// and the reconnect push
 pub mod reauth_strings;

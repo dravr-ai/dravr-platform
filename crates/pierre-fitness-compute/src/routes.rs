@@ -28,8 +28,10 @@ use std::str;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-/// Earth's mean radius in metres, used by the haversine distance.
-const EARTH_RADIUS_METERS: f64 = 6_371_000.0;
+/// Earth's mean radius in metres: the sphere the haversine measures on, and
+/// the one the planar projections in `route_track` scale by, so a planar
+/// metre and a haversine metre agree.
+pub(crate) const EARTH_RADIUS_METERS: f64 = 6_371_000.0;
 
 /// Default minimum climb length in metres.
 const MIN_CLIMB_LENGTH_METERS: f64 = 250.0;
