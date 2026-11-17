@@ -28,7 +28,11 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use crate::history_walk_api_test::{open_window, server, steps_settled, strava_athlete};
+use crate::common;
+use crate::helpers::sciotte_mock::seed_sciotte_session;
+use crate::history_walk_api_test::{
+    hold_strava_grant, open_window, server, steps_settled_under, strava_athlete, with_window,
+};
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashSet;
@@ -38,25 +42,33 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
-use chrono::{TimeZone, Utc};
+use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::coverage::Pending;
-use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
+use pierre_core::models::{
+    Activity, ActivityBuilder, ConnectionType, SegmentEffort, SportType, TenantId, UserOAuthToken,
+};
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
     BackfillJobKind, BackfillJobState, CachedActivityRow, CachedRowsQuery, DetailWalkRow,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_providers::request_budget::{
+    budget_counter_key, budget_period, detail_walk_athlete_counter_key, detail_walk_counter_key,
+    ONE_DAY, PLATFORM_SCOPE,
+};
 use pierre_tool_runtime::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, segment_detail_backend, DetailWalkAsk, DetailWalkAsked,
 };
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
+use pierre_tool_runtime::activity_detail_store::store_detail;
 use pierre_tool_runtime::runtime::{
     BackfillCompletion, BackfillNotifier, DetailWalkCompletion, HistoryWalkCompletion, ReauthRetry,
     ToolRuntime,
 };
+use secrecy::SecretString;
 use serde_json::{json, Value};
 use sqlx::Row;
 use tokio::net::TcpListener;
@@ -231,11 +243,21 @@ pub(crate) async fn walk_row(
     user_id: Uuid,
     tenant: TenantId,
 ) -> Option<DetailWalkRow> {
+    walk_row_under(resources, user_id, tenant, oauth_providers::STRAVA).await
+}
+
+/// The athlete's detail walk row through `backend`.
+pub(crate) async fn walk_row_under(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    backend: &str,
+) -> Option<DetailWalkRow> {
     resources
         .common
         .repos
         .activity_backfill_jobs
-        .detail_walk_row(user_id, tenant, oauth_providers::STRAVA)
+        .detail_walk_row(user_id, tenant, backend)
         .await
         .unwrap()
 }
@@ -246,7 +268,7 @@ const AGED_MS: i64 = 10 * 60 * 1_000;
 
 /// Run the walk the sweep's way, one step a pass, in a fresh window each
 /// pass, until its row ends. A pass starts only once no step holds the row
-/// ([`steps_settled`]): the ask's own step, or the last pass's, keeps the
+/// (`steps_settled_under`): the ask's own step, or the last pass's, keeps the
 /// day it started in.
 ///
 /// The sweep takes only a row asked longer ago than its grace, so the row's
@@ -259,20 +281,31 @@ pub(crate) async fn walk_ended(
     user_id: Uuid,
     tenant: TenantId,
 ) -> DetailWalkRow {
+    walk_ended_under(resources, user_id, tenant, oauth_providers::STRAVA).await
+}
+
+/// [`walk_ended`] for the walk filed under `backend`.
+pub(crate) async fn walk_ended_under(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    backend: &str,
+) -> DetailWalkRow {
     let deadline = Instant::now() + WALK_DEADLINE;
-    let asked_ms = walk_row(resources, user_id, tenant)
+    let asked_ms = walk_row_under(resources, user_id, tenant, backend)
         .await
         .map(|row| row.created_at_ms);
     loop {
-        steps_settled(
+        steps_settled_under(
             resources,
             user_id,
             tenant,
+            backend,
             BackfillJobKind::DetailWalk,
             deadline,
         )
         .await;
-        let row = walk_row(resources, user_id, tenant).await;
+        let row = walk_row_under(resources, user_id, tenant, backend).await;
         if let Some(row) = row
             .as_ref()
             .filter(|row| row.state != BackfillJobState::Owed)
@@ -281,7 +314,7 @@ pub(crate) async fn walk_ended(
                 return row.clone();
             };
             alter_walk_row(resources, user_id, &format!("created_at_ms = {asked_ms}")).await;
-            return walk_row(resources, user_id, tenant)
+            return walk_row_under(resources, user_id, tenant, backend)
                 .await
                 .expect("the ended walk's row");
         }
@@ -311,6 +344,460 @@ pub(crate) fn since(after: i64) -> DetailWalkAsk<'static> {
         before_ts: Utc::now().timestamp(),
         sport: None,
     }
+}
+
+/// The scraper's session reads segment efforts on a detail read too
+/// (sciotte 2.1): an athlete holding it is walked through it, grant or no
+/// grant, as every Strava read goes to the session first (carnet#1494), and
+/// one holding only the grant is walked through the grant.
+#[tokio::test]
+async fn a_walk_goes_through_the_session_first_and_the_grant_without_one() {
+    let (api_base, _mock) = mock_strava().await;
+    let resources = server(&api_base, 400).await;
+    let (user_id, _user, tenant) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        &format!("walk-{}@example.com", Uuid::new_v4()),
+        "starter",
+    )
+    .await
+    .unwrap();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        segment_detail_backend(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        None,
+        "bug: an athlete with no Strava connection has no walk backend"
+    );
+
+    let now = Utc::now();
+    let repos = &resources.common.repos;
+    repos
+        .oauth_tokens
+        .upsert_token(&UserOAuthToken {
+            id: Uuid::new_v4().to_string(),
+            user_id,
+            tenant_id: tenant.to_string(),
+            provider: SESSION.to_owned(),
+            access_token: SecretString::from(format!("sciotte_session_{:0>30}", 7)),
+            refresh_token: None,
+            token_type: "session".to_owned(),
+            expires_at: Some(now + ChronoDuration::days(30)),
+            scope: None,
+            provider_user_id: Some("4242".to_owned()),
+            oauth_app_client_id: None,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .unwrap();
+    repos
+        .provider_connections
+        .register_connection(user_id, tenant, SESSION, &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    assert_eq!(
+        segment_detail_backend(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        Some(SESSION.to_owned()),
+        "bug: the session's detail reads carry efforts and no grant is held"
+    );
+
+    hold_strava_grant(&resources, user_id, tenant).await;
+    assert_eq!(
+        segment_detail_backend(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        Some(SESSION.to_owned()),
+        "bug: a live grant is read before the session it stands behind"
+    );
+
+    // The session flagged (expired, reconnect owed): the grant answers.
+    repos
+        .provider_connections
+        .mark_needs_reauth(
+            user_id,
+            tenant,
+            SESSION,
+            Some("session_expired"),
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        segment_detail_backend(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        Some(oauth_providers::STRAVA.to_owned()),
+        "bug: the grant did not answer for a session that expired"
+    );
+}
+
+/// What the scraper stand-in answered.
+#[derive(Default)]
+struct MockScraper {
+    /// Every detail read's id, in the order they came.
+    details: Mutex<Vec<String>>,
+}
+
+impl MockScraper {
+    fn detail_reads(&self) -> Vec<String> {
+        self.details.lock().unwrap().clone()
+    }
+}
+
+/// `GET /api/activities/{id}`: the ride whose id is its start, with one
+/// effort on Camillien-Houde; a ride whose id is in [`NO_GPS`] has no
+/// segment block and a track with no points, as a no-GPS page reads.
+async fn scraper_detail(
+    State(mock): State<Arc<MockScraper>>,
+    Path(id): Path<String>,
+) -> Json<Value> {
+    mock.details.lock().unwrap().push(id.clone());
+    let start = Utc.timestamp_opt(id.parse().unwrap(), 0).unwrap();
+    let mut detail = json!({
+        "id": id,
+        "name": "Morning ride",
+        "sport_type": "ride",
+        "start_date": start.to_rfc3339(),
+        "duration_seconds": 3_600,
+        "distance_meters": 20_000.0,
+        "provider": "strava"
+    });
+    if id.parse::<i64>().unwrap() % 2 == 1 {
+        detail["route"] = json!({ "coordinates": [] });
+    } else {
+        detail["segment_efforts"] = json!([{
+            "id": format!("{id}1"),
+            "name": "Camillien-Houde",
+            "elapsed_time": 412,
+            "distance": 1_820.5,
+            "segment_id": "611413",
+            "start_date": (start + ChronoDuration::minutes(10)).to_rfc3339()
+        }]);
+    }
+    Json(detail)
+}
+
+/// A scraper stand-in: session import and detail reads. A ride with an odd
+/// id is a no-GPS one.
+async fn mock_scraper() -> (String, Arc<MockScraper>) {
+    let mock = Arc::new(MockScraper::default());
+    let app = Router::new()
+        .route(
+            "/auth/import-session",
+            post(|| async { Json(json!({ "session_id": "cap-verified-session" })) }),
+        )
+        .route("/api/activities/{id}", get(scraper_detail))
+        .with_state(Arc::clone(&mock));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    (format!("http://{addr}"), mock)
+}
+
+/// A server reaching the scraper stand-in, and an athlete holding the live
+/// session alone (no grant).
+async fn session_athlete(scraper_url: &str) -> (Arc<ServerContext>, Uuid, TenantId) {
+    let mut config = common::test_server_config_with_sciotte(scraper_url);
+    common::set_server_app(&mut config, "strava", "walk_client", "walk_secret");
+    let resources = common::create_test_server_resources_with_config(config)
+        .await
+        .unwrap();
+    let resources = with_window(&resources, 400);
+    let (user_id, _user, tenant) = common::create_test_user_with_plan(
+        &resources.agent.database,
+        &format!("session-walk-{}@example.com", Uuid::new_v4()),
+        "starter",
+    )
+    .await
+    .unwrap();
+    seed_sciotte_session(&resources, user_id, tenant).await;
+    resources
+        .common
+        .repos
+        .provider_connections
+        .register_connection(user_id, tenant, SESSION, &ConnectionType::Manual, None)
+        .await
+        .unwrap();
+    (resources, user_id, tenant)
+}
+
+/// A walk through the session, end to end against a scraper stand-in: the
+/// session answers each ride, whose efforts land under the session's key,
+/// the grant's row for a ride only the grant listed left untouched (a
+/// disconnect of the session takes its scraped data and no more), and a ride
+/// whose page has no segment block and no GPS reads as read, with none. The
+/// reads are counted in the walk windows of the server's Strava app, the
+/// ones a grant's walk spends, never in that app's own API day.
+#[tokio::test]
+async fn a_session_walk_keeps_its_answers_under_the_session() {
+    let (scraper_url, scraper) = mock_scraper().await;
+    let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
+    let now = Utc::now().timestamp();
+    // Even ids carry an effort, the odd one is a no-GPS ride.
+    let base = (now - 20 * DAY) / 2 * 2;
+    let (listed_by_session, no_gps, grant_only) = (base, base + 3 * DAY + 1, base + 6 * DAY);
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        SESSION,
+        &[listed_by_session, no_gps],
+    )
+    .await;
+    // A ride only the grant listed: the session's answer for it is the
+    // session's own copy, never a change to this row.
+    store_rides(
+        &resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        &[grant_only],
+    )
+    .await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert_eq!(
+        segment_detail_backend(&runtime, user_id, tenant, oauth_providers::STRAVA).await,
+        Some(SESSION.to_owned()),
+        "bug: the session is the walk's backend when it is the only one held"
+    );
+    let asked = ask_detail_walk(&runtime, user_id, tenant, SESSION, since(now - 30 * DAY)).await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 3 },
+        "bug: the three rides without efforts are owed"
+    );
+    let ended = walk_ended_under(&resources, user_id, tenant, SESSION).await;
+
+    assert_eq!(
+        ended.state,
+        BackfillJobState::Walked,
+        "bug: the session walk ends at its floor"
+    );
+    let mut reads = scraper.detail_reads();
+    reads.sort();
+    let mut expected = vec![
+        listed_by_session.to_string(),
+        no_gps.to_string(),
+        grant_only.to_string(),
+    ];
+    expected.sort();
+    assert_eq!(
+        reads, expected,
+        "bug: each ride is read once, through the session"
+    );
+    let session_rows = rows_under(&resources, user_id, tenant, SESSION).await;
+    let read_ids: HashSet<&str> = session_rows
+        .iter()
+        .filter(|row| row.segment_read)
+        .map(|row| row.activity.id())
+        .collect();
+    let want: HashSet<String> = expected.iter().cloned().collect();
+    assert_eq!(
+        read_ids,
+        want.iter().map(String::as_str).collect::<HashSet<_>>(),
+        "bug: a ride is not stamped read under the session's key (the no-GPS one \
+         must converge too): {session_rows:?}"
+    );
+    let grant_rows = rows_under(&resources, user_id, tenant, oauth_providers::STRAVA).await;
+    assert!(
+        grant_rows.iter().all(|row| !row.segment_read),
+        "bug: scraped efforts landed on the grant's rows: {grant_rows:?}"
+    );
+    assert_eq!(
+        grant_rows.len(),
+        1,
+        "bug: the grant's rows changed under a session walk: {grant_rows:?}"
+    );
+    let strava_app = budget_counter_key(oauth_providers::STRAVA, "walk_client");
+    let day_count = |key: String| {
+        let resources = Arc::clone(&resources);
+        async move {
+            resources
+                .common
+                .repos
+                .usage_counters
+                .get_counter(
+                    PLATFORM_SCOPE,
+                    PLATFORM_SCOPE,
+                    &key,
+                    &budget_period(Utc::now(), ONE_DAY),
+                )
+                .await
+                .map_or(0, |counter| counter.value)
+        }
+    };
+    assert_eq!(
+        day_count(strava_app.clone()).await,
+        0,
+        "bug: the session's reads were counted in the Strava app's day"
+    );
+    let read_count = i64::try_from(expected.len()).unwrap();
+    assert_eq!(
+        day_count(detail_walk_counter_key(&strava_app)).await,
+        read_count,
+        "bug: the session's reads were not counted in the app's walk day, \
+         the pool a grant's walk spends"
+    );
+    assert_eq!(
+        day_count(detail_walk_athlete_counter_key(&strava_app, user_id)).await,
+        read_count,
+        "bug: the session's reads were not counted in the athlete's walk day \
+         under the app"
+    );
+
+    // Nothing is left to read: the next ask finds the window read.
+    let again = ask_detail_walk(&runtime, user_id, tenant, SESSION, since(now - 30 * DAY)).await;
+    assert_eq!(
+        again,
+        DetailWalkAsked::NothingUnread,
+        "bug: the no-GPS ride stays a walk candidate"
+    );
+}
+
+/// The live path keeps a session's answer for a ride the grant listed beside
+/// the grant's row, device and all, but not its scraped efforts: they never
+/// stamp the grant's row as read, so it stays a walk candidate and the
+/// session-first walk files the efforts under the session's key.
+#[tokio::test]
+async fn a_live_session_answer_on_a_grant_row_keeps_its_detail_but_not_its_efforts() {
+    let (scraper_url, scraper) = mock_scraper().await;
+    let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
+    let now = Utc::now().timestamp();
+    let at = (now - 10 * DAY) / 2 * 2;
+    store_rides(&resources, user_id, tenant, oauth_providers::STRAVA, &[at]).await;
+    open_window(&resources).await;
+
+    // What the session's read by id answers: named for the scraper, with the
+    // service it read as its source, carrying a device and an effort.
+    let effort: SegmentEffort = serde_json::from_value(json!({
+        "id": "9001",
+        "name": "Camillien-Houde",
+        "elapsed_time": 412,
+        "distance": 1_820.5,
+        "segment_id": "611413",
+        "start_date": (Utc.timestamp_opt(at + 600, 0).unwrap()).to_rfc3339()
+    }))
+    .unwrap();
+    let detailed = ActivityBuilder::new(
+        at.to_string(),
+        "Morning ride",
+        SportType::Ride,
+        Utc.timestamp_opt(at, 0).unwrap(),
+        3_600,
+        SESSION,
+    )
+    .source(oauth_providers::STRAVA)
+    .device_name("Wahoo ELEMNT BOLT")
+    .segment_efforts(vec![effort])
+    .build();
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    assert!(
+        store_detail(
+            runtime.repos(),
+            runtime.live_activities().as_ref(),
+            tenant,
+            user_id,
+            oauth_providers::STRAVA,
+            &detailed,
+        )
+        .await,
+        "bug: the session's detail was not kept beside the grant's row"
+    );
+    let grant_rows = rows_under(&resources, user_id, tenant, oauth_providers::STRAVA).await;
+    assert_eq!(grant_rows.len(), 1, "{grant_rows:?}");
+    assert!(
+        grant_rows[0].detail_read,
+        "bug: the session's detail was dropped: {grant_rows:?}"
+    );
+    assert_eq!(
+        grant_rows[0].activity.device_name(),
+        Some("Wahoo ELEMNT BOLT"),
+        "bug: the rest of the detail was not kept"
+    );
+    assert!(
+        !grant_rows[0].segment_read,
+        "bug: scraped efforts stamped the grant's row as read: {grant_rows:?}"
+    );
+
+    let asked = ask_detail_walk(&runtime, user_id, tenant, SESSION, since(now - 30 * DAY)).await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 1 },
+        "bug: the grant's row is no walk candidate"
+    );
+    let ended = walk_ended_under(&resources, user_id, tenant, SESSION).await;
+    assert_eq!(ended.state, BackfillJobState::Walked, "{ended:?}");
+    assert_eq!(
+        scraper.detail_reads(),
+        vec![at.to_string()],
+        "bug: the session walk did not read the ride"
+    );
+    let session_rows = rows_under(&resources, user_id, tenant, SESSION).await;
+    assert!(
+        session_rows.iter().any(|row| row.segment_read),
+        "bug: the walk filed no efforts under the session: {session_rows:?}"
+    );
+    let grant_rows = rows_under(&resources, user_id, tenant, oauth_providers::STRAVA).await;
+    assert!(
+        grant_rows.iter().all(|row| !row.segment_read),
+        "bug: the walk stamped the grant's row: {grant_rows:?}"
+    );
+}
+
+/// The session walk reads at most ten pages of the athlete's account in
+/// fifteen minutes: with twenty-five rides owed, more than two steps' worth
+/// (a step reads at most ten), the stand-in sees ten reads however many
+/// steps the walk takes, and the walk waits for the window instead of
+/// reading on.
+#[tokio::test]
+async fn a_session_walk_never_loads_more_than_ten_pages_at_once() {
+    let (scraper_url, scraper) = mock_scraper().await;
+    let (resources, user_id, tenant) = session_athlete(&scraper_url).await;
+    let now = Utc::now().timestamp();
+    let base = (now - 25 * DAY) / 2 * 2;
+    let starts: Vec<i64> = (0..25).map(|day| base + day * DAY).collect();
+    store_rides(&resources, user_id, tenant, SESSION, &starts).await;
+    open_window(&resources).await;
+
+    let runtime: Arc<dyn ToolRuntime> = resources.clone();
+    let asked = ask_detail_walk(&runtime, user_id, tenant, SESSION, since(now - 30 * DAY)).await;
+    assert_eq!(
+        asked,
+        DetailWalkAsked::Started { units_total: 25 },
+        "bug: the twenty-five rides are owed"
+    );
+    let deadline = Instant::now() + WALK_DEADLINE;
+    while scraper.detail_reads().len() < 10 {
+        assert!(
+            Instant::now() < deadline,
+            "bug: the walk read only {} pages",
+            scraper.detail_reads().len()
+        );
+        paused_retries_due(&resources, user_id).await;
+        age_job_rows(&resources, user_id).await;
+        resume_backfill_jobs(runtime.clone()).await.unwrap();
+        sleep(Duration::from_millis(50)).await;
+    }
+    // Give wrongly admitted further steps time to arrive: two more steps'
+    // worth of reads would land here without the burst window.
+    for _ in 0..12 {
+        paused_retries_due(&resources, user_id).await;
+        resume_backfill_jobs(runtime.clone()).await.unwrap();
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    assert_eq!(
+        scraper.detail_reads().len(),
+        10,
+        "bug: the session walk loaded more than its 10 pages in 15 minutes"
+    );
+    let row = walk_row_under(&resources, user_id, tenant, SESSION)
+        .await
+        .expect("the walk's row");
+    assert_eq!(
+        row.state,
+        BackfillJobState::Owed,
+        "bug: the walk ended instead of waiting for its window: {row:?}"
+    );
 }
 
 /// The grant reads a ride the session alone listed: its answer lands under

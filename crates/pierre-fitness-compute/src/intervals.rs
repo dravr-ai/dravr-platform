@@ -241,6 +241,8 @@ fn lap_window(
         temperature: slice_channel(stream.temperature.as_deref(), start, end),
         gps_coordinates: slice_channel(stream.gps_coordinates.as_deref(), start, end),
         distance: slice_channel(stream.distance.as_deref(), start, end),
+        grade_smooth: slice_channel(stream.grade_smooth.as_deref(), start, end),
+        moving: slice_channel(stream.moving.as_deref(), start, end),
     })
 }
 

@@ -243,6 +243,7 @@ impl FitnessProvider for OpenRunner {
             total_elevation_gain: 0.0,
             coverage: Coverage::lifetime(1),
             year_to_date: None,
+            active_streak: None,
         })
     }
 }

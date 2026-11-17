@@ -162,6 +162,8 @@ fn route_samples() -> TimeSeriesData {
                 .collect(),
         ),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 

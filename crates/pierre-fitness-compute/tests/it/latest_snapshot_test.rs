@@ -99,6 +99,8 @@ fn flat_power_stream(seconds: usize, watts: u32) -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -117,6 +119,8 @@ fn flat_hr_stream(seconds: usize, bpm: u32) -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -432,6 +436,8 @@ fn decoupling_excludes_heart_rate_gaps() {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     };
     let activity = synthetic_activity(SyntheticActivity {
         id: "decoupling-gaps",

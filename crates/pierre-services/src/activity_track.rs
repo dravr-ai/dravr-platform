@@ -234,6 +234,8 @@ mod tests {
                 temperature: None,
                 gps_coordinates: Some(points.into_iter().map(Some).collect()),
                 distance: None,
+                grade_smooth: None,
+                moving: None,
             };
             self.repos()
                 .activity_streams

@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.21.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.21.0#3acbe2eabd3320c51454303c90455a618800297c"
+version = "0.22.0"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.22.0#42601b4691c2708ab3d110a16434f10f7f63d485"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1375,8 +1375,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.49.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.49.0#8b76fb183b2dc0eb4e02c42f5d28adc614762280"
+version = "0.50.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.50.0#8a9e01a7e307bca6c4273c54706ae2b4ccfdcf07"
 dependencies = [
  "async-trait",
  "chrono",

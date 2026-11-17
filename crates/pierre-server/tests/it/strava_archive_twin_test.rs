@@ -382,6 +382,8 @@ fn export_samples() -> TimeSeriesData {
             Some((45.5003, -73.60)),
         ]),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 

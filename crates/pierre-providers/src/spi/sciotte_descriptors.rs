@@ -31,8 +31,10 @@ impl ProviderDescriptor for SciotteDescriptor {
     /// commute flag and the average heart rate; the detail page adds the
     /// private note, the trainer flag and the moving time (which only the
     /// newest list rows carry), the rest of the sensor summary, gear, device,
-    /// laps, splits and the athlete's exertion, and the recorded streams on
-    /// their time axis.
+    /// laps, splits and the athlete's exertion, every segment effort the
+    /// activity crossed (sciotte 2.1, read off the detail's segment table
+    /// beside the streams that date them), and the recorded streams on their
+    /// time axis, Strava's own `grade_smooth` and `moving` among them.
     fn activity_fields(&self) -> ActivityFieldSupport {
         ActivityFieldSupport {
             list: F::DESCRIPTION
@@ -50,8 +52,9 @@ impl ProviderDescriptor for SciotteDescriptor {
                 .union(F::DEVICE)
                 .union(F::LAPS)
                 .union(F::SPLITS)
+                .union(F::SEGMENT_EFFORTS)
                 .union(F::PERCEIVED_EXERTION),
-            streams: S::all(),
+            streams: S::CORE.union(S::GRADE_SMOOTH).union(S::MOVING),
         }
     }
 
@@ -320,5 +323,27 @@ impl ProviderDescriptor for SciotteCorosDescriptor {
 
     fn default_scopes(&self) -> &'static [&'static str] {
         &[]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{ProviderDescriptor, SciotteDescriptor};
+    use crate::field_support::StreamChannels;
+
+    /// The scraped Strava path fills Strava's own `grade_smooth` and `moving`
+    /// channels (sciotte 2.1), so its descriptor claims all eleven.
+    #[test]
+    fn the_scraped_strava_descriptor_claims_grade_smooth_and_moving() {
+        let streams = SciotteDescriptor.activity_fields().streams;
+        assert!(
+            streams.contains(StreamChannels::GRADE_SMOOTH | StreamChannels::MOVING),
+            "bug: the scraped Strava path serves channels its descriptor does not claim"
+        );
+        assert_eq!(
+            streams,
+            StreamChannels::all(),
+            "bug: the session lost a stream channel"
+        );
     }
 }

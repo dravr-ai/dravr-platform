@@ -599,7 +599,8 @@ pub struct StravaDescriptor;
 impl ProviderDescriptor for StravaDescriptor {
     /// The API's summary on every list row; the athlete's words, the gear and
     /// the device, laps, splits and every segment effort on the detail read;
-    /// nine stream channels.
+    /// eleven stream channels (the nine core ones plus Strava's own
+    /// `grade_smooth` and `moving`).
     fn activity_fields(&self) -> ActivityFieldSupport {
         ActivityFieldSupport {
             list: F::WORKOUT_TYPE
@@ -622,7 +623,7 @@ impl ProviderDescriptor for StravaDescriptor {
                 .union(F::SPLITS)
                 .union(F::SEGMENT_EFFORTS)
                 .union(F::PERCEIVED_EXERTION),
-            streams: S::all(),
+            streams: S::CORE.union(S::GRADE_SMOOTH).union(S::MOVING),
         }
     }
 
@@ -690,7 +691,7 @@ impl ProviderDescriptor for GarminDescriptor {
                 .union(F::CALORIES)
                 .union(F::DEVICE),
             detail_only: F::AVERAGE_POWER.union(F::NORMALIZED_POWER).union(F::LAPS),
-            streams: S::all(),
+            streams: S::CORE,
         }
     }
 

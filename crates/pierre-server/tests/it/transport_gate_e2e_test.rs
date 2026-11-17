@@ -209,6 +209,7 @@ impl FitnessProvider for Relay {
             total_elevation_gain: 54_321.0,
             coverage: Coverage::lifetime(412),
             year_to_date: None,
+            active_streak: None,
         })
     }
 }
@@ -2115,6 +2116,7 @@ mod scraped {
                 total_elevation_gain: 300.0,
                 coverage: Coverage::lifetime(2),
                 year_to_date: None,
+                active_streak: None,
             })
         }
     }

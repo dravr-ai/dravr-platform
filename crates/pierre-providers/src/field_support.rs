@@ -161,12 +161,34 @@ bitflags::bitflags! {
         const DISTANCE = 1 << 7;
         /// Temperature per sample.
         const TEMPERATURE = 1 << 8;
+        /// The provider's own smoothed road grade per sample, percent (positive uphill).
+        const GRADE_SMOOTH = 1 << 9;
+        /// The provider's own moving / stopped verdict per sample.
+        const MOVING = 1 << 10;
     }
+}
+
+impl StreamChannels {
+    /// The nine recorded channels: every channel but the provider-computed
+    /// `grade_smooth` and `moving`.
+    ///
+    /// A descriptor that serves those two claims them by name; this set is
+    /// what a backend that does not serve them declares, so `all()` never
+    /// hands them to a provider that never fills them.
+    pub(crate) const CORE: Self = Self::TIME
+        .union(Self::HEART_RATE)
+        .union(Self::POWER)
+        .union(Self::CADENCE)
+        .union(Self::SPEED)
+        .union(Self::ALTITUDE)
+        .union(Self::LATLNG)
+        .union(Self::DISTANCE)
+        .union(Self::TEMPERATURE);
 }
 
 /// Each channel's name, the key its [`TimeSeriesData`](crate::models::TimeSeriesData)
 /// serializes it under, in flag order.
-const CHANNEL_NAMES: [(StreamChannels, &str); 9] = [
+const CHANNEL_NAMES: [(StreamChannels, &str); 11] = [
     (StreamChannels::TIME, "timestamps"),
     (StreamChannels::HEART_RATE, "heart_rate"),
     (StreamChannels::POWER, "power"),
@@ -176,6 +198,8 @@ const CHANNEL_NAMES: [(StreamChannels, &str); 9] = [
     (StreamChannels::LATLNG, "gps_coordinates"),
     (StreamChannels::DISTANCE, "distance"),
     (StreamChannels::TEMPERATURE, "temperature"),
+    (StreamChannels::GRADE_SMOOTH, "grade_smooth"),
+    (StreamChannels::MOVING, "moving"),
 ];
 
 impl StreamChannels {
@@ -396,6 +420,30 @@ pub(crate) mod tests {
             channels,
             StreamChannels::all(),
             "bug: a channel has no name"
+        );
+    }
+
+    #[test]
+    fn the_core_set_is_all_but_the_provider_computed_channels() {
+        assert_eq!(
+            StreamChannels::CORE,
+            StreamChannels::all().difference(StreamChannels::GRADE_SMOOTH | StreamChannels::MOVING),
+            "bug: CORE must hold every channel but grade_smooth and moving"
+        );
+    }
+
+    #[cfg(feature = "provider-garmin")]
+    #[test]
+    fn the_garmin_descriptor_does_not_claim_the_provider_computed_channels() {
+        use crate::spi::{GarminDescriptor, ProviderDescriptor};
+        let streams = GarminDescriptor.activity_fields().streams;
+        assert!(
+            !streams.intersects(StreamChannels::GRADE_SMOOTH | StreamChannels::MOVING),
+            "bug: Garmin serves no grade_smooth or moving stream"
+        );
+        assert!(
+            streams.contains(StreamChannels::CORE),
+            "bug: Garmin keeps its nine core stream channels"
         );
     }
 

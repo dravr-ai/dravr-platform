@@ -836,6 +836,7 @@ impl ProviderFactory for GarminProviderFactory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::no_recorded_samples;
     use crate::models::{ActivityBuilder, SportType, TenantId};
     use crate::spi::{GarminDescriptor, ProviderCapabilities, ProviderDescriptor};
     use chrono::{DateTime, Duration};
@@ -1052,6 +1053,8 @@ mod tests {
                 Some((45.5002, -73.6)),
             ]),
             distance: None,
+            grade_smooth: None,
+            moving: None,
         };
         stores
             .activity_streams
@@ -1117,13 +1120,7 @@ mod tests {
         let samples = TimeSeriesData {
             timestamps: vec![0, 1],
             heart_rate: Some(vec![Some(120), Some(121)]),
-            power: None,
-            cadence: None,
-            speed: None,
-            altitude: None,
-            temperature: None,
-            gps_coordinates: None,
-            distance: None,
+            ..no_recorded_samples()
         };
         let written = stores
             .activity_streams

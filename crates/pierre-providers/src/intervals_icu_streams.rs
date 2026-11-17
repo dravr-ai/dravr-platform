@@ -145,5 +145,7 @@ pub(crate) fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeri
         temperature: None,
         gps_coordinates: latlng.iter().any(Option::is_some).then_some(latlng),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }

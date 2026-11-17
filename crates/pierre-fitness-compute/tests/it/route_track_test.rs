@@ -55,6 +55,8 @@ fn climbing_streams(points: &[(f64, f64)]) -> TimeSeriesData {
         temperature: None,
         gps_coordinates: Some(points.iter().copied().map(Some).collect()),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 

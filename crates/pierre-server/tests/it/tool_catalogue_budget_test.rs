@@ -79,7 +79,13 @@ use crate::common;
 /// four arguments of a few words each, and a description whose first draft
 /// was cut by 60 bytes. Measured 96,358 against 95,871 without it (~487
 /// bytes).
-const CATALOGUE_BUDGET_BYTES: usize = 96_400;
+///
+/// 2026-11-16: 96,400 → 96,500 for Strava's `grade_smooth` and `moving`
+/// channels (carnet#1603): `extract_activity_streams` names them and says they
+/// come only from the Strava source. The sentence was cut to a few words and
+/// the tool's closing sentence trimmed before measuring, which saved 67 bytes
+/// (~105 bytes added).
+const CATALOGUE_BUDGET_BYTES: usize = 96_500;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

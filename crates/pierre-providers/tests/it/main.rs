@@ -39,6 +39,8 @@ mod sciotte_session_reimport_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_rotation_test;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_strava_parity_test;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_trainingpeaks_conversion_test;
 #[cfg(feature = "provider-strava")]
 mod strava_detail_gear_note_test;

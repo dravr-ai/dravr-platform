@@ -148,6 +148,7 @@ fn test_stats_creation() {
             total_duration: 144_000,   // 40 hours
             total_elevation_gain: 6000.0,
         }),
+        active_streak: None,
     };
 
     assert_eq!(stats.total_activities, 150);
@@ -178,6 +179,7 @@ fn test_stats_serialization() {
             total_duration: 108_000,
             total_elevation_gain: 4500.0,
         }),
+        active_streak: None,
     };
 
     let json = serde_json::to_string(&stats).expect("Failed to serialize stats");
@@ -196,6 +198,54 @@ fn test_stats_serialization() {
     let ytd = deserialized.year_to_date.expect("ytd round-trips");
     assert_eq!(ytd.total_activities, 30);
     assert!((ytd.total_distance - 300_000.0).abs() < f64::EPSILON);
+}
+
+/// Strava's own streak rides on the stats when the scraped session reported
+/// one, is left out of the wire when it did not, and a cached stats document
+/// without the field still reads.
+#[test]
+fn test_stats_carry_the_providers_streak_only_when_it_reported_one() {
+    use pierre_core::models::ActiveStreak;
+
+    let mut stats = Stats {
+        total_activities: 10,
+        total_distance: 100_000.0,
+        total_duration: 36_000,
+        total_elevation_gain: 500.0,
+        coverage: Coverage::lifetime(10),
+        year_to_date: None,
+        active_streak: Some(ActiveStreak {
+            length: 21,
+            status: "Ongoing".to_owned(),
+            valid_activity_count: 640,
+        }),
+    };
+    let json = serde_json::to_value(&stats).expect("serialize");
+    assert_eq!(
+        json["active_streak"],
+        serde_json::json!({ "length": 21, "status": "Ongoing", "valid_activity_count": 640 }),
+        "bug: the provider's streak is not on the wire as it reported it"
+    );
+    let round: Stats = serde_json::from_value(json).expect("round trip");
+    assert_eq!(
+        round.active_streak, stats.active_streak,
+        "bug: the streak changed on a serialize round trip"
+    );
+
+    stats.active_streak = None;
+    let mut json = serde_json::to_value(&stats).expect("serialize");
+    assert!(
+        json.get("active_streak").is_none(),
+        "bug: an unreported streak is written as if the athlete had none: {json}"
+    );
+    json.as_object_mut()
+        .expect("object")
+        .remove("active_streak");
+    let old: Stats = serde_json::from_value(json).expect("a document without the field reads");
+    assert_eq!(
+        old.active_streak, None,
+        "bug: a stats row stored before the streak gained one"
+    );
 }
 
 #[test]

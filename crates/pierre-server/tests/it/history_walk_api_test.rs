@@ -293,6 +293,26 @@ pub(crate) async fn steps_settled(
     kind: BackfillJobKind,
     deadline: Instant,
 ) {
+    steps_settled_under(
+        resources,
+        user_id,
+        tenant,
+        oauth_providers::STRAVA,
+        kind,
+        deadline,
+    )
+    .await;
+}
+
+/// [`steps_settled`] for the row filed under `backend`.
+pub(crate) async fn steps_settled_under(
+    resources: &Arc<ServerContext>,
+    user_id: Uuid,
+    tenant: TenantId,
+    backend: &str,
+    kind: BackfillJobKind,
+    deadline: Instant,
+) {
     loop {
         let lease = resources
             .common
@@ -301,7 +321,7 @@ pub(crate) async fn steps_settled(
             .backfill_job_lease_state(
                 user_id,
                 tenant,
-                oauth_providers::STRAVA,
+                backend,
                 kind,
                 Utc::now().timestamp_millis(),
             )

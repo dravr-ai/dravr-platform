@@ -64,6 +64,16 @@
 //! [`DETAIL_WALK_DAILY_CALLS`], never more than the app's. Those two are
 //! sized already, so a request finds the whole of each, while the app's own
 //! windows stay at the background share.
+//!
+//! A session the platform signs in with (sciotte reading strava.com as the
+//! athlete) has no OAuth app and no API, yet its detail walk draws from the
+//! same two daily windows the grant's walk does ([`RequestBudget::for_session`]):
+//! the 125 a day of the Strava app that signs the athlete's grant (the
+//! server's own app for an athlete with none) and the athlete's 50, so a
+//! grant step and a session step spend one pool, never two. Only those
+//! windows count a session read, never the app's own API windows, and a
+//! session walk is also capped at [`SESSION_WALK_BURST_CALLS`] pages in 15
+//! minutes.
 
 use std::fmt;
 use std::future::Future;
@@ -72,33 +82,13 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
 use dashmap::DashMap;
+use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::rate_limits;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_database::repositories::{ProviderConnectionRepository, UsageCounterRepository};
 use serde_json::Value;
-#[cfg(any(
-    feature = "provider-coros",
-    feature = "provider-garmin",
-    feature = "provider-intervals-icu",
-    feature = "provider-strava",
-    feature = "provider-terra",
-    feature = "provider-wahoo",
-    feature = "provider-whoop",
-))]
-use tokio::sync::RwLock;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 use uuid::Uuid;
-
-#[cfg(any(
-    feature = "provider-coros",
-    feature = "provider-garmin",
-    feature = "provider-intervals-icu",
-    feature = "provider-strava",
-    feature = "provider-terra",
-    feature = "provider-wahoo",
-    feature = "provider-whoop",
-))]
-use crate::core::OAuth2Credentials;
 
 /// One day as a `Duration`.
 pub const ONE_DAY: Duration = Duration::from_hours(24);
@@ -144,6 +134,19 @@ pub const DETAIL_WALK_DAILY_CALLS: u32 = 50;
 /// the other half.
 const DETAIL_WALK_PERCENT_OF_BACKGROUND: u32 = 50;
 
+/// The most pages one athlete's session walk reads in [`FIFTEEN_MINUTES`].
+///
+/// The session is the athlete's own browser on Strava, never loaded with its
+/// day's 50 pages back to back (carnet#1603). The grant has no such cap.
+pub(crate) const SESSION_WALK_BURST_CALLS: u32 = 10;
+
+/// The sessions whose detail walk is counted: the scraper's Strava session.
+const SESSION_BACKENDS: [&str; 1] = ["sciotte"];
+
+/// The provider whose app windows a session walk spends: a session backend
+/// reads Strava's accounts, so its walk is Strava's.
+const SESSION_WALKED_PROVIDER: &str = oauth_providers::STRAVA;
+
 /// The `tenant_id` and `user_id` a provider's budget buckets are counted
 /// under: the budget is the application's, owed to no tenant or user.
 pub const PLATFORM_SCOPE: &str = "platform";
@@ -181,6 +184,14 @@ pub fn api_key_counter_key(provider: &str, account: &str) -> String {
 #[must_use]
 pub fn detail_walk_counter_key(holder_key: &str) -> String {
     format!("{holder_key}:detail_walk")
+}
+
+/// The `counter_key` of `user_id`'s detail-walk burst window under
+/// `holder_key`: the pages one athlete's session walk reads in
+/// [`FIFTEEN_MINUTES`] ([`SESSION_WALK_BURST_CALLS`]).
+#[must_use]
+pub(crate) fn detail_walk_burst_counter_key(holder_key: &str, user_id: Uuid) -> String {
+    format!("{holder_key}:detail_walk_burst:{user_id}")
 }
 
 /// The `counter_key` of `user_id`'s detail-walk window under `holder_key`.
@@ -336,68 +347,6 @@ struct DetailWalkSizes {
     app_calls: u32,
 }
 
-/// An app's windows at a provider that sizes them by the athletes who
-/// granted the app: a daily pool of `per_grant` requests for each of them,
-/// between `min_daily` and `max_daily`, and a rolling `short_window` of the
-/// day divided by `short_divisor`, never below `min_short`.
-///
-/// The limiter counts fixed buckets aligned to the epoch, while the
-/// provider's short window rolls. A rolling window as long as a bucket
-/// overlaps two adjacent buckets, so each bucket holds half the rolling
-/// limit ([`BUCKETS_A_ROLLING_WINDOW_SPANS`]): together the two can never
-/// pass it, wherever the provider's window falls. A full-size bucket would
-/// let up to twice the limit through across a boundary, a burst the provider
-/// refuses with its own 429, and `usage_counters` keeps no per-request
-/// timestamps from which a sliding window could be counted. The pool is
-/// counted per UTC day, as every daily window here is.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct GrantPool {
-    per_grant: u32,
-    min_daily: u32,
-    max_daily: u32,
-    short_window: Duration,
-    short_divisor: u32,
-    min_short: u32,
-}
-
-impl GrantPool {
-    /// Intervals.icu's terms for an OAuth app (forum.intervals.icu/t/609).
-    const fn intervals_icu() -> Self {
-        Self {
-            per_grant: rate_limits::INTERVALS_ICU_OAUTH_DAILY_PER_ATHLETE,
-            min_daily: rate_limits::INTERVALS_ICU_OAUTH_DAILY_MIN,
-            max_daily: rate_limits::INTERVALS_ICU_OAUTH_DAILY_MAX,
-            short_window: FIFTEEN_MINUTES,
-            short_divisor: rate_limits::INTERVALS_ICU_OAUTH_15MIN_DAILY_DIVISOR,
-            min_short: rate_limits::INTERVALS_ICU_OAUTH_15MIN_MIN,
-        }
-    }
-
-    /// The daily pool of an app `grants` athletes granted.
-    fn daily(self, grants: u32) -> u32 {
-        self.per_grant
-            .saturating_mul(grants)
-            .max(self.min_daily)
-            .min(self.max_daily)
-    }
-
-    /// The windows of an app whose day holds `daily` requests: the short
-    /// bucket at its share of the rolling limit that day sets, then the day.
-    fn windows(self, daily: u32) -> Vec<Budget> {
-        let rolling = (daily / self.short_divisor.max(1)).max(self.min_short);
-        vec![
-            Budget {
-                max_calls: rolling / BUCKETS_A_ROLLING_WINDOW_SPANS,
-                window: self.short_window,
-            },
-            Budget {
-                max_calls: daily,
-                window: ONE_DAY,
-            },
-        ]
-    }
-}
-
 /// The athletes counted as having granted a provider's server-level app,
 /// and when they were counted.
 #[derive(Debug, Clone, Copy)]
@@ -465,13 +414,20 @@ enum Holder {
     },
     /// A personal API key, by the provider account it belongs to.
     ApiKey { account: String },
+    /// The platform's signed-in session at a provider: no app signs it, so
+    /// its detail walk is counted in the windows of the Strava app `app`
+    /// names, the one the grant's walk of the same athlete is counted in.
+    Session {
+        app: String,
+        daily_limit: Option<u32>,
+    },
 }
 
 impl Holder {
     /// The signing app, `None` for a personal API key.
     fn app(&self) -> Option<&str> {
         match self {
-            Self::App { app, .. } => Some(app),
+            Self::App { app, .. } | Self::Session { app, .. } => Some(app),
             Self::ApiKey { .. } => None,
         }
     }
@@ -578,10 +534,14 @@ impl ProviderRateLimiter {
             ],
         );
 
-        // Strava: the walk that reads an athlete's activities in detail for
-        // their segment efforts, at most 50 calls an athlete a day.
+        // Strava, by grant or by session: the walk that reads an athlete's
+        // activities in detail for their segment efforts, at most 50 calls
+        // an athlete a day.
         let detail_walks = DashMap::new();
         detail_walks.insert("strava".to_owned(), DETAIL_WALK_DAILY_CALLS);
+        for backend in SESSION_BACKENDS {
+            detail_walks.insert(backend.to_owned(), DETAIL_WALK_DAILY_CALLS);
+        }
 
         info!(
             provider_count = budgets.len() + pools.len(),
@@ -633,7 +593,9 @@ impl ProviderRateLimiter {
         };
         let windows = self.windows_for(provider, holder, share).await;
         let windows = match detail_walk_athlete() {
-            Some(user_id) => self.with_detail_walk_windows(provider, user_id, windows),
+            Some(user_id) => self.with_detail_walk_windows(provider, holder, user_id, windows),
+            // A session read outside the walk is not counted: only its walk is.
+            None if matches!(holder, Holder::Session { .. }) => Vec::new(),
             None => windows,
         };
         let status = self.take(&windows).await?;
@@ -742,6 +704,13 @@ impl ProviderRateLimiter {
                 budget_counter_key(provider, app),
                 self.app_budgets(provider, *daily_limit).await,
             ),
+            // A session reads Strava's accounts: the app's windows size its
+            // walk's, whichever backend's name the read carries.
+            Holder::Session { app, daily_limit } => (
+                budget_counter_key(SESSION_WALKED_PROVIDER, app),
+                self.app_budgets(SESSION_WALKED_PROVIDER, *daily_limit)
+                    .await,
+            ),
             Holder::ApiKey { account } => (
                 api_key_counter_key(provider, account),
                 configured(&self.api_key_budgets, provider),
@@ -772,14 +741,21 @@ impl ProviderRateLimiter {
     ///
     /// A holder with no daily window has no day to take a share of, and its
     /// walk is held to its background share alone.
+    ///
+    /// A [`Holder::Session`] is counted in the walk windows alone: they are
+    /// the app's, the ones the grant's walk spends, but its reads never touch
+    /// the app's own API windows, which a session does not use. Its burst
+    /// window comes first.
     fn with_detail_walk_windows(
         &self,
         provider: &str,
+        holder: &Holder,
         user_id: Uuid,
         windows: Vec<Window>,
     ) -> Vec<Window> {
+        let session = matches!(holder, Holder::Session { .. });
         let Some(sizes) = self.detail_walk_sizes(provider, &windows) else {
-            return windows;
+            return if session { Vec::new() } else { windows };
         };
         let whole_day = |key: String, max_calls: u32| Window {
             key,
@@ -789,14 +765,30 @@ impl ProviderRateLimiter {
             },
             share_percent: 100,
         };
-        let mut walk = vec![
+        let mut walk = Vec::new();
+        // A signed-in session's walk is also spread over the day: its burst
+        // window comes first, so a refusal by it takes nothing from the
+        // day's.
+        if session {
+            walk.push(Window {
+                key: detail_walk_burst_counter_key(&sizes.day_key, user_id),
+                budget: Budget {
+                    max_calls: SESSION_WALK_BURST_CALLS,
+                    window: FIFTEEN_MINUTES,
+                },
+                share_percent: 100,
+            });
+        }
+        walk.extend([
             whole_day(
                 detail_walk_athlete_counter_key(&sizes.day_key, user_id),
                 sizes.athlete_calls,
             ),
             whole_day(detail_walk_counter_key(&sizes.day_key), sizes.app_calls),
-        ];
-        walk.extend(windows);
+        ]);
+        if !session {
+            walk.extend(windows);
+        }
         walk
     }
 
@@ -888,92 +880,9 @@ impl ProviderRateLimiter {
     }
 }
 
-/// The budget a credential's provider requests are admitted against: the
-/// shared windows of the OAuth app that signs them, or those its provider
-/// keeps for a personal API key.
-#[derive(Clone)]
-pub struct RequestBudget {
-    limiter: Arc<ProviderRateLimiter>,
-    holder: Holder,
-}
-
-impl RequestBudget {
-    /// The windows of `app` (the signing client's id) in `limiter`, with the
-    /// app's own `daily_limit` when it registered one.
-    #[must_use]
-    pub const fn new(
-        limiter: Arc<ProviderRateLimiter>,
-        app: String,
-        daily_limit: Option<u32>,
-    ) -> Self {
-        Self {
-            limiter,
-            holder: Holder::App { app, daily_limit },
-        }
-    }
-
-    /// The windows the provider keeps for one personal API key, counted for
-    /// `account`, the provider's id for the account the key belongs to. No
-    /// app signs a key, so no app's windows apply.
-    #[must_use]
-    pub const fn for_api_key(limiter: Arc<ProviderRateLimiter>, account: String) -> Self {
-        Self {
-            limiter,
-            holder: Holder::ApiKey { account },
-        }
-    }
-
-    /// Admit one request to `provider`, or refuse it with
-    /// [`ErrorCode::ExternalRateLimited`] and the wait until the spent window
-    /// resets.
-    ///
-    /// A window that cannot be counted refuses work nobody is waiting on and
-    /// lets a request an athlete is waiting on through, logged as an error:
-    /// the budget protects the provider grant, and an unreachable database is
-    /// an outage of its own, paged by that log.
-    ///
-    /// # Errors
-    /// Returns the refusal, or for background work the counting error.
-    pub async fn admit(&self, provider: &str) -> AppResult<()> {
-        match self.limiter.acquire_for(provider, &self.holder).await {
-            Ok(RateLimitStatus::Allowed) => Ok(()),
-            Ok(RateLimitStatus::Exceeded { retry_after }) => {
-                Err(budget_refusal(provider, retry_after))
-            }
-            Err(e) if is_background() => Err(e),
-            Err(e) => {
-                error!(provider, app = self.holder.app(), error = %e, "provider request budget could not be counted; the request is sent uncounted");
-                Ok(())
-            }
-        }
-    }
-
-    /// The calls a day one athlete's detail walk at `provider` may make
-    /// under this budget's holder, as the limiter sizes the walk's window:
-    /// [`DETAIL_WALK_DAILY_CALLS`], held to the app's walk window, which is
-    /// half the background share of the holder's actual day (`0` for a day
-    /// under 8). A walk's ETA is paced by it, and a walk with no room at all
-    /// is never recorded.
-    ///
-    /// `None` when `provider` has no walk windows, or the holder no daily
-    /// window: its walk is held to its background share alone.
-    pub async fn detail_walk_daily_calls(&self, provider: &str) -> Option<u32> {
-        self.limiter
-            .detail_walk_daily_calls(provider, &self.holder)
-            .await
-    }
-}
-
-impl fmt::Debug for RequestBudget {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RequestBudget")
-            .field("holder", &self.holder)
-            .finish_non_exhaustive()
-    }
-}
-
-/// The budget the credentials in a provider's slot carry, cloned out so the
-/// lock is released before the request is admitted.
+mod grant_pool;
+mod handle;
+use grant_pool::GrantPool;
 #[cfg(any(
     feature = "provider-coros",
     feature = "provider-garmin",
@@ -983,65 +892,276 @@ impl fmt::Debug for RequestBudget {
     feature = "provider-wahoo",
     feature = "provider-whoop",
 ))]
-pub(crate) async fn carried_by(
-    credentials: &RwLock<Option<OAuth2Credentials>>,
-) -> Option<RequestBudget> {
-    credentials
-        .read()
-        .await
-        .as_ref()
-        .and_then(|credentials| credentials.request_budget.clone())
-}
-
-/// Admit one request to `provider` against `budget`, when the credential
-/// carries one.
-///
-/// # Errors
-/// Returns [`RequestBudget::admit`]'s refusal.
-pub async fn admit(budget: Option<&RequestBudget>, provider: &str) -> AppResult<()> {
-    match budget {
-        Some(budget) => budget.admit(provider).await,
-        None => Ok(()),
-    }
-}
+pub(crate) use handle::carried_by;
+pub use handle::{admit, RequestBudget};
 
 #[cfg(test)]
 mod tests {
+    use pierre_database::RepositoryRegistry;
+    use pierre_test_support::db::create_test_db;
+
     use super::*;
 
-    /// Intervals.icu's daily pool is 100 requests for each athlete who
-    /// granted the app, held to at least 5,000 and at most 50,000: the 50th
-    /// athlete still leaves it at the minimum and the 51st widens it, the
-    /// 500th fills it and the 501st adds nothing.
-    #[test]
-    fn the_intervals_pool_grows_by_a_hundred_an_athlete_between_its_clamps() {
-        let pool = GrantPool::intervals_icu();
-        assert_eq!(pool.daily(0), 5_000);
-        assert_eq!(pool.daily(50), 5_000);
-        assert_eq!(pool.daily(51), 5_100);
-        assert_eq!(pool.daily(499), 49_900);
-        assert_eq!(pool.daily(500), 50_000);
-        assert_eq!(pool.daily(501), 50_000);
-        assert_eq!(pool.daily(u32::MAX), 50_000, "the product saturates");
+    /// One window's spent count under `key` now.
+    async fn spent(repos: &RepositoryRegistry, key: &str, window: Duration) -> i64 {
+        repos
+            .usage_counters
+            .get_counter(
+                PLATFORM_SCOPE,
+                PLATFORM_SCOPE,
+                key,
+                &budget_period(Utc::now(), window),
+            )
+            .await
+            .map_or(-1, |counter| counter.value)
     }
 
-    /// The rolling 15-minute limit is an eighth of the day, at least 2,500,
-    /// and each fixed 15-minute bucket holds half of it, so two adjacent
-    /// buckets never pass it: 1,250 a bucket until the day passes 20,000,
-    /// 3,125 at the day's 50,000.
-    #[test]
-    fn each_fifteen_minute_bucket_holds_half_the_rolling_limit() {
-        let pool = GrantPool::intervals_icu();
-        let short = |daily| {
-            let windows = pool.windows(daily);
-            assert_eq!(windows[1].max_calls, daily, "the day is the pool");
-            assert_eq!(windows[1].window, ONE_DAY);
-            assert_eq!(windows[0].window, FIFTEEN_MINUTES);
-            windows[0].max_calls
+    /// Add `value` to the `window` bucket under `key`.
+    async fn spend(repos: &RepositoryRegistry, key: &str, window: Duration, value: i64) {
+        repos
+            .usage_counters
+            .increment_counter(
+                PLATFORM_SCOPE,
+                PLATFORM_SCOPE,
+                key,
+                &budget_period(Utc::now(), window),
+                value,
+            )
+            .await
+            .unwrap_or_else(|e| panic!("bug: the counter could not be spent: {e}"));
+    }
+
+    /// A limiter counting in a fresh database's `usage_counters`.
+    async fn limiter() -> (Arc<RepositoryRegistry>, Arc<ProviderRateLimiter>) {
+        let db = create_test_db()
+            .await
+            .unwrap_or_else(|e| panic!("test db: {e}"));
+        let repos = Arc::clone(db.repositories());
+        let limiter = Arc::new(ProviderRateLimiter::new(
+            Arc::clone(&repos.usage_counters),
+            Arc::clone(&repos.provider_connections),
+        ));
+        (repos, limiter)
+    }
+
+    /// One request of the scraper's signed-in session, made inside
+    /// `user_id`'s detail walk, as the walk admits it.
+    async fn session_walk_call(budget: &RequestBudget, user_id: Uuid) -> Result<(), ErrorCode> {
+        in_detail_walk(user_id, budget.admit("sciotte"))
+            .await
+            .map_err(|e| e.code)
+    }
+
+    /// One request of the Strava grant, made inside `user_id`'s detail walk.
+    async fn grant_walk_call(budget: &RequestBudget, user_id: Uuid) -> Result<(), ErrorCode> {
+        in_detail_walk(user_id, budget.admit("strava"))
+            .await
+            .map_err(|e| e.code)
+    }
+
+    /// The scraper's session has no app and no API, yet its detail walk
+    /// draws from the very windows the grant's does (carnet#1483): 50 a day
+    /// for one athlete and 125 for every athlete's walk together, across both
+    /// backends, never two pools. A session read takes none of the app's own
+    /// API windows.
+    #[tokio::test]
+    async fn a_grant_step_and_a_session_step_draw_from_the_same_daily_pools() {
+        let (repos, limiter) = limiter().await;
+        let grant = RequestBudget::new(Arc::clone(&limiter), "server-app".to_owned(), None);
+        let session = RequestBudget::for_session(&limiter, "sciotte", Some(&grant), "unused")
+            .unwrap_or_else(|| panic!("bug: the scraper's session has no windows to count in"));
+        assert_eq!(
+            session.detail_walk_daily_calls("sciotte").await,
+            Some(DETAIL_WALK_DAILY_CALLS),
+            "bug: the athlete's session walk day is not the 50 of the grant's"
+        );
+        let key = budget_counter_key("strava", "server-app");
+
+        // One athlete: 30 steps already spent, then 10 grant steps, 9 session
+        // steps and a last grant step make the day's 50, and neither backend
+        // gets a 51st. The session still has a page of its burst (10 in 15
+        // minutes) left, so its refusal is the day's.
+        let first = Uuid::new_v4();
+        let athlete_day = detail_walk_athlete_counter_key(&key, first);
+        spend(&repos, &athlete_day, ONE_DAY, 30).await;
+        spend(&repos, &detail_walk_counter_key(&key), ONE_DAY, 30).await;
+        for call in 0..10 {
+            assert_eq!(
+                grant_walk_call(&grant, first).await,
+                Ok(()),
+                "bug: grant step {call} of an athlete's day was refused"
+            );
+        }
+        for call in 0..9 {
+            assert_eq!(
+                session_walk_call(&session, first).await,
+                Ok(()),
+                "bug: session step {call} of an athlete's day was refused"
+            );
+        }
+        assert_eq!(
+            grant_walk_call(&grant, first).await,
+            Ok(()),
+            "bug: the 50th step of the athlete's day was refused"
+        );
+        assert_eq!(
+            spent(&repos, &athlete_day, ONE_DAY).await,
+            50,
+            "bug: the grant's and the session's steps are not one day of 50"
+        );
+        assert_eq!(
+            session_walk_call(&session, first).await,
+            Err(ErrorCode::ExternalRateLimited),
+            "bug: a 51st step of one athlete's day was admitted through the session"
+        );
+        assert_eq!(
+            grant_walk_call(&grant, first).await,
+            Err(ErrorCode::ExternalRateLimited),
+            "bug: a 51st step of one athlete's day was admitted through the grant"
+        );
+        assert_eq!(
+            spent(&repos, &athlete_day, ONE_DAY).await,
+            50,
+            "bug: a refused step took a slot"
+        );
+
+        // The app's walk window is one 125: 50 spent, 74 more leave one
+        // step, a second athlete's through the grant, and a third's is
+        // refused through either backend with their own day open.
+        spend(&repos, &detail_walk_counter_key(&key), ONE_DAY, 74).await;
+        let (second, third) = (Uuid::new_v4(), Uuid::new_v4());
+        assert_eq!(
+            grant_walk_call(&grant, second).await,
+            Ok(()),
+            "bug: the 125th step of the day, across athletes, was refused"
+        );
+        assert_eq!(
+            session_walk_call(&session, third).await,
+            Err(ErrorCode::ExternalRateLimited),
+            "bug: the 126th step of the day was admitted through the session"
+        );
+        assert_eq!(
+            grant_walk_call(&grant, third).await,
+            Err(ErrorCode::ExternalRateLimited),
+            "bug: the 126th step of the day was admitted through the grant"
+        );
+        assert_eq!(
+            spent(&repos, &detail_walk_counter_key(&key), ONE_DAY).await,
+            125,
+            "bug: the walk's app window is not one 125 a day"
+        );
+        // Only the grant's 11 steps and the second athlete's are API calls of
+        // the app.
+        assert_eq!(
+            spent(&repos, &key, ONE_DAY).await,
+            12,
+            "bug: a session's reads were counted against the app's API windows"
+        );
+    }
+
+    /// A session walk reads at most 10 pages of one athlete's Strava account
+    /// in 15 minutes, so it never loads its day's 50 back to back; another
+    /// athlete's walk is not held by it, nor is the grant's.
+    #[tokio::test]
+    async fn a_session_walk_reads_ten_pages_in_fifteen_minutes() {
+        let (repos, limiter) = limiter().await;
+        let budget = RequestBudget::for_session(&limiter, "sciotte", None, "server-app")
+            .unwrap_or_else(|| panic!("bug: the scraper's session has no windows to count in"));
+        let key = budget_counter_key("strava", "server-app");
+        let (athlete, other) = (Uuid::new_v4(), Uuid::new_v4());
+
+        for call in 0..SESSION_WALK_BURST_CALLS {
+            assert_eq!(
+                session_walk_call(&budget, athlete).await,
+                Ok(()),
+                "call {call} is within the burst of {SESSION_WALK_BURST_CALLS}"
+            );
+        }
+        let refused = in_detail_walk(athlete, budget.admit("sciotte")).await;
+        let Err(refused) = refused else {
+            panic!("bug: the 11th page in 15 minutes was admitted");
         };
-        assert_eq!(short(5_000), 1_250);
-        assert_eq!(short(20_000), 1_250);
-        assert_eq!(short(24_000), 1_500);
-        assert_eq!(short(50_000), 3_125);
+        assert_eq!(
+            refused.code,
+            ErrorCode::ExternalRateLimited,
+            "bug: the burst refusal is not the limiter's own"
+        );
+        let wait = refused.retry_after_secs().unwrap_or(0);
+        assert!(
+            (1..=FIFTEEN_MINUTES.as_secs()).contains(&wait),
+            "bug: the wait {wait}s is not within the 15-minute window"
+        );
+        assert_eq!(
+            spent(
+                &repos,
+                &detail_walk_athlete_counter_key(&key, athlete),
+                ONE_DAY
+            )
+            .await,
+            i64::from(SESSION_WALK_BURST_CALLS),
+            "bug: the refused page took a slot of the athlete's day"
+        );
+        assert_eq!(
+            session_walk_call(&budget, other).await,
+            Ok(()),
+            "bug: one athlete's burst held another athlete's walk"
+        );
+
+        // The grant's API is the app's quota, not the athlete's account.
+        let grant = RequestBudget::new(Arc::clone(&limiter), "server-app".to_owned(), None);
+        for call in 0..=SESSION_WALK_BURST_CALLS {
+            assert!(
+                in_detail_walk(Uuid::new_v4(), grant.admit("strava"))
+                    .await
+                    .is_ok(),
+                "bug: the grant's walk call {call} was held to a session burst"
+            );
+        }
+    }
+
+    /// A session read outside the walk, one an athlete waits on, is never
+    /// refused by a budget and spends none of the app's windows, its API's
+    /// or its walk's: only the walk is counted.
+    #[tokio::test]
+    async fn a_session_read_outside_the_walk_spends_nothing() {
+        let (repos, limiter) = limiter().await;
+        let budget = RequestBudget::for_session(&limiter, "sciotte", None, "server-app")
+            .unwrap_or_else(|| panic!("bug: the scraper's session has no windows to count in"));
+        for call in 0..=SESSION_WALK_BURST_CALLS {
+            assert_eq!(
+                budget.admit("sciotte").await.map_err(|e| e.code),
+                Ok(()),
+                "bug: session read {call} outside the walk was refused"
+            );
+        }
+        let key = budget_counter_key("strava", "server-app");
+        for (window_key, window) in [
+            (key.clone(), FIFTEEN_MINUTES),
+            (key.clone(), ONE_DAY),
+            (detail_walk_counter_key(&key), ONE_DAY),
+        ] {
+            assert_eq!(
+                spent(&repos, &window_key, window).await,
+                0,
+                "bug: a session read outside the walk was counted under {window_key}"
+            );
+        }
+    }
+
+    /// Only a session the limiter counts has a budget to walk in: Strava's
+    /// own grant has an app, and a provider it never counted has neither.
+    #[tokio::test]
+    async fn only_the_scrapers_strava_session_has_a_session_budget() {
+        let (_, limiter) = limiter().await;
+        assert!(
+            RequestBudget::for_session(&limiter, "sciotte", None, "server-app").is_some(),
+            "bug: the scraper's session has no budget"
+        );
+        for other in ["strava", "sciotte_garmin", "garmin"] {
+            assert!(
+                RequestBudget::for_session(&limiter, other, None, "server-app").is_none(),
+                "bug: {other} reads as a counted session"
+            );
+        }
     }
 }

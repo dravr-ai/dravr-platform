@@ -277,6 +277,8 @@ fn test_time_series_data_model() {
             Some((45.5029, -73.5661)),
         ]),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     };
 
     // Verify data integrity

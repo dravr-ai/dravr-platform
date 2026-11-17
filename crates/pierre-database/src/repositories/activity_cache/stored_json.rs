@@ -107,6 +107,8 @@ mod tests {
                 Some((45.7, -73.7)),
             ]),
             distance: None,
+            grade_smooth: None,
+            moving: None,
         }
     }
 

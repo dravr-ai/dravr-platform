@@ -380,6 +380,10 @@ pub struct StravaStreamSet {
     pub distance: Option<StravaStream<f64>>,
     /// GPS positions as `[lat, lng]`.
     pub latlng: Option<StravaStream<[f64; 2]>>,
+    /// Smoothed road grade, percent (positive uphill).
+    pub grade_smooth: Option<StravaStream<f32>>,
+    /// Whether the athlete was moving at each sample, as Strava decided it.
+    pub moving: Option<StravaStream<bool>>,
 }
 
 #[cfg(test)]

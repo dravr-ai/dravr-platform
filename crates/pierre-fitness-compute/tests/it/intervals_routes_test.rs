@@ -131,6 +131,8 @@ fn three_lap_stream() -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -220,6 +222,8 @@ fn intervals_leave_stream_metrics_absent_for_a_lap_with_no_samples() {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     };
     let laps = vec![lap(1, 300.0, 60, 140, 100), lap(2, 300.0, 60, 150, 180)];
     let activity = activity_with_stream(laps, stream);

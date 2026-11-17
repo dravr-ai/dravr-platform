@@ -445,6 +445,8 @@ impl StravaProvider {
         let altitude = set.altitude.map(|s| keep_timed(s.data, &recorded));
         let temperature = set.temp.map(|s| keep_timed(s.data, &recorded));
         let distance = set.distance.map(|s| keep_timed(s.data, &recorded));
+        let grade_smooth = set.grade_smooth.map(|s| keep_timed(s.data, &recorded));
+        let moving = set.moving.map(|s| keep_timed(s.data, &recorded));
 
         let sample_count = [
             heart_rate.as_ref().map(Vec::len),
@@ -455,6 +457,8 @@ impl StravaProvider {
             temperature.as_ref().map(Vec::len),
             gps.as_ref().map(Vec::len),
             distance.as_ref().map(Vec::len),
+            grade_smooth.as_ref().map(Vec::len),
+            moving.as_ref().map(Vec::len),
         ]
         .into_iter()
         .flatten()
@@ -486,6 +490,8 @@ impl StravaProvider {
             temperature,
             gps_coordinates: gps,
             distance,
+            grade_smooth,
+            moving,
         })
     }
 
@@ -597,7 +603,7 @@ impl StravaProvider {
     /// Every other failure is the read's error.
     async fn fetch_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
         let endpoint = format!(
-            "activities/{id}/streams?keys=time,distance,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng&key_by_type=true"
+            "activities/{id}/streams?keys=time,distance,heartrate,watts,cadence,velocity_smooth,altitude,temp,latlng,grade_smooth,moving&key_by_type=true"
         );
         match self
             .api_request_reading::<StravaStreamSet, _>(&endpoint, Self::streams_absent)
@@ -919,6 +925,9 @@ impl FitnessProvider for StravaProvider {
             total_elevation_gain: all_time.total_elevation_gain,
             coverage: Coverage::lifetime(all_time.total_activities),
             year_to_date: Some(year_to_date),
+            // Strava's API serves no streak; only the scraped session's
+            // profile read carries one.
+            active_streak: None,
         })
     }
 }

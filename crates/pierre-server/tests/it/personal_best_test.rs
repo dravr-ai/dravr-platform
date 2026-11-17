@@ -133,6 +133,8 @@ fn run(id: &str, start: DateTime<Utc>, seconds_per_km: u32, km: u32) -> (Activit
         temperature: None,
         gps_coordinates: None,
         distance: Some(distance),
+        grade_smooth: None,
+        moving: None,
     };
     (activity, series)
 }

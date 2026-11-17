@@ -181,6 +181,8 @@ fn two_samples() -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 

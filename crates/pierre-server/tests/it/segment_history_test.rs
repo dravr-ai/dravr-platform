@@ -1239,10 +1239,11 @@ async fn an_ask_that_cannot_widen_the_owed_walk_reads_it_walking() {
     );
 }
 
-/// An athlete with only the Strava session: no backend they hold reads
-/// segment efforts, so nothing is walked and the window says why.
+/// An athlete with only the Strava session: the scraper's detail read carries
+/// the segment efforts too (carnet#1602), so the walk is asked through the
+/// session, filed under it, and the window says it is being read.
 #[tokio::test]
-async fn a_session_only_athlete_reads_segments_unavailable() {
+async fn a_session_only_athlete_is_walked_through_the_session() {
     let (base, _mock) = mock_strava(Listing::Status(402)).await;
     let resources = server(&base, 1_000).await;
     let (user_id, _user, tenant) = common::create_test_user_with_plan(
@@ -1273,8 +1274,8 @@ async fn a_session_only_athlete_reads_segments_unavailable() {
     let coverage = &payload["coverage"];
     assert_eq!(coverage["complete"], false, "{coverage}");
     assert_eq!(
-        coverage["incomplete_reason"], "segment_detail_unavailable",
-        "bug: no backend reads the efforts: {coverage}"
+        coverage["incomplete_reason"], "segment_detail_walking",
+        "bug: the session reads the efforts, so its walk is what the window waits on: {coverage}"
     );
     assert!(
         resources
@@ -1284,8 +1285,8 @@ async fn a_session_only_athlete_reads_segments_unavailable() {
             .detail_walk_row(user_id, tenant, SESSION)
             .await
             .unwrap()
-            .is_none(),
-        "bug: a walk was asked through a session that reads no efforts"
+            .is_some(),
+        "bug: no walk was filed under the session that reads the efforts"
     );
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),
@@ -1342,7 +1343,7 @@ async fn an_app_with_no_room_for_a_walk_reads_strava_unavailable() {
 fn assert_never_says_not_connected(coverage: &Value) {
     let note = coverage["note"].as_str().unwrap_or_default();
     assert!(
-        !note.contains("hasn't connected"),
+        !note.contains("no Strava connection"),
         "bug: an athlete holding a Strava grant is told they have not connected it: {note}"
     );
 }

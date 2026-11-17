@@ -69,8 +69,9 @@ pub enum IncompleteReason {
     /// recorded, or this transport asks none. Nothing tried them, so none is
     /// said to be unreadable.
     SegmentDetailUnread,
-    /// No backend the athlete holds reads segment efforts: they come from
-    /// Strava's API, which this athlete has not connected.
+    /// No backend the athlete holds reads segment efforts: they are read
+    /// from Strava, through a Strava connection or a signed-in Strava
+    /// session, and this athlete has neither.
     SegmentDetailUnavailable,
 }
 
@@ -105,7 +106,7 @@ impl IncompleteReason {
                 "the segment efforts of some of its activities have not been read, and this answer started no read of them, so the efforts here are not all the athlete's",
             ),
             Self::SegmentDetailUnavailable => Some(
-                "segment efforts can't be read for this athlete yet; they come from Strava's API, which this athlete hasn't connected",
+                "segment efforts can't be read for this athlete yet; they are read from Strava, and this athlete has no Strava connection or sign-in",
             ),
             Self::ShallowHistory | Self::NoStoredActivities => None,
         }
@@ -563,12 +564,12 @@ impl<'de> Deserialize<'de> for Coverage {
             (true, Some(_)) => {
                 return Err(D::Error::custom(
                     "a complete coverage names no incomplete_reason",
-                ))
+                ));
             }
             (false, None) => {
                 return Err(D::Error::custom(
                     "an incomplete coverage names its incomplete_reason",
-                ))
+                ));
             }
         };
         // The note is derived, never stored: it is rebuilt from the rest.
@@ -1059,7 +1060,9 @@ mod tests {
         };
         let note = coverage.note().ok_or("no note")?;
         assert!(
-            note.contains("they come from Strava's API, which this athlete hasn't connected"),
+            note.contains(
+                "they are read from Strava, and this athlete has no Strava connection or sign-in"
+            ),
             "bug: the note says where efforts come from: {note}"
         );
         assert!(

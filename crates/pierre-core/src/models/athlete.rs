@@ -83,6 +83,7 @@ pub struct Athlete {
 ///     total_elevation_gain: 25000.0, // 25km of elevation
 ///     coverage: Coverage::lifetime(150),
 ///     year_to_date: None,
+///     active_streak: None,
 /// };
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
@@ -104,6 +105,26 @@ pub struct Stats {
     /// (consumers must not treat the `total_*` fields as annual).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub year_to_date: Option<PeriodTotals>,
+    /// The athlete's current activity streak, as Strava itself reports it
+    /// (the scraped Strava session only). It is Strava's own figure, never a
+    /// Dravr computation: nothing derives or recomputes it from activities,
+    /// and `None` means the provider did not report one, not that the
+    /// athlete has no streak.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub active_streak: Option<ActiveStreak>,
+}
+
+/// A provider's own report of the athlete's current streak of consecutive
+/// active days. Carried as the provider states it: Dravr does not recompute
+/// it from the athlete's activities.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema)]
+pub struct ActiveStreak {
+    /// Days in the streak
+    pub length: u32,
+    /// Where the provider says the streak stands (Strava: `Ongoing`)
+    pub status: String,
+    /// Activities that counted toward streaks
+    pub valid_activity_count: u32,
 }
 
 impl Stats {
@@ -138,6 +159,7 @@ impl Stats {
                 ..CoverageWindow::default()
             }),
             year_to_date: None,
+            active_streak: None,
         }
     }
 }

@@ -58,6 +58,8 @@ mod factory;
 mod field_guard;
 mod reads;
 mod rotation;
+mod segments;
+mod streak;
 mod streams;
 
 pub use factory::{
@@ -667,6 +669,7 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .private_note_opt(sciotte.private_note.clone().filter(|_| own_words))
     .device_name_opt(activity_times::device_name(sciotte))
     .gear_opt(activity_times::gear(sciotte))
+    .segment_efforts_opt(segments::read_efforts(sciotte))
     .build()
 }
 
@@ -918,10 +921,11 @@ impl FitnessProvider for SciotteProvider {
             .get_activities_with_params(&ActivityQueryParams::with_pagination(Some(100), None))
             .await?;
 
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
+        // Strava's own streak rides with the totals; its read never fails them.
+        Ok(Stats {
+            active_streak: self.read_active_streak().await,
+            ..Stats::summed_over(&activities, WindowScope::RecentActivities)
+        })
     }
 
     /// Only the TrainingPeaks mirror reads a planned calendar — the one

@@ -112,9 +112,10 @@ pub fn listed_key<'a>(serving: &'a str, listed_by: &str) -> &'a str {
 /// stores nothing (`false`). A grant's answer for an activity the grant
 /// never listed is first written as the grant's own copy of it
 /// ([`copy_under_grant`]), so the view that merges a workout's copies serves
-/// it and the grant's revocation purges it. A store that fails is logged and
-/// answers `false`: the caller has the detail in hand and answers from it
-/// either way.
+/// it and the grant's revocation purges it. A session's answer kept under a
+/// grant's key keeps everything but its segment efforts ([`Efforts`]). A
+/// store that fails is logged and answers `false`: the caller has the detail
+/// in hand and answers from it either way.
 pub async fn store_detail(
     repos: &RepositoryRegistry,
     store: &dyn LiveActivityStore,
@@ -125,12 +126,49 @@ pub async fn store_detail(
 ) -> bool {
     let answered = answered_key(provider, detailed);
     let copy = copy_under_grant(repos, store, tenant_id, user_id, answered, detailed);
-    store_detail_from_live_grant(repos, tenant_id, user_id, provider, detailed, copy).await
+    // A session's answer (named `sciotte` by the activity it returns, never
+    // the grant's `strava`) kept under the grant's key must not stamp that
+    // row's segments as read: scraped efforts never hide the row from the
+    // session-first detail walk, which files them under the session
+    // (carnet#1603). The rest of the detail is kept.
+    let session_answer_on_grant_row =
+        mirror_backend_for(answered).is_some() && detailed.provider() != answered;
+    let efforts = if session_answer_on_grant_row {
+        Efforts::Withheld
+    } else {
+        Efforts::Kept
+    };
+    let keep = Keep {
+        listed: provider,
+        answered,
+        efforts,
+    };
+    store_detail_answered_by(repos, tenant_id, user_id, keep, detailed, copy).await
         == DetailKept::Stored
 }
 
-/// What keeping a detail read came to
-/// ([`store_detail_from_live_grant`]).
+/// Where and how a detail read is kept.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Keep<'a> {
+    /// The key of the row the activity was listed under.
+    pub listed: &'a str,
+    /// The key of the backend that answered, under which it is kept.
+    pub answered: &'a str,
+    /// Whether the read's segment efforts are kept.
+    pub efforts: Efforts,
+}
+
+/// Whether a stored detail carries the segment efforts of the read.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Efforts {
+    /// The efforts are stored, stamping the row's segments as read.
+    Kept,
+    /// The efforts are left out, so the row stays a candidate of the detail
+    /// walk.
+    Withheld,
+}
+
+/// What keeping a detail read came to ([`store_detail_answered_by`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum DetailKept {
     /// The detail is stored beside its row.
@@ -142,37 +180,41 @@ pub(crate) enum DetailKept {
     Failed,
 }
 
-/// [`store_detail`] for a caller that has just read `detailed` through a
-/// live grant itself.
+/// Keep a detail beside its row under `answered`, the backend that answered:
+/// a detail walk reads through one backend, so what it read is kept under that
+/// backend's key and never another's. `copy` writes `answered`'s own copy of
+/// an activity only the other half of the pair listed, and answers how many
+/// rows it wrote; it runs only when `answered` holds no row of the activity.
 ///
-/// The grant's copy of an activity only its session listed is written by
-/// `copy`, which answers how many rows it wrote, and not only while the
-/// grant shows a last sync, as [`store_detail`]'s is.
-///
-/// A detail walk reads through the athlete's live grant and writes the copy
-/// through its owed-write guard, so a purge of the grant landing between its
-/// read and its write takes the copy back (`activity_backfill::detail_walk`).
-/// `copy` runs only when the grant answered for a row it holds no copy of;
-/// what the grant answered for a row it holds is stored beside that row.
-pub(crate) async fn store_detail_from_live_grant(
+/// The session's answer for a ride only the grant listed is the session's
+/// own copy (`copy` writes it), never a change to the grant's row, so
+/// disconnecting the session takes the scraped data and leaves the grant's
+/// rows as the API wrote them (carnet#1603).
+pub(crate) async fn store_detail_answered_by(
     repos: &RepositoryRegistry,
     tenant_id: TenantId,
     user_id: Uuid,
-    provider: &str,
+    keep: Keep<'_>,
     detailed: &Activity,
     copy: impl Future<Output = AppResult<u64>>,
 ) -> DetailKept {
-    let answered = answered_key(provider, detailed);
-    match keep_detail(repos, tenant_id, user_id, answered, detailed).await {
+    let Keep {
+        listed: provider,
+        answered,
+        efforts,
+    } = keep;
+    match keep_detail(repos, tenant_id, user_id, answered, detailed, efforts).await {
         Ok(false) if answered != provider => match copy.await {
             Ok(0) => DetailKept::NotCached,
-            Ok(_) => kept(keep_detail(repos, tenant_id, user_id, answered, detailed).await),
+            Ok(_) => {
+                kept(keep_detail(repos, tenant_id, user_id, answered, detailed, efforts).await)
+            }
             Err(e) => {
                 warn!(
                     activity_id = detailed.id(),
                     provider = answered,
                     error = %e,
-                    "writing the grant's copy of an activity it answered failed; its detail is not kept"
+                    "writing the copy of an activity it answered failed; its detail is not kept"
                 );
                 DetailKept::Failed
             }
@@ -234,8 +276,12 @@ async fn keep_detail(
     user_id: Uuid,
     provider: &str,
     detailed: &Activity,
+    efforts: Efforts,
 ) -> Result<bool, ()> {
-    let detail = ActivityDetail::from_activity(detailed);
+    let mut detail = ActivityDetail::from_activity(detailed);
+    if efforts == Efforts::Withheld {
+        detail.segment_efforts = None;
+    }
     let recheck_at = detail_recheck_at(&detail, Utc::now());
     let activity_id = detailed.id();
     match repos

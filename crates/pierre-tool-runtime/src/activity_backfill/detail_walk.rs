@@ -4,19 +4,33 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! Detail walks (carnet#1483).
+//! Detail walks (carnet#1483, carnet#1602).
 //!
 //! A segment's history is the efforts of the athlete's stored activities,
 //! and only a detail read of an activity carries its efforts. The live path
-//! details the last days through the session, which reads none. A detail
-//! walk reads them for a window: a [`BackfillJobKind::DetailWalk`] job,
-//! recorded before it runs, leased while it runs, resumed by the sweep.
+//! details the last days through whichever backend answers, and a session's
+//! answer that carries the efforts key (sciotte 2.1, even an empty list)
+//! stamps the row's segments as read like a grant's; one read before that
+//! mapper, or by a backend that read none, has no key and stays a walk
+//! candidate. A detail walk reads them for a window: a
+//! [`BackfillJobKind::DetailWalk`] job, recorded before it runs, leased while
+//! it runs, resumed by the sweep.
 //!
 //! **Which backend.** Any backend the athlete holds live, grant or session,
 //! whose descriptor declares segment efforts on a detail read
-//! ([`segment_detail_backend`]); today only the Strava grant does. It is read
+//! ([`segment_detail_backend`]): the Strava grant and the scraper's Strava
+//! session (`sciotte`). The session is read first, as every Strava read is
+//! (carnet#1494, the order of [`history_source_order`]); the grant answers
+//! for the athlete whose session is absent, flagged or expired. A session
+//! that dies under a running walk ends it incomplete, and the next ask finds
+//! the session no longer live and files the walk under the grant. It is read
 //! exactly as named, and the walk's row is filed under it, so a purge of it
 //! deletes the walk with the rest of its data.
+//! A session's reads are counted in the same walk windows a grant's are
+//! ([`session_walk_budget`]): one pool of 125 a day for every athlete's walk
+//! together and 50 for each, across both backends, and never more than 10
+//! pages in 15 minutes for one athlete (the limiter's
+//! `SESSION_WALK_BURST_CALLS`).
 //!
 //! **One step per run.** A step reads the stored activities of the window
 //! below its row's cursor (`before_ts`), newest first, under the keys its
@@ -28,12 +42,14 @@
 //! counts the copies of one activity as one ([`one_activity_key`](pierre_providers::deduplication::one_activity_key)), and
 //! reads up to `DETAIL_WALK_STEP_ACTIVITIES` whose efforts no copy holds,
 //! each through the backend in the walk's own day budget ([`in_detail_walk`](pierre_providers::request_budget::in_detail_walk)).
-//! What it read is stored beside its row (`store_detail_from_live_grant`):
-//! the grant's answer under the grant's key, its copy written first, through
-//! the walk's owed-write guard ([`owed_write`](super::owed_write)), when only the session listed
-//! the activity. The cursor then moves to the oldest second it finished, and
-//! the row records the step ([`JobProgress`]): activities read, activities
-//! stored, the seconds one took.
+//! What it read is stored beside its row (`store_detail_answered_by`), under
+//! the key of the backend the walk reads, the grant's or the session's: the
+//! answerer's copy is written first, through the walk's owed-write guard
+//! ([`owed_write`](super::owed_write)), when only the other half listed the
+//! activity, so a session's answer never lands on a grant's row and its
+//! disconnect takes what it scraped and no more. The cursor then moves to the
+//! oldest second it finished, and the row records the step ([`JobProgress`]):
+//! activities read, activities stored, the seconds one took.
 //!
 //! **What stops a step.** An activity the backend cannot read (gone, or any
 //! other answer but the ones below) is skipped: the cursor moves past it, and
@@ -60,7 +76,7 @@ mod step;
 
 use std::sync::Arc;
 
-use pierre_core::constants::oauth::providers::STRAVA_ARCHIVE;
+use pierre_core::constants::oauth::providers::{STRAVA, STRAVA_ARCHIVE};
 use pierre_core::errors::AppResult;
 use pierre_core::models::coverage::Pending;
 use pierre_core::models::TenantId;
@@ -69,7 +85,7 @@ use pierre_database::repositories::{
 };
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::field_support::ActivityFields;
-use pierre_providers::request_budget::DETAIL_WALK_DAILY_CALLS;
+use pierre_providers::request_budget::{RequestBudget, DETAIL_WALK_DAILY_CALLS};
 use pierre_providers::ProviderDescriptor;
 use pierre_services::training_history_read::{
     history_source_order, history_store_keys, HistorySource,
@@ -588,17 +604,50 @@ pub async fn detail_walk_pending(
 }
 
 /// The calls a day the athlete's detail walk through `backend` may make, as
-/// the budget its stored credential is counted in sizes the walk's window
-/// ([`RequestBudget::detail_walk_daily_calls`](pierre_providers::request_budget::RequestBudget::detail_walk_daily_calls)).
+/// the budget it is counted in sizes the walk's window
+/// ([`RequestBudget::detail_walk_daily_calls`](pierre_providers::request_budget::RequestBudget::detail_walk_daily_calls)):
+/// the signed-in session's, or the stored credential's.
 /// `None` when nothing counts the backend's calls for the athlete, or its
 /// budget has no walk window: the walk is then held to its background share
 /// alone.
 async fn walk_daily_calls(athlete: &Athlete<'_>, backend: &str) -> Option<u32> {
+    if let Some(session) = session_walk_budget(athlete, backend).await {
+        return session.detail_walk_daily_calls(backend).await;
+    }
     AuthService::new(Arc::clone(athlete.runtime))
         .stored_request_budget(backend, athlete.user_id, athlete.tenant_id)
         .await?
         .detail_walk_daily_calls(backend)
         .await
+}
+
+/// The budget the walk of `backend`'s signed-in session is counted in, for
+/// `athlete`: the walk windows of the Strava app that signs the athlete's
+/// grant, so a session step and a grant step draw from the same daily pools,
+/// or of the server's own Strava app for an athlete with no grant. `None`
+/// when `backend` is no session the limiter counts, or nothing counts.
+async fn session_walk_budget(athlete: &Athlete<'_>, backend: &str) -> Option<RequestBudget> {
+    let runtime = athlete.runtime;
+    let registry = runtime.provider_registry();
+    // A server with no Strava app of its own counts every grantless
+    // athlete's session walk under the empty app name: still one pool, at
+    // Strava's sizes.
+    let server_app = runtime
+        .config()
+        .oauth
+        .server_app(STRAVA)
+        .client_id
+        .as_deref()
+        .unwrap_or_default();
+    // A grant's walk, or a backend no session is counted for, reads nothing
+    // of the athlete's credential here.
+    let unsigned = registry.session_request_budget(backend, None, server_app)?;
+    let signing = AuthService::new(Arc::clone(runtime))
+        .stored_request_budget(STRAVA, athlete.user_id, athlete.tenant_id)
+        .await;
+    signing.map_or(Some(unsigned), |signing| {
+        registry.session_request_budget(backend, Some(&signing), server_app)
+    })
 }
 
 /// A running detail walk's [`Pending`] from its recorded progress

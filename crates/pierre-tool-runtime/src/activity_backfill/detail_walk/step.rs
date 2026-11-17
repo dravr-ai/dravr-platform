@@ -15,19 +15,19 @@ use pierre_database::repositories::{DetailWalkEnd, JobLease, JobProgressStep};
 use pierre_providers::ai_scope;
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::one_activity_key;
-use pierre_providers::request_budget::in_detail_walk;
+use pierre_providers::request_budget::{in_detail_walk, RequestBudget};
 use pierre_providers::CoreFitnessProvider;
 use tracing::{info, instrument, warn};
 
 use super::candidates::{take_seconds, Athlete, Unread};
-use super::{walk_daily_calls, walk_keys, walk_row};
+use super::{session_walk_budget, walk_daily_calls, walk_keys, walk_row};
 use crate::activity_backfill::owed_write::{land_owed, Landed};
 use crate::activity_backfill::pause::retry_at_ms;
 use crate::activity_backfill::{
     keep_backfill_lease, lease_ms, notify_backfill_reauth, now_ms, ActivityBackfillJob,
     MAX_BACKFILL_ATTEMPTS,
 };
-use crate::activity_detail_store::{store_detail_from_live_grant, DetailKept};
+use crate::activity_detail_store::{store_detail_answered_by, DetailKept, Efforts, Keep};
 use crate::activity_fetch::write_through::WriteThrough;
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
@@ -216,6 +216,9 @@ async fn walk_step(
         executor: &executor,
         provider: provider.as_ref(),
         lease,
+        // A signed-in session has no API budget behind it: its reads are
+        // counted in the walk windows of the app the grant's are, here.
+        session_budget: session_walk_budget(&athlete, &job.provider_name).await,
     };
     for second in &taken.seconds {
         for unread in &second.unread {
@@ -235,12 +238,12 @@ async fn walk_step(
                 Read::Failed => {
                     return Step::Failed {
                         step: progress.step(),
-                    }
+                    };
                 }
                 Read::Stopped => {
                     return Step::Stopped {
                         step: progress.step(),
-                    }
+                    };
                 }
             }
         }
@@ -327,6 +330,9 @@ struct Reader<'step> {
     executor: &'step UniversalExecutor,
     provider: &'step dyn CoreFitnessProvider,
     lease: &'step JobLease,
+    /// The windows a session backend's reads are admitted against; `None`
+    /// for a grant, whose own credential carries its budget.
+    session_budget: Option<RequestBudget>,
 }
 
 impl Reader<'_> {
@@ -337,18 +343,22 @@ impl Reader<'_> {
         let Some(first) = unread.copies.first() else {
             return Read::Skipped;
         };
-        // The backend's own copy when it holds one, the session's otherwise:
-        // the grant's answer for it is kept under the grant either way.
+        // The backend's own copy when it holds one, the other half's
+        // otherwise. Whichever backend this walk reads (the session or the
+        // grant), its answer is kept under its own key
+        // ([`store_detail_answered_by`]).
         let listed = unread
             .copies
             .iter()
             .find(|copy| copy.provider == job.provider_name)
             .unwrap_or(first);
         let (_, id) = one_activity_key(&listed.activity);
-        let fetched = in_detail_walk(
-            job.user_id,
-            ai_scope::unfiltered(self.provider.get_activity(&id)),
-        )
+        let fetched = in_detail_walk(job.user_id, async {
+            if let Some(budget) = &self.session_budget {
+                budget.admit(&job.provider_name).await?;
+            }
+            ai_scope::unfiltered(self.provider.get_activity(&id)).await
+        })
         .await;
         match fetched {
             Ok(detailed) => self.store(&listed.provider, &detailed).await,
@@ -357,8 +367,8 @@ impl Reader<'_> {
     }
 
     /// Store `detailed` beside the row it details, listed under `listed`;
-    /// the grant's copy, when it must be written first, through the walk's
-    /// owed-write guard.
+    /// the walk's backend's own copy, when it must be written first, through
+    /// the walk's owed-write guard.
     async fn store(&self, listed: &str, detailed: &Activity) -> Read {
         let job = self.job;
         let start = detailed.start_date().timestamp();
@@ -391,11 +401,17 @@ impl Reader<'_> {
                 Landed::Kept | Landed::Stopped | Landed::Failed => Ok(0),
             }
         };
-        let kept = store_detail_from_live_grant(
+        // Kept under the key of the backend this walk reads, whichever row
+        // listed the ride: a session's answer never lands on a grant's row.
+        let kept = store_detail_answered_by(
             job.resources.repos(),
             job.tenant_id,
             job.user_id,
-            listed,
+            Keep {
+                listed,
+                answered: &job.provider_name,
+                efforts: Efforts::Kept,
+            },
             detailed,
             copy,
         )

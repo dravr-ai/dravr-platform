@@ -876,6 +876,23 @@ impl ProviderRegistry {
             .map(|limiter| RequestBudget::new(Arc::clone(limiter), app.to_owned(), daily_limit))
     }
 
+    /// The budget `backend`'s signed-in session's detail walk is counted
+    /// in, for the walk to admit its reads against: the walk windows of the
+    /// app `signing` carries (the athlete's grant), else of the server's own
+    /// Strava app `server_app`. `None` when this registry counts nothing or
+    /// counts no session of `backend`.
+    #[must_use]
+    pub fn session_request_budget(
+        &self,
+        backend: &str,
+        signing: Option<&RequestBudget>,
+        server_app: &str,
+    ) -> Option<RequestBudget> {
+        self.request_limiter
+            .as_ref()
+            .and_then(|limiter| RequestBudget::for_session(limiter, backend, signing, server_app))
+    }
+
     /// The budget of the personal API key that belongs to `account`, the
     /// provider's id for its account: the windows the provider keeps for
     /// each key. `None` when this registry counts nothing, or when `account`

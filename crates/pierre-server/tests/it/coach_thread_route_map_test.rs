@@ -63,6 +63,8 @@ fn track_from(start: f64) -> TimeSeriesData {
                 .collect(),
         ),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 

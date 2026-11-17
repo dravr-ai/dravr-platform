@@ -874,6 +874,8 @@ pub const fn no_recorded_samples() -> TimeSeriesData {
         temperature: None,
         gps_coordinates: None,
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }
 }
 
@@ -914,6 +916,8 @@ pub fn stream_sample_count(series: &TimeSeriesData) -> usize {
         series.temperature.as_ref().map(Vec::len),
         series.gps_coordinates.as_ref().map(Vec::len),
         series.distance.as_ref().map(Vec::len),
+        series.grade_smooth.as_ref().map(Vec::len),
+        series.moving.as_ref().map(Vec::len),
     ]
     .into_iter()
     .flatten()

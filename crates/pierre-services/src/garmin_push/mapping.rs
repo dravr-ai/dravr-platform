@@ -299,6 +299,8 @@ pub(crate) fn streams_from_samples(
             Some((s.latitude_in_degree?, s.longitude_in_degree?))
         }),
         distance: channel(&samples, |s| s.total_distance_in_meters),
+        grade_smooth: None,
+        moving: None,
     })
 }
 

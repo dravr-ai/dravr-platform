@@ -128,6 +128,8 @@ fn run_with_track() -> Activity {
             None,
         ]),
         distance: None,
+        grade_smooth: None,
+        moving: None,
     }))
     .build()
 }

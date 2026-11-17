@@ -2268,6 +2268,8 @@ impl Fixture {
                     temperature: None,
                     gps_coordinates: None,
                     distance: None,
+                    grade_smooth: None,
+                    moving: None,
                 },
                 synced_at: Utc::now(),
             })
