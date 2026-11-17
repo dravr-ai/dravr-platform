@@ -1330,8 +1330,8 @@ checksum = "1aaf95b3e5c8f23aa320147307562d361db0ae0d51242340f558153b4eb2439b"
 
 [[package]]
 name = "dravr-barrage"
-version = "0.22.0"
-source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.22.0#42601b4691c2708ab3d110a16434f10f7f63d485"
+version = "0.22.1"
+source = "git+https://github.com/dravr-ai/dravr-barrage.git?tag=v0.22.1#d54df9f6de065be09717caa2d05e800626156c4e"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1375,8 +1375,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-cageux"
-version = "0.50.0"
-source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.50.0#8a9e01a7e307bca6c4273c54706ae2b4ccfdcf07"
+version = "0.51.0"
+source = "git+https://github.com/dravr-ai/dravr-cageux.git?tag=v0.51.0#588034ca076dcae0b0485ff0115f4831269c9f27"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5031,7 +5031,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5069,7 +5069,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -6467,7 +6467,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.4.3",
+ "getrandom 0.3.4",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7313,7 +7313,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.48.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
