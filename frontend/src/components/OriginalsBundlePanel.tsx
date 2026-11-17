@@ -5,8 +5,9 @@
 // Copyright (c) 2026 dravr.ai
 
 import { useState } from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
   apiErrorStatus,
   exportRefusalCode,
@@ -46,18 +47,25 @@ function openSigned(url: string): void {
 export default function OriginalsBundlePanel() {
   const { t, i18n } = useTranslation();
   const [passphrase, setPassphrase] = useState('');
-  const [asked, setAsked] = useState<OriginalsBundle | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  // The latest bundle, so a page left while it built finds it again.
+  // The latest bundle, so a page left while it built finds it again. Every
+  // answer about a bundle is written into this one entry: the client keeps a
+  // query fresh for minutes, so a panel mounted again after a request would
+  // otherwise read the `null` it cached before the athlete asked.
+  const queryClient = useQueryClient();
+  const remember = (seen: OriginalsBundle): OriginalsBundle => {
+    queryClient.setQueryData(QUERY_KEYS.account.originalsLatest(), seen);
+    return seen;
+  };
   const latest = useQuery({
-    queryKey: ['originals-latest'],
+    queryKey: QUERY_KEYS.account.originalsLatest(),
     queryFn: () => originalsApi.getLatestOriginals(),
   });
-  const current = asked ?? latest.data ?? null;
+  const current = latest.data ?? null;
   const followed = useQuery({
     queryKey: ['originals-bundle', current?.bundleId],
-    queryFn: () => originalsApi.getOriginals(current!.bundleId),
+    queryFn: async () => remember(await originalsApi.getOriginals(current!.bundleId)),
     enabled: originalsStillBuilding(current),
     refetchInterval: (query) =>
       originalsStillBuilding(query.state.data ?? current) ? ORIGINALS_POLL_MS : false,
@@ -69,7 +77,7 @@ export default function OriginalsBundlePanel() {
     onMutate: () => setFailure(null),
     onSuccess: (started) => {
       setPassphrase('');
-      setAsked(started);
+      remember(started);
     },
     onError: (err: unknown) => setFailure(t(originalsRefusalKey(apiErrorStatus(err), exportRefusalCode(err)))),
   });

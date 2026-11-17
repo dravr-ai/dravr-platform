@@ -264,6 +264,28 @@ describe('DataExportSection', () => {
       expect(mockRequestOriginals).not.toHaveBeenCalled();
     });
 
+    it('still shows the bundle it asked for when the screen is opened again', async () => {
+      // The app keeps a query fresh for minutes: the `null` read before the
+      // request must not stand for the bundle once the screen mounts again.
+      mockRequestOriginals.mockResolvedValue(bundle('ready'));
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false, staleTime: 5 * 60_000 }, mutations: { retry: false } },
+      });
+      const section = () => (
+        <QueryClientProvider client={client}>
+          <DataExportSection />
+        </QueryClientProvider>
+      );
+      const first = render(section());
+      fireEvent.press(await screen.findByTestId('originals-request'));
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      first.unmount();
+
+      render(section());
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      expect(mockGetLatestOriginals).toHaveBeenCalledTimes(1);
+    });
+
     it('follows a bundle until ready, then downloads it from its signed URL and shares it', async () => {
       mockRequestOriginals.mockResolvedValue(bundle('building'));
       mockGetOriginals.mockResolvedValueOnce(bundle('building')).mockResolvedValue(bundle('ready'));

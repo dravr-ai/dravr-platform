@@ -202,6 +202,28 @@ describe('DataExportSection', () => {
       expect(requestOriginals).not.toHaveBeenCalled();
     });
 
+    it('still shows the bundle it asked for when the panel is opened again', async () => {
+      // The app keeps a query fresh for minutes: the `null` read before the
+      // request must not stand for the bundle once the panel mounts again.
+      requestOriginals.mockResolvedValue(bundle('ready'));
+      const client = new QueryClient({
+        defaultOptions: { queries: { staleTime: 5 * 60_000 }, mutations: { retry: false } },
+      });
+      const panel = () => (
+        <QueryClientProvider client={client}>
+          <DataExportSection />
+        </QueryClientProvider>
+      );
+      const first = render(panel());
+      fireEvent.click(await screen.findByTestId('originals-request'));
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      first.unmount();
+
+      render(panel());
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      expect(getLatestOriginals).toHaveBeenCalledTimes(1);
+    });
+
     it('asks for a bundle, follows it until ready, and saves it from its signed URL', async () => {
       requestOriginals.mockResolvedValue(bundle('building'));
       getOriginals.mockResolvedValueOnce(bundle('building')).mockResolvedValue(bundle('ready'));

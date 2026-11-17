@@ -65,6 +65,11 @@ export const QUERY_KEYS = {
   account: {
     /** What deleting the account would remove, read before the athlete confirms. */
     deletionPreview: () => ['account-deletion-preview'] as const,
+    /**
+     * The athlete's latest originals bundle. Every answer about a bundle (the
+     * request's and each poll's) is written here, so a pane opened again shows it.
+     */
+    originalsLatest: () => ['originals-latest'] as const,
   },
 
   // ==================== OAUTH ====================

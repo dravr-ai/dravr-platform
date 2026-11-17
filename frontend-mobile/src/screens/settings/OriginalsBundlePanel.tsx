@@ -6,12 +6,13 @@
 
 import React, { useState } from 'react';
 import { Text, View } from 'react-native';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { ENDPOINTS, type OriginalsBundle } from '@pierre/api-client';
 import { parseOriginalsSignedDownload } from '@pierre/shared-types';
 import { useTranslation } from '@pierre/i18n';
+import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
   apiErrorStatus,
   exportRefusalCode,
@@ -82,18 +83,25 @@ async function downloadAndShare(bundle: OriginalsBundle): Promise<void> {
 export function OriginalsBundlePanel(): React.JSX.Element {
   const { t, i18n } = useTranslation();
   const [passphrase, setPassphrase] = useState('');
-  const [asked, setAsked] = useState<OriginalsBundle | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
 
-  // The latest bundle, so a page left while it built finds it again.
+  // The latest bundle, so a page left while it built finds it again. Every
+  // answer about a bundle is written into this one entry: the client keeps a
+  // query fresh for minutes, so a panel mounted again after a request would
+  // otherwise read the `null` it cached before the athlete asked.
+  const queryClient = useQueryClient();
+  const remember = (seen: OriginalsBundle): OriginalsBundle => {
+    queryClient.setQueryData(QUERY_KEYS.account.originalsLatest(), seen);
+    return seen;
+  };
   const latest = useQuery({
-    queryKey: ['originals-latest'],
+    queryKey: QUERY_KEYS.account.originalsLatest(),
     queryFn: () => originalsApi.getLatestOriginals(),
   });
-  const current = asked ?? latest.data ?? null;
+  const current = latest.data ?? null;
   const followed = useQuery({
     queryKey: ['originals-bundle', current?.bundleId],
-    queryFn: () => originalsApi.getOriginals(current!.bundleId),
+    queryFn: async () => remember(await originalsApi.getOriginals(current!.bundleId)),
     enabled: originalsStillBuilding(current),
     refetchInterval: (query) =>
       originalsStillBuilding(query.state.data ?? current) ? ORIGINALS_POLL_MS : false,
@@ -105,7 +113,7 @@ export function OriginalsBundlePanel(): React.JSX.Element {
     mutationFn: async () => {
       setFailure(null);
       try {
-        setAsked(await originalsApi.requestOriginals(passphrase === '' ? undefined : passphrase));
+        remember(await originalsApi.requestOriginals(passphrase === '' ? undefined : passphrase));
         setPassphrase('');
       } catch (err: unknown) {
         setFailure(t(originalsRefusalKey(apiErrorStatus(err), exportRefusalCode(err))));
