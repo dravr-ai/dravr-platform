@@ -467,6 +467,8 @@ pub(crate) struct FirstWelcomeLines {
 /// When `first_sync_spoke` — carnet#831's first post already spoke about the
 /// same data in this thread — the figures are left to it, and so is the
 /// Garmin line they owe; the goal and the why are still quoted.
+///
+/// LIMITATION(registre#1623): `first_welcome_lines` never says the history is missing when a push-fed grant (Garmin) serves alone with its history `needed`, nor offers the Garmin sign-in or the Garmin export import.
 #[must_use]
 pub(crate) fn first_welcome_lines(
     templates: &FirstWelcomeTemplates,

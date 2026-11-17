@@ -55,6 +55,8 @@ use super::runner::StepTask;
 use crate::mcp::resources::ServerContext;
 
 /// The sources whose export the athlete uploads rather than links.
+///
+/// LIMITATION(registre#1624): `UPLOAD_SOURCES` leaves out `GarminArchive` and `StravaArchive`, and `takes_upload` is exclusive, so an athlete holding that export's zip cannot upload it: only its emailed link is taken, and once that link expires they must request a new export.
 pub const UPLOAD_SOURCES: &[SourceKey] = &[
     SourceKey::AppleHealthArchive,
     SourceKey::CorosArchive,
