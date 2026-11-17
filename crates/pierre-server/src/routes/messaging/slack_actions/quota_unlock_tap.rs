@@ -268,7 +268,7 @@ mod tests {
             ("daily_messages", "50", "starter", true, "Starter's own cap"),
             (
                 "weekly_tokens",
-                "25000000",
+                "50000000",
                 "professional",
                 true,
                 "Professional's own cap",

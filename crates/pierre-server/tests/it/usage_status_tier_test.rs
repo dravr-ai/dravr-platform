@@ -84,10 +84,10 @@ async fn usage_status_and_my_quota_agree_on_a_professional_users_limits() {
 
     assert_eq!(quota["tier"], "professional");
     assert_eq!(quota_limit(&quota, "daily_messages"), 500);
-    assert_eq!(quota_limit(&quota, "daily_tokens"), 5_000_000);
+    assert_eq!(quota_limit(&quota, "daily_tokens"), 10_000_000);
     assert_eq!(quota_limit(&quota, "daily_tool_calls"), 2_000);
 
     assert_eq!(status["daily"]["messages"]["limit"], 500);
-    assert_eq!(status["daily"]["tokens"]["limit"], 5_000_000);
+    assert_eq!(status["daily"]["tokens"]["limit"], 10_000_000);
     assert_eq!(status["daily"]["tool_calls"]["limit"], 2_000);
 }

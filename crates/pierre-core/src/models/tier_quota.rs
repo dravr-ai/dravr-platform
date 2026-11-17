@@ -60,9 +60,9 @@ impl TierQuotaConfig {
 /// LIMITATION(registre#1058): `STARTER` has no monthly checked-reply cap, and its daily tool-call cap is checked on `/mcp` calls only, never by a chat turn's quota check.
 pub const STARTER: TierQuotaConfig = TierQuotaConfig {
     daily_messages: 50,
-    daily_tokens: 500_000,
-    weekly_tokens: 2_000_000,
-    monthly_tokens: 8_000_000,
+    daily_tokens: 1_000_000,
+    weekly_tokens: 4_000_000,
+    monthly_tokens: 16_000_000,
     max_conversations_per_day: 10,
     max_messages_per_conversation: 100,
     max_messages_per_agent_per_day: 25,
@@ -76,9 +76,9 @@ pub const STARTER: TierQuotaConfig = TierQuotaConfig {
 /// Professional tier — individual paid users.
 pub const PROFESSIONAL: TierQuotaConfig = TierQuotaConfig {
     daily_messages: 500,
-    daily_tokens: 5_000_000,
-    weekly_tokens: 25_000_000,
-    monthly_tokens: 100_000_000,
+    daily_tokens: 10_000_000,
+    weekly_tokens: 50_000_000,
+    monthly_tokens: 200_000_000,
     max_conversations_per_day: 100,
     max_messages_per_conversation: 1_000,
     max_messages_per_agent_per_day: 200,
