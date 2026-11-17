@@ -216,6 +216,59 @@ for spec in "${BACKEND_PATHS[@]}"; do check "$spec" backend; done
 echo "-- must be served by the SPA --"
 for spec in "${SPA_PATHS[@]}"; do check "$spec" spa; done
 
+# MCP liveness probes: a known directory prober with no token on
+# mcp.dravr.ai/mcp is answered by nginx with the backend's 401 and challenge,
+# so the API is never woken. The same prober with a token, on another host or
+# on another /mcp path, and any other client without one, still reach the
+# backend.
+echo "-- MCP liveness probes --"
+MCPBEAT_UA='mcpbeat/0.1 (+https://mcpbeat.com/bot/; liveness check)'
+probe_401() { # <method> <user agent>
+    local status
+    status="$(curl -s -X "$1" -A "$2" -D "$WORK/probe.headers" -o "$WORK/probe.body" \
+        -w '%{http_code}' -H 'Host: mcp.dravr.ai' "http://localhost:$PORT/mcp" --max-time 10 || true)"
+    # The location declares its own add_header, so the security headers ride
+    # only on its include of security-headers.conf.
+    if [ "$status" = "401" ] \
+        && grep -qF '"code":-32001' "$WORK/probe.body" \
+        && ! grep -qF 'BACKEND-REACHED' "$WORK/probe.body" \
+        && grep -qiF 'www-authenticate: Bearer resource_metadata="https://mcp.dravr.ai/.well-known/oauth-protected-resource/mcp"' "$WORK/probe.headers" \
+        && grep -qi '^content-type: application/json' "$WORK/probe.headers" \
+        && grep -qi '^x-content-type-options: nosniff' "$WORK/probe.headers"; then
+        printf '  ok   %-6s %-45s -> nginx 401 (%s)\n' "$1" /mcp "${2%%/*}"
+    else
+        printf '  FAIL %-6s %-45s -> %s (expected nginx 401 with the challenge and security headers, for %s)\n' "$1" /mcp "$status" "$2"
+        failures=$((failures + 1))
+    fi
+}
+probe_backend() { # <label> <method> <path> <curl args...>
+    local label="$1" method="$2" path="$3" body
+    shift 3
+    body="$(curl -s -X "$method" "$@" "http://localhost:$PORT$path" --max-time 10 | head -1)"
+    if [[ "$body" == BACKEND-REACHED* ]]; then
+        printf '  ok   %-6s %-45s -> backend (%s)\n' "$method" "$path" "$label"
+    else
+        printf '  FAIL %-6s %-45s -> nginx (expected backend, %s)\n' "$method" "$path" "$label"
+        failures=$((failures + 1))
+    fi
+}
+probe_401 POST "$MCPBEAT_UA"
+probe_401 POST 'alalanet-prober/1.0 (+https://alalanet.com/prober)'
+probe_401 GET  'AgentRankProbe/0.1 (+https://spark.tail6ec125.ts.net/developers)'
+probe_backend "a prober with a token" POST /mcp -H 'Host: mcp.dravr.ai' -A "$MCPBEAT_UA" -H 'Authorization: Bearer x'
+probe_backend "another client without a token" POST /mcp -H 'Host: mcp.dravr.ai' -A 'node'
+probe_backend "a prober on another host" POST /mcp -H 'Host: app.dravr.ai' -A "$MCPBEAT_UA"
+probe_backend "a prober on another /mcp path" GET /mcp/tools -H 'Host: mcp.dravr.ai' -A "$MCPBEAT_UA"
+# The answer's location is internal: a client naming it gets nginx's 404.
+internal_status="$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: mcp.dravr.ai' \
+    "http://localhost:$PORT/__mcp_liveness_401" --max-time 10 || true)"
+if [ "$internal_status" = "404" ]; then
+    printf '  ok   %-6s %-45s -> 404 (internal)\n' GET /__mcp_liveness_401
+else
+    printf '  FAIL %-6s %-45s -> %s (expected 404, the location is internal)\n' GET /__mcp_liveness_401 "$internal_status"
+    failures=$((failures + 1))
+fi
+
 # Hashed assets: a chunk the image holds is served as JavaScript, and one it
 # lacks is a 404 — never the SPA shell, which a module import of a chunk from
 # the previous release would otherwise receive as text/html with a 200.
@@ -373,6 +426,9 @@ else
             fi
         }
         expect_line "a proxied 200 is INFO" '.path == "/api/health" and .status == 200 and .severity == "INFO"'
+        # An empty upstream is the proof that a liveness probe never dialled
+        # the API.
+        expect_line "a liveness probe nginx answers is logged as a 401 with no upstream" '.path == "/__mcp_liveness_401" and .status == 401 and (.upstream == "" or .upstream == "-")'
         expect_line "an upstream failure is ERROR" ".path == \"$UPSTREAM_FAILS_PATH\" and .status == 502 and .severity == \"ERROR\""
         expect_line "a 200 served after abandoning an address is WARNING" '.path == "/api/health" and .status == 200 and .severity == "WARNING" and (.upstream | contains(", "))'
         if [ "$retry_served" -ne 1 ]; then
