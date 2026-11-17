@@ -43,6 +43,9 @@ pierre-services = { version = "0.3.0", path = "../pierre-services" }
 
 async-trait = "0.1"
 axum = { version = "0.8", features = ["macros"] }
+# The athlete's activity history in their export: barrage's records, erasures
+# and the originals bundle, from the context's one record store.
+dravr-barrage = { workspace = true }
 chrono = { version = "0.4", features = ["serde"] }
 hex = "0.4"
 hmac = "0.12"
@@ -55,6 +58,8 @@ tokio-stream = "0.1"
 tracing = "0.1"
 urlencoding = "2.1"
 uuid = { version = "1.29", features = ["v4", "serde"] }
+
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
 
 # Sciotte (provider-sciotte feature)
 dravr-sciotte = { workspace = true, optional = true, features = ["client"] }

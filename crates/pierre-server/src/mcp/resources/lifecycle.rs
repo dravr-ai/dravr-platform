@@ -73,8 +73,8 @@ use pierre_contremaitre::harness_config_registry::HarnessConfigRegistry;
 #[cfg(feature = "client-notifications")]
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_providers::originals::OriginalsStore;
-use pierre_services::barrage_live_store::live_store;
 use pierre_services::provider_purge::ProviderPurgeService;
+use pierre_services::{barrage_live_store::live_store, originals_bundle::OriginalsBundleService};
 
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandRegistry;
@@ -97,10 +97,8 @@ use pierre_groups::delegation::DelegationStore;
 use pierre_groups::strategies::tier::tier_strategy_for;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::AthleteBilling;
-use pierre_llm::config::LlmChain;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
-use pierre_llm::FunctionDeclaration;
 #[cfg(feature = "provider-sciotte")]
 use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::redaction::RedactionConfig;
@@ -223,10 +221,12 @@ impl ServerContext {
         let blobs = options
             .blobs
             .unwrap_or_else(|| blob_store_when_unset(&config.database.url));
-        // One live store over the same blob store, and the one purge over it
-        // every disconnect takes.
-        let live_activities = live_store(options.live_records, blobs.clone().ok(), &repos);
+        // One record store (imports write it, the export reads it), one live
+        // store over it and the blob store, and the one purge every disconnect takes.
+        let activity_records = archive_imports.record_store(options.live_records)?;
+        let live_activities = live_store(Arc::clone(&activity_records), blobs.clone().ok(), &repos);
         let provider_purge = ProviderPurgeService::shared(&repos, Arc::clone(&live_activities));
+        let originals_bundles = OriginalsBundleService::over(&activity_records, &blobs, &repos);
         let originals = Arc::new(OriginalsStore::new(
             blobs,
             Arc::clone(&repos.uploaded_activity_files),
@@ -527,6 +527,8 @@ impl ServerContext {
                 .unwrap_or_else(|| Arc::new(TurnRunner::InProcess)),
             archive_imports,
             live_activities,
+            activity_records,
+            originals_bundles,
             provider_purge,
             originals,
             // Reads PHOTOGRAVEUR_URL; absent means messaging charts stay off.
@@ -934,114 +936,6 @@ impl ServerContext {
         let mut registry = ToolRegistry::new();
         register_builtin_tools(&mut registry);
         registry
-    }
-
-    /// Log the chat tool catalogue's wire size once per boot, and have
-    /// Anthropic count it off the boot path (carnet#1196).
-    ///
-    /// Two surfaces: the athlete's own turn, which sends every chat-callable
-    /// tool — and, with the rest deferred, holds only the loaded core in
-    /// context — and the coach's seat, which withholds the coach's own data
-    /// tools.
-    /// The contremaitre overlay has not synced yet at this point, so this is
-    /// the compiled-in text; every turn's dispatch line carries the size and
-    /// digest it actually sent.
-    fn report_tool_catalogue_size(registry: &ToolRegistry, chain: &LlmChain) {
-        use pierre_tool_runtime::chat_catalogue::{
-            build_mcp_tools, defer_beyond_core, measure_catalogue,
-        };
-        use pierre_tool_runtime::coach_seat::TurnSeat;
-
-        /// How many of the largest tools the line names
-        const LARGEST_LOGGED: usize = 20;
-
-        let mut tools = build_mcp_tools(registry);
-        let chat = measure_catalogue(&tools);
-        // What a turn holds in context when the rest is deferred, on a
-        // provider with tool search (carnet#406).
-        let mut deferred = tools.clone();
-        defer_beyond_core(&mut deferred);
-        let loaded = measure_catalogue(&deferred);
-        // The detached count owns its copy: the coach-seat filter below
-        // narrows `tools` in place.
-        Self::spawn_tool_catalogue_token_count(
-            chain.anthropic_models(),
-            tools.function_declarations.clone(),
-            chat.bytes,
-        );
-        tools
-            .function_declarations
-            .retain(|decl| !TurnSeat::Coach.withholds(registry, &decl.name));
-        // LIMITATION(registre#1208): `coach_seat` sizes `TurnSeat::Coach`
-        // (a group's room) only; `TurnSeat::AthleteThread` is sized per turn
-        // by the dispatch line, never here.
-        let coach_seat = measure_catalogue(&tools);
-        info!(
-            event_type = "tool_catalogue_size",
-            tool_count = chat.tool_count,
-            bytes = chat.bytes,
-            estimated_tokens = chat.estimated_tokens,
-            digest = %chat.digest,
-            loaded_tool_count = loaded.tool_count - loaded.deferred_count,
-            loaded_bytes = loaded.loaded_bytes,
-            loaded_estimated_tokens = loaded.loaded_estimated_tokens,
-            coach_seat_tool_count = coach_seat.tool_count,
-            coach_seat_bytes = coach_seat.bytes,
-            coach_seat_estimated_tokens = coach_seat.estimated_tokens,
-            largest = %chat.largest(LARGEST_LOGGED),
-            "Chat tool catalogue size at startup"
-        );
-    }
-
-    /// Count the chat catalogue on every model the chain runs on the Anthropic
-    /// API, in a detached task (carnet#1196).
-    ///
-    /// `count_tokens` is free and rate-limited apart from Messages. It counts
-    /// the same compiled-in set `tool_catalogue_size` sized, so `bytes_per_token`
-    /// converts any turn's `tools_bytes` on that model. A chain without the
-    /// Anthropic API counts nothing, and a refused count is a warning, never a
-    /// failed boot.
-    fn spawn_tool_catalogue_token_count(
-        models: Vec<String>,
-        tools: Vec<FunctionDeclaration>,
-        bytes: usize,
-    ) {
-        use pierre_llm::http_env;
-
-        if models.is_empty() {
-            return;
-        }
-        let count = tokio::spawn(async move {
-            for model in models {
-                match http_env::anthropic_tool_tokens(&model, &tools).await {
-                    Ok(tokens) => {
-                        // Byte and token counts sit far below 2^52.
-                        #[allow(clippy::cast_precision_loss)]
-                        let bytes_per_token = bytes as f64 / f64::from(tokens.max(1));
-                        info!(
-                            event_type = "tool_catalogue_tokens",
-                            model = %model,
-                            tokens,
-                            bytes,
-                            bytes_per_token,
-                            "Chat tool catalogue counted by Anthropic"
-                        );
-                    }
-                    Err(error) => warn!(
-                        model = %model,
-                        error = %error,
-                        "Chat tool catalogue token count failed"
-                    ),
-                }
-            }
-        });
-        // A panic in a detached task is otherwise swallowed, leaving the
-        // token line missing with nothing in the logs to explain it.
-        tokio::spawn(async move {
-            if let Err(e) = count.await {
-                warn!(error = %e, "Chat tool catalogue token count task failed");
-            }
-        });
     }
 
     /// Sync tool catalog table with the live tool registry at startup.

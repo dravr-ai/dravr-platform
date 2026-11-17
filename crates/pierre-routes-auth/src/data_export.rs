@@ -13,7 +13,9 @@
 //! ```json
 //! { "format": "dravr-user-export", "format_version": 1, "generated_at": "…",
 //!   "user_id": "…", "withheld": [{"table": "…", "reason": "…"}],
-//!   "tables": { "users": [ {…} ], "cached_activities": [ … ], … },
+//!   "originals": { "bundle_id": "…", "status": "ready", … } | null,
+//!   "tables": { "users": [ {…} ], "barrage.activity_records": [ … ],
+//!               "barrage.erased_activities": [ … ], "cached_activities": [ … ], … },
 //!   "complete": true, "limit_reached": null, "failed_tables": [],
 //!   "skipped_tables": [] }
 //! ```
@@ -29,12 +31,22 @@
 //! the service recorded in their name) and what is excluded with the reason:
 //! credentials (password hash, OAuth and API tokens, key and session hashes,
 //! one-time codes, push tokens, the athlete's own LLM and OAuth-app secrets),
-//! raw bytes of uploaded files, operational queues and cursors, operator
+//! operational queues and cursors, operator
 //! configuration, other people's records (a coach's notes about the athlete, a
 //! shared room), and security logs. The document's own `withheld` list repeats
 //! the excluded tables, so the athlete sees what was left out. A catalog test
 //! holds that list against the live schema, so a new table cannot be forgotten
 //! and a new credential-looking column cannot be exported unnoticed.
+//!
+//! The activity history barrage keeps (`dravr_barrage::export`) is part of the
+//! same document: every record and every erasure, in each tenant the athlete
+//! belongs to, as `barrage.activity_records` and `barrage.erased_activities`
+//! just before `cached_activities`, the projection they feed; barrage's
+//! operational tables join `withheld`. Raw bytes (kept originals, uploaded
+//! recordings, feedback screenshots) would make this document unbounded, so
+//! they come as the originals bundle (`crate::originals_export`), built on
+//! request and named by `originals`: the latest bundle and its state, or
+//! `null` when the athlete never asked for one.
 //!
 //! This is not the OKF context bundle of ADR-011: that renders what the
 //! assistant is shown, and this is the stored rows themselves.
@@ -86,6 +98,7 @@ use axum::{
     Json,
 };
 use chrono::Utc;
+use dravr_barrage::export::EXPORT_WITHHELD;
 use serde_json::{json, Value};
 use tokio::sync::{mpsc, OwnedSemaphorePermit, Semaphore};
 use tokio_stream::wrappers::ReceiverStream;
@@ -98,10 +111,14 @@ use pierre_cache::{CacheKey, CacheResource};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::TenantId;
 use pierre_database::repositories::{
-    UserExportRepository, UserExportTable, USER_EXPORT_EXCLUDED_TABLES, USER_EXPORT_TABLES,
+    UserExportRepository, UserExportTable, USER_EXPORT_EXCLUDED_TABLES,
 };
 
+use self::barrage::{write_barrage, ExportSources, Section};
 use crate::AuthRoutesContext;
+
+/// Barrage's records and erasures in the export.
+mod barrage;
 
 /// How many exports one account may start in [`RATE_WINDOW`].
 const MAX_EXPORTS_PER_WINDOW: u64 = 3;
@@ -256,7 +273,7 @@ impl<S: ChunkSink> Writer<'_, S> {
 /// recorded and the document is closed properly, so what the athlete holds is
 /// always valid JSON that says whether it is complete.
 async fn write_export<S: ChunkSink>(
-    repository: &dyn UserExportRepository,
+    sources: ExportSources<'_>,
     user_id: Uuid,
     sink: &mut S,
     limits: ExportLimits,
@@ -271,6 +288,7 @@ async fn write_export<S: ChunkSink>(
     };
     let withheld: Vec<Value> = USER_EXPORT_EXCLUDED_TABLES
         .iter()
+        .chain(EXPORT_WITHHELD)
         .map(|(table, reason)| json!({ "table": table, "reason": reason }))
         .collect();
     let head = json!({
@@ -279,6 +297,7 @@ async fn write_export<S: ChunkSink>(
         "generated_at": Utc::now().to_rfc3339(),
         "user_id": user_id,
         "withheld": withheld,
+        "originals": sources.originals,
     });
     // The head object without its closing brace, so `tables` follows in it.
     let mut head_text = head.to_string();
@@ -287,23 +306,36 @@ async fn write_export<S: ChunkSink>(
     writer.put(br#","tables":{"#).await;
 
     let mut summary = ExportSummary::default();
-    for (index, table) in USER_EXPORT_TABLES.iter().enumerate() {
+    let sections = Section::all();
+    for (index, section) in sections.iter().enumerate() {
         if writer.disconnected {
             break;
         }
         if let Some(limit) = writer.out_of_room() {
             summary.limit_reached = Some(limit);
-            summary.skipped_tables.extend(
-                USER_EXPORT_TABLES[index..]
-                    .iter()
-                    .map(|remaining| remaining.name),
-            );
+            summary
+                .skipped_tables
+                .extend(sections[index..].iter().map(|remaining| remaining.name()));
             break;
         }
         if index > 0 {
             writer.put(b",").await;
         }
-        write_table(repository, table, user_id, &mut writer, &mut summary).await;
+        match *section {
+            Section::Platform(table) => {
+                write_table(
+                    sources.repository,
+                    table,
+                    user_id,
+                    &mut writer,
+                    &mut summary,
+                )
+                .await;
+            }
+            Section::Records | Section::Erased => {
+                write_barrage(*section, &sources, user_id, &mut writer, &mut summary).await;
+            }
+        }
     }
 
     let tail = json!({
@@ -388,9 +420,22 @@ async fn write_row<S: ChunkSink>(
     summary.rows += 1;
 }
 
-/// The signed-in athlete's id, refusing every credential that is not their own
-/// first-party session.
-async fn session_user_id(resources: &AuthRoutesContext, headers: &HeaderMap) -> AppResult<Uuid> {
+/// The signed-in athlete, and the tenant their session acts in.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OwnSession {
+    /// The athlete.
+    pub(crate) user_id: Uuid,
+    /// The session's active tenant, or the athlete's first when it names
+    /// none; `None` for an account in no tenant, which still exports its data.
+    pub(crate) tenant_id: Option<TenantId>,
+}
+
+/// The signed-in athlete and their session's tenant, refusing every
+/// credential that is not their own first-party session.
+pub(crate) async fn own_session(
+    resources: &AuthRoutesContext,
+    headers: &HeaderMap,
+) -> AppResult<OwnSession> {
     let auth = resources
         .auth_middleware
         .authenticate_request_with_headers(headers)
@@ -410,34 +455,76 @@ async fn session_user_id(resources: &AuthRoutesContext, headers: &HeaderMap) -> 
         ));
     }
     Span::current().record("user_id", auth.user_id.to_string());
-    Ok(auth.user_id)
+    let tenant_id = match auth.active_tenant_id {
+        Some(tenant) => Some(TenantId::from_uuid(tenant)),
+        None => resources.repos.tenants.first_for_user(auth.user_id).await?,
+    };
+    Ok(OwnSession {
+        user_id: auth.user_id,
+        tenant_id,
+    })
 }
 
 /// Count one export in the account's hourly window; `Some(seconds)` when the
 /// account has used its exports.
 async fn meter_export(resources: &AuthRoutesContext, user_id: Uuid) -> AppResult<Option<u64>> {
+    meter(
+        resources,
+        user_id,
+        ExportMeter {
+            namespace: RATE_NAMESPACE,
+            max: MAX_EXPORTS_PER_WINDOW,
+            window: RATE_WINDOW,
+        },
+    )
+    .await
+}
+
+/// A per-account window an export kind is counted in.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ExportMeter {
+    /// The cache namespace of the window.
+    pub(crate) namespace: &'static str,
+    /// How many the account may start in it.
+    pub(crate) max: u64,
+    /// Its length.
+    pub(crate) window: Duration,
+}
+
+/// Count one request in the account's `meter` window; `Some(seconds)` when the
+/// account has used what the window allows.
+pub(crate) async fn meter(
+    resources: &AuthRoutesContext,
+    user_id: Uuid,
+    meter: ExportMeter,
+) -> AppResult<Option<u64>> {
     let key = CacheKey::new(
         TenantId::nil(),
         Uuid::nil(),
-        RATE_NAMESPACE.to_owned(),
+        meter.namespace.to_owned(),
         CacheResource::Custom(format!("user:{user_id}")),
     );
     let counted = resources
         .cache
-        .count_in_window(&key, RATE_WINDOW)
+        .count_in_window(&key, meter.window)
         .await
         .map_err(|error| {
             warn!(user_id = %user_id, error = %error, "User export limiter could not count the request");
             AppError::resource_unavailable("Data export is temporarily unavailable; retry later")
         })?;
-    if counted.hits > MAX_EXPORTS_PER_WINDOW {
+    if counted.hits > meter.max {
         return Ok(Some(counted.resets_in.as_secs().max(1)));
     }
     Ok(None)
 }
 
 /// A JSON refusal the clients localize by its `error` code.
-fn refusal(status: StatusCode, error: &str, message: &str, retry_after: u64) -> Response {
+pub(crate) fn refusal(
+    status: StatusCode,
+    error: &str,
+    message: &str,
+    retry_after: u64,
+) -> Response {
     let mut response = (
         status,
         Json(json!({ "error": error, "message": message, "retry_after_seconds": retry_after })),
@@ -499,7 +586,7 @@ pub(crate) async fn handle_user_export(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> AppResult<Response> {
-    let user_id = session_user_id(&resources, &headers).await?;
+    let OwnSession { user_id, tenant_id } = own_session(&resources, &headers).await?;
     let admitted = admit_export(&EXPORT_SLOTS, || meter_export(&resources, user_id)).await?;
     let permit = match admitted {
         Ok(permit) => permit,
@@ -507,14 +594,33 @@ pub(crate) async fn handle_user_export(
     };
 
     let repos = Arc::clone(&resources.repos);
+    let records = Arc::clone(&resources.activity_records);
+    let tenants = resources
+        .repos
+        .tenants
+        .list_membership_tenant_ids(user_id)
+        .await?;
+    let originals = match (&resources.originals_bundles, tenant_id) {
+        (Some(bundles), Some(tenant_id)) => bundles
+            .latest(user_id, tenant_id)
+            .await?
+            .map_or(Value::Null, |view| json!(view)),
+        _ => Value::Null,
+    };
     let (sender, receiver) = mpsc::channel::<Result<Bytes, io::Error>>(CHANNEL_DEPTH);
     let on_panic = sender.clone();
     // The task owns the slot until the document is written or the client is
     // gone, and reports its own outcome.
     let writing = tokio::spawn(async move {
         let mut sink = sender;
+        let sources = ExportSources {
+            repository: repos.user_export.as_ref(),
+            records: records.as_ref(),
+            tenants: &tenants,
+            originals,
+        };
         let summary = write_export(
-            repos.user_export.as_ref(),
+            sources,
             user_id,
             &mut sink,
             ExportLimits {
@@ -565,17 +671,31 @@ pub(crate) async fn handle_user_export(
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
-    use pierre_database::repositories::UserExportPage;
+    use dravr_barrage::store::memory::MemoryActivityRecordStore;
+    use pierre_database::repositories::{UserExportPage, USER_EXPORT_TABLES};
     use tokio::task;
 
     use super::*;
 
+    /// No barrage history: the platform tables' tests read none.
+    static NO_RECORDS: LazyLock<MemoryActivityRecordStore> =
+        LazyLock::new(MemoryActivityRecordStore::new);
+
+    pub(super) fn sources(repository: &FakeRepository) -> ExportSources<'_> {
+        ExportSources {
+            repository,
+            records: &*NO_RECORDS,
+            tenants: &[],
+            originals: Value::Null,
+        }
+    }
+
     /// Serves `rows_per_table` rows of `row_bytes` characters for each table,
     /// failing on `failing`, and records the largest page it handed out.
-    struct FakeRepository {
-        rows_per_table: usize,
-        row_bytes: usize,
-        failing: Option<&'static str>,
+    pub(super) struct FakeRepository {
+        pub(super) rows_per_table: usize,
+        pub(super) row_bytes: usize,
+        pub(super) failing: Option<&'static str>,
     }
 
     #[async_trait]
@@ -605,8 +725,8 @@ mod tests {
     }
 
     /// Collects chunks, optionally going away after `leave_after` of them.
-    struct Collector {
-        chunks: Vec<Bytes>,
+    pub(super) struct Collector {
+        pub(super) chunks: Vec<Bytes>,
         leave_after: Option<usize>,
     }
 
@@ -622,19 +742,19 @@ mod tests {
         }
     }
 
-    fn collector() -> Collector {
+    pub(super) fn collector() -> Collector {
         Collector {
             chunks: Vec::new(),
             leave_after: None,
         }
     }
 
-    fn document(sink: &Collector) -> Value {
+    pub(super) fn document(sink: &Collector) -> Value {
         let bytes: Vec<u8> = sink.chunks.iter().flat_map(|c| c.to_vec()).collect();
         serde_json::from_slice(&bytes).expect("the export is valid JSON whatever happened")
     }
 
-    const ROOMY: ExportLimits = ExportLimits {
+    pub(super) const ROOMY: ExportLimits = ExportLimits {
         max_bytes: usize::MAX,
         max_duration: Duration::from_secs(3600),
         chunk_bytes: 1024,
@@ -686,7 +806,7 @@ mod tests {
             failing: None,
         };
         let mut sink = collector();
-        let summary = write_export(&repository, Uuid::new_v4(), &mut sink, ROOMY).await;
+        let summary = write_export(sources(&repository), Uuid::new_v4(), &mut sink, ROOMY).await;
 
         let doc = document(&sink);
         assert_eq!(doc["format"], "dravr-user-export");
@@ -699,15 +819,15 @@ mod tests {
         let tables = doc["tables"].as_object().unwrap();
         assert_eq!(
             tables.len(),
-            USER_EXPORT_TABLES.len(),
-            "every table has its key"
+            Section::all().len(),
+            "every table has its key, barrage's two included"
         );
         assert_eq!(tables["users"].as_array().unwrap().len(), 7);
         assert_eq!(summary.rows, 7 * USER_EXPORT_TABLES.len() as u64);
         assert_eq!(
             doc["withheld"].as_array().unwrap().len(),
-            USER_EXPORT_EXCLUDED_TABLES.len(),
-            "the document names what it leaves out"
+            USER_EXPORT_EXCLUDED_TABLES.len() + EXPORT_WITHHELD.len(),
+            "the document names what it leaves out, barrage's tables included"
         );
     }
 
@@ -727,7 +847,7 @@ mod tests {
                 max_duration,
                 ..ROOMY
             };
-            write_export(&repository, Uuid::new_v4(), &mut sink, limits).await;
+            write_export(sources(&repository), Uuid::new_v4(), &mut sink, limits).await;
 
             let bytes: Vec<u8> = sink.chunks.iter().flat_map(|c| c.to_vec()).collect();
             let text = String::from_utf8(bytes).unwrap();
@@ -753,7 +873,7 @@ mod tests {
             max_duration: Duration::ZERO,
             ..ROOMY
         };
-        write_export(&repository, Uuid::new_v4(), &mut sink, limits).await;
+        write_export(sources(&repository), Uuid::new_v4(), &mut sink, limits).await;
 
         let doc = document(&sink);
         assert_eq!(doc["complete"], false);
@@ -763,7 +883,7 @@ mod tests {
         );
         assert_eq!(
             doc["skipped_tables"].as_array().unwrap().len(),
-            USER_EXPORT_TABLES.len(),
+            Section::all().len(),
             "it names every table it did not reach"
         );
     }
@@ -776,7 +896,7 @@ mod tests {
             failing: Some("recipes"),
         };
         let mut sink = collector();
-        write_export(&repository, Uuid::new_v4(), &mut sink, ROOMY).await;
+        write_export(sources(&repository), Uuid::new_v4(), &mut sink, ROOMY).await;
 
         let doc = document(&sink);
         assert_eq!(doc["complete"], false);
@@ -807,7 +927,7 @@ mod tests {
             max_duration: Duration::from_secs(3600),
             chunk_bytes: 1024,
         };
-        let summary = write_export(&repository, Uuid::new_v4(), &mut sink, limits).await;
+        let summary = write_export(sources(&repository), Uuid::new_v4(), &mut sink, limits).await;
 
         let doc = document(&sink);
         assert_eq!(doc["complete"], false);
@@ -832,7 +952,7 @@ mod tests {
             failing: None,
         };
         let mut sink = collector();
-        write_export(&repository, Uuid::new_v4(), &mut sink, ROOMY).await;
+        write_export(sources(&repository), Uuid::new_v4(), &mut sink, ROOMY).await;
 
         let largest = sink.chunks.iter().map(Bytes::len).max().unwrap();
         assert!(
@@ -856,7 +976,7 @@ mod tests {
             chunks: Vec::new(),
             leave_after: Some(3),
         };
-        let summary = write_export(&repository, Uuid::new_v4(), &mut sink, ROOMY).await;
+        let summary = write_export(sources(&repository), Uuid::new_v4(), &mut sink, ROOMY).await;
 
         assert!(summary.disconnected);
         assert_eq!(

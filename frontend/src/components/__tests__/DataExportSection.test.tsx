@@ -12,6 +12,10 @@ import { EXPORT_PARTIAL_KEYS } from '@pierre/ui-logic';
 import DataExportSection from '../DataExportSection';
 
 const exportMyData = vi.fn();
+const requestOriginals = vi.fn();
+const getOriginals = vi.fn();
+const getLatestOriginals = vi.fn();
+const downloadOriginals = vi.fn();
 
 /** Rows the way the server writes them, without the document's end. */
 const ROWS = '{"format":"dravr-user-export","tables":{"users":[{"id":"a"}';
@@ -19,8 +23,34 @@ const ROWS = '{"format":"dravr-user-export","tables":{"users":[{"id":"a"}';
 const WHOLE = `${ROWS}]},"complete":true,"limit_reached":null,"failed_tables":[],"skipped_tables":[]}`;
 
 vi.mock('../../services/api', () => ({
-  dataExportApi: { exportMyData: () => exportMyData() },
+  dataExportApi: {
+    exportMyData: () => exportMyData(),
+    downloadOriginals: (bundle: unknown) => downloadOriginals(bundle),
+  },
+  originalsApi: {
+    requestOriginals: (passphrase?: string) => requestOriginals(passphrase),
+    getOriginals: (id: string) => getOriginals(id),
+    getLatestOriginals: () => getLatestOriginals(),
+  },
 }));
+
+/** A bundle as the server describes it. */
+function bundle(status: 'building' | 'ready' | 'failed', extra: Record<string, unknown> = {}) {
+  return {
+    bundleId: 'b-1',
+    status,
+    sealed: false,
+    createdAt: '2026-11-14T10:00:00Z',
+    expiresAt: '2026-11-21T10:00:00Z',
+    files: status === 'ready' ? 4 : null,
+    missing: status === 'ready' ? 0 : null,
+    damaged: status === 'ready' ? 0 : null,
+    byteSize: null,
+    sha256: null,
+    download: status === 'ready' ? '/api/user/export/originals/b-1/download' : null,
+    ...extra,
+  };
+}
 
 function renderSection() {
   const client = new QueryClient({ defaultOptions: { mutations: { retry: false } } });
@@ -158,5 +188,76 @@ describe('DataExportSection', () => {
     expect(await screen.findByTestId('data-export-failure')).toHaveAttribute('role', 'alert');
     expect(clicked).toHaveLength(0);
     expect(createObjectURL).not.toHaveBeenCalled();
+  });
+
+  describe('the originals bundle', () => {
+    beforeEach(() => {
+      getLatestOriginals.mockResolvedValue(null);
+    });
+
+    it('finds the bundle again when the page is reopened, ready to download', async () => {
+      getLatestOriginals.mockResolvedValue(bundle('ready'));
+      renderSection();
+      expect(await screen.findByTestId('originals-download')).toBeTruthy();
+      expect(requestOriginals).not.toHaveBeenCalled();
+    });
+
+    it('asks for a bundle, follows it until ready, and saves it from its signed URL', async () => {
+      requestOriginals.mockResolvedValue(bundle('building'));
+      getOriginals.mockResolvedValueOnce(bundle('building')).mockResolvedValue(bundle('ready'));
+      downloadOriginals.mockResolvedValue({ kind: 'url', url: 'https://storage.example/signed' });
+      renderSection();
+
+      fireEvent.click(screen.getByTestId('originals-request'));
+      expect(await screen.findByText(i18n.t('dataExport.originalsBuilding'))).toBeTruthy();
+      expect(requestOriginals).toHaveBeenCalledWith(undefined);
+      fireEvent.click(await screen.findByTestId('originals-download', {}, { timeout: 8000 }));
+
+      await waitFor(() => expect(clicked).toHaveLength(1));
+      expect(clicked[0].href).toBe('https://storage.example/signed');
+      expect(screen.getByTestId('originals-state').textContent).toContain('4');
+    }, 15000);
+
+    it('seals the bundle with the passphrase given, and refuses a short one before asking', async () => {
+      requestOriginals.mockResolvedValue(bundle('ready', { sealed: true }));
+      downloadOriginals.mockResolvedValue({
+        kind: 'file',
+        file: { fileName: 'dravr-originals-2026-11-14.zip.age', content: new Blob(['age-encryption.org/v1']) },
+      });
+      renderSection();
+      const field = screen.getByTestId('originals-passphrase');
+
+      fireEvent.change(field, { target: { value: 'short' } });
+      expect(screen.getByText(i18n.t('dataExport.originalsSealTooShort'))).toBeTruthy();
+      expect((screen.getByTestId('originals-request') as HTMLButtonElement).disabled).toBe(true);
+
+      fireEvent.change(field, { target: { value: 'correct horse battery staple' } });
+      fireEvent.click(screen.getByTestId('originals-request'));
+      await waitFor(() => expect(requestOriginals).toHaveBeenCalledWith('correct horse battery staple'));
+      expect(await screen.findByText(i18n.t('dataExport.originalsSealed'))).toBeTruthy();
+      fireEvent.click(screen.getByTestId('originals-download'));
+      await waitFor(() => expect(clicked).toHaveLength(1));
+      expect(clicked[0].download).toBe('dravr-originals-2026-11-14.zip.age');
+      expect((field as HTMLInputElement).value).toBe('');
+    });
+
+    it('says when files are missing from a ready bundle', async () => {
+      requestOriginals.mockResolvedValue(bundle('ready', { missing: 2 }));
+      renderSection();
+      fireEvent.click(screen.getByTestId('originals-request'));
+      expect(await screen.findByTestId('originals-incomplete')).toBeTruthy();
+    });
+
+    it.each([
+      [429, 'too_many_bundles', 'dataExport.originalsRateLimited'],
+      [503, 'export_busy', 'dataExport.originalsBusy'],
+      [409, 'bundle_building', 'dataExport.originalsOtherBuilding'],
+      [500, undefined, 'dataExport.originalsFailed'],
+    ])('says what a %s refusal means', async (status, code, key) => {
+      requestOriginals.mockRejectedValue({ response: { status, data: { error: code } } });
+      renderSection();
+      fireEvent.click(screen.getByTestId('originals-request'));
+      expect((await screen.findByTestId('originals-failure')).textContent).toBe(i18n.t(key));
+    });
   });
 });

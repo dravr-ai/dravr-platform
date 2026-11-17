@@ -44,7 +44,7 @@ mod coach_home_seed_tests {
     /// record store of the test's own, projecting into `res`' cache.
     fn store(res: &Arc<ServerContext>) -> Arc<dyn LiveActivityStore> {
         live_store(
-            Some(Arc::new(MemoryActivityRecordStore::new())),
+            Arc::new(MemoryActivityRecordStore::new()),
             None,
             &res.common.repos,
         )

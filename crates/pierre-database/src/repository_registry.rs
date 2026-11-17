@@ -39,10 +39,10 @@ use crate::repositories::{
     StravaSeatReclaimWarningRepository, SubscriptionsRepository, SyncCursorRepository,
     SystemSettingsRepository, TenantRepository, ToolSelectionRepository, TrainingHistoryRepository,
     TrainingPlanRepository, UnitPreferencesRepository, UploadedActivityFileRepository,
-    UsageCounterRepository, UsageRepository, UseCaseExposureRepository, UserExportRepository,
-    UserInvitationRepository, UserMcpTokenRepository, UserOnboardingRepository,
-    UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository, UserRepository,
-    UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
+    UsageCounterRepository, UsageRepository, UseCaseExposureRepository, UserExportBundleRepository,
+    UserExportRepository, UserInvitationRepository, UserMcpTokenRepository,
+    UserOnboardingRepository, UserPhysiologicalProfileRepository, UserRateLimitOverrideRepository,
+    UserRepository, UserTierOverrideRepository, UserToolOverrideRepository, WeatherCacheRepository,
     WebsiteSignInTokenRepository, WorkerRunRepository, WorkoutTemplateRepository,
 };
 use dravr_riviere::TimeSeriesStore;
@@ -299,6 +299,9 @@ pub struct RepositoryRegistry {
     /// The `.fit` files athletes uploaded: the record behind every
     /// activity cached under the `upload` key (carnet#818).
     pub uploaded_activity_files: Arc<dyn UploadedActivityFileRepository>,
+    /// The durable state of the athletes' originals bundles: building, ready
+    /// or failed, until they expire (carnet#1541).
+    pub user_export_bundles: Arc<dyn UserExportBundleRepository>,
     /// Deletes every row one provider contributed: one user's on disconnect,
     /// every tenant's on the operator's termination purge.
     pub provider_data: Arc<dyn ProviderDataRepository>,
@@ -413,6 +416,7 @@ impl RepositoryRegistry {
             activity_streams: db.clone(),
             activity_conversations: db.clone(),
             uploaded_activity_files: db.clone(),
+            user_export_bundles: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             archive_erasures: db.clone(),
@@ -528,6 +532,7 @@ impl RepositoryRegistry {
             activity_streams: db.clone(),
             activity_conversations: db.clone(),
             uploaded_activity_files: db.clone(),
+            user_export_bundles: db.clone(),
             provider_data: db.clone(),
             feature_flags: db.clone(),
             archive_erasures: db.clone(),

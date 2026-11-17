@@ -301,6 +301,14 @@ export {
   parseStartedImportUpload,
 } from './imports.js';
 
+// The athlete's originals bundle: the files the data export leaves out, built on request
+export type {
+  OriginalsBundle,
+  OriginalsBundleStatus,
+  OriginalsSignedDownload,
+} from './originals-bundle.js';
+export { parseOriginalsBundle, parseOriginalsSignedDownload } from './originals-bundle.js';
+
 // The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in
 export type {
   ActivityGearResponse,

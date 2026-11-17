@@ -49,6 +49,7 @@ use axum::{
     Router,
 };
 
+use dravr_barrage::store::ActivityRecordStore;
 use pierre_auth::admin::jwks::JwksManager;
 use pierre_auth::auth::AuthManager;
 use pierre_auth::firebase::FirebaseAuth;
@@ -67,6 +68,7 @@ use pierre_middleware::provider_link_token::NonceStore;
 use pierre_middleware::McpAuthMiddleware;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::DataContext;
+use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::provider_refresh::SyncNotifier;
 #[cfg(feature = "health-sync")]
 use pierre_services::sync_failure_notice::SyncFailureNotices;
@@ -99,6 +101,7 @@ mod login;
 mod oauth;
 /// What a provider's OAuth callback starts once its grant is stored.
 mod oauth_connect;
+mod originals_export;
 mod password_attempts;
 mod pending_session;
 mod provider_ai_consent;
@@ -230,6 +233,12 @@ pub struct AuthRoutesContext {
     pub first_sync: FirstSyncSlot,
     /// Shared cache handle — used by the Sciotte prefetch path.
     pub cache: Arc<Cache>,
+    /// The context's one activity record store, which live reads and archive
+    /// imports write: the athlete's export reads their records from it.
+    pub activity_records: Arc<dyn ActivityRecordStore>,
+    /// Builds and hands out the athlete's originals bundle; `None` where no
+    /// blob store is placed, and the bundle routes answer unavailable.
+    pub originals_bundles: Option<Arc<OriginalsBundleService>>,
     /// The hot-reloadable string catalogue — shared with every surface that
     /// renders server-side text; resolves each provider's description in the
     /// reader's locale.
@@ -279,6 +288,8 @@ impl fmt::Debug for AuthRoutesContext {
         #[cfg(feature = "health-sync")]
         debug.field("sync_failure_notices", &self.sync_failure_notices);
         debug.field("cache", &self.cache);
+        debug.field("activity_records", &"ActivityRecordStore");
+        debug.field("originals_bundles", &self.originals_bundles);
         debug.field("messaging_strings", &self.messaging_strings);
         debug.field("rate_limiter", &self.rate_limiter);
         debug.field("group_service", &self.group_service);
@@ -395,6 +406,20 @@ impl AuthRoutes {
             )
             // The athlete's own data as one downloadable JSON file (Law 25 s.27).
             .route("/api/user/export", get(data_export::handle_user_export))
+            // The bytes it leaves out, built on request into one bundle it names.
+            .route(
+                "/api/user/export/originals",
+                get(originals_export::handle_latest_bundle)
+                    .post(originals_export::handle_request_bundle),
+            )
+            .route(
+                "/api/user/export/originals/{id}",
+                get(originals_export::handle_bundle_status),
+            )
+            .route(
+                "/api/user/export/originals/{id}/download",
+                get(originals_export::handle_bundle_download),
+            )
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))
             .route(

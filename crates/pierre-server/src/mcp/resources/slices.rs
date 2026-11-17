@@ -59,6 +59,7 @@ use crate::services::archive_import::ArchiveImports;
 use crate::services::photograveur_client::PhotograveurClient;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
+use dravr_barrage::store::ActivityRecordStore;
 #[cfg(feature = "client-messaging")]
 use dravr_canot::commands::CommandRegistry;
 #[cfg(feature = "client-messaging")]
@@ -105,6 +106,7 @@ use pierre_services::group_chat_poster::GroupChatPoster;
 #[cfg(feature = "health-sync")]
 use pierre_services::health_sync::PierreSyncStorage;
 use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::originals_bundle::OriginalsBundleService;
 use pierre_services::tenant_chat_provider::TenantChatProviderCache;
 #[cfg(feature = "transport-sse")]
 use pierre_sse::SseManager;
@@ -156,6 +158,12 @@ pub struct CommonSlice {
     /// The one write path of every live provider read: barrage keeps the
     /// record, the cache readers read its projection (carnet#1482).
     pub live_activities: Arc<dyn LiveActivityStore>,
+    /// The one activity record store: the live store and archive imports
+    /// write it, the athlete's export reads it. Shared by every route.
+    pub activity_records: Arc<dyn ActivityRecordStore>,
+    /// Builds and hands out the athletes' originals bundles, over the blob
+    /// store; `None` where none is placed. Shared by the routes and the sweep.
+    pub originals_bundles: Option<Arc<OriginalsBundleService>>,
     /// The one provider data purge: the tables, then the live store's
     /// records of the provider (carnet#1482).
     pub provider_purge: Arc<dyn ProviderPurge>,

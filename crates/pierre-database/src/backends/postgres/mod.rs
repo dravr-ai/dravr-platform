@@ -181,6 +181,8 @@ pub mod use_case_exposures;
 pub mod user;
 /// An athlete's own data, one page at a time, for the portable export (`Postgres`)
 pub mod user_export;
+/// The PostgreSQL originals-bundle state, emitted from the shared implementation.
+pub mod user_export_bundles;
 /// Per-user Home preferences (`Postgres`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (Postgres)

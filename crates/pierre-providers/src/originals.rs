@@ -305,7 +305,14 @@ async fn put_verified(
 }
 
 /// The blob key of the file `file_sha256` the athlete uploaded in a tenant.
-fn upload_key(tenant_id: &TenantId, user_id: Uuid, file_sha256: &str) -> AppResult<BlobKey> {
+///
+/// An uploaded recording or a feedback screenshot: the one place an upload's
+/// key is made, which the originals bundle reads its files by.
+///
+/// # Errors
+///
+/// [`AppError::invalid_input`] when the hash is not 64 hex characters.
+pub fn upload_key(tenant_id: &TenantId, user_id: Uuid, file_sha256: &str) -> AppResult<BlobKey> {
     let digest = Sha256::parse_hex(file_sha256)
         .map_err(|e| AppError::invalid_input(format!("uploaded file hash {file_sha256}: {e}")))?;
     Ok(BlobKey::upload(

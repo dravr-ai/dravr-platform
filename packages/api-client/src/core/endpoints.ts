@@ -275,6 +275,20 @@ export const ENDPOINTS = {
      */
     EXPORT: '/api/user/export',
     /**
+     * The originals bundle the export leaves out (carnet#1541): GET answers
+     * the latest, POST asks for one, optionally sealed with a passphrase;
+     * session only, 3 a day.
+     */
+    EXPORT_ORIGINALS: '/api/user/export/originals',
+    /** One originals bundle of the signed-in athlete. */
+    EXPORT_ORIGINALS_BUNDLE: (id: string) => `/api/user/export/originals/${encodeURIComponent(id)}`,
+    /**
+     * Its download: a short signed URL as JSON, or the file itself streamed
+     * from a server that signs none.
+     */
+    EXPORT_ORIGINALS_DOWNLOAD: (id: string) =>
+      `/api/user/export/originals/${encodeURIComponent(id)}/download`,
+    /**
      * Clear what a deleted account left on an identity the signed-in account
      * now holds: its own proven email, or a provider account it was refused
      * for. A pending account reaches it.

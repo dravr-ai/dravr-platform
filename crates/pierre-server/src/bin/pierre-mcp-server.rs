@@ -68,7 +68,7 @@ use pierre_mcp_server::services::archive_import::ArchiveImports;
 use pierre_mcp_server::services::originals::blob_store_from_env;
 #[cfg(feature = "client-messaging")]
 use pierre_mcp_server::services::turn_runner::TurnRunner;
-use pierre_services::barrage_live_store::live_record_store;
+use pierre_services::barrage_live_store::{record_stores, RecordStores};
 use tokio::runtime::{Builder, Runtime};
 use tracing::{error, info, warn};
 
@@ -518,12 +518,14 @@ async fn create_server(
 
     // After the platform's own migrations (the database is open) and before
     // any request: on Postgres the barrage schema migrates here.
-    let (blobs, archive_imports) = select_original_stores(&database, &config.database.url).await;
     // Every live provider read is kept here; without it no read can be
     // stored, so the boot stops rather than run on a store it cannot keep.
-    let live_records = live_record_store(&database, &config.database.url)
+    // Imports and the export share the same handle.
+    let barrage = record_stores(&database, &config.database.url)
         .await
         .map_err(|reason| AppError::internal(format!("activity record store: {reason}")))?;
+    let live_records = Arc::clone(&barrage.records);
+    let (blobs, archive_imports) = select_original_stores(&barrage, &config.database.url).await;
 
     let resources_instance = ServerContext::new(
         database,
@@ -599,14 +601,14 @@ fn select_turn_runner(timeouts: &ServerTimeouts) -> Arc<TurnRunner> {
 /// The deployment's blob store, which keeps every original file (an import's
 /// recordings and the files athletes upload), and the archive imports on it.
 async fn select_original_stores(
-    database: &Database,
+    barrage: &RecordStores,
     url: &DatabaseUrl,
 ) -> (result::Result<Arc<dyn BlobStore>, String>, ArchiveImports) {
     let blobs = blob_store_from_env(url).await;
     if let Err(reason) = &blobs {
         warn!(reason = %reason, "No blob store: uploads and archive imports are not available");
     }
-    let archive_imports = ArchiveImports::from_env(database, url, blobs.clone()).await;
+    let archive_imports = ArchiveImports::from_env(barrage, blobs.clone());
     (blobs, archive_imports)
 }
 
@@ -835,6 +837,14 @@ fn spawn_background_workers(
     {
         use pierre_mcp_server::start_archive_import_sweeps;
         start_archive_import_sweeps(&resources);
+        // The originals bundles' sweep: stalled builds failed, expired ones deleted.
+        if let Some(bundles) = &resources.common.originals_bundles {
+            use pierre_services::originals_bundle::start_originals_bundle_sweep;
+            drop(start_originals_bundle_sweep(
+                bundles,
+                &resources.common.repos,
+            ));
+        }
     }
 
     // Start the MCP task sweeper (deletes expired mcp_tasks rows hourly). The

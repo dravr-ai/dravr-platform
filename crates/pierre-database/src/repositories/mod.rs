@@ -242,6 +242,8 @@ pub mod use_case_exposures;
 pub mod user_access;
 /// The tables an athlete's data export reads, and the ones it withholds with a reason each.
 pub mod user_export;
+/// `UserExportBundleRepository`: the durable state of each originals bundle an athlete asked for.
+pub mod user_export_bundles;
 /// Repository trait and shared body for the per-user choices Home's layout honours.
 pub mod user_home_preferences;
 /// Repository trait, statements and shared body for single-use user invitations.
@@ -393,6 +395,9 @@ pub use user_access::*;
 pub use user_export::{
     UserExportPage, UserExportRepository, UserExportTable, CREDENTIAL_MARKERS,
     NOT_CREDENTIAL_COLUMNS, USER_EXPORT_EXCLUDED_TABLES, USER_EXPORT_TABLES,
+};
+pub use user_export_bundles::{
+    BundleContents, BundleStatus, ExportBundle, UserExportBundleRepository,
 };
 pub use user_home_preferences::{
     HomePreferences, HomePreferencesRepository, HomePreferencesUpdate,

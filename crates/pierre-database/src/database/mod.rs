@@ -181,6 +181,8 @@ pub mod usage_counters;
 pub mod use_case_exposures;
 /// An athlete's own data, one page at a time, for the portable export (`SQLite`)
 pub mod user_export;
+/// The SQLite originals-bundle state, emitted from the shared implementation.
+pub mod user_export_bundles;
 /// Per-user Home preferences (`SQLite`) backing `HomePreferencesRepository`.
 pub mod user_home_preferences;
 /// Single-use user invitation links (`SQLite`)

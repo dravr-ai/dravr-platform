@@ -101,6 +101,7 @@ split-debuginfo = "unpacked"
 #   argon2id, Argon2::default() (19 MiB, t=2)   2.185s -> 0.026s
 #   bcrypt, DEFAULT_COST (12)                  10.965s -> 1.28s
 #   RSA-2048 key generation                    24.611s -> 0.87s
+#   scrypt + salsa20, the six originals_seal tests  75s -> 2.1s
 #
 # Named one crate at a time rather than through package."*" for two reasons.
 # rustc stops sharing monomorphized generics across crates at opt-level >= 2,
@@ -108,7 +109,7 @@ split-debuginfo = "unpacked"
 # crates -- and rust-cache runs with cache-workspace-crates off, so those
 # recompile on every CI run and the cost would never amortize. A graph-wide
 # override also invalidates every dependency unit at once; this list
-# invalidates eleven (the ten below plus jsonwebtoken, which depends on rsa).
+# invalidates thirteen (the twelve below plus jsonwebtoken, which depends on rsa).
 # sha2, hmac, digest and num-traits are left alone on purpose: they carry
 # fifteen to forty-three reverse-dependencies each, against two to four for
 # everything here.
@@ -146,6 +147,13 @@ opt-level = 2
 opt-level = 2
 
 [profile.dev.package.polyval]
+opt-level = 2
+
+# scrypt and its salsa20 core seal an originals bundle (2^17, r = 8).
+[profile.dev.package.scrypt]
+opt-level = 2
+
+[profile.dev.package.salsa20]
 opt-level = 2
 
 [profile.release]

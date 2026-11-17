@@ -1223,6 +1223,32 @@ pub(crate) fn offline_adapters() -> Arc<dyn ChannelAdapterFactory> {
     Arc::new(offline_channel::OfflineSendAdapters::default())
 }
 
+/// A test context whose live provider reads are kept in `records` and whose
+/// files are kept over `blobs`: the originals bundle reads both.
+///
+/// # Errors
+///
+/// Returns an error if the context cannot be assembled.
+pub(crate) async fn create_test_server_resources_with_records_and_blobs(
+    records: Arc<dyn ActivityRecordStore>,
+    blobs: Arc<dyn BlobStore>,
+) -> Result<Arc<ServerContext>> {
+    let database = create_test_db_with_key(generate_encryption_key().to_vec()).await?;
+    Box::pin(create_test_server_resources_over(
+        database,
+        None,
+        Vec::new(),
+        None,
+        None,
+        ContextParts {
+            live_records: Some(records),
+            blobs: Some(Ok(blobs)),
+            ..ContextParts::default()
+        },
+    ))
+    .await
+}
+
 /// The pieces a test context takes in place of the ones its database and
 /// the environment would select; `None` keeps the default.
 #[derive(Default)]

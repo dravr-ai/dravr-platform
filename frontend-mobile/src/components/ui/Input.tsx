@@ -79,7 +79,8 @@ export const Input = forwardRef<TextInput, InputProps>(function Input(
     paddingVertical: 12,
     paddingHorizontal: 0,
     borderRadius: 0,
-    borderWidth: 0,
+    // Only the bottom stroke: no borderWidth, which a TextInput draws at 0
+    // already, so the field never reads as a filled, outlined card.
     borderBottomWidth: 1,
     borderBottomColor: error ? fieldColors.errorBorder : fieldColors.border,
     backgroundColor: 'transparent',

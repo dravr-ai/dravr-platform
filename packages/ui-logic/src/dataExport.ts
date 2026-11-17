@@ -92,3 +92,86 @@ export function exportPartialKey(tail: ExportTail): ExportPartialKey | null {
   }
   return 'dataExport.partial';
 }
+
+/** The fewest characters a passphrase sealing the originals bundle has (`MIN_PASSPHRASE_CHARS` server side). */
+export const SEAL_MIN_CHARS = 12;
+
+/** The most characters a sealing passphrase has (`MAX_PASSPHRASE_CHARS` server side). */
+export const SEAL_MAX_CHARS = 1024;
+
+/** How often a bundle still building is read again. */
+export const ORIGINALS_POLL_MS = 5000;
+
+/**
+ * Whether `passphrase` can seal a bundle: empty asks for no seal; anything
+ * else is counted in characters, as the server counts it, never in bytes.
+ */
+export function sealPassphraseAccepted(passphrase: string): boolean {
+  if (passphrase === '') return true;
+  const chars = Array.from(passphrase).length;
+  return chars >= SEAL_MIN_CHARS && chars <= SEAL_MAX_CHARS;
+}
+
+/** The bundle states a section reads, as the server names them. */
+export interface OriginalsBundleState {
+  status: 'building' | 'ready' | 'failed';
+  missing: number | null;
+  damaged: number | null;
+}
+
+/** Every sentence the originals bundle section can show. */
+export const ORIGINALS_KEYS = [
+  'dataExport.originalsBuilding',
+  'dataExport.originalsBusy',
+  'dataExport.originalsFailed',
+  'dataExport.originalsIncomplete',
+  'dataExport.originalsOtherBuilding',
+  'dataExport.originalsRateLimited',
+  'dataExport.originalsReady',
+  'dataExport.originalsSealTooShort',
+] as const;
+
+/** One of {@link ORIGINALS_KEYS}. */
+export type OriginalsKey = (typeof ORIGINALS_KEYS)[number];
+
+/** Whether the section should read the bundle again: it is still being built. */
+export function originalsStillBuilding(bundle: OriginalsBundleState | null | undefined): boolean {
+  return bundle?.status === 'building';
+}
+
+/** The sentence a bundle's state is shown with. */
+export function originalsStateKey(bundle: OriginalsBundleState): OriginalsKey {
+  if (bundle.status === 'building') return 'dataExport.originalsBuilding';
+  if (bundle.status === 'failed') return 'dataExport.originalsFailed';
+  return 'dataExport.originalsReady';
+}
+
+/**
+ * Whether a ready bundle lacks files: some were gone from storage or did not
+ * match their digest. Its manifest names them; the section says so.
+ */
+export function originalsIncomplete(bundle: OriginalsBundleState): boolean {
+  return bundle.status === 'ready' && ((bundle.missing ?? 0) > 0 || (bundle.damaged ?? 0) > 0);
+}
+
+/**
+ * The `error` code an export refusal carries in its body (`export_busy`,
+ * `bundle_building`, `too_many_bundles`), never its prose. Not
+ * `refusalCode`, which reads an `ErrorCode` refusal's `code`.
+ */
+export function exportRefusalCode(err: unknown): string | undefined {
+  const code = (err as { response?: { data?: { error?: unknown } } } | null | undefined)?.response?.data?.error;
+  return typeof code === 'string' ? code : undefined;
+}
+
+/**
+ * The sentence a refused request for a bundle is shown with, from the
+ * answer's status and the `error` code the server sends (never its prose).
+ */
+export function originalsRefusalKey(status: number | undefined, code: string | undefined): OriginalsKey {
+  if (status === 429) return 'dataExport.originalsRateLimited';
+  if (status === 503 && code === 'export_busy') return 'dataExport.originalsBusy';
+  if (status === 409 && code === 'bundle_building') return 'dataExport.originalsOtherBuilding';
+  if (status === 400) return 'dataExport.originalsSealTooShort';
+  return 'dataExport.originalsFailed';
+}

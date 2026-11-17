@@ -183,6 +183,14 @@ jest.mock('expo-file-system', () => {
     text() {
       return Promise.resolve(mockFileContents[this.uri] ?? '');
     }
+    textSync() {
+      return mockFileContents[this.uri] ?? '';
+    }
+    move(destination) {
+      mockFileContents[destination.uri] = mockFileContents[this.uri];
+      delete mockFileContents[this.uri];
+      this.uri = destination.uri;
+    }
     arrayBuffer() {
       const bytes = new TextEncoder().encode(mockFileContents[this.uri] ?? '');
       return Promise.resolve(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength));

@@ -10,6 +10,7 @@ mod lifecycle;
 mod options;
 mod runtime_traits;
 mod slices;
+mod tool_catalogue;
 mod tool_runtime;
 #[cfg(feature = "client-chat")]
 pub mod tool_surface;

@@ -188,6 +188,12 @@ pub mod live_activities;
 /// The activity store over dravr-barrage, its record store opener and its projection into the cache (carnet#1482)
 pub mod barrage_live_store;
 
+/// The athlete's originals bundle: built on request, tracked, downloaded, swept.
+pub mod originals_bundle;
+
+/// Sealing an originals bundle with the athlete's passphrase as an age v1 file (scrypt recipient).
+pub mod originals_seal;
+
 /// The activity store's projection into the activity cache: the cache's one writer (carnet#1482)
 pub mod activity_cache_sink;
 

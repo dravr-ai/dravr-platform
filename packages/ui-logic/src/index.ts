@@ -105,7 +105,19 @@ export {
   type ExportPartialKey,
   type ExportTail,
   exportPartialKey,
+  exportRefusalCode,
   readExportTail,
+  ORIGINALS_KEYS,
+  ORIGINALS_POLL_MS,
+  SEAL_MAX_CHARS,
+  SEAL_MIN_CHARS,
+  type OriginalsBundleState,
+  type OriginalsKey,
+  originalsIncomplete,
+  originalsRefusalKey,
+  originalsStateKey,
+  originalsStillBuilding,
+  sealPassphraseAccepted,
 } from './dataExport';
 // What both clients say about an import of the athlete's own data
 export type { CopyLine, ImportPhase, ImportSourceCopy, LinkSourceCopy, UploadSourceCopy } from './archiveImport';

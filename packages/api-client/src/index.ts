@@ -179,6 +179,8 @@ export type {
 } from './domains/gear';
 
 export { createImportsApi } from './domains/imports';
+export { createDataExportApi } from './domains/dataExport';
+export type { DataExportApi, OriginalsBundle } from './domains/dataExport';
 export { uploadExport } from './core/exportUpload';
 export type { ExportUploadOptions } from './core/exportUpload';
 export {
@@ -239,6 +241,7 @@ import { createFeatureFlagsApi } from './domains/featureFlags';
 import { createAthleteApi } from './domains/athlete';
 import { createGearApi } from './domains/gear';
 import { createImportsApi } from './domains/imports';
+import { createDataExportApi } from './domains/dataExport';
 export { createPersonasApi } from './domains/personas';
 export type { PersonasApi, PersonaCard, PersonaRule, PersonasResponse } from './domains/personas';
 import { createPersonasApi } from './domains/personas';
@@ -298,6 +301,8 @@ export interface PierreApiService {
   /** The athlete's shoes, their distance, and the pair each activity was run in */
   gear: ReturnType<typeof createGearApi>;
   imports: ReturnType<typeof createImportsApi>;
+  /** The originals bundle the data export leaves out: ask for it, follow it */
+  dataExport: ReturnType<typeof createDataExportApi>;
   /** The « Style de coaching » cards, rendered from the live persona-contract registry */
   personas: ReturnType<typeof createPersonasApi>;
   /** The live string catalogue, overlaid on the embedded copy at start-up and on language change */
@@ -356,6 +361,7 @@ export function createPierreApi(adapter: PlatformAdapter): PierreApiService {
     athlete: createAthleteApi(axios),
     gear: createGearApi(axios),
     imports: createImportsApi(axios),
+    dataExport: createDataExportApi(axios),
     personas: createPersonasApi(axios),
     i18n: createI18nApi(axios),
     usage: createUsageApi(axios),
