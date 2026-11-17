@@ -30,6 +30,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
 use crate::helpers::history_walk_ledger::walked_history;
 use secrecy::SecretString;
 
@@ -50,7 +51,6 @@ use pierre_mcp_server::services::personal_best_seed::{
 };
 use pierre_notifications::events::event_params;
 use pierre_notifications::TenantId as CommereTenantId;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{
     budget_counter_key, budget_period, ProviderRateLimiter, RateLimitStatus, ONE_DAY,
     PLATFORM_SCOPE,
@@ -331,7 +331,7 @@ fn with_strava_window(resources: &Arc<ServerContext>, per_window: u32) -> Arc<Se
     limiter.set_budgets("strava", &[(per_window, ONE_DAY)]);
     let mut context = (**resources).clone();
     context.fitness.provider_registry = Arc::new(
-        ProviderRegistry::new()
+        offline_provider_registry()
             .with_endpoint_overrides(&resources.common.config.oauth.endpoints)
             .with_request_limiter(Arc::new(limiter)),
     );

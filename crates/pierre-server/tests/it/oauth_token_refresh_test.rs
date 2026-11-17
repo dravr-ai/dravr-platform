@@ -415,7 +415,7 @@ async fn create_test_executor_with(
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -458,7 +458,7 @@ async fn create_test_executor_without_oauth() -> (Arc<UniversalToolExecutor>, Ar
             (*database).clone(),
             auth_manager,
             "test_secret",
-            create_test_server_config_without_oauth(),
+            common::offline_config(create_test_server_config_without_oauth()),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

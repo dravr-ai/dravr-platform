@@ -71,7 +71,9 @@ dravr-meteo = { workspace = true }
 # Localized short dates (month names in the five platform locales) for the
 # dated conversation title, shared with the chart axis ticks.
 photograveur = { workspace = true }
-dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop", "provider-garmin", "provider-coros"] }
+# provider-intervals-icu is named for the wellness reader health_sync builds
+# on the provider registry's Intervals.icu origin.
+dravr-enforme = { workspace = true, optional = true, features = ["provider-whoop", "provider-garmin", "provider-coros", "provider-intervals-icu"] }
 # The scraper service's typed client and the session, roster and athlete types
 # its reads and session drops name.
 dravr-sciotte = { workspace = true, features = ["client"] }
@@ -121,6 +123,9 @@ urlencoding = "2.1"
 uuid = { version = "1.29", features = ["v4", "serde"] }
 
 [dev-dependencies]
+# The provider registry's real Intervals.icu default, which the wellness
+# reader's pin test derives the production URL from.
+pierre-providers = { version = "0.3.0", path = "../pierre-providers", features = ["provider-intervals-icu"] }
 # Property tests for the OAuth redirect allowlist (carnet#1143).
 proptest = { version = "1", default-features = false, features = ["std"] }
 # Test fixtures (create_test_db, user fixtures): a dev-dependency only, per ADR-027.

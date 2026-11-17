@@ -31,6 +31,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::{Duration as StdDuration, Instant};
@@ -48,7 +49,6 @@ use pierre_database::repositories::{ActivityBackfillJobRow, BackfillJobKind, Job
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_mcp_server::services::first_sync_post::FirstSyncPoster;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{
     budget_counter_key, budget_period, ProviderRateLimiter, BACKGROUND_SHARE_PERCENT, ONE_DAY,
     PLATFORM_SCOPE,
@@ -316,7 +316,7 @@ async fn the_sweeps_fallback_to_the_grant_keeps_to_the_background_share() {
     limiter.set_budgets("strava", &[(DAY_BUDGET, ONE_DAY)]);
     let mut context = (*w.resources).clone();
     context.fitness.provider_registry = Arc::new(
-        ProviderRegistry::new()
+        offline_provider_registry()
             .with_endpoint_overrides(&w.resources.common.config.oauth.endpoints)
             .with_sciotte_reads(
                 w.resources

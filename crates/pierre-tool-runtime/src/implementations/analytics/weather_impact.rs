@@ -24,7 +24,7 @@ use crate::implementations::analytics::output::{
 use crate::protocol::provider_helpers::{by_id_reader, NO_PROVIDER_CONNECTED_TEXT};
 use crate::protocol::types::META_NO_PROVIDER_CONNECTED;
 use crate::runtime::ToolRuntime;
-use dravr_meteo::{provider_from_env, WeatherQuery};
+use dravr_meteo::WeatherQuery;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_config::environment::default_provider;
@@ -209,7 +209,7 @@ impl McpTool<dyn ToolRuntime> for AnalyzeWeatherImpactTool {
 
         let cache_repo = context.resources.repos().weather_cache.clone();
         let cache_store = Arc::new(WeatherCacheRepoAdapter::new(cache_repo));
-        let provider = match provider_from_env(cache_store) {
+        let provider = match context.resources.weather().history(cache_store) {
             Ok(provider) => provider,
             Err(e) => {
                 return Ok(ToolResult::error(json!({

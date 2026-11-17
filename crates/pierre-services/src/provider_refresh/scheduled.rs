@@ -685,7 +685,7 @@ mod tests {
     use tracing_subscriber::registry::LookupSpan;
 
     use super::*;
-    use crate::health_sync::PierreSyncStorage;
+    use crate::health_sync::{PierreSyncStorage, WellnessOrigins};
 
     /// A WHOOP stand-in whose sleep read never answers for one athlete — a
     /// vendor that accepts the connection and never replies — and answers
@@ -1158,10 +1158,8 @@ mod tests {
         let notifier: Arc<dyn SyncNotifier> = Arc::new(NoStreams);
         let notices = SyncFailureNotices::new(Arc::clone(&repos.provider_connections), None);
         let unregistered = whoop_orchestrator(&repos, StallsFor::default());
-        for (orchestrator, told) in [
-            (storage.build_orchestrator(None).unwrap(), false),
-            (unregistered, true),
-        ] {
+        let registered = storage.build_orchestrator(None, WellnessOrigins::default());
+        for (orchestrator, told) in [(registered.unwrap(), false), (unregistered, true)] {
             let (athlete, tenant) = create_push_fed_athlete(&repos).await.unwrap();
             let user = ConnectedUser {
                 user_id: athlete.to_string(),

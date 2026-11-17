@@ -4,11 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-#![allow(missing_docs)]
-
-use pierre_auth::config::oauth::parse_scopes;
-use pierre_config::environment::{ProviderEndpointOverride, ProviderEndpointOverrides};
+use pierre_auth::config::oauth::{
+    parse_scopes, ProviderEndpointOverride, ProviderEndpointOverrides,
+};
 use pierre_providers::ProviderRegistry;
 
 /// Overrides that move only Strava's endpoints.

@@ -24,6 +24,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 use secrecy::SecretString;
 
@@ -49,7 +50,6 @@ use pierre_core::models::{
 };
 use pierre_email::templates::CoachAccessOrigin;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::ProviderRegistry;
 use pierre_routes_auth::AuthRoutes;
 use pierre_routes_groups::GroupRoutes;
@@ -180,9 +180,9 @@ impl World {
     async fn new() -> Self {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
-        let mut config = default_config();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = base;
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.set_default_config(INTERVALS_ICU, config);
         Self {
             res: create_test_server_resources().await.unwrap(),

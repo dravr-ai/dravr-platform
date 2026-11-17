@@ -16,7 +16,7 @@ use tracing::{info, warn};
 use uuid::Uuid;
 
 use pierre_cache::Cache;
-use pierre_fitness_compute::geocoding::{free_text_query, place_geocoder};
+use pierre_fitness_compute::geocoding::free_text_query;
 use pierre_fitness_compute::osm_routes::{
     DiscoveredRoute, DistanceSource, RouteDiscoveryService, TargetFit,
 };
@@ -290,7 +290,7 @@ impl McpTool<dyn ToolRuntime> for DiscoverRoutesTool {
     ) -> ToolResponse {
         let (tenant_id, user_id) = route_owner(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let resolved = match resolve_center(place_geocoder()?, &args).await {
+            let resolved = match resolve_center(state.weather().geocoder()?, &args).await {
                 Ok(center) => center,
                 Err(err) => return Ok(ToolResult::error(err)),
             };

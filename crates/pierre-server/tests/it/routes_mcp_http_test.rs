@@ -95,7 +95,7 @@ impl McpTestSetup {
                 (*database).clone(),
                 (*auth_manager).clone(),
                 "test_jwt_secret",
-                config,
+                common::offline_config(config),
                 cache,
                 ServerContextOptions {
                     rsa_key_size_bits: Some(2048),
@@ -1006,7 +1006,7 @@ async fn setup_with_admin_flag(
             (*database).clone(),
             (*auth_manager).clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

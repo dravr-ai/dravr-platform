@@ -579,7 +579,7 @@ async fn test_complete_multitenant_workflow() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -821,7 +821,7 @@ async fn test_mcp_authentication_required() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -928,7 +928,7 @@ async fn test_mcp_initialization_no_auth_is_rejected() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1023,7 +1023,7 @@ async fn test_oauth_protected_resource_metadata_endpoint() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1124,7 +1124,7 @@ async fn test_mcp_concurrent_requests() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            create_test_config(server_port),
+            common::offline_config(create_test_config(server_port)),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1248,7 +1248,7 @@ async fn test_multitenant_server_config() -> Result<()> {
             database,
             auth_manager,
             &stored_jwt_secret,
-            config.clone(),
+            common::offline_config(config.clone()),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

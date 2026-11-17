@@ -6,7 +6,7 @@
 
 use crate::annotations::{annotations, Effect, Reach};
 use std::collections::HashMap;
-use std::sync::{Arc, LazyLock};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -15,35 +15,19 @@ use serde_json::{json, Value};
 use tracing::{info, warn};
 
 use dravr_meteo::{
-    CacheLimits, CachedProvider, ClientBuildError, GeocodeError, Geocoder, InMemoryStore,
-    OpenMeteoForecastProvider, Place, PlaceQuery, WeatherError, WeatherProvider, WeatherQuery,
+    GeocodeError, Geocoder, Place, PlaceQuery, WeatherError, WeatherProvider, WeatherQuery,
     WeatherSample,
 };
-use pierre_fitness_compute::geocoding::{free_text_query, place_geocoder};
+use pierre_fitness_compute::geocoding::free_text_query;
 
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
 use crate::security::RuntimeTool;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
-use pierre_core::errors::{AppError, AppResult};
+use pierre_core::errors::AppResult;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
 use pierre_tools_core::ToolResult;
-
-/// The forecast provider every call shares, behind the bounded in-process
-/// cache dravr-meteo sizes for forecasts ([`CacheLimits::FORECAST`]): a
-/// stored sample is reused for an hour, the fastest model run a vendor
-/// ingests, and the store holds a bounded number of entries. This is the
-/// provider dravr-meteo's own `get_weather_forecast` serves from. A client
-/// that could not be built is reported to every call rather than replaced by
-/// one without a deadline.
-static FORECAST: LazyLock<
-    Result<CachedProvider<OpenMeteoForecastProvider, InMemoryStore>, ClientBuildError>,
-> = LazyLock::new(|| {
-    OpenMeteoForecastProvider::new().map(|provider| {
-        CachedProvider::new(provider, InMemoryStore::with_limits(CacheLimits::FORECAST))
-    })
-});
 
 /// Longest place name accepted, in characters — dravr-meteo's bound; a longer
 /// one is not a place name.
@@ -240,18 +224,16 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
 
     async fn execute(
         &self,
-        _state: &Arc<dyn ToolRuntime>,
+        state: &Arc<dyn ToolRuntime>,
         _ctx: &ToolContext,
         args: Value,
     ) -> ToolResponse {
         let result = async {
-            let provider = FORECAST
-                .as_ref()
-                .map_err(|e| AppError::external_service("Open-Meteo forecast", e.to_string()))?;
-            // The platform's one place geocoder: a place resolves here exactly
-            // as it does for discover_routes and the weather backfill
-            // (carnet#920).
-            forecast(provider, place_geocoder()?, &args).await
+            // The context's forecast provider and its one place geocoder: a
+            // place resolves here exactly as it does for discover_routes and
+            // the weather backfill (carnet#920).
+            let weather = state.weather();
+            forecast(weather.forecast()?, weather.geocoder()?, &args).await
         };
         tool_result_to_response(result.await)
     }

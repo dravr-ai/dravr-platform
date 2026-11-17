@@ -323,6 +323,7 @@ pub(crate) async fn init_channel_link(
 /// unknown, cross-channel or foreign code costs no exchange.
 pub(crate) async fn link_callback(
     State(resources): State<Arc<ServerContext>>,
+    Extension(adapters): Extension<Arc<dyn ChannelAdapterFactory>>,
     Path(channel): Path<String>,
     Query(query): Query<LinkCallbackQuery>,
     headers: HeaderMap,
@@ -358,8 +359,15 @@ pub(crate) async fn link_callback(
     };
     require_starter(signed_in_account(&resources, &headers).await?, &pending)?;
 
-    let linked =
-        complete_oauth_link(&resources, &channel, state_code, oauth_code, &pending).await?;
+    let linked = complete_oauth_link(
+        &resources,
+        adapters.as_ref(),
+        &channel,
+        state_code,
+        oauth_code,
+        &pending,
+    )
+    .await?;
     Ok((StatusCode::OK, Json(linked)).into_response())
 }
 
@@ -720,6 +728,7 @@ async fn complete_link_and_respond(
 /// the provider's raw body — a rejected exchange can echo the client secret back.
 async fn exchange_oauth_identity(
     resources: &Arc<ServerContext>,
+    adapters: &dyn ChannelAdapterFactory,
     channel: &str,
     tenant_id: TenantId,
     oauth_code: &str,
@@ -751,11 +760,16 @@ async fn exchange_oauth_identity(
     let base_url = &resources.common.config.base_url;
     let redirect_uri = format!("{base_url}/api/messaging/link/callback/{channel_type}");
 
-    let (token_url, identity_url) = oauth_endpoints(channel_type)?;
+    // The production factory names no origin, so the exchange goes to the
+    // provider's own host. A test context's names one of its own, so a
+    // route-driven test never posts its fixture client secret to the real
+    // one (carnet#1615).
+    let api_origin = adapters.destination_api_base(channel_type);
+    let (token_url, identity_url) = oauth_endpoints(channel_type, api_origin.as_deref())?;
 
     exchange_code_for_identity(
-        token_url,
-        identity_url,
+        &token_url,
+        &identity_url,
         client_id,
         client_secret,
         oauth_code,
@@ -765,27 +779,42 @@ async fn exchange_oauth_identity(
     .await
 }
 
-/// The token and identity endpoints for an OAuth channel.
+/// Slack's own origin, where an `OpenID` Connect link is exchanged.
+const SLACK_API_ORIGIN: &str = "https://slack.com";
+
+/// Discord's own origin, where an `OAuth2` link is exchanged.
+const DISCORD_API_ORIGIN: &str = "https://discord.com";
+
+/// The token and identity endpoints for an OAuth channel, on `api_origin`
+/// when the caller names one and on the provider's own host otherwise.
 ///
-/// Split out so the pairing is assertable on its own, and so the round trip
-/// below can be pointed at a stub without reaching for a config knob that would
-/// exist only for tests.
+/// The origin is what the server context's adapter factory answers for the
+/// channel ([`ChannelAdapterFactory::destination_api_base`]): `None` from
+/// the production factory, an origin of its own from a test context's. The
+/// paths are the provider's either way.
 ///
 /// # Errors
 ///
 /// Returns `AppError` for a channel that does not link by OAuth.
 pub fn oauth_endpoints(
     channel_type: ChannelType,
-) -> Result<(&'static str, &'static str), AppError> {
+    api_origin: Option<&str>,
+) -> Result<(String, String), AppError> {
     match channel_type {
-        ChannelType::Slack => Ok((
-            "https://slack.com/api/openid.connect.token",
-            "https://slack.com/api/openid.connect.userInfo",
-        )),
-        ChannelType::Discord => Ok((
-            "https://discord.com/api/oauth2/token",
-            "https://discord.com/api/users/@me",
-        )),
+        ChannelType::Slack => {
+            let origin = api_origin.unwrap_or(SLACK_API_ORIGIN);
+            Ok((
+                format!("{origin}/api/openid.connect.token"),
+                format!("{origin}/api/openid.connect.userInfo"),
+            ))
+        }
+        ChannelType::Discord => {
+            let origin = api_origin.unwrap_or(DISCORD_API_ORIGIN);
+            Ok((
+                format!("{origin}/api/oauth2/token"),
+                format!("{origin}/api/users/@me"),
+            ))
+        }
         other => Err(AppError::invalid_input(format!(
             "{other} does not link by OAuth"
         ))),

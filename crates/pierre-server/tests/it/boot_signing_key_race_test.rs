@@ -96,7 +96,7 @@ async fn build_context_with_stored_keys(database: &Database) -> AppResult<Server
         database.clone(),
         AuthManager::new(24),
         "test_jwt_secret",
-        Arc::new(ServerConfig::default()),
+        common::offline_config(Arc::new(ServerConfig::default())),
         common::create_test_cache().await.unwrap(),
         ServerContextOptions::testing(common::offline_adapters()),
     )

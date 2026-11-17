@@ -466,7 +466,7 @@ async fn test_mcp_server_tenant_isolation() -> Result<()> {
             database.clone(),
             auth_manager.clone(),
             TEST_JWT_SECRET,
-            create_test_server_config(),
+            common::offline_config(create_test_server_config()),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

@@ -57,7 +57,7 @@ async fn server_over(records: Arc<MemoryActivityRecordStore>) -> Arc<ServerConte
             (*database).clone(),
             AuthManager::new(24),
             "test_admin_secret",
-            Arc::new(common::test_server_config()),
+            common::offline_config(Arc::new(common::test_server_config())),
             cache,
             ServerContextOptions {
                 jwks_manager: Some(common::get_shared_test_jwks()),

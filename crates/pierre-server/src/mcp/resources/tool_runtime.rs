@@ -17,6 +17,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::repositories::ProviderPurge;
 use pierre_database::RepositoryRegistry;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 use pierre_llm::LlmProvider;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::NotificationService;
@@ -67,6 +68,10 @@ impl ToolRuntime for ServerContext {
 
     fn provider_registry(&self) -> &Arc<ProviderRegistry> {
         &self.fitness.provider_registry
+    }
+
+    fn weather(&self) -> &Arc<WeatherClients> {
+        &self.fitness.weather
     }
 
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry> {

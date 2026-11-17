@@ -33,14 +33,15 @@ mod pairing_confirm {
     use pierre_database::backends::{
         CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_email::ResendEmailService;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use pierre_services::channel_adapters::ChannelAdapterFactory;
     use tokio::time::sleep;
     use uuid::Uuid;
 
-    use crate::common::{create_test_server_resources, create_test_user_with_plan};
+    use crate::common::{
+        create_test_server_resources, create_test_user_with_plan, offline_email_service,
+    };
     use crate::helpers::axum_test::AxumTestRequest;
     use crate::helpers::messaging_webhooks::{
         messenger_referral_webhook, messenger_webhook, telegram_photo_webhook, telegram_webhook,
@@ -146,13 +147,7 @@ mod pairing_confirm {
         Arc::get_mut(&mut resources)
             .expect("no clone of the fresh server context exists yet")
             .common
-            .email_service = Some(Arc::new(
-            ResendEmailService::new(
-                "re_fake_test_api_key".to_owned(),
-                "Pierre <noreply@test.pierre.dev>".to_owned(),
-            )
-            .expect("a non-empty key builds the email service"),
-        ));
+            .email_service = Some(offline_email_service());
         let (starter_id, _user, tenant_id) =
             create_test_user_with_plan(&resources.agent.database, STARTER_EMAIL, "professional")
                 .await

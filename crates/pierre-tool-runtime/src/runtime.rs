@@ -44,6 +44,7 @@ use pierre_database::backends::factory::Database;
 use pierre_database::database::repositories::AgentsRepository;
 use pierre_database::repositories::{BackfillJobKind, ProviderPurge};
 use pierre_database::RepositoryRegistry;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 use pierre_llm::LlmProvider;
 use pierre_providers::originals::OriginalsStore;
 use pierre_providers::ProviderRegistry;
@@ -300,6 +301,11 @@ pub trait ToolRuntime: Send + Sync + 'static {
 
     /// Registry of fitness providers (Strava, Garmin, …).
     fn provider_registry(&self) -> &Arc<ProviderRegistry>;
+
+    /// The context's weather clients (history, forecast, place geocoder), on
+    /// the origins the deployment's weather configuration names. Every
+    /// weather call a tool makes goes through these.
+    fn weather(&self) -> &Arc<WeatherClients>;
 
     /// Hot-reloadable `IntelligenceConfig` snapshot registry.
     fn cageux_config_registry(&self) -> &Arc<CageuxConfigRegistry>;

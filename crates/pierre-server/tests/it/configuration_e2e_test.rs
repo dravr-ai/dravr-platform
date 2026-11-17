@@ -45,7 +45,8 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
 
     // Create test intelligence
     // Create minimal config for testing
-    let config = Arc::new(ServerConfig::from_env().unwrap_or_else(|_| create_test_config()));
+    let config =
+        Arc::new(common::server_config_from_env().unwrap_or_else(|_| create_test_config()));
 
     // Create ServerContext for the test
     let auth_manager = AuthManager::new(24);
@@ -80,7 +81,7 @@ async fn create_test_tool_executor_with_user() -> (Arc<UniversalToolExecutor>, S
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

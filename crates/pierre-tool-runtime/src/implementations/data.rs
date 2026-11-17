@@ -31,7 +31,7 @@ use chrono::Utc;
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
 use pierre_core::models::{RefreshConfig, TenantId};
 use serde_json::{json, Value};
-use tracing::{debug, error, field, info, warn, Span};
+use tracing::{debug, field, info, warn, Span};
 
 use pierre_cache::{CacheKey, CacheResource};
 use uuid::Uuid;
@@ -84,7 +84,6 @@ use dravr_cageux::physiological_constants::api_limits::{
     safe_limit_json_detailed, safe_limit_json_summary, safe_limit_toon_detailed,
     safe_limit_toon_summary, DEFAULT_ACTIVITY_LIMIT_U32, MAX_ACTIVITY_LIMIT,
 };
-use dravr_meteo::{provider_from_env, WeatherProvider};
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::config::fitness::{EXPENSIVE_DETAIL_PROMOTION_BUDGET, EXPLICIT_DETAIL_CAP};
@@ -100,7 +99,7 @@ use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::deduplication::FragmentReport;
 use pierre_providers::spi::ProviderCapabilities;
 use pierre_services::locale::user_locale as stored_locale;
-use pierre_services::weather_backfill;
+use pierre_services::weather_backfill::WeatherBackfill;
 use pierre_tools_core::ToolResult;
 
 /// Tool for retrieving user activities from fitness providers.
@@ -358,28 +357,15 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             let detail_window_start = DetailPlan::window_start(Utc::now());
             let explicit_detail_cap = (mode == "detailed").then_some(detail_read_budget);
 
-            // Weather provider constructed once per request — both cache and
-            // live response paths reuse it for the temperature backfill pass.
-            // None when WEATHER_BACKFILL_ENABLED=false, and when the weather
-            // configuration cannot produce a provider: temperatures are an
-            // enrichment of the activity list, so a misconfiguration skips them
-            // and says so at ERROR rather than failing the list the athlete
-            // asked for.
-            let weather_provider: Option<Arc<dyn WeatherProvider>> =
-                if weather_backfill::is_enabled() {
-                    let cache_store = Arc::new(WeatherCacheRepoAdapter::new(
-                        context.resources.repos().weather_cache.clone(),
-                    ));
-                    match provider_from_env(cache_store) {
-                        Ok(provider) => Some(provider),
-                        Err(e) => {
-                            error!(error = %e, "weather backfill skipped: the weather provider is misconfigured");
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
+            // The temperature backfill, built once per request — both cache
+            // and live response paths reuse it. None when the deployment's
+            // weather configuration turns it off or selects no working vendor.
+            let weather_backfill = WeatherBackfill::for_deployment(
+                context.resources.weather(),
+                Arc::new(WeatherCacheRepoAdapter::new(
+                    context.resources.repos().weather_cache.clone(),
+                )),
+            );
 
             let cache = context.resources.cache();
 
@@ -446,7 +432,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     fetch_limit,
                     offset: offset.unwrap_or(0),
                     analysis_type,
-                    weather_provider: weather_provider.clone(),
+                    weather_backfill: weather_backfill.clone(),
                     user_timezone: user_timezone.clone(),
                     locale: user_locale.clone(),
                     asked: AskedWindow { after, before },
@@ -1049,8 +1035,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
 
             // Weather backfill — first call per (lat, lng, hour) bucket hits the
             // vendor API, all subsequent calls hit weather_cache.
-            let backfill_temps = if let Some(provider) = weather_provider {
-                weather_backfill::fill_activity_temperatures(&filtered_activities, provider).await
+            let backfill_temps = if let Some(backfill) = weather_backfill {
+                backfill.fill(&filtered_activities).await
             } else {
                 HashMap::new()
             };

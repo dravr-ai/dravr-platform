@@ -97,7 +97,7 @@ impl TestServer {
                 (*self.database).clone(),
                 (*self.auth_manager).clone(),
                 &self.jwt_secret,
-                config,
+                common::offline_config(config),
                 cache,
                 ServerContextOptions {
                     rsa_key_size_bits: Some(2048),

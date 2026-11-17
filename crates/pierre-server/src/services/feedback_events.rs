@@ -23,13 +23,14 @@
 //! `thumbs` and `reaction`.
 
 use bytes::Bytes;
-use dravr_tronc::notifications::{SlackClient, SlackConfig, SlackFile, SlackResult};
+use dravr_tronc::notifications::{SlackConfig, SlackFile, SlackResult};
 use pierre_contremaitre::notify_routing::NOTIFY_ROUTING_PROVIDER;
 use pierre_core::models::TenantId;
 use secrecy::ExposeSecret;
 use tracing::{info, warn};
 
 use crate::mcp::resources::ServerContext;
+use crate::services::ops_slack;
 
 /// The event every kind of feedback emits, whose routing rule names the
 /// feedback room: where a screenshot is shared, and where the card's Reply
@@ -147,11 +148,20 @@ pub(crate) fn share_feedback_image(
         );
         return;
     };
-    let client = SlackClient::new(&SlackConfig {
-        bot_token: bot_token.expose_secret().to_owned(),
-        error_channel: String::new(),
-        signing_secret: None,
-    });
+    // Slack's own host in a deployment; the origin a test context's adapter
+    // factory names otherwise, so no fixture token reaches Slack.
+    #[cfg(feature = "client-messaging")]
+    let api_origin = ops_slack::api_origin(resources);
+    #[cfg(not(feature = "client-messaging"))]
+    let api_origin: Option<String> = None;
+    let client = ops_slack::client(
+        &SlackConfig {
+            bot_token: bot_token.expose_secret().to_owned(),
+            error_channel: String::new(),
+            signing_secret: None,
+        },
+        api_origin.as_deref(),
+    );
     let extension = media_type.strip_prefix("image/").unwrap_or("png");
     let file = SlackFile::new(
         format!("feedback-{feedback_id}.{extension}"),

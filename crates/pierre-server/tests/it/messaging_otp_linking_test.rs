@@ -19,7 +19,7 @@
 
 #[cfg(feature = "client-messaging")]
 mod messaging_otp_linking_tests {
-    use crate::common::create_test_server_resources;
+    use crate::common::{create_test_server_resources, offline_email_service};
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::http::StatusCode;
     use chrono::{Duration, Utc};
@@ -28,7 +28,6 @@ mod messaging_otp_linking_tests {
     use pierre_database::backends::{
         CreateLinkStateParams, MessagingRepository, UpsertChannelConfigParams,
     };
-    use pierre_email::ResendEmailService;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
     use serde_json::json;
@@ -230,20 +229,14 @@ mod messaging_otp_linking_tests {
     /// Inject a dummy email service into `ServerContext` so the OTP flow
     /// triggers (instead of falling back to link-URL).
     ///
-    /// The email service uses a fake API key, so actual sends will fail.
+    /// The email service cannot leave the machine, so actual sends fail.
     /// This is intentional: we set up OTP state directly in the DB for most tests.
     fn inject_dummy_email_service(resources: &mut Arc<ServerContext>) {
         let inner = Arc::get_mut(resources).expect(
             "Cannot get mutable reference to ServerContext — \
              ensure no clones exist before calling inject_dummy_email_service",
         );
-        inner.common.email_service = Some(Arc::new(
-            ResendEmailService::new(
-                "re_fake_test_api_key".to_owned(),
-                "Pierre <noreply@test.pierre.dev>".to_owned(),
-            )
-            .expect("a non-empty key builds the email service"),
-        ));
+        inner.common.email_service = Some(offline_email_service());
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -549,7 +542,7 @@ mod messaging_otp_linking_tests {
         // Pre-create OTP state in "awaiting email" sub-state
         create_otp_link_state_awaiting_email(db, tenant_id, "whatsapp", sender_id).await;
 
-        // Send the valid email (the Resend API call will fail with a fake key)
+        // Send the valid email (the send fails: the service's client is offline)
         let payload = whatsapp_text_payload(sender_id, "wamid.sendfail_001", email);
         let (status, _body) = send_whatsapp_webhook(&resources, wa_secret, &payload).await;
         assert_eq!(status, StatusCode::OK);

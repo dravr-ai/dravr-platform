@@ -187,13 +187,16 @@ async fn an_empty_user_id_is_rejected() {
 /// channels that do not link by OAuth.
 #[test]
 fn endpoints_are_paired_per_provider_and_refused_for_deep_link_channels() {
-    let (slack_token, slack_identity) = oauth_endpoints(ChannelType::Slack).unwrap();
-    assert!(slack_token.contains("slack.com"));
-    assert!(slack_identity.contains("userInfo"));
+    let (slack_token, slack_identity) = oauth_endpoints(ChannelType::Slack, None).unwrap();
+    assert_eq!(slack_token, "https://slack.com/api/openid.connect.token");
+    assert_eq!(
+        slack_identity,
+        "https://slack.com/api/openid.connect.userInfo"
+    );
 
-    let (discord_token, discord_identity) = oauth_endpoints(ChannelType::Discord).unwrap();
-    assert!(discord_token.contains("discord.com"));
-    assert!(discord_identity.contains("users/@me"));
+    let (discord_token, discord_identity) = oauth_endpoints(ChannelType::Discord, None).unwrap();
+    assert_eq!(discord_token, "https://discord.com/api/oauth2/token");
+    assert_eq!(discord_identity, "https://discord.com/api/users/@me");
 
     for deep in [
         ChannelType::Telegram,
@@ -201,8 +204,31 @@ fn endpoints_are_paired_per_provider_and_refused_for_deep_link_channels() {
         ChannelType::Messenger,
     ] {
         assert!(
-            oauth_endpoints(deep).is_err(),
+            oauth_endpoints(deep, None).is_err(),
             "{deep} links by deep link; asking for OAuth endpoints is a bug, not a fallback"
         );
     }
+}
+
+/// An origin the adapter factory names replaces the provider's host and
+/// nothing else: the paths the exchange posts to and reads from are the
+/// provider's own.
+#[test]
+fn a_named_origin_replaces_the_host_and_keeps_the_providers_paths() {
+    let origin = "http://127.0.0.1:9";
+    assert_eq!(
+        oauth_endpoints(ChannelType::Slack, Some(origin)).unwrap(),
+        (
+            format!("{origin}/api/openid.connect.token"),
+            format!("{origin}/api/openid.connect.userInfo"),
+        )
+    );
+    assert_eq!(
+        oauth_endpoints(ChannelType::Discord, Some(origin)).unwrap(),
+        (
+            format!("{origin}/api/oauth2/token"),
+            format!("{origin}/api/users/@me"),
+        )
+    );
+    assert!(oauth_endpoints(ChannelType::Telegram, Some(origin)).is_err());
 }

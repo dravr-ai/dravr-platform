@@ -24,6 +24,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use std::sync::{Arc, Mutex};
 
 use chrono::Utc;
@@ -37,7 +38,6 @@ use pierre_core::models::{TenantId, UserOAuthToken};
 use pierre_database::backends::factory::Database;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::core::{CredentialKind, OAuth2Credentials};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::sciotte_provider::startup_reads;
 use pierre_providers::token_writeback::StoredTokenRow;
 use pierre_services::health_sync::PierreSyncStorage;
@@ -49,6 +49,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
+use crate::common::REFUSED_WELLNESS;
 use crate::db_fixtures::seed_user;
 
 const SESSION_ID: &str = "sess-rotating";
@@ -187,7 +188,9 @@ async fn a_health_sync_read_that_rotated_the_session_stores_it_over_the_row() {
     let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
     let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let orchestrator = storage.build_orchestrator(Some(client)).unwrap();
+    let orchestrator = storage
+        .build_orchestrator(Some(client), REFUSED_WELLNESS)
+        .unwrap();
 
     orchestrator
         .sync_user(&user_id.to_string(), "garmin")
@@ -218,7 +221,9 @@ async fn a_health_sync_never_overwrites_a_row_a_reconnect_replaced_during_the_re
         spawn_rotating_scraper(Arc::new(Mutex::new(Some((Arc::clone(&repos), reconnect))))).await;
     let client = startup_reads(&[String::from(&base)], None).unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
-    let orchestrator = storage.build_orchestrator(Some(client)).unwrap();
+    let orchestrator = storage
+        .build_orchestrator(Some(client), REFUSED_WELLNESS)
+        .unwrap();
 
     orchestrator
         .sync_user(&user_id.to_string(), "garmin")
@@ -246,7 +251,7 @@ async fn a_trainingpeaks_profile_read_stores_a_rotated_session_only_over_a_stand
 
     let replacement: Replacement = Arc::new(Mutex::new(None));
     let (base, _) = spawn_rotating_scraper(Arc::clone(&replacement)).await;
-    let registry = ProviderRegistry::new()
+    let registry = offline_provider_registry()
         .with_sciotte_reads(Some(startup_reads(&[String::from(&base)], None).unwrap()));
 
     trainingpeaks_profile(&registry, &*repos.oauth_tokens, &read_from, &session)
@@ -292,7 +297,7 @@ async fn a_trainingpeaks_profile_read_reaches_the_read_service_its_session_names
     let read_from = StoredTokenRow::of(&row).unwrap();
     let (first, first_exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
     let (second, second_exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
-    let registry = ProviderRegistry::new()
+    let registry = offline_provider_registry()
         .with_sciotte_reads(Some(startup_reads(&[first, second], None).unwrap()));
 
     trainingpeaks_profile(
@@ -366,7 +371,7 @@ async fn a_provider_read_that_rotates_a_cloned_session_stores_it_on_the_row_read
         .unwrap();
 
     let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
-    let registry = ProviderRegistry::new()
+    let registry = offline_provider_registry()
         .with_sciotte_reads(Some(startup_reads(&[String::from(&base)], None).unwrap()));
     let provider = registry.create_provider(SCIOTTE_GARMIN).unwrap();
     provider
@@ -425,7 +430,10 @@ async fn a_health_sync_never_writes_an_admin_clone_of_the_session() {
     let (base, exports) = spawn_rotating_scraper(Arc::new(Mutex::new(None))).await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let orchestrator = storage
-        .build_orchestrator(Some(startup_reads(&[String::from(&base)], None).unwrap()))
+        .build_orchestrator(
+            Some(startup_reads(&[String::from(&base)], None).unwrap()),
+            REFUSED_WELLNESS,
+        )
         .unwrap();
 
     // The clone's sync has been handed its row, as concurrent syncs of both

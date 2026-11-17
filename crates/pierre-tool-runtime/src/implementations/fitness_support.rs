@@ -37,7 +37,6 @@ use dravr_cageux::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
 };
-use dravr_meteo::WeatherProvider;
 use pierre_cache::{Cache, CacheKey, CacheResource};
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::parse_zone;
@@ -51,7 +50,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_providers::ai_scope;
 use pierre_providers::deduplication::FragmentReport;
-use pierre_services::weather_backfill;
+use pierre_services::weather_backfill::WeatherBackfill;
 use serde::Serialize;
 use serde_json::{to_value, Value};
 use std::cmp::Reverse;
@@ -443,10 +442,10 @@ pub(crate) struct CachedActivitiesParams<'a> {
     pub offset: usize,
     /// Analysis type for sufficiency calculation
     pub analysis_type: AnalysisType,
-    /// Optional weather provider used to backfill ambient temperature on
-    /// activities whose source provider didn't surface it. `None` when
-    /// `WEATHER_BACKFILL_ENABLED=false`.
-    pub weather_provider: Option<Arc<dyn WeatherProvider>>,
+    /// The backfill of ambient temperature on activities whose source
+    /// provider didn't surface it. `None` when the deployment's weather
+    /// configuration turns it off.
+    pub weather_backfill: Option<WeatherBackfill>,
     /// User's IANA timezone for rendering local start times (see
     /// [`ActivitiesResponseParams::user_timezone`]).
     pub user_timezone: Option<String>,
@@ -563,8 +562,8 @@ pub(crate) async fn try_get_cached_activities(
 
         // Backfill missing ambient temperatures from weather provider
         // (cheap on warm cache; the weather_cache table fronts the API).
-        let backfill_temps = if let Some(provider) = params.weather_provider {
-            weather_backfill::fill_activity_temperatures(&sorted_activities, provider).await
+        let backfill_temps = if let Some(backfill) = params.weather_backfill {
+            backfill.fill(&sorted_activities).await
         } else {
             HashMap::new()
         };

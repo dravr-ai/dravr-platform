@@ -509,6 +509,8 @@ mod messaging_inbound_location_test;
 mod messaging_intake_test;
 mod messaging_link_auth_test;
 mod messaging_link_binding_test;
+#[cfg(feature = "client-messaging")]
+mod messaging_link_oauth_origin_test;
 mod messaging_linking_test;
 mod messaging_locale_test;
 mod messaging_onboarding_replies_test;
@@ -674,7 +676,6 @@ mod provider_ai_consent_withdrawal_test;
 mod provider_app_budget_test;
 mod provider_auth_trip_keeps_sibling_results_test;
 mod provider_backend_resolver_test;
-mod provider_base_url_override_test;
 mod provider_budget_alert_test;
 mod provider_card_coalescing_test;
 mod provider_connection_last_used_test;

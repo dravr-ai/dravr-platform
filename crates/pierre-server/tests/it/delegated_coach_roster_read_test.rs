@@ -25,6 +25,7 @@
 //! - an athlete id the platform could not have issued is refused on propose.
 
 use crate::common;
+use crate::common::offline_provider_registry;
 use crate::helpers;
 use secrecy::ExposeSecret;
 
@@ -53,7 +54,6 @@ use pierre_providers::core::{
     ProviderFactory,
 };
 use pierre_providers::delegation::{CoachRoster, DelegatedReads};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
@@ -322,7 +322,7 @@ struct World {
 /// built-in providers.
 async fn server(seen: &Seen) -> Arc<ServerContext> {
     let base = create_test_server_resources().await.unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.set_default_config(COACHHUB, Descriptor.to_config());
     registry.register_descriptor(COACHHUB, Box::new(Descriptor));
     registry.register_factory(COACHHUB, Box::new(Factory { seen: seen.clone() }));

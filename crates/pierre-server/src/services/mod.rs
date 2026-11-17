@@ -98,6 +98,10 @@ pub mod messaging_ingress;
 #[cfg(any(feature = "client-chat", feature = "client-messaging"))]
 pub(crate) mod feedback_events;
 
+/// The Slack client the server's own Web API calls go through, addressed where the adapter factory says
+#[cfg(any(feature = "client-chat", feature = "client-messaging"))]
+pub(crate) mod ops_slack;
+
 /// Account-approved notifier: email + localized message on each linked channel
 #[cfg(feature = "client-messaging")]
 pub(crate) mod user_approval_notifier;

@@ -4010,6 +4010,7 @@ dependencies = [
  "dravr-tronc",
  "html-escape",
  "pierre-core",
+ "reqwest 0.12.28",
  "tracing",
 ]
 

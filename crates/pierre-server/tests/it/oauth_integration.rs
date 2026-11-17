@@ -177,7 +177,7 @@ async fn test_oauth_authorization_url_generation() {
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -486,7 +486,7 @@ async fn test_oauth_state_validation() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -693,7 +693,7 @@ async fn test_connection_status_no_providers() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -879,7 +879,7 @@ async fn test_invalid_provider_error() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1058,7 +1058,7 @@ async fn test_disconnect_provider() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1370,7 +1370,7 @@ async fn test_oauth_urls_contain_required_parameters() {
             database,
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

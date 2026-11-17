@@ -27,7 +27,7 @@ use chrono::Utc;
 use dravr_canot::channel::{dm_redirect, MessagingChannel};
 use dravr_canot::channels::telegram::transport::TelegramTransport;
 use dravr_canot::error::{MessagingError, MessagingResult};
-use dravr_canot::factory::create_adapter_from_config;
+use dravr_canot::factory::create_adapter_from_config_with_api_base;
 use dravr_canot::turn::ConversationTurnId;
 use http::HeaderMap;
 use pierre_core::models::messaging::{
@@ -37,9 +37,10 @@ use pierre_core::models::messaging::{
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use serde_json::Value;
 
-/// Where an offline factory sends the status placeholder and the linking
-/// route's destination lookup: a loopback port nothing listens on (1 is
-/// reserved for TCPMUX, and no test binds it).
+/// Where an offline factory sends the status placeholder, the calls of the
+/// adapters it builds and the linking route's destination lookup: a
+/// loopback port nothing listens on (1 is reserved for TCPMUX, and no test
+/// binds it).
 ///
 /// The connection is refused at once, so the turn takes the path it took when
 /// the real host answered a fixture token with `401`: the placeholder does
@@ -48,17 +49,24 @@ use serde_json::Value;
 /// `slack_answer_placement_test` does.
 pub(crate) const REFUSED_STATUS_API: &str = "http://127.0.0.1:1";
 
+/// Where an offline factory sends the Discord Gateway client: the same
+/// refused loopback port, as a WebSocket URL.
+pub(crate) const REFUSED_GATEWAY: &str = "ws://127.0.0.1:1";
+
 /// Telegram bot ids whose username a test or the offline factory has named.
 static NAMED_BOTS: LazyLock<Mutex<HashSet<i64>>> = LazyLock::new(Mutex::default);
 
 /// Tell canot the username of the fixture bot `bot_id`.
 ///
-/// The Telegram adapter learns its bot's username from `getMe`, on the real
-/// host, the first time a message could mention the bot, and keeps it for the
-/// process. That call is made inside the inbound parse the offline adapter
-/// leaves untouched, so the only way to keep it off the network is to answer
-/// it beforehand. A test whose messages mention its bot names it here; the
-/// offline factory names every other bot it is asked to build.
+/// The Telegram adapter learns its bot's username from `getMe` the first
+/// time a message could mention the bot, and keeps it for the process. That
+/// call is made inside the inbound parse the offline adapter leaves
+/// untouched; the offline factory builds the adapter on a base of its own,
+/// so the call is refused and never reaches Telegram, but a refused `getMe`
+/// leaves the adapter without a username and mention detection degraded.
+/// So the username is answered beforehand: a test whose messages mention
+/// its bot names it here, and the offline factory names every other bot it
+/// is asked to build.
 pub(crate) fn name_fixture_bot(bot_id: i64, username: &str) {
     NAMED_BOTS.lock().unwrap().insert(bot_id);
     // The transport is not kept: building it is what fills canot's cache.
@@ -66,7 +74,8 @@ pub(crate) fn name_fixture_bot(bot_id: i64, username: &str) {
 }
 
 /// Name the bot a stored Telegram config belongs to, unless a test already
-/// did, so that parsing its inbound messages never asks `getMe`.
+/// did, so that parsing its inbound messages has a username to match and
+/// asks no `getMe`.
 fn name_unnamed_bot(config: &Value) {
     let Some(bot_id) = config
         .get("bot_token")
@@ -91,9 +100,11 @@ fn name_unnamed_bot(config: &Value) {
 /// that have a private mechanism of their own, and a deletion on the
 /// channels that can delete. `send_raw`, the retry worker's re-send of a
 /// stored payload, is answered with a receipt and not recorded, refusing
-/// adapter or not. The two that are not the wrapper's to intercept, the
-/// status placeholder and the inbound parse's `getMe`, are kept off the
-/// network by [`OfflineSendAdapters`].
+/// adapter or not. The ones that are not the wrapper's to intercept, the
+/// status placeholder and what the inbound parse calls (`getMe`,
+/// `answerCallbackQuery`), are kept off the network by
+/// [`OfflineSendAdapters`], which builds the adapter and names the
+/// placeholder's base on an origin of its own.
 ///
 /// This exists because `group_transcript_test` seeds a fixture bot token and
 /// drives the real Telegram webhook route, so every turn attempted a live POST
@@ -282,21 +293,44 @@ impl MessagingChannel for OfflineSendChannel {
 /// can still assert the turn attempted delivery — the coverage the live
 /// transport used to carry implicitly, and which taking the network out would
 /// otherwise remove silently.
-#[derive(Default)]
 pub(crate) struct OfflineSendAdapters {
     sent: EgressLog,
     refuses_sends: bool,
+    /// The base every adapter is built on and the status placeholder is
+    /// posted to: [`REFUSED_STATUS_API`] unless the test names a stand-in.
+    api_base: String,
+}
+
+impl Default for OfflineSendAdapters {
+    fn default() -> Self {
+        Self {
+            sent: EgressLog::default(),
+            refuses_sends: false,
+            api_base: REFUSED_STATUS_API.to_owned(),
+        }
+    }
 }
 
 impl OfflineSendAdapters {
+    /// A factory whose adapters call `api_base`, a stand-in the test reads
+    /// back, for what the wrapper does not capture: the status placeholder
+    /// and the calls of the inbound parse (Telegram's `answerCallbackQuery`
+    /// and `getMe`). Sends are captured as on any offline factory.
+    pub(crate) fn on_api_base(api_base: &str) -> Self {
+        Self {
+            api_base: api_base.to_owned(),
+            ..Self::default()
+        }
+    }
+
     /// A factory whose adapters refuse every `send` and every private reply
     /// with a delivery error, as the real host refused a fixture token, so a
     /// route-driven test reaches what the ingress does with a reply it could
     /// not deliver. `send_raw` and a deletion answer as on any offline adapter.
     pub(crate) fn refusing_sends() -> Self {
         Self {
-            sent: EgressLog::default(),
             refuses_sends: true,
+            ..Self::default()
         }
     }
 
@@ -358,7 +392,10 @@ impl ChannelAdapterFactory for OfflineSendAdapters {
         if channel_type == ChannelType::Telegram {
             name_unnamed_bot(config);
         }
-        let inner = create_adapter_from_config(channel_type, config)?;
+        // On this factory's base, never the channel's real one: the calls
+        // the wrapper delegates (the inbound parse) are made by `inner`.
+        let inner =
+            create_adapter_from_config_with_api_base(channel_type, config, Some(&self.api_base))?;
         Ok(Arc::new(OfflineSendChannel::wrapping(
             inner,
             Arc::clone(&self.sent),
@@ -370,13 +407,23 @@ impl ChannelAdapterFactory for OfflineSendAdapters {
     /// the adapter [`Self::build`] wraps, so capturing sends alone left every
     /// "thinking…" open going to the channel's real host (carnet#1600).
     fn status_api_base(&self) -> Option<String> {
-        Some(REFUSED_STATUS_API.to_owned())
+        Some(self.api_base.clone())
     }
 
-    /// The linking route's own lookup (Telegram's `getMe`, the Graph API's
-    /// number) is refused the same way, so a fixture credential never
-    /// reaches the real host and the route answers that it cannot name the
-    /// destination. A test that needs the link stands its own origin in.
+    /// The Discord Gateway is a WebSocket no proxy sees: a context that
+    /// starts its client dials a loopback port nothing listens on.
+    fn discord_gateway_url(&self) -> Option<String> {
+        Some(REFUSED_GATEWAY.to_owned())
+    }
+
+    /// The linking routes' own requests (Telegram's `getMe`, the Graph API's
+    /// number, the code exchange of a Slack or Discord OAuth link) are
+    /// refused the same way, so a fixture credential never reaches the real
+    /// host: the route answers that it cannot name the destination, or that
+    /// the exchange could not be made. So are the Slack calls the server
+    /// makes with the ops bot token (a card redraw, a modal, the feedback
+    /// screenshot upload). A test that needs the link, or reads the redraw
+    /// back, stands its own origin in.
     fn destination_api_base(&self, _channel_type: ChannelType) -> Option<String> {
         Some(REFUSED_STATUS_API.to_owned())
     }

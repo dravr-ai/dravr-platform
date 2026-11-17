@@ -19,6 +19,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use crate::helpers;
 
 use std::sync::Arc;
@@ -41,7 +42,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::provider_terms::WHOOP as WHOOP_POLICY;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
     ProviderDescriptor,
@@ -174,7 +174,7 @@ fn whoop_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
 
 async fn server_with_fake_whoop() -> Arc<ServerContext> {
     let base = create_test_server_resources().await.unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.register_provider_bundle(ProviderBundle::new(
         Box::new(WhoopDescriptor),
         whoop_factory,

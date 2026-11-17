@@ -32,6 +32,7 @@
 //!   tenant they read the request in.
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -59,7 +60,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::delegation::{CoachRoster, DelegatedReads};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderCapabilities, ProviderDescriptor,
 };
@@ -276,7 +276,7 @@ impl World {
     async fn new() -> Self {
         let roster = Roster::default();
         let base = create_test_server_resources().await.unwrap();
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.set_default_config(COACHHUB, Descriptor.to_config());
         registry.register_descriptor(COACHHUB, Box::new(Descriptor));
         registry.register_factory(

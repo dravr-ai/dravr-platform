@@ -19,6 +19,7 @@ use pierre_config::environment::{
     ChannelCredentials, ChatToolSettings, ExternalServicesConfig, SciotteServiceConfig,
     ServerConfig, ServerTimeouts, WebhookSecrets,
 };
+use pierre_core::config::fitness::{FitnessConfig, WeatherApiConfig};
 use secrecy::{ExposeSecret, SecretString};
 
 const TIMEOUT_VARS: [&str; 6] = [
@@ -185,6 +186,8 @@ fn startup_captures_the_sciotte_service_and_operator_settings() {
         Some("http://127.0.0.1:9/v22.0")
     );
 
+    assert_weather_configuration_read_at_startup();
+
     for key in [
         "STRAVA_WEBHOOK_VERIFY_TOKEN",
         "STRAVA_WEBHOOK_SUBSCRIPTION_ID",
@@ -278,6 +281,26 @@ fn assert_channel_credentials_read_at_startup() {
     for (key, _) in VARS {
         env::remove_var(key);
     }
+}
+
+/// The deployment's weather configuration is read when the configuration is
+/// built: the backfill is on unless `FITNESS_WEATHER_ENABLED` reads `false`,
+/// and nothing in the environment moves the vendors' origin.
+fn assert_weather_configuration_read_at_startup() {
+    let weather_api = || {
+        FitnessConfig::load()
+            .expect("the fitness configuration loads")
+            .weather_api
+            .expect("a deployment carries a weather configuration")
+    };
+    env::remove_var("FITNESS_WEATHER_ENABLED");
+    assert!(weather_api().enabled);
+    env::set_var("FITNESS_WEATHER_ENABLED", "not a boolean");
+    assert!(weather_api().enabled);
+    env::set_var("FITNESS_WEATHER_ENABLED", "false");
+    assert!(!weather_api().enabled);
+    assert_eq!(weather_api().base_url, WeatherApiConfig::DEFAULT_BASE_URL);
+    env::remove_var("FITNESS_WEATHER_ENABLED");
 }
 
 /// Webhook secrets: a blank secret configures none, the subscription list

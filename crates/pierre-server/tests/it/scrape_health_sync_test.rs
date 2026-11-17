@@ -19,6 +19,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::REFUSED_WELLNESS;
 use crate::db_fixtures;
 use pierre_providers::sciotte_provider::startup_reads;
 use secrecy::SecretString;
@@ -259,7 +260,9 @@ async fn a_coros_sync_stores_resting_hr_sleep_hrv_and_vo2max_as_coros() {
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(coros_yesterday(p, d)));
-    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+    let orchestrator = storage
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .unwrap();
 
     let result = orchestrator
         .sync_user(&user_id.to_string(), "coros")
@@ -320,7 +323,9 @@ async fn a_garmin_sync_stores_the_night_the_morning_and_the_body_as_garmin() {
     connect_scrape(&repos, user_id, tenant, "sciotte_garmin").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (_fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
-    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+    let orchestrator = storage
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .unwrap();
 
     let result = orchestrator
         .sync_user(&user_id.to_string(), "garmin")
@@ -373,7 +378,9 @@ async fn a_dead_coros_session_writes_nothing_and_keeps_no_cursor() {
     connect_scrape(&repos, user_id, tenant, "sciotte_coros").await;
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(dead_session);
-    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+    let orchestrator = storage
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .unwrap();
 
     let result = orchestrator
         .sync_user(&user_id.to_string(), "coros")
@@ -457,7 +464,9 @@ async fn a_flagged_coros_session_is_not_read_by_a_sync() {
             .is_none(),
         "bug: a flagged session hands out no credentials"
     );
-    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+    let orchestrator = storage
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .unwrap();
     drop(orchestrator.sync_user(&user_id.to_string(), "coros").await);
     assert!(
         fake.asked.lock().unwrap().is_empty(),
@@ -591,7 +600,11 @@ async fn a_chat_turn_never_scrapes_for_a_garmin_session_or_a_leftover_garmin_row
         &repos.auth_repos(),
         repos.activity_cache.clone(),
         Arc::clone(&repos),
-        Some(storage.build_orchestrator_with_reader(&reader).unwrap()),
+        Some(
+            storage
+                .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+                .unwrap(),
+        ),
         Arc::new(NoopNotifier),
     );
 
@@ -857,7 +870,11 @@ fn refresh_service(
         &repos.auth_repos(),
         repos.activity_cache.clone(),
         Arc::clone(repos),
-        Some(storage.build_orchestrator_with_reader(reader).unwrap()),
+        Some(
+            storage
+                .build_orchestrator_with_reader(reader, REFUSED_WELLNESS)
+                .unwrap(),
+        ),
         Arc::new(NoopNotifier),
     )
 }
@@ -1037,7 +1054,7 @@ async fn a_push_grant_stored_before_the_credential_read_ends_the_sync_as_a_stand
         "bug: the credential read says the pull stands down: {err}"
     );
     let err = storage
-        .build_orchestrator_with_reader(&reader)
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
         .unwrap()
         .sync_user(&user, "garmin")
         .await
@@ -1232,7 +1249,9 @@ async fn the_history_walk_reads_the_session_beside_a_push_grant_for_the_days_bef
     grant_garmin_push(&repos, user_id, tenant).await.unwrap();
     let storage = Arc::new(PierreSyncStorage::new(&repos));
     let (fake, reader) = FakeScraper::reader(|p, d| Ok(garmin_yesterday(p, d)));
-    let orchestrator = storage.build_orchestrator_with_reader(&reader).unwrap();
+    let orchestrator = storage
+        .build_orchestrator_with_reader(&reader, REFUSED_WELLNESS)
+        .unwrap();
 
     let today = Utc::now().date_naive();
     let outside = orchestrator

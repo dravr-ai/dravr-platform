@@ -316,7 +316,7 @@ async fn test_oauth_flow_through_mcp() {
             database,
             auth_manager,
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -631,7 +631,7 @@ async fn test_oauth_callback_error_handling() {
             database.clone(),
             auth_manager,
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -943,7 +943,7 @@ async fn test_oauth_state_csrf_protection() {
             database.clone(),
             auth_manager.clone(),
             "test_jwt_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1112,7 +1112,7 @@ async fn test_connection_status_tracking() {
             database.clone(),
             auth_manager,
             TEST_JWT_SECRET,
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

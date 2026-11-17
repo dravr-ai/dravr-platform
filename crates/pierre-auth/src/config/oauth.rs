@@ -175,6 +175,11 @@ impl ProviderEndpointOverride {
     /// Read `provider`'s overrides from the environment; `None` when it
     /// overrides nothing.
     ///
+    /// A URL variable that is set but blank overrides nothing, as an unset
+    /// one does: a deployment that templates `PIERRE_<P>_API_BASE_URL=` keeps
+    /// the provider's default, where an empty URL would leave every call to
+    /// that provider without a host to ask.
+    ///
     /// # Examples
     ///
     /// ```bash
@@ -188,11 +193,12 @@ impl ProviderEndpointOverride {
     pub fn from_env(provider: &str) -> Option<Self> {
         let upper = provider.to_uppercase();
         let read = |suffix: &str| env::var(format!("PIERRE_{upper}_{suffix}")).ok();
+        let read_url = |suffix: &str| read(suffix).filter(|url| !url.trim().is_empty());
         let endpoints = Self {
-            auth_url: read("AUTH_URL"),
-            token_url: read("TOKEN_URL"),
-            api_base_url: read("API_BASE_URL"),
-            revoke_url: read("REVOKE_URL"),
+            auth_url: read_url("AUTH_URL"),
+            token_url: read_url("TOKEN_URL"),
+            api_base_url: read_url("API_BASE_URL"),
+            revoke_url: read_url("REVOKE_URL"),
             // Read the way `provider_app_from_env` reads the same variable:
             // commas or whitespace, so a space-separated override (WHOOP's and
             // Wahoo's own form) never collapses into one scope.

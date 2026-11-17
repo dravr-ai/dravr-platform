@@ -85,12 +85,14 @@ use pierre_contremaitre::ContremaitreConfig;
 use pierre_core::billing::dummy::DummyProvider;
 use pierre_core::constants::oauth_providers;
 use pierre_core::errors::AppResult;
+use pierre_core::http_client::api_inner_client;
 use pierre_database::backends::factory::Database;
 #[cfg(feature = "client-notifications")]
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::backends::shared::key_material::KeyStoreQueue;
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 #[cfg(feature = "tools-groups")]
 use pierre_groups::delegation::DelegationStore;
 #[cfg(feature = "tools-groups")]
@@ -115,7 +117,7 @@ use pierre_services::api_key_cleanup::start_api_key_cleanup_task;
 use pierre_services::channel_adapters::ChannelAdapterFactory;
 use pierre_services::coach_read_retention::start_coach_read_retention_task;
 #[cfg(feature = "health-sync")]
-use pierre_services::health_sync::PierreSyncStorage;
+use pierre_services::health_sync::{PierreSyncStorage, WellnessOrigins};
 #[cfg(all(feature = "client-notifications", feature = "client-messaging"))]
 use pierre_services::notification_channel_sink::MessagingChannelSink;
 #[cfg(feature = "client-notifications")]
@@ -585,6 +587,9 @@ impl ServerContext {
 
         let fitness = super::slices::FitnessSlice {
             provider_registry,
+            weather: Arc::new(WeatherClients::new(
+                common.config.fitness.weather_api.as_ref(),
+            )),
             #[cfg(feature = "health-sync")]
             sync_orchestrator: Some(sync_orchestrator),
             #[cfg(feature = "health-sync")]
@@ -693,7 +698,11 @@ impl ServerContext {
             }
             return None;
         };
-        ResendEmailService::new(api_key.to_owned(), from_email.to_owned())
+        ResendEmailService::try_new(
+            api_inner_client().clone(),
+            api_key.to_owned(),
+            from_email.to_owned(),
+        )
             .inspect(|_| info!("Resend email service configured"))
             .inspect_err(|e| {
                 warn!(error = %e, "Resend email service not built — transactional email will be skipped");
@@ -912,9 +921,16 @@ impl ServerContext {
         use pierre_services::provider_refresh::start_scheduled_sync;
 
         use pierre_services::provider_refresh::SyncNotifier;
+        // The wellness readers ask Intervals.icu and WHOOP at the API the
+        // provider registry names for each, as the activity and link calls
+        // do. A build that registers no provider for one of them reads none
+        // of its wellness.
         let adapter = Arc::new(PierreSyncStorage::new(repos));
         let orchestrator = adapter
-            .build_orchestrator(provider_registry.sciotte_reads().cloned())
+            .build_orchestrator(
+                provider_registry.sciotte_reads().cloned(),
+                WellnessOrigins::named_by(provider_registry),
+            )
             .map_err(|e| {
                 AppError::internal(format!("health sync providers could not be built: {e}"))
             })?;

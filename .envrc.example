@@ -596,6 +596,8 @@ export FITNESS_EFFORT_HARD_MAX="7.0"
 
 # Weather Integration Settings
 export FITNESS_WEATHER_WIND_THRESHOLD="15.0"
+# Whether an activity list is given the ambient temperature its source left
+# out, asked of the weather vendor. Read once at startup; on unless "false".
 export FITNESS_WEATHER_ENABLED="true"
 export FITNESS_WEATHER_CACHE_DURATION_HOURS="24"
 export FITNESS_WEATHER_REQUEST_TIMEOUT_SECONDS="10"

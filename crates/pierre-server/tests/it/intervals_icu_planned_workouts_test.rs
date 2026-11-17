@@ -30,6 +30,7 @@
 //! requests are pinned in pierre-providers' loopback tests, and the scraper
 //! in dravr-sciotte.
 
+use crate::common::{offline_provider_config, offline_provider_registry};
 use secrecy::SecretString;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -46,9 +47,7 @@ use pierre_core::models::{
     ConnectionType, ProviderAccountRole, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::intervals_icu_provider::default_config;
 use pierre_providers::sciotte_provider::startup_reads;
-use pierre_providers::ProviderRegistry;
 use pierre_tool_runtime::implementations::planned_workouts::GetPlannedWorkoutsTool;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -198,11 +197,11 @@ async fn serve(app: Router) -> String {
 /// the scraper service at `scraper_base`.
 async fn resources_against(intervals_base: String, scraper_base: &str) -> Arc<ServerContext> {
     let resources = create_test_server_resources().await.unwrap();
-    let mut config = default_config();
+    let mut config = offline_provider_config(INTERVALS_ICU);
     config.api_base_url = intervals_base;
     // Built as the server builds its registry's sciotte client, so the
     // TrainingPeaks reads reach the scraper stand-in.
-    let mut registry = ProviderRegistry::new()
+    let mut registry = offline_provider_registry()
         .with_sciotte_reads(startup_reads(&[String::from(scraper_base)], None));
     registry.set_default_config(INTERVALS_ICU, config);
     let mut context = (*resources).clone();

@@ -26,6 +26,7 @@
 //! external caller writes no one's calendar.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 use secrecy::SecretString;
 
@@ -66,8 +67,6 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::chat::ChatRoutes;
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::ai_scope::{self, serve_over};
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use pierre_services::athlete_state::AthleteState;
 use pierre_services::provider_notice;
 use pierre_test_support::delegation::{create_group_agent, grant_coach_access};
@@ -415,8 +414,8 @@ impl World {
         let api = Api::default();
         let base = spawn_api(api.clone()).await;
         let resources = create_test_server_resources().await.unwrap();
-        let mut registry = ProviderRegistry::new();
-        let mut config = default_config();
+        let mut registry = offline_provider_registry();
+        let mut config = offline_provider_config(INTERVALS_ICU);
         config.api_base_url = base;
         registry.set_default_config(INTERVALS_ICU, config);
         let mut context = (*resources).clone();

@@ -7,8 +7,8 @@
 //! Weather analytics.
 //!
 //! Vendor logic (HTTP calls, parsing, caching) and vendor selection
-//! (`dravr_meteo::provider_from_env`, reading `WEATHER_PROVIDER` /
-//! `OPENWEATHER_API_KEY`) live in the `dravr-meteo` crate. This module
+//! (`WEATHER_PROVIDER` / `OPENWEATHER_API_KEY`) live in the `dravr-meteo`
+//! crate; where its clients are built is `weather_clients`. This module
 //! holds the platform's own half: [`analyze_weather_impact`] scores a sample
 //! against the cageux physiological thresholds (heat stress, wind drag,
 //! precipitation).

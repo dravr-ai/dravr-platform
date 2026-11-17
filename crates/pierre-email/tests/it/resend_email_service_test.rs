@@ -15,8 +15,11 @@ use pierre_email::ResendEmailService;
 
 #[test]
 fn an_empty_api_key_is_refused_at_construction() {
-    let Err(error) = ResendEmailService::new(String::new(), "Dravr <no-reply@dravr.ai>".to_owned())
-    else {
+    let Err(error) = ResendEmailService::try_new(
+        reqwest::Client::new(),
+        String::new(),
+        "Dravr <no-reply@dravr.ai>".to_owned(),
+    ) else {
         panic!("an empty Resend key must not build a service");
     };
     assert!(
@@ -28,15 +31,18 @@ fn an_empty_api_key_is_refused_at_construction() {
 
 #[test]
 fn a_non_empty_api_key_builds_the_service() {
-    assert!(
-        ResendEmailService::new("re_key".to_owned(), "Dravr <no-reply@dravr.ai>".to_owned())
-            .is_ok()
-    );
+    assert!(ResendEmailService::try_new(
+        reqwest::Client::new(),
+        "re_key".to_owned(),
+        "Dravr <no-reply@dravr.ai>".to_owned()
+    )
+    .is_ok());
 }
 
 #[test]
 fn the_service_never_prints_its_api_key() {
-    let service = ResendEmailService::new(
+    let service = ResendEmailService::try_new(
+        reqwest::Client::new(),
         "re_sentinel-key-7f3a".to_owned(),
         "Dravr <no-reply@dravr.ai>".to_owned(),
     )

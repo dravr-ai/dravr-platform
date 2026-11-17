@@ -15,6 +15,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::{offline_provider_registry, offline_registry};
 use secrecy::ExposeSecret;
 
 #[cfg(feature = "provider-wahoo")]
@@ -31,7 +32,6 @@ use pierre_core::models::{ConnectionStatus, ConnectionType, TenantId, UserOAuthT
 use pierre_database::RepositoryRegistry;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::core::ProviderConfig;
-use pierre_providers::registry::ProviderRegistry;
 #[cfg(feature = "provider-garmin")]
 use pierre_providers::spi::GarminDescriptor;
 use pierre_providers::spi::{
@@ -312,7 +312,7 @@ async fn connected_as(
         .await
         .unwrap();
 
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.register_descriptor(provider, descriptor);
     registry.set_default_config(
         provider,
@@ -321,8 +321,10 @@ async fn connected_as(
             ..config
         },
     );
+    // The descriptor's own API and revocation URLs name the vendor's real
+    // host (Garmin's, Wahoo's); only the token endpoint is stood in.
     let mut context = (*base).clone();
-    context.fitness.provider_registry = Arc::new(registry);
+    context.fitness.provider_registry = Arc::new(offline_registry(registry));
     let resources = Arc::new(context);
 
     let email = format!("rotating-{}@example.com", Uuid::new_v4());

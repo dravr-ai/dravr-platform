@@ -7,6 +7,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
+use crate::common::offline_provider_registry;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -24,7 +25,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::provider_terms::NOLIO;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::spi::{
     OAuthEndpoints, OAuthParams, OAuthRefresh, ProviderBundle, ProviderCapabilities,
     ProviderDescriptor,
@@ -164,7 +164,7 @@ fn relay_factory(config: ProviderConfig) -> Box<dyn FitnessProvider> {
 /// The test server, with the relay registered beside the built-in providers.
 async fn server_with_relay() -> Arc<ServerContext> {
     let base = create_test_server_resources().await.unwrap();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.register_provider_bundle(ProviderBundle::new(
         Box::new(RelayDescriptor),
         relay_factory,

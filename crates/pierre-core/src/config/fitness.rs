@@ -69,13 +69,22 @@ pub struct PersonalRecordConfig {
 }
 
 /// Weather API configuration
+///
+/// The server reads the one its deployment configuration carries, loaded at
+/// startup, and never the one of a stored fitness configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct WeatherApiConfig {
-    /// Weather provider name (e.g., "openweathermap")
+    /// Weather provider name (e.g., "openweathermap"). Unread: the
+    /// historical vendor is `WEATHER_PROVIDER`'s choice.
     pub provider: String,
-    /// Base URL for the weather API
+    /// Where the weather vendors are asked. At
+    /// [`Self::DEFAULT_BASE_URL`], each vendor on its own host; any other
+    /// value is the single origin of the archive, the forecast, the
+    /// gazetteer and `OpenWeatherMap`.
     pub base_url: String,
-    /// Whether weather API integration is enabled
+    /// Whether an activity list is given the ambient temperature its source
+    /// left out (`FITNESS_WEATHER_ENABLED`). The tools an athlete asks for
+    /// weather with run either way.
     pub enabled: bool,
     /// How long to cache weather data (hours)
     pub cache_duration_hours: u64,
@@ -357,11 +366,19 @@ impl Default for PersonalRecordConfig {
     }
 }
 
+impl WeatherApiConfig {
+    /// The `base_url` a configuration nobody changed carries. A deployment
+    /// whose `base_url` is this one asks each weather vendor on the vendor's
+    /// own host; any other value is the single origin every weather call
+    /// goes to.
+    pub const DEFAULT_BASE_URL: &'static str = "https://api.openweathermap.org";
+}
+
 impl Default for WeatherApiConfig {
     fn default() -> Self {
         Self {
             provider: "openweathermap".into(),
-            base_url: "https://api.openweathermap.org".into(),
+            base_url: Self::DEFAULT_BASE_URL.into(),
             enabled: true,
             cache_duration_hours: 24,
             request_timeout_seconds: 10,

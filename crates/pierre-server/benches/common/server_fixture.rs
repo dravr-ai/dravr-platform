@@ -1,5 +1,5 @@
 // ABOUTME: Bench-only ServerContext fixture — in-memory SQLite, seeded users/tenants, user tool overrides.
-// ABOUTME: Replicates the minimal recipe from tests/common.rs (unreachable from bench targets).
+// ABOUTME: Follows the minimal recipe of tests/common.rs and takes its configuration through common::offline_config.
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -43,6 +43,10 @@ use pierre_mcp_server::utils;
 use pierre_services::admin_ops;
 use pierre_services::channel_adapters::ConfigChannelAdapters;
 use uuid::Uuid;
+
+/// The server tests' helpers, for the configuration they make offline.
+#[path = "../../tests/common.rs"]
+mod test_common;
 
 static INIT: Once = Once::new();
 
@@ -107,10 +111,12 @@ pub(crate) async fn build_server_context() -> Arc<ServerContext> {
         .unwrap();
 
     let auth_manager = AuthManager::new(24);
-    let config = Arc::new(ServerConfig {
+    // Through the tests' own offline configuration: no provider endpoint,
+    // Strava or Garmin URL, or Resend credential names a real host.
+    let config = test_common::offline_config(Arc::new(ServerConfig {
         activity_fetch_limit: 100,
         ..ServerConfig::default()
-    });
+    }));
 
     let cache_config = CacheConfig {
         max_entries: 1000,

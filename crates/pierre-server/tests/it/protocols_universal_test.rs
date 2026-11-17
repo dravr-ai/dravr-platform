@@ -186,7 +186,7 @@ async fn create_test_executor() -> Result<UniversalToolExecutor> {
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -582,7 +582,7 @@ async fn test_set_goal_tool() -> Result<()> {
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),
@@ -1483,7 +1483,7 @@ async fn test_disconnect_provider_tool() -> Result<()> {
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

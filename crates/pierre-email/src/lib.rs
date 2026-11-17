@@ -15,7 +15,7 @@ pub mod templates;
 
 use dravr_tronc::notifications::{ResendBody, ResendClient, ResendEmail};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::http_client::api_inner_client;
+use reqwest::Client;
 use std::fmt;
 use templates::CoachAccessOrigin;
 use tracing::{debug, info, warn};
@@ -68,7 +68,7 @@ pub const SUBJECT_SIGNUP_AWAITING_APPROVAL: &str = "Dravr: a new account is wait
 /// process has: tronc's alert mailer shares the same `RESEND_API_KEY` and the
 /// same `429` retry policy (wait out the advertised reset, bounded).
 pub struct ResendEmailService {
-    /// The Resend client, over the shared API connection pool
+    /// The Resend client, over the connection pool its builder named
     client: ResendClient,
     /// Sender email address (e.g., "Dravr <no-reply@dravr.ai>")
     from_email: String,
@@ -83,13 +83,18 @@ impl fmt::Debug for ResendEmailService {
 }
 
 impl ResendEmailService {
-    /// Create a Resend email service sending as `from_email`.
+    /// Create a Resend email service sending as `from_email` over `http`.
+    ///
+    /// The caller names the HTTP client, as dravr-tronc's `ResendClient`
+    /// asks its own caller to: the server hands it the shared API connection
+    /// pool, and a test one that cannot leave the machine, since the Resend
+    /// endpoint itself is fixed inside dravr-tronc.
     ///
     /// # Errors
     ///
     /// Returns a configuration error when `api_key` is empty.
-    pub fn new(api_key: String, from_email: String) -> AppResult<Self> {
-        let client = ResendClient::new(api_inner_client().clone(), api_key)
+    pub fn try_new(http: Client, api_key: String, from_email: String) -> AppResult<Self> {
+        let client = ResendClient::new(http, api_key)
             .map_err(|e| AppError::config(format!("Resend email service: {e}")))?;
         Ok(Self { client, from_email })
     }

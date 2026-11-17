@@ -88,6 +88,7 @@ use pierre_database::repositories::ProviderPurge;
 use pierre_database::views::{AgentRepos, AuthRepos, FitnessRepos, UsageRepos};
 use pierre_database::RepositoryRegistry;
 use pierre_email::ResendEmailService;
+use pierre_fitness_compute::weather_clients::WeatherClients;
 use pierre_llm::health::LlmHealthState;
 use pierre_llm::ChatProvider;
 use pierre_llm::LlmProvider;
@@ -315,6 +316,9 @@ impl fmt::Debug for AgentSlice {
 pub struct FitnessSlice {
     /// Registry of fitness data providers (Strava, Garmin, WHOOP, Terra).
     pub provider_registry: Arc<ProviderRegistry>,
+    /// The weather clients (history, forecast, place geocoder), built on the
+    /// origins the deployment configuration's `weather_api` names.
+    pub weather: Arc<WeatherClients>,
     /// Health data sync orchestrator for wearable provider synchronization.
     #[cfg(feature = "health-sync")]
     pub sync_orchestrator: Option<Arc<dravr_enforme::SyncOrchestrator>>,

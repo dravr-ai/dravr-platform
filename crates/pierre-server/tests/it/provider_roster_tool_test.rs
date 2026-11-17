@@ -28,6 +28,7 @@
 //! read at all.
 
 use crate::common;
+use crate::common::offline_provider_registry;
 use secrecy::SecretString;
 
 use std::future::Future;
@@ -62,7 +63,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig, ProviderFactory,
 };
 use pierre_providers::delegation::{CoachRoster, DelegatedReads};
-use pierre_providers::registry::ProviderRegistry;
 use pierre_services::delegated_connections::roster_cache_key;
 use pierre_test_support::delegation::create_group_agent;
 use pierre_tool_runtime::context::{CONVERSATION_ID, TURN_DIRECT_MESSAGE};
@@ -249,7 +249,7 @@ impl World {
         let base = create_test_server_resources().await.unwrap();
         // The built-in providers, each with its own terms; only the
         // Intervals.icu API is stood in.
-        let mut registry = ProviderRegistry::new();
+        let mut registry = offline_provider_registry();
         registry.register_factory(
             INTERVALS_ICU,
             Box::new(Factory {

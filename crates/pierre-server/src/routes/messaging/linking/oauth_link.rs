@@ -30,7 +30,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Extension, Path, State};
 use axum::http::{header, HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::Json;
@@ -39,6 +39,7 @@ use pierre_core::models::messaging::ChannelType;
 use pierre_core::models::TenantId;
 use pierre_database::backends::{CreateChannelLinkParams, MessagingRepository};
 use pierre_middleware::extract_auth_from_headers;
+use pierre_services::channel_adapters::ChannelAdapterFactory;
 use serde::Deserialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -233,6 +234,7 @@ impl fmt::Debug for ProviderAnswer<'_> {
 /// consumed meanwhile, or the link cannot be stored.
 pub(super) async fn complete_oauth_link(
     resources: &Arc<ServerContext>,
+    adapters: &dyn ChannelAdapterFactory,
     channel: &str,
     state_code: &str,
     oauth_code: &str,
@@ -240,7 +242,8 @@ pub(super) async fn complete_oauth_link(
 ) -> Result<Value, AppError> {
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let identity =
-        exchange_oauth_identity(resources, channel, pending.tenant_id, oauth_code).await?;
+        exchange_oauth_identity(resources, adapters, channel, pending.tenant_id, oauth_code)
+            .await?;
     let channel_user_id = identity.id.as_str();
 
     // Atomically consume the link state with tenant_id guard
@@ -285,6 +288,7 @@ pub(super) async fn complete_oauth_link(
 /// who did not start the link, before the provider is called.
 pub(crate) async fn complete_app_link(
     State(resources): State<Arc<ServerContext>>,
+    Extension(adapters): Extension<Arc<dyn ChannelAdapterFactory>>,
     Path(channel): Path<String>,
     headers: HeaderMap,
     Json(body): Json<LinkCompleteBody>,
@@ -297,7 +301,14 @@ pub(crate) async fn complete_app_link(
     let pending = pending_oauth_link(db, &body.state, &channel).await?;
     require_starter(Some(auth.user_id), &pending)?;
 
-    let linked =
-        complete_oauth_link(&resources, &channel, &body.state, &body.code, &pending).await?;
+    let linked = complete_oauth_link(
+        &resources,
+        adapters.as_ref(),
+        &channel,
+        &body.state,
+        &body.code,
+        &pending,
+    )
+    .await?;
     Ok((StatusCode::OK, Json(linked)))
 }

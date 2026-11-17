@@ -189,7 +189,7 @@ async fn test_complete_tenant_onboarding_workflow() -> Result<()> {
             (*database).clone(),
             auth_manager,
             "test_secret",
-            config,
+            common::offline_config(config),
             cache,
             ServerContextOptions {
                 rsa_key_size_bits: Some(2048),

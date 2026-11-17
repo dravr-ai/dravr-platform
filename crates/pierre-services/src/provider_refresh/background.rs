@@ -167,7 +167,7 @@ mod tests {
     use pierre_test_support::garmin::{connect_garmin_session, create_athlete, grant_garmin_push};
 
     use super::*;
-    use crate::health_sync::PierreSyncStorage;
+    use crate::health_sync::{PierreSyncStorage, WellnessOrigins};
 
     /// Records every notification pushed to the athlete's clients.
     #[derive(Default)]
@@ -208,7 +208,9 @@ mod tests {
             .expect_err("test setup: the grant serves the wellness, so the pull must not read");
         let recorded = Arc::new(Recorded::default());
         let sync = BackgroundSync {
-            orchestrator: storage.build_orchestrator(None).unwrap(),
+            orchestrator: storage
+                .build_orchestrator(None, WellnessOrigins::default())
+                .unwrap(),
             repos: repos.auth_repos(),
             registry: Arc::clone(&repos),
             sse: Arc::<Recorded>::clone(&recorded),

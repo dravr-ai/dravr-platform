@@ -20,7 +20,7 @@ mod helpers;
 mod bot_links_settings {
     use crate::common::{
         create_test_server_resources, create_test_server_resources_with_config, create_test_tenant,
-        generate_test_token, test_server_config,
+        generate_test_token, offline_email_service, test_server_config,
     };
     use crate::helpers::axum_test::AxumTestRequest;
     use axum::extract::Path;
@@ -36,7 +36,6 @@ mod bot_links_settings {
         CreateChannelLinkParams, CreateLinkStateParams, MessagingRepository,
         UpsertChannelConfigParams,
     };
-    use pierre_email::ResendEmailService;
     use pierre_mcp_server::mcp::resources::ServerContext;
     use pierre_mcp_server::messaging_seed::seed_from_config;
     use pierre_mcp_server::routes::messaging::MessagingRoutes;
@@ -62,8 +61,9 @@ mod bot_links_settings {
     const WHATSAPP_ACCESS_TOKEN: &str = "wa_platform_access_439";
 
     /// Resources with an email service present, so an unlinked sender is
-    /// routed into the in-chat OTP flow rather than handed a link URL. The key
-    /// is fake: the tests put the OTP state in place directly and never send.
+    /// routed into the in-chat OTP flow rather than handed a link URL. The
+    /// service cannot leave the machine: the code a flow emails is never
+    /// delivered, and the tests put the OTP state in place directly.
     /// A `WhatsApp` link asks its number of the Graph API at `graph_api_base`.
     async fn resources_with_email(graph_api_base: String) -> Arc<ServerContext> {
         let mut config = test_server_config();
@@ -74,13 +74,7 @@ mod bot_links_settings {
         Arc::get_mut(&mut resources)
             .expect("no other handle to the fresh ServerContext yet")
             .common
-            .email_service = Some(Arc::new(
-            ResendEmailService::new(
-                "re_fake_test_api_key".to_owned(),
-                "Pierre <noreply@test.pierre.dev>".to_owned(),
-            )
-            .expect("a non-empty key builds the email service"),
-        ));
+            .email_service = Some(offline_email_service());
         resources
     }
 

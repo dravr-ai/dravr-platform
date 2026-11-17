@@ -21,6 +21,7 @@
 //! row carrying it, and the request bytes the calendar actually received.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use secrecy::SecretString;
 
 use pierre_core::permissions::scopes::OAuthScope;
@@ -43,8 +44,6 @@ use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
 use pierre_providers::ai_scope;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use pierre_services::parq;
 use pierre_services::plan_fueling::FUELING_WITHHELD_CLAUSE;
 use pierre_tool_runtime::implementations::endurance_workouts::PrescribeWorkoutTool;
@@ -559,9 +558,9 @@ async fn fixture(base_url: &str, connect_intervals: bool) -> Result<Fixture> {
     common::init_test_http_clients();
     let resources = common::create_test_server_resources().await?;
 
-    let mut config = default_config();
+    let mut config = offline_provider_config(INTERVALS_ICU);
     config.api_base_url = base_url.to_owned();
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);
     let mut context = (*resources).clone();
     context.fitness.provider_registry = Arc::new(registry);

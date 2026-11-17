@@ -20,6 +20,7 @@
 //! the base URL), so these tests never touch the network.
 
 use crate::common;
+use crate::common::{offline_provider_config, offline_provider_registry};
 use crate::helpers;
 
 use common::{create_test_server_resources, create_test_user};
@@ -30,8 +31,6 @@ use axum::Router;
 use pierre_core::constants::oauth::INTERVALS_ICU;
 use pierre_core::models::{PhysiologicalSex, SportType, TenantId, UserPhysiologicalProfile};
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::intervals_icu_provider::default_config;
-use pierre_providers::ProviderRegistry;
 use serde_json::json;
 use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -113,9 +112,9 @@ async fn setup_linked_user(base_url: String) -> LinkedUser {
         )
         .unwrap();
 
-    let mut config = default_config();
+    let mut config = offline_provider_config(INTERVALS_ICU);
     config.api_base_url = base_url;
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     registry.set_default_config(INTERVALS_ICU, config);
 
     let mut context = resources.auth_routes_context();

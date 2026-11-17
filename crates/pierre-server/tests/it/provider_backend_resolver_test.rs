@@ -23,6 +23,7 @@
 //!    of the plan that carries its capability.
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
 use std::sync::Arc;
 
@@ -40,7 +41,6 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::backend_resolver::{self, BackendKind, CoalescedStatus, ReadPlan};
 use pierre_providers::core::ActivityQueryParams;
 use pierre_providers::spi::ProviderCapabilities;
-use pierre_providers::ProviderRegistry;
 use pierre_services::training_history_read::history_store_keys;
 use pierre_tool_runtime::activity_fetch::fetch_provider_activities;
 use pierre_tool_runtime::implementations::athlete_stats::GetAthleteTool;
@@ -1519,7 +1519,7 @@ fn hosted_login_targets_are_the_mirrors_user_facing_names() {
 
 #[test]
 fn brand_name_reads_either_half_of_a_mirror_pair_from_the_registry() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert_eq!(
         backend_resolver::brand_name(&registry, "trainingpeaks"),
         Some("TrainingPeaks")
@@ -1620,7 +1620,7 @@ fn coros_mirror_pair_resolves_both_ways_and_serves_only_the_mirror() {
         backend_resolver::backend_pair_for(oauth_providers::SCIOTTE_COROS),
         vec![oauth_providers::COROS, oauth_providers::SCIOTTE_COROS]
     );
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert_eq!(
         backend_resolver::brand_name(&registry, "coros"),
         Some("COROS")

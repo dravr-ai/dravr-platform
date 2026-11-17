@@ -17,7 +17,6 @@ use dravr_enforme::error::{EnformeError, EnformeResult};
 use dravr_enforme::models::connection::{ConnectedUser, ProviderCredentials};
 use dravr_enforme::models::cursor::SyncCursor;
 use dravr_enforme::models::deletion::DeletionPolicy;
-use dravr_enforme::providers::build_provider_registry_with_reader;
 use dravr_enforme::providers::sciotte_reader::DailySummaryReader;
 use dravr_enforme::traits::connection_store::UserConnectionStore;
 use dravr_enforme::traits::credential_store::CredentialStore;
@@ -52,6 +51,9 @@ use crate::sciotte_health_reader::{self, RefusedSessionReader, SciotteServiceRea
 use crate::wellness_store::{IntradaySeries, WellnessLanded, WellnessStore, WellnessWriteMode};
 
 mod push_fed;
+mod wellness_origin;
+
+pub use wellness_origin::WellnessOrigins;
 
 pub use push_fed::{history_walk_scope, sync_error_is_push_stand_down, wellness_pull_stands_down};
 use push_fed::{history_walk_writes, history_walk_writes_night, wellness_fed_by_push};
@@ -302,6 +304,13 @@ impl PierreSyncStorage {
     /// sciotte services (ADR-021) through `sciotte`, the server's read
     /// services: no browser runs in this pod.
     ///
+    /// Intervals.icu and WHOOP wellness are read at `origins`, the APIs the
+    /// server's provider registry names for them
+    /// ([`WellnessOrigins::named_by`]); a provider it names none for, on a
+    /// server that registers no such provider, is not read. No orchestrator
+    /// is built on the hosts dravr-enforme would pick by itself
+    /// (carnet#1615).
+    ///
     /// # Errors
     ///
     /// When a provider's HTTP client cannot be built: enforme bounds every
@@ -309,16 +318,19 @@ impl PierreSyncStorage {
     pub fn build_orchestrator(
         self: &Arc<Self>,
         sciotte: Option<SciotteReads>,
+        origins: WellnessOrigins<'_>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let reader: Arc<dyn DailySummaryReader> = Arc::new(SciotteServiceReader::new(
             sciotte,
             self.session_rows.clone(),
         ));
-        self.build_orchestrator_with_reader(&reader)
+        self.build_orchestrator_with_reader(&reader, origins)
     }
 
     /// Build a `SyncOrchestrator` backed by this adapter whose scrape-backed
-    /// providers read their daily summaries through `reader`.
+    /// providers read their daily summaries through `reader`, and whose
+    /// Intervals.icu and WHOOP wellness are read at `origins`
+    /// ([`Self::build_orchestrator`]).
     ///
     /// # Errors
     ///
@@ -326,6 +338,7 @@ impl PierreSyncStorage {
     pub fn build_orchestrator_with_reader(
         self: &Arc<Self>,
         reader: &Arc<dyn DailySummaryReader>,
+        origins: WellnessOrigins<'_>,
     ) -> EnformeResult<Arc<dravr_enforme::SyncOrchestrator>> {
         let storage = Arc::clone(self);
         // A session the scraper refused is read no more in the same sync.
@@ -346,7 +359,7 @@ impl PierreSyncStorage {
         });
 
         let config = dravr_enforme::SyncConfig::from_env();
-        let providers = build_provider_registry_with_reader(&reader)?;
+        let providers = wellness_origin::sync_providers(&reader, origins)?;
 
         Ok(Arc::new(dravr_enforme::SyncOrchestrator::new(
             deps, providers, config,

@@ -206,7 +206,7 @@ async fn settle_failed_backfill(
 #[cfg(test)]
 mod tests {
     use dravr_enforme::traits::cursor_store::SyncCursorStore;
-    use pierre_services::health_sync::PierreSyncStorage;
+    use pierre_services::health_sync::{PierreSyncStorage, WellnessOrigins};
     use pierre_test_support::db::create_test_db;
     use pierre_test_support::garmin::{
         connect_garmin_session, create_athlete, create_push_fed_athlete, SESSION_BACKEND,
@@ -243,7 +243,9 @@ mod tests {
             let (user, tenant) = create_push_fed_athlete(&repos).await.unwrap();
             let overtaken = push_fed_error(&repos, user).await;
             let backfill = HealthBackfill {
-                orchestrator: storage.build_orchestrator(None).unwrap(),
+                orchestrator: storage
+                    .build_orchestrator(None, WellnessOrigins::default())
+                    .unwrap(),
                 repos: Arc::clone(&repos),
                 notices: notices.clone(),
                 first_sync: FirstSyncSlot::default(),

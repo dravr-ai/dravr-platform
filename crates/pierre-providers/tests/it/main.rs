@@ -25,6 +25,8 @@ mod intervals_icu_delegated_read_test;
 #[cfg(feature = "provider-intervals-icu")]
 mod intervals_icu_provider_test;
 mod provider_401_requires_reauth_test;
+#[cfg(all(feature = "provider-strava", feature = "provider-whoop"))]
+mod provider_base_url_override_test;
 mod request_budget_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_coros_provider_test;

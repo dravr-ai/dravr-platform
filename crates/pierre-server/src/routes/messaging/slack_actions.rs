@@ -33,6 +33,7 @@ mod sign_up_tap;
 use super::webhooks;
 use crate::mcp::resources::ServerContext;
 use crate::services::messaging_ingress::parse_choice;
+use crate::services::ops_slack;
 use coach_access_tap::answer_coach_access_tap;
 use feedback_reply_tap::{answer_feedback_tap, answer_reply_submission};
 pub use ops_decisions::{channel_matches, OpsDecisionActions};
@@ -436,7 +437,9 @@ fn configured_bot_token(resources: &ServerContext) -> Option<&SecretString> {
     resources.common.config.webhooks.slack_bot_token.as_ref()
 }
 
-/// Build a `SlackClient` from a bot token for message updates
+/// Build a `SlackClient` from a bot token for message updates, addressed
+/// where the context's adapter factory says the server's own Slack calls
+/// go: Slack's own host in a deployment ([`ops_slack`]).
 fn build_slack_client(bot_token: &str, resources: &ServerContext) -> SlackClient {
     let config = SlackConfig {
         bot_token: bot_token.to_owned(),
@@ -445,7 +448,7 @@ fn build_slack_client(bot_token: &str, resources: &ServerContext) -> SlackClient
             .map(|secret| secret.expose_secret().to_owned()),
     };
 
-    SlackClient::new(&config)
+    ops_slack::client(&config, ops_slack::api_origin(resources).as_deref())
 }
 
 /// Parsed Slack interactive action

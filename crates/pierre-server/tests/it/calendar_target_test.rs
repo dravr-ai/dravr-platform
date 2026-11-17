@@ -8,6 +8,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
 
 use std::collections::hash_map::DefaultHasher;
 use std::collections::BTreeMap;
@@ -236,7 +237,7 @@ async fn fixture(connected: &[&str]) -> Result<Fixture> {
     common::init_server_config();
     common::init_test_http_clients();
     let resources = create_test_server_resources().await?;
-    let mut registry = ProviderRegistry::new();
+    let mut registry = offline_provider_registry();
     let calendar = ProviderCapabilities::ACTIVITIES.union(ProviderCapabilities::CALENDAR_WRITE);
     for (name, capabilities) in [
         (
@@ -841,7 +842,7 @@ async fn a_week_note_goes_only_to_a_calendar_that_holds_week_notes() -> Result<(
 
 #[test]
 fn intervals_icu_declares_the_capability_and_stays_the_target_of_an_athlete_connected_to_it() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(registry
         .calendar_write_providers()
         .contains(&"intervals_icu"));
@@ -889,7 +890,7 @@ fn write(
 /// the API connection.
 #[test]
 fn garmin_writes_its_calendar_without_taking_an_athletes_existing_one() {
-    let registry = ProviderRegistry::new();
+    let registry = offline_provider_registry();
     assert!(registry.calendar_write_providers().contains(&"garmin"));
     assert!(!registry
         .calendar_write_providers()

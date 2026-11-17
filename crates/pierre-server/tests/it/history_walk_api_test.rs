@@ -30,6 +30,7 @@
 #![allow(missing_docs)]
 
 use crate::common;
+use crate::common::offline_provider_registry;
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashMap;
@@ -49,7 +50,6 @@ use pierre_database::repositories::{
     BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_providers::registry::ProviderRegistry;
 use pierre_providers::request_budget::{ProviderRateLimiter, ONE_DAY};
 use pierre_providers::sciotte_provider::startup_reads;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
@@ -258,7 +258,7 @@ pub(crate) fn with_window(resources: &Arc<ServerContext>, per_window: u32) -> Ar
     let mut context = (**resources).clone();
     let sciotte = &resources.common.config.external_services.sciotte;
     context.fitness.provider_registry = Arc::new(
-        ProviderRegistry::new()
+        offline_provider_registry()
             .with_endpoint_overrides(&resources.common.config.oauth.endpoints)
             .with_request_limiter(Arc::new(limiter))
             .with_sciotte_reads(startup_reads(

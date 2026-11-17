@@ -97,6 +97,14 @@ mod slack_answer_placement {
         fn status_api_base(&self) -> Option<String> {
             Some(self.status_base.clone())
         }
+
+        fn destination_api_base(&self, channel_type: ChannelType) -> Option<String> {
+            self.offline.destination_api_base(channel_type)
+        }
+
+        fn discord_gateway_url(&self) -> Option<String> {
+            self.offline.discord_gateway_url()
+        }
     }
 
     fn slack_signature(timestamp: &str, body: &str) -> String {
