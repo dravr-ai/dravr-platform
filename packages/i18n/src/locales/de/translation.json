@@ -117,7 +117,8 @@
       "owns_tenant": "Du bist der einzige Inhaber des Bereichs „{{detail}}“",
       "authored_agent": "Andere nutzen deinen Agenten „{{detail}}“",
       "billing_subscription": "Dein Abo ist noch aktiv: {{detail}}"
-    }
+    },
+    "adminBody": "Ein Admin-Konto kann sich nicht selbst löschen. Ein anderer Admin entfernt es."
   },
   "agents": {
     "team_offer": {
@@ -4541,7 +4542,15 @@
     "intervalsAuthorizeHint": "Du meldest dich bei Intervals.icu an und gibst Dravr dort frei — kein Schlüssel zum Kopieren.",
     "intervalsCoachKeyAction": "Trainierst du Athleten? Mit deinem API-Schlüssel verknüpfen",
     "notificationsBellUnreadOne": "Benachrichtigungen, {{count}} ungelesen",
-    "notificationsBellUnreadN": "Benachrichtigungen, {{count}} ungelesen"
+    "notificationsBellUnreadN": "Benachrichtigungen, {{count}} ungelesen",
+    "modePickerTitle": "Wie möchtest du Dravr nutzen?",
+    "modePickerBody": "Du kannst jederzeit über das Menü wechseln.",
+    "modeAdminTitle": "Admin",
+    "modeAdminBody": "Verwalte Nutzer, Agenten und die Plattform.",
+    "modeAthleteTitle": "Athlet",
+    "modeAthleteBody": "Trainiere mit deinen eigenen Daten, deinem Agenten und deinen Gruppen.",
+    "switchToAdmin": "Zu Admin wechseln",
+    "switchToAthlete": "Zu Athlet wechseln"
   },
   "tokens": {
     "activeCountOne": "{{count}} aktiver Token für KI-Client-Verbindungen",

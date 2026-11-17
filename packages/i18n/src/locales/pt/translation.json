@@ -117,7 +117,8 @@
       "owns_tenant": "Você é o único dono do espaço “{{detail}}”",
       "authored_agent": "Outras pessoas usam seu agente “{{detail}}”",
       "billing_subscription": "Sua assinatura ainda está ativa: {{detail}}"
-    }
+    },
+    "adminBody": "Uma conta de admin não pode eliminar-se a si própria. Outro admin remove-a."
   },
   "agents": {
     "team_offer": {
@@ -4541,7 +4542,15 @@
     "intervalsAuthorizeHint": "Inicias sessão no Intervals.icu e autorizas o Dravr lá — sem chave para copiar.",
     "intervalsCoachKeyAction": "Treinas atletas? Liga com a tua chave de API",
     "notificationsBellUnreadOne": "Notificações, {{count}} por ler",
-    "notificationsBellUnreadN": "Notificações, {{count}} por ler"
+    "notificationsBellUnreadN": "Notificações, {{count}} por ler",
+    "modePickerTitle": "Como queres usar o Dravr?",
+    "modePickerBody": "Podes mudar a qualquer momento a partir do menu.",
+    "modeAdminTitle": "Admin",
+    "modeAdminBody": "Gere utilizadores, agentes e a plataforma.",
+    "modeAthleteTitle": "Atleta",
+    "modeAthleteBody": "Treina com os teus próprios dados, o teu agente e os teus grupos.",
+    "switchToAdmin": "Mudar para admin",
+    "switchToAthlete": "Mudar para atleta"
   },
   "tokens": {
     "activeCountOne": "{{count}} token ativo para ligações de clientes de IA",

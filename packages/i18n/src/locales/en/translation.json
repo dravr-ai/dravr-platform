@@ -117,7 +117,8 @@
       "owns_tenant": "You are the only owner of the workspace “{{detail}}”",
       "authored_agent": "Others use your agent “{{detail}}”",
       "billing_subscription": "Your subscription is still active: {{detail}}"
-    }
+    },
+    "adminBody": "An admin account can't delete itself. Another admin removes it."
   },
   "agents": {
     "team_offer": {
@@ -4541,7 +4542,15 @@
     "intervalsAuthorizeHint": "You'll sign in on Intervals.icu and approve Dravr there — no key to copy.",
     "intervalsCoachKeyAction": "Coaching athletes? Link with your API key",
     "notificationsBellUnreadOne": "Notifications, {{count}} unread",
-    "notificationsBellUnreadN": "Notifications, {{count}} unread"
+    "notificationsBellUnreadN": "Notifications, {{count}} unread",
+    "modePickerTitle": "How do you want to use Dravr?",
+    "modePickerBody": "You can switch at any time from the menu.",
+    "modeAdminTitle": "Admin",
+    "modeAdminBody": "Manage users, agents and the platform.",
+    "modeAthleteTitle": "Athlete",
+    "modeAthleteBody": "Train with your own data, agent and groups.",
+    "switchToAdmin": "Switch to admin",
+    "switchToAthlete": "Switch to athlete"
   },
   "tokens": {
     "activeCountOne": "{{count}} active token for AI client connections",
