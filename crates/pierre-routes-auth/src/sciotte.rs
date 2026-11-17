@@ -390,7 +390,7 @@ fn notify_sciotte_connected(user_id: Uuid, tenant_id: Uuid, backend: &str) {
 /// After storing, raises `provider.connected`, warms the account's data from
 /// the session (see [`warm_from_session`]) and answers `connected`
 /// ([`connected_response`]).
-async fn store_sciotte_session(
+pub(crate) async fn store_sciotte_session(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,
@@ -898,7 +898,7 @@ fn shed_response(provider: &str, retry_after_secs: u64) -> Response {
 /// rather than copy, so no surface can skip it. An account that already
 /// accepted this notice version is not asked again, including on a reconnect
 /// after a disconnect.
-async fn require_provider_terms(
+pub(crate) async fn require_provider_terms(
     resources: &AuthRoutesContext,
     user_id: Uuid,
     tenant_id: Uuid,

@@ -7,6 +7,7 @@
 import { lazy, Suspense, useCallback, useEffect, useId, useState } from 'react';
 import { oauthApi } from '../services/api';
 import { startOAuthInThisTab } from '../utils/oauthReturn';
+import { detectSigninExtension, ExtensionSignInError, signInWithExtension } from '../utils/signinExtension';
 import OAuthAppSetupModal from './OAuthAppSetupModal';
 import { useTranslation } from '@pierre/i18n';
 import { ProviderIcon } from './ProviderConnectionCards';
@@ -42,7 +43,7 @@ const TakeoverViewer = lazy(() => import('./takeover/TakeoverViewer'));
 // `logging-in` is the credential login, with its elapsed-time copy;
 // `verifying` is a continuation of it (a code, a 2FA pick), which is not;
 // `takeover` is the athlete answering a provider's robot check themselves.
-type LoginPhase = 'choose' | 'credentials' | 'logging-in' | 'verifying' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'takeover' | 'success' | 'error';
+type LoginPhase = 'choose' | 'credentials' | 'browser' | 'logging-in' | 'verifying' | 'two-factor' | 'waiting-approval' | 'number-match' | 'otp' | 'takeover' | 'success' | 'error';
 
 /** The takeover token a `takeover_required` answer's link carries in its fragment. */
 function takeoverToken(takeoverUrl: string): string | null {
@@ -155,6 +156,20 @@ export default function SciotteLoginModal({
   // and closes this whole stack via `onConnected`. Only meaningful when
   // `target === 'strava'` — Garmin and others don't expose an OAuth backend.
   const [showOAuthSetup, setShowOAuthSetup] = useState(false);
+  // The Dravr sign-in extension, when this browser has it: the provider's
+  // sign-in then runs in a real tab of the athlete's own browser, where the
+  // provider sees a person, and hands its cookies over (carnet#1617).
+  const [extensionReady, setExtensionReady] = useState(false);
+  useEffect(() => {
+    if (!isOpen) return undefined;
+    let current = true;
+    void detectSigninExtension().then((version) => {
+      if (current) setExtensionReady(version !== null);
+    });
+    return () => {
+      current = false;
+    };
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen) {
@@ -245,6 +260,31 @@ export default function SciotteLoginModal({
     },
     [onClose, onConnected, t]
   );
+
+  // The sign-in run in the athlete's own browser: the extension opens the
+  // provider's page in a tab, the athlete signs in there as they always do,
+  // and the provider's cookies come back to be stored as any sign-in's. A tab
+  // the athlete closed returns to the credentials, nothing lost.
+  const handleBrowserSignin = useCallback(async () => {
+    setError(null);
+    setPhase('browser');
+    try {
+      const catalog = await oauthApi.browserSigninCatalog();
+      const entry = catalog.providers.find((provider) => provider.provider === target);
+      if (!entry) throw new ExtensionSignInError('unavailable');
+      const cookies = await signInWithExtension(entry);
+      setPhase('logging-in');
+      const data = await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted });
+      applyLoginAnswer(data);
+    } catch (err) {
+      if (err instanceof ExtensionSignInError && err.reason === 'closed') {
+        setPhase('credentials');
+        return;
+      }
+      setError(refusalMessage(err, 'auth.loginFailed'));
+      setPhase('error');
+    }
+  }, [applyLoginAnswer, consentAccepted, refusalMessage, target]);
 
   // A refused credential login — or the same refusal a takeover ends with.
   const applyLoginRefusal = useCallback(
@@ -549,6 +589,13 @@ export default function SciotteLoginModal({
           {/* Phase: Choose */}
           {phase === 'choose' && (
             <div className="space-y-3">
+              {/* With the extension, the provider's own page opens in a tab of
+                  this browser; the credentials step carries the notice first. */}
+              {extensionReady && (
+                <Button variant="primary" size="lg" className="w-full" onClick={() => setPhase('credentials')}>
+                  {t('app.continueWithProvider', { provider: providerLabel })}
+                </Button>
+              )}
               <Button
                 variant="secondary"
                 size="lg"
@@ -631,6 +678,25 @@ export default function SciotteLoginModal({
                   onAcceptedChange={setConsentAccepted}
                 />
               )}
+              {extensionReady && (
+                <div className="mb-4">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full"
+                    disabled={!!notice && !consentAccepted}
+                    onClick={() => void handleBrowserSignin()}
+                  >
+                    {t('app.continueWithProvider', { provider: providerLabel })}
+                  </Button>
+                  <div className="relative my-4">
+                    <div className="absolute inset-0 flex items-center"><div className="w-full border-t ghost-border" /></div>
+                    <div className="relative flex justify-center text-xs">
+                      <span className="px-3 bg-surface-container-highest text-on-surface/50">{t('auth.orDivider')}</span>
+                    </div>
+                  </div>
+                </div>
+              )}
               <form onSubmit={handleEmailLogin} className="space-y-4">
                 <div>
                   <label htmlFor="sciotte-email" className="block text-sm text-on-surface/60 mb-1.5">
@@ -681,6 +747,18 @@ export default function SciotteLoginModal({
                   {isLoading ? t('shell.sciotteLoggingIn') : t('shell.sciotteLogIn')}
                 </Button>
               </form>
+            </div>
+          )}
+
+          {/* Phase: Browser sign-in, the provider's page open in a tab */}
+          {phase === 'browser' && (
+            <div className="flex items-center justify-center py-12" data-testid="sciotte-browser-signin">
+              <div className="text-center">
+                <div className="pierre-spinner w-16 h-16 mx-auto mb-4 border-[3px]" />
+                <p className="text-on-surface/80 text-sm font-medium">
+                  {t('app.finishAuthInBrowser', { provider: providerLabel })}
+                </p>
+              </div>
             </div>
           )}
 

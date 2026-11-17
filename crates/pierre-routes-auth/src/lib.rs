@@ -74,6 +74,8 @@ use pierre_services::provider_refresh::SyncNotifier;
 use pierre_services::sync_failure_notice::SyncFailureNotices;
 
 mod account_deletion;
+#[cfg(feature = "provider-sciotte")]
+mod browser_signin;
 mod card_backend;
 /// Where a provider card's history stands.
 mod card_history;
@@ -504,6 +506,16 @@ impl AuthRoutes {
             .route(
                 "/api/providers/sciotte/cancel",
                 post(sciotte_cancel::handle_sciotte_cancel),
+            )
+            // The sign-in run in the athlete's own browser (carnet#1617): how
+            // each provider is signed in to, and the session it hands over.
+            .route(
+                "/api/providers/browser-signin",
+                get(browser_signin::handle_browser_signin_catalog),
+            )
+            .route(
+                "/api/providers/browser-signin/{target}",
+                post(browser_signin::handle_browser_signin),
             )
             // Under /ws, so the frontend's nginx `location /ws` carries the
             // upgrade (ADR-034).

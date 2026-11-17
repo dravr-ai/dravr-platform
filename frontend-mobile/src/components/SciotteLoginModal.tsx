@@ -28,9 +28,16 @@ import { ALERT_TONE, alertInkColor, BADGE_TONE, badgeInkColor } from './ui';
 import { oauthApi } from '../services/api';
 import { getOAuthCallbackUrl } from '../utils/oauth';
 import { StravaLogo, GarminLogo, TrainingPeaksLogo, CorosLogo, GoogleLogo, AppleLogo } from './icons/BrandIcons';
-import type { SciotteLoginResponse, SciotteTakeoverBridgeMessage, SciotteTarget } from '@pierre/shared-types';
+import type {
+  BrowserSignin,
+  BrowserSigninCookie,
+  SciotteLoginResponse,
+  SciotteTakeoverBridgeMessage,
+  SciotteTarget,
+} from '@pierre/shared-types';
 import { OAuthAppSetupModal } from './OAuthAppSetupModal';
 import { TakeoverWebView } from './auth/TakeoverWebView';
+import { BrowserSigninWebView } from './auth/BrowserSigninWebView';
 import { ProviderNotice } from './ProviderNotice';
 import {
   SCIOTTE_CODE_REJECTED,
@@ -58,6 +65,7 @@ import {
 type LoginPhase =
   | 'choose'
   | 'credentials'
+  | 'browser'
   | 'logging-in'
   | 'verifying'
   | 'two-factor'
@@ -401,6 +409,37 @@ export function SciotteLoginModal({
     }
   }, [onClose, onConnected, t]);
 
+  // The sign-in run on the athlete's phone (carnet#1617): the provider's own
+  // page in a WebView, on the phone's network, signed in with the athlete's
+  // own touches; its cookies are then stored as any sign-in's.
+  const [browserEntry, setBrowserEntry] = useState<BrowserSignin | null>(null);
+  const startBrowserSignin = useCallback(async () => {
+    setError(null);
+    try {
+      const catalog = await oauthApi.browserSigninCatalog();
+      const entry = catalog.providers.find((provider) => provider.provider === target);
+      if (!entry) throw new Error('unavailable');
+      setBrowserEntry(entry);
+      setPhase('browser');
+    } catch (err) {
+      setError(refusalMessage(err, 'auth.loginFailed'));
+      setPhase('error');
+    }
+  }, [refusalMessage, target]);
+  const handleBrowserSignedIn = useCallback(async (cookies: BrowserSigninCookie[]) => {
+    setPhase('logging-in');
+    try {
+      applyLoginAnswer(await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted }));
+    } catch (err) {
+      setError(refusalMessage(err, 'auth.loginFailed'));
+      setPhase('error');
+    }
+  }, [applyLoginAnswer, consentAccepted, refusalMessage, target]);
+  const handleBrowserError = useCallback((err: unknown) => {
+    setError(refusalMessage(err, 'auth.loginFailed'));
+    setPhase('error');
+  }, [refusalMessage]);
+
   // A refused credential login — or the same refusal a takeover ends with.
   const applyLoginRefusal = useCallback((err: unknown) => {
     if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
@@ -710,6 +749,20 @@ export function SciotteLoginModal({
             />
           )}
 
+          {/* The provider's own page on this phone, where it sees a person. */}
+          <TouchableOpacity
+            onPress={() => void startBrowserSignin()}
+            disabled={!!notice && !consentAccepted}
+            accessibilityState={{ disabled: !!notice && !consentAccepted }}
+            activeOpacity={0.8}
+            className="rounded-xl border border-border bg-background-secondary py-3.5 items-center mb-4"
+            testID="sciotte-browser-signin"
+          >
+            <Text className="text-base text-text-primary font-semibold">
+              {t('app.continueWithProvider', { provider: platformName })}
+            </Text>
+          </TouchableOpacity>
+
           <View className="mb-3">
             <Text className="text-xs text-text-tertiary mb-1.5 ml-1 font-medium">
               {t(accountField.labelKey)}
@@ -868,6 +921,20 @@ export function SciotteLoginModal({
           )}
           <ActivityIndicator size="small" color={colors.text.tertiary} />
           <Text className="text-xs text-text-tertiary mt-3">{t('app.waitingConfirmation')}</Text>
+        </View>
+      );
+    }
+
+    // The provider's own sign-in page, on this phone
+    if (phase === 'browser' && browserEntry) {
+      return (
+        <View testID="sciotte-browser">
+          <BrowserSigninWebView
+            entry={browserEntry}
+            onSignedIn={(cookies) => void handleBrowserSignedIn(cookies)}
+            onError={handleBrowserError}
+            height={takeoverHeight}
+          />
         </View>
       );
     }
@@ -1067,10 +1134,10 @@ export function SciotteLoginModal({
             {/* Content */}
             <ScrollView
               className="px-6 pt-2 pb-4"
-              style={{ maxHeight: phase === 'takeover' ? takeoverHeight + 24 : contentMaxHeight }}
+              style={{ maxHeight: phase === 'takeover' || phase === 'browser' ? takeoverHeight + 24 : contentMaxHeight }}
               showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
-              scrollEnabled={phase !== 'takeover'}
+              scrollEnabled={phase !== 'takeover' && phase !== 'browser'}
             >
               {renderContent()}
             </ScrollView>

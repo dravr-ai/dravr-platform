@@ -9,6 +9,8 @@ import type {
   ExtendedProviderStatus,
   ProvidersStatusResponse,
   ApiMetadata,
+  BrowserSigninCatalog,
+  BrowserSigninCookie,
   OAuthGrant,
   SciotteCancelResponse,
   SciotteLoginResponse,
@@ -348,6 +350,33 @@ export function createOAuthApi(axios: AxiosInstance) {
       const response = await axios.post<SciotteCancelResponse>(
         '/api/providers/sciotte/cancel',
         { attempt_id: attemptId },
+      );
+      return response.data;
+    },
+
+    /**
+     * How each provider is signed in to from the athlete's own browser
+     * (carnet#1617): the page the extension or WebView opens, the URLs that
+     * say the athlete is signed in, and the domain of the session's cookies.
+     */
+    async browserSigninCatalog(): Promise<BrowserSigninCatalog> {
+      const response = await axios.get<BrowserSigninCatalog>('/api/providers/browser-signin');
+      return response.data;
+    },
+
+    /**
+     * Hand Dravr the cookies the athlete's browser holds once signed in to
+     * `target`: stored as the provider's connection once a read through them
+     * succeeds, answering as a sign-in does (`connected`).
+     */
+    async browserSignin(
+      target: SciotteTarget,
+      cookies: BrowserSigninCookie[],
+      options: { tosConsent?: boolean } = {},
+    ): Promise<SciotteLoginResponse> {
+      const response = await axios.post<SciotteLoginResponse>(
+        `/api/providers/browser-signin/${target}`,
+        { cookies, tos_consent: options.tosConsent ?? false },
       );
       return response.data;
     },

@@ -638,6 +638,40 @@ export interface SciotteCancelResponse {
   cancelled: boolean;
 }
 
+/**
+ * How one provider is signed in to from the athlete's own browser (the Dravr
+ * extension or the app's WebView), as `GET /api/providers/browser-signin`
+ * serves it from sciotte: the page to open, the URLs that say the athlete is
+ * signed in, and the domain of the session's cookies (carnet#1617).
+ */
+export interface BrowserSignin {
+  /** sciotte's provider name: `garmin`, `strava`, `trainingpeaks`, `coros` */
+  provider: string;
+  login_url: string;
+  success_patterns: string[];
+  cookie_domain: string;
+}
+
+/** Answer of `GET /api/providers/browser-signin`. */
+export interface BrowserSigninCatalog {
+  providers: BrowserSignin[];
+}
+
+/**
+ * One cookie the athlete's browser read after signing in, as
+ * `POST /api/providers/browser-signin/{target}` takes it.
+ */
+export interface BrowserSigninCookie {
+  name: string;
+  value: string;
+  domain: string;
+  path: string;
+  secure: boolean;
+  http_only: boolean;
+  /** Seconds since the Unix epoch; absent for a session cookie. */
+  expires?: number;
+}
+
 /** Response from /api/providers endpoint */
 export interface ProvidersStatusResponse {
   providers: ExtendedProviderStatus[];

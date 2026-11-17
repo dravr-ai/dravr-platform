@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Dravr sign-in",
+  "version": "0.1.0",
+  "description": "Signs you in to Garmin, Strava, TrainingPeaks or COROS in your own browser and hands that session to Dravr.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA7R1ElZb1ZO2dEhAqPTuk9rwVri0HcKooZvgTMviydlbv6/TRcHSCz6kpkx7eZpSsSMmitIWCDv5xwTBkda/zNLh4h/SmlIUYbVPwcjdXbzSscZ4lERkgehpHDnR5GPIR/vdcuRS1LVWkKER4LvvvXDQ7TbkM/c9387p2ATrISCwccK9rjeTUTBPg2Y/h3MgxoOhhdCcCryVAXFoJBC7u1z3Vw7Bc3hdVEQmQmVgKowjC1sOMaAz2/0xIulftql5Cv4dmqcADOXU2i9kMT/S4MjAF8snY+26At1LdFMD3X275WHYkNSENRg5BVLEfpcZ4fx9Sg4d8ZRym9MJRSfGqAwIDAQAB",
+  "minimum_chrome_version": "116",
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "cookies",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://*.garmin.com/*",
+    "https://*.strava.com/*",
+    "https://*.trainingpeaks.com/*",
+    "https://*.coros.com/*"
+  ],
+  "externally_connectable": {
+    "matches": [
+      "https://app.dravr.ai/*"
+    ]
+  }
+}

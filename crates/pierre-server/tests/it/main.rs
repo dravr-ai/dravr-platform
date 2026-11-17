@@ -165,6 +165,7 @@ mod billing_webhook_dispatch_test;
 mod boot_signing_key_race_test;
 mod bootstrap_seeder_role_test;
 mod bridge_provider_connect_test;
+mod browser_signin_test;
 mod build_features_test;
 mod byo_chat_provider_test;
 mod cache_memory_test;

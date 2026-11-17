@@ -65,6 +65,11 @@ export {
   takeoverTextChunks,
   takeoverTokenProvider,
 } from './sciotteTakeover';
+export {
+  browserSigninLanded,
+  hostOfHttps as browserSigninHost,
+  hostUnder as browserSigninHostUnder,
+} from './browserSignin';
 
 // API error classification — one classifier for web and mobile, so a failed
 // request is named by its transport state and status, never by matching on

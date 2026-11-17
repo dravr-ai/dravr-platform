@@ -319,6 +319,13 @@ jest.mock('react-native-webview', () => {
   return { WebView: ({ testID }) => React.createElement(View, { testID }) };
 });
 
+// Mock @react-native-cookies/cookies: its native cookie store is absent under
+// jest. A test that reads a WebView's cookies gives `get` its own answer.
+jest.mock('@react-native-cookies/cookies', () => ({
+  __esModule: true,
+  default: { get: jest.fn().mockResolvedValue({}), clearAll: jest.fn().mockResolvedValue(true) },
+}));
+
 // Mock react-native-reanimated
 jest.mock('react-native-reanimated', () => {
   const React = require('react');
