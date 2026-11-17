@@ -75,13 +75,14 @@ pub fn tool_definition(
 ///
 /// Declare it on a tool whose worst path is at least one uncached provider
 /// fetch — verified by reading the tool's own `execute` body down to
-/// `create_authenticated_provider` / `fetch_activities_from_provider` /
+/// `create_authenticated_provider` / `fetch_activity_from_provider` /
 /// `fetch_provider_activities`, never attributed by which file it lives in.
 /// That is why `calculate_recovery_score` carries it while `analyze_sleep_quality`
 /// in the same file does not.
 ///
 /// Deliberately undeclared: `verify_claim` (deterministic, mid-sentence),
-/// `set_goal` and the stored-data reads (database only), `analyze_sleep_quality`
+/// `set_goal` and the stored-data reads (database only, `get_stats` and
+/// `export_latest_snapshot` among them), `analyze_sleep_quality`
 /// and `track_sleep_trends` (every sleep-capable backend is an API),
 /// `export_intervals` / `export_routes` / `extract_activity_streams` (one bounded
 /// fetch since the single-activity helper), and the three bounded fan-outs

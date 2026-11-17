@@ -1,7 +1,7 @@
 // ABOUTME: Auto-generated TypeScript type definitions for Pierre MCP tool parameters
 // ABOUTME: Generated from server tool schemas - DO NOT EDIT MANUALLY
 //
-// Tool count: 80
+// Tool count: 81
 // To regenerate: bun run generate (from packages/mcp-types)
 
 /* eslint-disable @typescript-eslint/no-explicit-any, @typescript-eslint/no-empty-object-type */
@@ -728,14 +728,14 @@ export interface GetSleepSessionsParams {
 
 
 /**
- * Aggregated activity totals from a connected provider. Read `coverage` before quoting any total_*: `coverage.window.scope.kind` is `lifetime` (ALL-TIME), `recent_activities` (only the `coverage.window.total` most recent activities, oldest on `coverage.window.oldest`; e.g. Wahoo, WHOOP) or `last_days` (only the last `coverage.window.scope.days` days). Report a `recent_activities` or `last_days` total as that sample or window ('your last N workouts since <date>', 'the last N days'), never as lifetime, all-time, career or total-ever. `year_to_date` (Strava) holds CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT report them: call get_activities for the period and sum distance across all related sport types.
+ * All-time totals over every source, merged; year_to_date is this calendar year. Read stats.coverage before quoting. For a period or breakdown, call query_activities.
  */
 export interface GetStatsParams {
 
   /** 'json' (default) or 'toon' (compact). */
   format?: string;
 
-  /** Provider or `upload`; default is their best source. */
+  /** One source only. */
   provider?: string;
 }
 
@@ -1070,6 +1070,61 @@ export interface PushTrainingPlanParams {
 
   /** Calendar to write to (e.g. intervals_icu), this call only. Omitted: the one the athlete chose, else the one with Dravr's entries, else their only one; else asks. */
   provider?: string;
+}
+
+
+/**
+ * Count and sum workouts over any period, every source merged; for every count, total or breakdown. Read coverage before quoting; unknown is never a no. If a figure is disputed, call again and say which filter changed.
+ */
+export interface QueryActivitiesParams {
+
+  /** 'json' (default) or 'toon' (compact). */
+  format?: string;
+
+  /** YYYY-MM-DD; omit for all history. */
+  from?: string;
+
+  /** Gear id or name. */
+  gear?: string;
+
+  /** Up to 2 of year, month, week, sport_type, sport_family, place, gear. */
+  group_by?: string[];
+
+  /** Segment id or name. */
+  has_segment?: string;
+
+  /** Most km. */
+  max_distance_km?: number;
+
+  /** count, distance_km, moving_time_s, elapsed_time_s, elevation_m, avg_hr. */
+  metrics?: string[];
+
+  /** Least km. */
+  min_distance_km?: number;
+
+  /** Text in the name. */
+  name_contains?: string;
+
+  /** Place ids. */
+  place_id?: string[];
+
+  /** One source only. */
+  provider?: string;
+
+  /** running, cycling, swimming, other. */
+  sport_family?: string[];
+
+  /** Sports, e.g. TrailRunning. */
+  sport_type?: string[];
+
+  /** YYYY-MM-DD; default today. */
+  to?: string;
+
+  /** Indoor trainer or not. */
+  trainer?: boolean;
+
+  /** race, long_run, workout. */
+  workout_type?: string[];
 }
 
 
@@ -1921,6 +1976,7 @@ export const TOOL_NAMES = [
   "predict_performance",
   "prescribe_workout",
   "push_training_plan",
+  "query_activities",
   "recall_user_memory",
   "recommend_plan_flavour",
   "refresh_provider_data",
@@ -2012,6 +2068,7 @@ export interface ToolParamsMap {
   "predict_performance": PredictPerformanceParams;
   "prescribe_workout": PrescribeWorkoutParams;
   "push_training_plan": PushTrainingPlanParams;
+  "query_activities": QueryActivitiesParams;
   "recall_user_memory": RecallUserMemoryParams;
   "recommend_plan_flavour": RecommendPlanFlavourParams;
   "refresh_provider_data": RefreshProviderDataParams;

@@ -21,7 +21,7 @@ use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
-    Activity, Athlete, CalendarEventRef, ConnectionType, PlannedSession, PrescribedWorkout, Stats,
+    Activity, Athlete, CalendarEventRef, ConnectionType, PlannedSession, PrescribedWorkout,
     TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
@@ -161,10 +161,6 @@ impl FitnessProvider for MockCalendar {
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
     }
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
-    }
-
     async fn list_calendar_events(
         &self,
         from: NaiveDate,

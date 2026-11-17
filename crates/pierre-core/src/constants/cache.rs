@@ -17,9 +17,6 @@ pub const TTL_PROFILE_SECS: u64 = 86_400; // 24 hours
 /// turns and provider blips, while a sync still refreshes it on new activities.
 pub const TTL_ACTIVITY_LIST_SECS: u64 = 3_600; // 1 hour
 
-/// Stats cache TTL (6 hours) - stats aggregate over time windows
-pub const TTL_STATS_SECS: u64 = 21_600; // 6 hours
-
 /// Provider roster cache TTL in seconds (10 minutes).
 ///
 /// A coach's roster on the provider (the athletes a TrainingPeaks coach

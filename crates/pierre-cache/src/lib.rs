@@ -42,7 +42,7 @@ pub use cache::Cache;
 
 use constants::cache::{
     DEFAULT_CACHE_MAX_ENTRIES, DEFAULT_CLEANUP_INTERVAL_SECS, TTL_ACTIVITY_LIST_SECS,
-    TTL_PROFILE_SECS, TTL_PROVIDER_ROSTER_SECS, TTL_STATS_SECS,
+    TTL_PROFILE_SECS, TTL_PROVIDER_ROSTER_SECS,
 };
 use errors::AppResult;
 use models::TenantId;
@@ -324,11 +324,6 @@ pub enum CacheResource {
         /// Optional sport type filter (e.g., "run", "ride") for server-side filtering
         sport_type: Option<String>,
     },
-    /// Athlete statistics (6h TTL)
-    Stats {
-        /// Athlete ID
-        athlete_id: u64,
-    },
     /// The athletes a coach account coaches on the provider, as the provider's
     /// roster reports them (10 min TTL). Keyed by the coach's own tenant and
     /// user, so one coach's roster never answers for another's. The key
@@ -365,10 +360,6 @@ pub enum CacheResource {
     /// within its budget serves this, saying when it was synced, rather than
     /// failing the call.
     LastKnownAthleteProfile,
-    /// The athlete's statistics as last read live, for the same fallback
-    /// ([`TTL_LAST_KNOWN_SECS`]). Keyed by user and provider alone, so it is
-    /// found without the athlete id the 6 h entry needs.
-    LastKnownStats,
     /// General-purpose keyed resource for non-domain uses (nonces, rate limits, etc.).
     /// TTL is caller-specified — `recommended_ttl` returns 0 for this variant.
     Custom(String),
@@ -381,12 +372,9 @@ impl CacheResource {
         match self {
             Self::AthleteProfile => Duration::from_secs(TTL_PROFILE_SECS),
             Self::ActivityList { .. } => Duration::from_secs(TTL_ACTIVITY_LIST_SECS),
-            Self::Stats { .. } => Duration::from_secs(TTL_STATS_SECS),
             Self::ProviderRoster => Duration::from_secs(TTL_PROVIDER_ROSTER_SECS),
             Self::DiscoveredRoute { .. } => Duration::from_secs(TTL_DISCOVERED_ROUTE_SECS),
-            Self::LastKnownAthleteProfile | Self::LastKnownStats => {
-                Duration::from_secs(TTL_LAST_KNOWN_SECS)
-            }
+            Self::LastKnownAthleteProfile => Duration::from_secs(TTL_LAST_KNOWN_SECS),
             Self::SciotteLoginFlow | Self::SciotteLoginCancel { .. } | Self::Custom(_) => {
                 Duration::ZERO
             }
@@ -415,7 +403,6 @@ impl fmt::Display for CacheResource {
                     "activity_list:page:{page}:per_page:{per_page}{before_str}{after_str}{sport_str}"
                 )
             }
-            Self::Stats { athlete_id } => write!(f, "stats:{athlete_id}"),
             Self::ProviderRoster => write!(f, "provider_roster_v2"),
             Self::SciotteLoginFlow => write!(f, "sciotte_login_flow"),
             Self::SciotteLoginCancel { attempt_id } => {
@@ -423,7 +410,6 @@ impl fmt::Display for CacheResource {
             }
             Self::DiscoveredRoute { route_ref } => write!(f, "discovered_route:{route_ref}"),
             Self::LastKnownAthleteProfile => write!(f, "last_known_athlete_profile"),
-            Self::LastKnownStats => write!(f, "last_known_stats"),
             Self::Custom(ref key) => write!(f, "custom:{key}"),
         }
     }

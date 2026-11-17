@@ -28,7 +28,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{Activity, ActivityBuilder, Athlete, SportType, Stats, TenantId};
+use pierre_core::models::{Activity, ActivityBuilder, Athlete, SportType, TenantId};
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_database::repositories::activity_cache::{
     ActivityFetchFailure, ActivityFetchFailureRecord,
@@ -117,10 +117,6 @@ impl FitnessProvider for GatedProvider {
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
     }
 }
 

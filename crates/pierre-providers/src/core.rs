@@ -25,7 +25,6 @@
 //! All providers return standardized domain models:
 //! - **Activity**: Unified workout/activity representation
 //! - **Athlete**: User profile information
-//! - **Stats**: Aggregate performance statistics
 //!
 //! Sleep, recovery and body metrics are not read through this trait: every
 //! source's health data is synced into stored rows by dravr-enforme and read
@@ -50,8 +49,7 @@
 //!
 //! ```rust,no_run
 //! use pierre_providers::core::{FitnessProvider, ProviderConfig, OAuth2Credentials};
-//! use pierre_core::models::coverage::WindowScope;
-//! use pierre_core::models::{Activity, Athlete, Stats};
+//! use pierre_core::models::{Activity, Athlete};
 //! use pierre_core::errors::AppResult;
 //! use async_trait::async_trait;
 //!
@@ -109,9 +107,6 @@
 //! #   async fn get_activity(&self, _id: &str) -> AppResult<Activity> {
 //! #       Err(pierre_core::errors::AppError::not_found("Activity not found"))
 //! #   }
-//! #   async fn get_stats(&self) -> AppResult<Stats> {
-//! #       Ok(Stats::summed_over(&[], WindowScope::Lifetime))
-//! #   }
 //! }
 //! ```
 //!
@@ -129,7 +124,7 @@ use crate::delegation::{CoachRoster, DelegatedReads};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SegmentEffort, SportType, Stats, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
+    SegmentEffort, SportType, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget::RequestBudget;
@@ -349,7 +344,7 @@ impl ActivityQueryParams {
 /// # Shared Request/Response Contract
 ///
 /// - **Request Parameters**: Standardized method signatures (IDs, pagination, dates)
-/// - **Response Types**: Unified domain models (Activity, Athlete, Stats, etc.)
+/// - **Response Types**: Unified domain models (Activity, Athlete, etc.)
 /// - **Error Handling**: Consistent `AppResult<T>` for all operations
 /// - **Authentication**: Uniform `OAuth2Credentials` flow
 ///
@@ -578,23 +573,6 @@ pub trait FitnessProvider: Send + Sync {
             .time_series_data()
             .cloned())
     }
-
-    /// Get user's aggregate statistics
-    ///
-    /// # Example
-    ///
-    /// ```rust,no_run
-    /// # use pierre_providers::core::FitnessProvider;
-    /// # async fn example(provider: &impl FitnessProvider) -> Result<(), pierre_core::errors::AppError> {
-    /// let stats = provider.get_stats().await?;
-    /// println!("Total activities: {}", stats.total_activities);
-    /// println!("Total distance: {:.1} km", stats.total_distance / 1000.0);
-    /// println!("Total duration: {} hours", stats.total_duration / 3600);
-    /// println!("Total elevation: {:.0} m", stats.total_elevation_gain);
-    /// # Ok(())
-    /// # }
-    /// ```
-    async fn get_stats(&self) -> AppResult<Stats>;
 
     // ── Training-calendar reads ──────────────────────────────────────────
 

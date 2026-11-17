@@ -392,6 +392,13 @@ pub(super) const DECLINE_CUES: &[&str] = &[
 /// hard", "quality work", "on track", "your endurance is building"), and
 /// declining them would leave most weekly totals unchecked.
 ///
+/// A segment, a pair of shoes, a bike or a race picks some sessions out of the
+/// period, as a `query_activities` filter does ("212 km on that segment", "35
+/// km in races"). The race words are the ones that are not a sport mention:
+/// French `course`, Spanish `carrera` and Portuguese `corrida` are the run
+/// ([`SPORT_MENTIONS`]), so `compétition`, `competición` and `prova` stand
+/// for the race.
+///
 /// Portuguese `se` is listed only before a pronoun: alone it is the everyday
 /// reflexive ("se sentiu").
 pub(super) const PART_CUES: &[&str] = &[
@@ -455,6 +462,16 @@ pub(super) const PART_CUES: &[&str] = &[
     "outdoors",
     "commute",
     "commuting",
+    "segment",
+    "segments",
+    "gear",
+    "shoe",
+    "shoes",
+    "trainers",
+    "race",
+    "races",
+    "raced",
+    "racing",
     "weekend",
     "week end",
     "if",
@@ -508,6 +525,20 @@ pub(super) const PART_CUES: &[&str] = &[
     "interieur",
     "vélotaf",
     "velotaf",
+    "chaussure",
+    "chaussures",
+    "équipement",
+    "equipement",
+    "matériel",
+    "materiel",
+    "compétition",
+    "competition",
+    "compétitions",
+    "competitions",
+    "épreuve",
+    "epreuve",
+    "épreuves",
+    "epreuves",
     "si",
     // Spanish
     "zona",
@@ -551,6 +582,14 @@ pub(super) const PART_CUES: &[&str] = &[
     "pista",
     "cinta",
     "rodillo",
+    "segmento",
+    "segmentos",
+    "zapatilla",
+    "zapatillas",
+    "equipamiento",
+    "competición",
+    "competicion",
+    "competiciones",
     "fin de semana",
     // German
     "bereich",
@@ -592,6 +631,21 @@ pub(super) const PART_CUES: &[&str] = &[
     "bahn",
     "laufband",
     "rolle",
+    "segmente",
+    "segmenten",
+    "schuh",
+    "schuhe",
+    "schuhen",
+    "laufschuhe",
+    "laufschuhen",
+    "ausrüstung",
+    "ausruestung",
+    "rennen",
+    "wettkampf",
+    "wettkämpfe",
+    "wettkampfe",
+    "wettkämpfen",
+    "wettkampfen",
     "wochenende",
     "wenn",
     "falls",
@@ -617,6 +671,17 @@ pub(super) const PART_CUES: &[&str] = &[
     "subidas",
     "esteira",
     "rolo",
+    "tênis",
+    "tenis",
+    "sapatilha",
+    "sapatilhas",
+    "equipamento",
+    "prova",
+    "provas",
+    "competição",
+    "competicao",
+    "competições",
+    "competicoes",
     "fim de semana",
     "se você",
     "se voce",

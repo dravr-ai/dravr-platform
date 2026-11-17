@@ -114,7 +114,6 @@ mod volume;
 
 use pierre_core::ai_policy::first_party_only;
 use pierre_core::transport::TransportPolicy;
-use std::cmp::Reverse;
 use std::iter;
 use std::sync::Arc;
 
@@ -136,12 +135,11 @@ use pierre_fitness_compute::route_track::{trimmed_overview_polyline, RouteTrack,
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::{backend_pair_for, user_facing_name};
-use pierre_providers::deduplication::{
-    carries_gps_trace, is_canonical_copy, merge_duplicates, DedupConfig,
-};
+use pierre_providers::deduplication::carries_gps_trace;
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_card, PlanCard};
+use pierre_services::workouts::{served_rows, sport_bucket, workouts, Workout};
 use pierre_tool_runtime::activity_fetch::sync_verdict::{record_sync_failure, sync_backoff_until};
 use pierre_tool_runtime::activity_fetch::{refresh_head, CACHED_ACTIVITY_LOOKBACK_DAYS};
 use pierre_tool_runtime::reauth_retry::{claim_scrape_session_retry, retries_flagged_session};
@@ -156,7 +154,6 @@ use crate::mcp::resources::ServerContext;
 use crate::services::activity_detail::read_activity_detail;
 use crate::services::activity_route::{activity_route, CachedActivityRef, RouteAsk, RouteMiss};
 use crate::services::training_status::{training_status, TrainingStatus};
-use crate::services::training_volume::volume_sport;
 use crate::tools::runtime_adapter::into_runtime;
 use activity_view::{ActivityLap, ActivitySplit};
 
@@ -202,7 +199,7 @@ pub struct RecentActivitiesQuery {
     #[serde(default)]
     pub retry: bool,
     /// Only workouts of this sport, spelled as the training volume's weeks
-    /// spell it ([`volume_sport`]) — the sport the athlete picked on the
+    /// spell it ([`sport_bucket`]) — the sport the athlete picked on the
     /// volume card. Absent, every sport.
     #[serde(default)]
     pub sport: Option<String>,
@@ -277,9 +274,9 @@ impl HomeActivity {
     /// any of them (carnet#1154).
     fn from_workout(workout: &Workout<'_>) -> Self {
         Self {
-            attribution: workout.attribution(),
+            attribution: attribution(workout),
             garmin_recorded: workout.carries_garmin_data(),
-            ..Self::from_session(workout.route_row(), &workout.session)
+            ..Self::from_session(route_row(workout), &workout.session)
         }
     }
 
@@ -631,23 +628,16 @@ async fn recent_workouts(
             )
             .await?;
         let exhausted = usize::try_from(read).is_ok_and(|asked| rows.len() < asked);
-        let workouts = home_activities(&served_rows(resources, rows), limit, sport);
+        let workouts = home_activities(
+            &served_rows(resources.fitness.provider_registry.as_ref(), rows),
+            limit,
+            sport,
+        );
         if workouts.len() >= limit || exhausted {
             return Ok(workouts);
         }
         read = read.saturating_mul(2);
     }
-}
-
-/// The cached rows this request may serve. Over an external transport (an API
-/// key), a provider whose terms keep its data inside Dravr's own surfaces is
-/// dropped before any merge, so a withheld copy of a workout can never fill
-/// the fields of a served one (carnet#724). The athlete's own app sees every
-/// row.
-fn served_rows(resources: &ServerContext, rows: Vec<CachedActivityRow>) -> Vec<CachedActivityRow> {
-    ai_scope::retain_served_here(resources.fitness.provider_registry.as_ref(), rows, |row| {
-        (row.provider.as_str(), row.activity.source())
-    })
 }
 
 /// How many cached copies of each workout the recent read makes room for:
@@ -666,9 +656,8 @@ fn copies_per_workout(connections: usize) -> i64 {
 /// Every copy of one workout among the rows already read — a ride a watch
 /// synced to Strava, Garmin and COROS, the API's copy and the usr/pwd
 /// capture of the same activity, the live copy and the imported export —
-/// merges into one session through [`merge_duplicates`] under
-/// [`DedupConfig::from_env`], exactly as the chat turn's activity list merges
-/// them.
+/// merges into one session through the one row-level merge ([`workouts`]),
+/// the merge the chat turn's activity list runs.
 ///
 /// A merged workout's name and numbers are the merger's canonical row, the
 /// one chat lists — the copy carrying a GPS trace, then a distance, then the
@@ -684,116 +673,51 @@ fn home_activities(
 ) -> Vec<HomeActivity> {
     workouts(rows)
         .iter()
-        .filter(|workout| sport.is_none_or(|sport| volume_sport(&workout.session) == sport))
+        .filter(|workout| sport.is_none_or(|sport| sport_bucket(&workout.session) == sport))
         .take(limit)
         .map(HomeActivity::from_workout)
         .collect()
 }
 
-/// One workout the cache holds: the merged session, and the cached rows of
-/// the copies it was merged from.
-struct Workout<'a> {
-    /// The merged session — the merger's canonical copy, with the fields it
-    /// lacked filled from the other recordings.
-    session: Activity,
-    /// The cached row of the canonical copy.
-    canonical: &'a CachedActivityRow,
-    /// The cached rows of the other copies merged into it.
-    copies: Vec<&'a CachedActivityRow>,
+/// Every recording of the workout: the merged session first, then the copy
+/// whose route it draws, its canonical copy and the others.
+fn recordings<'w>(workout: &'w Workout<'_>) -> impl Iterator<Item = &'w Activity> {
+    iter::once(&workout.session)
+        .chain(iter::once(&route_row(workout).activity))
+        .chain(workout.rows().map(|row| &row.activity))
 }
 
-impl<'a> Workout<'a> {
-    /// Every recording of the workout: the merged session first, then the
-    /// copy whose route it draws, its canonical copy and the others.
-    fn recordings(&self) -> impl Iterator<Item = &Activity> {
-        iter::once(&self.session)
-            .chain(iter::once(&self.route_row().activity))
-            .chain(iter::once(&self.canonical.activity))
-            .chain(self.copies.iter().map(|row| &row.activity))
-    }
-
-    /// The attribution the workout is shown with, by every one of its
-    /// recordings ([`workout_attribution`]).
-    fn attribution(&self) -> Option<String> {
-        let recordings: Vec<_> = self
-            .recordings()
-            .map(|activity| (activity.source(), activity.device_name()))
-            .collect();
-        workout_attribution(&recordings)
-    }
-
-    /// Whether the workout carries Garmin-sourced data: any of its recordings
-    /// does, since its figures may come from any of them.
-    fn carries_garmin_data(&self) -> bool {
-        self.recordings()
-            .any(|activity| garmin_recorded(activity.source(), activity.device_name()))
-    }
-
-    /// The copy whose route the workout draws ([`route_copy`]).
-    fn route_row(&self) -> &'a CachedActivityRow {
-        route_copy(self.canonical, self.copies.iter().copied())
-    }
-
-    /// Whether the workout's splits and laps are still to be read: the
-    /// merged session carries neither, and no copy of it holds a stored
-    /// detail read that still answers it — one that found neither answers
-    /// only until its recheck instant
-    /// ([`pierre_tool_runtime::activity_detail_store::EMPTY_DETAIL_RECHECK_MINUTES`]).
-    fn detail_unread(&self) -> bool {
-        self.session.splits().is_none()
-            && self.session.laps().is_none()
-            && !iter::once(self.canonical)
-                .chain(self.copies.iter().copied())
-                .any(|row| row.detail_read)
-    }
-
-    /// Whether one of the workout's copies is the activity `id` of the
-    /// provider the athlete knows as `facing`.
-    fn holds(&self, facing: &str, id: &str) -> bool {
-        iter::once(self.canonical)
-            .chain(self.copies.iter().copied())
-            .any(|row| user_facing_name(&row.provider) == facing && row.activity.id() == id)
-    }
+/// The attribution the workout is shown with, by every one of its recordings
+/// ([`workout_attribution`]).
+fn attribution(workout: &Workout<'_>) -> Option<String> {
+    let recordings: Vec<_> = recordings(workout)
+        .map(|activity| (activity.source(), activity.device_name()))
+        .collect();
+    workout_attribution(&recordings)
 }
 
-/// The workouts `rows` holds, newest first: every recording of one
-/// workout across providers merged into one session through
-/// [`merge_duplicates`] under [`DedupConfig::from_env`], exactly as the chat
-/// turn's activity list merges them.
-fn workouts(rows: &[CachedActivityRow]) -> Vec<Workout<'_>> {
-    // The merger consumes its input and rewrites the canonical copy, while
-    // each row's stored key and route read are still needed to project it.
-    let recordings: Vec<Activity> = rows.iter().map(|row| row.activity.clone()).collect();
-    let (mut sessions, report) = merge_duplicates(recordings, &DedupConfig::from_env());
-    // A merged workout sits where its canonical copy was read, which need not
-    // be where its newest copy was; the list is newest first by the session.
-    sessions.sort_by_key(|session| Reverse(session.start_date()));
-    sessions
-        .into_iter()
-        .filter_map(|session| {
-            let canonical = rows
-                .iter()
-                .find(|row| is_canonical_copy(&row.activity, &session))?;
-            let copies = report
-                .groups
-                .iter()
-                .find(|group| group.canonical_id == session.id())
-                .into_iter()
-                .flat_map(|group| {
-                    rows.iter().filter(move |row| {
-                        group.fragment_ids.iter().any(|id| id == row.activity.id())
-                            && group.window_start <= row.activity.start_date()
-                            && row.activity.start_date() <= group.window_end
-                    })
-                })
-                .collect();
-            Some(Workout {
-                session,
-                canonical,
-                copies,
-            })
-        })
-        .collect()
+/// The copy whose route the workout draws ([`route_copy`]).
+fn route_row<'a>(workout: &Workout<'a>) -> &'a CachedActivityRow {
+    route_copy(workout.canonical, workout.copies.iter().copied())
+}
+
+/// Whether the workout's splits and laps are still to be read: the merged
+/// session carries neither, and no copy of it holds a stored detail read
+/// that still answers it — one that found neither answers only until its
+/// recheck instant
+/// ([`pierre_tool_runtime::activity_detail_store::EMPTY_DETAIL_RECHECK_MINUTES`]).
+fn detail_unread(workout: &Workout<'_>) -> bool {
+    workout.session.splits().is_none()
+        && workout.session.laps().is_none()
+        && !workout.rows().any(|row| row.detail_read)
+}
+
+/// Whether one of the workout's copies is the activity `id` of the provider
+/// the athlete knows as `facing`.
+fn holds(workout: &Workout<'_>, facing: &str, id: &str) -> bool {
+    workout
+        .rows()
+        .any(|row| user_facing_name(&row.provider) == facing && row.activity.id() == id)
 }
 
 async fn get_activity_route(
@@ -981,24 +905,22 @@ async fn activity_view(
             ),
         )
         .await?;
-    let rows = served_rows(resources, rows);
+    let rows = served_rows(resources.fitness.provider_registry.as_ref(), rows);
     let facing = user_facing_name(asked.provider);
     let all = workouts(&rows);
     let workout = all
         .iter()
-        .find(|workout| workout.holds(facing, asked.activity_id))
+        .find(|workout| holds(workout, facing, asked.activity_id))
         .ok_or_else(|| {
             AppError::not_found(format!(
                 "activity {} from {}",
                 asked.activity_id, asked.provider
             ))
         })?;
-    let route_row = workout.route_row();
-    let unread = workout
-        .detail_unread()
-        .then(|| (route_row.provider.clone(), route_row.activity.clone()));
-    let copies = iter::once(workout.canonical)
-        .chain(workout.copies.iter().copied())
+    let route = route_row(workout);
+    let unread = detail_unread(workout).then(|| (route.provider.clone(), route.activity.clone()));
+    let copies = workout
+        .rows()
         .map(|row| (row.provider.clone(), row.activity.id().to_owned()))
         .collect();
     Ok(WorkoutView {

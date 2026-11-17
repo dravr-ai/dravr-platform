@@ -10,7 +10,6 @@
 use crate::common;
 use crate::common::offline_provider_registry;
 
-use pierre_core::models::coverage::Coverage;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -22,9 +21,8 @@ use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, ActivityBuilder, AnchorProvenance, Athlete, ConnectionType, SportType, Stats,
-    TenantId, ThresholdProvenance, ThresholdStatedOn, User, UserOAuthToken,
-    UserPhysiologicalProfile,
+    Activity, ActivityBuilder, AnchorProvenance, Athlete, ConnectionType, SportType, TenantId,
+    ThresholdProvenance, ThresholdStatedOn, User, UserOAuthToken, UserPhysiologicalProfile,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -234,17 +232,6 @@ impl FitnessProvider for OpenRunner {
         Some(long_run())
             .filter(|a| a.id() == id)
             .ok_or_else(|| AppError::not_found(id.to_owned()))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Ok(Stats {
-            total_activities: 1,
-            total_distance: 21_100.0,
-            total_duration: 6_300,
-            total_elevation_gain: 0.0,
-            coverage: Coverage::lifetime(1),
-            year_to_date: None,
-        })
     }
 }
 

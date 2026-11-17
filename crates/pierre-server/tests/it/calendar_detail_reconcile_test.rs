@@ -19,7 +19,7 @@ use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, CalendarEventSource, CalendarKey, PlannedSession,
-    PrescribedWorkout, SportType, Stats, TenantId,
+    PrescribedWorkout, SportType, TenantId,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::transport::TransportPolicy;
@@ -175,10 +175,6 @@ impl FitnessProvider for IdentityOnly {
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
     }
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
-    }
-
     fn calendar_key(&self, _external_id: &str) -> String {
         TAG.to_owned()
     }

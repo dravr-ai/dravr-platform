@@ -128,7 +128,7 @@ pub fn ai_consent_withheld() -> Arc<BTreeSet<String>> {
 /// Refuse a model's or a human coach's untagged read of a provider lacking the
 /// athlete's AI consent.
 ///
-/// For the reads that carry no item provenance (profile, stats, calendar),
+/// For the reads that carry no item provenance (profile, calendar),
 /// when the athlete has not consented to AI use of `provider`'s data. The
 /// refusal is tallied like a dropped item, so the result carries the neutral
 /// withheld note rather than a bare failure.
@@ -248,7 +248,7 @@ mod tests {
         )
         .await;
         assert_eq!(
-            refused.expect_err("no stats for a model").code,
+            refused.expect_err("bug: no profile for a model").code,
             ErrorCode::ResourceNotFound
         );
         assert_eq!(tally.dropped, 1);

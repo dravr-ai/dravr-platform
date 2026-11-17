@@ -21,18 +21,21 @@
 //! tool modules can call them directly.
 
 use crate::activity_detail_store::{served_place, stored_served_rows};
-use crate::activity_fetch::{activity_date_span, activity_window_totals, WindowTotals};
+use crate::activity_query::{sport_matches, ServedList};
 use crate::implementations::activities_output::ActivitiesPayload;
 use crate::implementations::activity_detail_promotion::{
     effective_mode, promote_to_detail, DetailPlan, Promoted,
 };
 use crate::implementations::activity_list_render::format_activities_as_list;
 use crate::implementations::activity_summary::{detail_json, summary_json, ActivitySummary};
-use crate::implementations::data_helpers::{activity_coverage, pagination_has_more, AskedWindow};
+use crate::implementations::data_helpers::{
+    activity_coverage, pagination_has_more, AskedWindow, WindowCount,
+};
 use crate::implementations::field_dictionary::served_header;
 use crate::implementations::session_merge_summary::FragmentDedupSummary;
 use crate::protocol::types::UniversalResponse;
-use chrono::{DateTime, NaiveDate, Utc};
+use crate::runtime::ToolRuntime;
+use chrono::{DateTime, Utc};
 use dravr_cageux::physiological_constants::api_limits::{
     CLAUDE_CONTEXT_TOKENS, CONTEXT_WARNING_THRESHOLD_PERCENT, TOKENS_PER_ACTIVITY_DETAILED,
     TOKENS_PER_ACTIVITY_SUMMARY, USABLE_CONTEXT_TOKENS,
@@ -43,9 +46,7 @@ use pierre_core::civil_time::parse_zone;
 use pierre_core::config::fitness::{DETAIL_WINDOW_DAYS, EXPLICIT_DETAIL_CAP};
 use pierre_core::json_value::to_value_as_written;
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
-use pierre_core::models::{
-    resolve_sport_type, sport_matches_family, Activity, PlaceRef, SportType, TenantId,
-};
+use pierre_core::models::{resolve_sport_type, Activity, PlaceRef, SportType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_formatters::{format_output, OutputFormat};
 use pierre_providers::ai_scope;
@@ -426,6 +427,8 @@ impl ActivityRetrievalContext {
 /// Parameters for trying to get cached activities
 pub(crate) struct CachedActivitiesParams<'a> {
     pub cache: &'a Arc<Cache>,
+    /// What the hit's window is counted from: the store (carnet#1485, OQ6).
+    pub runtime: &'a Arc<dyn ToolRuntime>,
     /// Each provider's AI policy: the cached slice may have been stored
     /// outside a read for a model (a login prefetch), so it is filtered on read.
     pub policies: &'a dyn ProviderTerms,
@@ -456,6 +459,10 @@ pub(crate) struct CachedActivitiesParams<'a> {
     pub detail: CachedDetail<'a>,
     /// The window the call asked for.
     pub asked: AskedWindow,
+    /// The one source the call was pinned to, by its backend.
+    pub pinned: Option<&'a str>,
+    /// The call's `sport_type` filter, which the stored list was filtered by.
+    pub sport_type: Option<&'a str>,
 }
 
 /// Where a cached list's recent window finds its stored details.
@@ -530,11 +537,10 @@ pub(crate) async fn try_get_cached_activities(
         .await;
         sorted_activities.sort_by_key(|a| Reverse(a.start_date()));
 
-        // The whole window was stored, before the display limit: frame its
-        // count, span and totals as the live read did, then show `limit` of it.
-        let window_total = sorted_activities.len();
-        let window_span = activity_date_span(&sorted_activities, params.user_timezone.as_deref());
-        let window_totals = activity_window_totals(&sorted_activities);
+        // The whole window was stored, before the display limit: it is
+        // counted from the store as the live read's is, once the hit stands.
+        let served = sorted_activities.clone();
+        let fetched = served.len();
         sorted_activities.truncate(params.limit);
 
         let (promoted, places) = detail_cached_list(
@@ -545,6 +551,30 @@ pub(crate) async fn try_get_cached_activities(
         )
         .await?;
         ai_scope::record_withheld(withheld);
+        let keep = |activity: &Activity| {
+            params
+                .sport_type
+                .is_none_or(|sport| activity_matches_sport(activity, sport))
+        };
+        let window = WindowCount::of_served(
+            params.runtime,
+            params.user_uuid,
+            params.detail.tenant_id,
+            ServedList {
+                served: &served,
+                after: params
+                    .asked
+                    .after
+                    .and_then(|at| DateTime::from_timestamp(at, 0)),
+                before: params
+                    .asked
+                    .before
+                    .and_then(|at| DateTime::from_timestamp(at, 0)),
+                pinned: params.pinned,
+                keep: &keep,
+            },
+        )
+        .await;
         let sorted_activities = promoted.activities;
         let detailed_ids = promoted.detailed_ids;
         let mode = effective_mode(params.mode, &sorted_activities, &detailed_ids);
@@ -555,8 +585,8 @@ pub(crate) async fn try_get_cached_activities(
             returned_count: sorted_activities.len(),
             has_more: pagination_has_more(
                 sorted_activities.len(),
-                window_total,
-                window_total >= params.fetch_limit,
+                fetched,
+                fetched >= params.fetch_limit,
             ),
         };
 
@@ -583,13 +613,11 @@ pub(crate) async fn try_get_cached_activities(
             places: &places,
             user_timezone: params.user_timezone,
             locale: params.locale,
-            window_total: Some(window_total),
-            window_span,
-            window_totals: Some(window_totals),
+            window,
             asked: params.asked,
             // The whole window was stored; only a window that filled the
             // provider's page at fetch time may hold older rows.
-            completeness: if window_total >= params.fetch_limit {
+            completeness: if fetched >= params.fetch_limit {
                 Completeness::Incomplete(IncompleteReason::ReadCapped)
             } else {
                 Completeness::Complete
@@ -689,21 +717,27 @@ pub fn filter_activities_by_sport_type(
     let Some(filter) = sport_type_filter else {
         return activities;
     };
-    let normalised_filter = normalise_sport_string(filter);
-    if SPORT_WILDCARDS.contains(&normalised_filter.as_str()) {
-        return activities;
-    }
-    let canonical_filter = resolve_sport_type(filter);
     activities
         .into_iter()
-        .filter(|a| {
-            sport_type_matches(
-                a.sport_type(),
-                canonical_filter.as_ref(),
-                &normalised_filter,
-            )
-        })
+        .filter(|a| activity_matches_sport(a, filter))
         .collect()
+}
+
+/// Whether `activity` is of the sport `filter` names.
+///
+/// As [`filter_activities_by_sport_type`] filters: any activity for a wildcard,
+/// the one alias-aware matcher ([`sport_matches`]) for a sport it resolves,
+/// else a normalised compare against the activity's own spelling.
+#[must_use]
+pub(crate) fn activity_matches_sport(activity: &Activity, filter: &str) -> bool {
+    let normalised_filter = normalise_sport_string(filter);
+    if SPORT_WILDCARDS.contains(&normalised_filter.as_str()) {
+        return true;
+    }
+    resolve_sport_type(filter).map_or_else(
+        || sport_spelled(activity.sport_type(), &normalised_filter),
+        |canonical| sport_matches(activity, &[canonical], &[]),
+    )
 }
 
 /// Lower-case and strip separator characters so that
@@ -713,18 +747,10 @@ fn normalise_sport_string(s: &str) -> String {
     s.trim().to_lowercase().replace(['_', '-', ' ', '\''], "")
 }
 
-/// Compare an activity's [`SportType`] against the canonical-or-fallback
-/// filter pair produced by [`filter_activities_by_sport_type`].
-fn sport_type_matches(
-    activity_sport: &SportType,
-    canonical_filter: Option<&SportType>,
-    normalised_filter: &str,
-) -> bool {
-    if let Some(canonical) = canonical_filter {
-        // Family-aware, so a generic "run" or "ride" ask covers the disciplines
-        // the athlete logged under it — see `sport_matches_family`.
-        return sport_matches_family(activity_sport, canonical);
-    }
+/// Whether an activity's [`SportType`], serialised, normalises to
+/// `normalised_filter`: the fallback for a filter no alias resolves, which
+/// keeps unknown and custom `Other(...)` values matchable.
+fn sport_spelled(activity_sport: &SportType, normalised_filter: &str) -> bool {
     let activity_str = to_value(activity_sport).map_or_else(
         |_| String::new(),
         |v| {
@@ -896,20 +922,13 @@ pub(crate) struct ActivitiesResponseParams<'a> {
     /// User's BCP-47 locale ("fr"/"en"/"es"/"de"/"pt") selecting the localized
     /// sport-type labels in the rendered activity list. Defaults to "en".
     pub locale: String,
-    /// Total activities in the served window BEFORE the display-limit truncation,
-    /// when known (the live `get_activities` path). When it exceeds the returned
-    /// count, the response gains a `coverage` sidecar so the LLM frames the true
-    /// total + span instead of the oldest shown row. `None` on paths with no
-    /// distinct window total (e.g. the cached snapshot) — no `coverage` emitted.
-    pub window_total: Option<usize>,
-    /// Oldest/newest activity day, in the athlete's zone, across that full pre-truncation
-    /// window, paired with `window_total`. `None` leaves the `coverage` note
-    /// count-only.
-    pub window_span: Option<(NaiveDate, NaiveDate)>,
-    /// Count, distance, duration and climb summed over that full window. Ride
-    /// on the `coverage` sidecar, so totals and comparisons read the whole
-    /// window rather than the shown slice. `None` adds nothing.
-    pub window_totals: Option<WindowTotals>,
+    /// The store's count of the served window, before the display-limit
+    /// truncation (carnet#1485, OQ6): its total, span and totals ride on the
+    /// `coverage` sidecar, so the LLM frames the true total, span and totals
+    /// instead of the shown slice, and the served rows the store does not
+    /// hold are named. A default count (nothing counted) emits no `coverage`
+    /// for a complete window.
+    pub window: WindowCount,
     /// The window the call asked for.
     pub asked: AskedWindow,
     /// Whether the served window is the whole truth for the ask.
@@ -942,9 +961,7 @@ pub(crate) fn build_activities_success_response(
         places,
         user_timezone,
         locale,
-        window_total,
-        window_span,
-        window_totals,
+        window,
         asked,
         completeness,
         merge_report,
@@ -1045,14 +1062,7 @@ pub(crate) fn build_activities_success_response(
     // in this window, showing the most recent M" instead of anchoring on the
     // oldest shown activity. LLM-facing (tool result, not the input schema) →
     // no contremaitre/locale drift.
-    payload.coverage = activity_coverage(
-        window_total,
-        activities_len,
-        window_span,
-        asked,
-        completeness,
-        window_totals,
-    );
+    payload.coverage = activity_coverage(window, activities_len, asked, completeness);
 
     let metadata = build_activities_metadata(
         activities.len(),

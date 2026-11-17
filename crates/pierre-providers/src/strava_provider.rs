@@ -18,19 +18,17 @@ use crate::constants::oauth::STRAVA_DEFAULT_SCOPES;
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
-use crate::models::coverage::Coverage;
 use crate::models::refresh_due;
 use crate::models::{
     activity::{utc_offset_seconds_if_civil, Lap, Split},
-    resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, Stats,
-    TimeSeriesData,
+    resolve_sport_type, Activity, ActivityBuilder, Athlete, GearRef, SportType, TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationDirection, PaginationParams};
 use crate::request_budget;
 use crate::strava_self_report::rpe_from_strava;
 use crate::strava_types::{
     DetailedActivityResponse, StravaActivityResponse, StravaAthleteResponse, StravaErrorResponse,
-    StravaLap, StravaSplit, StravaStatsResponse, StravaStreamSet,
+    StravaLap, StravaSplit, StravaStreamSet,
 };
 use crate::utils;
 use async_trait::async_trait;
@@ -909,26 +907,6 @@ impl FitnessProvider for StravaProvider {
         window: SegmentEffortWindow,
     ) -> AppResult<Vec<SegmentEffortHit>> {
         self.list_segment_efforts(segment_id, window).await
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let athlete = self.get_athlete().await?;
-        let endpoint = format!("athletes/{}/stats", athlete.id);
-        let stats: StravaStatsResponse = self.api_request(&endpoint).await?;
-
-        let all_time =
-            StravaStatsResponse::sum_pair(stats.all_ride.as_ref(), stats.all_run.as_ref());
-        let year_to_date =
-            StravaStatsResponse::sum_pair(stats.ytd_ride.as_ref(), stats.ytd_run.as_ref());
-
-        Ok(Stats {
-            total_activities: all_time.total_activities,
-            total_distance: all_time.total_distance,
-            total_duration: all_time.total_duration,
-            total_elevation_gain: all_time.total_elevation_gain,
-            coverage: Coverage::lifetime(all_time.total_activities),
-            year_to_date: Some(year_to_date),
-        })
     }
 }
 

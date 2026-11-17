@@ -32,8 +32,7 @@ use crate::core::{
 use crate::errors::provider::ProviderError;
 use crate::errors::{AppError, AppResult};
 use crate::field_support::{ActivityFieldSupport, ActivityFields as F, StreamChannels as S};
-use crate::models::coverage::WindowScope;
-use crate::models::{Activity, Athlete, Stats};
+use crate::models::{Activity, Athlete};
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::spi::{
@@ -244,17 +243,6 @@ impl FitnessProvider for TerraProvider {
     )]
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         self.cached()?.one(id, ACTIVITY).await
-    }
-
-    /// Totals over the pushed activities Dravr holds. Terra pushes from the
-    /// connection onward, so these cover what was pushed, never a lifetime.
-    #[instrument(skip(self), fields(provider = "terra", api_call = "get_stats"))]
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let activities = self.cached()?.all().await?;
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
     }
 }
 

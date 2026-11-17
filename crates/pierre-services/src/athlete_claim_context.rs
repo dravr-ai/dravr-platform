@@ -19,7 +19,7 @@
 //! provider's activities are dropped before the layers see them, so a verdict
 //! can only ever rest on data that transport may carry.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use chrono::{DateTime, NaiveDate, TimeZone, Utc};
@@ -28,6 +28,7 @@ use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::civil_time::{clock_date, local_date, resolve_zone};
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{default_locale, Activity, TenantId};
+use pierre_core::text_fold::fold_for_match;
 use pierre_database::repositories::{historical_depth_covered, BackfillCoverage};
 use pierre_database::RepositoryRegistry;
 use pierre_evals::athlete_data::{
@@ -136,8 +137,10 @@ pub async fn build_personalized_inputs(
 /// For a connected athlete the record also carries the history a period total
 /// is checked against (carnet#846): each workout once, each source's own
 /// sessions, the days every live source holds in full, and the current plan
-/// block. A failed cache or coverage read leaves it out, so no total is
-/// contradicted on a guess.
+/// block. A failed cache, coverage, place or gear read leaves it out, so no
+/// total is contradicted on a guess. The record also carries the athlete's
+/// place and gear names, so a figure at one of them is never read as the
+/// period's total.
 pub async fn build_athlete_record(
     sources: &AthleteSources<'_>,
     locale: Option<&str>,
@@ -211,16 +214,25 @@ pub async fn build_athlete_record(
         }
     };
     let by_source = sessions_by_source(&activities, recorded);
+    let recorded_gear: Vec<String> = activities
+        .iter()
+        .filter_map(|a| a.gear().map(|gear| gear.name.clone()))
+        .collect();
     // Each workout is held once, per activity and in every total: the copies
     // two providers hold of one ride are merged the way the activity tools
     // merge what the model reads, so a claim naming that ride matches one
     // activity rather than two copies of it.
     let (sessions, _) = merge_duplicates(activities, &DedupConfig::from_env());
     let held: Vec<RecordedActivity> = sessions.iter().map(recorded).collect();
-    let (coverage, block_start) = tokio::join!(
+    let (coverage, block_start, own_names) = tokio::join!(
         live_source_coverage(sources),
         current_block_start(sources, today),
+        place_and_gear_names(sources),
     );
+    // Without the athlete's own names a figure at one of their places reads
+    // as the period's total, so a failed names read vouches for no period.
+    let named_subsets = own_names.map(|names| folded_names(names.into_iter().chain(recorded_gear)));
+    let coverage = coverage.filter(|_| named_subsets.is_some());
     let history = period_history(cache_read, coverage, |read, coverage| HistoryInputs {
         sessions: sessions.iter().map(recorded).collect(),
         by_source,
@@ -237,7 +249,48 @@ pub async fn build_athlete_record(
         locale,
         activities: held,
         history,
+        named_subsets: named_subsets.unwrap_or_default(),
     })
+}
+
+/// The names of the athlete's places (their own or automatic) and of the
+/// gear they declared, or `None` when either read fails.
+async fn place_and_gear_names(sources: &AthleteSources<'_>) -> Option<Vec<String>> {
+    let user_id = sources.user_id;
+    let repos = sources.repos;
+    let (places, gear) = tokio::join!(
+        repos.athlete_places.list(&sources.tenant_id, user_id),
+        repos.athlete_gear.list_gear(user_id),
+    );
+    match (places, gear) {
+        (Ok(places), Ok(gear)) => Some(
+            places
+                .into_iter()
+                .filter_map(|place| place.name)
+                .chain(gear.into_iter().map(|pair| pair.declaration.name))
+                .collect(),
+        ),
+        (Err(e), _) | (_, Err(e)) => {
+            warn!(
+                user_id = %user_id,
+                error = %e,
+                "athlete-record: place or gear read failed — period totals stay unverifiable"
+            );
+            None
+        }
+    }
+}
+
+/// `names` folded for matching (`fold_for_match`), each once, with no empty
+/// name: an empty one would match every sentence.
+fn folded_names(names: impl IntoIterator<Item = String>) -> Vec<String> {
+    names
+        .into_iter()
+        .map(|name| fold_for_match(&name))
+        .filter(|name| !name.is_empty())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
 }
 
 /// The athlete's cached activities from `from` to `to`, and what the read
@@ -502,6 +555,16 @@ mod tests {
         assert!(
             period_history(None, Some(synced()), no_sessions).is_none(),
             "a failed read is not an empty one"
+        );
+    }
+
+    #[test]
+    fn names_are_folded_once_each_and_never_empty() {
+        let names = ["Gai-Luron", "  gai-LURON ", "", "   ", "Forêt Héritage"].map(str::to_owned);
+        assert_eq!(
+            folded_names(names),
+            vec!["foret heritage".to_owned(), "gai-luron".to_owned()],
+            "bug: a place or gear name must be folded, kept once, and never empty"
         );
     }
 

@@ -51,8 +51,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, Athlete, CoachAccessStatus, ConnectionType, DelegatedConnection, DelegationStatus,
-    ProviderAccountRole, RosterAccess, RosterAthlete, Stats, TenantId, UserOAuthToken,
-    API_KEY_TOKEN_TYPE,
+    ProviderAccountRole, RosterAccess, RosterAthlete, TenantId, UserOAuthToken, API_KEY_TOKEN_TYPE,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::transport::{Transport, TransportPolicy};
@@ -164,10 +163,6 @@ impl FitnessProvider for StandIn {
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
     }
 
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {

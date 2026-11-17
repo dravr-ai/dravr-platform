@@ -746,15 +746,6 @@ async fn the_terra_provider_reads_what_terra_pushed() {
         ["act_013", "act_012"],
         "bug: the next page follows the first"
     );
-
-    let stats = provider.get_stats().await.unwrap();
-    assert_eq!(stats.total_activities, 5, "bug: five runs");
-    assert!(
-        (stats.total_distance - 25_000.0).abs() < f64::EPSILON,
-        "bug: 5 x 5 km, got {}",
-        stats.total_distance
-    );
-    assert_eq!(stats.total_duration, 5 * 3600, "bug: five hours");
 }
 
 // ============================================================================

@@ -1,5 +1,5 @@
-// ABOUTME: Endurance Phase 1 latest-snapshot export — multi-tenant isolation + shape conformance
-// ABOUTME: Validates UserPhysiologicalProfileRepository scoping and the JSON shape returned by build_latest_snapshot
+// ABOUTME: Endurance Phase 1 latest-snapshot export — multi-tenant isolation, shape conformance, and its store read
+// ABOUTME: Validates profile scoping, build_latest_snapshot's JSON shape, and that the export counts what a count over its days counts
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,20 +7,33 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
 
-use chrono::{Duration, Utc};
+use crate::common;
+
+use std::sync::Arc;
+
+use chrono::{DateTime, Duration, Utc};
 use dravr_cageux::zones::HrZones;
 use pierre_core::config::profiles::FitnessLevel;
+use pierre_core::constants::oauth::providers::{GARMIN, STRAVA};
 use pierre_core::models::activity::ActivityBuilder;
 use pierre_core::models::zones::HrZoneSet;
 use pierre_core::models::{
-    Activity, AnchorProvenance, SportType, TenantId, ThresholdProvenance, ThresholdStatedOn,
-    UserPhysiologicalProfile,
+    Activity, AnchorProvenance, ConnectionType, SportType, TenantId, ThresholdProvenance,
+    ThresholdStatedOn, UserPhysiologicalProfile,
 };
-use pierre_core::transport::TransportPolicy;
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::{Transport, TransportPolicy};
 use pierre_database::backends::factory::Database;
 use pierre_database::DatabaseProvider;
 use pierre_fitness_compute::latest_snapshot::build_latest_snapshot;
+use pierre_providers::ai_scope;
 use pierre_test_support::db::create_test_db_with_key;
+use pierre_tool_runtime::activity_query::{
+    query_activities, ActivityPredicate, ActivityQuery, ReadGate, DEFAULT_METRICS,
+};
+use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
+use pierre_tool_runtime::runtime::ToolRuntime;
+use serde_json::json;
 use uuid::Uuid;
 
 /// The zones cageux cuts for the profile below (`VO2max` 50, resting 48, max 192).
@@ -232,4 +245,136 @@ async fn snapshot_with_zero_activities_does_not_panic_when_zones_supplied() {
     let zones = HrZones::karvonen_tiered(42.0, 55, 190).unwrap();
     let snap = build_latest_snapshot(&[], 7, Some(250), Ok(&zones));
     assert!(snap.aggregated_zone_distribution.is_none());
+}
+
+/// One run of `id` recorded by `provider`, started at `start`.
+fn stored_run(id: &str, start: DateTime<Utc>, provider: &str) -> Activity {
+    ActivityBuilder::new(
+        id.to_owned(),
+        format!("Run {id}"),
+        SportType::Run,
+        start,
+        3_000,
+        provider.to_owned(),
+    )
+    .distance_meters(8_500.0)
+    .build()
+}
+
+/// The export reads its days from the store, every source merged, and counts
+/// exactly the workouts a count over the same days counts. The athlete's
+/// connection holds no credential, so a provider read could only fail: the
+/// snapshot answering at all says it read none.
+#[tokio::test]
+async fn the_snapshot_counts_the_stored_workouts_a_count_over_its_days_counts() {
+    common::init_server_config();
+    common::init_test_http_clients();
+    let resources = common::create_test_server_resources().await.unwrap();
+    let email = format!("snapshot-store-{}@example.com", Uuid::new_v4());
+    let (user_id, _user, tenant) =
+        common::create_test_user_with_plan(&resources.agent.database, &email, "starter")
+            .await
+            .unwrap();
+    resources
+        .repos()
+        .provider_connections
+        .register_connection(user_id, tenant, STRAVA, &ConnectionType::OAuth, None)
+        .await
+        .unwrap();
+    // Three runs in the week, each recorded by Strava and by Garmin, and one
+    // a month back. The seeded athlete has no timezone, so their calendar is
+    // UTC's; noon keeps every run well inside its day.
+    let noon = Utc::now()
+        .date_naive()
+        .and_hms_opt(12, 0, 0)
+        .unwrap()
+        .and_utc();
+    let cache = &resources.repos().activity_cache;
+    for (index, days) in [1, 3, 5, 30].into_iter().enumerate() {
+        let start = noon - Duration::days(days);
+        cache
+            .upsert_activities(
+                user_id,
+                &tenant,
+                STRAVA,
+                &[stored_run(&format!("s-{index}"), start, STRAVA)],
+            )
+            .await
+            .unwrap();
+        cache
+            .upsert_activities(
+                user_id,
+                &tenant,
+                GARMIN,
+                &[stored_run(&format!("g-{index}"), start, GARMIN)],
+            )
+            .await
+            .unwrap();
+    }
+
+    let runtime: Arc<dyn ToolRuntime> = resources;
+    // The athlete's own app: Strava's and Garmin's terms keep their data off
+    // an external interface, which would withhold every copy from both sides.
+    let executor = UniversalToolExecutor::new(Arc::clone(&runtime))
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::WebApp);
+    let response = executor
+        .execute_tool(UniversalRequest {
+            tool_name: "export_latest_snapshot".to_owned(),
+            parameters: json!({ "window": 7 }),
+            user_id: user_id.to_string(),
+            protocol: "test".to_owned(),
+            tenant_id: Some(tenant.to_string()),
+        })
+        .await
+        .unwrap_or_else(|e| panic!("bug: the snapshot read a provider, not the store: {e:?}"));
+    assert!(
+        response.success,
+        "bug: the snapshot did not answer from the store: {:?}",
+        response.error
+    );
+    let snapshot = response.result.unwrap();
+
+    let today = Utc::now().date_naive();
+    let query = ActivityQuery {
+        from: Some(today - Duration::days(6)),
+        to: today,
+        filter: ActivityPredicate::default(),
+        group_by: Vec::new(),
+        metrics: DEFAULT_METRICS.to_vec(),
+        provider: None,
+    };
+    let (answer, _) = ai_scope::serve_over(
+        Transport::WebApp,
+        ai_scope::ai_read(Box::pin(query_activities(
+            &runtime,
+            user_id,
+            tenant,
+            &query,
+            ReadGate::Model,
+        ))),
+    )
+    .await;
+    let totals = answer.unwrap().totals;
+
+    assert_eq!(
+        snapshot["activity_count"], 3,
+        "bug: the week's three runs, two copies each, are not three workouts: {snapshot}"
+    );
+    assert_eq!(
+        snapshot["activity_count"].as_u64(),
+        totals.count,
+        "bug: the snapshot counts other workouts than the count over its days"
+    );
+    let snapshot_metres = snapshot["total_distance_meters"].as_f64().unwrap();
+    let counted_metres = totals.distance_km.unwrap() * 1000.0;
+    assert!(
+        (snapshot_metres - counted_metres).abs() < 1e-6,
+        "bug: the snapshot's distance {snapshot_metres} m is not the count's {counted_metres} m"
+    );
+    assert_eq!(
+        snapshot["total_duration_seconds"].as_u64(),
+        totals.elapsed_time_s,
+        "bug: the snapshot's duration is not the count's elapsed time"
+    );
 }

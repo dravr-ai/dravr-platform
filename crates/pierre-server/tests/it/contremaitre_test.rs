@@ -839,6 +839,7 @@ const EXPECTED_TOOLS: &[&str] = &[
     "propose_athlete_link",
     "publish_training_plan",
     "push_training_plan",
+    "query_activities",
     "recall_user_memory",
     "recommend_plan_flavour",
     "refresh_provider_data",

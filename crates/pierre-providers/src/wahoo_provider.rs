@@ -39,11 +39,10 @@ use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::fit_decode::decode_bounded;
 use crate::http_client;
 use crate::http_client::{shared_client, SharedHttpClient};
-use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
 use crate::models::{
     Activity, ActivityBuilder, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind,
-    Stats, TimeSeriesData,
+    TimeSeriesData,
 };
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
@@ -853,19 +852,6 @@ impl FitnessProvider for WahooProvider {
     async fn get_activity_streams(&self, id: &str) -> AppResult<Option<TimeSeriesData>> {
         let (_, summary) = self.completed_workout(id).await?;
         self.fit_series(&summary).await
-    }
-
-    #[instrument(skip(self), fields(provider = "wahoo", api_call = "get_stats"))]
-    async fn get_stats(&self) -> AppResult<Stats> {
-        // Wahoo has no aggregate endpoint: the rollup is of the recent
-        // workouts the default listing returns.
-        let activities = self
-            .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
-            .await?;
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
     }
 
     fn calendar_key(&self, external_id: &str) -> String {

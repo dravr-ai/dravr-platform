@@ -31,8 +31,7 @@ use pierre_core::ai_policy::SourcePolicy;
 use pierre_core::constants::oauth::providers::{SCIOTTE_TRAININGPEAKS, WHOOP};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
-    Activity, ActivityBuilder, Athlete, ConnectionType, SportType, Stats, TenantId, User,
-    UserOAuthToken,
+    Activity, ActivityBuilder, Athlete, ConnectionType, SportType, TenantId, User, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_core::permissions::scopes::OAuthScope;
@@ -161,10 +160,6 @@ impl FitnessProvider for FakeWhoop {
             .into_iter()
             .find(|a| a.id() == id)
             .ok_or_else(|| AppError::not_found(id.to_owned()))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
     }
 }
 

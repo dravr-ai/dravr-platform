@@ -106,6 +106,10 @@ pub mod field_dictionary;
 #[cfg(feature = "tools-connection")]
 pub mod connection;
 
+/// `query_activities` — counts, sums and breakdowns of the athlete's workouts
+/// over any period, through the one aggregator (`tools-data` feature).
+#[cfg(feature = "tools-data")]
+mod activity_query;
 /// Athlete profile and aggregate statistics tools: `get_athlete`, `get_stats`
 /// (`tools-data` feature).
 #[cfg(feature = "tools-data")]

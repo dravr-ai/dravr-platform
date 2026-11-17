@@ -33,8 +33,9 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, NaiveTime, Utc};
+use chrono::{DateTime, Duration, NaiveDate, NaiveTime, Utc};
 use pierre_contremaitre::EvidenceRegistry;
+use pierre_core::civil_time::monday_of;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     CoachReply, CoachReplyCorrection, CoachReplyFilter, CoachReplyFlag, CoachReplyReview,
@@ -354,19 +355,13 @@ pub async fn weekly_counts(
     now: DateTime<Utc>,
 ) -> AppResult<Vec<CoachReviewWeek>> {
     let weeks = weeks.unwrap_or(DEFAULT_WEEKS).clamp(1, MAX_WEEKS);
-    let first_monday = week_start(now.date_naive()) - Duration::weeks(i64::from(weeks) - 1);
+    let first_monday = monday_of(now.date_naive()) - Duration::weeks(i64::from(weeks) - 1);
     let since = first_monday.and_time(NaiveTime::MIN).and_utc();
     let stamps = repos
         .coach_reply_reviews
         .list_review_stamps(coach_user_id, since)
         .await?;
     Ok(bucket_weeks(&stamps, first_monday, weeks))
-}
-
-/// The Monday of the week `day` falls in.
-#[must_use]
-pub fn week_start(day: NaiveDate) -> NaiveDate {
-    day - Duration::days(i64::from(day.weekday().num_days_from_monday()))
 }
 
 /// Count `stamps` into `weeks` consecutive weeks starting on `first_monday`.
@@ -390,7 +385,7 @@ fn bucket_weeks(
         })
         .collect();
     for stamp in stamps {
-        if let Some(bucket) = buckets.get_mut(&week_start(stamp.created_at.date_naive())) {
+        if let Some(bucket) = buckets.get_mut(&monday_of(stamp.created_at.date_naive())) {
             match stamp.kind {
                 ReplyReviewKind::Flag => bucket.flags += 1,
                 ReplyReviewKind::Correction => bucket.corrections += 1,
@@ -655,17 +650,5 @@ mod tests {
                 },
             ]
         );
-    }
-
-    #[test]
-    fn a_week_starts_on_its_monday() {
-        // Friday 2026-10-09 belongs to the week of Monday 2026-10-05.
-        let friday = NaiveDate::from_ymd_opt(2026, 10, 9).unwrap();
-        assert_eq!(
-            week_start(friday),
-            NaiveDate::from_ymd_opt(2026, 10, 5).unwrap()
-        );
-        let monday = NaiveDate::from_ymd_opt(2026, 10, 5).unwrap();
-        assert_eq!(week_start(monday), monday);
     }
 }

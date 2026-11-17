@@ -4343,6 +4343,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -4362,6 +4368,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -4520,7 +4531,7 @@
             ]
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -4532,52 +4543,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -8312,9 +8277,6 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      },
-      "execution": {
-        "taskSupport": "optional"
       }
     },
     {
@@ -10032,6 +9994,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -10242,6 +10210,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -10470,7 +10443,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -10482,52 +10455,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -14233,6 +14160,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -14252,6 +14185,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -14594,7 +14532,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -14606,52 +14544,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -15284,7 +15176,7 @@
     },
     {
       "name": "get_stats",
-      "description": "Aggregated activity totals from a connected provider. Read `coverage` before quoting any total_*: `coverage.window.scope.kind` is `lifetime` (ALL-TIME), `recent_activities` (only the `coverage.window.total` most recent activities, oldest on `coverage.window.oldest`; e.g. Wahoo, WHOOP) or `last_days` (only the last `coverage.window.scope.days` days). Report a `recent_activities` or `last_days` total as that sample or window ('your last N workouts since <date>', 'the last N days'), never as lifetime, all-time, career or total-ever. `year_to_date` (Strava) holds CURRENT-CALENDAR-YEAR totals: use it for 'this year' and never report the other totals as annual. IMPORTANT: Strava's ride and run totals count ONLY the base sport type, EXCLUDING VirtualRide, GravelRide, MountainBikeRide, EBikeRide, TrailRun and VirtualRun. For a cross-discipline total ('total km cycling this year') do NOT report them: call get_activities for the period and sum distance across all related sport types.",
+      "description": "All-time totals over every source, merged; year_to_date is this calendar year. Read stats.coverage before quoting. For a period or breakdown, call query_activities.",
       "inputSchema": {
         "properties": {
           "athlete": {
@@ -15296,7 +15188,7 @@
             "type": "string"
           },
           "provider": {
-            "description": "Provider or `upload`; default is their best source.",
+            "description": "One source only.",
             "type": "string"
           }
         },
@@ -15431,6 +15323,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -15442,13 +15340,21 @@
           "GetStatsResult": {
             "description": "What `get_stats` answers with.\n\nSame shape of contract as [`GetAthleteResult`]: the totals live under a\n`stats` key that the SDK schema reads by name.",
             "properties": {
+              "coverage_by_source": {
+                "description": "Each source's part of the coverage.",
+                "items": {
+                  "$ref": "#/$defs/SourceReach"
+                },
+                "type": "array"
+              },
               "stats": {
                 "$ref": "#/$defs/Stats",
-                "description": "Lifetime and recent totals as the provider reports them."
+                "description": "All-time and this-year totals over every source, merged, and how far\nthe history behind them reaches."
               }
             },
             "required": [
-              "stats"
+              "stats",
+              "coverage_by_source"
             ],
             "type": "object"
           },
@@ -15463,6 +15369,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -15621,7 +15532,7 @@
             ]
           },
           "PeriodTotals": {
-            "description": "Aggregated activity totals scoped to a single time period.\n\nUsed for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the\nlifetime totals so a period can be reported with the same fields.",
+            "description": "Aggregated activity totals scoped to a single time period.\n\nUsed for the `year_to_date` breakdown on [`Stats`]; mirrors the shape of the\nall-time totals so a period can be reported with the same fields.",
             "properties": {
               "total_activities": {
                 "description": "Number of recorded activities in the period",
@@ -15654,12 +15565,37 @@
             ],
             "type": "object"
           },
+          "SourceReach": {
+            "description": "One source's part of a window counted across the athlete's sources.\n\nThe copies it holds in the window, before the copies of one workout are\nmerged, and how far its own history stands behind the window.\n\nA list of these sits beside the one [`Coverage`] of a merged count\n(`coverage_by_source`), each carrying a [`Coverage`] of its own rather\nthan a coverage field of its own: completeness, reason, the vouched day,\nthe walk owed and the note are that one type's. Its `window.oldest` and\n`window.newest` are this source's own rows in the window.",
+            "properties": {
+              "copies": {
+                "description": "Rows of this source in the window, before the merge.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "How far this source's history stands behind the window."
+              },
+              "source": {
+                "description": "The source as the athlete knows it (a provider's user-facing name),\nnever an internal storage key.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "copies",
+              "coverage"
+            ],
+            "type": "object"
+          },
           "Stats": {
-            "description": "Aggregated fitness statistics for an athlete\n\nThe top-level `total_*` fields cover exactly what `coverage` says: the\nathlete's whole history only when its window's scope is\n[`WindowScope::Lifetime`]. A provider with no aggregate endpoint sums a\nrecent page of workouts or a window of days, and says so there, so a\nsample is never read as a lifetime figure (carnet#919). When the provider\nalso exposes calendar-year figures, `year_to_date` carries the\ncurrent-year totals so a consumer can distinguish \"annual\" from \"lifetime\"\nwithout inferring it from the numbers.\n\n# Examples\n\n```rust\nuse pierre_core::models::coverage::Coverage;\nuse pierre_core::models::Stats;\n\nlet stats = Stats {\n    total_activities: 150,\n    total_distance: 1500000.0, // 1500 km in meters\n    total_duration: 540000, // 150 hours in seconds\n    total_elevation_gain: 25000.0, // 25km of elevation\n    coverage: Coverage::lifetime(150),\n    year_to_date: None,\n};\n```",
+            "description": "Aggregated fitness statistics for an athlete\n\nThe top-level `total_*` fields are summed over every source the athlete\nholds, merged, so a workout two sources recorded counts once. They cover\nexactly what `coverage` says: its window and whether the stored history\nbehind it is complete, never one provider's sample read as a lifetime\nfigure (carnet#919). `year_to_date` carries the current calendar year's\ntotals so a consumer can distinguish \"annual\" from \"all-time\" without\ninferring it from the numbers.\n\n# Examples\n\n```rust\nuse pierre_core::models::coverage::{Coverage, CoverageWindow};\nuse pierre_core::models::Stats;\n\nlet stats = Stats {\n    total_activities: 150,\n    total_distance: 1500000.0, // 1500 km in meters\n    total_duration: 540000, // 150 hours in seconds\n    total_elevation_gain: 25000.0, // 25km of elevation\n    coverage: Coverage::complete(CoverageWindow {\n        total: Some(150),\n        returned: 150,\n        ..CoverageWindow::default()\n    }),\n    year_to_date: None,\n};\n```",
             "properties": {
               "coverage": {
                 "$ref": "#/$defs/Coverage",
-                "description": "Which activities the `total_*` fields were summed over: the scope of\nits window (`lifetime`, `recent_activities` or `last_days`), how many\nand from which day"
+                "description": "Which activities the `total_*` fields were summed over: the window\nasked, how many, from which day to which, and whether the stored\nhistory behind it is complete"
               },
               "total_activities": {
                 "description": "Number of recorded activities `coverage` spans",
@@ -15692,7 +15628,7 @@
                     "type": "null"
                   }
                 ],
-                "description": "Current calendar-year totals, when the provider supplies them.\n`None` means the provider does not expose a year-to-date breakdown\n(consumers must not treat the `total_*` fields as annual)."
+                "description": "Current calendar-year totals. `None` means no year-to-date breakdown\nwas computed (consumers must not treat the `total_*` fields as\nannual)."
               }
             },
             "required": [
@@ -15705,7 +15641,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -15717,52 +15653,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -15928,9 +15818,6 @@
         "destructiveHint": false,
         "idempotentHint": true,
         "openWorldHint": false
-      },
-      "execution": {
-        "taskSupport": "optional"
       }
     },
     {
@@ -16229,6 +16116,12 @@
                   }
                 ],
                 "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
               }
             },
             "required": [
@@ -16376,6 +16269,11 @@
               {
                 "const": "read_capped",
                 "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
                 "type": "string"
               },
               {
@@ -16624,7 +16522,7 @@
             "type": "object"
           },
           "WindowScope": {
-            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. A tool that answers the window its caller\nasked for (`get_activities`, the training history) is [`Self::Asked`]; a\nprovider's aggregate totals (`get_stats`) say which sample they were summed\nover, so a sample is never read as a lifetime figure (carnet#919).",
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
             "oneOf": [
               {
                 "description": "The window the caller asked for, `[asked_from, asked_to]`.",
@@ -16636,52 +16534,6 @@
                 },
                 "required": [
                   "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "The athlete's whole history, as the provider's aggregate reports it.",
-                "properties": {
-                  "kind": {
-                    "const": "lifetime",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the provider's most recent activities: `total` of them, the\noldest on `oldest`.",
-                "properties": {
-                  "kind": {
-                    "const": "recent_activities",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind"
-                ],
-                "type": "object"
-              },
-              {
-                "description": "Only the activities of the last `days` days, ending now.",
-                "properties": {
-                  "days": {
-                    "description": "Length of the window, in days.",
-                    "format": "uint32",
-                    "minimum": 0,
-                    "type": "integer"
-                  },
-                  "kind": {
-                    "const": "last_days",
-                    "type": "string"
-                  }
-                },
-                "required": [
-                  "kind",
-                  "days"
                 ],
                 "type": "object"
               },
@@ -28447,6 +28299,1351 @@
       },
       "execution": {
         "taskSupport": "optional"
+      }
+    },
+    {
+      "name": "query_activities",
+      "description": "Count and sum workouts over any period, every source merged; for every count, total or breakdown. Read coverage before quoting; unknown is never a no. If a figure is disputed, call again and say which filter changed.",
+      "inputSchema": {
+        "properties": {
+          "athlete": {
+            "description": "Roster name of an athlete you coach who shares their training with you: reads theirs instead of yours.",
+            "type": "string"
+          },
+          "format": {
+            "description": "'json' (default) or 'toon' (compact).",
+            "type": "string"
+          },
+          "from": {
+            "description": "YYYY-MM-DD; omit for all history.",
+            "type": "string"
+          },
+          "gear": {
+            "description": "Gear id or name.",
+            "type": "string"
+          },
+          "group_by": {
+            "description": "Up to 2 of year, month, week, sport_type, sport_family, place, gear.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "has_segment": {
+            "description": "Segment id or name.",
+            "type": "string"
+          },
+          "max_distance_km": {
+            "description": "Most km.",
+            "type": "number"
+          },
+          "metrics": {
+            "description": "count, distance_km, moving_time_s, elapsed_time_s, elevation_m, avg_hr.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "min_distance_km": {
+            "description": "Least km.",
+            "type": "number"
+          },
+          "name_contains": {
+            "description": "Text in the name.",
+            "type": "string"
+          },
+          "place_id": {
+            "description": "Place ids.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "provider": {
+            "description": "One source only.",
+            "type": "string"
+          },
+          "sport_family": {
+            "description": "running, cycling, swimming, other.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "sport_type": {
+            "description": "Sports, e.g. TrailRunning.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "to": {
+            "description": "YYYY-MM-DD; default today.",
+            "type": "string"
+          },
+          "trainer": {
+            "description": "Indoor trainer or not.",
+            "type": "boolean"
+          },
+          "workout_type": {
+            "description": "race, long_run, workout.",
+            "items": {
+              "description": "One value.",
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "outputSchema": {
+        "$defs": {
+          "AppliedQuery": {
+            "description": "The filters, breakdown and metrics a count ran, after aliases and\ndefaults: what a corrected call is compared against. Athlete text is\nechoed as one display line.",
+            "properties": {
+              "from": {
+                "description": "First day, `YYYY-MM-DD`; absent for the whole stored history.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "gear": {
+                "description": "Gear id or text its name holds.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "group_by": {
+                "description": "What the count is broken down by.",
+                "items": {
+                  "$ref": "#/$defs/GroupKey"
+                },
+                "type": "array"
+              },
+              "has_segment": {
+                "description": "The segment: its id, or the folded text its name holds.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "max_distance_km": {
+                "description": "Most distance, km.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "metrics": {
+                "description": "What it sums.",
+                "items": {
+                  "$ref": "#/$defs/QueryMetric"
+                },
+                "type": "array"
+              },
+              "min_distance_km": {
+                "description": "Least distance, km.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "name_contains": {
+                "description": "Text the activity name holds.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "place_id": {
+                "description": "Place ids.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "provider": {
+                "description": "The one source counted; `null` for every source.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sport_family": {
+                "description": "Sport families.",
+                "items": {
+                  "$ref": "#/$defs/SportFamily"
+                },
+                "type": "array"
+              },
+              "sport_type": {
+                "description": "Sports, resolved from their aliases.",
+                "items": {
+                  "$ref": "#/$defs/SportType"
+                },
+                "type": "array"
+              },
+              "to": {
+                "description": "Last day, `YYYY-MM-DD`, included.",
+                "format": "date",
+                "type": "string"
+              },
+              "trainer": {
+                "description": "The trainer flag asked.",
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
+              "workout_type": {
+                "description": "Workout tags.",
+                "items": {
+                  "$ref": "#/$defs/WorkoutTag"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "to",
+              "provider",
+              "group_by",
+              "metrics"
+            ],
+            "type": "object"
+          },
+          "Coverage": {
+            "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
+            "properties": {
+              "complete": {
+                "description": "Whether every activity of the asked window was read.",
+                "type": "boolean"
+              },
+              "incomplete_reason": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/IncompleteReason"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Why the window is incomplete; absent when it is complete."
+              },
+              "note": {
+                "description": "What may and may not be claimed from the window; absent when nothing\nqualifies it.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "pending": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/Pending"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The history walk still owed for the window, when one is."
+              },
+              "trustworthy_from": {
+                "description": "The first day the stored history stands behind, `YYYY-MM-DD`, when it\nstarts later than the window asked.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "window": {
+                "$ref": "#/$defs/CoverageWindow",
+                "description": "What the window spans."
+              }
+            },
+            "required": [
+              "complete",
+              "window"
+            ],
+            "type": "object"
+          },
+          "CoverageWindow": {
+            "description": "What a served window spans.",
+            "properties": {
+              "asked_from": {
+                "description": "First day asked for, `YYYY-MM-DD`; absent when the ask had no start.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "asked_to": {
+                "description": "Last day asked for, `YYYY-MM-DD`; absent when the ask ran to now.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "newest": {
+                "description": "The newest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "oldest": {
+                "description": "The oldest day the window holds an activity on, `YYYY-MM-DD`.",
+                "format": "date",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "returned": {
+                "default": 0,
+                "description": "Entries this payload returns: activities, or days of a daily series.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scope": {
+                "$ref": "#/$defs/WindowScope",
+                "default": {
+                  "kind": "asked"
+                },
+                "description": "Which activities the window spans."
+              },
+              "total": {
+                "description": "Activities the window holds, before any display limit; absent when\nthe reader does not count them.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "total_is_lower_bound": {
+                "description": "Whether `total` is only a lower bound: the read filled its row cap, so\nthe window may hold more.",
+                "type": "boolean"
+              },
+              "totals": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/WindowTotals"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The window's totals, when the reader summed them."
+              },
+              "unstored": {
+                "description": "Entries this payload returns that the store does not hold, so\n`total` and `totals`, counted from the store, leave them out.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "scope",
+              "returned"
+            ],
+            "type": "object"
+          },
+          "GroupKey": {
+            "description": "What a count is broken down by.",
+            "oneOf": [
+              {
+                "const": "year",
+                "description": "The athlete's civil year.",
+                "type": "string"
+              },
+              {
+                "const": "month",
+                "description": "The athlete's civil month, `YYYY-MM`.",
+                "type": "string"
+              },
+              {
+                "const": "week",
+                "description": "The Monday-to-Sunday week, by its Monday, `YYYY-MM-DD`.",
+                "type": "string"
+              },
+              {
+                "const": "sport_type",
+                "description": "The sport, as the store spells it.",
+                "type": "string"
+              },
+              {
+                "const": "sport_family",
+                "description": "The sport family: running, cycling, swimming or other.",
+                "type": "string"
+              },
+              {
+                "const": "place",
+                "description": "The place the workout starts at, by its id.",
+                "type": "string"
+              },
+              {
+                "const": "gear",
+                "description": "The gear the provider recorded, by its id (else its name).",
+                "type": "string"
+              }
+            ]
+          },
+          "IncompleteReason": {
+            "description": "Why a served window is not the whole truth for the window asked.",
+            "oneOf": [
+              {
+                "const": "live_read_running",
+                "description": "The live read outlived the turn's budget; the cached window answered\nand the read runs on.",
+                "type": "string"
+              },
+              {
+                "const": "read_capped",
+                "description": "The read stopped at its row cap, so older activities were not read.",
+                "type": "string"
+              },
+              {
+                "const": "unstored_rows",
+                "description": "Some activities the payload shows are not in the store, so the\nstore's count of the window (`window.total`, `window.totals`) leaves\nthem out; `window.unstored` says how many.",
+                "type": "string"
+              },
+              {
+                "const": "provider_unavailable",
+                "description": "The provider could not be read; what it last synced answered.",
+                "type": "string"
+              },
+              {
+                "const": "history_walk_running",
+                "description": "The athlete's history walk has not reached the start of the window\nyet; the store answered with what it holds so far.",
+                "type": "string"
+              },
+              {
+                "const": "shallow_history",
+                "description": "The stored history begins too late to stand behind the whole window:\nonly `[trustworthy_from, asked_to]` is answered.",
+                "type": "string"
+              },
+              {
+                "const": "no_stored_activities",
+                "description": "Nothing stored covers the window, so nothing was computed.",
+                "type": "string"
+              },
+              {
+                "const": "segment_detail_walking",
+                "description": "The window's activities are stored, but the segment efforts of some\nwere never read; the detail walk reading them runs on\n([`Pending::DetailWalkRunning`]).",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "A detail walk ended over the window, and the segment efforts of\n`unreadable` of its activities could not be read: the walk tried them\nand the backend answered nothing for them. Any other activity of the\nwindow whose efforts were not read is held only in the athlete's own\nexport, which no walk reads.",
+                "properties": {
+                  "segment_detail_partial": {
+                    "properties": {
+                      "unreadable": {
+                        "description": "Activities of the window a walk tried whose segment efforts the\nbackend could not read.",
+                        "format": "uint64",
+                        "minimum": 0,
+                        "type": "integer"
+                      }
+                    },
+                    "required": [
+                      "unreadable"
+                    ],
+                    "type": "object"
+                  }
+                },
+                "required": [
+                  "segment_detail_partial"
+                ],
+                "type": "object"
+              },
+              {
+                "const": "segment_detail_unread",
+                "description": "The segment efforts of some of the window's activities were not read,\nand this answer started no read of them: they are held only in the\nathlete's own export, which no walk reads, or the walk could not be\nrecorded, or this transport asks none. Nothing tried them, so none is\nsaid to be unreadable.",
+                "type": "string"
+              },
+              {
+                "const": "segment_detail_unavailable",
+                "description": "No backend the athlete holds reads segment efforts: they are read\nfrom Strava, through a Strava connection or a signed-in Strava\nsession, and this athlete has neither.",
+                "type": "string"
+              }
+            ]
+          },
+          "KeyValue": {
+            "anyOf": [
+              {
+                "description": "A civil year.",
+                "format": "int32",
+                "type": "integer"
+              },
+              {
+                "description": "Any other key: a month, a week's Monday, a sport, a place id, a gear\nid, or `unknown`.",
+                "type": "string"
+              }
+            ],
+            "description": "One group's value for one key: a civil year, or a text key."
+          },
+          "MetricValues": {
+            "description": "The sums asked for; a metric not asked for is absent.\n\nHeld exact, so a caller summing or converting them loses nothing, and\nserialized with one decimal on distance, climbing and heart rate, as a\nwindow's totals are.",
+            "properties": {
+              "avg_hr": {
+                "description": "Average heart rate, weighted by moving time, else elapsed time.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "avg_hr_sessions": {
+                "description": "Workouts that recorded an average heart rate.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "count": {
+                "description": "Workouts.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "distance_km": {
+                "description": "Kilometres, over the workouts that record a distance.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_time_s": {
+                "description": "Elapsed seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "elevation_m": {
+                "description": "Metres climbed, over the workouts that record it.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "moving_time_s": {
+                "description": "Moving seconds, over the workouts that report moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "moving_time_sessions": {
+                "description": "Workouts that reported moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
+          "Pending": {
+            "description": "What is still owed for a window: the history walk that would fill it with\nactivities, or the detail walk that reads the segment efforts of the\nactivities it holds.",
+            "oneOf": [
+              {
+                "description": "No walk of the athlete's history has run yet; one has been asked for.",
+                "properties": {
+                  "kind": {
+                    "const": "history_not_walked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A walk of the athlete's history is running.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk reaches its floor at the pace its steps\nmeasured; absent until a step measured one or the floor is known.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "history_walk_running",
+                    "type": "string"
+                  },
+                  "months_done": {
+                    "description": "Months of history walked so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "months_total": {
+                    "description": "Months the walk has to cover; absent while its floor is not known.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "months_done"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "A detail walk is reading the segment efforts of the window's\nactivities, newest first.",
+                "properties": {
+                  "eta_secs": {
+                    "description": "Seconds until the walk has read them all at its pace; absent\nuntil it has a total and a pace.",
+                    "format": "uint64",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  },
+                  "kind": {
+                    "const": "detail_walk_running",
+                    "type": "string"
+                  },
+                  "units_done": {
+                    "description": "Activities the walk has read so far.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": "integer"
+                  },
+                  "units_total": {
+                    "description": "Activities the walk has to read; absent while not counted.",
+                    "format": "uint32",
+                    "minimum": 0,
+                    "type": [
+                      "integer",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "kind",
+                  "units_done"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "QueryAnswer": {
+            "description": "A count's answer.",
+            "properties": {
+              "applied": {
+                "$ref": "#/$defs/AppliedQuery",
+                "description": "The filters, breakdown and metrics the count ran."
+              },
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "Whether the count is the whole truth for the window, over every\nsource."
+              },
+              "coverage_by_source": {
+                "description": "Each source's part of it.",
+                "items": {
+                  "$ref": "#/$defs/SourceReach"
+                },
+                "type": "array"
+              },
+              "garmin_contribution": {
+                "description": "What Garmin-sourced data contributed to the counted workouts.",
+                "enum": [
+                  "sole",
+                  "part",
+                  null
+                ],
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "groups": {
+                "description": "The groups, at most [`MAX_GROUPS`], the largest by count.",
+                "items": {
+                  "$ref": "#/$defs/QueryGroup"
+                },
+                "type": "array"
+              },
+              "groups_total": {
+                "description": "Every group there was.",
+                "format": "uint",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "groups_truncated": {
+                "description": "Whether groups were cut.",
+                "type": "boolean"
+              },
+              "totals": {
+                "$ref": "#/$defs/MetricValues",
+                "description": "The sums over every counted workout."
+              },
+              "unknown": {
+                "$ref": "#/$defs/UnknownCounts",
+                "description": "Workouts a filter could not judge, per field: never a miss."
+              }
+            },
+            "required": [
+              "applied",
+              "totals",
+              "groups",
+              "groups_total",
+              "groups_truncated",
+              "unknown",
+              "coverage",
+              "coverage_by_source",
+              "garmin_contribution"
+            ],
+            "type": "object"
+          },
+          "QueryGroup": {
+            "description": "One group of a broken-down count.",
+            "properties": {
+              "avg_hr": {
+                "description": "Average heart rate, weighted by moving time, else elapsed time.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "avg_hr_sessions": {
+                "description": "Workouts that recorded an average heart rate.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "count": {
+                "description": "Workouts.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "distance_km": {
+                "description": "Kilometres, over the workouts that record a distance.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_time_s": {
+                "description": "Elapsed seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "elevation_m": {
+                "description": "Metres climbed, over the workouts that record it.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "key": {
+                "additionalProperties": {
+                  "$ref": "#/$defs/KeyValue"
+                },
+                "description": "The group's value for each key it is broken down by.",
+                "type": "object"
+              },
+              "label": {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "description": "A readable name for a place or gear key, when there is one this\nreader may see.",
+                "type": "object"
+              },
+              "moving_time_s": {
+                "description": "Moving seconds, over the workouts that report moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "moving_time_sessions": {
+                "description": "Workouts that reported moving time.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "key"
+            ],
+            "type": "object"
+          },
+          "QueryMetric": {
+            "description": "What a count sums.",
+            "oneOf": [
+              {
+                "const": "count",
+                "description": "Workouts.",
+                "type": "string"
+              },
+              {
+                "const": "distance_km",
+                "description": "Kilometres, over the workouts that record a distance.",
+                "type": "string"
+              },
+              {
+                "const": "moving_time_s",
+                "description": "Moving seconds, over the workouts that report moving time.",
+                "type": "string"
+              },
+              {
+                "const": "elapsed_time_s",
+                "description": "Elapsed seconds.",
+                "type": "string"
+              },
+              {
+                "const": "elevation_m",
+                "description": "Metres climbed, over the workouts that record it.",
+                "type": "string"
+              },
+              {
+                "const": "avg_hr",
+                "description": "Average heart rate, weighted by moving time (else elapsed time).",
+                "type": "string"
+              }
+            ]
+          },
+          "SourceReach": {
+            "description": "One source's part of a window counted across the athlete's sources.\n\nThe copies it holds in the window, before the copies of one workout are\nmerged, and how far its own history stands behind the window.\n\nA list of these sits beside the one [`Coverage`] of a merged count\n(`coverage_by_source`), each carrying a [`Coverage`] of its own rather\nthan a coverage field of its own: completeness, reason, the vouched day,\nthe walk owed and the note are that one type's. Its `window.oldest` and\n`window.newest` are this source's own rows in the window.",
+            "properties": {
+              "copies": {
+                "description": "Rows of this source in the window, before the merge.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "coverage": {
+                "$ref": "#/$defs/Coverage",
+                "description": "How far this source's history stands behind the window."
+              },
+              "source": {
+                "description": "The source as the athlete knows it (a provider's user-facing name),\nnever an internal storage key.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "copies",
+              "coverage"
+            ],
+            "type": "object"
+          },
+          "SportFamily": {
+            "description": "The family a session belongs to, for questions that care whether an\nathlete trains one discipline or several — not for anything that needs\nthe discipline itself.\n\nVirtual and terrain variants fold into their family: a trainer ride is\ncycling, a trail run is running. Everything without a family of its own\n— walking, hiking, gym work, snow sports — is `Other`, so a runner who\nalso hikes is still single-sport.",
+            "oneOf": [
+              {
+                "const": "running",
+                "description": "Running, on any surface, real or virtual.",
+                "type": "string"
+              },
+              {
+                "const": "cycling",
+                "description": "Cycling, on any bike, real or virtual.",
+                "type": "string"
+              },
+              {
+                "const": "swimming",
+                "description": "Swimming.",
+                "type": "string"
+              },
+              {
+                "const": "other",
+                "description": "Anything without a family of its own.",
+                "type": "string"
+              }
+            ]
+          },
+          "SportType": {
+            "description": "Enumeration of supported sport/activity types\n\nThis enum covers the most common fitness activities across all providers.\nThe `Other` variant handles provider-specific activity types that don't\nmap to the standard categories.",
+            "oneOf": [
+              {
+                "const": "run",
+                "description": "Running activity",
+                "type": "string"
+              },
+              {
+                "const": "ride",
+                "description": "Cycling/biking activity",
+                "type": "string"
+              },
+              {
+                "const": "swim",
+                "description": "Swimming activity",
+                "type": "string"
+              },
+              {
+                "const": "walk",
+                "description": "Walking activity",
+                "type": "string"
+              },
+              {
+                "const": "hike",
+                "description": "Hiking activity",
+                "type": "string"
+              },
+              {
+                "const": "virtual_ride",
+                "description": "Indoor/trainer cycling activity",
+                "type": "string"
+              },
+              {
+                "const": "virtual_run",
+                "description": "Treadmill running activity",
+                "type": "string"
+              },
+              {
+                "const": "workout",
+                "description": "Generic workout/exercise activity",
+                "type": "string"
+              },
+              {
+                "const": "yoga",
+                "description": "Yoga practice",
+                "type": "string"
+              },
+              {
+                "const": "ebike_ride",
+                "description": "Electric bike ride",
+                "type": "string"
+              },
+              {
+                "const": "mountain_bike",
+                "description": "Mountain biking activity",
+                "type": "string"
+              },
+              {
+                "const": "gravel_ride",
+                "description": "Gravel cycling activity",
+                "type": "string"
+              },
+              {
+                "const": "cross_country_skiing",
+                "description": "Cross-country skiing",
+                "type": "string"
+              },
+              {
+                "const": "alpine_skiing",
+                "description": "Alpine/downhill skiing",
+                "type": "string"
+              },
+              {
+                "const": "snowboarding",
+                "description": "Snowboarding activity",
+                "type": "string"
+              },
+              {
+                "const": "snowshoe",
+                "description": "Snowshoeing activity",
+                "type": "string"
+              },
+              {
+                "const": "ice_skating",
+                "description": "Ice skating activity",
+                "type": "string"
+              },
+              {
+                "const": "backcountry_skiing",
+                "description": "Backcountry skiing",
+                "type": "string"
+              },
+              {
+                "const": "kayaking",
+                "description": "Kayaking activity",
+                "type": "string"
+              },
+              {
+                "const": "canoeing",
+                "description": "Canoeing activity",
+                "type": "string"
+              },
+              {
+                "const": "rowing",
+                "description": "Rowing activity",
+                "type": "string"
+              },
+              {
+                "const": "paddleboarding",
+                "description": "Stand-up paddleboarding",
+                "type": "string"
+              },
+              {
+                "const": "surfing",
+                "description": "Surfing activity",
+                "type": "string"
+              },
+              {
+                "const": "kitesurfing",
+                "description": "Kitesurfing activity",
+                "type": "string"
+              },
+              {
+                "const": "strength_training",
+                "description": "Weight/strength training",
+                "type": "string"
+              },
+              {
+                "const": "crossfit",
+                "description": "`CrossFit` workout",
+                "type": "string"
+              },
+              {
+                "const": "pilates",
+                "description": "Pilates session",
+                "type": "string"
+              },
+              {
+                "const": "rock_climbing",
+                "description": "Rock climbing activity",
+                "type": "string"
+              },
+              {
+                "const": "trail_running",
+                "description": "Trail running",
+                "type": "string"
+              },
+              {
+                "const": "soccer",
+                "description": "Soccer/football",
+                "type": "string"
+              },
+              {
+                "const": "basketball",
+                "description": "Basketball",
+                "type": "string"
+              },
+              {
+                "const": "tennis",
+                "description": "Tennis",
+                "type": "string"
+              },
+              {
+                "const": "golf",
+                "description": "Golf",
+                "type": "string"
+              },
+              {
+                "const": "skateboarding",
+                "description": "Skateboarding",
+                "type": "string"
+              },
+              {
+                "const": "inline_skating",
+                "description": "Inline skating",
+                "type": "string"
+              },
+              {
+                "additionalProperties": false,
+                "description": "Other activity type not covered by standard categories",
+                "properties": {
+                  "other": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "other"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "UnknownCounts": {
+            "description": "Workouts a filter could not judge for lack of the field it needs, per\nfield: never counted as a miss.",
+            "properties": {
+              "gear": {
+                "description": "Workouts that name no gear.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "has_segment": {
+                "description": "Workouts whose segments were never read, or that no detail walk reads.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "place": {
+                "description": "Workouts that belong to no place.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "trainer": {
+                "description": "Workouts with no trainer flag.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "workout_type": {
+                "description": "Workouts with no workout code.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "has_segment",
+              "place",
+              "gear",
+              "trainer",
+              "workout_type"
+            ],
+            "type": "object"
+          },
+          "WindowScope": {
+            "description": "Which activities a window spans.\n\nSerialized with a `kind` tag. Every count, total and history answers the\nwindow its caller asked for ([`Self::Asked`]), an all-time one included;\na segments read counts that window in segment reads\n([`Self::SegmentsRead`]). No provider's sample is read as a lifetime\nfigure (carnet#919): the totals are summed from the stored history, and\nits completeness says how far back that history reaches.",
+            "oneOf": [
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`.",
+                "properties": {
+                  "kind": {
+                    "const": "asked",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "The window the caller asked for, `[asked_from, asked_to]`, counted in\nsegment reads: `total` is every activity in it, `returned` those whose\nsegment efforts were read (`get_segment_history`).",
+                "properties": {
+                  "kind": {
+                    "const": "segments_read",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind"
+                ],
+                "type": "object"
+              }
+            ]
+          },
+          "WindowTotals": {
+            "description": "Count, distance, duration and climb summed over a whole window, taken\nbefore a display limit truncates it.\n\nA year-against-year question is answered from these, not from the shown\nslice: with a display limit of 20, a 63-ride 2011 read as its last three\nDecember rides (carnet#874). Serialized with distance and elevation to one\ndecimal and the duration exact, which the agent quotes and derives pace\nfrom (carnet#1015).",
+            "properties": {
+              "count": {
+                "description": "Activities in the window.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "distance_km": {
+                "description": "Summed distance in kilometres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              },
+              "duration_seconds": {
+                "description": "Summed duration in seconds, exact.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "elevation_gain_m": {
+                "description": "Summed elevation gain in metres, over the activities that report one.",
+                "format": "double",
+                "type": "number"
+              }
+            },
+            "required": [
+              "count",
+              "distance_km",
+              "duration_seconds",
+              "elevation_gain_m"
+            ],
+            "type": "object"
+          },
+          "WorkoutTag": {
+            "description": "A workout's kind, from the provider's workout code. Strava's codes: 1\nand 11 a race, 2 a long run, 3 and 12 a workout; 0 and 10 none of them.",
+            "oneOf": [
+              {
+                "const": "race",
+                "description": "A race.",
+                "type": "string"
+              },
+              {
+                "const": "long_run",
+                "description": "A long run.",
+                "type": "string"
+              },
+              {
+                "const": "workout",
+                "description": "A structured workout.",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "anyOf": [
+          {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/QueryAnswer",
+                "description": "`format=json`, the default: the tool's own shape, unchanged."
+              },
+              {
+                "description": "`format=toon`: the payload rendered as one compact TOON string.",
+                "properties": {
+                  "format": {
+                    "description": "Always `toon`.",
+                    "type": "string"
+                  },
+                  "toon": {
+                    "description": "The rendered payload.",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "toon",
+                  "format"
+                ],
+                "type": "object"
+              },
+              {
+                "description": "TOON was asked for and could not be produced. The payload still arrives,\nas JSON, and says why it is not what was requested — a caller that\nsilently received JSON would parse it as TOON and fail further away.",
+                "properties": {
+                  "format": {
+                    "description": "Always `json`.",
+                    "type": "string"
+                  },
+                  "format_error": {
+                    "description": "Why TOON rendering failed.",
+                    "type": "string"
+                  },
+                  "format_fallback": {
+                    "description": "Always true; present so the fallback is detectable on its own.",
+                    "type": "boolean"
+                  },
+                  "result": {
+                    "$ref": "#/$defs/QueryAnswer",
+                    "description": "The payload, unformatted."
+                  }
+                },
+                "required": [
+                  "result",
+                  "format",
+                  "format_fallback",
+                  "format_error"
+                ],
+                "type": "object"
+              }
+            ],
+            "type": "object"
+          },
+          {
+            "properties": {
+              "connect_url": {
+                "type": "string"
+              },
+              "connected": {
+                "const": false
+              },
+              "message": {
+                "type": "string"
+              },
+              "providers": {
+                "items": {
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "note": {
+                      "type": "string"
+                    },
+                    "readable_here": {
+                      "type": "boolean"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "name",
+                    "status",
+                    "readable_here"
+                  ],
+                  "type": "object"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "connected",
+              "message",
+              "providers"
+            ],
+            "type": "object"
+          }
+        ],
+        "description": "A tool payload after the caller's `format` argument has been applied.\n\nWhich shape arrives depends on the REQUEST rather than the data, which is\nwhy this is a type rather than three call sites deciding for themselves:\n`format=json` sends the tool's own shape, `format=toon` sends a compact\nstring envelope, and a TOON conversion that fails falls back to JSON while\nsaying so. Untagged, so the derived schema is an `anyOf` over exactly\nthose three arms — schemars emits `anyOf` for an untagged enum, not\n`oneOf`, so the schema does not itself assert the arms are mutually\nexclusive. A client tells them apart by the keys: `toon` and `result` are\nthe envelope's, and they are fixed rather than per-tool for that reason.\n\nThe envelope keys are fixed (`toon`, `result`) rather than derived from a\nper-tool `data_key`. A property name that changes per tool cannot be stated\nin a schema, so the old `result_toon` / `recipes_toon` / `recipe_toon` /\n`results_toon` spelling is gone — the key no longer carries information the\ntool name already gives, and the contract is now expressible.",
+        "title": "Formatted",
+        "type": "object"
+      },
+      "annotations": {
+        "title": "Query activities",
+        "readOnlyHint": true,
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false
       }
     },
     {

@@ -79,10 +79,9 @@ use crate::constants::oauth::{
 use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult, ErrorCode};
 use crate::http_client::{shared_client, SharedHttpClient};
-use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
 use crate::models::{
-    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind, Stats, TimeSeriesData,
+    Activity, Athlete, CalendarEventRef, PlannedSession, PlannedSessionKind, TimeSeriesData,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::request_budget;
@@ -624,17 +623,6 @@ impl FitnessProvider for GarminProvider {
             .await
     }
 
-    /// Totals over the pushed activities Dravr holds. Garmin pushes from the
-    /// connection onward and serves no aggregate, so these cover what was
-    /// pushed, never a lifetime.
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let activities = self.cached()?.all().await?;
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
-    }
-
     /// Garmin files every workout of Dravr's under the provider and source
     /// [`WORKOUT_PROVIDER`] and keeps no per-entry key, so that tag is the key
     /// its calendar stores for every entry: the reconcile pairs it with a lost
@@ -969,7 +957,6 @@ mod tests {
         for result in [
             provider.get_activities(Some(10), None).await.map(|_| ()),
             provider.get_activity("1001").await.map(|_| ()),
-            provider.get_stats().await.map(|_| ()),
             provider.get_activity_streams("1001").await.map(|_| ()),
         ] {
             let err = result.expect_err("no stores, no read");
@@ -1151,36 +1138,6 @@ mod tests {
                 .expect("read"),
             Some(samples),
             "bug: the upload's samples stay under its own key"
-        );
-    }
-
-    #[tokio::test]
-    async fn stats_sum_the_pushed_activities_and_say_so() {
-        let seeded = seeded().await;
-        let provider = bound(seeded.stores);
-        let stats = provider.get_stats().await.expect("stats");
-
-        assert_eq!(stats.total_activities, 2, "bug: both pushed activities");
-        assert!(
-            (stats.total_distance - 60_000.0).abs() < f64::EPSILON,
-            "bug: distance sum {}",
-            stats.total_distance
-        );
-        assert_eq!(stats.total_duration, 7_200, "bug: duration sum");
-        assert!(
-            (stats.total_elevation_gain - 500.0).abs() < f64::EPSILON,
-            "bug: elevation sum {}",
-            stats.total_elevation_gain
-        );
-        let window = &stats.coverage.window;
-        assert_eq!(
-            (window.scope, window.total, window.oldest),
-            (
-                WindowScope::RecentActivities,
-                Some(2),
-                Some(seeded.ride_start.date_naive())
-            ),
-            "bug: pushed totals are a sample of the pushed rows, from the oldest"
         );
     }
 

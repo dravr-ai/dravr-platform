@@ -587,7 +587,7 @@ mod tests {
     use chrono::{Duration, Utc};
     use pierre_core::errors::{AppError, AppResult};
     use pierre_core::models::activity::ActivityBuilder;
-    use pierre_core::models::{Athlete, SportType, Stats};
+    use pierre_core::models::{Athlete, SportType};
     use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials, ProviderConfig};
     use pierre_providers::pagination::{CursorPage, PaginationParams};
     use pierre_providers::CoreFitnessProvider;
@@ -714,10 +714,6 @@ mod tests {
 
         async fn get_activity(&self, id: &str) -> AppResult<Activity> {
             Err(AppError::not_found(format!("activity {id}")))
-        }
-
-        async fn get_stats(&self) -> AppResult<Stats> {
-            Err(AppError::internal("not read by this test"))
         }
     }
 

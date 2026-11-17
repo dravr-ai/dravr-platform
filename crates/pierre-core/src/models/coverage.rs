@@ -15,7 +15,7 @@
 //!
 //! [`Coverage`] is the one shape every reader serves that answer in: the
 //! `get_activities` sidecar, the training-history series, the volume weeks and
-//! a provider's aggregate totals. It says whether the window is complete
+//! the `get_stats` and `query_activities` totals. It says whether the window is complete
 //! ([`Completeness`]), what it spans ([`CoverageWindow`]), the first day the
 //! stored history stands behind (`trustworthy_from`), and the walk still owed
 //! for it ([`Pending`]): the history walk that copies the athlete's history
@@ -39,6 +39,10 @@ pub enum IncompleteReason {
     LiveReadRunning,
     /// The read stopped at its row cap, so older activities were not read.
     ReadCapped,
+    /// Some activities the payload shows are not in the store, so the
+    /// store's count of the window (`window.total`, `window.totals`) leaves
+    /// them out; `window.unstored` says how many.
+    UnstoredRows,
     /// The provider could not be read; what it last synced answered.
     ProviderUnavailable,
     /// The athlete's history walk has not reached the start of the window
@@ -79,7 +83,7 @@ impl IncompleteReason {
     /// The sentence a model reads after "This window is INCOMPLETE:", when
     /// the reason has one of its own. `None` for a reason whose note is a
     /// whole sentence of its own ([`Self::ShallowHistory`],
-    /// [`Self::NoStoredActivities`]). English, like the rest of the note:
+    /// [`Self::NoStoredActivities`], [`Self::UnstoredRows`]). English, like the rest of the note:
     /// the model renders it in the athlete's language.
     #[must_use]
     pub const fn explanation(self) -> Option<&'static str> {
@@ -108,7 +112,7 @@ impl IncompleteReason {
             Self::SegmentDetailUnavailable => Some(
                 "segment efforts can't be read for this athlete yet; they are read from Strava, and this athlete has no Strava connection or sign-in",
             ),
-            Self::ShallowHistory | Self::NoStoredActivities => None,
+            Self::ShallowHistory | Self::NoStoredActivities | Self::UnstoredRows => None,
         }
     }
 }
@@ -141,26 +145,18 @@ impl Completeness {
 
 /// Which activities a window spans.
 ///
-/// Serialized with a `kind` tag. A tool that answers the window its caller
-/// asked for (`get_activities`, the training history) is [`Self::Asked`]; a
-/// provider's aggregate totals (`get_stats`) say which sample they were summed
-/// over, so a sample is never read as a lifetime figure (carnet#919).
+/// Serialized with a `kind` tag. Every count, total and history answers the
+/// window its caller asked for ([`Self::Asked`]), an all-time one included;
+/// a segments read counts that window in segment reads
+/// ([`Self::SegmentsRead`]). No provider's sample is read as a lifetime
+/// figure (carnet#919): the totals are summed from the stored history, and
+/// its completeness says how far back that history reaches.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum WindowScope {
     /// The window the caller asked for, `[asked_from, asked_to]`.
     #[default]
     Asked,
-    /// The athlete's whole history, as the provider's aggregate reports it.
-    Lifetime,
-    /// Only the provider's most recent activities: `total` of them, the
-    /// oldest on `oldest`.
-    RecentActivities,
-    /// Only the activities of the last `days` days, ending now.
-    LastDays {
-        /// Length of the window, in days.
-        days: u32,
-    },
     /// The window the caller asked for, `[asked_from, asked_to]`, counted in
     /// segment reads: `total` is every activity in it, `returned` those whose
     /// segment efforts were read (`get_segment_history`).
@@ -232,6 +228,16 @@ pub struct CoverageWindow {
     /// The window's totals, when the reader summed them.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub totals: Option<WindowTotals>,
+    /// Entries this payload returns that the store does not hold, so
+    /// `total` and `totals`, counted from the store, leave them out.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub unstored: u64,
+}
+
+/// Whether a count is zero, so its key is left off the wire.
+#[allow(clippy::trivially_copy_pass_by_ref)] // serde's `skip_serializing_if` passes a reference
+const fn is_zero(count: &u64) -> bool {
+    *count == 0
 }
 
 /// What is still owed for a window: the history walk that would fill it with
@@ -349,18 +355,6 @@ impl Coverage {
         }
     }
 
-    /// A provider's aggregate over the athlete's whole history, of `total`
-    /// activities.
-    #[must_use]
-    pub fn lifetime(total: u64) -> Self {
-        Self::complete(CoverageWindow {
-            scope: WindowScope::Lifetime,
-            total: Some(total),
-            returned: total,
-            ..CoverageWindow::default()
-        })
-    }
-
     /// Whether the window is complete.
     #[must_use]
     pub const fn is_complete(&self) -> bool {
@@ -374,16 +368,17 @@ impl Coverage {
     /// rows and forbids estimating them; a window of activities states its
     /// whole count and span, so the shown slice is never read as the
     /// athlete's history, and an incomplete one forbids stating a count as
-    /// fact. A provider's aggregate totals carry no note: the `get_stats`
-    /// description says how to read their scope.
+    /// fact; a segments window says how many of its activities had their
+    /// efforts read.
     #[must_use]
     pub fn note(&self) -> Option<String> {
         match self.completeness.reason() {
             Some(IncompleteReason::NoStoredActivities) => self.nothing_stored_note(),
             Some(IncompleteReason::ShallowHistory) => self.shallow_history_note(),
-            _ if self.window.scope == WindowScope::SegmentsRead => self.segments_read_note(),
-            _ if self.window.scope == WindowScope::Asked => self.activities_note(),
-            _ => None,
+            _ => match self.window.scope {
+                WindowScope::Asked => self.activities_note(),
+                WindowScope::SegmentsRead => self.segments_read_note(),
+            },
         }
     }
 
@@ -419,6 +414,8 @@ impl Coverage {
     }
 
     fn activities_note(&self) -> Option<String> {
+        use std::fmt::Write as _;
+
         let total = self.window.total?;
         let returned = self.window.returned;
         let reason = self.completeness.reason();
@@ -439,6 +436,18 @@ impl Coverage {
         } else {
             format!("This window holds {total_phrase} activities{span_phrase}.")
         };
+        let unstored = self.window.unstored;
+        if unstored > 0 {
+            let (rows, are, them) = if unstored == 1 {
+                ("activity", "is", "it")
+            } else {
+                ("activities", "are", "them")
+            };
+            let _ = write!(
+                note,
+                " {unstored} {rows} shown {are} not in the store yet, so this count and window.totals leave {them} out: do not state either as the whole window."
+            );
+        }
         if let Some(reason) = reason {
             match reason.explanation() {
                 Some(why) => {
@@ -451,10 +460,19 @@ impl Coverage {
             note.push_str(" Do not state a count, a total or \"nothing before\" for the period asked as fact: say which dates are covered and that the rest is not loaded.");
         }
         if self.window.totals.is_some() {
-            note.push_str(
-                " For totals or a comparison between periods, use window.totals, which covers \
-                 the whole window.",
-            );
+            // "The whole window" is only true of a complete count: an
+            // incomplete or unstored-short one is told the dates it covers.
+            if reason.is_none() && unstored == 0 {
+                note.push_str(
+                    " For totals or a comparison between periods, use window.totals, which \
+                     covers the whole window.",
+                );
+            } else {
+                note.push_str(
+                    " For totals or a comparison between periods, use window.totals, over \
+                     the dates it covers only.",
+                );
+            }
         }
         Some(note)
     }
@@ -512,6 +530,27 @@ impl Coverage {
         note.push_str(" Do not state an effort count, a best time or that the athlete never rode a segment in the period as fact: say how many activities were read and that the rest were not.");
         Some(note)
     }
+}
+
+/// One source's part of a window counted across the athlete's sources.
+///
+/// The copies it holds in the window, before the copies of one workout are
+/// merged, and how far its own history stands behind the window.
+///
+/// A list of these sits beside the one [`Coverage`] of a merged count
+/// (`coverage_by_source`), each carrying a [`Coverage`] of its own rather
+/// than a coverage field of its own: completeness, reason, the vouched day,
+/// the walk owed and the note are that one type's. Its `window.oldest` and
+/// `window.newest` are this source's own rows in the window.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct SourceReach {
+    /// The source as the athlete knows it (a provider's user-facing name),
+    /// never an internal storage key.
+    pub source: String,
+    /// Rows of this source in the window, before the merge.
+    pub copies: u64,
+    /// How far this source's history stands behind the window.
+    pub coverage: Coverage,
 }
 
 /// [`Coverage`] as it travels: completeness flattened to the `complete` and
@@ -695,8 +734,6 @@ mod tests {
     #[test]
     fn a_complete_window_omits_every_optional_key() -> TestResult {
         let coverage = Coverage::complete(CoverageWindow {
-            scope: WindowScope::Lifetime,
-            total: Some(150),
             returned: 150,
             ..CoverageWindow::default()
         });
@@ -705,16 +742,21 @@ mod tests {
             wire,
             json!({
                 "complete": true,
-                "window": { "scope": { "kind": "lifetime" }, "total": 150, "returned": 150 },
+                "window": { "scope": { "kind": "asked" }, "returned": 150 },
             }),
-            "bug: lifetime totals carry no note"
-        );
-        assert_eq!(
-            serde_json::to_value(WindowScope::LastDays { days: 90 })?,
-            json!({ "kind": "last_days", "days": 90 }),
-            "bug: a last-days scope is tagged and names its days"
+            "bug: a complete window with no count to state carries no note"
         );
         Ok(())
+    }
+
+    #[test]
+    fn a_provider_sample_scope_no_longer_parses() {
+        for kind in ["lifetime", "recent_activities", "last_days"] {
+            assert!(
+                serde_json::from_value::<WindowScope>(json!({ "kind": kind, "days": 90 })).is_err(),
+                "bug: the provider-only scope {kind} still parses"
+            );
+        }
     }
 
     #[test]
@@ -868,14 +910,29 @@ mod tests {
         let note = Coverage::complete(CoverageWindow {
             total: Some(13),
             returned: 13,
+            totals: Some(totals.clone()),
+            ..CoverageWindow::default()
+        })
+        .note()
+        .ok_or("no note")?;
+        assert!(
+            note.contains("use window.totals, which covers the whole window"),
+            "bug: the note points at the whole window's totals: {note}"
+        );
+
+        let short = Coverage::complete(CoverageWindow {
+            total: Some(12),
+            returned: 13,
+            unstored: 1,
             totals: Some(totals),
             ..CoverageWindow::default()
         })
         .note()
         .ok_or("no note")?;
         assert!(
-            note.contains("use window.totals"),
-            "bug: the note points at the whole window's totals: {note}"
+            !short.contains("covers the whole window")
+                && short.contains("over the dates it covers only"),
+            "bug: totals missing a shown row are called the whole window: {short}"
         );
         Ok(())
     }
@@ -1092,22 +1149,5 @@ mod tests {
             },
             "bug: no pace, no ETA"
         );
-    }
-
-    #[test]
-    fn a_sample_of_totals_carries_no_note() -> TestResult {
-        let coverage = Coverage::complete(CoverageWindow {
-            scope: WindowScope::RecentActivities,
-            oldest: Some(day(2026, 9, 1)?),
-            total: Some(30),
-            returned: 30,
-            ..CoverageWindow::default()
-        });
-        assert_eq!(
-            coverage.note(),
-            None,
-            "bug: a provider's sample of totals carries no note"
-        );
-        Ok(())
     }
 }

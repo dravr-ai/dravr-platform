@@ -22,6 +22,7 @@ use dravr_meteo::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
 };
+use dravr_tronc::mcp::schema::Tool;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
@@ -37,6 +38,10 @@ use pierre_providers::ProviderRegistry;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
+use pierre_tool_runtime::activity_query::{
+    parse_query, AppliedQuery, GroupKey, KeyValue, MetricValues, QueryAnswer, QueryGroup,
+    UnknownCounts,
+};
 use pierre_tool_runtime::conversions::output_schema_for;
 use pierre_tool_runtime::conversions::Formatted;
 use pierre_tool_runtime::implementations::activities_output::GetActivitiesResult;
@@ -110,6 +115,7 @@ use pierre_tool_runtime::implementations::connection::{
 use pierre_tool_runtime::implementations::continuous_series::{
     GetHeartRateSeriesTool, HeartRateSeriesResult, SeriesWindow,
 };
+use pierre_tool_runtime::implementations::data::create_data_tools;
 use pierre_tool_runtime::implementations::endurance_workouts::{
     ListWorkoutTemplatesTool, PrescribeWorkoutTool, WithdrawPrescribedWorkoutTool,
 };
@@ -4627,6 +4633,138 @@ fn the_toon_envelope_key_is_fixed_rather_than_named_after_the_tool() {
     assert!(
         keys.iter().any(|k| k == "toon"),
         "and it must carry the fixed toon key: {keys:?}"
+    );
+}
+
+/// A count's answer as it travels: a cross-tab, every metric, an incomplete
+/// coverage with a walk owed, and one source's reach.
+fn sample_query_answer() -> QueryAnswer {
+    use std::collections::BTreeMap;
+
+    use pierre_core::constants::oauth_providers::GarminContribution;
+    use pierre_core::models::coverage::{
+        Completeness, Coverage, CoverageWindow, IncompleteReason, Pending, SourceReach,
+        WindowScope, WindowTotals,
+    };
+
+    let day = |y, m, d| NaiveDate::from_ymd_opt(y, m, d).expect("a real day");
+    let values = MetricValues {
+        count: Some(12),
+        distance_km: Some(254.3),
+        moving_time_s: Some(36_000),
+        moving_time_sessions: Some(11),
+        elapsed_time_s: Some(38_000),
+        elevation_m: Some(1_840.5),
+        avg_hr: Some(142.4),
+        avg_hr_sessions: Some(10),
+    };
+    let query = parse_query(
+        &serde_json::json!({
+            "from": "2020-01-01",
+            "sport_type": ["TrailRunning"],
+            "group_by": ["year", "sport_type"],
+            "metrics": ["count", "distance_km", "moving_time_s", "elapsed_time_s",
+                        "elevation_m", "avg_hr"],
+        }),
+        day(2026, 11, 17),
+    )
+    .expect("the sample's arguments parse");
+    let coverage = Coverage {
+        completeness: Completeness::Incomplete(IncompleteReason::HistoryWalkRunning),
+        window: CoverageWindow {
+            scope: WindowScope::Asked,
+            asked_from: Some(day(2020, 1, 1)),
+            asked_to: Some(day(2026, 11, 17)),
+            oldest: Some(day(2022, 12, 3)),
+            newest: Some(day(2026, 11, 16)),
+            total: Some(12),
+            returned: 12,
+            totals: Some(WindowTotals {
+                count: 12,
+                distance_km: 254.3,
+                duration_seconds: 38_000,
+                elevation_gain_m: 1_840.5,
+            }),
+            ..CoverageWindow::default()
+        },
+        trustworthy_from: None,
+        pending: Some(Pending::HistoryNotWalked),
+    };
+    QueryAnswer {
+        applied: AppliedQuery::of(&query),
+        totals: values,
+        groups: vec![QueryGroup {
+            key: BTreeMap::from([
+                (GroupKey::Year, KeyValue::Year(2024)),
+                (
+                    GroupKey::SportType,
+                    KeyValue::Text("TrailRunning".to_owned()),
+                ),
+            ]),
+            label: BTreeMap::new(),
+            values,
+        }],
+        groups_total: 1,
+        groups_truncated: false,
+        unknown: UnknownCounts::default(),
+        coverage: coverage.clone(),
+        coverage_by_source: vec![SourceReach {
+            source: "strava".to_owned(),
+            copies: 14,
+            coverage,
+        }],
+        garmin_contribution: Some(GarminContribution::Part),
+        segments: None,
+    }
+}
+
+/// The tool registered under `name` among the data tools.
+fn data_tool(name: &str) -> Tool {
+    create_data_tools()
+        .into_iter()
+        .map(|tool| tool.definition())
+        .find(|definition| definition.name == name)
+        .unwrap_or_else(|| panic!("bug: {name} is not registered among the data tools"))
+}
+
+#[test]
+fn query_activities_declares_a_schema_that_accepts_its_payload() {
+    let sample = sample_query_answer();
+    assert_declares_and_accepts(
+        data_tool("query_activities").output_schema,
+        &output_schema_for::<Formatted<QueryAnswer>>(),
+        &Formatted::Json(sample),
+        "query_activities",
+    );
+}
+
+#[test]
+fn get_stats_declares_a_schema_that_accepts_its_view() {
+    use pierre_core::models::{PeriodTotals, Stats};
+
+    let answer = sample_query_answer();
+    let year = PeriodTotals {
+        total_activities: 3,
+        total_distance: 42_195.0,
+        total_duration: 12_000,
+        total_elevation_gain: 300.0,
+    };
+    let sample = GetStatsResult {
+        stats: Stats {
+            total_activities: 12,
+            total_distance: 254_300.0,
+            total_duration: 38_000,
+            total_elevation_gain: 1_840.5,
+            coverage: answer.coverage,
+            year_to_date: Some(year),
+        },
+        coverage_by_source: answer.coverage_by_source,
+    };
+    assert_declares_and_accepts(
+        data_tool("get_stats").output_schema,
+        &output_schema_for::<Formatted<GetStatsResult>>(),
+        &Formatted::Json(sample),
+        "get_stats",
     );
 }
 

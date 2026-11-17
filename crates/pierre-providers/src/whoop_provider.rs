@@ -23,9 +23,8 @@ use crate::constants::{api_provider_limits, oauth_providers};
 use crate::errors::{AppError, AppResult};
 use crate::http_client::{shared_client, SharedHttpClient};
 use crate::models::activity::utc_offset_seconds_if_civil;
-use crate::models::coverage::WindowScope;
 use crate::models::refresh_due;
-use crate::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
+use crate::models::{Activity, ActivityBuilder, Athlete, SportType};
 use crate::pagination::{Cursor, CursorPage, PaginationParams};
 use crate::request_budget;
 use crate::utils;
@@ -565,22 +564,6 @@ impl FitnessProvider for WhoopProvider {
         let endpoint = format!("activity/workout/{id}");
         let workout: WhoopWorkout = self.api_request(&endpoint).await?;
         Self::convert_workout(&workout)
-    }
-
-    #[instrument(skip(self), fields(provider = "whoop", api_call = "get_stats"))]
-    async fn get_stats(&self) -> AppResult<Stats> {
-        // WHOOP exposes no aggregate-stats endpoint, so derive the rollup from
-        // the available workouts (WHOOP returns the most recent page) rather than
-        // reporting synthetic zeros. Mirrors the Terra provider's
-        // compute-from-activities approach.
-        let activities = self
-            .get_activities_with_params(&ActivityQueryParams::with_pagination(None, None))
-            .await?;
-
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
     }
 }
 

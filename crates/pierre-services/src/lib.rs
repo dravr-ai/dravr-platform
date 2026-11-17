@@ -221,6 +221,9 @@ pub mod wellness_store;
 /// What the wellness store may keep of a WHOOP record: measurements, never WHOOP's own scores
 pub mod whoop_terms;
 
+/// The one row-level merge of stored activity copies into workouts, and the gates a read applies first
+pub mod workouts;
+
 /// Health sync's daily-summary reads, made on the dedicated sciotte scraper service
 #[cfg(feature = "health-sync")]
 pub mod sciotte_health_reader;

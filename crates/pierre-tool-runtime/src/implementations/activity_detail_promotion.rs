@@ -181,7 +181,7 @@ mod tests {
     use async_trait::async_trait;
     use chrono::{Duration, Utc};
     use pierre_core::errors::{AppError, AppResult, ErrorCode};
-    use pierre_core::models::{Activity, ActivityBuilder, Athlete, SportType, Stats};
+    use pierre_core::models::{Activity, ActivityBuilder, Athlete, SportType};
     use pierre_providers::core::{ActivityQueryParams, OAuth2Credentials, ProviderConfig};
     use pierre_providers::pagination::{CursorPage, PaginationParams};
     use pierre_providers::CoreFitnessProvider;
@@ -263,10 +263,6 @@ mod tests {
         async fn get_activity(&self, id: &str) -> AppResult<Activity> {
             self.asked.lock().unwrap().push(id.to_owned());
             Err(AppError::new(self.code, format!("detail of {id} refused")))
-        }
-
-        async fn get_stats(&self) -> AppResult<Stats> {
-            Err(AppError::internal("not read by this test"))
         }
     }
 

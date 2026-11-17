@@ -18,6 +18,7 @@ use std::sync::Arc;
 use chrono::{DateTime, NaiveDate, Utc};
 
 use serde_json::{json, Value};
+use tracing::warn;
 
 #[cfg(feature = "tools-data")]
 use pierre_core::models::coverage::Pending;
@@ -37,6 +38,7 @@ use uuid::Uuid;
 #[cfg(feature = "tools-data")]
 use crate::activity_fetch::{grant_window, serve_without_primary};
 use crate::activity_fetch::{FallbackServe, StaleReason};
+use crate::activity_query::{count_served_list, ServedList};
 #[cfg(feature = "tools-data")]
 use crate::context::ToolExecutionContext;
 use crate::runtime::ToolRuntime;
@@ -168,35 +170,105 @@ pub struct AskedWindow {
     pub before: Option<i64>,
 }
 
+/// What a served list's coverage counts: the store's count of the window it
+/// served ([`count_served_list`]), beside how many rows the list itself read.
+#[derive(Debug, Clone, Default)]
+pub struct WindowCount {
+    /// Activities the window holds, before any display limit; `None` when
+    /// nothing counted them.
+    pub total: Option<usize>,
+    /// Rows the list read, before its display limit. A read that filled the
+    /// durable read cap may have left older activities unread, so its count
+    /// is framed as a lower bound.
+    pub fetched: usize,
+    /// The oldest and newest day, in the athlete's zone, a counted activity
+    /// started on.
+    pub span: Option<(NaiveDate, NaiveDate)>,
+    /// Count, distance, duration and climb summed over the window.
+    pub totals: Option<WindowTotals>,
+    /// Served rows the store does not hold, left out of `total` and `totals`.
+    pub unstored: u64,
+}
+
+impl WindowCount {
+    /// The store's count of `list`, which read `list.served.len()` rows
+    /// before its display limit (carnet#1485, OQ6). A store that cannot be
+    /// read counts nothing, and is logged: the list is still served, with no
+    /// total, rather than a total the store did not make.
+    pub async fn of_served(
+        runtime: &Arc<dyn ToolRuntime>,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        list: ServedList<'_>,
+    ) -> Self {
+        let fetched = list.served.len();
+        match count_served_list(runtime, user_id, tenant_id, list).await {
+            Ok(counted) => Self {
+                total: Some(usize::try_from(counted.totals.count).unwrap_or(usize::MAX)),
+                fetched,
+                span: counted.span,
+                totals: Some(counted.totals),
+                unstored: counted.unstored,
+            },
+            Err(e) => {
+                warn!(%user_id, error = %e, "the served window could not be counted from the store; served with no total");
+                Self {
+                    fetched,
+                    ..Self::default()
+                }
+            }
+        }
+    }
+}
+
 /// Build the LLM-facing `coverage` sidecar for a served activity window.
 ///
-/// Present whenever the window's total is known or the window is incomplete.
-/// It says what was asked (`window.asked_from`/`asked_to`), what was served
-/// (`window.oldest`/`newest`, `window.total`, `returned`, and the window's
-/// `totals` when they were summed), and whether that is the whole truth for
-/// the ask (`complete`, with `incomplete_reason` when it is not). A count
-/// stated from an incomplete window is not a fact: the note says so in the
-/// words a model acts on (carnet#1481: 43 trail runs since 2020, counted from
-/// a 151-row cached window, were stated as fact). A window that filled the
-/// durable read cap holds at least its total, never exactly it.
+/// Present whenever the window's total is known and differs from what is
+/// shown, the window was asked by date, a shown row is not stored, or the
+/// window is incomplete. It says what was asked (`window.asked_from`/
+/// `asked_to`), what the window holds (`window.oldest`/`newest`,
+/// `window.total` and `totals`, the store's count), what this payload
+/// returns (`returned`, and `unstored` of those the store does not hold),
+/// and whether that is the whole truth for the ask (`complete`, with
+/// `incomplete_reason` when it is not). A window that would be complete but
+/// for shown rows the store does not hold is incomplete for that reason
+/// ([`IncompleteReason::UnstoredRows`]), so a reply quoting its count is
+/// re-asked; a window already short for another reason keeps that reason,
+/// and its note still names the unstored rows. A count stated from an incomplete
+/// window is not a fact: the note says so in the words a model acts on
+/// (carnet#1481: 43 trail runs since 2020, counted from a 151-row cached
+/// window, were stated as fact). A list whose read filled the durable read
+/// cap frames its count as a lower bound.
 ///
 /// Lives in the tool RESULT, not the tool's `input_schema`/description, so it
 /// adds no contremaitre drift; the model renders it in the user's language,
 /// so it needs no localized `messaging_strings` key.
 #[must_use]
 pub fn activity_coverage(
-    window_total: Option<usize>,
+    count: WindowCount,
     returned: usize,
-    window_span: Option<(NaiveDate, NaiveDate)>,
     asked: AskedWindow,
     completeness: Completeness,
-    totals: Option<WindowTotals>,
 ) -> Option<Coverage> {
-    if window_total.is_none() && completeness.is_complete() {
+    let WindowCount {
+        total,
+        fetched,
+        span,
+        totals,
+        unstored,
+    } = count;
+    let completeness = match completeness {
+        Completeness::Complete if unstored > 0 => {
+            Completeness::Incomplete(IncompleteReason::UnstoredRows)
+        }
+        other => other,
+    };
+    let whole = completeness.is_complete();
+    if total.is_none() && whole {
         return None;
     }
-    let total = window_total.unwrap_or(returned);
-    if total <= returned && completeness.is_complete() && asked.after.is_none() {
+    let total = total.unwrap_or(returned);
+    if total <= returned && whole && asked.after.is_none() {
         return None;
     }
     let count = |n: usize| u64::try_from(n).unwrap_or(u64::MAX);
@@ -211,12 +283,13 @@ pub fn activity_coverage(
             scope: WindowScope::Asked,
             asked_from: day(asked.after),
             asked_to: day(asked.before),
-            oldest: window_span.map(|(oldest, _)| oldest),
-            newest: window_span.map(|(_, newest)| newest),
+            oldest: span.map(|(oldest, _)| oldest),
+            newest: span.map(|(_, newest)| newest),
             total: Some(count(total)),
-            total_is_lower_bound: total >= HISTORICAL_WINDOW_READ_LIMIT,
+            total_is_lower_bound: fetched >= HISTORICAL_WINDOW_READ_LIMIT,
             returned: count(returned),
             totals,
+            unstored,
         },
         trustworthy_from: None,
         pending: None,

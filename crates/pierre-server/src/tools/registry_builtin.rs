@@ -199,10 +199,11 @@ const DATA_CLASSES: &[(&str, DataClass)] = &[
     ("estimate_lactate_thresholds", DataClass::Training),
     ("calculate_personalized_zones", DataClass::Training),
     ("get_user_configuration", DataClass::Training),
-    // The athlete's provider profile and totals, their connected sources and
+    // The athlete's provider profile, totals and counts, their connected sources and
     // how fresh each is.
     ("get_athlete", DataClass::Training),
     ("get_stats", DataClass::Training),
+    ("query_activities", DataClass::Training),
     ("list_data_sources", DataClass::Training),
     ("get_data_freshness", DataClass::Training),
     // The athlete's wellness: the sleep, recovery and readiness, health

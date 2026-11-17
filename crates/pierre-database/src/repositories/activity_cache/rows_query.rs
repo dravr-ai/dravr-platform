@@ -31,13 +31,35 @@ pub struct CachedRowsQuery<'keys> {
     pub below: Option<CachedRowCursor>,
 }
 
+/// The first instant both engines store and order correctly:
+/// 0001-01-01T00:00:00Z. PostgreSQL refuses a `timestamptz` before 4713 BC
+/// ("timestamp out of range"), and SQLite compares the RFC 3339 text, which
+/// sorts wrongly outside four-digit years.
+const STORABLE_FIRST_SECS: i64 = -62_135_596_800;
+
+/// The last second both engines store and order correctly:
+/// 9999-12-31T23:59:59Z.
+const STORABLE_LAST_SECS: i64 = 253_402_300_799;
+
+/// `instant`, moved inside the span both engines store, so an open-ended
+/// window (a chrono bound like `DateTime::<Utc>::MIN_UTC`) reads every row
+/// instead of failing on PostgreSQL.
+fn storable(instant: DateTime<Utc>) -> DateTime<Utc> {
+    let first =
+        DateTime::from_timestamp(STORABLE_FIRST_SECS, 0).unwrap_or(DateTime::<Utc>::MIN_UTC);
+    let last = DateTime::from_timestamp(STORABLE_LAST_SECS, 0).unwrap_or(DateTime::<Utc>::MAX_UTC);
+    instant.clamp(first, last)
+}
+
 impl<'keys> CachedRowsQuery<'keys> {
     /// Every key's rows in `[start, end]`, from the newest, at most `limit`.
+    /// Bounds past what the store can hold are moved to its edges, which
+    /// selects the same rows.
     #[must_use]
-    pub const fn window(start: DateTime<Utc>, end: DateTime<Utc>, limit: i64) -> Self {
+    pub fn window(start: DateTime<Utc>, end: DateTime<Utc>, limit: i64) -> Self {
         Self {
-            start,
-            end,
+            start: storable(start),
+            end: storable(end),
             limit,
             keys: None,
             ids: None,
@@ -94,5 +116,31 @@ impl CachedRowCursor {
             provider: row.provider.clone(),
             activity_id: row.activity.id().to_owned(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_open_ended_window_reads_inside_what_both_engines_store() {
+        let query = CachedRowsQuery::window(DateTime::<Utc>::MIN_UTC, DateTime::<Utc>::MAX_UTC, 10);
+        assert_eq!(
+            query.start.to_rfc3339(),
+            "0001-01-01T00:00:00+00:00",
+            "bug: a window from chrono's first instant reaches PostgreSQL out of range"
+        );
+        assert_eq!(
+            query.end.to_rfc3339(),
+            "9999-12-31T23:59:59+00:00",
+            "bug: a window to chrono's last instant reaches the store out of range"
+        );
+        let now = Utc::now();
+        assert_eq!(
+            CachedRowsQuery::window(now, now, 1).start,
+            now,
+            "bug: an ordinary bound is moved"
+        );
     }
 }

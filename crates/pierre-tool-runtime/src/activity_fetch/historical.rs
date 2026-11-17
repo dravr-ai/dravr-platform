@@ -8,16 +8,14 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use chrono::Utc;
-use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::refresh::DataFreshness;
 use pierre_core::models::{Activity, RefreshConfig, TenantId};
-use pierre_database::repositories::historical_depth_covered;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_services::training_history_read::{history_store_keys, walk_across_pair, PairWalk};
-use tracing::{info, warn};
+use tracing::info;
 use uuid::Uuid;
 
 use super::budgeted_read::refresh_head_within_budget;
+use super::history_depth::{history_depth_covered, history_walk_owed};
 use super::pushed::reads_pushed_store;
 use super::sync_verdict::sync_backoff_until;
 use super::{
@@ -237,73 +235,6 @@ pub async fn serve_covered_history(
         walk_running,
         ..serve
     })
-}
-
-/// The key of the history walk owed under any of `provider_slug`'s history
-/// keys: recorded, running, waiting for the resume sweep, or owed the reopen
-/// of a phase a purge took ([`walk_across_pair`]). `None` when none is owed;
-/// a ledger that cannot be read counts as no walk, so the window is read as
-/// before.
-///
-/// It only reads: a read that finds the depth missing and no walk owed asks
-/// one where it reads the provider live, never here. `get_segment_history`
-/// asks it too, for Strava alone, so another provider's walk is never
-/// reported as, or started for, a segment's window.
-pub(crate) async fn history_walk_owed(
-    runtime: &Arc<dyn ToolRuntime>,
-    provider_slug: &str,
-    user_id: Uuid,
-    tenant_id: TenantId,
-) -> Option<String> {
-    match walk_across_pair(runtime.repos(), user_id, tenant_id, provider_slug).await {
-        Ok(PairWalk::Owed { key } | PairWalk::Purged { key }) => Some(key),
-        Ok(PairWalk::Walked | PairWalk::WalkedThrough | PairWalk::Open) => None,
-        Err(e) => {
-            warn!(
-                user_id = %user_id,
-                provider = %provider_slug,
-                error = %e,
-                "history walk state read failed; the window reads as not walking"
-            );
-            None
-        }
-    }
-}
-
-/// Whether a walk or a backfill under any of `provider_slug`'s history keys
-/// ([`history_store_keys`]) reached `after_ts`, each record
-/// judged at its own key's current capture ([`historical_depth_covered`]).
-/// A record that cannot be read counts as absent.
-///
-/// `get_segment_history` asks it too: a segments window deeper than the
-/// stored history is short of its activities before it is short of their
-/// efforts.
-pub(crate) async fn history_depth_covered(
-    runtime: &Arc<dyn ToolRuntime>,
-    provider_slug: &str,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    after_ts: i64,
-) -> bool {
-    let cache = &runtime.repos().activity_cache;
-    for key in history_store_keys(provider_slug) {
-        let coverage = match cache.get_backfill_coverage(user_id, &tenant_id, key).await {
-            Ok(coverage) => coverage,
-            Err(e) => {
-                warn!(
-                    user_id = %user_id,
-                    provider = %key,
-                    error = %e,
-                    "backfill coverage read failed; the key counts as not covered"
-                );
-                None
-            }
-        };
-        if historical_depth_covered(coverage, after_ts, current_capture_version(key)) {
-            return true;
-        }
-    }
-    false
 }
 
 /// A covered historical window as [`serve_historical_window`] serves it.

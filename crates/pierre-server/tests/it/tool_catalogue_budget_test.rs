@@ -85,7 +85,14 @@ use crate::common;
 /// come only from the Strava source. The sentence was cut to a few words and
 /// the tool's closing sentence trimmed before measuring, which saved 67 bytes
 /// (~105 bytes added).
-const CATALOGUE_BUDGET_BYTES: usize = 96_500;
+///
+/// 2026-11-17: 96,500 → 97,400 for `query_activities` (carnet#1485), every
+/// count, total and breakdown over a period from one read of the store:
+/// sixteen arguments of a few words each, and a description cut from 640 to
+/// 230 bytes before measuring, with `get_stats`' description shortened to a
+/// view of it. The tool measured 2,341 bytes before the cut, 1,726 after;
+/// the catalogue 97,331.
+const CATALOGUE_BUDGET_BYTES: usize = 97_400;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.
@@ -93,7 +100,11 @@ const CATALOGUE_BUDGET_BYTES: usize = 96_500;
 /// 2026-10-29, against 95,050 for the whole catalogue (carnet#406).
 ///
 /// 2026-11-02: 10,450 → 9,950 with `format` withheld (carnet#1314); measured 9,932.
-const LOADED_PREFIX_BUDGET_BYTES: usize = 9_950;
+///
+/// 2026-11-17: 9,950 → 10,550 with `query_activities` loaded in place of
+/// `get_stats` (carnet#1485): a count over any period is what a turn reaches
+/// for, and `get_stats` is one search away. Measured 10,500.
+const LOADED_PREFIX_BUDGET_BYTES: usize = 10_550;
 
 /// How far under budget the catalogue may fall before the budget follows it down.
 const RATCHET_SLACK_BYTES: usize = 4 * 1024;

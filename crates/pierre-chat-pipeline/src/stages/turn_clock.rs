@@ -15,7 +15,7 @@
 //! message after Tier-1 compaction, like the activity refresh, so it is never
 //! summarized, never persisted and never replayed into a later turn.
 
-use pierre_core::civil_time::{format_clock_stamp, resolve_zone};
+use pierre_core::civil_time::{format_clock_stamp, monday_of, resolve_zone};
 use pierre_llm::ChatMessage;
 
 /// Opening sentence of the turn-clock message.
@@ -102,7 +102,7 @@ const _: () = assert!(
 /// and a wrong weekday is the failure an athlete actually notices.
 #[must_use]
 pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String {
-    use chrono::{Datelike, Duration, TimeZone, Utc};
+    use chrono::{Datelike, Duration, NaiveDate, TimeZone, Utc};
     let now_utc = Utc::now();
     let tz = resolve_zone(user_timezone);
     let local = now_utc.with_timezone(&tz);
@@ -124,22 +124,19 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
     );
     let now_epoch = quantized_epoch;
 
-    // Local-midnight epoch `days_back` days before today, DST-safe (a spring
-    // gap/fold at midnight is vanishingly rare; take the earliest valid
-    // instant). Falls back to `now` if construction ever fails so a boundary
-    // is never silently wrong by years.
-    let midnight_epoch = |days_back: i64| -> i64 {
-        (local - Duration::days(days_back))
-            .date_naive()
-            .and_hms_opt(0, 0, 0)
+    // Local-midnight epoch of a local date, DST-safe (a spring gap/fold at
+    // midnight is vanishingly rare; take the earliest valid instant). Falls
+    // back to `now` if construction ever fails so a boundary is never silently
+    // wrong by years.
+    let midnight_epoch = |date: NaiveDate| -> i64 {
+        date.and_hms_opt(0, 0, 0)
             .and_then(|naive| tz.from_local_datetime(&naive).earliest())
             .map_or(now_epoch, |dt| dt.timestamp())
     };
-    let today0 = midnight_epoch(0);
-    let yesterday0 = midnight_epoch(1);
+    let today0 = midnight_epoch(local.date_naive());
+    let yesterday0 = midnight_epoch((local - Duration::days(1)).date_naive());
     // Monday-anchored week (the convention pierre_system.md already states).
-    let days_since_monday = i64::from(local.weekday().num_days_from_monday());
-    let week0 = midnight_epoch(days_since_monday);
+    let week0 = midnight_epoch(monday_of(local.date_naive()));
     // First of the current month, 00:00 local — the "ce mois" / "this month"
     // window, which is otherwise a from-scratch date→epoch conversion.
     let month0 = local

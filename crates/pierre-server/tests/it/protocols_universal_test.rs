@@ -1644,11 +1644,12 @@ async fn test_get_athlete_async_no_token() -> Result<()> {
     Ok(())
 }
 
+/// `get_stats` reads the store, never a provider: a connection with no
+/// token answers its totals, zero here, and says nothing is stored yet or a
+/// walk is owed, never an authentication failure (carnet#1485).
 #[tokio::test]
-async fn test_get_stats_async_no_token() -> Result<()> {
+async fn test_get_stats_answers_from_the_store_without_a_token() -> Result<()> {
     common::init_server_config();
-    // The athlete's own app: over an external transport Strava's terms refuse
-    // the read before any token is looked up (carnet#765).
     let executor = create_test_executor()
         .await?
         .with_transport(Transport::WebApp);
@@ -1673,8 +1674,7 @@ async fn test_get_stats_async_no_token() -> Result<()> {
     );
     executor.resources.repos().tenants.create(&tenant).await?;
 
-    // Connected but token-less: the missing token is the subject, and an athlete
-    // with no connection at all is refused earlier by the dispatch chokepoint.
+    // Connected but token-less.
     executor
         .resources
         .repos()
@@ -1689,19 +1689,24 @@ async fn test_get_stats_async_no_token() -> Result<()> {
         }),
         user_id: user_id.to_string(),
         protocol: "test".to_owned(),
-        tenant_id: None,
+        tenant_id: Some(tenant.id.to_string()),
     };
 
     let response = executor.execute_tool(request).await?;
-    // Should fail when no OAuth token is available (no fallbacks)
-    assert!(!response.success);
-    assert!(response.error.is_some());
-    let error_msg = response.error.as_ref().unwrap();
     assert!(
-        (error_msg.contains("No valid") && error_msg.contains("token found"))
-            || error_msg.contains("deprecated")
-            || error_msg.contains("tenant-aware MCP endpoints")
-            || error_msg.contains("Tool execution failed")
+        response.success,
+        "bug: get_stats reads the store, not the provider's token: {:?}",
+        response.error
+    );
+    let result = response.result.expect("a successful call answers");
+    assert_eq!(
+        result["stats"]["total_activities"], 0,
+        "bug: totals over an empty store are not zero: {result}"
+    );
+    let reason = &result["stats"]["coverage"]["incomplete_reason"];
+    assert!(
+        reason == "no_stored_activities" || reason == "history_walk_running",
+        "bug: an empty store's zero reads as a true zero: {result}"
     );
 
     Ok(())

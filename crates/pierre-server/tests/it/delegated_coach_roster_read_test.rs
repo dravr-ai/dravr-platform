@@ -45,7 +45,7 @@ use pierre_core::models::groups::{
 };
 use pierre_core::models::{
     Activity, ActivityBuilder, AgentCategory, Athlete, ConnectionType, CreateAgentRequest,
-    RosterAthlete, SportType, Stats, TenantId, UserOAuthToken,
+    RosterAthlete, SportType, TenantId, UserOAuthToken,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_mcp_server::mcp::resources::ServerContext;
@@ -225,10 +225,6 @@ impl FitnessProvider for CoachHub {
 
     async fn get_activity(&self, id: &str) -> AppResult<Activity> {
         Err(AppError::not_found(id.to_owned()))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        Err(AppError::internal("not read by this test"))
     }
 
     async fn read_coach_roster(&self) -> AppResult<CoachRoster> {

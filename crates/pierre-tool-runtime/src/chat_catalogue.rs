@@ -77,7 +77,8 @@ const DIGEST_HEX_LEN: usize = 16;
 /// model reaches for on most turns, so a typical turn loads nothing.
 ///
 /// Recent activities and the training they add up to, the plan, recovery and
-/// sleep, the athlete's profile and totals, and memory. Every other tool is
+/// sleep, the athlete's profile, counts and totals over any period, and
+/// memory. Every other tool is
 /// one search away by its name in the prompt's index.
 pub const LOADED_CORE: &[&str] = &[
     "get_activities",
@@ -85,9 +86,9 @@ pub const LOADED_CORE: &[&str] = &[
     "get_athlete",
     "get_recovery_metrics",
     "get_sleep_sessions",
-    "get_stats",
     "get_training_history",
     "get_training_plan",
+    "query_activities",
     "recall_user_memory",
     "remember_fact",
 ];

@@ -6,7 +6,7 @@
 
 //! Last-known fallback for live provider reads.
 //!
-//! `get_athlete` and `get_stats` read the provider live on a cache miss. A
+//! `get_athlete` reads the provider live on a cache miss. A
 //! provider that hangs held the whole turn, and one that failed failed the
 //! call, though the platform had read the same profile an hour earlier. Here
 //! the live read gets the refresh budget, every successful read is also kept
@@ -339,14 +339,14 @@ mod tests {
             Some("sciotte_garmin")
         );
         let timed_out = provider_failure(
-            "Failed to fetch stats",
+            "Failed to fetch athlete profile",
             &AppError::new(
                 ErrorCode::ExternalServiceUnavailable,
                 "Garmin did not answer in time; try again in a moment",
             ),
         );
         let internal = provider_failure(
-            "Failed to fetch stats",
+            "Failed to fetch athlete profile",
             &AppError::internal("sciotte athlete request (x-request-id 42) failed"),
         );
         for response in [&refused, &timed_out, &internal] {
@@ -422,7 +422,7 @@ mod tests {
     async fn a_plain_provider_failure_is_still_a_miss() {
         let down = AppError::external_service("strava", "503");
         let read = read_within(Duration::from_secs(5), TEST_CAP, async move {
-            provider_failure("Failed to fetch stats", &down)
+            provider_failure("Failed to fetch athlete profile", &down)
         })
         .await;
         assert!(matches!(read, LiveRead::Missed(StaleReason::Error, _)));

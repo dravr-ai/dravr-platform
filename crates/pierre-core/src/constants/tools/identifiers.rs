@@ -12,6 +12,8 @@ pub const GET_ACTIVITIES: &str = "get_activities";
 pub const GET_ATHLETE: &str = "get_athlete";
 /// Tool identifier for retrieving athlete statistics
 pub const GET_STATS: &str = "get_stats";
+/// Tool identifier for counting and summing the athlete's workouts over any period
+pub const QUERY_ACTIVITIES: &str = "query_activities";
 /// Tool identifier for retrieving AI-powered activity insights
 pub const GET_ACTIVITY_INTELLIGENCE: &str = "get_activity_intelligence";
 

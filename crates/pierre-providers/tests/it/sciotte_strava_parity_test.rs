@@ -1,5 +1,5 @@
 // ABOUTME: Pins what the scraped Strava session carries beyond the core summary: segment efforts, grade and moving streams, gear id, streak
-// ABOUTME: Drives the provider against a loopback scraper stub; the streak rides get_athlete's one profile read, get_stats reads none
+// ABOUTME: Drives the provider against a loopback scraper stub; the streak rides get_athlete's one profile read
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -29,13 +29,11 @@ enum Profile {
     NoStreak,
     /// A profile whose streak is not the shape the scraper documents.
     MalformedStreak,
-    /// The read service failing.
-    Failing,
 }
 
-/// Serve the scraper endpoints a `get_athlete`, a `get_stats` and a
-/// `get_activity` call: the session import, the profile, the activity list
-/// and one detail. Every profile read is counted in `profile_reads`.
+/// Serve the scraper endpoints a `get_athlete` and a `get_activity` call: the
+/// session import, the profile and one detail. Every profile read is counted
+/// in `profile_reads`.
 fn spawn_scraper_stub(listener: TcpListener, profile: Profile, profile_reads: Arc<AtomicUsize>) {
     tokio::spawn(async move {
         while let Ok((mut stream, _)) = listener.accept().await {
@@ -59,15 +57,11 @@ fn spawn_scraper_stub(listener: TcpListener, profile: Profile, profile_reads: Ar
                         json!({ "id": "900201", "active_streak": { "length": "many" } }),
                     ),
                     Profile::NoStreak => ("200 OK", json!({ "id": "900201" })),
-                    Profile::Failing => ("500 Internal Server Error", json!({ "error": "down" })),
                 }
             } else if request.contains("/api/activities/16001") {
                 ("200 OK", detail())
             } else {
-                (
-                    "200 OK",
-                    json!({ "count": 1, "head_complete": true, "activities": [detail()] }),
-                )
+                ("404 Not Found", json!({ "error": "not stubbed" }))
             };
             let body = body.to_string();
             let response = format!(
@@ -254,26 +248,5 @@ async fn a_malformed_streak_leaves_the_athlete_working_with_none() {
     assert_eq!(
         athlete.active_streak, None,
         "bug: a figure was invented from a malformed streak"
-    );
-}
-
-#[tokio::test]
-async fn the_stats_read_no_profile_and_carry_no_streak() {
-    // The profile service is down: the stats never depend on it.
-    let (provider, profile_reads) = provider_counting_reads(Profile::Failing).await;
-    let stats = provider.get_stats().await.expect("stats");
-    assert_eq!(
-        profile_reads.load(Ordering::SeqCst),
-        0,
-        "bug: the stats read the profile"
-    );
-    assert_eq!(
-        stats.total_activities, 1,
-        "bug: the stats lost the stub's one activity"
-    );
-    let json = serde_json::to_value(&stats).expect("serialize");
-    assert!(
-        json.get("active_streak").is_none(),
-        "bug: the streak is on the athlete, not the stats: {json}"
     );
 }

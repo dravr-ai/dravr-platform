@@ -13,14 +13,14 @@
 //!
 //! **One start per workout.** An athlete's cached rows hold every copy of a
 //! workout: a session's and a grant's, an export, a second device. The rows
-//! are collapsed by [`one_activity_key`], then by [`merge_duplicates`], and
-//! each workout gives one start. It is the trimmed first point of the first
-//! of its copies that has a track stored locally (`local_track`), the
-//! canonical copy's first: the copy ranking does not prefer a copy with a
-//! route, so a canonical Garmin row with no polyline would otherwise hide its
-//! Strava twin's track. A workout with no track anywhere gives its recorded
-//! raw start, which may only join a place it falls inside
-//! ([`StartKind::RawAssignOnly`]). Every copy of a workout takes its place.
+//! are collapsed by [`one_activity_key`], then by the one row-level merge
+//! ([`workouts::workouts`]), and each workout gives one start. It is the
+//! trimmed first point of the first of its copies that has a track stored
+//! locally (`local_track`), the canonical copy's first: the copy ranking does
+//! not prefer a copy with a route, so a canonical Garmin row with no polyline
+//! would otherwise hide its Strava twin's track. A workout with no track
+//! anywhere gives its recorded raw start, which may only join a place it falls
+//! inside ([`StartKind::RawAssignOnly`]). Every copy of a workout takes its place.
 //!
 //! **Privacy.** A centroid is built from trimmed starts only, the densest
 //! cluster of trimmed endpoints is taken for home and excluded, and the home
@@ -44,11 +44,12 @@ use pierre_database::RepositoryRegistry;
 use pierre_fitness_compute::places::{
     cluster, ClusteredPlace, PlaceAnchor, PlaceParams, StartKind, StartPoint, PLACES_VERSION,
 };
-use pierre_providers::deduplication::{merge_duplicates, one_activity_key, DedupConfig};
+use pierre_providers::deduplication::one_activity_key;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
 use crate::activity_track::{local_track, records_outdoor_route};
+use crate::workouts;
 
 /// The longest place name, in characters, after defanging.
 pub const MAX_PLACE_NAME_CHARS: usize = 60;
@@ -372,7 +373,7 @@ async fn recompute(
         .await?;
     let previous = repos.athlete_places.list(tenant_id, user_id).await?;
     let rows = all_rows(repos, tenant_id, user_id, now).await?;
-    let workouts = workouts(&rows);
+    let workouts = workout_rows(&rows);
 
     let mut points = Vec::new();
     let mut endpoints = Vec::new();
@@ -466,14 +467,14 @@ async fn all_rows(
 }
 
 /// The athlete's rows grouped into workouts: first every copy under one
-/// [`one_activity_key`], then those groups by [`merge_duplicates`], the
-/// canonical copy's group first.
+/// [`one_activity_key`], then those groups merged by the one row-level merge
+/// ([`workouts::workouts`]), the canonical copy's group first.
 ///
-/// A merged group names its members by bare activity id, which is unique
-/// only within a provider, so a group's id is matched to a copy group whose
-/// start lies inside the merged workout's window: an unrelated activity that
-/// shares the id on another provider never joins it.
-fn workouts(rows: &[CachedActivityRow]) -> Vec<Workout> {
+/// The merge names each workout's stored rows, so a group is matched back by
+/// its first row's stored key, never by a bare activity id, which is unique
+/// only within a provider. A group the merge leaves out is a workout of its
+/// own: every row takes exactly one workout.
+fn workout_rows(rows: &[CachedActivityRow]) -> Vec<Workout> {
     let mut copies: Vec<Vec<usize>> = Vec::new();
     let mut by_key: HashMap<(String, String), usize> = HashMap::new();
     for (index, row) in rows.iter().enumerate() {
@@ -485,42 +486,36 @@ fn workouts(rows: &[CachedActivityRow]) -> Vec<Workout> {
             });
         copies[group].push(index);
     }
-    let representatives: Vec<Activity> = copies
+    let representatives: Vec<CachedActivityRow> =
+        copies.iter().map(|group| rows[group[0]].clone()).collect();
+    let group_of: HashMap<CachedRowKey, usize> = representatives
         .iter()
-        .map(|group| rows[group[0]].activity.clone())
+        .enumerate()
+        .map(|(group, row)| (row_key(row), group))
         .collect();
-    let mut by_id: HashMap<&str, Vec<usize>> = HashMap::new();
-    for (group, activity) in representatives.iter().enumerate() {
-        by_id.entry(activity.id()).or_default().push(group);
-    }
-    let (_, report) = merge_duplicates(representatives.clone(), &DedupConfig::default());
 
     let mut taken = vec![false; copies.len()];
-    let mut workouts = Vec::new();
-    for merged in &report.groups {
+    let mut out = Vec::new();
+    for merged in workouts::workouts(&representatives) {
         let mut members = Vec::new();
-        for id in &merged.fragment_ids {
-            let found = by_id.get(id.as_str()).and_then(|groups| {
-                groups.iter().copied().find(|&group| {
-                    let start = representatives[group].start_date();
-                    !taken[group] && start >= merged.window_start && start <= merged.window_end
-                })
-            });
-            if let Some(group) = found {
-                taken[group] = true;
-                members.extend_from_slice(&copies[group]);
+        for row in merged.rows() {
+            if let Some(&group) = group_of.get(&row_key(row)) {
+                if !taken[group] {
+                    taken[group] = true;
+                    members.extend_from_slice(&copies[group]);
+                }
             }
         }
         if !members.is_empty() {
-            workouts.push(Workout { rows: members });
+            out.push(Workout { rows: members });
         }
     }
     for (group, rows) in copies.into_iter().enumerate() {
         if !taken[group] {
-            workouts.push(Workout { rows });
+            out.push(Workout { rows });
         }
     }
-    workouts
+    out
 }
 
 /// The workout's start: the trimmed first point of the first of its copies
@@ -725,7 +720,7 @@ mod tests {
             row("wahoo", "w-1", ride),
             row("strava", "123", ride),
         ];
-        let mut found: Vec<Vec<(String, String)>> = workouts(&rows)
+        let mut found: Vec<Vec<(String, String)>> = workout_rows(&rows)
             .iter()
             .map(|workout| keys(&rows, workout))
             .collect();
@@ -740,6 +735,41 @@ mod tests {
                 ],
             ],
             "bug: the Strava ride and its Wahoo twin are one workout; Garmin's 123 a year later is its own"
+        );
+    }
+
+    #[test]
+    fn every_row_takes_exactly_one_workout_its_canonical_copy_first() {
+        let ride = Utc.with_ymd_and_hms(2025, 6, 1, 8, 0, 0).unwrap();
+        let run = Utc.with_ymd_and_hms(2025, 6, 3, 8, 0, 0).unwrap();
+        let rows = vec![
+            row("strava", "r-1", run),
+            row("wahoo", "w-1", ride),
+            row("garmin", "g-1", ride),
+            row("strava", "123", ride),
+        ];
+        let found = workout_rows(&rows);
+        let mut seen: Vec<usize> = found.iter().flat_map(|w| w.rows.clone()).collect();
+        seen.sort_unstable();
+        assert_eq!(
+            seen,
+            (0..rows.len()).collect::<Vec<_>>(),
+            "bug: a row is in no workout, or in two"
+        );
+        let ride_workout = found
+            .iter()
+            .find(|w| w.rows.len() == 3)
+            .expect("bug: the ride's three copies are not one workout");
+        let merged = workouts::workouts(&rows);
+        let canonical = merged
+            .iter()
+            .find(|w| w.copies.len() == 2)
+            .expect("bug: the merge does not hold the ride's three copies")
+            .canonical;
+        assert_eq!(
+            row_key(&rows[ride_workout.rows[0]]),
+            row_key(canonical),
+            "bug: the ride's start is not looked for on its canonical copy first"
         );
     }
 }

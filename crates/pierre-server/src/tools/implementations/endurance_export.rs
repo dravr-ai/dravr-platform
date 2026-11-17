@@ -5,13 +5,14 @@
 // Copyright (c) 2026 dravr.ai
 
 use pierre_providers::ai_scope;
-use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use pierre_tool_runtime::annotations::{annotations, Effect, Reach};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::{Duration, Utc};
 use dravr_cageux::zones::{AerobicThresholdPace, AerobicThresholdPower, HrZones};
+use pierre_core::civil_time::{clock_date, resolve_zone};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::zones::athlete_hr_zones;
 use pierre_core::models::{Activity, PhysiologicalSex, TenantId, UserPhysiologicalProfile};
@@ -26,17 +27,18 @@ use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
 use pierre_core::models::Dossier;
 use pierre_fitness_compute::latest_snapshot::LatestSnapshot;
 use pierre_mcp_schema::{JsonSchema, PropertySchema};
+use pierre_services::training_history_read::user_timezone;
+use pierre_tool_runtime::activity_query::{
+    visit_stored_workouts, Athlete, CivilWindow, KeySet, ReadGate,
+};
 use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::conversions::{
-    answers_with, ok_typed, task_capable, tool_definition, tool_result_to_response,
-};
-use pierre_tool_runtime::protocol::provider_helpers::{
-    elected_source, fetch_activities_from_provider,
+    answers_with, ok_typed, tool_definition, tool_result_to_response,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::security::RuntimeTool;
 use pierre_tools_core::ToolResult;
-use tracing::warn;
+use uuid::Uuid;
 
 /// What `export_dossier` answers with.
 ///
@@ -61,12 +63,8 @@ pub struct DossierExport {
     pub threshold_estimate: ThresholdEstimate,
 }
 
-/// Lower bound on the analysis window. Mirrors the constant in
-/// `routes/endurance.rs` so HTTP and MCP clamp the same way.
+/// Lower bound on the analysis window.
 const MIN_WINDOW_DAYS: u32 = 1;
-
-/// Maximum activities pulled per call — same cap as the HTTP endpoint.
-const MAX_ACTIVITIES_PER_CALL: usize = 200;
 
 fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     context.tenant_id.map(TenantId::from_uuid).ok_or_else(|| {
@@ -77,44 +75,42 @@ fn require_tenant(context: &ToolExecutionContext) -> AppResult<TenantId> {
     })
 }
 
+/// The athlete's workouts over the last `window_days` civil days, today
+/// included, from the store: the one read every count reads through
+/// ([`visit_stored_workouts`]), over every source the athlete holds, gated
+/// for a model and merged, so a session recorded by two sources is one
+/// session to estimate thresholds and volume from, and the snapshot lists
+/// and counts exactly the workouts a count over the same days counts.
+///
+/// The window opens at the athlete's midnight `window_days - 1` days back,
+/// never earlier than `window_days` days before now, so the snapshot, which
+/// keeps the `window_days` before its newest session, keeps every one read.
 async fn fetch_window_activities(
     resources: &Arc<dyn ToolRuntime>,
-    user_id: uuid::Uuid,
+    user_id: Uuid,
     tenant_id: TenantId,
+    window_days: u32,
 ) -> AppResult<Vec<Activity>> {
-    let provider_name = resolve_provider_for_user(resources, user_id, tenant_id).await?;
-    let tenant_str = tenant_id.to_string();
-    let activities = fetch_activities_from_provider(
+    let zone = resolve_zone(user_timezone(resources.repos(), user_id).await?.as_deref());
+    let today = clock_date(Utc::now(), zone);
+    let window = CivilWindow {
+        from: Some(today - Duration::days(i64::from(window_days) - 1)),
+        to: today,
+        zone,
+    };
+    let mut sessions = Vec::new();
+    visit_stored_workouts(
         resources,
-        user_id,
-        &provider_name,
-        Some(tenant_str.as_str()),
-        Some(MAX_ACTIVITIES_PER_CALL),
+        Athlete { user_id, tenant_id },
+        window,
+        KeySet::All,
+        ReadGate::Model,
+        &mut |workouts| {
+            sessions.extend(workouts.iter().map(|workout| workout.session.clone()));
+        },
     )
     .await?;
-    // Workouts, not recordings: an auto-split or a second device's copy of a
-    // session is one session to estimate thresholds and volume from.
-    Ok(merge_duplicates(activities, &DedupConfig::from_env()).0)
-}
-
-/// Resolve the source of a tool that takes no `provider` argument: the chat-side
-/// priority chain minus the explicit-arg step, or
-/// `AppError::no_provider_connected()`.
-async fn resolve_provider_for_user(
-    resources: &Arc<dyn ToolRuntime>,
-    user_id: uuid::Uuid,
-    tenant_id: TenantId,
-) -> AppResult<String> {
-    elected_source(resources, user_id, Some(tenant_id))
-        .await?
-        .ok_or_else(|| {
-            warn!(
-                user_id = %user_id,
-                tenant_id = %tenant_id,
-                "endurance_export: no source for this user — surfacing the connect signal"
-            );
-            AppError::no_provider_connected()
-        })
+    Ok(sessions)
 }
 
 /// `export_latest_snapshot` — IF / EF / VI / decoupling / zone-distribution
@@ -140,7 +136,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             required: Some(Vec::new()),
             ..Default::default()
         };
-        answers_with::<LatestSnapshot>(task_capable(tool_definition(
+        answers_with::<LatestSnapshot>(tool_definition(
             "export_latest_snapshot",
             "Export the Endurance latest snapshot: a structured per-activity training \
              state — intensity factor, efficiency factor, variability index, aerobic \
@@ -151,7 +147,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
                 Effect::ReadOnly,
                 Reach::AthleteAccount,
             ),
-        )))
+        ))
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -180,7 +176,7 @@ impl McpTool<dyn ToolRuntime> for ExportLatestSnapshotTool {
             let user_id = context.user_id;
 
             let activities =
-                fetch_window_activities(&context.resources, user_id, tenant_id).await?;
+                fetch_window_activities(&context.resources, user_id, tenant_id, window).await?;
             let physiology = context
                 .resources
                 .repos()

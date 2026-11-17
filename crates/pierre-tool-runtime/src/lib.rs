@@ -64,6 +64,8 @@ pub mod activity_backfill_resume;
 pub mod activity_detail_store;
 /// Shared provider activity fetching (used by group snapshots + agent recs).
 pub mod activity_fetch;
+/// The one aggregator: every count, distance or time over a period, from one read of the store.
+pub mod activity_query;
 /// What a model may see of provider data under each provider's AI policy.
 pub mod ai_view;
 /// The weekly promotion of one athlete's training anchors.

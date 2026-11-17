@@ -1,5 +1,5 @@
 // ABOUTME: The athlete's weekly training volume for Home — distance, time, climbing and sessions per sport, week by week
-// ABOUTME: Summed from the merged cached workouts on the athlete's own calendar; a week before the stored history begins is absent, never zero
+// ABOUTME: Mapped from the one aggregator's week-by-sport count on the athlete's own calendar; a week before the stored history is absent, never zero
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -7,9 +7,11 @@
 //! Weekly training volume, as Home shows it.
 //!
 //! Each week runs Monday to Sunday on the athlete's own calendar, the week
-//! Home's plan strip already uses. A workout counts once, whichever providers
-//! hold a copy of it: the caller hands in the sessions the Home list merges,
-//! so the volume and the list cannot disagree on what was done.
+//! Home's plan strip already uses. The weeks are the one aggregator's count
+//! ([`query_activities`](pierre_tool_runtime::activity_query::query_activities))
+//! broken down by week and sport: a workout counts once, whichever providers
+//! hold a copy of it, merged as the Home list merges it, so the volume and the
+//! list cannot disagree on what was done.
 //!
 //! A week the stored history does not reach carries no row. An athlete whose
 //! oldest stored activity is three weeks old gets three weeks, not twelve with
@@ -18,28 +20,26 @@
 
 use std::collections::BTreeMap;
 
-use chrono::{DateTime, Datelike, Duration, NaiveDate, TimeZone, Utc};
-use chrono_tz::Tz;
-use pierre_core::civil_time::local_date;
+use chrono::{Duration, NaiveDate};
+use pierre_core::civil_time::monday_of;
 use pierre_core::constants::oauth_providers::GarminContribution;
-use pierre_core::models::coverage::{Coverage, IncompleteReason};
-use pierre_core::models::Activity;
-use pierre_database::repositories::sport_type_string;
+use pierre_core::models::coverage::IncompleteReason;
+use pierre_tool_runtime::activity_query::{GroupKey, KeyValue, QueryAnswer, QueryMetric};
 use serde::Serialize;
 
 /// Weeks the volume spans, the current one included.
 pub const VOLUME_WEEKS: i64 = 12;
 
-/// The sport an activity is summed under when its sport has no spelling.
-const UNNAMED_SPORT: &str = "other";
+/// What the volume's count is broken down by: the week, then the sport.
+pub(crate) const VOLUME_GROUPS: [GroupKey; 2] = [GroupKey::Week, GroupKey::SportType];
 
-/// The sport `session` is summed under — the key a week's `sports` entry
-/// carries, and the one the recent list filters on when the athlete picks a
-/// sport off the volume card.
-#[must_use]
-pub fn volume_sport(session: &Activity) -> String {
-    sport_type_string(session).unwrap_or_else(|| UNNAMED_SPORT.to_owned())
-}
+/// What the volume's count sums: a week's sport entry carries exactly these.
+pub(crate) const VOLUME_METRICS: [QueryMetric; 4] = [
+    QueryMetric::Count,
+    QueryMetric::DistanceKm,
+    QueryMetric::ElapsedTimeS,
+    QueryMetric::ElevationM,
+];
 
 /// Body of `GET /api/me/training-volume`.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -52,8 +52,7 @@ pub struct TrainingVolume {
     pub weeks: Vec<VolumeWeek>,
     /// What Garmin-sourced data contributed to the weeks, which decides the
     /// line Garmin's brand guidelines owe them (carnet#1154); `null` when no
-    /// workout they count carries such data. Set by the route, which holds
-    /// every copy of each workout.
+    /// workout they count carries such data.
     pub garmin_contribution: Option<GarminContribution>,
 }
 
@@ -82,12 +81,6 @@ pub struct SportVolume {
     pub elevation_gain_meters: f64,
 }
 
-/// The Monday of the week `date` falls in.
-#[must_use]
-pub fn monday_of(date: NaiveDate) -> NaiveDate {
-    date - Duration::days(i64::from(date.weekday().num_days_from_monday()))
-}
-
 /// The Monday the volume window opens on: [`VOLUME_WEEKS`] weeks, the current
 /// one included.
 #[must_use]
@@ -95,36 +88,20 @@ pub fn window_start(today: NaiveDate) -> NaiveDate {
     monday_of(today) - Duration::weeks(VOLUME_WEEKS - 1)
 }
 
-/// The instant the athlete's `date` begins in `zone`. A midnight the zone
-/// skips (a DST gap) falls back to midnight UTC, which is never later than an
-/// hour off and only widens the read.
-#[must_use]
-pub fn day_start_utc(date: NaiveDate, zone: Tz) -> DateTime<Utc> {
-    let midnight = date.and_time(chrono::NaiveTime::MIN);
-    zone.from_local_datetime(&midnight)
-        .earliest()
-        .map_or_else(|| midnight.and_utc(), |start| start.with_timezone(&Utc))
-}
-
-/// Sum `sessions`, one per workout, into weeks on the athlete's calendar.
+/// The weeks of a count over `[window_start(today), today]` broken down by
+/// [`VOLUME_GROUPS`] and summing [`VOLUME_METRICS`].
 ///
-/// The sessions are already merged across providers. The weeks run from the
-/// first one `coverage` vouches for to the week of `today`, in `zone`: the
-/// window's start when it is complete, the week of its `trustworthy_from`
-/// when the stored history (or the read) stops short of it, none when
-/// nothing is stored or an incomplete read names no such day. A session
-/// outside those weeks, or after `today`, is left out.
+/// The weeks run from the first one the answer's coverage vouches for to the
+/// week of `today`: the window's start when it is complete, the week of its
+/// `trustworthy_from` when the stored history stops short of it, none when
+/// nothing is stored or an incomplete answer names no such day. A group
+/// outside those weeks is left out.
 #[must_use]
-pub fn volume_from_sessions(
-    today: NaiveDate,
-    zone: Tz,
-    sessions: &[Activity],
-    coverage: &Coverage,
-) -> TrainingVolume {
+pub fn volume_from_answer(today: NaiveDate, answer: &QueryAnswer) -> TrainingVolume {
     let opens = window_start(today);
-    // An incomplete read vouches only from the day it names, and for no week
-    // when it names none: nothing stored, or a read that stopped short
-    // without saying where.
+    let coverage = &answer.coverage;
+    // An incomplete answer vouches only from the day it names, and for no
+    // week when it names none.
     let first_week = match coverage.completeness.reason() {
         None => Some(opens),
         Some(IncompleteReason::NoStoredActivities) => None,
@@ -142,27 +119,32 @@ pub fn volume_from_sessions(
     };
 
     let mut totals: BTreeMap<(NaiveDate, String), SportVolume> = BTreeMap::new();
-    for session in sessions {
-        let day = local_date(session.start_date(), zone);
-        if day < first_week || day > today {
+    for group in &answer.groups {
+        let (Some(KeyValue::Text(week)), Some(KeyValue::Text(sport))) = (
+            group.key.get(&GroupKey::Week),
+            group.key.get(&GroupKey::SportType),
+        ) else {
+            continue;
+        };
+        let Ok(week) = week.parse::<NaiveDate>() else {
+            continue;
+        };
+        if week < first_week || week > last_week {
             continue;
         }
-        let sport = volume_sport(session);
-        let entry = totals
-            .entry((monday_of(day), sport.clone()))
-            .or_insert_with(|| SportVolume {
-                sport_type: sport,
-                activities: 0,
-                distance_meters: 0.0,
-                duration_seconds: 0,
-                elevation_gain_meters: 0.0,
-            });
-        entry.activities = entry.activities.saturating_add(1);
-        entry.distance_meters += session.distance_meters().unwrap_or(0.0).max(0.0);
-        entry.duration_seconds = entry
-            .duration_seconds
-            .saturating_add(session.duration_seconds());
-        entry.elevation_gain_meters += session.elevation_gain().unwrap_or(0.0).max(0.0);
+        let values = &group.values;
+        totals.insert(
+            (week, sport.clone()),
+            SportVolume {
+                sport_type: sport.clone(),
+                activities: values
+                    .count
+                    .map_or(0, |count| u32::try_from(count).unwrap_or(u32::MAX)),
+                distance_meters: values.distance_metres().unwrap_or(0.0),
+                duration_seconds: values.elapsed_time_s.unwrap_or(0),
+                elevation_gain_meters: values.elevation_m.unwrap_or(0.0),
+            },
+        );
     }
 
     let mut weeks = Vec::new();
@@ -178,15 +160,24 @@ pub fn volume_from_sessions(
     TrainingVolume {
         today,
         weeks,
-        garmin_contribution: None,
+        // The answer counts no workout before the first vouched week: its
+        // vouching rule stands from the oldest row it read.
+        garmin_contribution: answer.garmin_contribution,
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use pierre_core::models::coverage::{Completeness, CoverageWindow};
-    use pierre_core::models::{ActivityBuilder, SportType};
+    use chrono::{DateTime, Utc};
+    use chrono_tz::Tz;
+    use pierre_core::models::coverage::{Completeness, Coverage, CoverageWindow};
+    use pierre_core::models::{Activity, ActivityBuilder, SportType};
+    use pierre_database::repositories::CachedActivityRow;
+    use pierre_services::workouts::workouts;
+    use pierre_tool_runtime::activity_query::{
+        aggregate, ActivityPredicate, ActivityQuery, AppliedQuery, QueryGroup,
+    };
 
     fn ymd(year: i32, month: u32, day: u32) -> NaiveDate {
         NaiveDate::from_ymd_opt(year, month, day).unwrap_or_default()
@@ -228,6 +219,49 @@ mod tests {
         ymd(TODAY.0, TODAY.1, TODAY.2)
     }
 
+    /// The count Home asks for, over the volume window.
+    fn query() -> ActivityQuery {
+        ActivityQuery {
+            from: Some(window_start(today())),
+            to: today(),
+            filter: ActivityPredicate::default(),
+            group_by: VOLUME_GROUPS.to_vec(),
+            metrics: VOLUME_METRICS.to_vec(),
+            provider: None,
+        }
+    }
+
+    /// The aggregator's answer over `sessions`, stored one row each, on the
+    /// athlete's calendar in `zone`, standing as `coverage` says.
+    fn answer(zone: Tz, sessions: &[Activity], coverage: Coverage) -> QueryAnswer {
+        let rows: Vec<CachedActivityRow> = sessions
+            .iter()
+            .map(|activity| CachedActivityRow {
+                provider: activity.provider().to_owned(),
+                activity: activity.clone(),
+                route: None,
+                detail_read: false,
+                segment_read: false,
+                stored_at: None,
+                place: None,
+            })
+            .collect();
+        let query = query();
+        let (totals, groups, unknown) = aggregate(&workouts(&rows), &query, zone);
+        QueryAnswer {
+            applied: AppliedQuery::of(&query),
+            totals,
+            groups_total: groups.len(),
+            groups_truncated: false,
+            groups,
+            unknown,
+            coverage,
+            coverage_by_source: Vec::new(),
+            garmin_contribution: None,
+            segments: None,
+        }
+    }
+
     /// The cache holds activities from before the window.
     fn whole() -> Coverage {
         Coverage::complete(CoverageWindow::default())
@@ -258,11 +292,22 @@ mod tests {
 
     #[test]
     fn a_whole_history_spans_twelve_monday_weeks_ending_this_week() {
-        let volume = volume_from_sessions(today(), Tz::UTC, &[], &whole());
-        assert_eq!(volume.weeks.len(), 12);
-        assert_eq!(volume.weeks[11].week_start, ymd(2026, 10, 5));
-        assert_eq!(volume.weeks[0].week_start, ymd(2026, 7, 20));
-        assert!(volume.weeks.iter().all(|week| week.sports.is_empty()));
+        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], whole()));
+        assert_eq!(volume.weeks.len(), 12, "bug: not twelve weeks");
+        assert_eq!(
+            volume.weeks[11].week_start,
+            ymd(2026, 10, 5),
+            "bug: the last week is not this week"
+        );
+        assert_eq!(
+            volume.weeks[0].week_start,
+            ymd(2026, 7, 20),
+            "bug: the first week is not eleven weeks back"
+        );
+        assert!(
+            volume.weeks.iter().all(|week| week.sports.is_empty()),
+            "bug: an empty history filled a week"
+        );
     }
 
     #[test]
@@ -310,7 +355,7 @@ mod tests {
                 None,
             ),
         ];
-        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, &whole());
+        let volume = volume_from_answer(today(), &answer(Tz::UTC, &sessions, whole()));
         let this_week = &volume.weeks[11];
         assert_eq!(
             this_week.sports,
@@ -329,10 +374,15 @@ mod tests {
                     duration_seconds: 5_400,
                     elevation_gain_meters: 80.0,
                 },
-            ]
+            ],
+            "bug: this week's sports are not summed per sport"
         );
         let last_week = &volume.weeks[10];
-        assert_eq!(last_week.week_start, ymd(2026, 9, 28));
+        assert_eq!(
+            last_week.week_start,
+            ymd(2026, 9, 28),
+            "bug: the week before this one is not the Monday before"
+        );
         assert_eq!(
             last_week.sports,
             vec![SportVolume {
@@ -341,7 +391,8 @@ mod tests {
                 distance_meters: 8_000.0,
                 duration_seconds: 3_300,
                 elevation_gain_meters: 20.0,
-            }]
+            }],
+            "bug: last week's runs are not summed, or a distance-less run dropped its time"
         );
     }
 
@@ -358,38 +409,51 @@ mod tests {
             Some(10_000.0),
             None,
         )];
-        let volume = volume_from_sessions(today(), zone, &sessions, &whole());
-        assert_eq!(volume.weeks[11].sports, []);
-        assert_eq!(volume.weeks[10].sports.len(), 1);
+        let volume = volume_from_answer(today(), &answer(zone, &sessions, whole()));
+        assert_eq!(
+            volume.weeks[11].sports,
+            [],
+            "bug: a Sunday-night run counted in the next week"
+        );
+        assert_eq!(
+            volume.weeks[10].sports.len(),
+            1,
+            "bug: a Sunday-night run is not in its own week"
+        );
     }
 
     #[test]
     fn weeks_before_the_stored_history_are_absent_not_zero() {
-        let volume = volume_from_sessions(today(), Tz::UTC, &[], &from(ymd(2026, 9, 24)));
+        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], from(ymd(2026, 9, 24))));
         let starts: Vec<_> = volume.weeks.iter().map(|week| week.week_start).collect();
         assert_eq!(
             starts,
-            vec![ymd(2026, 9, 21), ymd(2026, 9, 28), ymd(2026, 10, 5)]
+            vec![ymd(2026, 9, 21), ymd(2026, 9, 28), ymd(2026, 10, 5)],
+            "bug: a week before the stored history is listed"
         );
     }
 
     #[test]
     fn a_history_older_than_the_window_still_opens_on_the_window() {
-        let volume = volume_from_sessions(today(), Tz::UTC, &[], &from(ymd(2025, 1, 1)));
-        assert_eq!(volume.weeks.len(), 12);
+        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], from(ymd(2025, 1, 1))));
+        assert_eq!(
+            volume.weeks.len(),
+            12,
+            "bug: a history older than the window is cut"
+        );
     }
 
     #[test]
     fn nothing_stored_answers_no_weeks() {
-        let volume = volume_from_sessions(today(), Tz::UTC, &[], &nothing());
-        assert_eq!(volume.weeks, []);
+        let volume = volume_from_answer(today(), &answer(Tz::UTC, &[], nothing()));
+        assert_eq!(volume.weeks, [], "bug: nothing stored answered weeks");
     }
 
-    /// A read that stopped short of the window without naming the first day
-    /// it stands behind vouches for no week: none is summed as if whole.
+    /// An answer that stopped short of the window without naming the first
+    /// day it stands behind vouches for no week: none is summed as if whole.
     #[test]
-    fn an_incomplete_read_naming_no_first_day_answers_no_weeks() {
-        let capped = Coverage {
+    fn an_incomplete_answer_naming_no_first_day_answers_no_weeks() {
+        let short = Coverage {
             completeness: Completeness::Incomplete(IncompleteReason::ReadCapped),
             window: CoverageWindow::default(),
             trustworthy_from: None,
@@ -403,16 +467,19 @@ mod tests {
             Some(10_000.0),
             None,
         )];
-        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, &capped);
+        let volume = volume_from_answer(today(), &answer(Tz::UTC, &sessions, short));
         assert_eq!(
             volume.weeks,
             [],
-            "bug: an incomplete read with no vouched day was summed over the whole window"
+            "bug: an incomplete answer with no vouched day was summed over the whole window"
         );
     }
 
+    /// A group the answer carries for a week before the window, or before
+    /// the first week it vouches for, is left out: the read stops at the
+    /// window, and the weeks at the history.
     #[test]
-    fn sessions_outside_the_window_or_after_today_are_left_out() {
+    fn groups_outside_the_vouched_weeks_are_left_out() {
         let sessions = [
             session(
                 "old",
@@ -423,24 +490,62 @@ mod tests {
                 None,
             ),
             session(
-                "future",
+                "early",
                 SportType::Run,
-                at(ymd(2026, 10, 9), 7),
+                at(ymd(2026, 9, 15), 7),
                 3_600,
                 Some(10_000.0),
                 None,
             ),
         ];
-        let volume = volume_from_sessions(today(), Tz::UTC, &sessions, &whole());
-        assert!(volume.weeks.iter().all(|week| week.sports.is_empty()));
+        let window = volume_from_answer(today(), &answer(Tz::UTC, &sessions[..1], whole()));
+        assert!(
+            window.weeks.iter().all(|week| week.sports.is_empty()),
+            "bug: a week before the window was summed"
+        );
+        let shallow = volume_from_answer(
+            today(),
+            &answer(Tz::UTC, &sessions[1..], from(ymd(2026, 9, 24))),
+        );
+        assert!(
+            shallow.weeks.iter().all(|week| week.sports.is_empty()),
+            "bug: a week before the first vouched one was summed"
+        );
     }
 
+    /// A distance comes back in metres as it was recorded, not as the
+    /// kilometres the count serves it in.
     #[test]
-    fn the_window_opens_at_the_athletes_local_midnight() {
-        let zone: Tz = "America/Toronto".parse().unwrap_or(Tz::UTC);
+    fn a_distance_comes_back_in_the_metres_recorded() {
+        let sessions = [session(
+            "odd",
+            SportType::Ride,
+            at(ymd(2026, 10, 5), 7),
+            3_600,
+            Some(254.3),
+            None,
+        )];
+        let volume = volume_from_answer(today(), &answer(Tz::UTC, &sessions, whole()));
         assert_eq!(
-            day_start_utc(ymd(2026, 7, 20), zone),
-            at(ymd(2026, 7, 20), 4)
+            volume.weeks[11].sports[0].distance_meters, 254.3,
+            "bug: the distance drifted on its way through kilometres"
+        );
+    }
+
+    /// A group that is not keyed by a week and a sport is not a volume
+    /// entry.
+    #[test]
+    fn a_group_without_a_week_and_a_sport_is_ignored() {
+        let mut answer = answer(Tz::UTC, &[], whole());
+        answer.groups.push(QueryGroup {
+            key: BTreeMap::from([(GroupKey::Week, KeyValue::Text("2026-10-05".to_owned()))]),
+            label: BTreeMap::new(),
+            values: answer.totals,
+        });
+        let volume = volume_from_answer(today(), &answer);
+        assert!(
+            volume.weeks.iter().all(|week| week.sports.is_empty()),
+            "bug: a group with no sport made a volume entry"
         );
     }
 }

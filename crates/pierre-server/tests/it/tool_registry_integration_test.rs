@@ -930,6 +930,15 @@ async fn test_list_tools_advertises_task_support() {
         );
     }
 
+    // The totals and the snapshot read only the store: no provider fetch for
+    // a handle to wait on.
+    for name in ["get_stats", "export_latest_snapshot"] {
+        assert!(
+            execution_of(name).is_none(),
+            "bug: {name} reads only the store yet advertises task support"
+        );
+    }
+
     let annotated = tools.iter().filter(|t| t.execution.is_some()).count();
     assert!(
         annotated > 0 && annotated < tools.len(),

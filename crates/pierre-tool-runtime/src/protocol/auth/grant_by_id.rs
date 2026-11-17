@@ -33,7 +33,7 @@ use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SportType, Stats, TenantId, TimeSeriesData,
+    SportType, TenantId, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_providers::core::{
@@ -272,10 +272,6 @@ impl FitnessProvider for GrantByIdFallback {
             Some(grant) => grant.get_activity_streams(id).await,
             None => Err(failed),
         }
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        self.session.get_stats().await
     }
 
     /// The session's own: a segment's listing is no by-id read of an

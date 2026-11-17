@@ -59,13 +59,14 @@ use pierre_core::models::{
     GearAttribution, GearDeclaration, GearKind, SportType, TenantId,
     DEFAULT_SHOE_WARN_DISTANCE_METERS, MAX_GEAR_PER_ATHLETE,
 };
-use pierre_database::repositories::{CachedActivityRow, CachedRowsQuery};
+use pierre_database::repositories::CachedRowsQuery;
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::backend_pair_for;
 use pierre_services::gear_release::{
     ledger_workouts, workout_distance, LedgerWorkout, WORKOUT_ROW_LIMIT, WORKOUT_WINDOW_HOURS,
 };
+use pierre_services::workouts::served_rows;
 use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use tracing::{info, warn};
 use uuid::Uuid;
@@ -90,15 +91,6 @@ pub struct ActivityGear {
     pub gear_id: Option<Uuid>,
     /// How it was attributed, `None` when nothing is.
     pub source: Option<AttributionSource>,
-}
-
-/// The cached rows this request may read. Over an external transport, a
-/// provider whose terms keep its data inside Dravr's own surfaces is dropped
-/// before any merge, so a withheld copy never fills a served one (carnet#724).
-fn served_rows(resources: &ServerContext, rows: Vec<CachedActivityRow>) -> Vec<CachedActivityRow> {
-    ai_scope::retain_served_here(resources.fitness.provider_registry.as_ref(), rows, |row| {
-        (row.provider.as_str(), row.activity.source())
-    })
 }
 
 /// The athlete's ledger, after every unattributed workout since the oldest
@@ -137,7 +129,7 @@ pub async fn read_ledger(
         )
         .await?;
     let stored_count = stored.len();
-    let rows = served_rows(resources, stored);
+    let rows = served_rows(resources.fitness.provider_registry.as_ref(), stored);
     if rows.is_empty() {
         return Ok(ledger);
     }
@@ -245,7 +237,7 @@ async fn owned_workout(
     };
     let window = Duration::hours(WORKOUT_WINDOW_HOURS);
     let rows = served_rows(
-        resources,
+        resources.fitness.provider_registry.as_ref(),
         cache
             .get_cached_activity_rows(
                 user_id,

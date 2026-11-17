@@ -99,6 +99,40 @@ fn anchor_carries_the_common_window_boundaries_ordered() {
     }
 }
 
+/// The week starts at Monday 00:00 on the athlete's own calendar, never a
+/// Sunday and never a 24-hour multiple that misses local midnight.
+#[test]
+fn the_week_starts_on_the_local_monday_at_midnight() {
+    use chrono::{Datelike, TimeZone, Timelike, Weekday};
+
+    let rendered = format_current_date(Some("America/Toronto"), "en");
+    let today0 = epoch_for(&rendered, "start of today");
+    let week0 = epoch_for(&rendered, "start of this week");
+
+    let local = |epoch: i64| {
+        Utc.timestamp_opt(epoch, 0)
+            .single()
+            .unwrap_or_else(|| panic!("bug: {epoch} is not an instant"))
+            .with_timezone(&Toronto)
+    };
+    let today = local(today0).date_naive();
+    let mut monday = today;
+    while monday.weekday() != Weekday::Mon {
+        monday = monday.pred_opt().expect("a day before");
+    }
+    let week_start = local(week0);
+    assert_eq!(
+        week_start.date_naive(),
+        monday,
+        "bug: the week starts on {week_start}, not on the Monday of {today}"
+    );
+    assert_eq!(
+        (week_start.hour(), week_start.minute()),
+        (0, 0),
+        "bug: the week does not start at local midnight: {week_start}"
+    );
+}
+
 #[test]
 fn anchor_instructs_to_copy_not_compute_epochs() {
     let rendered = format_current_date(None, "en");

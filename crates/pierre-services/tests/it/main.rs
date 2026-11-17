@@ -39,3 +39,4 @@ mod side_call_usage_test;
 mod sign_up_decision_test;
 mod spawn_periodic_test;
 mod training_plan_render_test;
+mod workouts_test;

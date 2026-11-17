@@ -18,6 +18,7 @@
 
 use chrono::{DateTime, NaiveDate, TimeDelta, TimeZone, Utc};
 use pierre_core::models::SportType;
+use pierre_core::text_fold::fold_for_match;
 use pierre_evals::athlete_data::{
     check, AthleteRecord, BackfillDepth, CacheRead, HistoryInputs, PeriodHistory, RecordedActivity,
     SourceCoverage,
@@ -72,6 +73,7 @@ fn connected(sessions: Vec<RecordedActivity>, last_sync: DateTime<Utc>) -> Athle
         has_provider: true,
         today: day(9),
         locale: "fr".to_owned(),
+        named_subsets: Vec::new(),
         activities: sessions.clone(),
         history: PeriodHistory::vouched(HistoryInputs {
             sessions,
@@ -443,6 +445,38 @@ fn a_second_sport_keeps_the_all_sports_reading() {
             ClaimStatus::Supported,
             "{sentence} -> {}",
             outcome.explanation
+        );
+    }
+}
+
+/// A figure at a place the athlete named, or at a quoted name, survives
+/// extraction whole and is left to the per-activity check, which never
+/// contradicts a connected athlete: the 35 km may be every run there, and the
+/// week's 22 km on record is no reason to call it wrong.
+#[test]
+fn a_figure_at_a_named_place_or_a_quoted_name_is_never_contradicted() {
+    let place = "You ran 35 km in total this week at Gai-Luron.";
+    let unnamed = connected_week(synced_this_turn());
+    assert_eq!(
+        check(&athlete_claim(place), &unnamed)
+            .expect("adjudicated")
+            .status,
+        ClaimStatus::Contradicted,
+        "bug: without the place name the figure must still read as the week's total"
+    );
+    let named = AthleteRecord {
+        named_subsets: vec![fold_for_match("Gai-Luron")],
+        ..unnamed
+    };
+    for text in [
+        place,
+        "You ran 35 km in total this week on \"Tour du Lac\".",
+    ] {
+        let status = check(&athlete_claim(text), &named).map(|v| v.status);
+        assert_ne!(
+            status,
+            Some(ClaimStatus::Contradicted),
+            "bug: a subset figure was contradicted by the week's total: {text}"
         );
     }
 }

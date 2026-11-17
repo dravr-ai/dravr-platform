@@ -43,8 +43,9 @@
 //! pierre-cli seed coach-plan-thread
 //! ```
 
-use chrono::{Datelike, Days, NaiveDate};
+use chrono::{Days, NaiveDate};
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
+use pierre_core::civil_time::monday_of;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::groups::GroupRole;
 use pierre_core::models::{AddMessageParams, ConversationSubject};
@@ -171,7 +172,7 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
         .await?
         .map_err(CoachedAthleteRefusal::into_error)?;
     let today = athlete_today(repos, athlete.id).await;
-    let week_start = today - Days::new(u64::from(today.weekday().num_days_from_monday()));
+    let week_start = monday_of(today);
     seed_live_season(repos, &access, &group.agent_id, today, week_start).await?;
 
     let thread = repos

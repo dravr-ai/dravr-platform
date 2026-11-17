@@ -17,19 +17,21 @@
 //! - `ListDataSourcesTool` - List connected data sources (devices and providers)
 //! - `GetHeartRateSeriesTool` - Query stored intraday heart rate and HRV series
 //! - `GetSegmentHistoryTool` - Every effort the athlete made on one segment
+//! - `QueryActivitiesTool` - Counts, sums and breakdowns of the athlete's workouts
 //!
 //! Stored-data tools (sleep sessions, recovery metrics, health snapshots, data
-//! sources) execute their query bodies inline. Provider-API tools (activities,
-//! athlete, stats) bridge into the shared `fitness_api` handlers because those
+//! sources) execute their query bodies inline, as do the store's counts
+//! (`get_stats`, `query_activities`). Provider-API tools (activities,
+//! athlete) bridge into the shared `fitness_api` handlers because those
 //! handlers are also called directly from the chat pipeline prefetch stage.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use pierre_core::models::coverage::{Completeness, IncompleteReason};
-use pierre_core::models::{RefreshConfig, TenantId};
+use pierre_core::models::{Activity, RefreshConfig, TenantId};
 use serde_json::{json, Value};
 use tracing::{debug, field, info, warn, Span};
 
@@ -47,10 +49,10 @@ use crate::activity_fetch::budgeted_read::{
 use crate::activity_fetch::sync_verdict::{HeadRead, HeadVerdict, LiveRead};
 use crate::activity_fetch::uploads::{resolve_with_own_copies, user_provided_rows};
 use crate::activity_fetch::{
-    activity_date_span, activity_window_totals, maybe_merge_other_connections, read_live_window,
-    serve_covered_history, serve_stale_activities, sort_activities, touch_connection_used,
-    StaleReason,
+    maybe_merge_other_connections, read_live_window, serve_covered_history, serve_stale_activities,
+    sort_activities, touch_connection_used, StaleReason,
 };
+use crate::activity_query::ServedList;
 use crate::capabilities::PROVIDER_READ;
 use crate::context::ToolExecutionContext;
 use crate::conversions::{ok_typed, tool_result_to_response};
@@ -59,17 +61,18 @@ use crate::implementations::activities_output::{BackfillPlaceholder, GetActiviti
 use crate::implementations::activity_detail_promotion::{
     effective_mode, promote_to_detail, DetailPlan,
 };
+use crate::implementations::activity_query::QueryActivitiesTool;
 use crate::implementations::athlete_stats::{GetAthleteTool, GetStatsTool};
 use crate::implementations::continuous_series::GetHeartRateSeriesTool;
 use crate::implementations::data_helpers::{
     attach_stand_in_caveat, backfill_placeholder_message, historical_backfill_fetch_limit,
     historical_window_read_limit, pagination_has_more, response_cache_eligible, serve_in_place,
-    window_fetch_limit, AskedWindow, PrimaryStandIn, HISTORICAL_COVERAGE_BOUND_SECS,
+    window_fetch_limit, AskedWindow, PrimaryStandIn, WindowCount, HISTORICAL_COVERAGE_BOUND_SECS,
 };
 use crate::implementations::fitness_support::{
-    build_activities_success_response, cache_activities_result, filter_activities_by_sport_type,
-    try_get_cached_activities, ActivitiesResponseParams, AnalysisType, CachedActivitiesParams,
-    CachedDetail, PaginationInfo,
+    activity_matches_sport, build_activities_success_response, cache_activities_result,
+    filter_activities_by_sport_type, try_get_cached_activities, ActivitiesResponseParams,
+    AnalysisType, CachedActivitiesParams, CachedDetail, PaginationInfo,
 };
 use crate::implementations::handler_bridge;
 use crate::implementations::planned_workouts::GetPlannedWorkoutsTool;
@@ -406,6 +409,16 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             // external call would under-serve the athlete's own surfaces.
             let served_externally = ai_scope::exposure().is_some_and(|gate| gate.external);
 
+            // An explicit `provider` argument pins the ask to ONE source — the
+            // same rule `maybe_merge_other_connections` follows. A pinned
+            // provider that cannot authenticate stays the whole answer:
+            // substituting another connection would answer a question the
+            // athlete did not ask.
+            let provider_pinned = args
+                .get("provider")
+                .and_then(Value::as_str)
+                .is_some_and(|s| !s.is_empty());
+
             // Cache hit short-circuits the auth+fetch round-trip. The cached
             // list is the summaries; the hit details the recent window from
             // the stored details, without a provider read. Skipped for an
@@ -421,6 +434,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             {
                 if let Some(cached_response) = try_get_cached_activities(CachedActivitiesParams {
                     cache,
+                    runtime: &context.resources,
                     policies: context.resources.provider_registry().as_ref(),
                     cache_key: &cache_key,
                     user_uuid: context.user_id,
@@ -436,6 +450,8 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                     user_timezone: user_timezone.clone(),
                     locale: user_locale.clone(),
                     asked: AskedWindow { after, before },
+                    pinned: provider_pinned.then_some(provider_name.as_str()),
+                    sport_type: sport_type_filter.as_deref(),
                     detail: CachedDetail {
                         repos: context.resources.repos(),
                         tenant_id,
@@ -483,15 +499,6 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             let mut served_by: Vec<String> = Vec::new();
             // The store answered a deep window the history walk is still filling.
             let mut walk_running = false;
-            // An explicit `provider` argument pins the ask to ONE source — the
-            // same rule `maybe_merge_other_connections` follows. A pinned
-            // provider that cannot authenticate stays the whole answer:
-            // substituting another connection would answer a question the
-            // athlete did not ask.
-            let provider_pinned = args
-                .get("provider")
-                .and_then(Value::as_str)
-                .is_some_and(|s| !s.is_empty());
             // A deep window is read against the store first, whichever backend
             // the ask resolved to: it is served from there once a walk or a
             // backfill under any of the provider's history keys reached its
@@ -940,14 +947,32 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 limit,
                 "get_activities served list (post sport-filter, pre display-limit)"
             );
-            // Capture the served window's TRUE size + date span BEFORE the
-            // display-limit truncation, so the response can frame coverage
-            // honestly ("552 in this window, showing the most recent 200")
-            // rather than letting the LLM anchor on the oldest activity in the
-            // truncated slice.
-            let window_total = filtered_activities.len();
-            let window_span = activity_date_span(&filtered_activities, user_timezone.as_deref());
-            let window_totals = activity_window_totals(&filtered_activities);
+            // Count the served window BEFORE the display-limit truncation, so
+            // the response frames coverage honestly ("552 in this window,
+            // showing 200") rather than letting the LLM anchor on the oldest
+            // activity in the truncated slice. The count is the store's, over
+            // the window, sources and sport this list served, so it is the
+            // count `query_activities` gives (carnet#1485, OQ6); the live read
+            // above was written through before it.
+            let fetched = filtered_activities.len();
+            let keep = |activity: &Activity| {
+                sport_type_filter
+                    .as_deref()
+                    .is_none_or(|sport| activity_matches_sport(activity, sport))
+            };
+            let window = WindowCount::of_served(
+                &context.resources,
+                context.user_id,
+                tenant_id,
+                ServedList {
+                    served: &filtered_activities,
+                    after: after.and_then(|at| DateTime::from_timestamp(at, 0)),
+                    before: before.and_then(|at| DateTime::from_timestamp(at, 0)),
+                    pinned: provider_pinned.then_some(provider_name.as_str()),
+                    keep: &keep,
+                },
+            )
+            .await;
 
             // Write-through under the SAME eligibility as the read above: the
             // summaries are stored, never the details; an explicit
@@ -1031,7 +1056,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
             let effective_mode = effective_mode(mode, &filtered_activities, &detailed_ids);
 
             let pagination =
-                create_pagination(filtered_activities.len(), window_total, provider_filled_page);
+                create_pagination(filtered_activities.len(), fetched, provider_filled_page);
 
             // Weather backfill — first call per (lat, lng, hour) bucket hits the
             // vendor API, all subsequent calls hit weather_cache.
@@ -1069,9 +1094,7 @@ impl McpTool<dyn ToolRuntime> for GetActivitiesTool {
                 places: &served_rows.places,
                 user_timezone,
                 locale: user_locale,
-                window_total: Some(window_total),
-                window_span,
-                window_totals: Some(window_totals),
+                window,
                 asked: AskedWindow { after, before },
                 completeness: if walk_running {
                     Completeness::Incomplete(IncompleteReason::HistoryWalkRunning)
@@ -1127,6 +1150,7 @@ pub fn create_data_tools() -> Vec<Box<dyn RuntimeTool>> {
         Box::new(ListDataSourcesTool),
         Box::new(GetHeartRateSeriesTool),
         Box::new(GetSegmentHistoryTool),
+        Box::new(QueryActivitiesTool),
     ]
 }
 

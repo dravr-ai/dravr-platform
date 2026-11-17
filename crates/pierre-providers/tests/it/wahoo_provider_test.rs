@@ -19,7 +19,6 @@ use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
 use pierre_providers::errors::ErrorCode;
-use pierre_providers::models::coverage::{Coverage, CoverageWindow, WindowScope};
 use pierre_providers::models::{PlannedSession, PlannedSessionKind, SportType, WorkoutStep};
 use pierre_providers::pagination::PaginationParams;
 use pierre_providers::wahoo_plan::opaque_id;
@@ -397,37 +396,6 @@ async fn an_activity_fetch_walks_past_pages_of_scheduled_workouts() {
     let requests = stub.await.unwrap();
     assert_eq!(requests.len(), 3);
     assert_eq!(requests[2].path, "/v1/workouts?page=3&per_page=50");
-}
-
-/// Wahoo has no aggregate endpoint, so its stats are summed over the recent
-/// workouts the listing returns — and say so, rather than passing for
-/// lifetime totals (carnet#919).
-#[tokio::test]
-async fn stats_are_a_recent_sample_and_say_so() {
-    let (base, stub) = stub(vec![(
-        "200 OK",
-        r#"{"workouts":[
-            {"id":12,"starts":"2026-10-03T09:00:00.000Z","workout_type_id":0,"workout_summary":{"duration_total_accum":"1800.0"}},
-            {"id":11,"starts":"2026-10-02T09:00:00.000Z","workout_type_id":1,"workout_summary":{"duration_total_accum":"2400.0"}}
-        ],"total":2}"#,
-    )])
-    .await;
-    let stats = provider(&base).await.get_stats().await.unwrap();
-    assert_eq!(stats.total_activities, 2);
-    assert_eq!(stats.total_duration, 4200);
-    assert_eq!(
-        stats.coverage,
-        Coverage::complete(CoverageWindow {
-            scope: WindowScope::RecentActivities,
-            oldest: NaiveDate::from_ymd_opt(2026, 10, 2),
-            newest: NaiveDate::from_ymd_opt(2026, 10, 3),
-            total: Some(2),
-            returned: 2,
-            ..CoverageWindow::default()
-        }),
-        "bug: Wahoo totals are a sample of its recent workouts, from the oldest to the newest"
-    );
-    assert_eq!(stub.await.unwrap().len(), 1);
 }
 
 /// A cursor page asks Wahoo for the caller's limit, so no listed workout is

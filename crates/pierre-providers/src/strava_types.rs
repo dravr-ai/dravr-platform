@@ -11,7 +11,6 @@
 // the visibility it had inside `strava_provider`; fields that were private to
 // that module are `pub(crate)` so the provider can still read them.
 
-use crate::models::PeriodTotals;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
@@ -293,56 +292,6 @@ pub struct DetailedActivityResponse {
     pub laps: Option<Vec<StravaLap>>,
     /// Segment efforts completed during the activity
     pub segment_efforts: Option<Vec<StravaSegmentEffort>>,
-}
-
-/// Strava API response for stats
-///
-/// The `/athletes/{id}/stats` endpoint returns parallel `all_*` (lifetime) and
-/// `ytd_*` (current calendar year) totals per sport. We deserialize both so the
-/// stats tool can report annual figures distinctly from lifetime ones.
-#[derive(Debug, Deserialize)]
-pub(crate) struct StravaStatsResponse {
-    #[serde(rename = "all_ride_totals")]
-    pub(crate) all_ride: Option<StravaTotals>,
-    #[serde(rename = "all_run_totals")]
-    pub(crate) all_run: Option<StravaTotals>,
-    #[serde(rename = "ytd_ride_totals")]
-    pub(crate) ytd_ride: Option<StravaTotals>,
-    #[serde(rename = "ytd_run_totals")]
-    pub(crate) ytd_run: Option<StravaTotals>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct StravaTotals {
-    pub(crate) count: u32,
-    pub(crate) distance: f32,
-    pub(crate) moving_time: u32,
-    pub(crate) elevation_gain: f32,
-}
-
-impl StravaStatsResponse {
-    /// Combine a ride+run total pair into the canonical [`PeriodTotals`].
-    ///
-    /// Swim totals (`*_swim_totals`) are intentionally excluded to match the
-    /// historical behaviour of the lifetime sum; including swims is tracked as
-    /// a separate change.
-    pub(crate) fn sum_pair(
-        ride: Option<&StravaTotals>,
-        run: Option<&StravaTotals>,
-    ) -> PeriodTotals {
-        PeriodTotals {
-            total_activities: u64::from(ride.map_or(0, |t| t.count) + run.map_or(0, |t| t.count)),
-            total_distance: f64::from(
-                ride.map_or(0.0, |t| t.distance) + run.map_or(0.0, |t| t.distance),
-            ),
-            total_duration: u64::from(
-                ride.map_or(0, |t| t.moving_time) + run.map_or(0, |t| t.moving_time),
-            ),
-            total_elevation_gain: f64::from(
-                ride.map_or(0.0, |t| t.elevation_gain) + run.map_or(0.0, |t| t.elevation_gain),
-            ),
-        }
-    }
 }
 
 /// One stream from `GET /activities/{id}/streams?key_by_type=true`.

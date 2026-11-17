@@ -112,6 +112,9 @@ pub struct AthleteRecord {
     /// this week". `None` when no window can be vouched for, and a total is
     /// then never contradicted.
     pub history: Option<PeriodHistory>,
+    /// The athlete's place and gear names, folded (`fold_for_match`). A period
+    /// figure naming one is a subset no period total recounts.
+    pub named_subsets: Vec<String>,
 }
 
 impl AthleteRecord {
@@ -124,6 +127,7 @@ impl AthleteRecord {
             today,
             locale: locale.to_owned(),
             history: None,
+            named_subsets: Vec::new(),
         }
     }
 

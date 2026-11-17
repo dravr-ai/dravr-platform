@@ -1039,7 +1039,7 @@ mod tests {
 
     #[test]
     fn an_athletes_reconnect_names_them_and_offers_the_coach_none() {
-        let refused = athlete_reconnect_refusal("export_latest_snapshot", "Mira", "Garmin");
+        let refused = athlete_reconnect_refusal("export_intervals", "Mira", "Garmin");
         assert_eq!(
             refused.result.as_ref().unwrap()["reason"],
             "athlete_reconnect_needed",
@@ -1047,7 +1047,7 @@ mod tests {
         );
         let message = refused.error.unwrap();
         assert!(
-            message.starts_with("'export_latest_snapshot' could not read Mira's training")
+            message.starts_with("'export_intervals' could not read Mira's training")
                 && message.contains("their Garmin connection needs to be reconnected")
                 && message.contains("only Mira can do"),
             "bug: the refusal names whose connection died and who reconnects it: {message}"

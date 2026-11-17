@@ -124,6 +124,7 @@ const TOOL_STEP: Readonly<Record<string, StepKind>> = {
   get_training_history: 'readHistory',
   compute_training_history: 'readHistory',
   get_stats: 'readHistory',
+  query_activities: 'readHistory',
   analyze_performance_trends: 'readHistory',
   analyze_training_load: 'readHistory',
   calculate_fitness_score: 'readHistory',

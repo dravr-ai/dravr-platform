@@ -12,7 +12,6 @@
 //! and forwards it to the service on each fetch, which scrapes the fitness
 //! platform (Strava, Garmin Connect, etc.) and returns activities.
 
-use crate::models::coverage::WindowScope;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use dravr_sciotte::client::{ClientError, SciotteClient};
@@ -38,7 +37,7 @@ use crate::delegation::coach_credential_expired;
 use crate::errors::{AppError, AppResult};
 use crate::models::{
     activity::{Lap, Split},
-    Activity, ActivityBuilder, ActivityComment, Athlete, PlannedWorkout, SportType, Stats,
+    Activity, ActivityBuilder, ActivityComment, Athlete, PlannedWorkout, SportType,
 };
 use crate::pagination::{CursorPage, PaginationParams};
 use crate::sciotte_error::{
@@ -472,9 +471,8 @@ fn profile_name(raw: Option<String>, target: SciotteTarget) -> Option<String> {
 ///
 /// `provider` and `id` are what a model reads the profile as coming from, so
 /// both name the provider the athlete signed in to (`garmin`, `strava`, ...),
-/// never the backend. The id stays a name, not the account's numeric id: the
-/// stats cache keys on an id that parses as a number, and this profile has
-/// never offered one.
+/// never the backend. The id stays a name, not the account's numeric id: this
+/// profile has never offered one.
 fn own_athlete(profile: AthleteProfile, target: SciotteTarget) -> Athlete {
     // Strava's own figure from this same profile read; a missing one stays
     // `None`, and no other target reports one.
@@ -923,17 +921,6 @@ impl FitnessProvider for SciotteProvider {
             })
             .await?;
         Ok(convert_activity(&sciotte_activity, target))
-    }
-
-    async fn get_stats(&self) -> AppResult<Stats> {
-        let activities = self
-            .get_activities_with_params(&ActivityQueryParams::with_pagination(Some(100), None))
-            .await?;
-
-        Ok(Stats::summed_over(
-            &activities,
-            WindowScope::RecentActivities,
-        ))
     }
 
     /// Only the TrainingPeaks mirror reads a planned calendar — the one

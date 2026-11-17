@@ -41,12 +41,13 @@ use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{try_load_plan_weeks_between, PlanSpan, WeekCard};
+use pierre_services::workouts::served_rows;
 use pierre_tool_runtime::activity_fetch::CACHED_ACTIVITY_LOOKBACK_DAYS;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde::{Deserialize, Serialize};
 use tracing::warn;
 
-use super::{active_tenant, copies_per_workout, home_activities, served_rows, HomeActivity};
+use super::{active_tenant, copies_per_workout, home_activities, HomeActivity};
 use crate::mcp::resources::ServerContext;
 
 /// Most days one read spans, both ends included: the six weeks a month grid
@@ -145,7 +146,11 @@ pub(super) async fn get_calendar(
             "calendar read filled its row bound; the oldest days of the span may be short"
         );
     }
-    let workouts = home_activities(&served_rows(&resources, rows), usize::MAX, None);
+    let workouts = home_activities(
+        &served_rows(resources.fitness.provider_registry.as_ref(), rows),
+        usize::MAX,
+        None,
+    );
     let activities = on_days(workouts, zone, from.max(history_start), to);
     let garmin_contribution = oauth_providers::garmin_contribution(
         activities.iter().map(|day| day.activity.garmin_recorded),

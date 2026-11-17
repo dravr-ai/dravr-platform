@@ -14,7 +14,7 @@ use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
-    SportType, Stats, TimeSeriesData,
+    SportType, TimeSeriesData,
 };
 use pierre_core::pagination::{CursorPage, PaginationParams};
 
@@ -164,11 +164,6 @@ impl FitnessProvider for AiGovernedProvider {
         Ok(activity.time_series_data().cloned())
     }
 
-    async fn get_stats(&self) -> AppResult<Stats> {
-        self.untagged_read()?;
-        self.inner.get_stats().await
-    }
-
     async fn read_thresholds(
         &self,
         primary_sport: Option<&SportType>,
@@ -244,7 +239,7 @@ mod tests {
     use chrono::{NaiveDate, TimeZone, Utc};
     use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
     use pierre_core::errors::{AppError, AppResult, ErrorCode};
-    use pierre_core::models::{Activity, Athlete, SegmentEffort, Stats};
+    use pierre_core::models::{Activity, Athlete, SegmentEffort};
     use pierre_core::pagination::{CursorPage, PaginationParams};
     use pierre_core::transport::{Transport, TransportPolicy};
 
@@ -343,10 +338,6 @@ mod tests {
 
         async fn get_activity(&self, id: &str) -> AppResult<Activity> {
             Err(AppError::not_found(id.to_owned()))
-        }
-
-        async fn get_stats(&self) -> AppResult<Stats> {
-            Err(AppError::internal("not used by these tests"))
         }
 
         async fn segment_effort_history(

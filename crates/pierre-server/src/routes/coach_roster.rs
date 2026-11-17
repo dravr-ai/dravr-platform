@@ -753,7 +753,7 @@ impl WeekReplies {
 /// Read the reply review newest first, back to this week's Monday, through
 /// the same service and checker rules as `GET /api/coach/replies`.
 async fn replies_this_week(resources: &ServerContext, coach: Uuid) -> AppResult<WeekReplies> {
-    let since = coach_replies::week_start(Utc::now().date_naive())
+    let since = civil_time::monday_of(Utc::now().date_naive())
         .and_time(NaiveTime::MIN)
         .and_utc();
     let mut week = WeekReplies::default();
