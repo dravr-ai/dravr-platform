@@ -3140,14 +3140,24 @@
       "loadFailed": "No se pudo leer esta invitación. Inténtalo de nuevo.",
       "tooMany": "Demasiados intentos. Inténtalo de nuevo en unos minutos.",
       "retry": "Reintentar",
-      "continueWithout": "Continuar sin unirme"
+      "continueWithout": "Continuar sin unirme",
+      "titleNoName": "Una invitación a «{{group}}»",
+      "titleCoachNoName": "Una invitación para ser coach de «{{group}}»",
+      "sharesUnnamedCoach": "Al unirte, el coach del grupo verá tus actividades, tu carga y tu plan. Puedes dejar de compartir cuando quieras.",
+      "expiredNoName": "Este enlace ha caducado. Pide uno nuevo a quien te lo envió.",
+      "usedUpNoName": "Este enlace ya se ha usado todas las veces previstas. Pide uno nuevo a quien te lo envió.",
+      "inactiveNoName": "Este enlace se desactivó. Pide uno nuevo a quien te lo envió.",
+      "coachLinkNotForAccount": "Este enlace añade un coach al grupo, y tu cuenta no tiene acceso de coach. Pide a quien te lo envió un enlace para unirte como atleta."
     },
     "inviteJourney": {
       "line": "Invitación de {{name}} · «{{group}}»",
       "confirmEmailPromise": "Después, te unes a {{name}} en «{{group}}». No tienes que repetir nada.",
       "reviewPromise": "Cuando aprueben tu cuenta, te unes a {{name}} en «{{group}}». No tienes que repetir nada.",
       "teamChosen": "{{name}} · tu coach, ya elegido",
-      "yourCoach": "{{name}} · tu coach"
+      "yourCoach": "{{name}} · tu coach",
+      "lineNoName": "Invitación · «{{group}}»",
+      "confirmEmailPromiseNoName": "Después, te unes a «{{group}}». No tienes que repetir nada.",
+      "reviewPromiseNoName": "Cuando aprueben tu cuenta, te unes a «{{group}}». No tienes que repetir nada."
     },
     "inviteFunnel": {
       "label": "Estado de la invitación",
@@ -3168,7 +3178,11 @@
       "full": "El grupo de {{name}} está completo por ahora. Inténtalo de nuevo cuando se libere una plaza.",
       "retry": "Reintentar",
       "failed": "No se pudo unirte al grupo. Inténtalo de nuevo.",
-      "joined": "Te uniste a «{{group}}»."
+      "joined": "Te uniste a «{{group}}».",
+      "titleNoName": "Te espera una invitación a «{{group}}».",
+      "titleCoachNoName": "Te espera una invitación para ser coach de «{{group}}».",
+      "joinNoName": "Unirme al grupo",
+      "fullNoName": "Este grupo está completo por ahora. Inténtalo de nuevo cuando se libere una plaza."
     },
     "claimCoach": {
       "none": "Este grupo aún no tiene coach",

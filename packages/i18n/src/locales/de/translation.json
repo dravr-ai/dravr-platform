@@ -3140,14 +3140,24 @@
       "loadFailed": "Diese Einladung konnte nicht gelesen werden. Versuch es noch einmal.",
       "tooMany": "Zu viele Versuche. Versuch es in ein paar Minuten noch einmal.",
       "retry": "Erneut versuchen",
-      "continueWithout": "Ohne Beitritt weiter"
+      "continueWithout": "Ohne Beitritt weiter",
+      "titleNoName": "Eine Einladung in „{{group}}“",
+      "titleCoachNoName": "Eine Einladung, „{{group}}“ als Coach zu betreuen",
+      "sharesUnnamedCoach": "Wenn du beitrittst, sieht der Coach der Gruppe deine Aktivitäten, deine Belastung und deinen Plan. Du kannst das Teilen jederzeit beenden.",
+      "expiredNoName": "Dieser Link ist abgelaufen. Bitte die Person, die ihn dir geschickt hat, um einen neuen.",
+      "usedUpNoName": "Dieser Link wurde so oft verwendet, wie er erlaubt. Bitte die Person, die ihn dir geschickt hat, um einen neuen.",
+      "inactiveNoName": "Dieser Link wurde deaktiviert. Bitte die Person, die ihn dir geschickt hat, um einen neuen.",
+      "coachLinkNotForAccount": "Dieser Link fügt der Gruppe einen Coach hinzu, und dein Konto hat keinen Coach-Zugang. Bitte die Person, die ihn dir geschickt hat, um einen Link, mit dem du als Athlet beitrittst."
     },
     "inviteJourney": {
       "line": "Einladung von {{name}} · „{{group}}“",
       "confirmEmailPromise": "Danach trittst du {{name}} in „{{group}}“ bei. Nichts zu wiederholen.",
       "reviewPromise": "Sobald dein Konto freigegeben ist, trittst du {{name}} in „{{group}}“ bei. Nichts zu wiederholen.",
       "teamChosen": "{{name}} · dein Coach, schon gewählt",
-      "yourCoach": "{{name}} · dein Coach"
+      "yourCoach": "{{name}} · dein Coach",
+      "lineNoName": "Einladung · „{{group}}“",
+      "confirmEmailPromiseNoName": "Danach trittst du „{{group}}“ bei. Nichts zu wiederholen.",
+      "reviewPromiseNoName": "Sobald dein Konto freigegeben ist, trittst du „{{group}}“ bei. Nichts zu wiederholen."
     },
     "inviteFunnel": {
       "label": "Stand der Einladung",
@@ -3168,7 +3178,11 @@
       "full": "Die Gruppe von {{name}} ist im Moment voll. Versuch es noch einmal, wenn ein Platz frei wird.",
       "retry": "Erneut versuchen",
       "failed": "Beitritt zur Gruppe fehlgeschlagen. Versuch es noch einmal.",
-      "joined": "Du bist „{{group}}“ beigetreten."
+      "joined": "Du bist „{{group}}“ beigetreten.",
+      "titleNoName": "Eine Einladung in „{{group}}“ wartet auf dich.",
+      "titleCoachNoName": "Eine Einladung, „{{group}}“ als Coach zu betreuen, wartet auf dich.",
+      "joinNoName": "Der Gruppe beitreten",
+      "fullNoName": "Diese Gruppe ist im Moment voll. Versuch es noch einmal, wenn ein Platz frei wird."
     },
     "claimCoach": {
       "none": "Diese Gruppe hat noch keinen Coach",

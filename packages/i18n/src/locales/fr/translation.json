@@ -3140,14 +3140,24 @@
       "loadFailed": "Impossible de lire cette invitation. Réessaie.",
       "tooMany": "Trop de tentatives. Réessaie dans quelques minutes.",
       "retry": "Réessayer",
-      "continueWithout": "Continuer sans rejoindre"
+      "continueWithout": "Continuer sans rejoindre",
+      "titleNoName": "Une invitation pour « {{group}} »",
+      "titleCoachNoName": "Une invitation à coacher « {{group}} »",
+      "sharesUnnamedCoach": "En rejoignant, le coach du groupe verra tes activités, ta charge et ton plan. Tu peux arrêter le partage quand tu veux.",
+      "expiredNoName": "Ce lien a expiré. Demande un nouveau lien à la personne qui te l'a envoyé.",
+      "usedUpNoName": "Ce lien a déjà servi autant de fois que prévu. Demande un nouveau lien à la personne qui te l'a envoyé.",
+      "inactiveNoName": "Ce lien a été désactivé. Demande un nouveau lien à la personne qui te l'a envoyé.",
+      "coachLinkNotForAccount": "Ce lien ajoute un coach au groupe, et ton compte n'a pas d'accès coach. Demande à la personne qui te l'a envoyé un lien pour le rejoindre comme athlète."
     },
     "inviteJourney": {
       "line": "Invitation de {{name}} · « {{group}} »",
       "confirmEmailPromise": "Ensuite, tu rejoins {{name}} dans « {{group}} ». Rien à refaire.",
       "reviewPromise": "Une fois ton compte approuvé, tu rejoins {{name}} dans « {{group}} ». Rien à refaire.",
       "teamChosen": "{{name}} · ton coach, déjà choisi",
-      "yourCoach": "{{name}} · ton coach"
+      "yourCoach": "{{name}} · ton coach",
+      "lineNoName": "Invitation · « {{group}} »",
+      "confirmEmailPromiseNoName": "Ensuite, tu rejoins « {{group}} ». Rien à refaire.",
+      "reviewPromiseNoName": "Une fois ton compte approuvé, tu rejoins « {{group}} ». Rien à refaire."
     },
     "inviteFunnel": {
       "label": "Où en est l'invitation",
@@ -3168,7 +3178,11 @@
       "full": "Le groupe de {{name}} est complet pour l'instant. Réessaie quand une place se libère.",
       "retry": "Réessayer",
       "failed": "Impossible de rejoindre le groupe. Réessaie.",
-      "joined": "Tu as rejoint « {{group}} »."
+      "joined": "Tu as rejoint « {{group}} ».",
+      "titleNoName": "Une invitation t'attend dans « {{group}} ».",
+      "titleCoachNoName": "Une invitation à coacher « {{group}} » t'attend.",
+      "joinNoName": "Rejoindre le groupe",
+      "fullNoName": "Ce groupe est complet pour l'instant. Réessaie quand une place se libère."
     },
     "claimCoach": {
       "none": "Ce groupe n'a pas encore de coach",

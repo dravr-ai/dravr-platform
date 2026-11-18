@@ -3140,14 +3140,24 @@
       "loadFailed": "Não foi possível ler este convite. Tente de novo.",
       "tooMany": "Tentativas demais. Tente de novo em alguns minutos.",
       "retry": "Tentar de novo",
-      "continueWithout": "Continuar sem entrar"
+      "continueWithout": "Continuar sem entrar",
+      "titleNoName": "Um convite para “{{group}}”",
+      "titleCoachNoName": "Um convite para ser coach de “{{group}}”",
+      "sharesUnnamedCoach": "Ao entrar, o coach do grupo verá suas atividades, sua carga e seu plano. Você pode parar de compartilhar quando quiser.",
+      "expiredNoName": "Este link expirou. Peça um novo a quem o enviou.",
+      "usedUpNoName": "Este link já foi usado todas as vezes previstas. Peça um novo a quem o enviou.",
+      "inactiveNoName": "Este link foi desativado. Peça um novo a quem o enviou.",
+      "coachLinkNotForAccount": "Este link adiciona um coach ao grupo, e sua conta não tem acesso de coach. Peça a quem o enviou um link para entrar como atleta."
     },
     "inviteJourney": {
       "line": "Convite de {{name}} · “{{group}}”",
       "confirmEmailPromise": "Depois, você entra no grupo “{{group}}” de {{name}}. Nada a refazer.",
       "reviewPromise": "Quando sua conta for aprovada, você entra no grupo “{{group}}” de {{name}}. Nada a refazer.",
       "teamChosen": "{{name}} · seu coach, já escolhido",
-      "yourCoach": "{{name}} · seu coach"
+      "yourCoach": "{{name}} · seu coach",
+      "lineNoName": "Convite · “{{group}}”",
+      "confirmEmailPromiseNoName": "Depois, você entra em “{{group}}”. Nada a refazer.",
+      "reviewPromiseNoName": "Quando sua conta for aprovada, você entra em “{{group}}”. Nada a refazer."
     },
     "inviteFunnel": {
       "label": "Andamento do convite",
@@ -3168,7 +3178,11 @@
       "full": "O grupo de {{name}} está cheio por enquanto. Tente de novo quando abrir uma vaga.",
       "retry": "Tentar de novo",
       "failed": "Não foi possível entrar no grupo. Tente de novo.",
-      "joined": "Você entrou em “{{group}}”."
+      "joined": "Você entrou em “{{group}}”.",
+      "titleNoName": "Um convite para “{{group}}” espera por você.",
+      "titleCoachNoName": "Um convite para ser coach de “{{group}}” espera por você.",
+      "joinNoName": "Entrar no grupo",
+      "fullNoName": "Este grupo está cheio por enquanto. Tente de novo quando abrir uma vaga."
     },
     "claimCoach": {
       "none": "Este grupo ainda não tem coach",

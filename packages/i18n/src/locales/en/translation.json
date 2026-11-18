@@ -3140,14 +3140,24 @@
       "loadFailed": "Couldn't read this invite. Try again.",
       "tooMany": "Too many tries. Try again in a few minutes.",
       "retry": "Try again",
-      "continueWithout": "Continue without joining"
+      "continueWithout": "Continue without joining",
+      "titleNoName": "An invite to “{{group}}”",
+      "titleCoachNoName": "An invite to coach “{{group}}”",
+      "sharesUnnamedCoach": "When you join, the group's coach will see your activities, your load and your plan. You can stop sharing at any time.",
+      "expiredNoName": "This link has expired. Ask whoever sent it for a new one.",
+      "usedUpNoName": "This link has been used as many times as it allows. Ask whoever sent it for a new one.",
+      "inactiveNoName": "This link was turned off. Ask whoever sent it for a new one.",
+      "coachLinkNotForAccount": "This link adds a coach to the group, and your account has no coach access. Ask whoever sent it for a link to join as an athlete."
     },
     "inviteJourney": {
       "line": "Invite from {{name}} · “{{group}}”",
       "confirmEmailPromise": "Then you join {{name}} in “{{group}}”. Nothing to redo.",
       "reviewPromise": "Once your account is approved, you join {{name}} in “{{group}}”. Nothing to redo.",
       "teamChosen": "{{name}} · your coach, already chosen",
-      "yourCoach": "{{name}} · your coach"
+      "yourCoach": "{{name}} · your coach",
+      "lineNoName": "Invite · “{{group}}”",
+      "confirmEmailPromiseNoName": "Then you join “{{group}}”. Nothing to redo.",
+      "reviewPromiseNoName": "Once your account is approved, you join “{{group}}”. Nothing to redo."
     },
     "inviteFunnel": {
       "label": "Invite progress",
@@ -3168,7 +3178,11 @@
       "full": "{{name}}'s group is full for now. Try again when a seat opens.",
       "retry": "Try again",
       "failed": "Couldn't join the group. Try again.",
-      "joined": "You joined “{{group}}”."
+      "joined": "You joined “{{group}}”.",
+      "titleNoName": "An invite to “{{group}}” is waiting for you.",
+      "titleCoachNoName": "An invite to coach “{{group}}” is waiting for you.",
+      "joinNoName": "Join the group",
+      "fullNoName": "This group is full for now. Try again when a seat opens."
     },
     "claimCoach": {
       "none": "This group has no coach yet",
