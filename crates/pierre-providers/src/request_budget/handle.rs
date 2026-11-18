@@ -22,6 +22,7 @@ use pierre_core::errors::AppResult;
 ))]
 use tokio::sync::RwLock;
 use tracing::error;
+use uuid::Uuid;
 
 use super::{
     budget_refusal, is_background, Holder, ProviderRateLimiter, RateLimitStatus, SESSION_BACKENDS,
@@ -40,8 +41,8 @@ use crate::core::OAuth2Credentials;
 /// The budget a credential's provider requests are admitted against.
 ///
 /// The shared windows of the OAuth app that signs them, those its provider
-/// keeps for a personal API key, or the walk windows of the app a signed-in
-/// session's detail walk is counted in.
+/// keeps for a personal API key, the walk windows of the app a signed-in
+/// session's detail walk is counted in, or an athlete's context-read windows.
 #[derive(Clone)]
 pub struct RequestBudget {
     limiter: Arc<ProviderRateLimiter>,
@@ -94,11 +95,33 @@ impl RequestBudget {
             Some(Holder::App { app, daily_limit } | Holder::Session { app, daily_limit }) => {
                 (app.clone(), *daily_limit)
             }
-            Some(Holder::ApiKey { .. }) | None => (server_app.to_owned(), None),
+            Some(Holder::ApiKey { .. } | Holder::SessionContext { .. }) | None => {
+                (server_app.to_owned(), None)
+            }
         };
         Some(Self {
             limiter: Arc::clone(limiter),
             holder: Holder::Session { app, daily_limit },
+        })
+    }
+
+    /// The budget the live provider context reads (carnet#1622) of
+    /// `backend`'s signed-in session are counted in for `user_id`: that
+    /// athlete's own windows, apart from the walks' and any app's
+    /// ([`super::context_read`]). `None` for a backend whose sessions the
+    /// limiter does not count.
+    #[must_use]
+    pub(crate) fn for_session_context(
+        limiter: &Arc<ProviderRateLimiter>,
+        backend: &str,
+        user_id: Uuid,
+    ) -> Option<Self> {
+        SESSION_BACKENDS.contains(&backend).then(|| Self {
+            limiter: Arc::clone(limiter),
+            holder: Holder::SessionContext {
+                backend: backend.to_owned(),
+                user_id,
+            },
         })
     }
 

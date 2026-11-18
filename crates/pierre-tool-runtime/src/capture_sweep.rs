@@ -73,6 +73,8 @@ use tokio::time::timeout;
 use tracing::{info, warn};
 use uuid::Uuid;
 
+#[cfg(feature = "tools-data")]
+use crate::activity_backfill::tag_walk::ask_tag_walk;
 use crate::activity_fetch::fetch_provider_head;
 use crate::activity_fetch::sync_verdict::{
     covers_list_head, held_to_background_share, record_sync_failure,
@@ -652,9 +654,13 @@ async fn refresh_one(
     };
 
     match result {
-        Ok(activities) => RefreshOutcome::Refreshed {
-            activities: activities.len(),
-        },
+        Ok(activities) => {
+            #[cfg(feature = "tools-data")]
+            ask_tag_walk_after_refresh(runtime, tenant_id, parsed_user, provider).await;
+            RefreshOutcome::Refreshed {
+                activities: activities.len(),
+            }
+        }
         Err(e) if e.provider_auth_required_provider().is_some() => {
             flag_connection(
                 runtime,
@@ -667,6 +673,23 @@ async fn refresh_one(
         }
         Err(e) => unflagged_outcome(&e, user_id, provider),
     }
+}
+
+/// A connection whose head just refreshed has a live session: ask for its
+/// tag walk, which fills the tags and gear id of the stored history the head
+/// read never carries. Once per connection, and only after its history walk
+/// ended ([`ask_tag_walk`]); a backend that is no counted session is not asked.
+#[cfg(feature = "tools-data")]
+async fn ask_tag_walk_after_refresh(
+    runtime: &Arc<dyn ToolRuntime>,
+    tenant_id: &str,
+    user_id: Uuid,
+    provider: &str,
+) {
+    let Ok(tenant) = TenantId::parse_str(tenant_id) else {
+        return;
+    };
+    ask_tag_walk(runtime, user_id, tenant, provider).await;
 }
 
 /// What the sweep reports for a fetch error that leaves the connection

@@ -20,6 +20,10 @@ use dravr_sciotte::models::{
     AthleteProfile, AuthSession, DetailPass, DetailScope, Lap as SciotteLap, Split as SciotteSplit,
     SportType as SciotteSportType,
 };
+use pierre_core::models::provider_context::{
+    ProviderActivitySearch, ProviderActivitySearchPage, ProviderActivityZones, ProviderBestEffort,
+    ProviderGear, ProviderPersonalRecord, ProviderWeight,
+};
 use pierre_core::untrusted::fence_athlete_text;
 use secrecy::ExposeSecret;
 use std::env;
@@ -51,7 +55,9 @@ use crate::spi::{
 };
 use crate::trainingpeaks_plan::planned_workout_from_trainingpeaks;
 
+mod activity_tags;
 mod activity_times;
+mod context;
 mod factory;
 /// The field dictionary guard for the four scraped targets.
 mod field_guard;
@@ -676,6 +682,13 @@ fn convert_activity(sciotte: &SciotteActivity, target: SciotteTarget) -> Activit
     .private_note_opt(sciotte.private_note.clone().filter(|_| own_words))
     .device_name_opt(activity_times::device_name(sciotte))
     .gear_opt(activity_times::gear(sciotte))
+    // Strava's tag ids are Strava's own vocabulary: no other scraped
+    // target's tag map is read through them.
+    .tags_opt(
+        matches!(target, SciotteTarget::Strava)
+            .then(|| activity_tags::provider_tags(sciotte))
+            .flatten(),
+    )
     .segment_efforts_opt(segments::read_efforts(sciotte))
     .build()
 }
@@ -921,6 +934,36 @@ impl FitnessProvider for SciotteProvider {
             })
             .await?;
         Ok(convert_activity(&sciotte_activity, target))
+    }
+
+    async fn read_activity_zones(&self, id: &str) -> AppResult<Option<ProviderActivityZones>> {
+        self.strava_activity_zones(id).await
+    }
+
+    async fn read_gear(&self) -> AppResult<Option<Vec<ProviderGear>>> {
+        self.strava_gear().await
+    }
+
+    async fn read_personal_records(&self) -> AppResult<Option<Vec<ProviderPersonalRecord>>> {
+        self.strava_personal_records().await
+    }
+
+    async fn read_activity_best_efforts(
+        &self,
+        id: &str,
+    ) -> AppResult<Option<Vec<ProviderBestEffort>>> {
+        self.strava_best_efforts(id).await
+    }
+
+    async fn read_weight(&self) -> AppResult<Option<ProviderWeight>> {
+        self.strava_weight().await
+    }
+
+    async fn search_activities(
+        &self,
+        search: &ProviderActivitySearch,
+    ) -> AppResult<ProviderActivitySearchPage> {
+        self.strava_search_activities(search).await
     }
 
     /// Only the TrainingPeaks mirror reads a planned calendar — the one

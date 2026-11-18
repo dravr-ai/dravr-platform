@@ -122,11 +122,16 @@
 use crate::backend_resolver::user_facing_name;
 use crate::delegation::{CoachRoster, DelegatedReads};
 use crate::errors::{AppError, AppResult};
+use crate::models::provider_context::{
+    ProviderActivitySearch, ProviderActivitySearchPage, ProviderActivityZones, ProviderBestEffort,
+    ProviderGear, ProviderPersonalRecord, ProviderWeight,
+};
 use crate::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
     SportType, TenantId, TimeSeriesData, API_KEY_TOKEN_TYPE,
 };
 use crate::pagination::{CursorPage, PaginationParams};
+use crate::provider_context::unsupported as context_unsupported;
 use crate::request_budget::RequestBudget;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
@@ -592,6 +597,65 @@ pub trait FitnessProvider: Send + Sync {
     ) -> AppResult<Vec<PlannedWorkout>> {
         let _ = (after, before);
         Err(planned_workouts_unsupported(self.name()))
+    }
+
+    // ── Provider context ─────────────────────────────────────────────────
+    //
+    // What the provider itself says about the athlete beyond their activities
+    // (carnet#1622): its zones, gear, all-time records, best efforts and
+    // weight. These are the provider's figures, read live, handed on as the
+    // provider's, and never stored or fed into a Dravr calculation (see
+    // `pierre_core::models::provider_context`). Each read defaults to the
+    // refusal of `crate::provider_context::unsupported`: an empty answer
+    // would read as an athlete with none. `Ok(None)` is a read that found
+    // nothing there; `Ok(Some(vec![]))` is a read that found an empty list.
+
+    /// The provider's heart rate and pace zones of activity `id`, with the
+    /// time the activity spent in each. `None` when the provider reported no
+    /// zones for it.
+    async fn read_activity_zones(&self, id: &str) -> AppResult<Option<ProviderActivityZones>> {
+        let _ = id;
+        Err(context_unsupported(self.name(), "activity zones"))
+    }
+
+    /// The shoes and bikes the athlete keeps with the provider, with their
+    /// mileage. Read-only context: never written into the gear ledger.
+    async fn read_gear(&self) -> AppResult<Option<Vec<ProviderGear>>> {
+        Err(context_unsupported(self.name(), "the athlete's gear"))
+    }
+
+    /// The all-time records the provider lists on the athlete's profile.
+    async fn read_personal_records(&self) -> AppResult<Option<Vec<ProviderPersonalRecord>>> {
+        Err(context_unsupported(self.name(), "personal records"))
+    }
+
+    /// The best efforts the provider found in activity `id`.
+    async fn read_activity_best_efforts(
+        &self,
+        id: &str,
+    ) -> AppResult<Option<Vec<ProviderBestEffort>>> {
+        let _ = id;
+        Err(context_unsupported(self.name(), "activity best efforts"))
+    }
+
+    /// The athlete's weight as the provider holds it. Provider context only:
+    /// it never enters the effective physiology.
+    async fn read_weight(&self) -> AppResult<Option<ProviderWeight>> {
+        Err(context_unsupported(self.name(), "the athlete's weight"))
+    }
+
+    /// A page of the provider's own filtered list of the athlete's
+    /// activities, for a backfill that must reach past the newest rows
+    /// [`get_activities_with_params`](Self::get_activities_with_params) sees.
+    async fn search_activities(
+        &self,
+        search: &ProviderActivitySearch,
+    ) -> AppResult<ProviderActivitySearchPage> {
+        let _ = search;
+        Err(context_unsupported(
+            self.name(),
+            "a filtered activity search",
+        ))
     }
 
     // ── Coach roster ─────────────────────────────────────────────────────

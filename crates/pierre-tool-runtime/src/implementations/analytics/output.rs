@@ -21,6 +21,7 @@
 //! `anyOf` for an untagged enum, so the schema does not assert that for you.
 
 use dravr_cageux::zones::HeartRateReading;
+use pierre_core::models::provider_context::ProviderActivityContext;
 use pierre_core::models::{FormBand, FormInterpretation};
 use pierre_fitness_compute::weather::WeatherDifficulty;
 use serde::{Deserialize, Serialize};
@@ -807,6 +808,15 @@ pub struct ActivityIntelligenceResult {
     /// before it says "your ride" about someone's ride.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_selected: Option<AutoSelectedActivity>,
+    /// The provider's own figures for this activity, read live: its heart
+    /// rate and pace zones with the time spent in each, and its best efforts,
+    /// labelled with the provider they come from. Context beside the
+    /// analysis, never part of it: Dravr's zones come from the athlete's own
+    /// thresholds, and these are quoted as the provider's ("Strava puts this
+    /// run's 142 bpm in its zone 2"). Absent when the provider holds none,
+    /// serves none, or did not answer in time.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_context: Option<ProviderActivityContext>,
 }
 
 /// Why a different activity was analysed, and which.

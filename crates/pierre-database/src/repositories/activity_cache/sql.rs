@@ -4,6 +4,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+/// How many times an upsert merges over a stored copy that kept changing under it.
+pub(crate) const UPSERT_MERGE_ATTEMPTS: usize = 4;
+
 /// Insert or overwrite one cached activity.
 ///
 /// `$n` placeholders throughout this module: sqlx accepts them on `SQLite` as
@@ -24,6 +27,14 @@
 /// push of the same activity leaves the later one standing. A read stamps
 /// `now`, or, for a read short of the list head, the head's own last sync,
 /// which is never older than a row the head wrote.
+///
+/// A copy merged over what was stored (`$11` true) lands only while the row
+/// still holds the copy it was merged with (`$10`; NULL when the read found
+/// no row, so a row that appeared since refuses it), the guard
+/// [`AMEND_LISTED_READS_SQL`] has: a tag walk's amend that landed since is
+/// never erased, and the caller merges again over what stands. A copy that
+/// carries its own tags and gear is not merged (`$11` false) and is not
+/// guarded.
 pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
     INSERT INTO cached_activities (id, user_id, tenant_id, provider, activity_id, sport_type, start_date, synced_at, data_json)
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
@@ -32,7 +43,41 @@ pub(crate) const UPSERT_CACHED_ACTIVITY_SQL: &str = r"
         start_date = EXCLUDED.start_date,
         synced_at = EXCLUDED.synced_at,
         data_json = EXCLUDED.data_json
-    WHERE cached_activities.synced_at <= EXCLUDED.synced_at";
+    WHERE cached_activities.synced_at <= EXCLUDED.synced_at
+      AND (NOT $11 OR cached_activities.data_json = $10)";
+
+/// Ids one stored-copy read asks for at most: an archive import writes a
+/// whole history through one call, and a single `IN` list of that size would
+/// pass `SQLite`'s bound-variable limit.
+pub(crate) const STORED_DATA_JSON_CHUNK: usize = 500;
+
+/// The list copies rows store, by the table's uniqueness key with the
+/// activity ids in one `IN` list (`$4` on): what a later write of the same
+/// activities keeps from them ([`stored_activity_json_over`](super::stored_json)).
+/// One read for a page of ids, never one per activity.
+pub(crate) fn stored_data_json_sql(ids: usize) -> String {
+    let placeholders = (4..4 + ids)
+        .map(|i| format!("${i}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "
+    SELECT activity_id, data_json
+    FROM cached_activities
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3
+      AND activity_id IN ({placeholders})"
+    )
+}
+
+/// Replace the `data_json` (`$5`) of one row, by the table's uniqueness key,
+/// only while it still holds the copy (`$6`) the amend was made from: a list
+/// write that landed in between stands, and nothing but `data_json` moves —
+/// not `synced_at`, which is part of the provider's freshness.
+pub(crate) const AMEND_LISTED_READS_SQL: &str = r"
+    UPDATE cached_activities
+    SET data_json = $5
+    WHERE user_id = $1 AND tenant_id = $2 AND provider = $3 AND activity_id = $4
+      AND data_json = $6";
 
 /// Store what a detail read of one cached activity found, on the row its
 /// list read wrote, by the table's uniqueness key, with the instant it is

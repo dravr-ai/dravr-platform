@@ -633,6 +633,28 @@ async fn session_walk_budget(athlete: &Athlete<'_>, backend: &str) -> Option<Req
     })
 }
 
+/// The windows `backend`'s signed-in session reads are counted in for an
+/// athlete, with the calls a day they leave a walk
+/// ([`session_walk_budget`], [`RequestBudget::detail_walk_daily_calls`]);
+/// `None` when `backend` is no session the limiter counts. The walks that
+/// page a session share these windows: the detail walk and the tag walk
+/// ([`super::tag_walk`]).
+pub(super) async fn session_walk_window(
+    runtime: &Arc<dyn ToolRuntime>,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    backend: &str,
+) -> Option<(RequestBudget, Option<u32>)> {
+    let athlete = Athlete {
+        runtime,
+        user_id,
+        tenant_id,
+    };
+    let budget = session_walk_budget(&athlete, backend).await?;
+    let daily_calls = budget.detail_walk_daily_calls(backend).await;
+    Some((budget, daily_calls))
+}
+
 /// A running detail walk's [`Pending`] from its recorded progress
 /// ([`Pending::detail_walk_running`]), at `daily_calls` a day, or
 /// [`DETAIL_WALK_DAILY_CALLS`] when no budget sizes the walk's day.

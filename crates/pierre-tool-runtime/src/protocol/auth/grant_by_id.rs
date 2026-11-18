@@ -31,6 +31,10 @@ use std::fmt;
 use async_trait::async_trait;
 use chrono::{DateTime, NaiveDate, Utc};
 use pierre_core::errors::{AppError, AppResult};
+use pierre_core::models::provider_context::{
+    ProviderActivitySearch, ProviderActivitySearchPage, ProviderActivityZones, ProviderBestEffort,
+    ProviderGear, ProviderPersonalRecord, ProviderWeight,
+};
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
     SportType, TenantId, TimeSeriesData,
@@ -272,6 +276,39 @@ impl FitnessProvider for GrantByIdFallback {
             Some(grant) => grant.get_activity_streams(id).await,
             None => Err(failed),
         }
+    }
+
+    /// The session's own: what a provider says about the athlete is no by-id
+    /// read of an activity, and the grant's "unsupported" would mask the
+    /// session's real error.
+    async fn read_activity_zones(&self, id: &str) -> AppResult<Option<ProviderActivityZones>> {
+        self.session.read_activity_zones(id).await
+    }
+
+    async fn read_gear(&self) -> AppResult<Option<Vec<ProviderGear>>> {
+        self.session.read_gear().await
+    }
+
+    async fn read_personal_records(&self) -> AppResult<Option<Vec<ProviderPersonalRecord>>> {
+        self.session.read_personal_records().await
+    }
+
+    async fn read_activity_best_efforts(
+        &self,
+        id: &str,
+    ) -> AppResult<Option<Vec<ProviderBestEffort>>> {
+        self.session.read_activity_best_efforts(id).await
+    }
+
+    async fn read_weight(&self) -> AppResult<Option<ProviderWeight>> {
+        self.session.read_weight().await
+    }
+
+    async fn search_activities(
+        &self,
+        search: &ProviderActivitySearch,
+    ) -> AppResult<ProviderActivitySearchPage> {
+        self.session.search_activities(search).await
     }
 
     async fn list_planned_workouts(

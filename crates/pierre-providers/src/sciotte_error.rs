@@ -58,6 +58,7 @@ use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use serde_json::{Map, Value};
 use tracing::warn;
 
+mod context_read;
 mod login_answer;
 
 pub use login_answer::is_login_flow_lost;
@@ -282,6 +283,9 @@ pub(crate) fn athlete_not_accessible() -> AppError {
 /// Every other error maps as [`to_app_error`] maps it.
 #[must_use]
 pub(crate) fn own_read_error(error: ClientError, brand: &str) -> AppError {
+    if let Some(retryable) = context_read::retryable(&error, brand) {
+        return retryable;
+    }
     if !matches!(
         error.operation(),
         Some(Operation::Activities | Operation::PlannedWorkouts)

@@ -893,6 +893,17 @@ impl ProviderRegistry {
             .and_then(|limiter| RequestBudget::for_session(limiter, backend, signing, server_app))
     }
 
+    /// The budget the live provider context reads (carnet#1622) of
+    /// `backend`'s signed-in session are counted in for `user_id`: 200 a day
+    /// and 30 in 15 minutes, that athlete's own. `None` when this registry
+    /// counts nothing, or `backend` is no session the limiter counts.
+    #[must_use]
+    pub fn session_context_budget(&self, backend: &str, user_id: Uuid) -> Option<RequestBudget> {
+        self.request_limiter
+            .as_ref()
+            .and_then(|limiter| RequestBudget::for_session_context(limiter, backend, user_id))
+    }
+
     /// The budget of the personal API key that belongs to `account`, the
     /// provider's id for its account: the windows the provider keeps for
     /// each key. `None` when this registry counts nothing, or when `account`

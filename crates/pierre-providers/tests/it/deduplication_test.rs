@@ -22,7 +22,7 @@ use std::collections::BTreeSet;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::models::Feel;
-use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_core::models::{Activity, ActivityBuilder, ActivityTag, SportType, TagSource, TaggedBy};
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig, FilledField, FragmentReport};
 
 /// Helper: build a minimal `Activity` with id, sport, start, duration, distance.
@@ -436,6 +436,40 @@ fn same_provider_overlapping_rides_are_one_session() {
     // The lower id wins the tie and takes the bike computer's power.
     assert_eq!(merged[0].average_power(), Some(210));
     assert_eq!(report.groups[0].providers, vec!["strava"]);
+}
+
+#[test]
+fn a_scraped_copys_tags_fill_the_api_copy_that_has_none() {
+    // The Strava API row carries no tags; the scraped copy of the same
+    // activity does (carnet#1618): the merged row reports them as filled.
+    let t = base_time();
+    let activities = vec![
+        provider_activity("api-run", "strava", SportType::Run, t, 3_600)
+            .distance_meters(10_000.0)
+            .build(),
+        provider_activity("scraped-run", "sciotte", SportType::Run, t, 3_600)
+            .distance_meters(10_000.0)
+            .tags(vec![TaggedBy::new(
+                ActivityTag::Recovery,
+                TagSource::ProviderTag,
+            )])
+            .build(),
+    ];
+    let (merged, report) = merge_duplicates(activities, &DedupConfig::default());
+    assert_eq!(merged.len(), 1, "bug: the two copies must merge");
+    assert_eq!(
+        merged[0].merged_tags(),
+        vec![ActivityTag::Recovery],
+        "bug: the scraped tags were not donated"
+    );
+    assert!(
+        report.groups[0]
+            .filled_fields
+            .iter()
+            .any(|filled| filled.field == "tags"),
+        "bug: tags not reported as a filled field: {:?}",
+        report.groups[0].filled_fields
+    );
 }
 
 #[test]

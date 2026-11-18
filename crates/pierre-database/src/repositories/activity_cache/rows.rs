@@ -167,7 +167,7 @@ fn json_object(json: &str, column: &str) -> AppResult<Map<String, Value>> {
 
 /// Give `activity` every field of `detail` it lacks. A field the list copy
 /// already carries is its own read of the activity, and stands.
-fn fill_missing(activity: &mut Map<String, Value>, detail: Map<String, Value>) {
+pub(super) fn fill_missing(activity: &mut Map<String, Value>, detail: Map<String, Value>) {
     for (key, value) in detail {
         let slot = activity.entry(key).or_insert(Value::Null);
         if slot.is_null() {

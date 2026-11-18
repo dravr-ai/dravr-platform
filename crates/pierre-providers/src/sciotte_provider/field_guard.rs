@@ -124,6 +124,7 @@ mod tests {
             "description": "Sortie test, vent de face",
             "workout_type": 11,
             "commute": false,
+            "tags": { "12": true },
             "trainer": false
         });
         let detail = with(

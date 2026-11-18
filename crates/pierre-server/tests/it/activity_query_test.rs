@@ -34,7 +34,8 @@ use chrono::{DateTime, NaiveDate, TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
 use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{
-    Activity, ActivityBuilder, ConnectionType, SportType, TenantId, UserOAuthToken,
+    Activity, ActivityBuilder, ActivityTag, ConnectionType, SportType, TagSource, TaggedBy,
+    TenantId, UserOAuthToken,
 };
 use pierre_core::permissions::scopes::OAuthScope;
 use pierre_core::transport::Transport;
@@ -821,4 +822,78 @@ async fn a_matched_ride_strava_never_held_is_an_unknown_segment_never_unread() {
         payload["coverage"]["incomplete_reason"], "segment_detail_unread",
         "bug: a ride Strava never held made the window's segments unread: {payload}"
     );
+}
+
+#[tokio::test]
+async fn workout_type_filters_judge_each_tag_by_what_its_source_can_say() {
+    let resources = store_server().await;
+    let athlete = strava_athlete(&resources).await;
+    walked_to_its_end(&resources, athlete, oauth_providers::STRAVA).await;
+    let at = |d: u32| noon(2025, 5, d);
+    let tagged = |id: &str, d: u32, tags: Vec<ActivityTag>| {
+        ActivityBuilder::new(
+            id,
+            "Tagged run",
+            SportType::Run,
+            at(d),
+            1_800,
+            oauth_providers::STRAVA,
+        )
+        .tags(
+            tags.into_iter()
+                .map(|tag| TaggedBy::new(tag, TagSource::ProviderTag))
+                .collect(),
+        )
+        .build()
+    };
+    let bare = ActivityBuilder::new(
+        "bare",
+        "Run, no tag read",
+        SportType::Run,
+        at(5),
+        1_800,
+        oauth_providers::STRAVA,
+    )
+    .build();
+    let coded_race = ActivityBuilder::new(
+        "coded",
+        "Race by code",
+        SportType::Run,
+        at(6),
+        1_800,
+        oauth_providers::STRAVA,
+    )
+    .workout_type(1)
+    .build();
+    store(
+        &resources,
+        athlete,
+        oauth_providers::STRAVA,
+        &[
+            tagged("commute", 1, vec![ActivityTag::Commute]),
+            tagged("recovery", 2, vec![ActivityTag::Recovery]),
+            tagged("none", 3, Vec::new()),
+            tagged("race-tag", 4, vec![ActivityTag::Race]),
+            bare,
+            coded_race,
+        ],
+    )
+    .await;
+
+    for (asked, matched, unknown) in [("commute", 1, 2), ("recovery", 1, 2), ("race", 2, 1)] {
+        let payload = query(
+            &resources,
+            athlete,
+            json!({ "from": "2025-01-01", "workout_type": [asked] }),
+        )
+        .await;
+        assert_eq!(
+            payload["totals"]["count"], matched,
+            "bug: {asked} matched the wrong workouts: {payload}"
+        );
+        assert_eq!(
+            payload["unknown"]["workout_type"], unknown,
+            "bug: {asked} counted the wrong unknowns: {payload}"
+        );
+    }
 }

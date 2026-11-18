@@ -28,18 +28,20 @@ pub struct SciotteDescriptor;
 impl ProviderDescriptor for SciotteDescriptor {
     /// What the pinned client scrapes from Strava's pages (sciotte 2.0): a
     /// list row carries the athlete's description, the workout tag, the
-    /// commute flag and the average heart rate; the detail page adds the
-    /// private note, the trainer flag and the moving time (which only the
-    /// newest list rows carry), the rest of the sensor summary, gear, device,
-    /// laps, splits and the athlete's exertion, every segment effort the
-    /// activity crossed (sciotte 2.1, read off the detail's segment table
-    /// beside the streams that date them), and the recorded streams on their
-    /// time axis, Strava's own `grade_smooth` and `moving` among them.
+    /// commute flag, the athlete's tags (the first page only) and the average
+    /// heart rate; the detail page adds the private note, the trainer flag
+    /// and the moving time (which only the newest list rows carry), the rest
+    /// of the sensor summary, gear, device, laps, splits and the athlete's
+    /// exertion, every segment effort the activity crossed (sciotte 2.1, read
+    /// off the detail's segment table beside the streams that date them), and
+    /// the recorded streams on their time axis, Strava's own `grade_smooth`
+    /// and `moving` among them.
     fn activity_fields(&self) -> ActivityFieldSupport {
         ActivityFieldSupport {
             list: F::DESCRIPTION
                 .union(F::WORKOUT_TYPE)
                 .union(F::COMMUTE)
+                .union(F::TAGS)
                 .union(F::AVERAGE_HEART_RATE),
             detail_only: F::PRIVATE_NOTE
                 .union(F::TRAINER)

@@ -39,6 +39,8 @@ mod sciotte_coros_provider_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_planned_workouts_test;
 #[cfg(feature = "provider-sciotte")]
+mod sciotte_provider_context_test;
+#[cfg(feature = "provider-sciotte")]
 mod sciotte_route_time_series_test;
 #[cfg(feature = "provider-sciotte")]
 mod sciotte_session_expiry_test;

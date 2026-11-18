@@ -12,6 +12,10 @@ use async_trait::async_trait;
 use chrono::NaiveDate;
 use pierre_core::ai_policy::ProviderTerms;
 use pierre_core::errors::AppResult;
+use pierre_core::models::provider_context::{
+    ProviderActivitySearch, ProviderActivitySearchPage, ProviderActivityZones, ProviderBestEffort,
+    ProviderGear, ProviderPersonalRecord, ProviderWeight,
+};
 use pierre_core::models::{
     Activity, Athlete, CalendarEventRef, PlannedSession, PlannedWorkout, ProviderThresholds,
     SportType, TimeSeriesData,
@@ -172,6 +176,47 @@ impl FitnessProvider for AiGovernedProvider {
         self.inner.read_thresholds(primary_sport).await
     }
 
+    /// Gated as a read without item provenance: what the provider says about
+    /// the athlete is its own data, so its terms decide before it is asked.
+    async fn read_activity_zones(&self, id: &str) -> AppResult<Option<ProviderActivityZones>> {
+        self.untagged_read()?;
+        self.inner.read_activity_zones(id).await
+    }
+
+    async fn read_gear(&self) -> AppResult<Option<Vec<ProviderGear>>> {
+        self.untagged_read()?;
+        self.inner.read_gear().await
+    }
+
+    async fn read_personal_records(&self) -> AppResult<Option<Vec<ProviderPersonalRecord>>> {
+        self.untagged_read()?;
+        self.inner.read_personal_records().await
+    }
+
+    async fn read_activity_best_efforts(
+        &self,
+        id: &str,
+    ) -> AppResult<Option<Vec<ProviderBestEffort>>> {
+        self.untagged_read()?;
+        self.inner.read_activity_best_efforts(id).await
+    }
+
+    async fn read_weight(&self) -> AppResult<Option<ProviderWeight>> {
+        self.untagged_read()?;
+        self.inner.read_weight().await
+    }
+
+    /// The rows are activities, so each is judged by its own provenance as a
+    /// list read judges it.
+    async fn search_activities(
+        &self,
+        search: &ProviderActivitySearch,
+    ) -> AppResult<ProviderActivitySearchPage> {
+        let mut page = self.inner.search_activities(search).await?;
+        page.activities = filter_activities(self.lookup(), mem::take(&mut page.activities));
+        Ok(page)
+    }
+
     async fn list_planned_workouts(
         &self,
         after: NaiveDate,
@@ -227,6 +272,7 @@ mod tests {
     use async_trait::async_trait;
     use pierre_core::ai_policy::{ProviderTerms, SourcePolicy};
     use pierre_core::errors::{AppError, AppResult, ErrorCode};
+    use pierre_core::models::provider_context::ProviderGear;
     use pierre_core::models::{Activity, Athlete, ProviderThresholds, SportType};
     use pierre_core::pagination::{CursorPage, PaginationParams};
     use pierre_core::transport::{Transport, TransportPolicy};
@@ -234,6 +280,7 @@ mod tests {
     use super::AiGovernedProvider;
     use crate::ai_scope::{ai_read, serve_over, with_ai_consent};
     use crate::core::{ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig};
+    use crate::provider_context::is_unsupported;
 
     /// Terms that keep Strava's data on Dravr's own surfaces, as its
     /// descriptor declares.
@@ -317,6 +364,11 @@ mod tests {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(thresholds())
         }
+
+        async fn read_gear(&self) -> AppResult<Option<Vec<ProviderGear>>> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(Some(Vec::new()))
+        }
     }
 
     fn governed() -> (Box<dyn FitnessProvider>, Arc<AtomicUsize>) {
@@ -378,5 +430,52 @@ mod tests {
             1,
             "bug: the wrapper asks the provider exactly once"
         );
+    }
+
+    /// What a provider says about the athlete is its own data: Strava's terms
+    /// keep it off an external caller before the provider is asked.
+    #[tokio::test]
+    async fn an_external_caller_is_refused_the_providers_context_before_any_call() {
+        let (provider, calls) = governed();
+        let (gear, _) = serve_over(Transport::McpHttp, ai_read(provider.read_gear())).await;
+        assert_eq!(
+            gear.expect_err("bug: Strava's gear reached an MCP caller")
+                .code,
+            ErrorCode::UnavailableOverTransport,
+            "bug: the refusal is not the transport's"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            0,
+            "bug: the provider was asked first"
+        );
+    }
+
+    #[tokio::test]
+    async fn dravrs_own_surfaces_get_the_providers_context_and_its_refusals() {
+        let (provider, calls) = governed();
+        let (gear, _) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(BTreeSet::new(), ai_read(provider.read_gear())),
+        )
+        .await;
+        assert_eq!(
+            gear.expect("bug: the athlete's own surface reads gear"),
+            Some(Vec::new()),
+            "bug: the wrapper altered the provider's answer"
+        );
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            1,
+            "bug: the wrapper asks the provider exactly once"
+        );
+        // A provider that serves no weight says so through the wrapper.
+        let (weight, _) = serve_over(
+            Transport::WebApp,
+            with_ai_consent(BTreeSet::new(), ai_read(provider.read_weight())),
+        )
+        .await;
+        let refusal = weight.expect_err("bug: the default read answered");
+        assert!(is_unsupported(&refusal), "{refusal}");
     }
 }

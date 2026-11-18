@@ -58,8 +58,10 @@ pub use accumulator::{
     aggregate, Accumulator, Folded, GroupKey, KeyValue, MetricValues, QueryGroup, QueryMetric,
     UnknownCounts, DEFAULT_METRICS, MAX_GROUPS, UNKNOWN_KEY,
 };
+#[cfg(feature = "tools-data")]
+pub(crate) use parse::askable_tag_names;
 pub use parse::{parse_query, AppliedQuery};
-pub use predicate::{sport_matches, ActivityPredicate, SegmentMatch, WorkoutTag};
+pub use predicate::{sport_matches, ActivityPredicate, SegmentMatch};
 pub use read::{visit_stored_workouts, CivilWindow, KeyReach, KeySet, ReadReach};
 pub use served::{count_served_list, ServedCount, ServedList};
 
@@ -876,12 +878,20 @@ mod tests {
             json!({ "min_distance_km": 20, "max_distance_km": 10 }),
             json!({ "group_by": ["year", "month", "week"] }),
             json!({ "metrics": ["watts"] }),
+            json!({ "workout_type": ["bogus"] }),
+            json!({ "workout_type": ["unknown"] }),
         ] {
             assert!(
                 parse_query(&refused, today).is_err(),
                 "bug: {refused} was accepted"
             );
         }
+        let tags = parse_query(
+            &json!({ "workout_type": ["race", "long_run", "workout", "commute", "recovery"] }),
+            today,
+        )
+        .unwrap_or_else(|e| panic!("bug: the tag vocabulary is refused: {e}"));
+        assert_eq!(tags.filter.workout_type.len(), 5, "bug: a tag was dropped");
         let echoed = AppliedQuery::of(
             &parse_query(
                 &json!({ "name_contains": "Sortie\n<b>du</b> dimanche" }),

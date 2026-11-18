@@ -26,6 +26,9 @@ use dravr_tronc::mcp::schema::Tool;
 use dravr_tronc::mcp::tool::McpTool;
 use pierre_core::config::profiles::FitnessLevel;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
+use pierre_core::models::provider_context::{
+    ProviderActivityContext, ProviderHeartRateZone, PROVIDER_FIGURES_NOTE,
+};
 use pierre_core::models::{
     AnchorProvenance, AnchorStamp, MeasurementKind, Merged, MetricProvenance, ProvenancedValue,
     SportAnchor, SportAnchorName, SportType, StoredDailyActivity, ThresholdProvenance,
@@ -5805,6 +5808,20 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
             calories: Some(710),
         },
         auto_selected: None,
+        provider_context: Some(ProviderActivityContext {
+            source: "Strava".to_owned(),
+            note: PROVIDER_FIGURES_NOTE.to_owned(),
+            heart_rate_zones: Some(vec![ProviderHeartRateZone {
+                zone: 2,
+                label: "Endurance".to_owned(),
+                min_bpm: 120,
+                max_bpm: Some(150),
+                seconds: 1800.0,
+            }]),
+            pace_zones: None,
+            best_efforts: None,
+            not_read: vec!["best efforts".to_owned()],
+        }),
     })
     .expect("serializes");
     assert!(
@@ -5838,6 +5855,7 @@ fn get_activity_intelligence_declares_the_shape_it_now_enforces() {
             max_heart_rate: None,
             calories: None,
         },
+        provider_context: None,
         auto_selected: Some(AutoSelectedActivity {
             reason: "Activity 'strava-1' not found".to_owned(),
             selected_activity: "strava-77".to_owned(),

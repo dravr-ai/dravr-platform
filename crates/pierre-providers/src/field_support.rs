@@ -98,12 +98,15 @@ bitflags::bitflags! {
         const SPORT_TYPE_DETAIL = 1 << 19;
         /// The athlete's perceived exertion.
         const PERCEIVED_EXERTION = 1 << 20;
+        /// The athlete's own tags on the activity (Strava's tag ids: recovery,
+        /// commute, with a pet, ...), read off the training list's first page.
+        const TAGS = 1 << 21;
     }
 }
 
 /// Each field's name, the key its [`Activity`](crate::models::Activity)
 /// serializes it under, in flag order.
-const FIELD_NAMES: [(ActivityFields, &str); 21] = [
+const FIELD_NAMES: [(ActivityFields, &str); 22] = [
     (ActivityFields::DESCRIPTION, "description"),
     (ActivityFields::PRIVATE_NOTE, "private_note"),
     (ActivityFields::COMMENTS, "comments"),
@@ -125,6 +128,7 @@ const FIELD_NAMES: [(ActivityFields, &str); 21] = [
     (ActivityFields::SUMMARY_POLYLINE, "summary_polyline"),
     (ActivityFields::SPORT_TYPE_DETAIL, "sport_type_detail"),
     (ActivityFields::PERCEIVED_EXERTION, "perceived_exertion"),
+    (ActivityFields::TAGS, "tags"),
 ];
 
 impl ActivityFields {

@@ -75,9 +75,11 @@
 //! the 125 a day of the Strava app that signs the athlete's grant (the
 //! server's own app for an athlete with none) and the athlete's 50, so a
 //! grant step and a session step spend one pool, never two. Only those
-//! windows count a session read, never the app's own API windows, and a
+//! windows count a session's walk, never the app's own API windows, and a
 //! session walk is also capped at [`SESSION_WALK_BURST_CALLS`] pages in 15
-//! minutes.
+//! minutes. The session's live provider context reads (carnet#1622) are
+//! counted in windows of their own, per athlete ([`context_read`]); no other
+//! read a session makes is counted.
 
 use std::fmt;
 use std::future::Future;
@@ -140,7 +142,8 @@ pub const DETAIL_WALK_DAILY_CALLS: u32 = 50;
 /// day's 50 pages back to back (carnet#1603). The grant has no such cap.
 pub(crate) const SESSION_WALK_BURST_CALLS: u32 = 10;
 
-/// The sessions whose detail walk is counted: the scraper's Strava session.
+/// The sessions whose detail walk and context reads are counted: the
+/// scraper's Strava session.
 const SESSION_BACKENDS: [&str; 1] = ["sciotte"];
 
 /// The provider whose app windows a session walk spends: a session backend
@@ -412,14 +415,18 @@ enum Holder {
         app: String,
         daily_limit: Option<u32>,
     },
+    /// The live provider context reads of `user_id`'s signed-in session at
+    /// `backend`: counted in that athlete's own windows alone
+    /// ([`context_read`]).
+    SessionContext { backend: String, user_id: Uuid },
 }
 
 impl Holder {
-    /// The signing app, `None` for a personal API key.
+    /// The signing app, `None` for a personal API key or a context read.
     fn app(&self) -> Option<&str> {
         match self {
             Self::App { app, .. } | Self::Session { app, .. } => Some(app),
-            Self::ApiKey { .. } => None,
+            Self::ApiKey { .. } | Self::SessionContext { .. } => None,
         }
     }
 }
@@ -583,20 +590,13 @@ impl ProviderRateLimiter {
             100
         };
         let now = Utc::now();
-        let windows = self.windows_for(provider, holder, share).await;
-        let windows = match detail_walk_athlete() {
-            Some(user_id) => self.with_detail_walk_windows(provider, holder, user_id, windows),
-            // A session read outside the walk is not counted: only its walk is.
-            None if matches!(holder, Holder::Session { .. }) => Vec::new(),
-            None if background => {
-                self.with_detail_walk_reserved(provider, windows, now)
-                    .await?
-            }
-            None => windows,
-        };
+        let windows = self
+            .task_windows(provider, holder, share, background, now)
+            .await?;
         let status = self.take(&windows, now).await?;
         if let RateLimitStatus::Exceeded { retry_after } = &status {
-            // No app: the windows spent are a personal API key's own.
+            // No app: the windows spent are a personal API key's, or an athlete's
+            // context reads'.
             let app = holder.app();
             if background {
                 debug!(
@@ -615,6 +615,33 @@ impl ProviderRateLimiter {
             }
         }
         Ok(status)
+    }
+
+    /// The windows a request to `provider` counted for `holder` is taken
+    /// from in the running task: the holder's own at `share` percent, with
+    /// the detail walk's windows inside a walk and its reservation for every
+    /// other background request.
+    async fn task_windows(
+        &self,
+        provider: &str,
+        holder: &Holder,
+        share: u32,
+        background: bool,
+        now: DateTime<Utc>,
+    ) -> AppResult<Vec<Window>> {
+        let windows = self.windows_for(provider, holder, share).await;
+        Ok(match detail_walk_athlete() {
+            // A context read is counted in its athlete's own windows alone.
+            _ if matches!(holder, Holder::SessionContext { .. }) => windows,
+            Some(user_id) => self.with_detail_walk_windows(provider, holder, user_id, windows),
+            // A session read outside the walk is not counted: only its walk is.
+            None if matches!(holder, Holder::Session { .. }) => Vec::new(),
+            None if background => {
+                self.with_detail_walk_reserved(provider, windows, now)
+                    .await?
+            }
+            None => windows,
+        })
     }
 
     /// The windows a request to `provider` must fit: the provider's, with the
@@ -686,9 +713,9 @@ impl ProviderRateLimiter {
     }
 
     /// Every window a request to `provider` counted for `holder` is taken
-    /// from, each with the counter key it is counted under, an app's or a
-    /// personal key's, and the `share_percent` of it the running task may
-    /// spend.
+    /// from, each with the counter key it is counted under, an app's, a
+    /// personal key's or an athlete's context reads', and the `share_percent`
+    /// of it the running task may spend (all of a context read's).
     async fn windows_for(
         &self,
         provider: &str,
@@ -711,6 +738,9 @@ impl ProviderRateLimiter {
                 api_key_counter_key(provider, account),
                 configured(&self.api_key_budgets, provider),
             ),
+            Holder::SessionContext { backend, user_id } => {
+                return context_read::context_read_windows(backend, *user_id);
+            }
         };
         budgets
             .into_iter()
@@ -780,8 +810,10 @@ impl ProviderRateLimiter {
     }
 }
 
+mod context_read;
 mod detail_walk;
 mod grant_pool;
+pub use context_read::{context_read_counter_key, CONTEXT_READ_BURST_CALLS};
 mod handle;
 use grant_pool::GrantPool;
 #[cfg(any(

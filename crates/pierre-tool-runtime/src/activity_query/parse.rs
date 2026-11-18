@@ -8,7 +8,7 @@
 
 use chrono::NaiveDate;
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{resolve_sport_type, SportFamily, SportType};
+use pierre_core::models::{resolve_sport_type, ActivityTag, SportFamily, SportType};
 use pierre_core::text_fold::fold_for_match;
 use pierre_core::untrusted::display_line;
 use schemars::JsonSchema;
@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::accumulator::{GroupKey, QueryMetric, DEFAULT_METRICS};
-use super::predicate::{ActivityPredicate, SegmentMatch, WorkoutTag};
+use super::predicate::{ActivityPredicate, SegmentMatch};
 use super::ActivityQuery;
 
 /// Most keys a count is broken down by: two make a cross-tab.
@@ -89,6 +89,60 @@ fn enum_list<T: for<'de> Deserialize<'de>>(args: &Value, key: &str) -> AppResult
                 ))
             })
         })
+        .collect()
+}
+
+/// Every tag a filter accepts: the vocabulary minus `Unknown`, which only a
+/// newer release's stored value reads as. The one list the refusal, the
+/// tool description and the output schema all name.
+const ASKABLE_TAGS: [ActivityTag; 9] = [
+    ActivityTag::Race,
+    ActivityTag::LongRun,
+    ActivityTag::Workout,
+    ActivityTag::Commute,
+    ActivityTag::Recovery,
+    ActivityTag::WithPet,
+    ActivityTag::ForACause,
+    ActivityTag::Competition,
+    ActivityTag::WithKid,
+];
+
+/// The wire names of [`ASKABLE_TAGS`].
+pub(crate) fn askable_tag_names() -> Vec<String> {
+    ASKABLE_TAGS
+        .iter()
+        .filter_map(|tag| match serde_json::to_value(tag) {
+            Ok(Value::String(name)) => Some(name),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The `workout_type` output schema: the accepted names, not the
+/// vocabulary's rustdoc and its read-only `unknown`.
+fn askable_tags_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+    schemars::json_schema!({
+        "description": "Workout tags.",
+        "type": "array",
+        "items": { "type": "string", "enum": askable_tag_names() },
+    })
+}
+
+/// The `workout_type` tags asked. cageux's `ActivityTag` reads a value it
+/// cannot name as `Unknown` so a stored activity never fails to load; a
+/// filter must refuse it instead of silently matching nothing.
+fn tag_list(args: &Value) -> AppResult<Vec<ActivityTag>> {
+    list_arg(args, "workout_type")?
+        .into_iter()
+        .map(
+            |raw| match serde_json::from_value::<ActivityTag>(Value::String(raw.clone())) {
+                Ok(tag) if tag != ActivityTag::Unknown => Ok(tag),
+                _ => Err(invalid(format!(
+                    "workout_type: unknown value '{}'",
+                    display_line(&raw, MAX_REFUSED_ECHO_CHARS)
+                ))),
+            },
+        )
         .collect()
 }
 
@@ -211,7 +265,7 @@ pub fn parse_query(args: &Value, today: NaiveDate) -> AppResult<ActivityQuery> {
             max_distance_m,
             has_segment: segment_arg(args)?,
             gear: capped_text_arg(args, "gear")?.map(str::to_owned),
-            workout_type: enum_list(args, "workout_type")?,
+            workout_type: tag_list(args)?,
             trainer: trainer_arg(args)?,
         },
         group_by: group_by(args)?,
@@ -260,7 +314,8 @@ pub struct AppliedQuery {
     pub gear: Option<String>,
     /// Workout tags.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub workout_type: Vec<WorkoutTag>,
+    #[schemars(schema_with = "askable_tags_schema")]
+    pub workout_type: Vec<ActivityTag>,
     /// The trainer flag asked.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trainer: Option<bool>,
@@ -297,5 +352,41 @@ impl AppliedQuery {
             group_by: query.group_by.clone(),
             metrics: query.metrics.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tag_tests {
+    use super::*;
+
+    #[test]
+    fn the_askable_tags_are_the_vocabulary_minus_unknown() {
+        let schema = schemars::schema_for!(ActivityTag);
+        let mut vocabulary: Vec<String> = schema
+            .get("oneOf")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(|variant| variant.get("const").and_then(Value::as_str))
+            .map(str::to_owned)
+            .collect();
+        vocabulary.retain(|name| name != "unknown");
+        let mut askable = askable_tag_names();
+        vocabulary.sort();
+        askable.sort();
+        assert_eq!(
+            askable, vocabulary,
+            "bug: ASKABLE_TAGS drifted from ActivityTag's variants"
+        );
+    }
+
+    #[test]
+    fn a_refused_tag_is_echoed() {
+        let refused = tag_list(&serde_json::json!({ "workout_type": ["tempo"] }));
+        let message = refused.err().map(|e| e.to_string()).unwrap_or_default();
+        assert!(
+            message.contains("'tempo'"),
+            "bug: the refusal does not name the value: {message}"
+        );
     }
 }

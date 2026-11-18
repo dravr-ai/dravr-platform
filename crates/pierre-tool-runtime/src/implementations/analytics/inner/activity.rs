@@ -10,6 +10,9 @@ use crate::implementations::analytics::output::{
     AutoSelectedActivity,
 };
 use crate::implementations::last_known::{self, LiveRead};
+use crate::implementations::provider_context_reads::{
+    read_activity_context, source_label, ContextLimits, CONTEXT_READ_BUDGET,
+};
 use crate::implementations::stored_physiology::stored_hr_zones;
 use crate::protocol::format::{apply_format_typed, extract_output_format};
 use crate::protocol::provider_helpers::{by_id_reader, resolve_provider_for_request};
@@ -170,12 +173,27 @@ fn create_intelligence_response(
             calories: activity.calories(),
         },
         auto_selected: None,
+        provider_context: None,
     };
 
     (
         analysis,
         build_intelligence_metadata(activity_id, user_uuid, tenant_id),
     )
+}
+
+/// The activity an analysis is asked for, and the provider it is read from as
+/// the athlete knows it.
+#[derive(Debug, Clone, Copy)]
+struct Asked<'req> {
+    /// The provider's id for the activity.
+    activity_id: &'req str,
+    /// The provider's name for the athlete (`Strava`), labelling its figures.
+    source: &'req str,
+    /// How the provider's own figures are read beside the activity; `None`
+    /// when they are not read at all (the provider's terms keep them from
+    /// this caller).
+    context: Option<ContextLimits<'req>>,
 }
 
 /// Fetch activity and create intelligence response
@@ -196,22 +214,36 @@ fn create_intelligence_response(
 async fn fetch_and_analyze_activity(
     provider: Box<dyn FitnessProvider>,
     reader: Option<Box<dyn FitnessProvider>>,
-    activity_id: &str,
+    asked: Asked<'_>,
     user_uuid: Uuid,
     tenant_id: Option<String>,
     hr_zones: &AthleteHrZones,
     output_format: OutputFormat,
 ) -> Result<UniversalResponse, ProtocolError> {
+    let Asked {
+        activity_id,
+        source,
+        context,
+    } = asked;
     let target = reader.as_deref().unwrap_or_else(|| provider.as_ref());
-    match target.get_activity(activity_id).await {
+    // The provider's own zones and best efforts are read beside the activity,
+    // from the provider that owns the id: never from the copy an upload
+    // stands in with, whose id is not the provider's.
+    let context_read = async {
+        let limits = context.filter(|_| reader.is_none())?;
+        read_activity_context(provider.as_ref(), source, activity_id, limits).await
+    };
+    let (fetched, provider_context) = tokio::join!(target.get_activity(activity_id), context_read);
+    match fetched {
         Ok(activity) => {
-            let (analysis, metadata) = create_intelligence_response(
+            let (mut analysis, metadata) = create_intelligence_response(
                 &activity,
                 activity_id,
                 user_uuid,
                 tenant_id,
                 hr_zones,
             );
+            analysis.provider_context = provider_context;
             apply_format_typed(
                 UniversalResponse {
                     success: true,
@@ -394,11 +426,28 @@ pub(crate) fn handle_get_activity_intelligence(
                 let read = {
                     let (id, tenant) = (activity_id.to_owned(), request.tenant_id.clone());
                     let zones = hr_zones.clone();
+                    let registry = executor.resources.provider_registry();
+                    let source = source_label(registry, &provider_name);
+                    let context_budget =
+                        registry.session_context_budget(provider.name(), user_uuid);
+                    // A caller the provider's terms refuse is never asked
+                    // for: its refused reads would spend the athlete's
+                    // context-read windows for nothing.
+                    let served =
+                        ai_scope::first_party_only_read(registry.as_ref(), provider.name(), None)
+                            .is_ok();
                     async move {
                         fetch_and_analyze_activity(
                             provider,
                             reader,
-                            &id,
+                            Asked {
+                                activity_id: &id,
+                                source: &source,
+                                context: served.then_some(ContextLimits {
+                                    time: CONTEXT_READ_BUDGET,
+                                    budget: context_budget.as_ref(),
+                                }),
+                            },
                             user_uuid,
                             tenant,
                             &zones,
@@ -735,7 +784,11 @@ mod tests {
         let response = fetch_and_analyze_activity(
             Box::new(provider),
             None,
-            "unknown",
+            Asked {
+                activity_id: "unknown",
+                source: "Garmin",
+                context: None,
+            },
             Uuid::new_v4(),
             None,
             &Err(HrZonesUnavailable::MissingHeartRates {

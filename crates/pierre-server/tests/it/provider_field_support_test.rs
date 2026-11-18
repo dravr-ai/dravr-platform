@@ -255,6 +255,10 @@ fn the_activities_header_names_what_each_serving_connection_never_supplies() {
         );
     }
     assert!(
+        !not_supplied(0).contains(&"tags") && not_supplied(1).contains(&"tags"),
+        "tags are read by the scrape alone (carnet#1618): {connections:#}"
+    );
+    assert!(
         connections[0]["detail_only"]
             .as_array()
             .unwrap()
@@ -339,6 +343,12 @@ async fn connection_status_carries_each_providers_dictionary_and_the_mode_servin
             "bug: the mirror is said to supply {field}: {fields:#}"
         );
     }
+    assert!(
+        names(&fields["mirror"]["list"]).contains(&"tags")
+            && !names(&fields["oauth"]["list"]).contains(&"tags")
+            && !names(&fields["oauth"]["detail_only"]).contains(&"tags"),
+        "tags are scrape-only: {fields:#}"
+    );
     assert!(
         names(&fields["oauth"]["detail_only"]).contains(&"description"),
         "the API's detail read carries the description: {fields:#}"

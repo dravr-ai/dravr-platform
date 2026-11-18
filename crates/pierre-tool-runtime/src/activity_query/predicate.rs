@@ -15,11 +15,11 @@
 use std::iter;
 
 use pierre_core::constants::oauth::providers::STRAVA_ARCHIVE;
-use pierre_core::models::{sport_matches_family, Activity, SegmentEffort, SportFamily, SportType};
+use pierre_core::models::{
+    sport_matches_family, Activity, ActivityTag, SegmentEffort, SportFamily, SportType,
+};
 use pierre_core::text_fold::fold_for_match;
 use pierre_services::workouts::Workout;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 
 use super::segment_keys;
 
@@ -40,33 +40,6 @@ impl SegmentMatch {
         match self {
             Self::Id(id) => effort.segment_id.as_deref() == Some(id.as_str()),
             Self::Name(folded) => fold_for_match(&effort.name).contains(folded.as_str()),
-        }
-    }
-}
-
-/// A workout's kind, from the provider's workout code. Strava's codes: 1
-/// and 11 a race, 2 a long run, 3 and 12 a workout; 0 and 10 none of them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum WorkoutTag {
-    /// A race.
-    Race,
-    /// A long run.
-    LongRun,
-    /// A structured workout.
-    Workout,
-}
-
-impl WorkoutTag {
-    /// The tag a provider's workout code names, `None` for a code naming
-    /// none of them (a default run or ride).
-    #[must_use]
-    pub const fn of(code: u32) -> Option<Self> {
-        match code {
-            1 | 11 => Some(Self::Race),
-            2 => Some(Self::LongRun),
-            3 | 12 => Some(Self::Workout),
-            _ => None,
         }
     }
 }
@@ -135,7 +108,7 @@ pub struct ActivityPredicate {
     /// A gear id, equal, or folded text the folded gear name holds.
     pub gear: Option<String>,
     /// Workout tags; empty = any.
-    pub workout_type: Vec<WorkoutTag>,
+    pub workout_type: Vec<ActivityTag>,
     /// Whether the workout was on a trainer.
     pub trainer: Option<bool>,
 }
@@ -245,15 +218,27 @@ impl ActivityPredicate {
             })
     }
 
+    /// Matches on the activity's merged tag set (provider tags, the tag its
+    /// workout code stands for, the commute flag): one vocabulary. A hit is a
+    /// match; a miss is only a miss when the activity could have said so for
+    /// every tag asked, otherwise the answer is unknown.
     fn workout_type(&self, session: &Activity) -> Verdict {
         if self.workout_type.is_empty() {
             return Verdict::Match;
         }
-        session
-            .workout_type()
-            .map_or(Verdict::Unknown(Unknowable::WorkoutType), |code| {
-                known(WorkoutTag::of(code).is_some_and(|tag| self.workout_type.contains(&tag)))
-            })
+        let merged = session.merged_tags();
+        if self.workout_type.iter().any(|asked| merged.contains(asked)) {
+            return Verdict::Match;
+        }
+        if self
+            .workout_type
+            .iter()
+            .all(|asked| tag_knowable(session, *asked))
+        {
+            Verdict::Miss
+        } else {
+            Verdict::Unknown(Unknowable::WorkoutType)
+        }
     }
 
     fn trainer(&self, session: &Activity) -> Verdict {
@@ -264,6 +249,23 @@ impl ActivityPredicate {
                     known(on == asked)
                 })
         })
+    }
+}
+
+/// Whether `session` could have carried `asked` had it been set: the sources
+/// that can name a tag differ per tag. A workout code names only race, long
+/// run and workout; the commute flag only commute; the rest come from a
+/// tag read alone.
+fn tag_knowable(session: &Activity, asked: ActivityTag) -> bool {
+    if session.tags().is_some() {
+        return true;
+    }
+    match asked {
+        ActivityTag::Race | ActivityTag::LongRun | ActivityTag::Workout => {
+            session.workout_type().is_some()
+        }
+        ActivityTag::Commute => session.commute().is_some(),
+        _ => false,
     }
 }
 
@@ -299,4 +301,188 @@ pub(crate) fn export_only(workout: &Workout<'_>) -> bool {
             .rows()
             .filter(|row| keys.contains(&row.provider.as_str()))
             .all(|row| row.activity.provider() == STRAVA_ARCHIVE)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{TimeZone, Utc};
+    use pierre_core::models::{ActivityBuilder, TagSource, TaggedBy};
+
+    use super::*;
+
+    fn builder() -> ActivityBuilder {
+        ActivityBuilder::new(
+            "a1",
+            "Run",
+            SportType::Run,
+            Utc.with_ymd_and_hms(2026, 11, 1, 8, 0, 0).unwrap(),
+            1800,
+            "sciotte",
+        )
+    }
+
+    fn asking(tag: ActivityTag) -> ActivityPredicate {
+        ActivityPredicate {
+            workout_type: vec![tag],
+            ..ActivityPredicate::default()
+        }
+    }
+
+    fn provider(tag: ActivityTag) -> TaggedBy {
+        TaggedBy::new(tag, TagSource::ProviderTag)
+    }
+
+    #[test]
+    fn a_workout_code_and_a_strava_tag_of_one_meaning_are_one_race() {
+        // Code 1 (race) and tag 1 (race) are one vocabulary: the activity
+        // matches once, whichever source said so.
+        let both = builder()
+            .workout_type(1)
+            .tags(vec![provider(ActivityTag::Race)])
+            .build();
+        assert_eq!(
+            asking(ActivityTag::Race).workout_type(&both),
+            Verdict::Match,
+            "bug: a race by code and by tag did not match a race ask"
+        );
+        assert_eq!(
+            both.merged_tags(),
+            vec![ActivityTag::Race],
+            "bug: one race counted twice in the merged tags"
+        );
+    }
+
+    #[test]
+    fn tag_twelve_is_recovery_while_code_twelve_is_a_workout() {
+        let recovery_tag = builder()
+            .tags(vec![provider(ActivityTag::from_strava_tag(12).unwrap())])
+            .build();
+        assert_eq!(
+            asking(ActivityTag::Recovery).workout_type(&recovery_tag),
+            Verdict::Match,
+            "bug: Strava tag id 12 is not recovery"
+        );
+        assert_eq!(
+            asking(ActivityTag::Workout).workout_type(&recovery_tag),
+            Verdict::Miss,
+            "bug: Strava tag id 12 read as the workout code 12"
+        );
+        let workout_code = builder().workout_type(12).build();
+        assert_eq!(
+            asking(ActivityTag::Workout).workout_type(&workout_code),
+            Verdict::Match,
+            "bug: workout code 12 is not a workout"
+        );
+        assert_eq!(
+            asking(ActivityTag::Recovery).workout_type(&workout_code),
+            Verdict::Unknown(Unknowable::WorkoutType),
+            "bug: a workout code cannot rule recovery out, it never names it"
+        );
+    }
+
+    #[test]
+    fn commute_and_recovery_filters_find_provider_tags_and_the_commute_flag() {
+        let tagged = builder()
+            .tags(vec![
+                provider(ActivityTag::Commute),
+                provider(ActivityTag::Recovery),
+            ])
+            .build();
+        let flagged = builder().commute(true).build();
+        for activity in [&tagged, &flagged] {
+            assert_eq!(
+                asking(ActivityTag::Commute).workout_type(activity),
+                Verdict::Match,
+                "bug: a commute by tag or flag did not match"
+            );
+        }
+        assert_eq!(
+            asking(ActivityTag::Recovery).workout_type(&tagged),
+            Verdict::Match,
+            "bug: a recovery provider tag did not match"
+        );
+        assert_eq!(
+            asking(ActivityTag::Recovery).workout_type(&flagged),
+            Verdict::Unknown(Unknowable::WorkoutType),
+            "bug: a commute flag alone cannot rule recovery out"
+        );
+    }
+
+    #[test]
+    fn an_activity_with_no_tag_information_at_all_is_unknown_for_every_tag() {
+        let nothing = builder().build();
+        for tag in [
+            ActivityTag::Race,
+            ActivityTag::Commute,
+            ActivityTag::Recovery,
+        ] {
+            assert_eq!(
+                asking(tag).workout_type(&nothing),
+                Verdict::Unknown(Unknowable::WorkoutType),
+                "bug: {tag:?} judged on an activity that says nothing"
+            );
+        }
+    }
+
+    #[test]
+    fn a_source_rules_out_only_the_tags_it_can_name() {
+        // OAuth-Strava row: commute flag set, workout code absent, no tags.
+        let oauth = builder().commute(false).build();
+        assert_eq!(
+            asking(ActivityTag::Commute).workout_type(&oauth),
+            Verdict::Miss,
+            "bug: a read commute flag of false is a commute miss"
+        );
+        assert_eq!(
+            asking(ActivityTag::Race).workout_type(&oauth),
+            Verdict::Unknown(Unknowable::WorkoutType),
+            "bug: no workout code was read, race is unknowable"
+        );
+        // Intervals-style row: commute flag, no code.
+        let intervals = builder().commute(true).build();
+        assert_eq!(
+            asking(ActivityTag::Recovery).workout_type(&intervals),
+            Verdict::Unknown(Unknowable::WorkoutType),
+            "bug: recovery only comes from a tag read"
+        );
+        // A code read rules out race, not commute.
+        let coded = builder().workout_type(0).build();
+        assert_eq!(
+            asking(ActivityTag::Race).workout_type(&coded),
+            Verdict::Miss,
+            "bug: a default workout code is a race miss"
+        );
+        assert_eq!(
+            asking(ActivityTag::Commute).workout_type(&coded),
+            Verdict::Unknown(Unknowable::WorkoutType),
+            "bug: a workout code cannot rule commute out"
+        );
+        // A tag read that found none rules every tag out.
+        let read_none = builder().tags(Vec::new()).build();
+        for tag in [
+            ActivityTag::Recovery,
+            ActivityTag::Race,
+            ActivityTag::Commute,
+        ] {
+            assert_eq!(
+                asking(tag).workout_type(&read_none),
+                Verdict::Miss,
+                "bug: a tag read with none set must miss {tag:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_miss_needs_every_asked_tag_knowable() {
+        let oauth = builder().commute(false).build();
+        let both = ActivityPredicate {
+            workout_type: vec![ActivityTag::Commute, ActivityTag::Race],
+            ..ActivityPredicate::default()
+        };
+        assert_eq!(
+            both.workout_type(&oauth),
+            Verdict::Unknown(Unknowable::WorkoutType),
+            "bug: race is unknowable, so the pair cannot be a miss"
+        );
+    }
 }

@@ -101,6 +101,17 @@
                 "$ref": "#/$defs/ActivityPerformanceMetrics",
                 "description": "The figures the analysis is about, computed here."
               },
+              "provider_context": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ProviderActivityContext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The provider's own figures for this activity, read live: its heart\nrate and pace zones with the time spent in each, and its best efforts,\nlabelled with the provider they come from. Context beside the\nanalysis, never part of it: Dravr's zones come from the athlete's own\nthresholds, and these are quoted as the provider's (\"Strava puts this\nrun's 142 bpm in its zone 2\"). Absent when the provider holds none,\nserves none, or did not answer in time."
+              },
               "timestamp": {
                 "description": "RFC 3339 timestamp of the analysis, not of the activity.",
                 "type": "string"
@@ -213,6 +224,185 @@
               "selected_activity_name",
               "selected_activity_date",
               "available_activities"
+            ],
+            "type": "object"
+          },
+          "ProviderActivityContext": {
+            "description": "The provider's own figures about one analysed activity, read live and\ncarried beside Dravr's analysis (carnet#1622).\n\nThe zones are the provider's, a second opinion beside the one zone model\nDravr computes (dravr-cageux): they are never an input to it. A figure the\nprovider did not report is absent, never zero.",
+            "properties": {
+              "best_efforts": {
+                "description": "The fastest stretches the provider found in the activity.",
+                "items": {
+                  "$ref": "#/$defs/ProviderBestEffort"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "heart_rate_zones": {
+                "description": "The provider's heart rate zones with the time the activity spent in\neach.",
+                "items": {
+                  "$ref": "#/$defs/ProviderHeartRateZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "not_read": {
+                "description": "What the provider could not be read for just now (`zones`,\n`best efforts`): a retry may answer. Absent when every read answered.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block ([`PROVIDER_FIGURES_NOTE`]).",
+                "type": "string"
+              },
+              "pace_zones": {
+                "description": "The provider's pace zones with the time the activity spent in each.",
+                "items": {
+                  "$ref": "#/$defs/ProviderPaceZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "source": {
+                "description": "The provider, as the athlete knows it (`Strava`).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "note"
+            ],
+            "type": "object"
+          },
+          "ProviderBestEffort": {
+            "description": "The fastest stretch the provider found in one activity over a standard\ndistance.",
+            "properties": {
+              "distance_m": {
+                "description": "The distance, meters, when the label names one.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_seconds": {
+                "description": "How long the effort took, seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "end_index": {
+                "description": "Index into the activity's streams where the effort ends.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "label": {
+                "description": "The distance's label (`400m`, `1K`, `Half-Marathon`).",
+                "type": "string"
+              },
+              "start_index": {
+                "description": "Index into the activity's streams where the effort starts.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "label",
+              "elapsed_seconds",
+              "start_index",
+              "end_index"
+            ],
+            "type": "object"
+          },
+          "ProviderHeartRateZone": {
+            "description": "Time spent in one heart rate zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_bpm": {
+                "description": "The zone's upper bound, beats per minute; absent for the open-ended\ntop zone.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "min_bpm": {
+                "description": "The zone's lower bound, beats per minute.",
+                "format": "int32",
+                "type": "integer"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the lowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_bpm",
+              "seconds"
+            ],
+            "type": "object"
+          },
+          "ProviderPaceZone": {
+            "description": "Time spent in one pace zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_mps": {
+                "description": "The zone's upper bound, meters per second; absent for the open-ended\ntop zone.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "min_mps": {
+                "description": "The zone's lower bound, meters per second.",
+                "format": "double",
+                "type": "number"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the slowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_mps",
+              "seconds"
             ],
             "type": "object"
           }
@@ -10684,6 +10874,17 @@
                 "$ref": "#/$defs/ActivityPerformanceMetrics",
                 "description": "The figures the analysis is about, computed here."
               },
+              "provider_context": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ProviderActivityContext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The provider's own figures for this activity, read live: its heart\nrate and pace zones with the time spent in each, and its best efforts,\nlabelled with the provider they come from. Context beside the\nanalysis, never part of it: Dravr's zones come from the athlete's own\nthresholds, and these are quoted as the provider's (\"Strava puts this\nrun's 142 bpm in its zone 2\"). Absent when the provider holds none,\nserves none, or did not answer in time."
+              },
               "timestamp": {
                 "description": "RFC 3339 timestamp of the analysis, not of the activity.",
                 "type": "string"
@@ -10796,6 +10997,185 @@
               "selected_activity_name",
               "selected_activity_date",
               "available_activities"
+            ],
+            "type": "object"
+          },
+          "ProviderActivityContext": {
+            "description": "The provider's own figures about one analysed activity, read live and\ncarried beside Dravr's analysis (carnet#1622).\n\nThe zones are the provider's, a second opinion beside the one zone model\nDravr computes (dravr-cageux): they are never an input to it. A figure the\nprovider did not report is absent, never zero.",
+            "properties": {
+              "best_efforts": {
+                "description": "The fastest stretches the provider found in the activity.",
+                "items": {
+                  "$ref": "#/$defs/ProviderBestEffort"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "heart_rate_zones": {
+                "description": "The provider's heart rate zones with the time the activity spent in\neach.",
+                "items": {
+                  "$ref": "#/$defs/ProviderHeartRateZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "not_read": {
+                "description": "What the provider could not be read for just now (`zones`,\n`best efforts`): a retry may answer. Absent when every read answered.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block ([`PROVIDER_FIGURES_NOTE`]).",
+                "type": "string"
+              },
+              "pace_zones": {
+                "description": "The provider's pace zones with the time the activity spent in each.",
+                "items": {
+                  "$ref": "#/$defs/ProviderPaceZone"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "source": {
+                "description": "The provider, as the athlete knows it (`Strava`).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "note"
+            ],
+            "type": "object"
+          },
+          "ProviderBestEffort": {
+            "description": "The fastest stretch the provider found in one activity over a standard\ndistance.",
+            "properties": {
+              "distance_m": {
+                "description": "The distance, meters, when the label names one.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_seconds": {
+                "description": "How long the effort took, seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "end_index": {
+                "description": "Index into the activity's streams where the effort ends.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              },
+              "label": {
+                "description": "The distance's label (`400m`, `1K`, `Half-Marathon`).",
+                "type": "string"
+              },
+              "start_index": {
+                "description": "Index into the activity's streams where the effort starts.",
+                "format": "uint32",
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "label",
+              "elapsed_seconds",
+              "start_index",
+              "end_index"
+            ],
+            "type": "object"
+          },
+          "ProviderHeartRateZone": {
+            "description": "Time spent in one heart rate zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_bpm": {
+                "description": "The zone's upper bound, beats per minute; absent for the open-ended\ntop zone.",
+                "format": "int32",
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "min_bpm": {
+                "description": "The zone's lower bound, beats per minute.",
+                "format": "int32",
+                "type": "integer"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the lowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_bpm",
+              "seconds"
+            ],
+            "type": "object"
+          },
+          "ProviderPaceZone": {
+            "description": "Time spent in one pace zone of an activity, as the provider bands it.",
+            "properties": {
+              "label": {
+                "description": "The provider's name for the zone.",
+                "type": "string"
+              },
+              "max_mps": {
+                "description": "The zone's upper bound, meters per second; absent for the open-ended\ntop zone.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "min_mps": {
+                "description": "The zone's lower bound, meters per second.",
+                "format": "double",
+                "type": "number"
+              },
+              "seconds": {
+                "description": "Seconds of the activity spent in the zone.",
+                "format": "double",
+                "type": "number"
+              },
+              "zone": {
+                "description": "The zone's position, 1 for the slowest.",
+                "format": "uint8",
+                "maximum": 255,
+                "minimum": 0,
+                "type": "integer"
+              }
+            },
+            "required": [
+              "zone",
+              "label",
+              "min_mps",
+              "seconds"
             ],
             "type": "object"
           }
@@ -11040,12 +11420,94 @@
             ],
             "type": "object"
           },
+          "DravrPersonalBest": {
+            "description": "One of Dravr's computed bests.",
+            "properties": {
+              "achieved_at": {
+                "description": "When that run started, RFC 3339.",
+                "type": "string"
+              },
+              "activity_id": {
+                "description": "The provider's id for the run that set the best.",
+                "type": "string"
+              },
+              "distance": {
+                "description": "The distance's catalogue code: `5k`, `10k`, `half_marathon` or `marathon`.",
+                "type": "string"
+              },
+              "elapsed_seconds": {
+                "description": "Elapsed time of the fastest window covering the distance, seconds.",
+                "format": "double",
+                "type": "number"
+              },
+              "provider": {
+                "description": "The provider the run came from, as the athlete knows it.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "distance",
+              "elapsed_seconds",
+              "provider",
+              "activity_id",
+              "achieved_at"
+            ],
+            "type": "object"
+          },
+          "DravrPersonalBests": {
+            "description": "Dravr's own computed personal bests, labelled with their source.",
+            "properties": {
+              "bests": {
+                "description": "The fastest effort at each standard distance.",
+                "items": {
+                  "$ref": "#/$defs/DravrPersonalBest"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block.",
+                "type": "string"
+              },
+              "source": {
+                "description": "Whose bests these are: always Dravr's computation.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "source",
+              "note",
+              "bests"
+            ],
+            "type": "object"
+          },
           "GetAthleteResult": {
             "description": "What `get_athlete` answers with.\n\nThe provider's athlete under an `athlete` key rather than at the top\nlevel. The key is the contract: `GetAthleteResponseSchema` in the\nTypeScript SDK reads `athlete`, and `provider_backend_resolver_test`\nasserts it. Unwrapping it to save one level would break both.",
             "properties": {
               "athlete": {
                 "$ref": "#/$defs/Athlete",
                 "description": "The athlete profile as the provider reports it."
+              },
+              "dravr_personal_bests": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/DravrPersonalBests"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The bests Dravr computed from the athlete's own runs, labelled as\nDravr's. Beside the provider's records, never reconciled with them: the\ntwo are measured differently and may disagree."
+              },
+              "provider_context": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/ProviderAthleteContext"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The provider's own figures about the athlete, read live on this call\nand labelled with the provider they come from: body weight, all-time\nrecords, the bikes it keeps and, while the athlete declared no shoes in\nDravr, its shoes, with their mileage. Context, never Dravr's: the\nweight is not the athlete's weight anchor, the records sit beside\n`dravr_personal_bests` without being reconciled with them, and the gear\nis not in the gear ledger. Quote them as the provider's (\"Strava has\nyour 5K at 20:12\"). Absent when the provider holds none, serves none,\nor did not answer in time."
               }
             },
             "required": [
@@ -11067,6 +11529,177 @@
                 "type": "string"
               }
             ]
+          },
+          "ProviderAthleteContext": {
+            "description": "The provider's own figures about the athlete, read live and carried beside\nthe profile (carnet#1622).\n\nNothing here is stored. The weight never enters the effective physiology;\nthe bikes are always the provider's (Dravr keeps none) and its shoes are\nshown only while the athlete declared no shoes in Dravr, none ever written\ninto the gear ledger; the records stay the provider's beside Dravr's own\ncomputed bests, which the same answer carries labelled as Dravr's.",
+            "properties": {
+              "gear": {
+                "description": "The provider's bikes, always, and its shoes while the athlete declared\nno shoes in Dravr, with their mileage.",
+                "items": {
+                  "$ref": "#/$defs/ProviderGear"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "not_read": {
+                "description": "What the provider could not be read for just now: a retry may answer.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "note": {
+                "description": "How to quote the block ([`PROVIDER_FIGURES_NOTE`]).",
+                "type": "string"
+              },
+              "personal_records": {
+                "description": "The provider's all-time records.",
+                "items": {
+                  "$ref": "#/$defs/ProviderPersonalRecord"
+                },
+                "type": [
+                  "array",
+                  "null"
+                ]
+              },
+              "source": {
+                "description": "The provider, as the athlete knows it (`Strava`).",
+                "type": "string"
+              },
+              "weight_kg": {
+                "description": "The body weight the provider holds, kilograms.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "source",
+              "note"
+            ],
+            "type": "object"
+          },
+          "ProviderGear": {
+            "description": "One pair of shoes or one bike the athlete keeps with the provider.",
+            "properties": {
+              "brand": {
+                "description": "The maker, when the athlete named one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "id": {
+                "description": "The gear's id in the spelling an activity's gear id carries, so a row\nand its gear compare equal.",
+                "type": "string"
+              },
+              "kind": {
+                "$ref": "#/$defs/ProviderGearKind",
+                "description": "Shoe or bike."
+              },
+              "model": {
+                "description": "The model, when the athlete named one.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "name": {
+                "description": "The name the athlete gave it at the provider.",
+                "type": "string"
+              },
+              "primary": {
+                "description": "Whether it is the athlete's default gear of its kind at the provider.",
+                "type": "boolean"
+              },
+              "retired": {
+                "description": "Whether the athlete retired it at the provider.",
+                "type": "boolean"
+              },
+              "total_distance_m": {
+                "description": "Distance the provider counts for it, meters. Absent when the provider\nreported none this build can read.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "kind",
+              "name",
+              "primary",
+              "retired"
+            ],
+            "type": "object"
+          },
+          "ProviderGearKind": {
+            "description": "What a piece of provider gear is. Not the gear ledger's\n[`GearKind`](super::GearKind): a provider keeps bikes, the ledger does not.",
+            "oneOf": [
+              {
+                "const": "shoe",
+                "description": "A pair of shoes.",
+                "type": "string"
+              },
+              {
+                "const": "bike",
+                "description": "A bike.",
+                "type": "string"
+              }
+            ]
+          },
+          "ProviderPersonalRecord": {
+            "description": "One all-time record, as the provider's profile lists it.",
+            "properties": {
+              "activity_id": {
+                "description": "The provider's id of the activity that set the record.",
+                "type": "string"
+              },
+              "distance_m": {
+                "description": "The distance of a timed record, meters, when the label names one.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              },
+              "elapsed_seconds": {
+                "description": "The time of a timed record, seconds.",
+                "format": "uint64",
+                "minimum": 0,
+                "type": [
+                  "integer",
+                  "null"
+                ]
+              },
+              "label": {
+                "description": "The record's label as the provider writes it (`5K`, `Longest Ride`).",
+                "type": "string"
+              },
+              "sport": {
+                "description": "The sport whose block of the profile lists the record.",
+                "type": "string"
+              },
+              "value_m": {
+                "description": "The value of a record that is not a time (a longest distance, a\nbiggest climb), meters.",
+                "format": "double",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "sport",
+              "label",
+              "activity_id"
+            ],
+            "type": "object"
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -28427,7 +29060,7 @@
             "type": "string"
           },
           "gear": {
-            "description": "Gear id or name.",
+            "description": "Gear id/name.",
             "type": "string"
           },
           "group_by": {
@@ -28439,7 +29072,7 @@
             "type": "array"
           },
           "has_segment": {
-            "description": "Segment id or name.",
+            "description": "Segment id/name.",
             "type": "string"
           },
           "max_distance_km": {
@@ -28459,7 +29092,7 @@
             "type": "number"
           },
           "name_contains": {
-            "description": "Text in the name.",
+            "description": "Name text.",
             "type": "string"
           },
           "place_id": {
@@ -28495,11 +29128,11 @@
             "type": "string"
           },
           "trainer": {
-            "description": "Indoor trainer or not.",
+            "description": "Indoor trainer.",
             "type": "boolean"
           },
           "workout_type": {
-            "description": "race, long_run, workout.",
+            "description": "race, long_run, workout, commute, recovery, with_pet, for_a_cause, competition, with_kid.",
             "items": {
               "description": "One value.",
               "type": "string"
@@ -28616,7 +29249,18 @@
               "workout_type": {
                 "description": "Workout tags.",
                 "items": {
-                  "$ref": "#/$defs/WorkoutTag"
+                  "enum": [
+                    "race",
+                    "long_run",
+                    "workout",
+                    "commute",
+                    "recovery",
+                    "with_pet",
+                    "for_a_cause",
+                    "competition",
+                    "with_kid"
+                  ],
+                  "type": "string"
                 },
                 "type": "array"
               }
@@ -29618,26 +30262,6 @@
               "elevation_gain_m"
             ],
             "type": "object"
-          },
-          "WorkoutTag": {
-            "description": "A workout's kind, from the provider's workout code. Strava's codes: 1\nand 11 a race, 2 a long run, 3 and 12 a workout; 0 and 10 none of them.",
-            "oneOf": [
-              {
-                "const": "race",
-                "description": "A race.",
-                "type": "string"
-              },
-              {
-                "const": "long_run",
-                "description": "A long run.",
-                "type": "string"
-              },
-              {
-                "const": "workout",
-                "description": "A structured workout.",
-                "type": "string"
-              }
-            ]
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",

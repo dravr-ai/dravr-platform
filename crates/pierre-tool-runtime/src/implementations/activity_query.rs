@@ -31,7 +31,7 @@ use pierre_tools_core::ToolResult;
 use serde_json::Value;
 
 use crate::activity_query::{
-    parse_query, query_activities, ActivityQuery, Athlete, QueryAnswer, ReadGate,
+    askable_tag_names, parse_query, query_activities, ActivityQuery, Athlete, QueryAnswer, ReadGate,
 };
 use crate::annotations::{annotations, Effect, Reach};
 use crate::capabilities::PROVIDER_READ;
@@ -146,10 +146,7 @@ fn input_schema() -> pierre_mcp_schema::JsonSchema {
         list_property("running, cycling, swimming, other."),
     );
     properties.insert("place_id".to_owned(), list_property("Place ids."));
-    properties.insert(
-        "name_contains".to_owned(),
-        property("string", "Text in the name."),
-    );
+    properties.insert("name_contains".to_owned(), property("string", "Name text."));
     properties.insert(
         "min_distance_km".to_owned(),
         property("number", "Least km."),
@@ -157,17 +154,14 @@ fn input_schema() -> pierre_mcp_schema::JsonSchema {
     properties.insert("max_distance_km".to_owned(), property("number", "Most km."));
     properties.insert(
         "has_segment".to_owned(),
-        property("string", "Segment id or name."),
+        property("string", "Segment id/name."),
     );
-    properties.insert("gear".to_owned(), property("string", "Gear id or name."));
+    properties.insert("gear".to_owned(), property("string", "Gear id/name."));
     properties.insert(
         "workout_type".to_owned(),
-        list_property("race, long_run, workout."),
+        list_property(&format!("{}.", askable_tag_names().join(", "))),
     );
-    properties.insert(
-        "trainer".to_owned(),
-        property("boolean", "Indoor trainer or not."),
-    );
+    properties.insert("trainer".to_owned(), property("boolean", "Indoor trainer."));
     properties.insert(
         "provider".to_owned(),
         property("string", "One source only."),

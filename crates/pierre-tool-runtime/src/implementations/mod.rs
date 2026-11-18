@@ -132,6 +132,10 @@ pub mod data_helpers;
 /// A provider read bounded by the refresh budget, with its last-known fallback
 #[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
 mod last_known;
+/// The provider's own zones, best efforts, records, weight and gear, read live
+/// beside a tool's answer and labelled as the provider's (carnet#1622)
+#[cfg(any(feature = "tools-data", feature = "tools-analytics"))]
+pub(crate) mod provider_context_reads;
 
 /// Stored health-data tools: `get_sleep_sessions`, `get_recovery_metrics`,
 /// `get_health_snapshots`, `list_data_sources` (`tools-data` feature).

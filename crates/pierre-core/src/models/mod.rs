@@ -64,6 +64,9 @@ pub mod onboarding;
 pub mod pillar;
 /// What a server-initiated agent post is for: its claim row's purpose.
 pub mod platform_post;
+/// What a provider says about the athlete beyond their activities: zones,
+/// gear, all-time records, best efforts, weight (provider context).
+pub mod provider_context;
 mod provider_thresholds;
 /// Where an activity's route geometry came from (summary polyline or streams).
 pub mod route_geometry;
@@ -100,8 +103,8 @@ pub mod refresh;
 // Activity and sport types come from dravr-cageux (canonical source)
 pub use dravr_cageux::models::activity;
 pub use dravr_cageux::models::activity::{
-    Activity, ActivityBuilder, ActivityComment, Feel, GearRef, HeartRateZone, Lap, PowerZone,
-    SegmentEffort, Split, TimeSeriesData,
+    Activity, ActivityBuilder, ActivityComment, ActivityTag, Feel, GearRef, HeartRateZone, Lap,
+    PowerZone, SegmentEffort, Split, TagSource, TaggedBy, TimeSeriesData,
 };
 pub use dravr_cageux::models::sport;
 pub use dravr_cageux::models::sport::SportType;

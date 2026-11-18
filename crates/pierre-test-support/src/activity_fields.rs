@@ -41,6 +41,7 @@ fn carries_field(activity: &Activity, name: &str) -> Option<bool> {
         "summary_polyline" => activity.summary_polyline().is_some(),
         "sport_type_detail" => activity.sport_type_detail().is_some(),
         "perceived_exertion" => activity.perceived_exertion().is_some(),
+        "tags" => activity.tags().is_some_and(|t| !t.is_empty()),
         _ => return None,
     };
     Some(carried)

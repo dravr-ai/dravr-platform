@@ -1087,13 +1087,13 @@ export interface QueryActivitiesParams {
   /** YYYY-MM-DD; omit for all history. */
   from?: string;
 
-  /** Gear id or name. */
+  /** Gear id/name. */
   gear?: string;
 
   /** Up to 2 of year, month, week, sport_type, sport_family, place, gear. */
   group_by?: string[];
 
-  /** Segment id or name. */
+  /** Segment id/name. */
   has_segment?: string;
 
   /** Most km. */
@@ -1105,7 +1105,7 @@ export interface QueryActivitiesParams {
   /** Least km. */
   min_distance_km?: number;
 
-  /** Text in the name. */
+  /** Name text. */
   name_contains?: string;
 
   /** Place ids. */
@@ -1123,10 +1123,10 @@ export interface QueryActivitiesParams {
   /** YYYY-MM-DD; default today. */
   to?: string;
 
-  /** Indoor trainer or not. */
+  /** Indoor trainer. */
   trainer?: boolean;
 
-  /** race, long_run, workout. */
+  /** race, long_run, workout, commute, recovery, with_pet, for_a_cause, competition, with_kid. */
   workout_type?: string[];
 }
 
