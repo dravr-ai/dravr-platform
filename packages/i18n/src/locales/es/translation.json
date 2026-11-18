@@ -1698,7 +1698,8 @@
       "reads_source_group_stats": "las estadísticas del grupo",
       "reads_source_group_report": "el informe semanal del grupo",
       "reads_source_group_health": "las alertas de salud del grupo",
-      "reads_source_weekly_digest": "su resumen semanal del grupo"
+      "reads_source_weekly_digest": "su resumen semanal del grupo",
+      "reads_source_physiology_view": "tus umbrales, desde Info del grupo"
     },
     "group-coach": {
       "description": "Elegir el agente Dravr de este grupo, o desvincular a su coach humano"
@@ -2891,7 +2892,8 @@
       "sourceGroupStats": "Las estadísticas del grupo",
       "sourceGroupReport": "El informe semanal del grupo",
       "sourceGroupHealth": "Las alertas de salud del grupo",
-      "sourceWeeklyDigest": "Su resumen semanal del grupo"
+      "sourceWeeklyDigest": "Su resumen semanal del grupo",
+      "sourcePhysiologyView": "Tus umbrales, en Info del grupo"
     },
     "shareTraining": "Compartir mi entrenamiento con mi coach",
     "shareTrainingHint": "Tu coach ve tu entrenamiento, tu plan y tus mensajes en el chat de este grupo. Las herramientas de IA que tu coach conecta a Dravr, como Claude, también pueden leer tu entrenamiento y tu plan. Al desactivarlo se detienen ambas cosas. Solo afecta a este grupo.",
@@ -2991,7 +2993,8 @@
       "titleOne": "Tu atleta",
       "titleMany": "Tus atletas",
       "viewPlan": "Ver el plan",
-      "seeOnCoachHome": "Ver en el Inicio de coach"
+      "seeOnCoachHome": "Ver en el Inicio de coach",
+      "thresholds": "Umbrales"
     },
     "whoSees": {
       "sharing": "{{coach}} ve tu entrenamiento, tu plan y tus mensajes aquí.",
@@ -3000,7 +3003,19 @@
     },
     "removeCoachRow": "Quitar al coach…",
     "removeCoachTitle": "¿Quitar al coach?",
-    "removeCoachConfirm": "Quitar al coach"
+    "removeCoachConfirm": "Quitar al coach",
+    "physiology": {
+      "title": "Umbrales de {{name}}",
+      "blurb": "Los valores sobre los que se fijan las sesiones de {{name}}. Un valor que guardes queda registrado como fijado por su entrenador, y {{name}} recibe un aviso.",
+      "empty": "{{name}} todavía no tiene umbrales. Añade uno aquí.",
+      "loadFailed": "No se han podido cargar los umbrales de {{name}}.",
+      "consentRevoked": "{{name}} ha dejado de compartir sus datos contigo, así que sus umbrales están ocultos.",
+      "saved": "Guardado. {{name}} recibe un aviso."
+    },
+    "anchorSource": {
+      "forAthlete": "fijado por tu entrenador",
+      "forCoach": "fijado por un entrenador"
+    }
   },
   "messaging": {
     "account": {
@@ -3151,8 +3166,11 @@
       },
       "relabelled": "Ahora cuenta como {0}.",
       "source_athlete": "el valor propio del atleta",
+      "source_estimated": "aún sin medir",
       "source_from": "de {0}",
-      "source_own": "tu propio valor"
+      "source_imported": "de otra app",
+      "source_own": "tu propio valor",
+      "source_promoted": "de mediciones recientes"
     },
     "evidence": {
       "convention": "Convención de entrenamiento",
@@ -3523,6 +3541,10 @@
       "training_load_alert": {
         "body": "Tu carga aguda es de {0} — considera un día de recuperación",
         "title": "Carga de entrenamiento elevada"
+      },
+      "coach_physiology_set": {
+        "title": "{0} ha actualizado tus umbrales",
+        "body": "{0} ha fijado tu valor de {1}. Lo encontrarás en Ajustes › Fisiología."
       }
     },
     "group_digest": {
@@ -3827,6 +3849,29 @@
       "threshold_speed": "Ritmo de umbral",
       "max_heart_rate": "FC máxima",
       "threshold_heart_rate": "FC de umbral"
+    },
+    "blurbEditable": "Los valores sobre los que se fijan tus sesiones, tal como Dravr los tiene guardados. Un valor de confianza baja se muestra como un rango o una estimación. Cámbialos aquí, o díselo a tu agente en el chat.",
+    "emptyEditable": "Todavía no hay umbrales. Añade uno aquí, o dile a tu agente tu FTP, tu ritmo de umbral o tu FC máxima en el chat.",
+    "edit": {
+      "add": "Añadir un umbral",
+      "titleEdit": "Editar un umbral",
+      "sport": "Deporte",
+      "anchor": "Umbral",
+      "value": "Valor ({{unit}})",
+      "paceUnit": "min:s/{{distance}}",
+      "rangeLow": "Rango, desde (opcional)",
+      "rangeHigh": "Rango, hasta (opcional)",
+      "kind": "Cómo se obtuvo",
+      "kindMeasured": "Medido en una prueba concreta",
+      "kindEstimated": "Estimado",
+      "confidence": "Confianza",
+      "confidenceHint": "Alta para una prueba con protocolo de menos de 6 semanas, media para una de 6 a 12 semanas o un modelo de dos esfuerzos, baja en otro caso.",
+      "method": "Prueba o método (opcional)",
+      "measuredOn": "Fecha (opcional, hoy si se deja vacía)",
+      "saving": "Guardando…",
+      "saveFailed": "No se ha podido guardar este valor.",
+      "invalidNumber": "Escribe un número.",
+      "invalidPace": "Escribe un ritmo en minutos:segundos, por ejemplo 4:10."
     }
   },
   "plan": {

@@ -1698,7 +1698,8 @@
       "reads_source_group_stats": "les statistiques du groupe",
       "reads_source_group_report": "le rapport hebdomadaire du groupe",
       "reads_source_group_health": "les signaux de santé du groupe",
-      "reads_source_weekly_digest": "son résumé hebdomadaire du groupe"
+      "reads_source_weekly_digest": "son résumé hebdomadaire du groupe",
+      "reads_source_physiology_view": "tes seuils, depuis Infos du groupe"
     },
     "group-coach": {
       "description": "Choisir l'agent Dravr de ce groupe, ou détacher son coach humain"
@@ -2891,7 +2892,8 @@
       "sourceGroupStats": "Les statistiques du groupe",
       "sourceGroupReport": "Le rapport hebdomadaire du groupe",
       "sourceGroupHealth": "Les signaux de santé du groupe",
-      "sourceWeeklyDigest": "Son résumé hebdomadaire du groupe"
+      "sourceWeeklyDigest": "Son résumé hebdomadaire du groupe",
+      "sourcePhysiologyView": "Tes seuils, dans Infos du groupe"
     },
     "shareTraining": "Partager mon entraînement avec mon coach",
     "shareTrainingHint": "Ton coach voit ton entraînement, ton plan et tes messages dans la discussion de ce groupe. Les outils d’IA que ton coach connecte à Dravr, comme Claude, peuvent aussi lire ton entraînement et ton plan. Désactiver ce partage arrête les deux. Ne s’applique qu’à ce groupe.",
@@ -2991,7 +2993,8 @@
       "titleOne": "Ton athlète",
       "titleMany": "Tes athlètes",
       "viewPlan": "Voir le plan",
-      "seeOnCoachHome": "Voir dans l’Accueil coach"
+      "seeOnCoachHome": "Voir dans l’Accueil coach",
+      "thresholds": "Seuils"
     },
     "whoSees": {
       "sharing": "{{coach}} voit ton entraînement, ton plan et tes messages ici.",
@@ -3000,7 +3003,19 @@
     },
     "removeCoachRow": "Retirer le coach…",
     "removeCoachTitle": "Retirer le coach ?",
-    "removeCoachConfirm": "Retirer le coach"
+    "removeCoachConfirm": "Retirer le coach",
+    "physiology": {
+      "title": "Seuils de {{name}}",
+      "blurb": "Les valeurs sur lesquelles les séances de {{name}} sont calées. Une valeur que tu enregistres est notée comme fixée par son coach, et {{name}} reçoit une notification.",
+      "empty": "{{name}} n'a encore aucun seuil. Ajoutes-en un ici.",
+      "loadFailed": "Les seuils de {{name}} n'ont pas pu être chargés.",
+      "consentRevoked": "{{name}} ne partage plus ses données avec toi : ses seuils sont masqués.",
+      "saved": "Enregistré. {{name}} reçoit une notification."
+    },
+    "anchorSource": {
+      "forAthlete": "fixée par ton coach",
+      "forCoach": "fixée par un coach"
+    }
   },
   "messaging": {
     "account": {
@@ -3151,8 +3166,11 @@
       },
       "relabelled": "Elle compte désormais comme {0}.",
       "source_athlete": "la valeur propre de l'athlète",
+      "source_estimated": "en attente d'une mesure",
       "source_from": "de {0}",
-      "source_own": "ta propre valeur"
+      "source_imported": "d'une autre app",
+      "source_own": "ta propre valeur",
+      "source_promoted": "de mesures récentes"
     },
     "evidence": {
       "convention": "Convention d'entraînement",
@@ -3523,6 +3541,10 @@
       "training_load_alert": {
         "body": "Ta charge aiguë est à {0} — pense à une journée de récupération",
         "title": "Charge d'entraînement élevée"
+      },
+      "coach_physiology_set": {
+        "title": "{0} a mis à jour tes seuils",
+        "body": "{0} a modifié une de tes valeurs : {1}. Tu la retrouves dans Réglages › Physiologie."
       }
     },
     "group_digest": {
@@ -3827,6 +3849,29 @@
       "threshold_speed": "Allure seuil",
       "max_heart_rate": "FC max",
       "threshold_heart_rate": "FC au seuil"
+    },
+    "blurbEditable": "Les valeurs sur lesquelles tes séances sont calées, telles que Dravr les a enregistrées. Une valeur à faible confiance s'affiche en fourchette ou en estimation. Modifie-les ici, ou dis-le à ton agent dans le chat.",
+    "emptyEditable": "Aucun seuil enregistré pour l'instant. Ajoutes-en un ici, ou donne à ton agent ta FTP, ton allure seuil ou ta FC max dans le chat.",
+    "edit": {
+      "add": "Ajouter un seuil",
+      "titleEdit": "Modifier un seuil",
+      "sport": "Sport",
+      "anchor": "Seuil",
+      "value": "Valeur ({{unit}})",
+      "paceUnit": "min:s/{{distance}}",
+      "rangeLow": "Fourchette, de (facultatif)",
+      "rangeHigh": "Fourchette, à (facultatif)",
+      "kind": "Comment la valeur a été obtenue",
+      "kindMeasured": "Mesurée lors d'un test précis",
+      "kindEstimated": "Estimée",
+      "confidence": "Confiance",
+      "confidenceHint": "Élevée pour un test protocolé de moins de 6 semaines, moyenne pour un test de 6 à 12 semaines ou un modèle à deux efforts, faible sinon.",
+      "method": "Test ou méthode (facultatif)",
+      "measuredOn": "Date (facultatif, aujourd'hui si vide)",
+      "saving": "Enregistrement…",
+      "saveFailed": "Cette valeur n'a pas pu être enregistrée.",
+      "invalidNumber": "Saisis un nombre.",
+      "invalidPace": "Saisis une allure en minutes:secondes, par exemple 4:10."
     }
   },
   "plan": {

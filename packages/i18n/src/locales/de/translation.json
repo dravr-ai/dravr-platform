@@ -1698,7 +1698,8 @@
       "reads_source_group_stats": "die Statistiken der Gruppe",
       "reads_source_group_report": "der Wochenbericht der Gruppe",
       "reads_source_group_health": "die Gesundheitshinweise der Gruppe",
-      "reads_source_weekly_digest": "die Wochenzusammenfassung der Gruppe"
+      "reads_source_weekly_digest": "die Wochenzusammenfassung der Gruppe",
+      "reads_source_physiology_view": "deine Schwellen, aus den Gruppeninfos"
     },
     "group-coach": {
       "description": "Den Dravr-Agenten dieser Gruppe festlegen oder ihren menschlichen Coach lösen"
@@ -2891,7 +2892,8 @@
       "sourceGroupStats": "Die Statistiken der Gruppe",
       "sourceGroupReport": "Der Wochenbericht der Gruppe",
       "sourceGroupHealth": "Die Gesundheitshinweise der Gruppe",
-      "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe"
+      "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe",
+      "sourcePhysiologyView": "Deine Schwellen, in den Gruppeninfos"
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. KI-Tools, die dein Coach mit Dravr verbindet, etwa Claude, können dein Training und deinen Plan ebenfalls lesen. Schaltest du dies aus, endet beides. Gilt nur für diese Gruppe.",
@@ -2991,7 +2993,8 @@
       "titleOne": "Wen du trainierst",
       "titleMany": "Wen du trainierst",
       "viewPlan": "Plan ansehen",
-      "seeOnCoachHome": "Auf der Startseite als Coach ansehen"
+      "seeOnCoachHome": "Auf der Startseite als Coach ansehen",
+      "thresholds": "Schwellen"
     },
     "whoSees": {
       "sharing": "{{coach}} sieht hier dein Training, deinen Plan und deine Nachrichten.",
@@ -3000,7 +3003,19 @@
     },
     "removeCoachRow": "Coach entfernen…",
     "removeCoachTitle": "Coach entfernen?",
-    "removeCoachConfirm": "Coach entfernen"
+    "removeCoachConfirm": "Coach entfernen",
+    "physiology": {
+      "title": "Schwellen von {{name}}",
+      "blurb": "Die Werte, auf die die Einheiten von {{name}} abgestimmt sind. Ein Wert, den du speicherst, wird als vom Coach gesetzt vermerkt, und {{name}} erhält eine Benachrichtigung.",
+      "empty": "{{name}} hat noch keine Schwellen. Füge hier eine hinzu.",
+      "loadFailed": "Die Schwellen von {{name}} konnten nicht geladen werden.",
+      "consentRevoked": "{{name}} teilt keine Daten mehr mit dir, daher sind die Schwellen ausgeblendet.",
+      "saved": "Gespeichert. {{name}} erhält eine Benachrichtigung."
+    },
+    "anchorSource": {
+      "forAthlete": "von deinem Coach gesetzt",
+      "forCoach": "von einem Coach gesetzt"
+    }
   },
   "messaging": {
     "account": {
@@ -3151,8 +3166,11 @@
       },
       "relabelled": "Sie zählt jetzt als {0}.",
       "source_athlete": "der eigene Wert des Athleten",
+      "source_estimated": "noch nicht gemessen",
       "source_from": "von {0}",
-      "source_own": "dein eigener Wert"
+      "source_imported": "aus einer anderen App",
+      "source_own": "dein eigener Wert",
+      "source_promoted": "aus aktuellen Messungen"
     },
     "evidence": {
       "convention": "Trainingskonvention",
@@ -3523,6 +3541,10 @@
       "training_load_alert": {
         "body": "Deine akute Trainingsbelastung liegt bei {0} — plane einen Erholungstag ein",
         "title": "Trainingsbelastung erhöht"
+      },
+      "coach_physiology_set": {
+        "title": "{0} hat deine Schwellen aktualisiert",
+        "body": "{0} hat deinen Wert für {1} gesetzt. Du findest ihn unter Einstellungen › Physiologie."
       }
     },
     "group_digest": {
@@ -3827,6 +3849,29 @@
       "threshold_speed": "Schwellentempo",
       "max_heart_rate": "Maximale Herzfrequenz",
       "threshold_heart_rate": "Schwellenherzfrequenz"
+    },
+    "blurbEditable": "Die Werte, auf die deine Einheiten abgestimmt sind, so wie Dravr sie gespeichert hat. Ein Wert mit geringer Verlässlichkeit erscheint als Spanne oder Schätzung. Ändere sie hier oder sag es deinem Agenten im Chat.",
+    "emptyEditable": "Noch keine Schwellen. Füge hier eine hinzu oder nenne deinem Agenten im Chat deine FTP, dein Schwellentempo oder deine maximale Herzfrequenz.",
+    "edit": {
+      "add": "Schwelle hinzufügen",
+      "titleEdit": "Schwelle bearbeiten",
+      "sport": "Sportart",
+      "anchor": "Schwelle",
+      "value": "Wert ({{unit}})",
+      "paceUnit": "min:s/{{distance}}",
+      "rangeLow": "Spanne von (optional)",
+      "rangeHigh": "Spanne bis (optional)",
+      "kind": "Wie der Wert ermittelt wurde",
+      "kindMeasured": "In einem benannten Test gemessen",
+      "kindEstimated": "Geschätzt",
+      "confidence": "Verlässlichkeit",
+      "confidenceHint": "Hoch für einen Protokolltest, der weniger als 6 Wochen alt ist, mittel für einen von 6–12 Wochen oder ein Modell aus zwei Belastungen, sonst gering.",
+      "method": "Test oder Methode (optional)",
+      "measuredOn": "Datum (optional, sonst heute)",
+      "saving": "Wird gespeichert…",
+      "saveFailed": "Dieser Wert konnte nicht gespeichert werden.",
+      "invalidNumber": "Gib eine Zahl ein.",
+      "invalidPace": "Gib ein Tempo als Minuten:Sekunden ein, zum Beispiel 4:10."
     }
   },
   "plan": {

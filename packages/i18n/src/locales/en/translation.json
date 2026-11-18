@@ -1698,7 +1698,8 @@
       "reads_source_group_stats": "the group's stats",
       "reads_source_group_report": "the group's weekly report",
       "reads_source_group_health": "the group's health flags",
-      "reads_source_weekly_digest": "their weekly digest of the group"
+      "reads_source_weekly_digest": "their weekly digest of the group",
+      "reads_source_physiology_view": "your thresholds, from Group info"
     },
     "group-coach": {
       "description": "Set this group's Dravr agent, or detach its human coach"
@@ -2891,7 +2892,8 @@
       "sourceGroupStats": "The group's stats",
       "sourceGroupReport": "The group's weekly report",
       "sourceGroupHealth": "The group's health flags",
-      "sourceWeeklyDigest": "Their weekly digest of the group"
+      "sourceWeeklyDigest": "Their weekly digest of the group",
+      "sourcePhysiologyView": "Your thresholds, in Group info"
     },
     "shareTraining": "Share my training with my coach",
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. AI tools your coach connects to Dravr, such as Claude, can read your training and your plan too. Turning this off stops both. Applies to this group only.",
@@ -2991,7 +2993,8 @@
       "titleOne": "Your athlete",
       "titleMany": "Your athletes",
       "viewPlan": "View plan",
-      "seeOnCoachHome": "See on coach Home"
+      "seeOnCoachHome": "See on coach Home",
+      "thresholds": "Thresholds"
     },
     "whoSees": {
       "sharing": "{{coach}} sees your training, your plan and your messages here.",
@@ -3000,7 +3003,19 @@
     },
     "removeCoachRow": "Remove coach…",
     "removeCoachTitle": "Remove the coach?",
-    "removeCoachConfirm": "Remove coach"
+    "removeCoachConfirm": "Remove coach",
+    "physiology": {
+      "title": "{{name}}'s thresholds",
+      "blurb": "The values {{name}}'s workouts are set on. A value you save is stored as set by their coach, and {{name}} is told.",
+      "empty": "{{name}} has no thresholds yet. Add one here.",
+      "loadFailed": "{{name}}'s thresholds couldn't be loaded.",
+      "consentRevoked": "{{name}} stopped sharing their data with you, so their thresholds are hidden.",
+      "saved": "Saved. {{name}} is told."
+    },
+    "anchorSource": {
+      "forAthlete": "set by your coach",
+      "forCoach": "set by a coach"
+    }
   },
   "messaging": {
     "account": {
@@ -3151,8 +3166,11 @@
       },
       "relabelled": "It now counts as {0}.",
       "source_athlete": "the athlete's own value",
+      "source_estimated": "not yet measured",
       "source_from": "from {0}",
-      "source_own": "your own value"
+      "source_imported": "from another app",
+      "source_own": "your own value",
+      "source_promoted": "from recent measurements"
     },
     "evidence": {
       "convention": "Coaching convention",
@@ -3523,6 +3541,10 @@
       "training_load_alert": {
         "body": "Your acute training load is {0} — consider a recovery day",
         "title": "Training load elevated"
+      },
+      "coach_physiology_set": {
+        "title": "{0} updated your thresholds",
+        "body": "{0} set your {1}. You'll find it in Settings › Physiology."
       }
     },
     "group_digest": {
@@ -3827,6 +3849,29 @@
       "threshold_speed": "Threshold pace",
       "max_heart_rate": "Max heart rate",
       "threshold_heart_rate": "Threshold heart rate"
+    },
+    "blurbEditable": "The values your workouts are set on, as Dravr holds them. A low-confidence value shows as a range or an estimate. Change one here, or tell your agent in the chat.",
+    "emptyEditable": "No thresholds yet. Add one here, or tell your agent your FTP, threshold pace or max heart rate in the chat.",
+    "edit": {
+      "add": "Add a threshold",
+      "titleEdit": "Edit a threshold",
+      "sport": "Sport",
+      "anchor": "Threshold",
+      "value": "Value ({{unit}})",
+      "paceUnit": "min:s/{{distance}}",
+      "rangeLow": "Range from (optional)",
+      "rangeHigh": "Range to (optional)",
+      "kind": "How it was found",
+      "kindMeasured": "Measured in a named test",
+      "kindEstimated": "Estimated",
+      "confidence": "Confidence",
+      "confidenceHint": "High for a protocol test under 6 weeks old, medium for one 6–12 weeks old or a two-effort model, low otherwise.",
+      "method": "Test or method (optional)",
+      "measuredOn": "Date (optional, today if empty)",
+      "saving": "Saving…",
+      "saveFailed": "This value couldn't be saved.",
+      "invalidNumber": "Enter a number.",
+      "invalidPace": "Enter a pace as minutes:seconds, for example 4:10."
     }
   },
   "plan": {

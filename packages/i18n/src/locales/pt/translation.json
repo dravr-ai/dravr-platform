@@ -1698,7 +1698,8 @@
       "reads_source_group_stats": "as estatísticas do grupo",
       "reads_source_group_report": "o relatório semanal do grupo",
       "reads_source_group_health": "os alertas de saúde do grupo",
-      "reads_source_weekly_digest": "o resumo semanal do grupo"
+      "reads_source_weekly_digest": "o resumo semanal do grupo",
+      "reads_source_physiology_view": "os teus limiares, em Informações do grupo"
     },
     "group-coach": {
       "description": "Definir o agente Dravr deste grupo, ou desvincular o seu coach humano"
@@ -2891,7 +2892,8 @@
       "sourceGroupStats": "As estatísticas do grupo",
       "sourceGroupReport": "O relatório semanal do grupo",
       "sourceGroupHealth": "Os alertas de saúde do grupo",
-      "sourceWeeklyDigest": "O resumo semanal do grupo"
+      "sourceWeeklyDigest": "O resumo semanal do grupo",
+      "sourcePhysiologyView": "Os teus limiares, em Informações do grupo"
     },
     "shareTraining": "Partilhar o meu treino com o meu coach",
     "shareTrainingHint": "O teu coach vê o teu treino, o teu plano e as tuas mensagens no chat deste grupo. As ferramentas de IA que o teu coach liga ao Dravr, como o Claude, também podem ler o teu treino e o teu plano. Desativar esta opção interrompe ambos. Aplica-se apenas a este grupo.",
@@ -2991,7 +2993,8 @@
       "titleOne": "Quem treinas",
       "titleMany": "Quem treinas",
       "viewPlan": "Ver o plano",
-      "seeOnCoachHome": "Ver no Início de coach"
+      "seeOnCoachHome": "Ver no Início de coach",
+      "thresholds": "Limiares"
     },
     "whoSees": {
       "sharing": "{{coach}} vê aqui o teu treino, o teu plano e as tuas mensagens.",
@@ -3000,7 +3003,19 @@
     },
     "removeCoachRow": "Remover o coach…",
     "removeCoachTitle": "Remover o coach?",
-    "removeCoachConfirm": "Remover o coach"
+    "removeCoachConfirm": "Remover o coach",
+    "physiology": {
+      "title": "Limiares de {{name}}",
+      "blurb": "Os valores em que os treinos de {{name}} se baseiam. Um valor que guardes fica registado como definido pelo treinador, e {{name}} recebe uma notificação.",
+      "empty": "{{name}} ainda não tem limiares. Adiciona um aqui.",
+      "loadFailed": "Não foi possível carregar os limiares de {{name}}.",
+      "consentRevoked": "{{name}} deixou de partilhar os dados contigo, por isso os limiares estão ocultos.",
+      "saved": "Guardado. {{name}} recebe uma notificação."
+    },
+    "anchorSource": {
+      "forAthlete": "definido pelo teu treinador",
+      "forCoach": "definido por um treinador"
+    }
   },
   "messaging": {
     "account": {
@@ -3151,8 +3166,11 @@
       },
       "relabelled": "Agora conta como {0}.",
       "source_athlete": "o valor do próprio atleta",
+      "source_estimated": "ainda sem medição",
       "source_from": "de {0}",
-      "source_own": "o teu próprio valor"
+      "source_imported": "de outra app",
+      "source_own": "o teu próprio valor",
+      "source_promoted": "de medições recentes"
     },
     "evidence": {
       "convention": "Convenção de treino",
@@ -3523,6 +3541,10 @@
       "training_load_alert": {
         "body": "A tua carga aguda está em {0} — considera um dia de recuperação",
         "title": "Carga de treino elevada"
+      },
+      "coach_physiology_set": {
+        "title": "{0} atualizou os teus limiares",
+        "body": "{0} definiu o teu valor de {1}. Podes vê-lo em Definições › Fisiologia."
       }
     },
     "group_digest": {
@@ -3827,6 +3849,29 @@
       "threshold_speed": "Ritmo de limiar",
       "max_heart_rate": "FC máxima",
       "threshold_heart_rate": "FC de limiar"
+    },
+    "blurbEditable": "Os valores em que os teus treinos se baseiam, tal como o Dravr os tem guardados. Um valor de confiança baixa aparece como intervalo ou estimativa. Muda-os aqui, ou diz ao teu agente no chat.",
+    "emptyEditable": "Ainda não há limiares. Adiciona um aqui, ou diz ao teu agente a tua FTP, o teu ritmo de limiar ou a tua FC máxima no chat.",
+    "edit": {
+      "add": "Adicionar um limiar",
+      "titleEdit": "Editar um limiar",
+      "sport": "Desporto",
+      "anchor": "Limiar",
+      "value": "Valor ({{unit}})",
+      "paceUnit": "min:s/{{distance}}",
+      "rangeLow": "Intervalo, de (opcional)",
+      "rangeHigh": "Intervalo, até (opcional)",
+      "kind": "Como foi obtido",
+      "kindMeasured": "Medido num teste concreto",
+      "kindEstimated": "Estimado",
+      "confidence": "Confiança",
+      "confidenceHint": "Alta para um teste com protocolo com menos de 6 semanas, média para um com 6 a 12 semanas ou um modelo de dois esforços, baixa nos outros casos.",
+      "method": "Teste ou método (opcional)",
+      "measuredOn": "Data (opcional, hoje se ficar vazia)",
+      "saving": "A guardar…",
+      "saveFailed": "Não foi possível guardar este valor.",
+      "invalidNumber": "Escreve um número.",
+      "invalidPace": "Escreve um ritmo em minutos:segundos, por exemplo 4:10."
     }
   },
   "plan": {
