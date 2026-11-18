@@ -33,9 +33,9 @@
 
 use crate::common;
 use crate::helpers::sciotte_mock::seed_scrape_session;
+use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_api_test::{
-    hold_strava_grant, mock_strava, open_window, rows_under, strava_athlete, with_window,
-    MockStrava,
+    mock_strava, open_window, rows_under, strava_athlete, with_window, MockStrava,
 };
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 

@@ -31,6 +31,7 @@
 
 use crate::common;
 use crate::common::offline_provider_registry;
+use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 
 use std::collections::HashMap;
@@ -42,9 +43,9 @@ use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::get;
 use axum::{Json, Router};
-use chrono::{Duration as ChronoDuration, TimeZone, Utc};
+use chrono::{TimeZone, Utc};
 use pierre_core::constants::oauth::providers as oauth_providers;
-use pierre_core::models::{ConnectionType, TenantId, UserOAuthToken};
+use pierre_core::models::TenantId;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{
     BackfillJobClaim, BackfillJobKind, BackfillJobState, JobLeaseState, JobProgress,
@@ -56,7 +57,6 @@ use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
 use pierre_tool_runtime::activity_backfill_resume::resume_backfill_jobs;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::runtime::WalkTrigger;
-use secrecy::SecretString;
 use serde_json::{json, Value};
 use sqlx::Row;
 use tokio::net::TcpListener;
@@ -350,47 +350,6 @@ pub(crate) async fn strava_athlete(resources: &Arc<ServerContext>) -> (Uuid, Ten
     .unwrap();
     hold_strava_grant(resources, user_id, tenant).await;
     (user_id, tenant)
-}
-
-/// Give the athlete a live Strava grant and its connection.
-pub(crate) async fn hold_strava_grant(
-    resources: &Arc<ServerContext>,
-    user_id: Uuid,
-    tenant: TenantId,
-) {
-    let now = Utc::now();
-    let repos = &resources.common.repos;
-    repos
-        .oauth_tokens
-        .upsert_token(&UserOAuthToken {
-            id: Uuid::new_v4().to_string(),
-            user_id,
-            tenant_id: tenant.to_string(),
-            provider: oauth_providers::STRAVA.to_owned(),
-            // >= 40 chars and not "at_"-prefixed: the provider's token validation.
-            access_token: SecretString::from(format!("strava_access_token_{:0>30}", 7)),
-            refresh_token: Some(SecretString::from("strava_refresh")),
-            token_type: "Bearer".to_owned(),
-            expires_at: Some(now + ChronoDuration::hours(6)),
-            scope: Some("activity:read_all".to_owned()),
-            provider_user_id: Some("4242".to_owned()),
-            oauth_app_client_id: None,
-            created_at: now,
-            updated_at: now,
-        })
-        .await
-        .unwrap();
-    repos
-        .provider_connections
-        .register_connection(
-            user_id,
-            tenant,
-            oauth_providers::STRAVA,
-            &ConnectionType::OAuth,
-            None,
-        )
-        .await
-        .unwrap();
 }
 
 /// What the ledger holds for the athlete's walk of `backend`.

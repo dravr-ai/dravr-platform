@@ -30,8 +30,9 @@
 
 use crate::common;
 use crate::helpers::sciotte_mock::seed_sciotte_session;
+use crate::helpers::strava_grant::hold_strava_grant;
 use crate::history_walk_api_test::{
-    hold_strava_grant, open_window, server, steps_settled_under, strava_athlete, with_window,
+    open_window, server, steps_settled_under, strava_athlete, with_window,
 };
 use crate::history_walk_test::{age_job_rows, paused_retries_due};
 

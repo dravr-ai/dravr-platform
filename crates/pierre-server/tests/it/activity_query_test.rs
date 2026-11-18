@@ -23,7 +23,8 @@
 #![allow(missing_docs)]
 
 use crate::common;
-use crate::history_walk_api_test::{hold_strava_grant, server};
+use crate::helpers::strava_grant::hold_strava_grant;
+use crate::history_walk_api_test::server;
 
 use std::sync::Arc;
 

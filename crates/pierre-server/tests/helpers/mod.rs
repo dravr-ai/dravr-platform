@@ -18,6 +18,8 @@ pub(crate) mod coach_roster_fixtures;
 pub(crate) mod command_e2e;
 /// The dravr-contremaitre tree the build compiled against, found without cargo.
 pub(crate) mod contremaitre_checkout;
+/// Every date in a response body with its path, and the seeding the response date goldens share.
+pub(crate) mod date_golden;
 /// Providers that hang, a `WhatsApp` athlete and the outbound ledger, for the
 /// suites that interrupt a live turn (drain, watchdog).
 #[cfg(feature = "client-messaging")]
@@ -53,4 +55,6 @@ pub(crate) use crate::common::offline_channel;
 /// what a turn put on the wire.
 pub(crate) mod recording_llm;
 pub(crate) mod sciotte_mock;
+/// A live Strava API grant (token row and connection) for a seeded athlete.
+pub(crate) mod strava_grant;
 pub(crate) mod synthetic_data;

@@ -34,7 +34,8 @@ use crate::common;
 use crate::detail_walk_edges_test::{accept_walk_rows, refuse_walk_rows_on};
 use crate::detail_walk_test::{alter_walk_row, walk_ended};
 use crate::garmin_sign_in_test::{hold_session as hold_garmin_session, LIVE_SESSION};
-use crate::history_walk_api_test::{hold_strava_grant, server, strava_athlete};
+use crate::helpers::strava_grant::hold_strava_grant;
+use crate::history_walk_api_test::{server, strava_athlete};
 
 use std::future::pending;
 use std::sync::{Arc, Mutex};
