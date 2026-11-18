@@ -28,7 +28,12 @@ jest.mock('../OAuthAppSetupModal', () => ({ OAuthAppSetupModal: () => null }));
 
 const COOKIES = [{ name: 'SESSIONID', value: 'v', domain: 'connect.garmin.com', path: '/', secure: true, http_only: true }];
 
-// The WebView lands signed in as soon as it shows: it hands its cookies over.
+// The WebView lands signed in as soon as it shows: it hands its cookies over,
+// unless a test holds the hand-over back to play it late.
+const webView: { handsOver: boolean; onSignedIn: ((cookies: unknown[]) => void) | null } = {
+  handsOver: true,
+  onSignedIn: null,
+};
 jest.mock('../auth/BrowserSigninWebView', () => {
   const actual = jest.requireActual('../auth/BrowserSigninWebView');
   const ReactActual = jest.requireActual('react');
@@ -37,6 +42,8 @@ jest.mock('../auth/BrowserSigninWebView', () => {
     ...actual,
     BrowserSigninWebView: ({ onSignedIn }: { onSignedIn: (cookies: unknown[]) => void }) => {
       ReactActual.useEffect(() => {
+        webView.onSignedIn = onSignedIn;
+        if (!webView.handsOver) return;
         onSignedIn([{ name: 'SESSIONID', value: 'v', domain: 'connect.garmin.com', path: '/', secure: true, http_only: true }]);
       }, [onSignedIn]);
       return ReactActual.createElement(View, { testID: 'browser-signin-webview' });
@@ -54,6 +61,8 @@ const GARMIN = {
 describe('SciotteLoginModal (mobile) — a sign-in on the phone itself', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    webView.handsOver = true;
+    webView.onSignedIn = null;
     (oauthApi.browserSigninCatalog as jest.Mock).mockResolvedValue({ providers: [GARMIN] });
   });
 
@@ -65,7 +74,29 @@ describe('SciotteLoginModal (mobile) — a sign-in on the phone itself', () => {
     fireEvent.press(screen.getByTestId('sciotte-browser-signin'));
 
     await waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1));
-    expect(oauthApi.browserSignin).toHaveBeenCalledWith('garmin', COOKIES, { tosConsent: false });
+    expect(oauthApi.browserSignin).toHaveBeenCalledWith('garmin', COOKIES, {
+      tosConsent: false,
+      signal: expect.any(AbortSignal),
+    });
+  });
+
+  it('connects nothing when the cookie read finishes after the window was closed', async () => {
+    webView.handsOver = false;
+    const onConnected = jest.fn();
+    const { rerender } = render(
+      <SciotteLoginModal visible onClose={jest.fn()} onConnected={onConnected} target="garmin" />,
+    );
+
+    fireEvent.press(screen.getByTestId('sciotte-browser-signin'));
+    await waitFor(() => expect(webView.onSignedIn).not.toBeNull());
+    const lateHandOver = webView.onSignedIn as (cookies: unknown[]) => void;
+
+    rerender(<SciotteLoginModal visible={false} onClose={jest.fn()} onConnected={onConnected} target="garmin" />);
+    lateHandOver(COOKIES);
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(oauthApi.browserSignin).not.toHaveBeenCalled();
+    expect(onConnected).not.toHaveBeenCalled();
   });
 });
 

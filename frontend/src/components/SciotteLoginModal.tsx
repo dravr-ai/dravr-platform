@@ -277,7 +277,7 @@ export default function SciotteLoginModal({
       const cookies = await signInWithExtension(entry, signal);
       if (signal.aborted) return;
       setPhase('logging-in');
-      const data = await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted });
+      const data = await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted, signal });
       if (signal.aborted) return;
       applyLoginAnswer(data);
     } catch (err) {
