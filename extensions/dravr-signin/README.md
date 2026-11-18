@@ -44,6 +44,7 @@ Once it is loaded, the Garmin sign-in window on app.dravr.ai shows
 
 | File | What it is |
 |---|---|
+| `icons/` | The Dravr mark: the reduced Boreal Ripple (`frontend/public/favicon.svg`) at 16 and 32 px, the app icon (`frontend-mobile/assets/icon.png`) at 48 and 128 px |
 | `manifest.json` | MV3 manifest: `cookies` and `tabs`, host permissions for the four providers only |
 | `background.js` | The service worker: the port protocol, the sign-in tab, the cookie read |
 | `signin.js` | Pure rules (accepted requests, signed-in detection, the cookie shape), tested without a browser |
