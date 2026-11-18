@@ -915,7 +915,8 @@
     "signupCodeInvalid": "Ce code n'est pas valide. Vérifie-le et réessaie.",
     "analyticsConsentLabel": "Aide à améliorer Dravr avec les statistiques d'utilisation",
     "analyticsConsentHint": "Facultatif. PostHog enregistre les fonctionnalités que tu utilises, associées à l'e-mail de ton compte. Tu peux changer d'avis à tout moment dans les réglages.",
-    "analyticsConsentPolicyLink": "Comment on utilise les statistiques d'utilisation"
+    "analyticsConsentPolicyLink": "Comment on utilise les statistiques d'utilisation",
+    "signupCodeAcceptedConfirmEmailReview": "Code accepté. Confirme ton adresse e-mail ; un administrateur approuvera ensuite ton compte."
   },
   "chat": {
     "aboutThisClaim": "À propos de cette affirmation",
@@ -3121,6 +3122,61 @@
     "anchorSource": {
       "forAthlete": "fixée par ton coach",
       "forCoach": "fixée par un coach"
+    },
+    "inviteCard": {
+      "title": "{{name}} t'invite",
+      "titleCoach": "{{name}} t'invite à coacher ce groupe",
+      "shares": "En rejoignant, {{name}} verra tes activités, ta charge et ton plan. Tu peux arrêter le partage quand tu veux.",
+      "sharesCoach": "Comme coach du groupe, tu verras l'entraînement des athlètes qui le partagent avec toi.",
+      "create": "Créer mon compte et rejoindre",
+      "join": "Rejoindre",
+      "joining": "Ajout au groupe…",
+      "haveAccount": "J'ai déjà un compte",
+      "validUntil": "Lien valide jusqu'au {{date}}",
+      "expired": "Ce lien a expiré. Demande à {{name}} de t'en envoyer un nouveau.",
+      "usedUp": "Ce lien a déjà servi autant de fois que prévu. Demande à {{name}} de t'en envoyer un nouveau.",
+      "inactive": "{{name}} a désactivé ce lien. Demande-lui-en un nouveau.",
+      "unknown": "Ce lien d'invitation n'existe pas. Vérifie-le ou demande un nouveau lien.",
+      "loadFailed": "Impossible de lire cette invitation. Réessaie.",
+      "tooMany": "Trop de tentatives. Réessaie dans quelques minutes.",
+      "retry": "Réessayer",
+      "continueWithout": "Continuer sans rejoindre"
+    },
+    "inviteJourney": {
+      "line": "Invitation de {{name}} · « {{group}} »",
+      "confirmEmailPromise": "Ensuite, tu rejoins {{name}} dans « {{group}} ». Rien à refaire.",
+      "reviewPromise": "Une fois ton compte approuvé, tu rejoins {{name}} dans « {{group}} ». Rien à refaire.",
+      "teamChosen": "{{name}} · ton coach, déjà choisi",
+      "yourCoach": "{{name}} · ton coach"
+    },
+    "inviteFunnel": {
+      "label": "Où en est l'invitation",
+      "sent": "Lien envoyé",
+      "notOpened": "Pas encore ouvert",
+      "opened_one": "Ouvert · une fois",
+      "opened_other": "Ouvert · {{count}} fois",
+      "accountCreated_one": "Compte créé · {{date}}",
+      "accountCreated_other": "{{count}} comptes créés · le dernier le {{date}}",
+      "notJoined": "Pas encore dans le groupe",
+      "groupFull": "Groupe complet · une place doit se libérer"
+    },
+    "joinStrip": {
+      "title": "{{name}} t'invite dans « {{group}} ».",
+      "titleCoach": "{{name}} t'invite à coacher « {{group}} ».",
+      "join": "Rejoindre le groupe de {{name}}",
+      "joining": "Ajout au groupe…",
+      "full": "Le groupe de {{name}} est complet pour l'instant. Réessaie quand une place se libère.",
+      "retry": "Réessayer",
+      "failed": "Impossible de rejoindre le groupe. Réessaie.",
+      "joined": "Tu as rejoint « {{group}} »."
+    },
+    "claimCoach": {
+      "none": "Ce groupe n'a pas encore de coach",
+      "body": "Tu verras l'entraînement des athlètes qui le partagent avec toi.",
+      "action": "Devenir le coach de ce groupe",
+      "claiming": "Un instant…",
+      "done": "Tu es maintenant le coach de ce groupe.",
+      "failed": "Impossible de te rattacher comme coach. Réessaie."
     }
   },
   "messaging": {

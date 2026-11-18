@@ -915,7 +915,8 @@
     "signupCodeInvalid": "This code isn't valid. Check it and try again.",
     "analyticsConsentLabel": "Help improve Dravr with usage analytics",
     "analyticsConsentHint": "Optional. PostHog records which features you use, tied to your account email. You can change this anytime in Settings.",
-    "analyticsConsentPolicyLink": "How we use usage analytics"
+    "analyticsConsentPolicyLink": "How we use usage analytics",
+    "signupCodeAcceptedConfirmEmailReview": "Code accepted. Confirm your email address; an administrator will then approve your account."
   },
   "chat": {
     "aboutThisClaim": "About this claim",
@@ -3121,6 +3122,61 @@
     "anchorSource": {
       "forAthlete": "set by your coach",
       "forCoach": "set by a coach"
+    },
+    "inviteCard": {
+      "title": "{{name}} invites you",
+      "titleCoach": "{{name}} invites you to coach this group",
+      "shares": "When you join, {{name}} will see your activities, your load and your plan. You can stop sharing at any time.",
+      "sharesCoach": "As the group's coach, you'll see the training of the athletes who share it with you.",
+      "create": "Create my account and join",
+      "join": "Join",
+      "joining": "Joining…",
+      "haveAccount": "I already have an account",
+      "validUntil": "Link valid until {{date}}",
+      "expired": "This link has expired. Ask {{name}} to send you a new one.",
+      "usedUp": "This link has been used as many times as it allows. Ask {{name}} to send you a new one.",
+      "inactive": "{{name}} turned this link off. Ask them for a new one.",
+      "unknown": "This invite link doesn't exist. Check it, or ask for a new link.",
+      "loadFailed": "Couldn't read this invite. Try again.",
+      "tooMany": "Too many tries. Try again in a few minutes.",
+      "retry": "Try again",
+      "continueWithout": "Continue without joining"
+    },
+    "inviteJourney": {
+      "line": "Invite from {{name}} · “{{group}}”",
+      "confirmEmailPromise": "Then you join {{name}} in “{{group}}”. Nothing to redo.",
+      "reviewPromise": "Once your account is approved, you join {{name}} in “{{group}}”. Nothing to redo.",
+      "teamChosen": "{{name}} · your coach, already chosen",
+      "yourCoach": "{{name}} · your coach"
+    },
+    "inviteFunnel": {
+      "label": "Invite progress",
+      "sent": "Link sent",
+      "notOpened": "Not opened yet",
+      "opened_one": "Opened · once",
+      "opened_other": "Opened · {{count}} times",
+      "accountCreated_one": "Account created · {{date}}",
+      "accountCreated_other": "{{count}} accounts created · latest {{date}}",
+      "notJoined": "Not in the group yet",
+      "groupFull": "Group full · a seat needs to open"
+    },
+    "joinStrip": {
+      "title": "{{name}} invites you to “{{group}}”.",
+      "titleCoach": "{{name}} invites you to coach “{{group}}”.",
+      "join": "Join {{name}}'s group",
+      "joining": "Joining…",
+      "full": "{{name}}'s group is full for now. Try again when a seat opens.",
+      "retry": "Try again",
+      "failed": "Couldn't join the group. Try again.",
+      "joined": "You joined “{{group}}”."
+    },
+    "claimCoach": {
+      "none": "This group has no coach yet",
+      "body": "You'll see the training of the athletes who share it with you.",
+      "action": "Become this group's coach",
+      "claiming": "One moment…",
+      "done": "You're now this group's coach.",
+      "failed": "Couldn't make you the coach. Try again."
     }
   },
   "messaging": {
