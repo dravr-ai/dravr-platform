@@ -21,6 +21,8 @@ mod delete_account {
     use pierre_core::models::groups::{
         CoachingGroup, GroupDigestMode, GroupRespondMode, GroupRole,
     };
+    use pierre_core::models::{User, UserStatus};
+    use pierre_core::permissions::UserRole;
     use pierre_database::backends::factory::DatabaseBackend;
     #[cfg(feature = "postgresql")]
     use pierre_database::repositories::POSTGRES_USER_PURGE;
@@ -182,6 +184,47 @@ mod delete_account {
             .await
             .unwrap()
             .is_some());
+    }
+
+    /// An admin deletes its own account from a chat as anyone does
+    /// (carnet#1589): the command answered it with a refusal of its own
+    /// before. Another admin keeps the platform from losing its last one.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial]
+    async fn an_admin_deletes_its_own_account_from_a_chat() {
+        let e2e = e2e().await;
+        let member = e2e.linked_member(false).await;
+        let repos = &e2e.resources.common.repos;
+        let mut admin = repos
+            .users
+            .get_global(member.user_id)
+            .await
+            .unwrap()
+            .expect("the member exists");
+        admin.role = UserRole::Admin;
+        repos.users.update(&admin).await.unwrap();
+        let mut other = User::new(
+            format!("other-admin-{}@example.com", Uuid::new_v4()),
+            "hash".to_owned(),
+            None,
+        );
+        other.role = UserRole::Admin;
+        other.user_status = UserStatus::Active;
+        repos.users.create(&other).await.unwrap();
+
+        e2e.send_dm(&member, &format!("/deleteaccount {}", admin.email))
+            .await;
+
+        assert!(
+            repos
+                .users
+                .get_global(member.user_id)
+                .await
+                .unwrap()
+                .is_none(),
+            "the admin's account is gone"
+        );
+        assert!(repos.users.get_global(other.id).await.unwrap().is_some());
     }
 
     #[tokio::test(flavor = "multi_thread")]

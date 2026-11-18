@@ -493,3 +493,75 @@ test.describe('API Key Details', () => {
     await expect(page.getByRole('heading', { name: 'Your API Tokens' })).toBeVisible();
   });
 });
+
+/**
+ * The listing with a token a rotation retired beside the one that replaced
+ * it: an inactive row naming its replacement (carnet#1589).
+ */
+const withRotated = [
+  ...sampleTokens,
+  {
+    id: 'token-4',
+    service_name: 'Nightly Export',
+    service_description: 'Rotated into token-1',
+    token_prefix: 'pierre_at_jkl012',
+    is_active: false,
+    is_super_admin: false,
+    permissions: ['list_keys'],
+    created_at: '2023-11-01T10:00:00Z',
+    expires_at: null,
+    last_used_at: '2023-12-20T08:00:00Z',
+    usage_count: 42,
+    rotated_to_token_id: 'token-1',
+  },
+];
+
+test.describe('A rotated token', () => {
+  let revoked: string[];
+
+  test.beforeEach(async ({ page }) => {
+    await setupAuthenticatedSession(page);
+    await page.route('**/api/admin/tokens**', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            message: `Retrieved ${withRotated.length} admin tokens`,
+            data: { count: withRotated.length, tokens: withRotated },
+          }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: true, message: 'Admin token revoked successfully', data: {} }),
+        });
+      }
+    });
+    revoked = recordTokenActions(page, 'revoke');
+    await openTokenScreen(page);
+    await page.getByRole('button', { name: 'Inactive(2)', exact: true }).click();
+  });
+
+  test('reads as rotated, and a revoked one as inactive', async ({ page }) => {
+    const rotated = page.locator('div', { has: page.getByRole('heading', { name: 'Nightly Export' }) }).last();
+    await expect(rotated.getByText('Rotated', { exact: true })).toBeVisible();
+    const revokedRow = page.locator('div', { has: page.getByRole('heading', { name: 'Monitoring Service' }) }).last();
+    await expect(revokedRow.getByText('Inactive', { exact: true })).toBeVisible();
+    await expect(revokedRow.getByText('Rotated', { exact: true })).toHaveCount(0);
+  });
+
+  test('is left out of a bulk revoke', async ({ page }) => {
+    await expect(page.getByLabel('Select Nightly Export')).toBeDisabled();
+    await page.getByLabel('Select All (1)').check();
+    await expect(page.getByText('1 selected')).toBeVisible();
+    await expect(page.getByLabel('Select Nightly Export')).not.toBeChecked();
+
+    await page.getByRole('button', { name: 'Revoke Selected' }).click();
+    await page.getByRole('button', { name: 'Revoke 1 API Token(s)', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Revoke Multiple API Tokens' })).toHaveCount(0);
+    expect(revoked).toEqual(['token-3']);
+  });
+});

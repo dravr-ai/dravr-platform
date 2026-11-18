@@ -30,7 +30,14 @@ use crate::helpers::display::{display_admin_user_success, display_plain_user_suc
 
 /// Non-identity attributes of the account `create` establishes.
 pub(crate) struct AdminUserOptions {
-    /// Update the account instead of refusing when the email already exists
+    /// Update the account instead of refusing when the email already exists.
+    ///
+    /// The host-level break-glass path (carnet#1589): the account is written
+    /// active with the password and role asked for, whatever its standing,
+    /// with no approval first. The approve-first rule binds the admin
+    /// surfaces (`user promote`, the console, the admin API); this command
+    /// writes the database from the host shell, whose holder holds every
+    /// power, and is how an admin is restored when no admin can sign in.
     pub force: bool,
     /// BCP-47 short locale for the account. `None` keeps the platform default
     /// on a new account and leaves an existing account's own locale untouched.
@@ -515,9 +522,9 @@ async fn host_caller(repos: &RepositoryRegistry) -> AccountCaller {
 }
 
 /// Approve a pending user (status → active) and provision their default
-/// MCP token: the admin API's approval (`admin_ops::approve_user`), global
-/// scope and no tenant attach, since tenant assignment is the tenant-scoped
-/// web flow's concern.
+/// MCP token: the one approval every surface takes (`admin_ops::approve_user`),
+/// with no approver's tenant, so an account that belongs to none is given
+/// one of its own.
 pub(crate) async fn approve(
     repos: &RepositoryRegistry,
     email: String,
@@ -526,7 +533,10 @@ pub(crate) async fn approve(
     let user = lookup(repos, &email).await?;
     let host = host_caller(repos).await;
     let acting = host.acting_on(user)?;
-    let updated = admin_ops::approve_user(repos, &acting, None).await?;
+    let updated = admin_ops::approve_user(repos, &acting, None)
+        .await?
+        .into_approved()?
+        .user;
     info!(
         target_user_id = %acting.id(),
         reason = reason.as_deref().unwrap_or("No reason provided"),

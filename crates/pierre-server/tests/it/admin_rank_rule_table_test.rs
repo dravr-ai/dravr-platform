@@ -10,13 +10,17 @@
 //! when the account is an admin (403, one sentence), and each is otherwise
 //! answered as before (carnet#1589).
 //!
-//! The table drives every route with a scoped `ManageUsers` token, a
-//! super-admin token and, where the console mounts the route, an admin's
-//! own session, against an admin account and a plain one, and reads the
-//! store after each answer. The tests below it pin where the rule stands
-//! among the other refusals of the same routes: before a token's tenant,
+//! The table drives every route with a `ManageUsers` token bound to the
+//! desk's tenant, a super-admin token and, where the console mounts the
+//! route, an admin's own session, against an admin account and a plain one
+//! held in that tenant, and reads the store after each answer. The tests
+//! below it pin where the rule stands among the other refusals of the same
+//! routes: after a bound token's "not found" for an account outside its
+//! tenant and before its tenant rule for one held there and elsewhere too,
 //! before the last active admin, before "already approved", before a
 //! missing connection and before a disconnect chokepoint that is not wired.
+//! A token bound to no tenant without the flag reaches no account at all
+//! (carnet#1589).
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 #![allow(missing_docs)]
@@ -46,6 +50,10 @@ const RANK_REFUSAL: &str = "Acting on an admin account requires a super-admin to
 
 /// How the refusal of a token acting outside its tenant starts.
 const TENANT_REFUSAL: &str = "Token is scoped to tenant";
+
+/// What a token bound to no tenant without the flag is answered.
+const NO_TENANT_REFUSAL: &str =
+    "Token has no tenant scope — super-admin required for cross-tenant access";
 
 /// What stands where an answer carried a password reset token.
 const RESET_TOKEN_NOT_QUOTED: &str = "[a reset token, not quoted]";
@@ -130,8 +138,12 @@ impl Op {
 struct Desk {
     resources: Arc<ServerContext>,
     stub: RevokeStub,
-    /// A `ManageUsers` token bound to no tenant, without the super-admin flag.
+    /// A `ManageUsers` token bound to the desk's tenant, without the
+    /// super-admin flag.
     scoped: GeneratedAdminToken,
+    /// The tenant `scoped` is bound to, which the standing admin owns and
+    /// every target is held in.
+    tenant: TenantId,
     /// A super-admin token.
     root: GeneratedAdminToken,
     /// An active admin, who keeps the platform from ever being down to its
@@ -144,11 +156,12 @@ impl Desk {
     async fn open() -> Self {
         let resources = resources().await;
         let stub = RevokeStub::start().await;
-        let scoped = mint(
+        let (standing, desk_tenant) = seed(&resources, UserRole::Admin, UserStatus::Active).await;
+        let scoped = mint_bound(
             &resources,
             "support-desk",
             vec![AdminPermission::ManageUsers],
-            false,
+            desk_tenant,
         )
         .await
         .unwrap();
@@ -160,7 +173,6 @@ impl Desk {
         )
         .await
         .unwrap();
-        let (standing, _) = seed(&resources, UserRole::Admin, UserStatus::Active).await;
         let standing_session = format!(
             "Bearer {}",
             generate_test_token(&resources, &standing).await
@@ -169,6 +181,7 @@ impl Desk {
             resources,
             stub,
             scoped,
+            tenant: desk_tenant,
             root,
             standing,
             standing_session,
@@ -230,8 +243,17 @@ impl Desk {
         answer_of(request, self.console_mount()).await
     }
 
-    /// An account for `op` to act on, with `role`, holding a Strava grant.
+    /// An account for `op` to act on, with `role`, held in the desk's
+    /// tenant alone and holding a Strava grant there.
     async fn target(&self, op: Op, role: UserRole) -> User {
+        let user = member(&self.resources, role, op.starts_as(), self.tenant).await;
+        connect_strava(&self.resources.common.repos, user.id, self.tenant, None).await;
+        user
+    }
+
+    /// An account for `op` to act on, with `role`, owning a tenant of its
+    /// own and holding a Strava grant there: outside the desk's tenant.
+    async fn outsider(&self, op: Op, role: UserRole) -> User {
         let (user, tenant) = seed(&self.resources, role, op.starts_as()).await;
         connect_strava(&self.resources.common.repos, user.id, tenant, None).await;
         user
@@ -284,6 +306,23 @@ async fn seed(
     (user, tenant_id)
 }
 
+/// An account with `role` in `status`, a member of `tenant` and of no other.
+async fn member(
+    resources: &Arc<ServerContext>,
+    role: UserRole,
+    status: UserStatus,
+    tenant: TenantId,
+) -> User {
+    let email = format!("{}@example.com", Uuid::new_v4());
+    let mut user = User::new(email.clone(), "hash".to_owned(), Some(email));
+    user.role = role;
+    user.user_status = status;
+    let repos = &resources.common.repos;
+    repos.users.create(&user).await.unwrap();
+    repos.users.update_tenant_id(user.id, tenant).await.unwrap();
+    user
+}
+
 /// The status and the answer of `request` on `router`, fit to quote in a
 /// failed assertion: the reset route answers with the reset token itself,
 /// which is replaced before the answer is returned.
@@ -306,7 +345,9 @@ fn sentence(answer: &Value) -> &str {
 /// The table: every route, a caller with the rank and one without, an admin
 /// account and a plain one. Without the rank an admin account answers 403
 /// in the rank rule's words and nothing is written; every other cell is
-/// answered 200 and its write is in the store.
+/// answered 200 and its write is in the store. The pre-approval of an
+/// address is platform-wide, so a bound token is refused it whatever the
+/// account (its own sentence, 403).
 #[tokio::test]
 async fn every_route_refuses_an_admin_account_to_a_caller_without_the_rank() {
     let desk = Desk::open().await;
@@ -319,7 +360,14 @@ async fn every_route_refuses_an_admin_account_to_a_caller_without_the_rank() {
 
                 let (status, answer) = desk.ask(op, caller, &target).await;
 
-                if role == UserRole::Admin && !has_the_rank {
+                if op == Op::Allow && !has_the_rank {
+                    assert_eq!(status, 403, "{cell}: {answer}");
+                    assert!(
+                        sentence(&answer).contains("platform-wide"),
+                        "{cell}: {answer}"
+                    );
+                    assert!(!desk.landed(op, &target).await, "{cell}: nothing written");
+                } else if role == UserRole::Admin && !has_the_rank {
                     assert_eq!(status, 403, "{cell}: {answer}");
                     assert_eq!(sentence(&answer), RANK_REFUSAL, "{cell}: {answer}");
                     assert!(
@@ -347,77 +395,118 @@ async fn every_route_refuses_an_admin_account_to_a_caller_without_the_rank() {
     }
 }
 
-/// A token bound to one tenant, without the flag, on an admin held outside
-/// that tenant is refused twice over. The rank rule answers first, on every
-/// route that checks both; a plain account outside the tenant is answered
-/// by the tenant rule. The password reset reads the account inside the
-/// token's tenant before anything else, so outside it answers 404, and
-/// inside it the rank rule answers.
-#[tokio::test]
-async fn the_rank_rule_answers_before_a_tokens_tenant() {
-    let desk = Desk::open().await;
-    let (_, own_tenant) = seed(&desk.resources, UserRole::User, UserStatus::Active).await;
-    let bound = mint_bound(
-        &desk.resources,
-        "club-desk",
-        vec![AdminPermission::ManageUsers],
-        own_tenant,
-    )
-    .await
-    .unwrap();
+/// The routes that write one account, as a bound token reads them.
+const ON_ONE_ACCOUNT: [Op; 6] = [
+    Op::Suspend,
+    Op::Approve,
+    Op::Disconnect,
+    Op::Delete,
+    Op::ResetOnboarding,
+    Op::ResetPassword,
+];
 
-    for op in [
-        Op::Suspend,
-        Op::Approve,
-        Op::Disconnect,
-        Op::Delete,
-        Op::ResetOnboarding,
-    ] {
+/// A token bound to one tenant, without the flag, finds no account outside
+/// that tenant: an admin there answers 404 as a missing account does,
+/// before the rank rule, so the token never learns that it is an admin
+/// (carnet#1589); a plain account there answers the same. Inside the
+/// tenant the rank rule answers on an admin; a plain member held in another
+/// tenant too is answered by the tenant rule.
+#[tokio::test]
+async fn a_bound_token_finds_no_account_outside_its_tenant_before_the_rank_rule() {
+    let desk = Desk::open().await;
+
+    for op in ON_ONE_ACCOUNT {
+        for role in [UserRole::Admin, UserRole::User] {
+            let outside = desk.outsider(op, role).await;
+            let (status, answer) = desk.ask(op, &desk.scoped, &outside).await;
+            assert_eq!(status, 404, "{op:?}, {role:?} outside: {answer}");
+            assert_eq!(
+                sentence(&answer),
+                answer_to_a_missing_account(&desk, op).await,
+                "{op:?}, {role:?} outside: answered as a missing account"
+            );
+            assert!(!desk.landed(op, &outside).await, "{op:?}: nothing written");
+        }
+
         let admin = desk.target(op, UserRole::Admin).await;
-        let (status, answer) = desk.ask(op, &bound, &admin).await;
-        assert_eq!(status, 403, "{op:?}, an admin outside: {answer}");
+        let (status, answer) = desk.ask(op, &desk.scoped, &admin).await;
+        assert_eq!(status, 403, "{op:?}, an admin inside: {answer}");
         assert_eq!(sentence(&answer), RANK_REFUSAL, "{op:?}: {answer}");
         assert!(!desk.landed(op, &admin).await, "{op:?}: nothing written");
 
-        let plain = desk.target(op, UserRole::User).await;
-        let (status, answer) = desk.ask(op, &bound, &plain).await;
-        assert_eq!(status, 403, "{op:?}, a user outside: {answer}");
+        let straddling = desk.target(op, UserRole::User).await;
+        let (_, elsewhere) = seed(&desk.resources, UserRole::User, UserStatus::Active).await;
+        desk.resources
+            .common
+            .repos
+            .users
+            .update_tenant_id(straddling.id, elsewhere)
+            .await
+            .unwrap();
+        let (status, answer) = desk.ask(op, &desk.scoped, &straddling).await;
+        assert_eq!(status, 403, "{op:?}, a user held elsewhere too: {answer}");
         assert!(
             sentence(&answer).starts_with(TENANT_REFUSAL),
             "{op:?}: {answer}"
         );
-        assert!(!desk.landed(op, &plain).await, "{op:?}: nothing written");
+        assert!(
+            !desk.landed(op, &straddling).await,
+            "{op:?}: nothing written"
+        );
     }
+}
 
-    let outside = desk.target(Op::ResetPassword, UserRole::Admin).await;
-    let (status, answer) = desk.ask(Op::ResetPassword, &bound, &outside).await;
-    assert_eq!(status, 404, "an admin outside the tenant: {answer}");
+/// What `op` answers for an id no account has, as the desk's bound token.
+async fn answer_to_a_missing_account(desk: &Desk, op: Op) -> String {
+    let mut nobody = User::new("nobody@example.com".to_owned(), "hash".to_owned(), None);
+    nobody.id = Uuid::new_v4();
+    let (status, answer) = desk.ask(op, &desk.scoped, &nobody).await;
+    assert_eq!(status, 404, "{op:?}, no account: {answer}");
+    sentence(&answer).to_owned()
+}
 
-    let (inside, inside_tenant) = seed(&desk.resources, UserRole::Admin, UserStatus::Active).await;
-    let bound_inside = mint_bound(
+/// A token bound to no tenant without the super-admin flag reaches no
+/// tenant, so no account: every route that writes one answers it 403 in
+/// the scope rule's words, an admin's account and a plain one alike, and
+/// writes nothing (carnet#1589).
+#[tokio::test]
+async fn a_token_bound_to_no_tenant_reaches_no_account() {
+    let desk = Desk::open().await;
+    let unbound = mint(
         &desk.resources,
-        "admin-club-desk",
+        "unbound-desk",
         vec![AdminPermission::ManageUsers],
-        inside_tenant,
+        false,
     )
     .await
     .unwrap();
-    let (status, answer) = desk.ask(Op::ResetPassword, &bound_inside, &inside).await;
-    assert_eq!(status, 403, "an admin inside the tenant: {answer}");
-    assert_eq!(sentence(&answer), RANK_REFUSAL, "{answer}");
-    assert!(!desk.landed(Op::ResetPassword, &inside).await);
+
+    for op in ON_ONE_ACCOUNT {
+        for role in [UserRole::Admin, UserRole::User] {
+            let target = desk.outsider(op, role).await;
+            let (status, answer) = desk.ask(op, &unbound, &target).await;
+            assert_eq!(status, 403, "{op:?}, {role:?}: {answer}");
+            assert_eq!(sentence(&answer), NO_TENANT_REFUSAL, "{op:?}: {answer}");
+            assert!(!desk.landed(op, &target).await, "{op:?}: nothing written");
+        }
+    }
 }
 
 /// The rank rule answers before what the write itself would refuse: an
 /// admin that is already active is not "already approved" to a caller
 /// without the rank, and one with no Strava connection is not "no
 /// connection". The same requests from a super-admin token get those
-/// answers. An allow reads the rank only for a pending account: the
-/// address of an active admin changes nothing and is answered as such.
+/// answers.
 #[tokio::test]
 async fn the_rank_rule_answers_before_what_the_write_would_refuse() {
     let desk = Desk::open().await;
-    let (admin, _) = seed(&desk.resources, UserRole::Admin, UserStatus::Active).await;
+    let admin = member(
+        &desk.resources,
+        UserRole::Admin,
+        UserStatus::Active,
+        desk.tenant,
+    )
+    .await;
 
     let (status, answer) = desk.ask(Op::Approve, &desk.scoped, &admin).await;
     assert_eq!(status, 403, "approve, already active: {answer}");
@@ -438,7 +527,7 @@ async fn the_rank_rule_answers_before_what_the_write_would_refuse() {
         "disconnect, no connection, with the rank: {answer}"
     );
 
-    let (status, answer) = desk.ask(Op::Allow, &desk.scoped, &admin).await;
+    let (status, answer) = desk.ask(Op::Allow, &desk.root, &admin).await;
     assert_eq!(status, 200, "allow, an active admin's address: {answer}");
     assert_eq!(
         answer["data"]["outcome"],

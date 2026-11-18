@@ -20,8 +20,9 @@
 //! The request must come from a signed-in session (never an API key or a
 //! messaging channel link), name the account's email as a deliberate
 //! confirmation, and carry the account password unless the account signs in
-//! only through Google or Apple. Operator accounts are removed by another
-//! operator, never by themselves. Anything another person relies on — a group
+//! only through Google or Apple. An admin deletes its own account here as
+//! anyone does (carnet#1589), and the platform's last active admin is
+//! refused by the deletion itself. Anything another person relies on — a group
 //! the user owns or coaches, an invite they created, a tenant others belong
 //! to, an agent others use, a subscription the billing provider may still
 //! charge — refuses the delete with 409 naming each, touching nothing, so the
@@ -98,7 +99,9 @@ pub(crate) struct AccountDeletionPreview {
 }
 
 /// The signed-in user behind a deletion request, refusing every credential
-/// but a first-party session and every operator account.
+/// but a first-party session. An admin deletes its own account as anyone
+/// does (carnet#1589); the deletion refuses the platform's last active
+/// admin.
 async fn session_user(resources: &AuthRoutesContext, headers: &HeaderMap) -> AppResult<User> {
     let auth = resources
         .auth_middleware
@@ -117,12 +120,6 @@ async fn session_user(resources: &AuthRoutesContext, headers: &HeaderMap) -> App
         .get_global(auth.user_id)
         .await?
         .ok_or_else(|| AppError::not_found(format!("User {}", auth.user_id)))?;
-    if user.role.is_admin() {
-        return Err(AppError::new(
-            ErrorCode::PermissionDenied,
-            "An operator account is removed by another operator",
-        ));
-    }
     Ok(user)
 }
 
@@ -142,8 +139,7 @@ fn refusal(status: StatusCode, reason: DeletionRefusal, message: &str) -> Respon
 /// # Errors
 ///
 /// Returns an authentication error without a session, a permission error for
-/// an API key, a channel link or an operator account, and a database error
-/// from the reads.
+/// an API key or a channel link, and a database error from the reads.
 #[tracing::instrument(
     skip(resources, headers),
     fields(route = "account_deletion_preview", user_id = Empty)
@@ -188,9 +184,10 @@ pub(crate) async fn handle_account_deletion_preview(
 /// # Errors
 ///
 /// Returns an authentication error without a session, a permission error for
-/// an API key, a channel link or an operator account, a database error from
-/// the reads that precede any change, and the failing step's error when a
-/// disconnect or the account delete fails part-way; the message then names
+/// an API key or a channel link, an invalid-input error for the platform's
+/// last active admin, a database error from the reads that precede any
+/// change, and the failing step's error when a disconnect or the account
+/// delete fails part-way; the message then names
 /// the providers already disconnected, since their grants stay withdrawn.
 #[tracing::instrument(
     skip(resources, headers, request),
@@ -242,7 +239,7 @@ pub(crate) async fn handle_delete_account(
 
     let oauth_service = OAuthService::new(resources.data.clone(), resources.config.clone());
     let firebase = FirebaseIdentityDeleter::from_config(&resources.config.firebase);
-    let holder = AccountCaller::account_holder();
+    let holder = AccountCaller::account_holder(user_id);
     let outcome = user_removal::remove_user(
         &resources.repos,
         Some(&oauth_service),

@@ -623,8 +623,9 @@ async fn config_audit_row_count(resources: &Arc<ServerContext>) -> Result<i64> {
     })
 }
 
-/// A service token: global, with every permission the Guardian routes ask, and no
-/// operator behind it.
+/// A service token: super-admin, so it reaches every tenant as the global
+/// Guardian policy asks, with every permission the Guardian routes ask, and no
+/// admin behind it.
 async fn service_token(resources: &Arc<ServerContext>) -> Result<String> {
     let generated = resources
         .common
@@ -639,7 +640,7 @@ async fn service_token(resources: &Arc<ServerContext>) -> Result<String> {
                     AdminPermission::ManageConfiguration,
                 ]),
                 expires_in_days: Some(1),
-                is_super_admin: false,
+                is_super_admin: true,
                 tenant_id: None,
                 operator_user_id: None,
             },

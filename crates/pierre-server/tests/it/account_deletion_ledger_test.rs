@@ -402,7 +402,7 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
             Some(&ConfirmsRevocation),
             None,
             None,
-            &acting_on(repos, &AccountCaller::account_holder(), first).await,
+            &acting_on(repos, &AccountCaller::account_holder(first), first).await,
         )
         .await
         .unwrap(),
@@ -413,7 +413,12 @@ async fn a_deletion_appends_a_receipt_chained_to_the_one_before() {
             None,
             None,
             None,
-            &acting_on(repos, &AccountCaller::account_holder_on_messaging(), second).await,
+            &acting_on(
+                repos,
+                &AccountCaller::account_holder_on_messaging(second),
+                second,
+            )
+            .await,
         )
         .await
         .unwrap(),
@@ -520,7 +525,7 @@ async fn a_tampered_receipt_is_named_as_the_first_broken_link() {
                 None,
                 None,
                 None,
-                &acting_on(repos, &AccountCaller::account_holder(), user_id).await,
+                &acting_on(repos, &AccountCaller::account_holder(user_id), user_id).await,
             )
             .await
             .unwrap(),
@@ -618,7 +623,7 @@ async fn a_webhook_for_a_tombstoned_provider_account_is_dropped_until_cleared() 
             Some(&ConfirmsRevocation),
             None,
             None,
-            &acting_on(repos, &AccountCaller::account_holder(), deleted).await,
+            &acting_on(repos, &AccountCaller::account_holder(deleted), deleted).await,
         )
         .await
         .unwrap(),
@@ -664,7 +669,7 @@ async fn a_deleted_email_is_not_auto_approved_until_its_holder_clears_it() {
             None,
             None,
             None,
-            &acting_on(repos, &AccountCaller::account_holder(), deleted).await,
+            &acting_on(repos, &AccountCaller::account_holder(deleted), deleted).await,
         )
         .await
         .unwrap(),

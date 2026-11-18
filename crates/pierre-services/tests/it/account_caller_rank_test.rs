@@ -126,6 +126,8 @@ impl Write {
             Self::Approve => {
                 admin_ops::approve_user(repos, acting, None)
                     .await?
+                    .into_approved()?
+                    .user
                     .user_status
                     == UserStatus::Active
             }
@@ -193,14 +195,16 @@ fn service_token(is_super_admin: bool) -> AccountCaller {
     })
 }
 
-/// Every kind of caller that is not a platform one.
+/// Every kind of caller that is not a platform one, the holders of an
+/// account other than the one acted on included.
 fn callers_without_the_rank() -> Vec<AccountCaller> {
+    let someone_else = Uuid::new_v4();
     vec![
         service_token(false),
         AccountCaller::slack_room("@reviewer"),
         AccountCaller::sign_up_rule(None),
-        AccountCaller::account_holder(),
-        AccountCaller::account_holder_on_messaging(),
+        AccountCaller::account_holder(someone_else),
+        AccountCaller::account_holder_on_messaging(someone_else),
     ]
 }
 
@@ -318,4 +322,55 @@ async fn every_account_write_lands_where_the_rank_rule_lets_it() {
             caller.name()
         );
     }
+}
+
+/// An admin deletes its own account from the self-serve surfaces as any
+/// holder does (carnet#1589): its holder takes it, and the deletion runs.
+/// The platform's last active admin is still refused by the deletion
+/// itself, and stays.
+#[tokio::test]
+async fn an_admin_deletes_its_own_account_unless_it_is_the_last_one() {
+    let db = create_test_db().await.expect("a test database");
+    let repos = db.repositories();
+    let chokepoint = CountingDisconnector::default();
+    let leaving = account(repos, UserRole::Admin, UserStatus::Active).await;
+    let last = account(repos, UserRole::Admin, UserStatus::Active).await;
+
+    let holder = AccountCaller::account_holder(leaving.id);
+    let acting = holder
+        .acting_on(leaving.clone())
+        .expect("an admin's holder takes its own account");
+    assert!(
+        Write::Remove
+            .run(repos, &chokepoint, &acting)
+            .await
+            .expect("the deletion runs"),
+        "the admin's account is deleted"
+    );
+    assert!(repos
+        .users
+        .get_global(leaving.id)
+        .await
+        .expect("a read")
+        .is_none());
+
+    let holder = AccountCaller::account_holder(last.id);
+    let acting = holder
+        .acting_on(last.clone())
+        .expect("the rank rule does not answer for the last admin");
+    let refused = Write::Remove
+        .run(repos, &chokepoint, &acting)
+        .await
+        .expect_err("the last active admin is not deleted");
+    assert!(
+        refused.message.contains("last active admin"),
+        "{}",
+        refused.message
+    );
+    assert!(repos
+        .users
+        .get_global(last.id)
+        .await
+        .expect("a read")
+        .is_some_and(|user| user.is_active_admin()));
 }

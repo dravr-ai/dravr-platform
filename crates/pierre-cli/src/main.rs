@@ -6,7 +6,8 @@
 //!
 //! Usage:
 //! ```bash
-//! # Create admin user for frontend login
+//! # Create admin user for frontend login; --force is the host shell's break-glass, which
+//! # writes an existing account active as an admin, whatever its standing, with no approval
 //! pierre-cli user create --email admin@example.com --password yourpassword
 //!
 //! # Promote an existing user to admin
@@ -366,7 +367,7 @@ enum UserCommand {
         #[arg(long)]
         name: Option<String>,
 
-        /// Force update if user already exists
+        /// Break-glass: overwrite an existing account, whatever its standing, as active (no approval)
         #[arg(long)]
         force: bool,
 
@@ -787,7 +788,7 @@ enum TokenCommand {
         #[arg(long)]
         permissions: Option<String>,
 
-        /// Scope the token to a specific tenant (UUID)
+        /// Scope the token to a tenant (UUID); without one or --super-admin it reaches no account
         #[arg(long)]
         tenant_id: Option<String>,
     },

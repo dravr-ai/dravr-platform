@@ -2328,7 +2328,7 @@ async fn a_strava_account_of_a_deleted_account_is_refused_until_cleared() {
         Some(&service),
         None,
         Some(resources.data().cache().as_ref()),
-        &acting_on(repos, &AccountCaller::account_holder(), deleted).await,
+        &acting_on(repos, &AccountCaller::account_holder(deleted), deleted).await,
     )
     .await
     .unwrap() else {

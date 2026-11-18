@@ -10,6 +10,7 @@ import type { AdminToken } from '../types/api';
 import type { RotateAdminTokenResponse } from '@pierre/shared-types';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { ADMIN_LOCALE } from '../utils/adminLocale';
+import { isRotated } from '../utils/adminToken';
 import { useDialog } from '../hooks/useDialog';
 
 interface ApiKeyDetailsProps {
@@ -180,6 +181,10 @@ export default function ApiKeyDetails({ token, onBack }: ApiKeyDetailsProps) {
   };
 
   const getStatusBadge = () => {
+    // A rotated token was retired with a live replacement: not revoked.
+    if (isRotated(token)) {
+      return <Badge variant="info">Rotated</Badge>;
+    }
     if (!token.is_active) {
       return <Badge variant="error">Revoked</Badge>;
     }

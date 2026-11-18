@@ -7,11 +7,13 @@
 //! The Slack sign-up room wrote a sign-up's status and provisioned its
 //! tenant itself, beside the service's own approval (carnet#1589). Both are
 //! the service's now: `decide_sign_up` is the write, for either button and
-//! for every sign-up rule, and `approve_sign_up` is the room's approval.
+//! for every sign-up rule, and `approve_user` is the one approval, the
+//! room's and an admin's alike: the same tenant rule, the same default MCP
+//! token.
 //!
 //! An approval that landed and then could not give the account a tenant
 //! used to leave it active with none, on a card whose buttons were gone.
-//! It is put back to pending, where the next approval finishes it.
+//! It is put back to the status it had, where the next approval finishes it.
 
 use chrono::Utc;
 use pierre_core::models::{Tenant, TenantId, User, UserStatus};
@@ -49,12 +51,13 @@ async fn status_of(repos: &RepositoryRegistry, user_id: Uuid) -> Option<UserStat
 }
 
 /// A tenant owned by `owner` that holds the slug an approval would give
-/// `sign_up`'s own tenant, so provisioning that tenant fails.
-async fn take_the_slug_of(repos: &RepositoryRegistry, sign_up: Uuid, owner: Uuid) {
+/// `sign_up`'s own tenant, so provisioning that tenant fails; its id.
+async fn take_the_slug_of(repos: &RepositoryRegistry, sign_up: Uuid, owner: Uuid) -> TenantId {
+    let id = TenantId::generate();
     repos
         .tenants
         .create(&Tenant {
-            id: TenantId::generate(),
+            id,
             name: "in the way".to_owned(),
             slug: format!("user-{}", sign_up.as_simple()),
             domain: None,
@@ -65,6 +68,17 @@ async fn take_the_slug_of(repos: &RepositoryRegistry, sign_up: Uuid, owner: Uuid
         })
         .await
         .expect("the tenant in the way is stored");
+    id
+}
+
+/// How many MCP tokens `user_id` holds.
+async fn mcp_tokens_of(repos: &RepositoryRegistry, user_id: Uuid) -> usize {
+    repos
+        .user_mcp_tokens
+        .list_tokens(user_id)
+        .await
+        .expect("a read")
+        .len()
 }
 
 /// The write, entered with the sign-up no longer pending: what the tap that
@@ -136,8 +150,9 @@ async fn a_write_that_finds_the_sign_up_decided_is_lost_and_writes_nothing() {
     );
 }
 
-/// The room's approval gives a sign-up with no tenant one of its own, and
-/// leaves an account that already has one where it is.
+/// The room's approval gives a sign-up with no tenant one of its own and
+/// its default MCP token, as an admin's approval does, and leaves an
+/// account that already has one where it is.
 #[tokio::test]
 async fn the_rooms_approval_gives_the_account_a_tenant_of_its_own() {
     let db = create_test_db().await.expect("a test database");
@@ -146,7 +161,7 @@ async fn the_rooms_approval_gives_the_account_a_tenant_of_its_own() {
     let sign_up = account(repos, UserStatus::Pending).await;
     let acting = room.acting_on(sign_up.clone()).expect("a plain account");
 
-    let approval = admin_ops::approve_sign_up(repos, &acting)
+    let approval = admin_ops::approve_user(repos, &acting, None)
         .await
         .expect("the approval runs");
 
@@ -166,9 +181,14 @@ async fn the_rooms_approval_gives_the_account_a_tenant_of_its_own() {
     assert_eq!(tenants.len(), 1, "one tenant of its own");
     assert_eq!(approved.tenant_id, Some(tenants[0].id));
     assert_eq!(tenants[0].owner_user_id, sign_up.id);
+    assert_eq!(
+        mcp_tokens_of(repos, sign_up.id).await,
+        1,
+        "the default MCP token an admin's approval creates"
+    );
 
     // A second approval of the same sign-up finds it decided.
-    let again = admin_ops::approve_sign_up(repos, &acting)
+    let again = admin_ops::approve_user(repos, &acting, None)
         .await
         .expect("the approval runs");
     assert!(matches!(again, SignUpApproval::LostAtTheWrite), "{again:?}");
@@ -182,24 +202,31 @@ async fn the_rooms_approval_gives_the_account_a_tenant_of_its_own() {
         1,
         "and provisions nothing"
     );
+    assert_eq!(
+        mcp_tokens_of(repos, sign_up.id).await,
+        1,
+        "nor a second token"
+    );
 }
 
 /// An approval lands, then the account's tenant cannot be made (its slug is
 /// taken). The account must not stay active with no tenant and nobody told:
 /// the sign-up is pending again, with no approver recorded, and the
-/// approval says so. An admin then approves it from the console's path,
-/// which provisions nothing, and the account is active.
+/// approval says so. The approval is one for every surface, so an admin's
+/// approval naming no tenant meets the same slug and is put back too. An
+/// admin's approval naming its own tenant gives the account that one, and
+/// the account is active with its token.
 #[tokio::test]
 async fn an_approval_that_cannot_give_the_account_a_tenant_is_put_back_to_pending() {
     let db = create_test_db().await.expect("a test database");
     let repos = db.repositories();
     let admin = account(repos, UserStatus::Active).await;
     let sign_up = account(repos, UserStatus::Pending).await;
-    take_the_slug_of(repos, sign_up.id, admin.id).await;
+    let admins_tenant = take_the_slug_of(repos, sign_up.id, admin.id).await;
     let room = AccountCaller::slack_room("@reviewer");
     let acting = room.acting_on(sign_up.clone()).expect("a plain account");
 
-    let approval = admin_ops::approve_sign_up(repos, &acting)
+    let approval = admin_ops::approve_user(repos, &acting, None)
         .await
         .expect("a put-back approval is an outcome, not an error");
 
@@ -232,13 +259,77 @@ async fn an_approval_that_cannot_give_the_account_a_tenant_is_put_back_to_pendin
             .is_empty(),
         "it was given no tenant"
     );
+    assert_eq!(mcp_tokens_of(repos, sign_up.id).await, 0, "nor a token");
 
-    // The console finishes: an admin's approval provisions nothing.
+    // An admin's approval is the same approval: no tenant named, the same
+    // slug in the way, put back to where the account was.
     let console = AccountCaller::host_cli(Some(admin.id));
-    let acting = console.acting_on(stored).expect("a plain account");
-    let approved = admin_ops::approve_user(repos, &acting, None)
+    let acting = console.acting_on(stored.clone()).expect("a plain account");
+    let approval = admin_ops::approve_user(repos, &acting, None)
         .await
-        .expect("an admin approves the sign-up that was put back");
-    assert_eq!(approved.user_status, UserStatus::Active);
-    assert_eq!(approved.approved_by, Some(admin.id));
+        .expect("a put-back approval is an outcome");
+    assert!(
+        matches!(approval, SignUpApproval::PutBack(_)),
+        "{approval:?}"
+    );
+    assert_eq!(
+        status_of(repos, sign_up.id).await,
+        Some(UserStatus::Pending)
+    );
+
+    // Naming the admin's tenant, the account joins it and nothing is made.
+    let approved = admin_ops::approve_user(repos, &acting, Some(admins_tenant))
+        .await
+        .expect("an admin approves the sign-up that was put back")
+        .into_approved()
+        .expect("approved");
+    assert_eq!(approved.user.user_status, UserStatus::Active);
+    assert_eq!(approved.user.approved_by, Some(admin.id));
+    assert_eq!(approved.tenant_id, Some(admins_tenant));
+    assert_eq!(mcp_tokens_of(repos, sign_up.id).await, 1);
+}
+
+/// An admin's approval reinstates a suspended account, which the room's
+/// never does: a put-back of that approval returns the account to
+/// suspended, not to the sign-up queue.
+#[tokio::test]
+async fn a_put_back_reinstatement_returns_the_account_to_suspended() {
+    let db = create_test_db().await.expect("a test database");
+    let repos = db.repositories();
+    let admin = account(repos, UserStatus::Active).await;
+    let suspended = account(repos, UserStatus::Suspended).await;
+    take_the_slug_of(repos, suspended.id, admin.id).await;
+    let console = AccountCaller::host_cli(Some(admin.id));
+    let acting = console
+        .acting_on(suspended.clone())
+        .expect("a plain account");
+
+    let approval = admin_ops::approve_user(repos, &acting, None)
+        .await
+        .expect("a put-back approval is an outcome");
+
+    assert!(
+        matches!(approval, SignUpApproval::PutBack(_)),
+        "{approval:?}"
+    );
+    assert_eq!(
+        status_of(repos, suspended.id).await,
+        Some(UserStatus::Suspended),
+        "back where the admin found it"
+    );
+
+    // The room's approval does not reinstate it at all.
+    let room = AccountCaller::slack_room("@reviewer");
+    let acting = room.acting_on(suspended.clone()).expect("a plain account");
+    let approval = admin_ops::approve_user(repos, &acting, None)
+        .await
+        .expect("the write runs");
+    assert!(
+        matches!(approval, SignUpApproval::LostAtTheWrite),
+        "{approval:?}"
+    );
+    assert_eq!(
+        status_of(repos, suspended.id).await,
+        Some(UserStatus::Suspended)
+    );
 }

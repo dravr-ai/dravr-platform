@@ -848,7 +848,26 @@ fn token_api(resources: &Arc<ServerContext>) -> axum::Router {
     AdminRoutes::routes(admin_context(resources))
 }
 
+/// A service token with the configuration permissions: bound to `tenant_id`,
+/// or, naming none, a super-admin one, which reaches every tenant as a global
+/// setting asks. A token bound to no tenant without the flag reaches none
+/// ([`unbound_token`]).
 async fn bearer_token(resources: &Arc<ServerContext>, tenant_id: Option<String>) -> Result<String> {
+    let is_super_admin = tenant_id.is_none();
+    mint_service_token(resources, tenant_id, is_super_admin).await
+}
+
+/// A service token bound to no tenant and without the super-admin flag, as
+/// a deployed service token is: it reaches no tenant.
+async fn unbound_token(resources: &Arc<ServerContext>) -> Result<String> {
+    mint_service_token(resources, None, false).await
+}
+
+async fn mint_service_token(
+    resources: &Arc<ServerContext>,
+    tenant_id: Option<String>,
+    is_super_admin: bool,
+) -> Result<String> {
     let request = CreateAdminTokenRequest {
         service_name: format!("guardian-test-{}", Uuid::new_v4()),
         service_description: None,
@@ -857,7 +876,7 @@ async fn bearer_token(resources: &Arc<ServerContext>, tenant_id: Option<String>)
             AdminPermission::ManageConfiguration,
         ]),
         expires_in_days: Some(1),
-        is_super_admin: false,
+        is_super_admin,
         tenant_id,
         operator_user_id: None,
     };
@@ -875,11 +894,13 @@ async fn bearer_token(resources: &Arc<ServerContext>, tenant_id: Option<String>)
 }
 
 /// A tenant-scoped token reaches none of the global settings through the mount
-/// `pierre-cli` uses, harness included, while a global token with the same
+/// `pierre-cli` uses, harness included, and neither does a token bound to no
+/// tenant without the super-admin flag, while a super-admin token with the same
 /// permissions does, so the refusal can only be the scope gate.
 #[tokio::test]
 #[serial]
-async fn the_token_mount_refuses_a_tenant_scoped_token_on_every_global_setting() -> Result<()> {
+async fn the_token_mount_refuses_a_token_short_of_every_tenant_on_every_global_setting(
+) -> Result<()> {
     let resources = common::create_test_server_resources().await?;
     let (_, _, tenant_id) = common::create_test_user_with_plan(
         &resources.agent.database,
@@ -888,14 +909,17 @@ async fn the_token_mount_refuses_a_tenant_scoped_token_on_every_global_setting()
     )
     .await?;
     let scoped = bearer_token(&resources, Some(tenant_id.to_string())).await?;
+    let unbound = unbound_token(&resources).await?;
     let global = bearer_token(&resources, None).await?;
 
     for path in ["/admin/settings/guardian", "/admin/settings/harness"] {
-        let refused = AxumTestRequest::get(path)
-            .header("authorization", &scoped)
-            .send(token_api(&resources))
-            .await;
-        assert_eq!(refused.status(), 403, "{path} must refuse a scoped token");
+        for (refused, kind) in [(&scoped, "scoped"), (&unbound, "unbound")] {
+            let refused = AxumTestRequest::get(path)
+                .header("authorization", refused)
+                .send(token_api(&resources))
+                .await;
+            assert_eq!(refused.status(), 403, "{path} must refuse a {kind} token");
+        }
 
         let served = AxumTestRequest::get(path)
             .header("authorization", &global)
@@ -905,22 +929,24 @@ async fn the_token_mount_refuses_a_tenant_scoped_token_on_every_global_setting()
     }
 
     for path in ["/admin/settings/guardian", "/admin/settings/harness"] {
-        let refused = AxumTestRequest::put(path)
-            .header("authorization", &scoped)
-            .header("content-type", "application/json")
-            .json(&json!({
-                "schema_version": 2,
-                "compaction": {},
-                "guardrails": {},
-                "expected_updated_at": null,
-            }))
-            .send(token_api(&resources))
-            .await;
-        assert_ne!(
-            refused.status(),
-            200,
-            "{path} must not take a scoped token's write"
-        );
+        for (refused, kind) in [(&scoped, "scoped"), (&unbound, "unbound")] {
+            let refused = AxumTestRequest::put(path)
+                .header("authorization", refused)
+                .header("content-type", "application/json")
+                .json(&json!({
+                    "schema_version": 2,
+                    "compaction": {},
+                    "guardrails": {},
+                    "expected_updated_at": null,
+                }))
+                .send(token_api(&resources))
+                .await;
+            assert_eq!(
+                refused.status(),
+                403,
+                "{path} must not take a {kind} token's write"
+            );
+        }
     }
     assert!(resources
         .agent

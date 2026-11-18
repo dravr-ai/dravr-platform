@@ -36,6 +36,13 @@ export interface AdminToken {
   tenant_id?: string | null;
   /** The operator a device-login token acts as; null for a service token */
   operator_user_id?: string | null;
+  /**
+   * The token a rotation replaced this one with; null for a live token, a
+   * revoked one, and one rotated before the server recorded it. What tells a
+   * rotated token from a revoked one among the inactive: its replacement is
+   * live, so revoking it ends nothing (the server answers 409).
+   */
+  rotated_to_token_id?: string | null;
 }
 
 /**

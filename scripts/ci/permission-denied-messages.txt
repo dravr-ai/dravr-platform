@@ -31,8 +31,8 @@ crates/pierre-auth/src/auth/method.rs:An API key cannot be exchanged for a sessi
 crates/pierre-auth/src/auth/method.rs:An MCP token cannot be exchanged for a session; sign in to obtain one
 crates/pierre-auth/src/auth/method.rs:An impersonation token cannot be exchanged for a session
 crates/pierre-core/src/admin/models.rs:Permission required: {permission}
-crates/pierre-core/src/admin/models.rs:This setting applies to the whole platform; a token scoped to one tenant cannot read or change it
 crates/pierre-core/src/admin/scope.rs:Only an admin can read across every tenant
+crates/pierre-core/src/admin/scope.rs:This setting applies to the whole platform; a token that does not reach every tenant cannot read or change it
 crates/pierre-core/src/admin/scope.rs:Token has no tenant scope — super-admin required for cross-tenant access
 crates/pierre-core/src/admin/scope.rs:Token is scoped to tenant {bound}, cannot access tenant {requested}
 crates/pierre-core/src/error_helpers.rs:User state error: {message}
@@ -54,19 +54,17 @@ crates/pierre-routes-admin/src/auth/service.rs:Permission required: {required_pe
 crates/pierre-routes-admin/src/handlers/admin_rate_limit_override.rs:Rate-limit override endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/admin_scope.rs:Only an admin can list every tenant
 crates/pierre-routes-admin/src/handlers/admin_scope.rs:Token is scoped to tenant {own}; {subject} platform-wide, and it cannot {act}
-crates/pierre-routes-admin/src/handlers/audit_trail.rs:A scoped token names no tenant to read the audit trail of
 crates/pierre-routes-admin/src/handlers/feature_flags.rs:Feature-flag admin endpoints require cookie authentication
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Admin privileges required for impersonation
 crates/pierre-routes-admin/src/handlers/impersonation.rs:Cannot impersonate another admin
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for consumption analytics
 crates/pierre-routes-admin/src/handlers/llm_consumption.rs:Admin role required for tool-usage analytics
-crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it
+crates/pierre-routes-admin/src/handlers/user_removal.rs:Token is scoped to tenant {tenant_id}; the user belongs to or holds a provider in a tenant outside it
 crates/pierre-routes-admin/src/handlers/user_role.rs:Changing an account's role requires a super-admin token
 crates/pierre-routes-admin/src/handlers/user_role.rs:Changing an account's role requires a token that acts as an admin
 crates/pierre-routes-admin/src/tool_selection.rs:Tool settings of this tenant are managed by its own admins
 crates/pierre-routes-agents/src/agents/user.rs:Only the agent's author can submit it to the Store
 crates/pierre-routes-auth/src/account_deletion.rs:An account can only be deleted from a signed-in session
-crates/pierre-routes-auth/src/account_deletion.rs:An operator account is removed by another operator
 crates/pierre-routes-auth/src/browser_signin.rs:A sign-in from your browser needs you signed in to Dravr itself
 crates/pierre-routes-auth/src/data_export.rs:Your data can only be exported from your own signed-in session
 crates/pierre-routes-auth/src/sciotte.rs:This login link is for another provider; ask for a fresh link for this one
@@ -101,6 +99,7 @@ crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:A tier is ra
 crates/pierre-server/src/routes/messaging/slack_actions/ops_card.rs:Coach access is decided only by an active admin
 crates/pierre-server/src/services/archive_import/upload.rs:This origin may not upload
 crates/pierre-services/src/admin_ops/caller.rs:Acting on an admin account requires a super-admin token
+crates/pierre-services/src/admin_ops/caller.rs:An account holder acts on its own account only
 crates/pierre-services/src/auth.rs:User state error: User already exists
 crates/pierre-services/src/coach_access.rs:Only the group's owner can ask to coach it
 crates/pierre-services/src/coach_consents.rs:Grant what your human coach may do in the Dravr app; from here it can only be revoked

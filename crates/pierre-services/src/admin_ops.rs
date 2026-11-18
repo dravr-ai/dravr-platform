@@ -37,8 +37,8 @@ pub use overrides::*;
 /// The decision of a pending sign-up by a sign-up rule or the Slack room.
 mod sign_up;
 pub use sign_up::{
-    activate_pending_sign_up, approve_sign_up, decide_sign_up, ApprovedSignUp, PendingActivation,
-    SignUpApproval, SignUpDecision,
+    activate_pending_sign_up, decide_sign_up, ApprovedSignUp, PendingActivation, SignUpApproval,
+    SignUpDecision,
 };
 
 // =========================================================================
@@ -315,15 +315,19 @@ pub struct StatusTransition {
     /// status; empty on activation, and for an account that held none. The
     /// caller records it ([`record_withdrawn_admin_credentials`]).
     pub withdrawn: WithdrawnAdminCredentials,
+    /// The status the account had before the transition, as the write read
+    /// it.
+    pub previous: UserStatus,
 }
 
 /// Shared user-status state transition: global lookup, already-in-target-state
 /// guard, and status update.
 ///
-/// Used by [`approve_user`], the admin suspend handler and `pierre-cli`'s
-/// local user commands: an admin's decision, which may bring a suspended
-/// account back. A sign-up rule's activation is not one and does not come
-/// through here ([`activate_pending_sign_up`]). The last active admin cannot be
+/// Used by [`approve_user`] for an admin's approval, the admin suspend
+/// handler and `pierre-cli`'s local user commands: an admin's decision,
+/// which may bring a suspended account back. A sign-up rule's activation
+/// is not one and does not come through here ([`activate_pending_sign_up`]).
+/// The last active admin cannot be
 /// suspended: `UserRepository::update_status` refuses it. Nor does an admin
 /// take itself out of `Active`, as it does not demote itself
 /// ([`demote_user_from_admin`]): it would be signed out with its device
@@ -342,7 +346,7 @@ pub struct StatusTransition {
 /// `Active`; a service token and `pierre-cli` on the host act as no admin
 /// and have no self to refuse. The Slack sign-up room does not come
 /// through here: its taps decide a pending account only
-/// ([`decide_sign_up`]).
+/// ([`decide_sign_up`], which [`approve_user`] takes for it).
 ///
 /// # Errors
 ///
@@ -401,35 +405,82 @@ pub async fn transition_user_status(
     Ok(StatusTransition {
         user: write.user,
         withdrawn: write.withdrawn,
+        previous: user.user_status,
     })
 }
 
-/// Approve a pending user: transition to Active, assign the approver's tenant,
-/// and auto-create a default MCP token.
+/// Approve an account: make it active, give it a tenant, and create its
+/// default MCP token.
 ///
-/// The one approval path behind `POST /admin/approve-user/{id}`, its console
-/// mount and `pierre-cli user approve`. `acting` is the account and the
-/// admin surface approving it ([`transition_user_status`]); `tenant` is the
-/// approver's tenant scope, see [`assign_user_to_admin_tenant`].
+/// The one approval of every surface (carnet#1589): the admin API and its
+/// console mount, `pierre-cli user approve`, and the Slack sign-up room.
+///
+/// `acting` is the account and who approves it
+/// ([`AccountCaller::acting_on`]). The status write is the caller's:
+///
+/// - an admin's decision ([`transition_user_status`]) makes active a pending
+///   account or a suspended one, which it reinstates, and refuses one
+///   already active;
+/// - a surface that decides sign-ups only ([`AccountCaller::decides_sign_ups_only`],
+///   the Slack room) writes only while the account is still pending
+///   ([`decide_sign_up`]): a sign-up decided meanwhile, here or elsewhere,
+///   is [`SignUpApproval::LostAtTheWrite`] and nothing is written.
+///
+/// Then the tenant: the account joins `tenant`, the approver's (the active
+/// tenant of a console session, or the one an admin token is bound to),
+/// when there is one; an account that still belongs to no tenant is given
+/// one of its own. An approval that cannot give the account its tenant
+/// must not leave it active with none and nobody told, so it is put back
+/// to the status it had ([`SignUpApproval::PutBack`]), where the next
+/// approval finishes it. Last, the account's default MCP token, which a
+/// failure only logs.
 ///
 /// # Errors
 ///
-/// Returns `InvalidInput` if the user is already active, `NotFound` if the user
-/// does not exist, or `Internal` if any underlying repository call fails.
+/// Returns `InvalidInput` when an admin approves an account already active
+/// or its own, `NotFound` for an account that does not exist, the
+/// repository's error when the approving write fails, and what failed after
+/// it when the account could not be put back.
 pub async fn approve_user(
     repos: &RepositoryRegistry,
     acting: &ActingOn<'_>,
     tenant: Option<TenantId>,
-) -> Result<User, AppError> {
-    let updated_user = transition_user_status(repos, acting, UserStatus::Active)
-        .await?
-        .user;
+) -> Result<SignUpApproval, AppError> {
+    let approved = if acting.caller().decides_sign_ups_only() {
+        decide_sign_up(repos, acting, SignUpDecision::Approve).await?
+    } else {
+        Some(transition_user_status(repos, acting, UserStatus::Active).await?)
+    };
+    let Some(StatusTransition { user, previous, .. }) = approved else {
+        return Ok(SignUpApproval::LostAtTheWrite);
+    };
 
-    assign_user_to_admin_tenant(repos, tenant, acting.id()).await?;
+    let tenant_id = match approved_account_tenant(repos, tenant, &user).await {
+        Ok(tenant_id) => tenant_id,
+        Err(cause) => return sign_up::put_back(repos, acting, previous, cause).await,
+    };
 
-    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), acting.id()).await;
+    create_default_mcp_token_for_user(repos.user_mcp_tokens.as_ref(), user.id).await;
 
-    Ok(updated_user)
+    Ok(SignUpApproval::Approved(Box::new(ApprovedSignUp {
+        user,
+        tenant_id,
+    })))
+}
+
+/// The tenant an approved account is attributed to: `tenant`, the
+/// approver's, which the account joins, or else the one it owns or belongs
+/// to, provisioned when it has none.
+async fn approved_account_tenant(
+    repos: &RepositoryRegistry,
+    tenant: Option<TenantId>,
+    user: &User,
+) -> Result<Option<TenantId>, AppError> {
+    if let Some(tenant_id) = tenant {
+        assign_user_to_admin_tenant(repos, Some(tenant_id), user.id).await?;
+        return Ok(Some(tenant_id));
+    }
+    sign_up::own_tenant(repos, user).await
 }
 
 // =========================================================================

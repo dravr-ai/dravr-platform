@@ -379,8 +379,8 @@ async fn a_super_token_stays_active_until_an_admin_revokes_it() -> Result<()> {
                 .await;
         assert_eq!(
             response.status(),
-            403,
-            "a token without the flag must not {action} a super-admin token"
+            404,
+            "a token without the flag does not find a super-admin token to {action}, as the list hides it"
         );
     }
 
@@ -670,7 +670,8 @@ async fn revoking_an_unknown_token_is_404_on_both_mounts() -> Result<()> {
 }
 
 /// A `ManageAdminTokens` token that is not super-admin could revoke a
-/// super-admin token on the token API.
+/// super-admin token on the token API. It does not find one: 404, as the
+/// list that hides it says (carnet#1589).
 #[tokio::test]
 #[serial]
 async fn a_non_super_token_cannot_revoke_a_super_token() -> Result<()> {
@@ -688,7 +689,7 @@ async fn a_non_super_token_cannot_revoke_a_super_token() -> Result<()> {
         .header("authorization", &bearer(&delegate))
         .send(token_api(&resources))
         .await;
-    assert_eq!(response.status(), 403);
+    assert_eq!(response.status(), 404);
     assert!(
         is_active(&resources, &operator.token_id).await?,
         "the operator token still works"

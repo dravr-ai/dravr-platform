@@ -11,9 +11,16 @@ import { adminApi } from '../services/api';
 import type { AdminToken } from '../types/api';
 import { QUERY_KEYS } from '../constants/queryKeys';
 import { describeAdminError } from '../utils/adminLocale';
+import { isRotated } from '../utils/adminToken';
 
 interface ApiKeyListProps {
   onViewDetails: (token: AdminToken) => void;
+}
+
+/** The status word a token's badge carries: a rotated token is not revoked. */
+function statusLabel(token: AdminToken): string {
+  if (token.is_active) return 'Active';
+  return isRotated(token) ? 'Rotated' : 'Inactive';
 }
 
 export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
@@ -66,6 +73,9 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
     }
   }, [allTokens, statusFilter]);
 
+  // What a bulk revoke may take: every listed token but a rotated one.
+  const revocable = useMemo(() => tokens.filter(t => !isRotated(t)), [tokens]);
+
   const handleSelectToken = (tokenId: string) => {
     const newSelected = new Set(selectedTokens);
     if (newSelected.has(tokenId)) {
@@ -77,10 +87,10 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
   };
 
   const handleSelectAll = () => {
-    if (selectedTokens.size === tokens.length) {
+    if (selectedTokens.size === revocable.length) {
       setSelectedTokens(new Set());
     } else {
-      setSelectedTokens(new Set(tokens.map(t => t.id)));
+      setSelectedTokens(new Set(revocable.map(t => t.id)));
     }
   };
 
@@ -181,13 +191,14 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
             <div className="flex items-center gap-3 border-b ghost-border-faint py-2">
               <input
                 type="checkbox"
-                checked={selectedTokens.size === tokens.length && tokens.length > 0}
+                checked={selectedTokens.size === revocable.length && revocable.length > 0}
                 onChange={handleSelectAll}
-                aria-label={`Select All (${tokens.length})`}
+                disabled={revocable.length === 0}
+                aria-label={`Select All (${revocable.length})`}
                 className="rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
               />
               <span className="text-sm font-medium text-on-surface">
-                Select All ({tokens.length})
+                Select All ({revocable.length})
               </span>
             </div>
 
@@ -199,6 +210,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                     type="checkbox"
                     checked={selectedTokens.has(token.id)}
                     onChange={() => handleSelectToken(token.id)}
+                    disabled={isRotated(token)}
                     aria-label={`Select ${token.service_name}`}
                     className="mt-1 rounded ghost-border bg-surface-container-high text-primary focus:ring-primary"
                   />
@@ -225,7 +237,7 @@ export default function ApiKeyList({ onViewDetails }: ApiKeyListProps) {
                         )}
                         <div className="flex items-center gap-2 mt-2">
                           <Badge variant={token.is_active ? 'success' : 'info'}>
-                            {token.is_active ? 'Active' : 'Inactive'}
+                            {statusLabel(token)}
                           </Badge>
                           {token.is_super_admin && (
                             <Badge variant="warning">Super Admin</Badge>

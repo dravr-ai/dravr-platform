@@ -17,13 +17,14 @@ use serde::Deserialize;
 use tracing::{error, info};
 
 use pierre_core::admin::models::{AdminPermission as AdminPerm, ValidatedAdminToken};
+use pierre_core::admin::scope::ScopeCaller;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::TenantId;
 use pierre_services::new_user_cohort::{clamp_window_days, fetch_new_user_cohort};
 
 use super::api_keys::json_response;
 use super::types::AdminResponse;
-use super::users::token_tenant;
+
 use crate::context::AdminApiContext;
 
 /// Query string of the new-user report.
@@ -50,10 +51,11 @@ enum CohortScope {
 /// platform-wide; a scoped token reads the tenant it acts in, and one acting
 /// in none is refused rather than handed every tenant's accounts.
 fn cohort_scope(token: &ValidatedAdminToken) -> AppResult<CohortScope> {
-    if token.is_super_admin {
-        return Ok(CohortScope::Platform);
-    }
-    Ok(token_tenant(token)?.map_or(CohortScope::Refused, CohortScope::Tenant))
+    Ok(match token.scope_caller()? {
+        ScopeCaller::Platform => CohortScope::Platform,
+        ScopeCaller::BoundTo(tenant) => CohortScope::Tenant(tenant),
+        ScopeCaller::Unbound => CohortScope::Refused,
+    })
 }
 
 /// `GET /admin/analytics/new-users?days=N` — the accounts created in the last

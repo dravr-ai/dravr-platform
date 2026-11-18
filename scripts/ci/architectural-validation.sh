@@ -1758,6 +1758,16 @@ else
     VALIDATION_FAILED=true
 fi
 
+# HARD FAIL: AccountCaller::host_cli, the host shell's caller that takes every
+# account with no admin session behind it, is built only by pierre-cli
+# (carnet#1589).
+if [ -f "$SCRIPT_DIR/check-host-cli-caller.sh" ]; then
+    bash "$SCRIPT_DIR/check-host-cli-caller.sh" || VALIDATION_FAILED=true
+else
+    echo -e "${RED}❌ scripts/ci/check-host-cli-caller.sh not found${NC}"
+    VALIDATION_FAILED=true
+fi
+
 # HARD FAIL: the history walk keeps one history source order, one live-read
 # order and one Coverage; the budgeted read detaches nothing and the history
 # import stays retired (carnet#1482).

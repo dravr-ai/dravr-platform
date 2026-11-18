@@ -16,7 +16,8 @@
 //!
 //! Deletion is [`user_removal::remove_user`], the path the app's
 //! `POST /api/user/account-deletion` and the operator console run, so the
-//! refusals are the same: an operator account is refused, and rows other
+//! refusals are the same: the platform's last active admin is refused (an
+//! admin deletes its own account otherwise, carnet#1589), and rows other
 //! people rely on refuse the delete naming each, with nothing touched.
 
 use async_trait::async_trait;
@@ -32,7 +33,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_DELETE_ACCOUNT_BLOCKER_OWNS_COACHING_GROUP, KEY_DELETE_ACCOUNT_BLOCKER_OWNS_TENANT,
     KEY_DELETE_ACCOUNT_BLOCKER_TENANT_OAUTH_CREDENTIALS, KEY_DELETE_ACCOUNT_DM_ONLY,
     KEY_DELETE_ACCOUNT_DONE, KEY_DELETE_ACCOUNT_EMAIL_MISMATCH, KEY_DELETE_ACCOUNT_FAILED,
-    KEY_DELETE_ACCOUNT_OPERATOR, KEY_DELETE_ACCOUNT_PROVIDERS, KEY_DELETE_ACCOUNT_WARNING,
+    KEY_DELETE_ACCOUNT_PROVIDERS, KEY_DELETE_ACCOUNT_WARNING,
 };
 use pierre_core::errors::AppError;
 use pierre_core::models::{normalize_email, UserReference, UserReferenceKind};
@@ -101,14 +102,6 @@ impl CommandHandler for DeleteAccountHandler {
             .await?
             .ok_or_else(|| AppError::not_found(format!("User {}", ctx.user_id)))?;
 
-        if user.role.is_admin() {
-            return Ok(CommandResponse::text(reg.render(
-                KEY_DELETE_ACCOUNT_OPERATOR,
-                locale,
-                &[],
-            )));
-        }
-
         let blockers = repos.users.deletion_blockers(user.id).await?;
         if !blockers.is_empty() {
             return Ok(CommandResponse::text(blocked_text(reg, locale, &blockers)));
@@ -152,7 +145,7 @@ impl CommandHandler for DeleteAccountHandler {
         let disconnector = OAuthService::new(runtime.data(), runtime.config().clone());
         let firebase = FirebaseIdentityDeleter::from_config(&runtime.config().firebase);
         let user_id = user.id;
-        let holder = AccountCaller::account_holder_on_messaging();
+        let holder = AccountCaller::account_holder_on_messaging(user_id);
         let outcome = user_removal::remove_user(
             repos,
             Some(&disconnector),

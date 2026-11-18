@@ -16,21 +16,25 @@
 //! and never in logs, which carry the user id.
 //!
 //! Both routes reach every tenant that holds the user, so a token scoped to
-//! one tenant acts only on a user who is held entirely within it; an unscoped
-//! `ManageUsers` token acts globally, as it does on the rest of the users
-//! surface. A suspension and an approval change the account in every tenant
-//! too, and take the same rule ([`status_write_target`]). Over this API an
-//! admin account is removed, disconnected, suspended, approved (by id, or
-//! through the pre-approval of its address) or handed a password reset only
-//! by an admin's console session or a super-admin token, so a `ManageUsers`
-//! token can neither take out the admins above it nor become one, and the
-//! last active admin is removed by no one. That rank rule is the service
-//! layer's ([`AccountCaller::acting_on`]): each handler takes the account
-//! from its caller there, right after reading it, and the service writes
-//! take nothing else, so the rule answers before a token's tenant does and
-//! no handler reaches a write without it.
+//! one tenant acts only on a user who is held entirely within it, and a
+//! token bound to no tenant without the super-admin flag acts on no user:
+//! it reaches no tenant ([`ValidatedAdminToken::reach`], the scope rule's
+//! one reading, carnet#1589). A suspension, an approval and a password
+//! reset change the account in every tenant too, and take the same rule.
+//! Over this API an admin account is removed, disconnected, suspended,
+//! approved (by id, or through the pre-approval of its address) or handed a
+//! password reset only by an admin's console session or a super-admin
+//! token, so a `ManageUsers` token can neither take out the admins above it
+//! nor become one, and the last active admin is removed by no one. That rank
+//! rule is the service layer's ([`AccountCaller::acting_on`]): the service
+//! writes take nothing else, so no handler reaches a write without it.
+//!
+//! Every write on one account reads it through [`account_in_reach`], in one
+//! order: an account outside the caller's tenant answers 404 as a missing
+//! one does, before the rank rule, so a bound token never learns that an
+//! account outside its tenant is an admin; then the rank (403); then an
+//! account held in the caller's tenant and in another too (403).
 
-use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use axum::{
@@ -44,12 +48,13 @@ use tracing::{error, info, warn};
 use uuid::Uuid;
 
 use pierre_core::admin::models::ValidatedAdminToken;
+use pierre_core::admin::scope::AdminScope;
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_database::repositories::subject_hash;
 use pierre_database::repositories::OnboardingResetScope;
 use pierre_services::account_reset::{self, AccountResetOutcome, OwnedGroups};
-use pierre_services::admin_ops::{AccountCaller, ActingOn, AdminStandingLost};
+use pierre_services::admin_ops::{self, AccountCaller, ActingOn, AdminStandingLost};
 use pierre_services::onboarding_reset::{self, OnboardingResetOutcome};
 use pierre_services::user_removal::{
     self, HeldProvider, Interruption, ProviderDisconnection, UserRemoval,
@@ -122,67 +127,67 @@ fn interrupted_as(
     )
 }
 
-/// Refuse a tenant-scoped token acting on a user held outside its tenant.
+/// The account `user_id` names, taken by `caller`, and the providers it
+/// holds: the read every write on one account makes, in one order.
 ///
-/// A delete, a provider disconnect, a suspension, an approval or a password
-/// reset reaches every tenant the user belongs to or holds a provider in,
-/// so a token scoped to one tenant may act only when every such tenant is
-/// its own.
-/// Every membership row counts, an inactive or ownerless tenant's too: the
-/// delete clears the user's rows there as well. Super-admin and unscoped
-/// tokens pass. `held` is the providers the user holds
-/// (`user_removal::held_providers`).
-pub(super) async fn require_within_token_tenant(
-    ctx: &AdminApiContext,
-    admin_token: &ValidatedAdminToken,
-    user_id: Uuid,
-    held: &[HeldProvider],
-) -> AppResult<()> {
-    let Some(bound) = admin_token
-        .tenant_id
-        .as_deref()
-        .filter(|_| !admin_token.is_super_admin)
-    else {
-        return Ok(());
-    };
-    let mut tenants: BTreeSet<String> = ctx
-        .repos
-        .tenants
-        .list_membership_tenant_ids(user_id)
-        .await?
-        .into_iter()
-        .map(|tenant_id| tenant_id.to_string())
-        .collect();
-    tenants.extend(held.iter().map(|h| h.tenant_id.to_string()));
-    if !tenants.is_empty() && tenants.iter().all(|tenant| tenant == bound) {
-        return Ok(());
-    }
-    Err(AppError::new(
-        ErrorCode::PermissionDenied,
-        format!(
-            "Token is scoped to tenant {bound}; the user belongs to or holds a provider in a tenant outside it"
-        ),
-    ))
-}
-
-/// The account a suspension or an approval names, taken by `caller`, for a
-/// token allowed to make it: the checks a delete makes, in a delete's
-/// order, so an account answers the same status on each. A malformed id is
-/// 400 and an unknown account 404; an admin account takes a console session
-/// or a super-admin token ([`AccountCaller::acting_on`]); and a token
-/// scoped to one tenant acts only on a user held entirely within it
-/// ([`require_within_token_tenant`]), 403 for both.
-pub(super) async fn status_write_target<'c>(
+/// 1. A malformed id answers 400.
+/// 2. What the caller reaches ([`ValidatedAdminToken::reach`]): a token
+///    bound to no tenant without the super-admin flag reaches none, 403.
+/// 3. The account, found where the caller's reads find it
+///    (`admin_ops::find_user_in_admin_scope`): one outside the tenant a
+///    bound token reaches answers 404 like a missing one.
+/// 4. The rank rule ([`AccountCaller::acting_on`]): an admin account takes a
+///    console session or a super-admin token, 403.
+/// 5. The write reaches every tenant the account is a member of or holds a
+///    provider in, so a bound token acts only when every one of them is its
+///    own ([`AdminScope::holds_entirely`]), 403. Every membership row counts,
+///    an inactive or ownerless tenant's too: a delete clears the account's
+///    rows there as well.
+///
+/// # Errors
+///
+/// What each step refuses, and a database error when the account or its
+/// tenants cannot be read.
+pub(super) async fn account_in_reach<'c>(
     ctx: &AdminApiContext,
     admin_token: &ValidatedAdminToken,
     caller: &'c AccountCaller,
     user_id: &str,
-) -> AppResult<ActingOn<'c>> {
-    let (user_uuid, target) = load_user(ctx, user_id).await?;
-    let acting = caller.acting_on(target)?;
+) -> AppResult<(ActingOn<'c>, Vec<HeldProvider>)> {
+    let user_uuid = parse_user_id(user_id)?;
+    let scope = admin_token.reach()?;
+    let account = admin_ops::find_user_in_admin_scope(&ctx.repos, scope.tenant_filter(), user_uuid)
+        .await
+        .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
+    let acting = caller.acting_on(account)?;
     let held = user_removal::held_providers(&ctx.repos, user_uuid).await?;
-    require_within_token_tenant(ctx, admin_token, user_uuid, &held).await?;
-    Ok(acting)
+    let memberships = ctx
+        .repos
+        .tenants
+        .list_membership_tenant_ids(user_uuid)
+        .await?;
+    let tenants = memberships
+        .into_iter()
+        .chain(held.iter().map(|provider| provider.tenant_id));
+    if let AdminScope::Tenant { tenant_id } = scope {
+        if !scope.holds_entirely(tenants) {
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                format!(
+                    "Token is scoped to tenant {tenant_id}; the user belongs to or holds a provider in a tenant outside it"
+                ),
+            ));
+        }
+    }
+    Ok((acting, held))
+}
+
+/// Parse a user id from a route path, 400 when it is not one.
+pub(super) fn parse_user_id(user_id: &str) -> AppResult<Uuid> {
+    Uuid::parse_str(user_id).map_err(|e| {
+        warn!(error = %e, "Invalid user ID format");
+        AppError::invalid_input(format!("Invalid user ID format: {e}"))
+    })
 }
 
 /// The refusal a disconnect or delete takes when the composition root wired
@@ -193,10 +198,7 @@ fn disconnect_unavailable() -> AppError {
 
 /// Parse the path id and read the user, 404 when there is none.
 pub(super) async fn load_user(ctx: &AdminApiContext, user_id: &str) -> AppResult<(Uuid, User)> {
-    let user_uuid = Uuid::parse_str(user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
+    let user_uuid = parse_user_id(user_id)?;
     let user = ctx
         .repos
         .users
@@ -228,9 +230,10 @@ pub(super) async fn load_user(ctx: &AdminApiContext, user_id: &str) -> AppResult
 /// # Errors
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
-/// unknown user, a permission error for a token below super-admin and an
-/// admin account, or for a tenant-scoped token and a user held
-/// outside its tenant, a resource-unavailable error when no chokepoint is
+/// unknown user or one outside a bound token's tenant, a permission error
+/// for a token that reaches no tenant, for a token below super-admin and an
+/// admin account, or for a bound token and a user held outside its tenant
+/// too, a resource-unavailable error when no chokepoint is
 /// wired, and a database error when the held providers cannot be read; nothing
 /// was changed then.
 pub async fn handle_disconnect_user_provider(
@@ -244,16 +247,14 @@ pub async fn handle_disconnect_user_provider(
 
     let ctx = context.as_ref();
     let caller = AccountCaller::of_token(&admin_token);
-    let (user_uuid, user) = load_user(ctx, &user_id).await?;
-    let acting = caller.acting_on(user)?;
+    let (acting, held) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
     let user = acting.account();
     let disconnector = ctx
         .provider_disconnector
         .as_deref()
         .ok_or_else(disconnect_unavailable)?;
 
-    let held = user_removal::held_providers(&ctx.repos, user_uuid).await?;
-    require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
     let targets = user_removal::providers_named(held, &provider);
 
     let disconnected = match user_removal::disconnect_user_provider(disconnector, &acting, targets)
@@ -323,9 +324,10 @@ pub async fn handle_disconnect_user_provider(
 /// # Errors
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
-/// unknown user, a permission error for a token below super-admin and an
-/// admin account, or for a tenant-scoped token and a user held
-/// outside its tenant, a resource-unavailable error when the user holds
+/// unknown user or one outside a bound token's tenant, a permission error
+/// for a token that reaches no tenant, for a token below super-admin and an
+/// admin account, or for a bound token and a user held outside its tenant
+/// too, a resource-unavailable error when the user holds
 /// providers and no chokepoint is wired, and a database error from the reads
 /// that precede any change. A disconnect or account delete that fails is
 /// answered with the failing step's status, naming what was already done,
@@ -342,11 +344,9 @@ pub async fn handle_delete_user(
 
     let ctx = context.as_ref();
     let caller = AccountCaller::of_token(&admin_token);
-    let (user_uuid, user) = load_user(ctx, &user_id).await?;
-    let acting = caller.acting_on(user)?;
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
     let user = acting.account();
-    let held = user_removal::held_providers(&ctx.repos, user_uuid).await?;
-    require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
 
     let outcome = user_removal::remove_user(
@@ -456,9 +456,10 @@ pub async fn handle_delete_user(
 /// # Errors
 ///
 /// Returns an invalid-input error for a malformed id, a not-found error for an
-/// unknown user, a permission error for a token below super-admin and an
-/// admin account, or for a tenant-scoped token and a user held
-/// outside its tenant, a resource-unavailable error when the user holds a
+/// unknown user or one outside a bound token's tenant, a permission error
+/// for a token that reaches no tenant, for a token below super-admin and an
+/// admin account, or for a bound token and a user held outside its tenant
+/// too, a resource-unavailable error when the user holds a
 /// provider to disconnect and no chokepoint is wired, and a database error
 /// from the reads that precede any change.
 pub async fn handle_reset_user_onboarding(
@@ -473,11 +474,9 @@ pub async fn handle_reset_user_onboarding(
 
     let ctx = context.as_ref();
     let caller = AccountCaller::of_token(&admin_token);
-    let (user_uuid, user) = load_user(ctx, &user_id).await?;
-    let acting = caller.acting_on(user)?;
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
     let user = acting.account();
-    let held = user_removal::held_providers(&ctx.repos, user_uuid).await?;
-    require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     let scope = if request.with_memory {
         OnboardingResetScope::WithMemory

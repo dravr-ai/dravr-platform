@@ -55,13 +55,16 @@ use pierre_auth::security::csrf::CsrfTokenManager;
 use pierre_config::security::llm_base_url_policy as config_llm_base_url_policy;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::usage::{LlmUsageAggregateRow, LlmUsageDailyRow};
-use pierre_database::repositories::{AuditSource, LlmUsageScope};
+use pierre_core::models::User;
+use pierre_database::repositories::LlmUsageScope;
 use pierre_database::RepositoryRegistry;
 use pierre_llm::config::LlmChain;
 use pierre_middleware::tenant_path::TenantPath;
-use pierre_middleware::{extract_auth_from_headers, require_admin, McpAuthMiddleware};
+use pierre_middleware::{
+    cookie_admin_token, extract_auth_from_headers, require_admin, McpAuthMiddleware,
+};
 use pierre_runtime_context::{scope_caller, DataContext};
-use pierre_services::admin_ops::{self, AdminStandingLost, StandingChange};
+use pierre_services::admin_ops::{self, AccountCaller, AdminStandingLost};
 use pierre_services::pricing::costs_of_usage_groups;
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 
@@ -320,13 +323,24 @@ impl WebAdminRoutes {
         headers: &HeaderMap,
         resources: &WebAdminContext,
     ) -> Result<AuthResult, AppError> {
+        Ok(Self::authenticate_admin_account(headers, resources)
+            .await?
+            .0)
+    }
+
+    /// [`Self::authenticate_admin`], with the signed-in admin's account: what
+    /// a route that writes against its admin builds its caller from.
+    async fn authenticate_admin_account(
+        headers: &HeaderMap,
+        resources: &WebAdminContext,
+    ) -> Result<(AuthResult, User), AppError> {
         let ctx = Arc::new(resources.clone());
         let auth = extract_auth_from_headers(headers, &ctx).await?;
 
         // Verify admin privileges using centralized guard
-        require_admin(auth.user_id, &resources.repos.users).await?;
+        let admin = require_admin(auth.user_id, &resources.repos.users).await?;
 
-        Ok(auth)
+        Ok((auth, admin))
     }
 
     /// The target of a per-user read or write, which must exist: a missing
@@ -606,7 +620,7 @@ impl WebAdminRoutes {
         headers: HeaderMap,
         Path(user_id): Path<String>,
     ) -> Result<Response, AppError> {
-        let auth = Self::authenticate_admin(&headers, &resources).await?;
+        let (auth, admin) = Self::authenticate_admin_account(&headers, &resources).await?;
 
         info!(
             admin_user_id = %auth.user_id,
@@ -620,19 +634,18 @@ impl WebAdminRoutes {
         let demotion =
             admin_ops::demote_user_from_admin(resources.data.repos(), auth.user_id, user_uuid)
                 .await?;
-        // This route takes the console session only, so the trail names the
-        // signed-in admin and the console.
-        admin_ops::record_withdrawn_admin_credentials(
-            resources.data.repos(),
-            &demotion.withdrawn,
-            StandingChange {
-                cause: AdminStandingLost::Demoted,
-                account: Some(user_uuid),
-                actor: Some(auth.user_id),
-                source: AuditSource::Console,
-            },
-        )
-        .await;
+        // This route takes the console session only: the caller is the one
+        // the admin API's console mount builds, so the trail names the
+        // signed-in admin and the console, through the path every surface
+        // records a withdrawal by.
+        AccountCaller::of_token(&cookie_admin_token(&admin, None))
+            .record_withdrawn(
+                resources.data.repos(),
+                &demotion.withdrawn,
+                AdminStandingLost::Demoted,
+                Some(user_uuid),
+            )
+            .await;
         let result = demotion.change;
 
         Ok((

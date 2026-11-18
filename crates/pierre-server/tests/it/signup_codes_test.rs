@@ -494,7 +494,12 @@ async fn a_suspended_account_or_a_deleted_accounts_address_cannot_redeem() {
         None,
         None,
         None,
-        &acting_on(repos, &AccountCaller::account_holder(), deleted.id).await,
+        &acting_on(
+            repos,
+            &AccountCaller::account_holder(deleted.id),
+            deleted.id,
+        )
+        .await,
     )
     .await
     .unwrap();
@@ -1001,10 +1006,28 @@ async fn admin_bearer(resources: &Arc<ServerContext>, permissions: Vec<AdminPerm
     format!("Bearer {}", token.jwt_token.expose_secret())
 }
 
+/// A super-admin token's bearer header: a sign-up code is platform-wide,
+/// so only a caller that reaches every tenant mints, lists or revokes one
+/// (carnet#1589).
+async fn platform_bearer(resources: &Arc<ServerContext>) -> String {
+    let token = resources
+        .common
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest::super_admin("signup-codes".to_owned()),
+            resources.auth.admin_jwt_secret.as_ref(),
+            &resources.auth.jwks_manager,
+        )
+        .await
+        .unwrap();
+    format!("Bearer {}", token.jwt_token.expose_secret())
+}
+
 #[tokio::test]
 async fn the_admin_routes_mint_once_list_by_hint_and_revoke() {
     let resources = create_test_server_resources().await.unwrap();
-    let bearer = admin_bearer(&resources, vec![AdminPermission::ManageUsers]).await;
+    let bearer = platform_bearer(&resources).await;
 
     let minted: Value = AxumTestRequest::post("/admin/signup-codes")
         .header("authorization", &bearer)
@@ -1138,7 +1161,7 @@ async fn the_reset_restarts_the_daily_count_and_keeps_the_limit() {
 #[tokio::test]
 async fn an_admin_revokes_a_coachs_code() {
     let resources = create_test_server_resources().await.unwrap();
-    let bearer = admin_bearer(&resources, vec![AdminPermission::ManageUsers]).await;
+    let bearer = platform_bearer(&resources).await;
     let (_, group_id, auth, router) = coach_with_group(&resources, true).await;
     let (_, invite) = create_invite(
         &router,
@@ -1274,7 +1297,12 @@ async fn a_code_at_a_deleted_accounts_address_waits_for_review_once_and_spends_n
         None,
         None,
         None,
-        &acting_on(repos, &AccountCaller::account_holder(), deleted.id).await,
+        &acting_on(
+            repos,
+            &AccountCaller::account_holder(deleted.id),
+            deleted.id,
+        )
+        .await,
     )
     .await
     .unwrap();

@@ -1089,7 +1089,7 @@ async fn a_deleted_account_is_erased_from_barrage() {
         None,
         &acting_on(
             &resources.common.repos,
-            &AccountCaller::account_holder(),
+            &AccountCaller::account_holder(athlete.user_id),
             athlete.user_id,
         )
         .await,
@@ -1173,7 +1173,7 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
         None,
         &acting_on(
             &resources.common.repos,
-            &AccountCaller::account_holder(),
+            &AccountCaller::account_holder(athlete.user_id),
             athlete.user_id,
         )
         .await,
@@ -1513,7 +1513,12 @@ async fn an_apple_sdnn_reading_keeps_its_own_series_and_goes_with_the_source() {
         None,
         None,
         None,
-        &acting_on(repos, &AccountCaller::account_holder(), athlete.user_id).await,
+        &acting_on(
+            repos,
+            &AccountCaller::account_holder(athlete.user_id),
+            athlete.user_id,
+        )
+        .await,
     )
     .await
     .expect("the removal runs");

@@ -26,8 +26,11 @@
 //! a device login, a super-admin service token, or `pierre-cli` on the
 //! host. It is the caller the scope rule calls
 //! [`ScopeCaller::Platform`](pierre_core::admin::scope::ScopeCaller::Platform).
-//! A scoped service token, the Slack room, a sign-up rule and an account's
-//! own holder are refused an admin account.
+//! A scoped service token, the Slack room and a sign-up rule are refused an
+//! admin account. An account's own holder acts on its own account only,
+//! whatever its role: deleting one's own account is every holder's right,
+//! an admin's included, and the last active admin is still refused by the
+//! deletion itself.
 //!
 //! The rule is applied in one place, [`AccountCaller::acting_on`], which
 //! hands back the account as an [`ActingOn`]. Every account write takes an
@@ -84,8 +87,9 @@ enum Surface {
     /// A rule that admits a sign-up nobody decided: a standing allow, a
     /// signup code, a proven address, an auto-approved domain.
     SignUpRule,
-    /// The account's own holder, from the app or from a messaging channel.
-    AccountHolder(DeletionActor),
+    /// The holder of the account it names, from the app or from a
+    /// messaging channel.
+    AccountHolder(DeletionActor, Uuid),
 }
 
 /// Who is acting on an account. See the module docs.
@@ -159,21 +163,26 @@ impl AccountCaller {
         }
     }
 
-    /// The account's own holder, from a signed-in session of the app.
+    /// The holder of `account`, from a signed-in session of the app: it
+    /// acts on that account and no other.
     #[must_use]
-    pub fn account_holder() -> Self {
-        Self::holder(DeletionActor::Athlete, "account holder")
+    pub fn account_holder(account: Uuid) -> Self {
+        Self::holder(DeletionActor::Athlete, account, "account holder")
     }
 
-    /// The account's own holder, from a messaging channel.
+    /// The holder of `account`, from a messaging channel.
     #[must_use]
-    pub fn account_holder_on_messaging() -> Self {
-        Self::holder(DeletionActor::Messaging, "account holder (messaging)")
+    pub fn account_holder_on_messaging(account: Uuid) -> Self {
+        Self::holder(
+            DeletionActor::Messaging,
+            account,
+            "account holder (messaging)",
+        )
     }
 
-    fn holder(actor: DeletionActor, name: &str) -> Self {
+    fn holder(actor: DeletionActor, account: Uuid, name: &str) -> Self {
         Self {
-            surface: Surface::AccountHolder(actor),
+            surface: Surface::AccountHolder(actor, account),
             platform: false,
             acting_admin: None,
             recorded_as: None,
@@ -184,13 +193,24 @@ impl AccountCaller {
     /// Take `account` as the one this caller acts on: the rank rule.
     ///
     /// The only way to an [`ActingOn`], which every account write takes.
+    /// An account's holder takes its own account, an admin's too, and no
+    /// other.
     ///
     /// # Errors
     ///
     /// Returns a permission error when `account` is an admin and the caller
-    /// is not a platform one.
+    /// is neither a platform one nor the account's holder, and when an
+    /// account holder names another account.
     pub fn acting_on(&self, account: User) -> AppResult<ActingOn<'_>> {
-        if !self.platform && account.role.is_admin() {
+        let holder_of = match self.surface {
+            Surface::AccountHolder(_, own) => Some(own),
+            Surface::AdminCredential(_)
+            | Surface::HostCli
+            | Surface::SlackRoom
+            | Surface::SignUpRule => None,
+        };
+        let own_account = holder_of == Some(account.id);
+        if !self.platform && !own_account && account.role.is_admin() {
             warn!(
                 user_id = %account.id,
                 caller = %self.name,
@@ -201,10 +221,33 @@ impl AccountCaller {
                 "Acting on an admin account requires a super-admin token",
             ));
         }
+        if holder_of.is_some() && !own_account {
+            warn!(
+                user_id = %account.id,
+                caller = %self.name,
+                "An account holder named an account other than its own"
+            );
+            return Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "An account holder acts on its own account only",
+            ));
+        }
         Ok(ActingOn {
             caller: self,
             account,
         })
+    }
+
+    /// Whether this caller decides sign-ups and nothing else: the Slack
+    /// sign-up room and a sign-up rule. Its status writes land only on an
+    /// account still pending ([`super::decide_sign_up`]); an admin's
+    /// decision moves any status ([`super::transition_user_status`]).
+    #[must_use]
+    pub const fn decides_sign_ups_only(&self) -> bool {
+        match self.surface {
+            Surface::SlackRoom | Surface::SignUpRule => true,
+            Surface::AdminCredential(_) | Surface::HostCli | Surface::AccountHolder(..) => false,
+        }
     }
 
     /// The admin whose own session or device login this is. `None` for a
@@ -242,7 +285,7 @@ impl AccountCaller {
     #[must_use]
     pub const fn deletion_actor(&self) -> DeletionActor {
         match self.surface {
-            Surface::AccountHolder(actor) => actor,
+            Surface::AccountHolder(actor, _) => actor,
             Surface::AdminCredential(_)
             | Surface::HostCli
             | Surface::SlackRoom
@@ -257,7 +300,7 @@ impl AccountCaller {
             Surface::AdminCredential(source) => Some(source),
             Surface::HostCli => Some(AuditSource::CliDatabase),
             Surface::SlackRoom => Some(AuditSource::Slack),
-            Surface::SignUpRule | Surface::AccountHolder(_) => None,
+            Surface::SignUpRule | Surface::AccountHolder(..) => None,
         }
     }
 
@@ -386,11 +429,13 @@ mod tests {
 
     /// The rank rule, surface by surface: an admin account is taken by a
     /// console session, a device login, a super-admin token and the host
-    /// CLI, and refused to every other caller in the one sentence. A plain
-    /// account is taken by all of them.
+    /// CLI, and refused to every other caller in the one sentence, the
+    /// holder of another account included. A plain account is taken by all
+    /// of them but that holder, which takes its own account only.
     #[test]
     fn an_admin_account_is_taken_only_by_a_platform_caller() {
         let admin = Uuid::new_v4();
+        let someone_else = Uuid::new_v4();
         let with_the_rank = [
             token(
                 true,
@@ -406,8 +451,8 @@ mod tests {
             token(false, None, "tok-3", "support-desk"),
             AccountCaller::slack_room("@reviewer"),
             AccountCaller::sign_up_rule(Some(admin)),
-            AccountCaller::account_holder(),
-            AccountCaller::account_holder_on_messaging(),
+            AccountCaller::account_holder(someone_else),
+            AccountCaller::account_holder_on_messaging(someone_else),
         ];
         for caller in &with_the_rank {
             assert!(
@@ -430,11 +475,42 @@ mod tests {
             );
         }
         let every_caller = with_the_rank.iter().chain(&without_it);
-        for caller in every_caller {
+        for caller in
+            every_caller.filter(|caller| caller.deletion_actor() == DeletionActor::Operator)
+        {
             assert!(
                 caller.acting_on(account(UserRole::User)).is_ok(),
                 "{caller:?}"
             );
+        }
+    }
+
+    /// An account's holder takes its own account whatever its role: an
+    /// admin deletes its own account as anyone does (the deletion still
+    /// refuses the last active admin). It takes no other account, a plain
+    /// one included, in a sentence of its own.
+    #[test]
+    fn an_account_holder_takes_its_own_account_and_no_other() {
+        for role in [UserRole::Admin, UserRole::User] {
+            let own = account(role);
+            for holder in [
+                AccountCaller::account_holder(own.id),
+                AccountCaller::account_holder_on_messaging(own.id),
+            ] {
+                let acting = holder
+                    .acting_on(own.clone())
+                    .unwrap_or_else(|refused| panic!("{role:?}, {holder:?}: {refused}"));
+                assert_eq!(acting.id(), own.id);
+
+                let refused = holder
+                    .acting_on(account(UserRole::User))
+                    .expect_err("another account is not the holder's");
+                assert!(refused.code == ErrorCode::PermissionDenied, "{holder:?}");
+                assert_eq!(
+                    refused.message, "An account holder acts on its own account only",
+                    "{holder:?}"
+                );
+            }
         }
     }
 
@@ -519,11 +595,13 @@ mod tests {
     #[test]
     fn a_deletion_receipt_names_the_holder_by_its_channel() {
         assert_eq!(
-            AccountCaller::account_holder().deletion_actor().as_str(),
+            AccountCaller::account_holder(Uuid::nil())
+                .deletion_actor()
+                .as_str(),
             "athlete"
         );
         assert_eq!(
-            AccountCaller::account_holder_on_messaging()
+            AccountCaller::account_holder_on_messaging(Uuid::nil())
                 .deletion_actor()
                 .as_str(),
             "messaging"

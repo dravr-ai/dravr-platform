@@ -35,8 +35,8 @@ use serde_json::json;
 use uuid::Uuid;
 
 use crate::admin_user_removal_test::{
-    admin_context, blockers_of, body_json, join_group, manage_users_token, resources, seed_agent,
-    seed_onboarded_user, seed_user, super_admin_token, RevokeStub,
+    admin_context, blockers_of, body_json, join_group, resources, seed_agent, seed_onboarded_user,
+    seed_user, super_admin_token, RevokeStub,
 };
 use crate::admin_user_reset_test::count_for;
 
@@ -252,7 +252,7 @@ async fn the_user_read_previews_the_reset_with_owned_groups_deleted() {
 
     let response = handle_get_user(
         State(admin_context(&resources, &stub.url)),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
     )
     .await

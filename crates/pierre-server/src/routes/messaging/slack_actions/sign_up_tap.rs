@@ -72,7 +72,7 @@ const ADMIN_IS_NO_SIGN_UP: &str = "This account is an admin, and a sign-up card 
 /// the Slack source.
 ///
 /// An approval gives the account a tenant of its own when it has none
-/// ([`admin_ops::approve_sign_up`]). When that fails after the approval
+/// ([`admin_ops::approve_user`]). When that fails after the approval
 /// landed, the sign-up is put back to pending and the card keeps its
 /// buttons, with what happened under them: the next tap, or an admin on
 /// the console, approves it ([`TapOutcome::PutBack`]).
@@ -292,9 +292,10 @@ fn refuse_unless_pending(user: &User) -> AppResult<()> {
     )))
 }
 
-/// Approve a pending sign-up through the service's approval for the room
-/// ([`admin_ops::approve_sign_up`]: active while still pending, with a
-/// tenant of its own when it has none), then announce it.
+/// Approve a pending sign-up through the one approval every surface takes
+/// ([`admin_ops::approve_user`]: for the room, active while still pending,
+/// with a tenant of its own when it has none and its default MCP token, as
+/// an admin's approval), then announce it.
 ///
 /// A tap whose write found the sign-up decided draws nothing
 /// ([`TapOutcome::LostAtTheWrite`]): whatever decided it draws its own card,
@@ -307,7 +308,7 @@ async fn approve_user(resources: &ServerContext, acting: &ActingOn<'_>) -> AppRe
     let repos = &resources.common.repos;
     let user_uuid = acting.id();
     let approved_by = acting.caller().name();
-    let approval = match admin_ops::approve_sign_up(repos, acting).await? {
+    let approval = match admin_ops::approve_user(repos, acting, None).await? {
         SignUpApproval::Approved(approval) => *approval,
         SignUpApproval::LostAtTheWrite => return Ok(TapOutcome::LostAtTheWrite),
         SignUpApproval::PutBack(cause) => {
@@ -360,6 +361,7 @@ async fn reject_user(resources: &ServerContext, acting: &ActingOn<'_>) -> AppRes
     let Some(StatusTransition {
         user: updated_user,
         withdrawn,
+        ..
     }) = admin_ops::decide_sign_up(repos, acting, SignUpDecision::Reject).await?
     else {
         return Ok(TapOutcome::LostAtTheWrite);

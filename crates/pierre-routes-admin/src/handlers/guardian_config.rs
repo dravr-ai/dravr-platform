@@ -8,7 +8,9 @@
 //!
 //! Exposes the [`GuardianConfigDocument`] the Guardian resolves its runtime
 //! policy from, under admin-token auth at `/admin/settings/guardian`, for
-//! `pierre-cli`. The policy is global, so a token scoped to one tenant is refused.
+//! `pierre-cli`. The policy is global, so a token that does not reach every
+//! tenant is refused: one bound to a tenant, or one bound to none without the
+//! super-admin flag.
 //!
 //! GET answers two questions that can differ: `config` and `updated_at` are the
 //! stored row, which is what an editor must start from, and `effective` and
@@ -183,8 +185,8 @@ fn response_for(context: &AdminApiContext, row: Option<&SystemSetting>) -> Guard
 ///
 /// # Errors
 ///
-/// Returns an error when the caller lacks `ViewConfiguration`, the token is
-/// scoped to one tenant, or the `system_settings` read fails.
+/// Returns an error when the caller lacks `ViewConfiguration`, the token does
+/// not reach every tenant, or the `system_settings` read fails.
 pub async fn handle_get_guardian_config(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -209,8 +211,8 @@ pub async fn handle_get_guardian_config(
 ///
 /// # Errors
 ///
-/// Returns an error when the caller lacks `ManageConfiguration`, the token is
-/// scoped to one tenant, or the `system_settings` access fails. The refusals of a
+/// Returns an error when the caller lacks `ManageConfiguration`, the token does
+/// not reach every tenant, or the `system_settings` access fails. The refusals of a
 /// save are responses, so each one reaches the audit trail under this policy's
 /// action: a document that fails validation is a 400, a stale or missing token is
 /// a 409, and a body that does not parse,

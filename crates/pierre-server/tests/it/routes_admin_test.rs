@@ -679,6 +679,61 @@ async fn test_provision_api_key_without_provision_permission() -> Result<()> {
     Ok(())
 }
 
+/// A service token holding only `ProvisionKeys`, bound to no tenant and without
+/// the super-admin flag, as the deployed key-provisioning token is, provisions a
+/// key: the scope rule that leaves such a token no tenant to read does not reach
+/// this route, which acts on the one account the request names.
+#[tokio::test]
+async fn test_provision_api_key_with_an_unbound_provision_only_token() -> Result<()> {
+    let setup = AdminTestSetup::new().await?;
+    let routes = setup.routes();
+
+    let provision_only = setup
+        .context
+        .repos
+        .admin
+        .create_token(
+            &CreateAdminTokenRequest {
+                service_name: "provision_only_service".to_owned(),
+                service_description: Some("Token with ProvisionKeys alone".to_owned()),
+                permissions: Some(vec![AdminPermission::ProvisionKeys]),
+                expires_in_days: Some(30),
+                is_super_admin: false,
+                tenant_id: None,
+                operator_user_id: None,
+            },
+            &setup.context.admin_jwt_secret,
+            &*setup.context.jwks_manager,
+        )
+        .await?;
+
+    let response = AxumTestRequest::post("/admin/provision")
+        .header(
+            "authorization",
+            &setup.auth_header(provision_only.jwt_token.expose_secret()),
+        )
+        .header("content-type", "application/json")
+        .json(&json!({
+            "user_email": setup.user.email.clone(),
+            "tier": "starter",
+            "rate_limit_requests": 1000,
+            "rate_limit_period": "day"
+        }))
+        .send(routes.clone())
+        .await;
+
+    assert_eq!(response.status(), 201);
+    let body: Value = serde_json::from_slice(&response.bytes())?;
+    assert_eq!(body["success"], true);
+    assert_eq!(body["data"]["user_id"], setup.user_id.to_string());
+    assert!(body["data"]["api_key"]
+        .as_str()
+        .unwrap()
+        .starts_with("pk_live_"));
+
+    Ok(())
+}
+
 #[tokio::test]
 async fn test_provision_api_key_invalid_rate_limit_period() -> Result<()> {
     let setup = AdminTestSetup::new().await?;
@@ -1308,19 +1363,19 @@ async fn rotate_refuses_super_admin_escalation_and_keeps_the_target_active() -> 
 
     assert_eq!(
         response.status(),
-        403,
-        "a non-super-admin holding ManageAdminTokens must not rotate a super-admin token"
+        404,
+        "a non-super-admin holding ManageAdminTokens does not find a super-admin token to rotate"
     );
 
     let body: Value = serde_json::from_slice(&response.bytes())?;
-    assert_eq!(body["success"], false);
-    assert_eq!(
-        body["message"], "Only super-admin tokens can rotate super-admin tokens",
-        "the refusal must say why, and match the create path's wording"
+    assert!(
+        body.get("data")
+            .is_none_or(|data| data.get("new_token").is_none()),
+        "a refused rotation must not hand back a token: {body}"
     );
     assert!(
-        body["data"].get("new_token").is_none(),
-        "a refused rotation must not hand back a token"
+        !body.to_string().contains("eyJ"),
+        "nor any credential: {body}"
     );
 
     // The load-bearing assertion: a refused rotation claims nothing, so the

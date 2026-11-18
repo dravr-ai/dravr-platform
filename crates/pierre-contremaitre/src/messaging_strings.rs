@@ -772,8 +772,6 @@ pub const KEY_DELETE_ACCOUNT_EMAIL_MISMATCH: &str = "commands.delete-account.ema
 /// Key: the confirmation was typed in a shared room, where the email would be
 /// read by everyone in it.
 pub const KEY_DELETE_ACCOUNT_DM_ONLY: &str = "commands.delete-account.dm_only";
-/// Key: an operator account cannot delete itself.
-pub const KEY_DELETE_ACCOUNT_OPERATOR: &str = "commands.delete-account.operator";
 /// Key: the delete is refused over rows other people rely on. `{0}` = one
 /// line per blocker.
 pub const KEY_DELETE_ACCOUNT_BLOCKED: &str = "commands.delete-account.blocked";

@@ -1,5 +1,5 @@
-// ABOUTME: The one rule deciding which tenants an admin read may cover, from the caller's server-side role
-// ABOUTME: An admin reads every tenant by default or picks one; anyone else stays on their own tenant
+// ABOUTME: The one rule deciding which tenants an admin credential reaches, for its reads and its writes on users
+// ABOUTME: An admin reaches every tenant or picks one; a bound token stays on its own tenant; an unbound one reaches none
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -17,6 +17,16 @@
 //! | absent | every tenant | that tenant | refused |
 //! | `all` | every tenant | refused | refused |
 //! | a tenant id | that tenant | that tenant if it is theirs, else refused | refused |
+//!
+//! It is the one rule for what a credential reaches (carnet#1589): a read
+//! naming a tenant ([`ScopeCaller::resolve`],
+//! [`ValidatedAdminToken::require_tenant_access`]), and an action on users,
+//! which names none ([`ValidatedAdminToken::reach`]): a bound token acts on
+//! the accounts held entirely within its tenant
+//! ([`AdminScope::holds_entirely`]), and a token bound to no tenant without
+//! the super-admin flag reaches no tenant, so no user either. A setting
+//! global to the platform takes the platform column alone
+//! ([`ValidatedAdminToken::require_global_scope`]).
 
 use serde::Serialize;
 
@@ -50,6 +60,24 @@ impl AdminScope {
         match self {
             Self::AllTenants => None,
             Self::Tenant { tenant_id } => Some(tenant_id),
+        }
+    }
+}
+
+impl AdminScope {
+    /// Whether an account held in `tenants`, every tenant it is a member of
+    /// or holds a provider in, lies within this scope: anywhere, for every
+    /// tenant; for one tenant, only an account held there and nowhere else.
+    /// An account held in no tenant (a sign-up not yet approved) belongs to
+    /// no tenant's scope.
+    #[must_use]
+    pub fn holds_entirely(self, tenants: impl IntoIterator<Item = TenantId>) -> bool {
+        match self {
+            Self::AllTenants => true,
+            Self::Tenant { tenant_id } => {
+                let mut tenants = tenants.into_iter().peekable();
+                tenants.peek().is_some() && tenants.all(|tenant| tenant == tenant_id)
+            }
         }
     }
 }
@@ -109,7 +137,7 @@ impl ScopeCaller {
 }
 
 /// The refusal of a credential scoped to `bound` that asks for `requested`.
-pub(crate) fn other_tenant_refusal(bound: &str, requested: &str) -> AppError {
+fn other_tenant_refusal(bound: &str, requested: &str) -> AppError {
     AppError::new(
         ErrorCode::PermissionDenied,
         format!("Token is scoped to tenant {bound}, cannot access tenant {requested}"),
@@ -117,7 +145,7 @@ pub(crate) fn other_tenant_refusal(bound: &str, requested: &str) -> AppError {
 }
 
 /// The refusal of a token with neither a tenant nor the super-admin flag.
-pub(crate) fn no_tenant_refusal() -> AppError {
+fn no_tenant_refusal() -> AppError {
     AppError::new(
         ErrorCode::PermissionDenied,
         "Token has no tenant scope — super-admin required for cross-tenant access",
@@ -125,6 +153,49 @@ pub(crate) fn no_tenant_refusal() -> AppError {
 }
 
 impl ValidatedAdminToken {
+    /// What this credential reaches when it names no tenant: every tenant
+    /// for an admin's session or a super-admin token, its own tenant for a
+    /// token bound to one. The scope of every action on users.
+    ///
+    /// # Errors
+    /// `PermissionDenied` for a token bound to no tenant without the
+    /// super-admin flag, which reaches none; `InvalidInput` when the tenant
+    /// the credential carries is not a tenant id.
+    pub fn reach(&self) -> AppResult<AdminScope> {
+        self.scope_caller()?.resolve(None)
+    }
+
+    /// Verify the credential may read `requested`, a tenant id: the scope
+    /// rule's read naming one tenant ([`ScopeCaller::resolve`]).
+    ///
+    /// # Errors
+    /// `PermissionDenied` when the credential does not reach `requested`;
+    /// `InvalidInput` when `requested`, or the tenant the credential carries,
+    /// is not a tenant id.
+    pub fn require_tenant_access(&self, requested: &str) -> AppResult<()> {
+        self.scope_caller()?.resolve(Some(requested)).map(drop)
+    }
+
+    /// Verify the credential may read or change a setting global to the
+    /// platform: it must reach every tenant ([`Self::reach`]), as an admin's
+    /// console session or a super-admin token does, whatever tenant it
+    /// carries. A token bound to one tenant reaches only that one, and a
+    /// token bound to no tenant without the super-admin flag reaches none,
+    /// so neither changes what applies to every tenant.
+    ///
+    /// # Errors
+    /// `PermissionDenied` for a credential that does not reach every tenant;
+    /// `InvalidInput` when the tenant the credential carries is not a tenant id.
+    pub fn require_global_scope(&self) -> AppResult<()> {
+        match self.scope_caller()? {
+            ScopeCaller::Platform => Ok(()),
+            ScopeCaller::BoundTo(_) | ScopeCaller::Unbound => Err(AppError::new(
+                ErrorCode::PermissionDenied,
+                "This setting applies to the whole platform; a token that does not reach every tenant cannot read or change it",
+            )),
+        }
+    }
+
     /// The scope rule's view of this credential.
     ///
     /// # Errors
@@ -146,6 +217,7 @@ impl ValidatedAdminToken {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::admin::models::AdminPermissions;
     use uuid::Uuid;
 
     const MINE: &str = "00000000-0000-0000-0000-000000000001";
@@ -225,6 +297,95 @@ mod tests {
             assert!(
                 matches!(caller.resolve(Some("ALL")), Err(e) if e.code == ErrorCode::InvalidInput),
                 "bug: anything but `all` or an id must not read as a scope"
+            );
+        }
+    }
+
+    /// An account is within one tenant's scope only when every tenant it is
+    /// held in is that one, and it is held in one at least; within every
+    /// tenant's scope whatever it holds.
+    #[test]
+    fn a_tenant_holds_only_what_is_entirely_its_own() {
+        let own = AdminScope::Tenant { tenant_id: mine() };
+        assert!(own.holds_entirely([mine()]));
+        assert!(own.holds_entirely([mine(), mine()]));
+        assert!(
+            !own.holds_entirely([mine(), theirs()]),
+            "bug: held elsewhere too"
+        );
+        assert!(!own.holds_entirely([theirs()]), "bug: held elsewhere only");
+        assert!(!own.holds_entirely([]), "bug: a sign-up is in no tenant");
+        for tenants in [vec![], vec![mine()], vec![mine(), theirs()]] {
+            assert!(AdminScope::AllTenants.holds_entirely(tenants));
+        }
+    }
+
+    /// What a credential reaches naming no tenant, and the read naming one,
+    /// are the module table's rows for every kind of caller.
+    #[test]
+    fn a_credential_reaches_what_the_table_says() {
+        let token = |is_super_admin, tenant: Option<&str>| ValidatedAdminToken {
+            token_id: "t".to_owned(),
+            service_name: "s".to_owned(),
+            permissions: AdminPermissions::super_admin(),
+            is_super_admin,
+            tenant_id: tenant.map(str::to_owned),
+            operator_user_id: None,
+            user_info: None,
+        };
+        assert_eq!(token(true, None).reach().ok(), Some(AdminScope::AllTenants));
+        assert_eq!(
+            token(true, Some(MINE)).reach().ok(),
+            Some(AdminScope::AllTenants),
+            "bug: a console session's active tenant does not bound it"
+        );
+        assert_eq!(
+            token(false, Some(MINE)).reach().ok(),
+            Some(AdminScope::Tenant { tenant_id: mine() })
+        );
+        assert!(
+            matches!(token(false, None).reach(), Err(e) if e.code == ErrorCode::PermissionDenied),
+            "bug: a token bound to no tenant reaches none"
+        );
+
+        assert!(token(true, None).require_tenant_access(THEIRS).is_ok());
+        assert!(token(false, Some(MINE)).require_tenant_access(MINE).is_ok());
+        for refused in [
+            token(false, Some(MINE)).require_tenant_access(THEIRS),
+            token(false, None).require_tenant_access(MINE),
+        ] {
+            assert!(matches!(refused, Err(e) if e.code == ErrorCode::PermissionDenied));
+        }
+    }
+
+    /// A setting global to the platform is read and changed only by a
+    /// credential that reaches every tenant: a token bound to one tenant is
+    /// refused, and so is a token bound to none without the super-admin
+    /// flag, which reaches no tenant at all.
+    #[test]
+    fn only_a_credential_reaching_every_tenant_touches_a_global_setting() {
+        let token = |is_super_admin, tenant: Option<&str>| ValidatedAdminToken {
+            token_id: "t".to_owned(),
+            service_name: "s".to_owned(),
+            permissions: AdminPermissions::super_admin(),
+            is_super_admin,
+            tenant_id: tenant.map(str::to_owned),
+            operator_user_id: None,
+            user_info: None,
+        };
+        // A console admin carries the active tenant here and is not bound by it.
+        assert!(token(true, Some(MINE)).require_global_scope().is_ok());
+        assert!(token(true, None).require_global_scope().is_ok());
+        for (refused, why) in [
+            (token(false, Some(MINE)), "bug: a token bound to one tenant"),
+            (
+                token(false, None),
+                "bug: a token bound to no tenant reaches none",
+            ),
+        ] {
+            assert!(
+                matches!(refused.require_global_scope(), Err(e) if e.code == ErrorCode::PermissionDenied),
+                "{why}"
             );
         }
     }

@@ -7,6 +7,11 @@
 #![allow(missing_docs)]
 
 use pierre_core::admin::models::{AdminPermission, AdminPermissions, ValidatedAdminToken};
+use pierre_core::errors::ErrorCode;
+
+/// Two tenants: a token's own, and another.
+const TENANT_ABC: &str = "0f0a0b0c-0000-4000-8000-0000000000ab";
+const TENANT_XYZ: &str = "0f0a0b0c-0000-4000-8000-0000000000ef";
 
 fn make_token(
     permissions: AdminPermissions,
@@ -27,8 +32,8 @@ fn make_token(
 #[test]
 fn super_admin_accesses_any_tenant() {
     let token = make_token(AdminPermissions::super_admin(), true, None);
-    assert!(token.require_tenant_access("tenant_abc").is_ok());
-    assert!(token.require_tenant_access("tenant_xyz").is_ok());
+    assert!(token.require_tenant_access(TENANT_ABC).is_ok());
+    assert!(token.require_tenant_access(TENANT_XYZ).is_ok());
 }
 
 #[test]
@@ -36,9 +41,9 @@ fn scoped_token_accesses_own_tenant() {
     let token = make_token(
         AdminPermissions::new(vec![AdminPermission::ViewConfiguration]),
         false,
-        Some("tenant_abc"),
+        Some(TENANT_ABC),
     );
-    assert!(token.require_tenant_access("tenant_abc").is_ok());
+    assert!(token.require_tenant_access(TENANT_ABC).is_ok());
 }
 
 #[test]
@@ -46,9 +51,9 @@ fn scoped_token_rejected_for_different_tenant() {
     let token = make_token(
         AdminPermissions::new(vec![AdminPermission::ViewConfiguration]),
         false,
-        Some("tenant_abc"),
+        Some(TENANT_ABC),
     );
-    assert!(token.require_tenant_access("tenant_xyz").is_err());
+    assert!(token.require_tenant_access(TENANT_XYZ).is_err());
 }
 
 #[test]
@@ -62,7 +67,22 @@ fn unscoped_non_super_admin_rejected() {
         false,
         None,
     );
-    assert!(token.require_tenant_access("tenant_abc").is_err());
+    assert!(token.require_tenant_access(TENANT_ABC).is_err());
+}
+
+/// The read names a tenant by its id: anything else is refused as input,
+/// whoever asks (the scope rule, carnet#1589).
+#[test]
+fn a_tenant_that_is_no_tenant_id_is_invalid_input() {
+    for token in [
+        make_token(AdminPermissions::super_admin(), true, None),
+        make_token(AdminPermissions::super_admin(), false, Some(TENANT_ABC)),
+    ] {
+        assert!(matches!(
+            token.require_tenant_access("tenant_abc"),
+            Err(e) if e.code == ErrorCode::InvalidInput
+        ));
+    }
 }
 
 #[test]

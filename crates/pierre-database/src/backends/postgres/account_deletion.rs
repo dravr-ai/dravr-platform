@@ -32,7 +32,8 @@ use crate::repositories::provider_data::{
     USER_ACTIVITY_ROWS_SQL, USER_SYNC_STATE_SQL, USER_WELLNESS_ROWS_SQL,
 };
 use crate::repositories::user_references::{
-    clear_user_in_transaction, delete_user_error, LIVE_DEVICE_LOGINS_SQL, POSTGRES_USER_PURGE,
+    clear_user_in_transaction, delete_user_error, LIVE_DEVICE_LOGINS_SQL,
+    POSTGRES_SCRUB_ACTOR_AUDIT_EVENTS_SQL as SCRUB_ACTOR_AUDIT_EVENTS_SQL, POSTGRES_USER_PURGE,
     RETIRE_DEVICE_LOGINS_SQL, SCRUB_DEVICE_LOGIN_REQUESTS_SQL, SCRUB_PROVISIONED_BY_NAME_SQL,
     SCRUB_TOKEN_NAME_SQL,
 };

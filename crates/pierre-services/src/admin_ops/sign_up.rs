@@ -1,5 +1,5 @@
 // ABOUTME: Decides a pending sign-up for a surface that is no admin's decision: a sign-up rule, or the Slack sign-up room
-// ABOUTME: The write lands only while the account is still pending; the room's approval gives the account a tenant or is put back
+// ABOUTME: The write lands only while the account is still pending; an approval that cannot give the account a tenant is put back
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -77,6 +77,7 @@ pub async fn decide_sign_up(
     Ok(write.map(|write| StatusTransition {
         user: write.user,
         withdrawn: write.withdrawn,
+        previous: UserStatus::Pending,
     }))
 }
 
@@ -141,68 +142,62 @@ pub async fn activate_pending_sign_up(
     })
 }
 
-/// A sign-up the room approved.
+/// An account an approval made active.
 #[derive(Debug)]
 pub struct ApprovedSignUp {
     /// The account as stored after the approval.
     pub user: User,
-    /// The tenant the approval is attributed to: the one provisioned for
-    /// the account, or the one it already owned or belonged to.
+    /// The tenant the approval is attributed to: the approver's, the one
+    /// provisioned for the account, or the one it already owned or belonged
+    /// to.
     pub tenant_id: Option<TenantId>,
 }
 
-/// What became of the room's approval of a sign-up ([`approve_sign_up`]).
+/// What became of an approval ([`super::approve_user`]).
 #[derive(Debug)]
 pub enum SignUpApproval {
-    /// The sign-up is approved and the account has a tenant.
+    /// The account is active and has a tenant.
     Approved(Box<ApprovedSignUp>),
     /// The write found the sign-up decided: nothing was written
-    /// ([`decide_sign_up`]).
+    /// ([`decide_sign_up`]). Only a surface that decides sign-ups is
+    /// answered so; an admin's approval of an account already active is
+    /// refused instead.
     LostAtTheWrite,
     /// The approval landed, the account could not be given its tenant, and
-    /// the sign-up was put back: it is pending again, for the next approval
-    /// to finish. The cause is what failed.
+    /// it was put back to the status it had: pending again for the next
+    /// approval to finish, or suspended as an admin left it. The cause is
+    /// what failed.
     PutBack(AppError),
 }
 
-/// Approve the sign-up `acting` names for the Slack sign-up room: active
-/// while it is still pending ([`decide_sign_up`]), with a tenant of its own
-/// when it belongs to none.
-///
-/// The tenant comes after the write, since only the write says which of two
-/// taps decides. An approval that cannot give the account its tenant (the
-/// tenants cannot be read, or one cannot be made) must not leave an active
-/// account with none and nobody told: the room's card is spent by then, and
-/// the console finds nothing to approve. So the sign-up is put back to
-/// pending, where the next tap or the console approves it. The write that
-/// puts it back lands only while the account is still active: one an admin
-/// suspended in between stays as the admin left it, and the failure is
-/// returned as it is.
-///
-/// # Errors
-///
-/// Returns the repository's error when the approving write fails, and what
-/// failed after it when the sign-up could not be put back.
-pub async fn approve_sign_up(
-    repos: &RepositoryRegistry,
-    acting: &ActingOn<'_>,
-) -> Result<SignUpApproval, AppError> {
-    let Some(approved) = decide_sign_up(repos, acting, SignUpDecision::Approve).await? else {
-        return Ok(SignUpApproval::LostAtTheWrite);
-    };
-    let user = approved.user;
-    match own_tenant(repos, &user).await {
-        Ok(tenant_id) => Ok(SignUpApproval::Approved(Box::new(ApprovedSignUp {
-            user,
-            tenant_id,
-        }))),
-        Err(cause) => put_back(repos, acting, cause).await,
+impl SignUpApproval {
+    /// The approved account, for a surface that answers anything else as
+    /// a failure: an approval that was put back is its cause, and one that
+    /// lost at the write says the account was decided meanwhile.
+    ///
+    /// # Errors
+    ///
+    /// The cause of a put-back approval, and an invalid-input error for a
+    /// lost one.
+    pub fn into_approved(self) -> Result<ApprovedSignUp, AppError> {
+        match self {
+            Self::Approved(approved) => Ok(*approved),
+            Self::LostAtTheWrite => Err(AppError::invalid_input(
+                "The account was decided meanwhile; nothing was approved",
+            )),
+            Self::PutBack(cause) => Err(cause),
+        }
     }
 }
 
-/// The tenant an approved sign-up's events are attributed to, provisioning
-/// one of its own when the account belongs to none.
-async fn own_tenant(repos: &RepositoryRegistry, user: &User) -> Result<Option<TenantId>, AppError> {
+/// The tenant an approved account's events are attributed to, provisioning
+/// one of its own when the account belongs to none: whether an approved
+/// account needs a tenant of its own is the account's property, not the
+/// approver's choice (registre#407).
+pub(super) async fn own_tenant(
+    repos: &RepositoryRegistry,
+    user: &User,
+) -> Result<Option<TenantId>, AppError> {
     let tenants = repos.tenants.list_for_user(user.id).await?;
     if !tenants.is_empty() {
         return Ok(Tenant::attribution_tenant(&tenants, user.id));
@@ -219,24 +214,27 @@ async fn own_tenant(repos: &RepositoryRegistry, user: &User) -> Result<Option<Te
     Ok(Some(provisioned.id))
 }
 
-/// Set the sign-up `acting` names back to pending after `cause` kept its
-/// approval from completing, only while it is still active.
-async fn put_back(
+/// Set the account `acting` names back to `previous`, the status it had
+/// before the approval, after `cause` kept that approval from completing,
+/// only while it is still active.
+pub(super) async fn put_back(
     repos: &RepositoryRegistry,
     acting: &ActingOn<'_>,
+    previous: UserStatus,
     cause: AppError,
 ) -> Result<SignUpApproval, AppError> {
     let user_id = acting.id();
     let undone = repos
         .users
-        .update_status_from(user_id, UserStatus::Active, UserStatus::Pending, None)
+        .update_status_from(user_id, UserStatus::Active, previous, None)
         .await;
     match undone {
         Ok(Some(write)) => {
             warn!(
                 user_id = %user_id,
                 error = %cause,
-                "A sign-up's approval could not give the account a tenant; the sign-up is pending again"
+                status = %previous,
+                "An approval could not give the account a tenant; the account is back where it was"
             );
             // Leaving the active status withdraws what the account held
             // from a time as an admin, as any suspension does.
@@ -255,7 +253,7 @@ async fn put_back(
             warn!(
                 user_id = %user_id,
                 error = %cause,
-                "A sign-up's approval could not give the account a tenant, and the account was decided again meanwhile; it is left as it stands"
+                "An approval could not give the account a tenant, and the account was decided again meanwhile; it is left as it stands"
             );
             Err(cause)
         }
@@ -264,7 +262,7 @@ async fn put_back(
                 user_id = %user_id,
                 error = %cause,
                 undo_error = %undo,
-                "A sign-up's approval could not give the account a tenant, and the sign-up could not be put back: the account is active with no tenant"
+                "An approval could not give the account a tenant, and the account could not be put back: it is active with no tenant"
             );
             Err(cause)
         }
@@ -298,6 +296,7 @@ mod tests {
         let outcome = put_back(
             repos,
             &acting,
+            UserStatus::Pending,
             AppError::database("the tenant could not be made"),
         )
         .await;

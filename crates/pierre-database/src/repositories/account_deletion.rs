@@ -575,6 +575,22 @@ macro_rules! impl_account_deletion_repository {
                         .map_err(admin_token)?;
                 }
 
+                // The trail rows the account wrote as an admin stay, as its
+                // request log does, without its address, user agent or name
+                // in them; rewritten before the purge, which deletes the rows
+                // that still name it: the ones about it.
+                sqlx::query(SCRUB_ACTOR_AUDIT_EVENTS_SQL)
+                    .bind(&owner)
+                    .bind(DELETED_ACCOUNT_LABEL)
+                    .bind(&email)
+                    .execute(guard.executor()?)
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to take a deleted account out of the trail rows it wrote: {e}"
+                        ))
+                    })?;
+
                 let rows_removed = clear_user_in_transaction!(
                     guard,
                     $ids,

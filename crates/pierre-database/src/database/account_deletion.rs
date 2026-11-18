@@ -34,7 +34,7 @@ use crate::repositories::provider_data::{
 use crate::repositories::user_references::{
     clear_user_in_transaction, delete_user_error, LIVE_DEVICE_LOGINS_SQL, RETIRE_DEVICE_LOGINS_SQL,
     SCRUB_DEVICE_LOGIN_REQUESTS_SQL, SCRUB_PROVISIONED_BY_NAME_SQL, SCRUB_TOKEN_NAME_SQL,
-    SQLITE_USER_PURGE,
+    SQLITE_SCRUB_ACTOR_AUDIT_EVENTS_SQL as SCRUB_ACTOR_AUDIT_EVENTS_SQL, SQLITE_USER_PURGE,
 };
 use crate::repositories::user_sql::DELETE_USER_SQL;
 use crate::repositories::uuid_columns::TextUuid;

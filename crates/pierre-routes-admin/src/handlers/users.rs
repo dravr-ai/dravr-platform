@@ -33,7 +33,7 @@ use super::linked_channels;
 use super::types::{
     AdminResponse, ApproveUserRequest, ListUsersQuery, SuspendUserRequest, UserActivityQuery,
 };
-use super::user_removal::{require_within_token_tenant, status_write_target};
+use super::user_removal::{account_in_reach, parse_user_id};
 use crate::context::AdminApiContext;
 
 /// User list response
@@ -111,8 +111,8 @@ pub(crate) const fn user_status_str(status: UserStatus) -> &'static str {
 ///
 /// A token scoped to one tenant lists the members of that tenant only, the
 /// accounts its read by id finds ([`user_read_scope`]); an admin's console
-/// session, a super-admin token and a token bound to no tenant list every
-/// tenant's.
+/// session and a super-admin token list every tenant's, and a token bound
+/// to no tenant is refused (403).
 pub(crate) async fn handle_list_users(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -208,11 +208,18 @@ pub(crate) async fn handle_list_users(
 /// each tenant) because the reason to ask about ONE user is usually a field the
 /// list does not show.
 ///
+/// A token bound to one tenant reads a member of that tenant, and only what
+/// of it belongs to that tenant: the providers it holds there and the
+/// messaging identities linked there, the groups it owns there. The preview
+/// of a whole-account reset, a route only a super-admin token takes, is left
+/// out of its answer.
+///
 /// # Errors
 ///
-/// Returns an invalid-input error for a malformed id, a not-found error for an
-/// unknown user, and a database error when the user or their providers cannot
-/// be read.
+/// Returns an invalid-input error for a malformed id, a permission error for
+/// a token that reaches no tenant, a not-found error for an unknown user and
+/// one outside a bound token's tenant, and a database error when the user or
+/// their providers cannot be read.
 pub async fn handle_get_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -232,10 +239,7 @@ pub async fn handle_get_user(
         ));
     }
 
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
+    let user_uuid = parse_user_id(&user_id)?;
 
     // A scoped token reads only the users of its tenant, and one outside it
     // answers 404 like a missing one, as the password reset does: the read
@@ -245,9 +249,14 @@ pub async fn handle_get_user(
         .await
         .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
 
-    // The providers the user holds, across tenants: what a delete would
-    // disconnect, and what `pierre-cli user delete` previews without --yes.
-    let connected_providers = held_providers(&context.repos, user_uuid).await?;
+    // The providers the user holds: what a delete would disconnect, and what
+    // `pierre-cli user delete` previews without --yes. Across tenants for a
+    // caller that reaches every tenant; a bound token's own tenant's only.
+    let connected_providers: Vec<_> = held_providers(&context.repos, user_uuid)
+        .await?
+        .into_iter()
+        .filter(|held| scope.is_none_or(|own| held.tenant_id == own))
+        .collect();
     // Which of them an onboarding reset keeps, which
     // `pierre-cli user reset-onboarding` previews without --yes: this server's
     // answer, not the CLI build's.
@@ -261,55 +270,67 @@ pub async fn handle_get_user(
         .users
         .manages_roster_operator_grant(user_uuid)
         .await?;
-    // What would refuse a whole-account reset, which `pierre-cli user reset`
-    // previews without --yes instead of promising a wipe the server refuses:
-    // as it stands, and once the groups the account owns are archived
-    // (`--delete-owned-groups`), with those groups named.
-    let reset_blockers = context
-        .repos
-        .account_reset
-        .reset_blockers(user_uuid, false)
-        .await?;
-    let reset_blockers_with_owned_groups_deleted = context
-        .repos
-        .account_reset
-        .reset_blockers(user_uuid, true)
-        .await?;
     let owned_active_groups: Vec<Value> = context
         .repos
         .account_reset
         .owned_active_groups(user_uuid)
         .await?
         .into_iter()
+        .filter(|group| scope.is_none_or(|own| group.tenant_id == own))
         .map(|group| json!({ "id": group.group_id, "name": group.name }))
         .collect();
 
-    let linked_channels = linked_channels::for_user(&context.repos, user_uuid).await?;
+    let linked_channels = match scope {
+        None => linked_channels::for_user(&context.repos, user_uuid).await?,
+        Some(own) => linked_channels::for_user_in_tenant(&context.repos, own, user_uuid).await?,
+    };
     info!(token_id = %admin_token.token_id, "Read user {user_id}");
+
+    let mut data = json!({
+        "id": user.id.to_string(),
+        "email": user.email,
+        "display_name": user.display_name,
+        "tier": user_tier_to_str(&user.tier),
+        "status": user_status_str(user.user_status),
+        "role": user.role.as_str(),
+        "is_admin": user.role.is_admin(),
+        "manages_roster": user.manages_roster,
+        "manages_roster_operator_grant": manages_roster_operator_grant,
+        "created_at": user.created_at.to_rfc3339(),
+        "last_active": user.last_active.to_rfc3339(),
+        "connected_providers": connected_providers,
+        "kept_on_onboarding_reset": kept_on_onboarding_reset,
+        "owned_active_groups": owned_active_groups,
+        "linked_channels": linked_channels,
+    });
+    // What would refuse a whole-account reset, which `pierre-cli user reset`
+    // previews without --yes instead of promising a wipe the server refuses:
+    // as it stands, and once the groups the account owns are archived
+    // (`--delete-owned-groups`). The reset is a super-admin route reaching
+    // every tenant, so a bound token, which cannot take it, is not shown
+    // what it would find in the others.
+    if scope.is_none() {
+        data["reset_blockers"] = json!(
+            context
+                .repos
+                .account_reset
+                .reset_blockers(user_uuid, false)
+                .await?
+        );
+        data["reset_blockers_with_owned_groups_deleted"] = json!(
+            context
+                .repos
+                .account_reset
+                .reset_blockers(user_uuid, true)
+                .await?
+        );
+    }
 
     Ok(json_response(
         AdminResponse {
             success: true,
             message: format!("Retrieved {}", user.email),
-            data: Some(json!({
-                "id": user.id.to_string(),
-                "email": user.email,
-                "display_name": user.display_name,
-                "tier": user_tier_to_str(&user.tier),
-                "status": user_status_str(user.user_status),
-                "role": user.role.as_str(),
-                "is_admin": user.role.is_admin(),
-                "manages_roster": user.manages_roster,
-                "manages_roster_operator_grant": manages_roster_operator_grant,
-                "created_at": user.created_at.to_rfc3339(),
-                "last_active": user.last_active.to_rfc3339(),
-                "connected_providers": connected_providers,
-                "kept_on_onboarding_reset": kept_on_onboarding_reset,
-                "reset_blockers": reset_blockers,
-                "reset_blockers_with_owned_groups_deleted": reset_blockers_with_owned_groups_deleted,
-                "owned_active_groups": owned_active_groups,
-                "linked_channels": linked_channels,
-            })),
+            data: Some(data),
         },
         StatusCode::OK,
     ))
@@ -343,7 +364,8 @@ const PENDING_MEMBERS_PAGE: usize = 100;
 /// A token scoped to one tenant lists the pending members of that tenant
 /// only ([`user_read_scope`]). A sign-up is a member of no tenant until it
 /// is approved, so such a token is listed none of the sign-ups its read by
-/// id would not find either; every other caller lists them all.
+/// id would not find either. An admin's console session and a super-admin
+/// token list them all, and a token bound to no tenant is refused (403).
 pub(crate) async fn handle_pending_users(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -396,27 +418,23 @@ pub(crate) async fn handle_pending_users(
 }
 
 /// The tenant a caller's reads of users are confined to, `None` for a
-/// caller that reads every tenant's.
+/// caller that reads every tenant's: what the credential reaches
+/// ([`ValidatedAdminToken::reach`], the scope rule's one reading).
 ///
 /// One rule for the read of a user by id, the two lists and the per-user
-/// reads (rate limits, activity), and for which account a password reset
-/// finds before the rule of the writes decides it
-/// ([`handle_reset_user_password`]):
-/// an admin's console session, like a super-admin token, reads every user;
-/// a token scoped to one tenant reads the members of that tenant
-/// (`admin_ops::find_user_in_admin_scope`, the paged listing's tenant
-/// filter), and anyone else is answered as a missing account is. A token
-/// bound to no tenant names none and reads every tenant's users, as it
-/// acts on them (`user_removal`).
+/// reads (rate limits, activity), and for which account a write finds
+/// (`account_in_reach`): an admin's console session, like a super-admin
+/// token, reads every user; a token scoped to one tenant reads the members
+/// of that tenant (`admin_ops::find_user_in_admin_scope`, the paged
+/// listing's tenant filter), and anyone else is answered as a missing
+/// account is. A token bound to no tenant without the super-admin flag
+/// reaches no tenant and is refused (carnet#1589).
 ///
-/// The scope decides which account is found, not what of it is shown: the
-/// read by id, the rate limits and the activity of a member answer for the
-/// whole account, its providers and channels in other tenants included.
+/// # Errors
+/// `PermissionDenied` for a token that reaches no tenant, `InvalidInput`
+/// for one whose tenant is not a tenant id.
 pub(super) fn user_read_scope(token: &ValidatedAdminToken) -> AppResult<Option<TenantId>> {
-    if token.is_super_admin {
-        return Ok(None);
-    }
-    token_tenant(token)
+    Ok(token.reach()?.tenant_filter())
 }
 
 /// The tenant an admin token acts in: a console session's active tenant, or
@@ -483,10 +501,12 @@ pub(super) async fn announce_approval(
 
 /// Handle user approval workflow.
 ///
-/// An admin (a suspended one, reinstated) is approved only by an admin's
-/// console session or a super-admin token, 403 otherwise. A token scoped to
-/// one tenant approves only a user held entirely within it, 403 otherwise,
-/// as it deletes one.
+/// The account is read as every write reads it (`account_in_reach`): one
+/// outside a bound token's tenant answers 404; an admin (a suspended one,
+/// reinstated) is approved only by an admin's console session or a
+/// super-admin token, 403 otherwise; and a token scoped to one tenant
+/// approves only a user held entirely within it, 403 otherwise, as it
+/// deletes one.
 pub(crate) async fn handle_approve_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -517,16 +537,18 @@ pub(crate) async fn handle_approve_user(
     // Approving a suspended admin hands back every power, so it takes the
     // rank suspending one does, and sets the account active in every tenant
     // it is in, so it takes the token's tenant too.
-    let acting = status_write_target(ctx, &admin_token, &caller, &user_id).await?;
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
     let user_uuid = acting.id();
 
-    // One approval path for the CLI and the console: the operator behind the
-    // token is recorded as the approver, and the user joins the tenant the
-    // approver works in. Whether an approved user needs a tenant of their own
-    // is decided by the user, not by an operator's request body — the Slack
-    // approval path provisions one only `if !has_tenants` (registre#407).
-    let updated_user =
-        admin_ops::approve_user(&ctx.repos, &acting, token_tenant(&admin_token)?).await?;
+    // One approval for every surface (the CLI, the console, the Slack room):
+    // the admin behind the token is recorded as the approver, and the user
+    // joins the tenant the approver works in. Whether an approved user needs
+    // a tenant of their own is decided by the user, not by an admin's request
+    // body: one that belongs to none is given its own (registre#407).
+    let updated_user = admin_ops::approve_user(&ctx.repos, &acting, token_tenant(&admin_token)?)
+        .await?
+        .into_approved()?
+        .user;
 
     let reason = request.reason.as_deref().unwrap_or("No reason provided");
     info!("User {} approved successfully. Reason: {}", user_id, reason);
@@ -565,9 +587,10 @@ pub(crate) async fn handle_approve_user(
 ///
 /// Over this API an admin is suspended only by an admin's console session or
 /// a super-admin token (403 otherwise); the last active admin by no one, and
-/// no admin by its own session or device login (400). A token scoped to one
-/// tenant suspends only a user held entirely within it, 403 otherwise, as it
-/// deletes one.
+/// no admin by its own session or device login (400). An account outside a
+/// bound token's tenant answers 404, and a token scoped to one tenant
+/// suspends only a user held entirely within it, 403 otherwise, as it
+/// deletes one (`account_in_reach`).
 pub(crate) async fn handle_suspend_user(
     State(context): State<Arc<AdminApiContext>>,
     Extension(admin_token): Extension<ValidatedAdminToken>,
@@ -599,7 +622,7 @@ pub(crate) async fn handle_suspend_user(
     // it takes the rank removing one does: a token without the super-admin
     // flag suspends users, never the admins above it. And it signs the
     // account out of every tenant it is in, so it takes the token's tenant.
-    let acting = status_write_target(ctx, &admin_token, &caller, &user_id).await?;
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
     let user_uuid = acting.id();
 
     // Shared get/guard/update-status core (no tenant step on suspension); the
@@ -658,10 +681,10 @@ pub(crate) async fn handle_suspend_user(
 /// with the token and their chosen new password. The token expires after 1 hour
 /// and can only be used once.
 ///
-/// A token scoped to one tenant finds the account as its reads do, a member
-/// of its tenant ([`user_read_scope`]), and is handed a reset token as it
-/// suspends or deletes: only for a user held entirely within that tenant
-/// (`require_within_token_tenant`, 403 otherwise, nothing issued). Whoever
+/// The account is read as every write reads it (`account_in_reach`): a
+/// token scoped to one tenant finds a member of its tenant (404 otherwise),
+/// and is handed a reset token as it suspends or deletes: only for a user
+/// held entirely within that tenant (403 otherwise, nothing issued). Whoever
 /// holds the reset token signs in as the whole account, in every tenant it
 /// is in.
 pub(crate) async fn handle_reset_user_password(
@@ -689,27 +712,12 @@ pub(crate) async fn handle_reset_user_password(
     );
 
     let ctx = context.as_ref();
-    let user_uuid = Uuid::parse_str(&user_id).map_err(|e| {
-        warn!(error = %e, "Invalid user ID format");
-        AppError::invalid_input(format!("Invalid user ID format: {e}"))
-    })?;
-
-    // An admin's console session, like a super-admin token, reaches every
-    // user; a scoped token reaches only the users of the tenant it acts in (a
-    // platform-wide token names none), and a user outside it answers 404
-    // exactly like a missing one.
-    let scope = user_read_scope(&admin_token)?;
-    let user = admin_ops::find_user_in_admin_scope(&ctx.repos, scope, user_uuid)
-        .await
-        .inspect_err(|_| warn!("User not found in admin scope: {user_id}"))?;
     // The reset token signs its holder in as the account, so a token without
-    // the super-admin flag is handed none for an admin (403).
+    // the super-admin flag is handed none for an admin (403), and a bound
+    // token none for a user held outside its tenant.
     let caller = AccountCaller::of_token(&admin_token);
-    let acting = caller.acting_on(user)?;
-    // A write to the whole account, so it takes the tenant rule of the
-    // other writes, in their order: after the rank.
-    let held = held_providers(&ctx.repos, user_uuid).await?;
-    require_within_token_tenant(ctx, &admin_token, user_uuid, &held).await?;
+    let (acting, _) = account_in_reach(ctx, &admin_token, &caller, &user_id).await?;
+    let user_uuid = acting.id();
     let user = acting.account();
 
     // Audit identity: the operator when the token names one, else the service.

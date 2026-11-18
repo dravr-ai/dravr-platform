@@ -37,6 +37,7 @@ use crate::helpers;
 use std::sync::Arc;
 
 use axum::Router;
+use chrono::Utc;
 use common::{acting_on, create_test_server_resources, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
 use pierre_core::admin::models::{
@@ -44,7 +45,7 @@ use pierre_core::admin::models::{
     DEVICE_CLI_DELETED_ACCOUNT_SERVICE,
 };
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::{TenantId, User, UserStatus};
+use pierre_core::models::{Tenant, TenantId, User, UserStatus};
 use pierre_core::permissions::UserRole;
 use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::{AuditEventFilter, AuditEventRecord};
@@ -720,6 +721,41 @@ async fn service_token(resources: &Arc<ServerContext>, name: &str, super_admin: 
 /// What a token without the super-admin flag is answered on an admin account.
 const RANK_REFUSAL: &str = "Acting on an admin account requires a super-admin token";
 
+/// A `ManageUsers` token without the super-admin flag, bound to a desk
+/// tenant every one of `members` is held in and in no other: a token that
+/// reaches those accounts, so that what refuses it on an admin is the rank
+/// rule. A token bound to no tenant reaches no account (carnet#1589). Its
+/// bearer header.
+async fn desk_token(resources: &Arc<ServerContext>, members: &[Uuid]) -> String {
+    let repos = &resources.common.repos;
+    let mut owner = User::new(
+        format!("desk-owner-{}@example.com", Uuid::new_v4()),
+        "hash".to_owned(),
+        None,
+    );
+    owner.user_status = UserStatus::Active;
+    repos.users.create(&owner).await.unwrap();
+    let desk = TenantId::generate();
+    repos
+        .tenants
+        .create(&Tenant {
+            id: desk,
+            name: "support desk".to_owned(),
+            slug: format!("desk-{desk}"),
+            domain: None,
+            plan: "starter".to_owned(),
+            owner_user_id: owner.id,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+    for member in members {
+        repos.users.update_tenant_id(*member, desk).await.unwrap();
+    }
+    tenant_bound_token(resources, desk).await
+}
+
 /// Suspend `target` with the admin token `bearer`, as `pierre-cli` does.
 async fn suspend_with_token(
     resources: &Arc<ServerContext>,
@@ -746,7 +782,7 @@ async fn a_token_without_the_super_admin_flag_suspends_a_user_and_never_an_admin
     account(&resources, "peer@example.com", UserRole::Admin).await;
     let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
     let admin_cli = device_login(&resources, &admin.email).await;
-    let manage_users = service_token(&resources, "support-desk", false).await;
+    let manage_users = desk_token(&resources, &[admin.id, athlete.id]).await;
     let flagged = service_token(&resources, "platform-ops", true).await;
 
     let (status, body) = suspend_with_token(&resources, &manage_users, admin.id).await;
@@ -813,7 +849,7 @@ async fn a_token_without_the_super_admin_flag_approves_a_user_and_never_an_admin
     let (admin, _) = account(&resources, "suspended@example.com", UserRole::Admin).await;
     account(&resources, "peer@example.com", UserRole::Admin).await;
     let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
-    let manage_users = service_token(&resources, "support-desk", false).await;
+    let manage_users = desk_token(&resources, &[admin.id, athlete.id]).await;
     let flagged = service_token(&resources, "platform-ops", true).await;
     for suspended in [admin.id, athlete.id] {
         let (status, body) = suspend_with_token(&resources, &flagged, suspended).await;
@@ -872,34 +908,42 @@ async fn allow_with_token(
     (response.status(), response.text())
 }
 
-/// An allow approves a pending account on the spot, so pre-approving the
-/// address of a pending admin is approving that admin: it takes the rank the
-/// approval by id takes, and a `ManageUsers` token is refused before
-/// anything is written. The same token still approves a pending sign-up
-/// through its address, and the flag is the rank.
+/// An allow approves a pending account on the spot, whatever tenant it is
+/// or will be in: it is platform-wide, so a token without the super-admin
+/// flag is refused it before anything is written, bound to a tenant (in its
+/// own sentence) or to none (it reaches no tenant), on a pending admin's
+/// address and a pending user's alike (carnet#1589). The rank an allow
+/// takes on a pending admin is the service's (`account_caller_rank_test`).
+/// The flag is the rank.
 #[tokio::test]
-async fn a_token_without_the_super_admin_flag_allows_a_pending_user_and_never_a_pending_admin() {
+async fn a_token_without_the_super_admin_flag_allows_no_pending_account() {
     let resources = create_test_server_resources().await.unwrap();
     account(&resources, "standing@example.com", UserRole::Admin).await;
     let admin = pending_account(&resources, "promoted@example.com", UserRole::Admin).await;
     let athlete = pending_account(&resources, "waiting@example.com", UserRole::User).await;
-    let manage_users = service_token(&resources, "support-desk", false).await;
+    let bound = desk_token(&resources, &[admin.id, athlete.id]).await;
+    let unbound = service_token(&resources, "support-desk", false).await;
     let flagged = service_token(&resources, "platform-ops", true).await;
 
-    // The address as a person types it: the account is found whatever its
-    // casing or the space around it.
-    let (status, body) =
-        allow_with_token(&resources, &manage_users, " Promoted@Example.com ").await;
-    assert_eq!(status, 403, "ManageUsers alone approves no admin: {body}");
-    assert!(
-        body.contains(RANK_REFUSAL),
-        "the refusal is the rank rule's: {body}"
-    );
-    assert_eq!(
-        stored(&resources, admin.id).await.user_status,
-        UserStatus::Pending,
-        "the refused allow approved nobody"
-    );
+    for (caller, refusal) in [
+        (&bound, "a pre-approval is platform-wide"),
+        (&unbound, "Token has no tenant scope"),
+    ] {
+        // The address as a person types it: the account is found whatever
+        // its casing or the space around it.
+        for address in [" Promoted@Example.com ", athlete.email.as_str()] {
+            let (status, body) = allow_with_token(&resources, caller, address).await;
+            assert_eq!(status, 403, "{address}: {body}");
+            assert!(body.contains(refusal), "{address}: {body}");
+        }
+    }
+    for pending in [admin.id, athlete.id] {
+        assert_eq!(
+            stored(&resources, pending).await.user_status,
+            UserStatus::Pending,
+            "the refused allows approved nobody"
+        );
+    }
     let standing_allows = resources
         .common
         .repos
@@ -910,14 +954,6 @@ async fn a_token_without_the_super_admin_flag_allows_a_pending_user_and_never_a_
     assert!(
         standing_allows.is_empty(),
         "and recorded no standing allow: {standing_allows:?}"
-    );
-
-    // The positive control: the same token, the same route, a pending user.
-    let (status, body) = allow_with_token(&resources, &manage_users, &athlete.email).await;
-    assert_eq!(status, 200, "ManageUsers approves a sign-up: {body}");
-    assert_eq!(
-        stored(&resources, athlete.id).await.user_status,
-        UserStatus::Active
     );
 
     // The flag is the rank: the same request from a super-admin token lands.
@@ -952,9 +988,9 @@ async fn tenant_bound_token(resources: &Arc<ServerContext>, tenant: TenantId) ->
 
 /// A suspension and an approval change the account in every tenant it is
 /// in, as a delete does, so a token bound to one tenant takes the delete's
-/// rule on both: refused (403, naming the token's own scope) on a user held
-/// in another tenant, with nothing written, and accepted on a user of its
-/// own.
+/// rule on both: a user held in another tenant is not found (404, as a
+/// missing account), with nothing written, and a user of its own is
+/// accepted.
 #[tokio::test]
 async fn a_tenant_bound_token_suspends_and_approves_only_inside_its_tenant() {
     let resources = create_test_server_resources().await.unwrap();
@@ -963,13 +999,11 @@ async fn a_tenant_bound_token_suspends_and_approves_only_inside_its_tenant() {
     let (outside, _, _) = seed_user(repos, "outside").await;
     let bound = tenant_bound_token(&resources, tenant).await;
     let flagged = service_token(&resources, "platform-ops", true).await;
-    let refusal = format!(
-        "Token is scoped to tenant {tenant}; the user belongs to or holds a provider in a tenant outside it"
-    );
+    let refusal = "ResourceNotFound";
 
     let (status, body) = suspend_with_token(&resources, &bound, outside).await;
-    assert_eq!(status, 403, "another tenant's user is out of scope: {body}");
-    assert!(body.contains(&refusal), "{body}");
+    assert_eq!(status, 404, "another tenant's user is out of scope: {body}");
+    assert!(body.contains(refusal), "{body}");
     assert_eq!(
         stored(&resources, outside).await.user_status,
         UserStatus::Active,
@@ -990,8 +1024,8 @@ async fn a_tenant_bound_token_suspends_and_approves_only_inside_its_tenant() {
     let (status, body) = suspend_with_token(&resources, &flagged, outside).await;
     assert_eq!(status, 200, "{body}");
     let (status, body) = approve_with_token(&resources, &bound, outside).await;
-    assert_eq!(status, 403, "another tenant's user is out of scope: {body}");
-    assert!(body.contains(&refusal), "{body}");
+    assert_eq!(status, 404, "another tenant's user is out of scope: {body}");
+    assert!(body.contains(refusal), "{body}");
     assert_eq!(
         stored(&resources, outside).await.user_status,
         UserStatus::Suspended,
@@ -1075,7 +1109,7 @@ async fn a_token_without_the_super_admin_flag_resets_a_users_password_and_never_
     let (admin, _) = account(&resources, "standing@example.com", UserRole::Admin).await;
     let (_, peer_auth) = account(&resources, "peer@example.com", UserRole::Admin).await;
     let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
-    let manage_users = service_token(&resources, "support-desk", false).await;
+    let manage_users = desk_token(&resources, &[admin.id, athlete.id]).await;
     let flagged = service_token(&resources, "platform-ops", true).await;
     let token_path = |target: Uuid| format!("/admin/users/{target}/reset-password");
 
@@ -1408,7 +1442,7 @@ async fn a_service_token_named_after_an_account_outlives_its_deletion() {
     let (admin, _) = account(&resources, "admin@example.com", UserRole::Admin).await;
     let (athlete, _) = account(&resources, "athlete@example.com", UserRole::User).await;
     let admin_cli = device_login(&resources, &admin.email).await;
-    let export = service_token(&resources, &format!("export-{}", athlete.id), false).await;
+    let export = service_token(&resources, &format!("export-{}", athlete.id), true).await;
     assert_eq!(lists_users(&resources, &export).await, 200);
     assert_eq!(token_rows_naming(&resources, athlete.id).await, 1);
 

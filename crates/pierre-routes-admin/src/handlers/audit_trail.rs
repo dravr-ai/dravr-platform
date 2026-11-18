@@ -24,7 +24,7 @@ use serde_json::{json, to_value};
 use uuid::Uuid;
 
 use pierre_core::admin::models::ValidatedAdminToken;
-use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_core::errors::{AppError, AppResult};
 use pierre_database::repositories::{AuditEventFilter, AuditOutcome, AUDIT_PAGE_MAX};
 
 use super::api_keys::json_response;
@@ -81,16 +81,12 @@ pub async fn handle_list_audit_events(
     if let Some(denied) = deny_without_manage_users(&admin_token) {
         return Ok(denied.into_response());
     }
-    let tenant_id = if admin_token.is_super_admin {
-        None
-    } else {
-        Some(admin_token.tenant_id.clone().ok_or_else(|| {
-            AppError::new(
-                ErrorCode::PermissionDenied,
-                "A scoped token names no tenant to read the audit trail of",
-            )
-        })?)
-    };
+    // What the credential reaches: every tenant, its own, or none (the
+    // scope rule's one reading, carnet#1589).
+    let tenant_id = admin_token
+        .reach()?
+        .tenant_filter()
+        .map(|tenant| tenant.to_string());
     let filter = AuditEventFilter {
         tenant_id,
         before: query.before,

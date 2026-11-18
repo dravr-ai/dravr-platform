@@ -227,8 +227,11 @@ macro_rules! user_owned_tables {
         /// was. The email is matched as a whole quoted JSON string with its
         /// `LIKE` wildcards escaped, so deleting `bob@x.com` or `j_doe@x.com`
         /// leaves the rows about `jimbob@x.com` and `jxdoe@x.com`. The rows the
-        /// user wrote *as* an operator stay, their `user_id` set NULL by its
-        /// foreign key.
+        /// user wrote *as* an admin stay, their `user_id` set NULL by its
+        /// foreign key: the delete first takes the account out of them, its
+        /// address, user agent and name in the metadata included
+        /// (`SQLITE_SCRUB_ACTOR_AUDIT_EVENTS_SQL`, carnet#1589), so this
+        /// purge no longer finds them.
         ///
         /// The device logins the user approved as an admin are kept, under
         /// the same rule (carnet#1574): what they did stays, whose they were
@@ -396,6 +399,48 @@ pub(crate) const RETIRE_DEVICE_LOGINS_SQL: &str = "UPDATE admin_tokens \
 /// and `TEXT` on Postgres, `TEXT` on `SQLite`); `admin_token_id` is text.
 pub(crate) const SCRUB_DEVICE_LOGIN_REQUESTS_SQL: &str = "UPDATE admin_token_usage \
      SET ip_address = NULL, user_agent = NULL WHERE admin_token_id = $1";
+
+/// The trail rows a deleted account wrote as an admin, kept with what they
+/// say and without who said it, as its device logins' request log is
+/// ([`SCRUB_DEVICE_LOGIN_REQUESTS_SQL`], carnet#1589): `$1` the account's id
+/// as text, `$2` what stands in its place (`DELETED_ACCOUNT_LABEL`), `$3` its
+/// email.
+///
+/// Each row the account wrote (`audit_events.user_id`, which its foreign key
+/// sets `NULL` once the account row goes) stays, with its action, outcome,
+/// time and target. The IP address and user agent it was written from are
+/// the admin's and go. So does the account inside the row's metadata, where
+/// the credential that wrote it names it: a console session's token id
+/// carries the admin's id (`cookie:<id>`) and its service is the admin's
+/// email, and a device login's service is `device-cli:<email>`. The id is
+/// replaced wherever it stands, and the email where it is a whole JSON
+/// string or follows a `:`, the two ways a service name carries it; an
+/// address that only contains it is left alone.
+///
+/// It runs before the purge (`audit_events` in [`SQLITE_USER_PURGE`]), which
+/// deletes the rows that name the account anywhere in their metadata: the
+/// rows another admin wrote about it. Rewritten first, the account's own
+/// rows no longer name it, so the purge keeps them and the survivor read
+/// counts none. `metadata` is `TEXT` here.
+pub(crate) const SQLITE_SCRUB_ACTOR_AUDIT_EVENTS_SQL: &str = "UPDATE audit_events \
+     SET ip_address = NULL, user_agent = NULL, \
+     metadata = REPLACE(REPLACE(REPLACE(metadata, $1, $2), \
+         '\"' || $3 || '\"', '\"' || $2 || '\"'), \
+         ':' || $3 || '\"', ':' || $2 || '\"') \
+     WHERE user_id = $1";
+
+/// [`SQLITE_SCRUB_ACTOR_AUDIT_EVENTS_SQL`] on `PostgreSQL`, where `user_id`
+/// is `uuid` and `metadata` is `JSONB`: the rewrite runs on the document's
+/// text and is read back as `JSONB`. The id and the label hold no character
+/// JSON escapes, so the text stays a document; an address JSON would escape
+/// is not found in it, as the purge's match does not find it either.
+#[cfg(feature = "postgresql")]
+pub(crate) const POSTGRES_SCRUB_ACTOR_AUDIT_EVENTS_SQL: &str = "UPDATE audit_events \
+     SET ip_address = NULL, user_agent = NULL, \
+     metadata = CAST(REPLACE(REPLACE(REPLACE(CAST(metadata AS TEXT), CAST($1 AS TEXT), CAST($2 AS TEXT)), \
+         '\"' || CAST($3 AS TEXT) || '\"', '\"' || CAST($2 AS TEXT) || '\"'), \
+         ':' || CAST($3 AS TEXT) || '\"', ':' || CAST($2 AS TEXT) || '\"') AS JSONB) \
+     WHERE CAST(user_id AS TEXT) = $1";
 
 /// Take a deleted account's id out of every token name that carries it:
 /// `$1` what stands in its place (`DELETED_ACCOUNT_LABEL`), `$2` the

@@ -262,6 +262,9 @@ fn token_with(permissions: AdminPermissions, is_super_admin: bool) -> ValidatedA
     }
 }
 
+/// What a caller without the rank is answered on an admin account.
+const RANK_REFUSAL: &str = "Acting on an admin account requires a super-admin token";
+
 /// A `ManageUsers` token scoped to one tenant, as
 /// `pierre-cli token generate --permissions manage_users --tenant-id` mints it.
 fn scoped_manage_users_token(tenant_id: TenantId) -> ValidatedAdminToken {
@@ -521,7 +524,7 @@ async fn admin_disconnect_revokes_upstream_and_removes_the_rows() {
 
     let response = handle_disconnect_user_provider(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path((user_id.to_string(), "strava".to_owned())),
     )
     .await
@@ -615,7 +618,7 @@ async fn admin_disconnect_404s_for_an_unheld_provider_and_an_unknown_user() {
 
     let response = handle_disconnect_user_provider(
         State(context.clone()),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path((user_id.to_string(), "strava".to_owned())),
     )
     .await
@@ -629,7 +632,7 @@ async fn admin_disconnect_404s_for_an_unheld_provider_and_an_unknown_user() {
 
     let error = handle_disconnect_user_provider(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path((Uuid::new_v4().to_string(), "strava".to_owned())),
     )
     .await
@@ -649,7 +652,7 @@ async fn get_user_lists_the_providers_a_delete_would_disconnect() {
 
     let response = handle_get_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
     )
     .await
@@ -686,7 +689,7 @@ async fn get_user_names_the_coaching_platforms_a_reset_keeps() {
 
     let response = handle_get_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
     )
     .await
@@ -732,7 +735,7 @@ async fn get_user_lists_the_messaging_identities_linked_to_the_account() {
 
     let response = handle_get_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
     )
     .await
@@ -800,7 +803,7 @@ async fn delete_revokes_every_grant_then_removes_the_user_and_its_tokens() {
 
     let response = handle_delete_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
         delete_request(),
     )
@@ -855,7 +858,7 @@ async fn delete_of_a_group_owner_is_refused_naming_the_group_and_deletes_nothing
 
     let response = handle_delete_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(owner_id.to_string()),
         delete_request(),
     )
@@ -929,7 +932,7 @@ async fn delete_of_a_plain_member_removes_the_membership_and_the_user() {
 
     let response = handle_delete_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(member_id.to_string()),
         delete_request(),
     )
@@ -976,7 +979,7 @@ async fn an_operator_delete_removes_the_firebase_identity_and_reports_it() {
 
     let response = handle_delete_user(
         State(Arc::new(context)),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
         delete_request(),
     )
@@ -1193,7 +1196,7 @@ async fn an_unconfirmed_revocation_is_reported_as_such_not_as_revoked() {
 
     let response = handle_disconnect_user_provider(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path((user_id.to_string(), "strava".to_owned())),
     )
     .await
@@ -1282,7 +1285,7 @@ async fn delete_clears_every_row_no_foreign_key_cascades_to() {
 
     let response = handle_delete_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user),
         delete_request(),
     )
@@ -1435,7 +1438,7 @@ async fn delete_of_a_coach_clears_their_plan_drafts_and_keeps_the_athletes_seaso
 
     let response = handle_delete_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(coach.clone()),
         delete_request(),
     )
@@ -1491,7 +1494,7 @@ async fn delete_clears_the_users_quarantined_agents() {
     async fn delete_through_handler(context: Arc<AdminApiContext>, user_id: Uuid) -> Value {
         let response = handle_delete_user(
             State(context),
-            Extension(manage_users_token()),
+            Extension(super_admin_token()),
             Path(user_id.to_string()),
             delete_request(),
         )
@@ -1704,7 +1707,7 @@ async fn a_reference_written_mid_removal_is_a_409_naming_what_was_done() {
 
     let response = handle_delete_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
         delete_request(),
     )
@@ -1847,7 +1850,7 @@ async fn an_unconfirmed_withdrawal_still_deletes_and_is_named_on_the_receipt() {
 
     let response = handle_delete_user(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
         delete_request(),
     )
@@ -1885,7 +1888,8 @@ async fn an_unconfirmed_withdrawal_still_deletes_and_is_named_on_the_receipt() {
 }
 
 /// A token scoped to one tenant cannot disconnect or delete a user held in
-/// another; scoped to the user's own tenant, it can.
+/// another: it does not find the account, as a missing one (404, so it
+/// learns nothing of it). Scoped to the user's own tenant, it can.
 #[tokio::test]
 async fn a_tenant_scoped_token_acts_only_inside_its_tenant() {
     let resources = resources().await;
@@ -1895,9 +1899,16 @@ async fn a_tenant_scoped_token_acts_only_inside_its_tenant() {
     let (_, foreign_tenant, _) = seed_user(repos, "other-club").await;
     let (user_id, tenant_id, _) = seed_user(repos, "scoped").await;
     connect_strava(repos, user_id, tenant_id, None).await;
-    let refusal = format!(
-        "Token is scoped to tenant {foreign_tenant}; the user belongs to or holds a provider in a tenant outside it"
-    );
+    // The words an id no account has is answered with.
+    let refusal = handle_delete_user(
+        State(context.clone()),
+        Extension(scoped_manage_users_token(foreign_tenant)),
+        Path(Uuid::new_v4().to_string()),
+        delete_request(),
+    )
+    .await
+    .expect_err("no such account")
+    .message;
 
     let error = handle_disconnect_user_provider(
         State(context.clone()),
@@ -1906,7 +1917,7 @@ async fn a_tenant_scoped_token_acts_only_inside_its_tenant() {
     )
     .await
     .expect_err("another tenant's token is refused");
-    assert_eq!(error.code, ErrorCode::PermissionDenied);
+    assert_eq!(error.code, ErrorCode::ResourceNotFound);
     assert_eq!(error.message, refusal);
 
     let error = handle_delete_user(
@@ -1917,7 +1928,7 @@ async fn a_tenant_scoped_token_acts_only_inside_its_tenant() {
     )
     .await
     .expect_err("another tenant's token cannot delete the account");
-    assert_eq!(error.code, ErrorCode::PermissionDenied);
+    assert_eq!(error.code, ErrorCode::ResourceNotFound);
     assert_eq!(error.message, refusal);
     assert!(stub.received().is_empty(), "nothing may reach Strava");
     assert!(repos.users.get_global(user_id).await.unwrap().is_some());
@@ -1948,7 +1959,7 @@ async fn delete_user(resources: &Arc<ServerContext>, user_id: Uuid) -> Response 
     let stub = RevokeStub::start().await;
     handle_delete_user(
         State(admin_context(resources, &stub.url)),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path(user_id.to_string()),
         delete_request(),
     )
@@ -2366,7 +2377,7 @@ async fn a_provider_disconnect_that_fails_is_reported_as_interrupted() {
 
     let response = handle_disconnect_user_provider(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path((user_id.to_string(), "strava".to_owned())),
     )
     .await
@@ -2473,7 +2484,7 @@ async fn a_pool_grant_is_revoked_under_its_app_after_the_tenant_configured_its_o
 
     let response = handle_disconnect_user_provider(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path((user_id.to_string(), "strava".to_owned())),
     )
     .await
@@ -2789,7 +2800,7 @@ async fn disconnecting_a_provider_this_build_cannot_revoke_changes_nothing() {
 
     let response = handle_disconnect_user_provider(
         State(context),
-        Extension(manage_users_token()),
+        Extension(super_admin_token()),
         Path((user_id.to_string(), "synthetic".to_owned())),
     )
     .await
@@ -2829,28 +2840,32 @@ pub(crate) async fn promote(repos: &RepositoryRegistry, user_id: Uuid, role: Use
     repos.users.update(&user).await.unwrap();
 }
 
+/// A `ManageUsers` token without the flag, bound to the very tenant each
+/// admin is held in, is refused by the rank rule: it reaches the account,
+/// and may not act on an admin one.
 #[tokio::test]
-async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
+async fn a_manage_users_token_cannot_remove_or_disconnect_an_admin() {
     let resources = resources().await;
     let repos = &resources.common.repos;
     let mut stub = RevokeStub::start().await;
-    let (first_admin_id, tenant_id, _) = seed_user(repos, "top-operator").await;
+    let (first_admin_id, tenant_id, _) = seed_user(repos, "first-admin").await;
     connect_strava(repos, first_admin_id, tenant_id, None).await;
     promote(repos, first_admin_id, UserRole::Admin).await;
-    let (admin_id, _, _) = seed_user(repos, "plain-operator").await;
+    let (admin_id, admin_tenant, _) = seed_user(repos, "second-admin").await;
     promote(repos, admin_id, UserRole::Admin).await;
 
-    for target in [first_admin_id, admin_id] {
+    for (target, tenant) in [(first_admin_id, tenant_id), (admin_id, admin_tenant)] {
         let refused = handle_delete_user(
             State(admin_context(&resources, &stub.url)),
-            Extension(manage_users_token()),
+            Extension(scoped_manage_users_token(tenant)),
             Path(target.to_string()),
             delete_request(),
         )
         .await
-        .expect_err("a ManageUsers token must not delete an operator");
+        .expect_err("a ManageUsers token must not delete an admin");
         assert_eq!(refused.code, ErrorCode::PermissionDenied);
         assert_eq!(refused.http_status(), 403);
+        assert_eq!(refused.message, RANK_REFUSAL);
         assert!(
             repos.users.get_global(target).await.unwrap().is_some(),
             "the refused delete touched nothing"
@@ -2859,12 +2874,13 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
 
     let refused = handle_disconnect_user_provider(
         State(admin_context(&resources, &stub.url)),
-        Extension(manage_users_token()),
+        Extension(scoped_manage_users_token(tenant_id)),
         Path((first_admin_id.to_string(), "strava".to_owned())),
     )
     .await
-    .expect_err("a ManageUsers token must not disconnect an operator's provider");
+    .expect_err("a ManageUsers token must not disconnect an admin's provider");
     assert_eq!(refused.code, ErrorCode::PermissionDenied);
+    assert_eq!(refused.message, RANK_REFUSAL);
     assert!(stub.received().is_empty(), "nothing may reach Strava");
     assert!(
         repos
@@ -2873,7 +2889,7 @@ async fn a_manage_users_token_cannot_remove_or_disconnect_an_operator() {
             .await
             .unwrap()
             .is_some(),
-        "the operator's grant is untouched"
+        "the admin's grant is untouched"
     );
 
     // A super-admin token still can.
@@ -3363,13 +3379,14 @@ async fn a_manage_users_token_cannot_reset_an_operators_onboarding() {
 
     let refused = reset_onboarding(
         admin_context(&resources, &stub.url),
-        manage_users_token(),
+        scoped_manage_users_token(tenant_id),
         user_id,
         true,
     )
     .await
     .expect_err("a ManageUsers token must not reset an operator");
     assert_eq!(refused.code, ErrorCode::PermissionDenied);
+    assert_eq!(refused.message, RANK_REFUSAL);
     assert!(stub.received().is_empty(), "nothing may reach Strava");
     assert_eq!(
         repos

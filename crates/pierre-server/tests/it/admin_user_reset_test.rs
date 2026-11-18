@@ -1324,7 +1324,7 @@ async fn the_user_read_names_what_would_refuse_a_reset() {
         async move {
             let response = handle_get_user(
                 State(context),
-                Extension(manage_users_token()),
+                Extension(super_admin_token()),
                 Path(id.to_string()),
             )
             .await
