@@ -150,7 +150,6 @@ async fn efforts_are_counted_in_the_year_they_started_in_where_the_athlete_lives
         )
         .await;
 
-        assert_eq!(payload["answered_by"], "stored_details", "{payload}");
         // Each effort's own instant in UTC with an offset, newest first; the
         // window as asked, twice more in the note; and the count by year.
         assert_eq!(

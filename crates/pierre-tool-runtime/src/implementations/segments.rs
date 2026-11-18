@@ -56,7 +56,7 @@ use tracing::warn;
 
 pub mod answer;
 
-use answer::{answer, effort_row, AnsweredBy, SegmentHistoryResult};
+use answer::{answer, effort_row, SegmentHistoryResult};
 
 use crate::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, segment_detail_serving, DetailWalkAsk, DetailWalkAsked,
@@ -246,7 +246,6 @@ async fn stored_details(
     .await;
     Ok(answer(
         efforts,
-        AnsweredBy::StoredDetails,
         segments_read_coverage(
             counts.total,
             counts.read,

@@ -33,15 +33,6 @@ const MAX_LISTED_EFFORTS: usize = 50;
 /// newest: half, so the latest rides are always listed.
 const MAX_RANKED_SHARE: usize = MAX_LISTED_EFFORTS / 2;
 
-/// Where the efforts were read: the stored details, the one place a
-/// segment's history is answered from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum AnsweredBy {
-    /// The segment efforts stored with the athlete's activities.
-    StoredDetails,
-}
-
 /// One effort on a matched segment.
 #[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
 pub struct SegmentHistoryEffort {
@@ -129,9 +120,6 @@ pub struct SegmentHistoryResult {
     pub segments: Vec<MatchedSegment>,
     /// The efforts summed per segment and service.
     pub summary: Vec<SegmentSummary>,
-    /// Where the efforts were read: the stored details of the athlete's
-    /// activities.
-    pub answered_by: AnsweredBy,
     /// Whether the efforts are all there are in the window: `window.total` is
     /// the activities in it, `window.returned` the activities whose segments
     /// were read; with `incomplete_reason` and the walk still `pending` when
@@ -170,7 +158,6 @@ pub(super) fn effort_row(
 /// before the list is trimmed to [`MAX_LISTED_EFFORTS`].
 pub(super) fn answer(
     mut efforts: Vec<SegmentHistoryEffort>,
-    answered_by: AnsweredBy,
     coverage: Coverage,
     zone: Tz,
 ) -> SegmentHistoryResult {
@@ -209,7 +196,6 @@ pub(super) fn answer(
         efforts_total,
         segments,
         summary,
-        answered_by,
         coverage,
     }
 }
@@ -330,7 +316,7 @@ mod tests {
         let mut efforts: Vec<_> = (0..120).map(|day| ridden(day, 400, None)).collect();
         efforts[0].elapsed_time = 300;
         efforts[60].pr_rank = Some(1);
-        let answered = answer(efforts, AnsweredBy::StoredDetails, complete, Tz::UTC);
+        let answered = answer(efforts, complete, Tz::UTC);
 
         assert_eq!(
             answered.efforts.len(),
@@ -383,7 +369,6 @@ mod tests {
         efforts[0].elapsed_time = 300;
         let crowded = answer(
             efforts,
-            AnsweredBy::StoredDetails,
             segments_read_coverage(
                 0,
                 0,
@@ -411,7 +396,6 @@ mod tests {
 
         let short = answer(
             (0..3).map(|day| ridden(day, 400, None)).collect(),
-            AnsweredBy::StoredDetails,
             segments_read_coverage(
                 0,
                 0,

@@ -14018,16 +14018,6 @@
       },
       "outputSchema": {
         "$defs": {
-          "AnsweredBy": {
-            "description": "Where the efforts were read: the stored details, the one place a\nsegment's history is answered from.",
-            "oneOf": [
-              {
-                "const": "stored_details",
-                "description": "The segment efforts stored with the athlete's activities.",
-                "type": "string"
-              }
-            ]
-          },
           "Coverage": {
             "description": "[`Coverage`] as it travels: completeness flattened to the `complete` and\n`incomplete_reason` keys the turn's readers key on, and the note a model\nreads beside the structure.",
             "properties": {
@@ -14594,10 +14584,6 @@
         "anyOf": [
           {
             "properties": {
-              "answered_by": {
-                "$ref": "#/$defs/AnsweredBy",
-                "description": "Where the efforts were read: the stored details of the athlete's\nactivities."
-              },
               "coverage": {
                 "$ref": "#/$defs/Coverage",
                 "description": "Whether the efforts are all there are in the window: `window.total` is\nthe activities in it, `window.returned` the activities whose segments\nwere read; with `incomplete_reason` and the walk still `pending` when\nsome were not, and the `note` saying what may be claimed."
@@ -14637,7 +14623,6 @@
               "efforts",
               "segments",
               "summary",
-              "answered_by",
               "coverage"
             ],
             "type": "object"

@@ -199,7 +199,7 @@ use pierre_tool_runtime::implementations::routes::{
     DiscoverRoutesResult, DiscoverRoutesTool, DiscoveredRouteEntry, RouteSearchCenter,
 };
 use pierre_tool_runtime::implementations::segments::answer::{
-    AnsweredBy, MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult, SegmentSummary,
+    MatchedSegment, SegmentHistoryEffort, SegmentHistoryResult, SegmentSummary,
 };
 use pierre_tool_runtime::implementations::segments::GetSegmentHistoryTool;
 use pierre_tool_runtime::implementations::sleep::output::{
@@ -1427,7 +1427,6 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
                 best_elapsed_time: 412,
                 best_start_date: "2026-11-07T13:10:00+00:00".to_owned(),
             }],
-            answered_by: AnsweredBy::StoredDetails,
             coverage,
         };
         assert_declares_and_accepts(

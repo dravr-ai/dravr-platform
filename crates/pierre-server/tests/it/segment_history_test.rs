@@ -487,10 +487,6 @@ async fn an_id_reads_its_efforts_once_across_the_session_and_grant_copies() {
         0,
         "bug: Strava's segment listing was asked; the stored details answer alone"
     );
-    assert_eq!(
-        payload["answered_by"], "stored_details",
-        "bug: the answer is not the stored details': {payload}"
-    );
     let found = efforts(&payload);
     assert_eq!(
         found.len(),
@@ -1474,10 +1470,6 @@ async fn a_segment_id_with_a_live_grant_answers_from_the_stored_details_alone() 
         0,
         "bug: Strava's segment listing was asked for a segment id"
     );
-    assert_eq!(
-        answer["answered_by"], "stored_details",
-        "bug: a segment id was not answered by the stored details: {answer}"
-    );
     let found = efforts(&answer);
     assert_eq!(
         found.len(),
@@ -1550,7 +1542,6 @@ async fn stored_strava_efforts_are_kept_off_mcp_and_answer_the_athletes_own_app(
             efforts(&over_mcp).is_empty(),
             "bug: a stored Strava effort reached an external caller: {over_mcp}"
         );
-        assert_eq!(over_mcp["answered_by"], "stored_details", "{over_mcp}");
     }
     assert!(
         walk_row(&resources, user_id, tenant).await.is_none(),
@@ -1562,10 +1553,6 @@ async fn stored_strava_efforts_are_kept_off_mcp_and_answer_the_athletes_own_app(
         json!({ "segment_name": LA_BETE }),
     ] {
         let stored = call(&resources, (user_id, tenant), ask).await;
-        assert_eq!(
-            stored["answered_by"], "stored_details",
-            "bug: the athlete's own app was not answered by the stored details: {stored}"
-        );
         let found = efforts(&stored);
         assert_eq!(
             found.len(),
@@ -1652,7 +1639,6 @@ async fn a_sport_asked_reads_its_family_from_the_stored_details() {
         0,
         "bug: a sport asked asked Strava's segment listing"
     );
-    assert_eq!(rides["answered_by"], "stored_details", "{rides}");
     let mut both = vec![road.to_string(), mtb.to_string()];
     both.sort_unstable();
     assert_eq!(
