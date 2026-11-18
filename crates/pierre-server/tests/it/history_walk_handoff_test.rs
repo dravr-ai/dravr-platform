@@ -541,9 +541,10 @@ async fn a_session_walk_goes_on_through_the_grant_below_its_oldest_row() {
 async fn a_restart_mid_api_phase_resumes_the_grant_not_the_session() {
     let now = Utc::now().timestamp();
     let session_oldest = now - 2 * YEAR;
-    // Eight requests a window, two of them background: the profile and the
-    // first API window, then nothing until the next window.
-    let fx = fixture(vec![now - 3 * DAY, session_oldest], 8, true).await;
+    // Sixteen requests a window, four of them background, two of which the
+    // detail walk holds (carnet#1585): the history walk's two are the profile
+    // and the first API window, then nothing until the next window.
+    let fx = fixture(vec![now - 3 * DAY, session_oldest], 16, true).await;
     fx.strava.serve(vec![
         session_oldest - YEAR / 2,
         session_oldest - 3 * YEAR / 2,

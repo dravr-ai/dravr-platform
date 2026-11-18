@@ -144,7 +144,7 @@ pub mod stored_data;
 pub mod continuous_series;
 
 /// `get_segment_history` — every effort the athlete made on one segment,
-/// from the live listing or the stored details (`tools-data` feature).
+/// from the stored details (`tools-data` feature).
 #[cfg(feature = "tools-data")]
 pub mod segments;
 

@@ -301,14 +301,13 @@ pub fn activity_coverage(
 ///
 /// The window asked, `[asked_from, asked_to]`, with `window.total` the
 /// activities in it and `window.returned` those whose segment efforts were
-/// read; `None` for a total no read counted (Strava's live listing names
-/// only the activities it holds efforts of). Always present, unlike
+/// read. Always present, unlike
 /// [`activity_coverage`]: a segment's efforts are never more than the
 /// activities read, so a model must always see how many those were.
 #[cfg(feature = "tools-data")]
 #[must_use]
 pub(crate) fn segments_read_coverage(
-    activities: Option<usize>,
+    activities: usize,
     read: usize,
     asked: (NaiveDate, NaiveDate),
     completeness: Completeness,
@@ -321,7 +320,7 @@ pub(crate) fn segments_read_coverage(
             scope: WindowScope::SegmentsRead,
             asked_from: Some(asked.0),
             asked_to: Some(asked.1),
-            total: activities.map(count),
+            total: Some(count(activities)),
             returned: count(read),
             ..CoverageWindow::default()
         },

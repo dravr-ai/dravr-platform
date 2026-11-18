@@ -1,4 +1,4 @@
-// ABOUTME: get_segment_history — every effort the athlete made on one segment, from Strava's live listing or the stored details
+// ABOUTME: get_segment_history — every effort the athlete made on one segment, from the stored details
 // ABOUTME: A name folds accents and case; what is unread asks a detail walk; Strava's efforts stay on Dravr's own surfaces
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -7,22 +7,11 @@
 //! # `get_segment_history`
 //!
 //! One segment's history: every effort the athlete made on it in a window,
-//! with the activity each was made in (carnet#1483). Two places hold it.
-//!
-//! **The live listing.** When the call names the segment by id and no sport,
-//! and the athlete holds a live backend that lists a segment's efforts
-//! (`ProviderCapabilities::SEGMENT_EFFORT_HISTORY`: the Strava grant), the
-//! listing answers, complete, in the foreground budget. It stores nothing.
-//! A listing that finds no effort does not answer: empty, it is no word that
-//! the athlete never rode the segment, so the stored details answer with how
-//! much of the window they have read.
-//! Any failure falls through to the stored details: a transport the
-//! provider's terms keep its data off (the governed provider refuses before
-//! any request), a dead grant, a spent budget, Strava refusing the listing to
-//! a non-subscriber. Only that last refusal is remembered, for the athlete
-//! and the backend, for a day ([`refusal`]), so a
-//! non-subscriber spends one listing a day, not one a call; a mistyped
-//! segment id or a failing Strava never keeps the athlete off it.
+//! with the activity each was made in (carnet#1483), always from the stored
+//! details. Strava's own listing of a segment's efforts is never asked
+//! (carnet#1586): it answered nothing for a grant whose rides held a known
+//! effort, so the stored details, with how much of the window they have
+//! read, are the one answer.
 //!
 //! **The stored details.** Every stored copy of the athlete's Strava
 //! activities in the window, under the keys their history is held under and
@@ -47,7 +36,6 @@
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use std::time::Instant;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Months, NaiveDate, Utc};
@@ -61,24 +49,19 @@ use pierre_core::text_fold::fold_for_match;
 use pierre_mcp_schema::PropertySchema;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::activity_origin;
-use pierre_providers::core::{SegmentEffortHit, SegmentEffortWindow};
 use pierre_services::training_history_read::{history_source_order, user_timezone, ComputeBackend};
 use pierre_tools_core::ToolResult;
 use serde_json::Value;
-use tracing::{info, warn};
-use uuid::Uuid;
+use tracing::warn;
 
 pub mod answer;
-mod refusal;
 
 use answer::{answer, effort_row, AnsweredBy, SegmentHistoryResult};
-use refusal::{provider_refused, refused_lately, remember_refusal};
 
 use crate::activity_backfill::detail_walk::{
-    ask_detail_walk, detail_walk_pending, live_backend_serving, segment_detail_serving,
-    DetailWalkAsk, DetailWalkAsked, Serving,
+    ask_detail_walk, detail_walk_pending, segment_detail_serving, DetailWalkAsk, DetailWalkAsked,
+    Serving,
 };
-use crate::activity_backfill::provider_tenant_id_str;
 use crate::activity_fetch::{history_ladder, SourceHistory};
 use crate::activity_query::predicate::{export_only, segments_read};
 use crate::activity_query::{
@@ -93,7 +76,6 @@ use crate::conversions::{
 };
 use crate::implementations::data_helpers::segments_read_coverage;
 use crate::implementations::fitness_support::activity_matches_sport;
-use crate::protocol::UniversalExecutor;
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::schema::{Tool, ToolResponse};
 use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
@@ -191,103 +173,6 @@ fn window_instants(ask: &SegmentAsk, zone: Tz) -> (DateTime<Utc>, DateTime<Utc>)
 }
 
 // ============================================================================
-// The live listing
-// ============================================================================
-
-/// The live backend the athlete holds that lists a segment's efforts, among
-/// those holding their Strava history.
-async fn listing_backend(runtime: &Arc<dyn ToolRuntime>, athlete: Athlete) -> Option<String> {
-    live_backend_serving(
-        runtime,
-        athlete.user_id,
-        athlete.tenant_id,
-        STRAVA,
-        |descriptor| descriptor.capabilities().supports_segment_effort_history(),
-    )
-    .await
-}
-
-/// The live listing's answer, or `None` when it cannot answer and the stored
-/// details must: no segment id, a sport asked, no backend that lists, a
-/// refusal remembered, any failure of the listing, or a listing that found no
-/// effort. An empty listing is not taken as the athlete never having ridden
-/// the segment: the stored details say how much of the window they have read
-/// instead of certifying none.
-async fn live_listing(
-    runtime: &Arc<dyn ToolRuntime>,
-    athlete: Athlete,
-    ask: &SegmentAsk,
-    zone: Tz,
-) -> Option<SegmentHistoryResult> {
-    let SegmentMatch::Id(segment_id) = &ask.segment else {
-        return None;
-    };
-    if ask.sport.is_some() {
-        return None;
-    }
-    let backend = listing_backend(runtime, athlete).await?;
-    let memo_key = (athlete.user_id, backend.clone());
-    if refused_lately(&memo_key, Instant::now()) {
-        return None;
-    }
-    let executor = UniversalExecutor::new(Arc::clone(runtime));
-    let tenant = provider_tenant_id_str(athlete.tenant_id);
-    let provider = match executor
-        .auth_service
-        .create_exact_provider(&backend, athlete.user_id, tenant.as_deref())
-        .await
-    {
-        Ok(provider) => provider,
-        Err(response) => {
-            info!(user_id = %athlete.user_id, backend, error = ?response.error, "Segment history: the listing backend could not be authenticated; the stored details answer");
-            return None;
-        }
-    };
-    let window = SegmentEffortWindow {
-        from: ask.from,
-        to: ask.to,
-    };
-    match provider.segment_effort_history(segment_id, window).await {
-        Ok(hits) => listed(athlete.user_id, &backend, &hits, ask, zone),
-        Err(e) => {
-            if provider_refused(&e) {
-                remember_refusal(memo_key, Instant::now());
-            }
-            info!(user_id = %athlete.user_id, backend, error = %e, "Segment history: the live listing failed; the stored details answer");
-            None
-        }
-    }
-}
-
-/// The live listing's hits as the answer: complete, every effort named by
-/// the backend that listed it. `None` for a listing that found no effort,
-/// which the stored details answer instead ([`live_listing`]).
-fn listed(
-    user_id: Uuid,
-    backend: &str,
-    hits: &[SegmentEffortHit],
-    ask: &SegmentAsk,
-    zone: Tz,
-) -> Option<SegmentHistoryResult> {
-    if hits.is_empty() {
-        info!(%user_id, backend, "Segment history: the live listing found no effort; the stored details answer with what they have read");
-        return None;
-    }
-    let activities: HashSet<&str> = hits.iter().map(|hit| hit.activity_id.as_str()).collect();
-    let read = activities.len();
-    let efforts = hits
-        .iter()
-        .map(|hit| effort_row(backend, backend, &hit.activity_id, None, &hit.effort))
-        .collect();
-    Some(answer(
-        efforts,
-        AnsweredBy::LiveSegmentHistory,
-        segments_read_coverage(None, read, (ask.from, ask.to), Completeness::Complete, None),
-        zone,
-    ))
-}
-
-// ============================================================================
 // The stored details
 // ============================================================================
 
@@ -337,7 +222,7 @@ async fn stored_details(
                             origin,
                             source,
                             activity.id(),
-                            Some(activity.name()),
+                            activity.name(),
                             effort,
                         ));
                     }
@@ -363,7 +248,7 @@ async fn stored_details(
         efforts,
         AnsweredBy::StoredDetails,
         segments_read_coverage(
-            Some(counts.total),
+            counts.total,
             counts.read,
             (ask.from, ask.to),
             completeness,
@@ -707,11 +592,7 @@ impl McpTool<dyn ToolRuntime> for GetSegmentHistoryTool {
                     .as_deref(),
             );
             let ask = parse_ask(&args, clock_date(Utc::now(), zone))?;
-            let payload = match live_listing(runtime, athlete, &ask, zone).await {
-                Some(listed) => listed,
-                None => stored_details(runtime, athlete, &ask, zone).await?,
-            };
-            ok_typed(TOOL, payload)
+            ok_typed(TOOL, stored_details(runtime, athlete, &ask, zone).await?)
         }
         .await;
         tool_result_to_response(result)

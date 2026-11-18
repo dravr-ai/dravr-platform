@@ -14019,13 +14019,8 @@
       "outputSchema": {
         "$defs": {
           "AnsweredBy": {
-            "description": "Which of the two places answered.",
+            "description": "Where the efforts were read: the stored details, the one place a\nsegment's history is answered from.",
             "oneOf": [
-              {
-                "const": "live_segment_history",
-                "description": "The provider's live listing of the segment's efforts: complete.",
-                "type": "string"
-              },
               {
                 "const": "stored_details",
                 "description": "The segment efforts stored with the athlete's activities.",
@@ -14380,11 +14375,8 @@
                 "type": "string"
               },
               "activity_name": {
-                "description": "That activity's title, as one line; absent from a live listing, which\nnames only the activity's id.",
-                "type": [
-                  "string",
-                  "null"
-                ]
+                "description": "That activity's title, as one line.",
+                "type": "string"
               },
               "average_heart_rate": {
                 "description": "Average heart rate over the effort (bpm).",
@@ -14470,6 +14462,7 @@
               "provider",
               "source",
               "activity_id",
+              "activity_name",
               "start_date",
               "elapsed_time",
               "distance",
@@ -14603,7 +14596,7 @@
             "properties": {
               "answered_by": {
                 "$ref": "#/$defs/AnsweredBy",
-                "description": "Where the efforts were read: the provider's live listing, or the\nstored details of the athlete's activities."
+                "description": "Where the efforts were read: the stored details of the athlete's\nactivities."
               },
               "coverage": {
                 "$ref": "#/$defs/Coverage",

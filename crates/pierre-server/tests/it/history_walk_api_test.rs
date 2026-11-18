@@ -579,9 +579,10 @@ async fn a_strava_grant_is_walked_a_year_a_window_down_to_the_account_creation()
 #[tokio::test]
 async fn a_spent_budget_pauses_the_walk_and_the_next_window_resumes_it() {
     let (api_base, mock) = mock_strava().await;
-    // Eight requests a window, two of them background: the profile and the
-    // first window, then nothing until the next window.
-    let resources = server(&api_base, 8).await;
+    // Sixteen requests a window, four of them background, two of which the
+    // detail walk holds (carnet#1585): the history walk's two are the profile
+    // and the first window, then nothing until the next window.
+    let resources = server(&api_base, 16).await;
     let (user_id, tenant) = strava_athlete(&resources).await;
     let now = Utc::now().timestamp();
     *mock.starts.lock().unwrap() = vec![now - 10 * DAY, now - 400 * DAY];

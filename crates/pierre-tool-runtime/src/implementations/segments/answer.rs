@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 //! What [`GetSegmentHistoryTool`](super::GetSegmentHistoryTool) answers
-//! with, and how the efforts either place holds become it.
+//! with, and how the stored efforts become it.
 
 use std::collections::{BTreeMap, HashSet};
 
@@ -33,12 +33,11 @@ const MAX_LISTED_EFFORTS: usize = 50;
 /// newest: half, so the latest rides are always listed.
 const MAX_RANKED_SHARE: usize = MAX_LISTED_EFFORTS / 2;
 
-/// Which of the two places answered.
+/// Where the efforts were read: the stored details, the one place a
+/// segment's history is answered from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, schemars::JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AnsweredBy {
-    /// The provider's live listing of the segment's efforts: complete.
-    LiveSegmentHistory,
     /// The segment efforts stored with the athlete's activities.
     StoredDetails,
 }
@@ -52,10 +51,8 @@ pub struct SegmentHistoryEffort {
     pub source: String,
     /// The provider's id of the activity the effort was made in.
     pub activity_id: String,
-    /// That activity's title, as one line; absent from a live listing, which
-    /// names only the activity's id.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub activity_name: Option<String>,
+    /// That activity's title, as one line.
+    pub activity_name: String,
     /// When the effort started (RFC 3339, UTC).
     pub start_date: String,
     /// Seconds from the segment's start to its end.
@@ -132,8 +129,8 @@ pub struct SegmentHistoryResult {
     pub segments: Vec<MatchedSegment>,
     /// The efforts summed per segment and service.
     pub summary: Vec<SegmentSummary>,
-    /// Where the efforts were read: the provider's live listing, or the
-    /// stored details of the athlete's activities.
+    /// Where the efforts were read: the stored details of the athlete's
+    /// activities.
     pub answered_by: AnsweredBy,
     /// Whether the efforts are all there are in the window: `window.total` is
     /// the activities in it, `window.returned` the activities whose segments
@@ -147,14 +144,14 @@ pub(super) fn effort_row(
     provider: &str,
     source: &str,
     activity_id: &str,
-    activity_name: Option<&str>,
+    activity_name: &str,
     effort: &SegmentEffort,
 ) -> SegmentHistoryEffort {
     SegmentHistoryEffort {
         provider: provider.to_owned(),
         source: source.to_owned(),
         activity_id: activity_id.to_owned(),
-        activity_name: activity_name.map(|name| display_line(name, SEGMENT_NAME_MAX_CHARS)),
+        activity_name: display_line(activity_name, SEGMENT_NAME_MAX_CHARS),
         start_date: effort.start_date.to_rfc3339(),
         elapsed_time: effort.elapsed_time,
         moving_time: effort.moving_time,
@@ -306,7 +303,7 @@ mod tests {
             provider: STRAVA.to_owned(),
             source: STRAVA.to_owned(),
             activity_id: days.to_string(),
-            activity_name: None,
+            activity_name: format!("Ride {days}"),
             start_date: at.map(|at| at.to_rfc3339()).unwrap_or_default(),
             elapsed_time: elapsed,
             moving_time: None,
@@ -323,7 +320,7 @@ mod tests {
     #[test]
     fn a_long_history_lists_its_best_ranked_and_newest_efforts_and_counts_all() {
         let complete = segments_read_coverage(
-            None,
+            0,
             0,
             (NaiveDate::MIN, NaiveDate::MIN),
             Completeness::Complete,
@@ -388,7 +385,7 @@ mod tests {
             efforts,
             AnsweredBy::StoredDetails,
             segments_read_coverage(
-                None,
+                0,
                 0,
                 (NaiveDate::MIN, NaiveDate::MIN),
                 Completeness::Complete,
@@ -416,7 +413,7 @@ mod tests {
             (0..3).map(|day| ridden(day, 400, None)).collect(),
             AnsweredBy::StoredDetails,
             segments_read_coverage(
-                None,
+                0,
                 0,
                 (NaiveDate::MIN, NaiveDate::MIN),
                 Completeness::Complete,

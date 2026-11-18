@@ -590,7 +590,7 @@ pub(crate) async fn sync_scan(
 #[tokio::test]
 async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     let (api_base, mock) = mock_strava().await;
-    let resources = context_pointed_at(&api_base, 16).await;
+    let resources = context_pointed_at(&api_base, 32).await;
     let runs = [
         run(101, 400, 330),
         run(102, 300, 300),
@@ -602,8 +602,10 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     history.extend([ride(201, 350), ride(202, 50)]);
     let athlete = linked_athlete(&resources, &mock, "seed_restart@example.com", 11, history).await;
 
-    // Sixteen requests a window, four of them the walk's: the streams of runs
-    // 105, 104, 103 and 102, newest first, the rides passed over.
+    // Thirty-two requests a window, eight of them background, four of which
+    // the detail walk holds (carnet#1585): the history walk's four are the
+    // streams of runs 105, 104, 103 and 102, newest first, the rides passed
+    // over.
     open_window(&resources).await;
     let report = run_personal_best_seed_pass(&resources).await.unwrap();
     assert_eq!(
@@ -623,7 +625,7 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
     assert_eq!(mock.total_streams_hits(), 4, "the budget stopped the walk");
     assert!(!walk_complete(&resources, &athlete).await);
 
-    let resumed = another_instance(&resources, 16);
+    let resumed = another_instance(&resources, 32);
     walk_to_completion(&resumed).await;
 
     for measured in runs {
@@ -661,7 +663,7 @@ async fn the_walk_measures_every_past_run_exactly_once_across_a_restart() {
 #[tokio::test]
 async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window() {
     let (api_base, mock) = mock_strava().await;
-    let resources = context_pointed_at(&api_base, 12).await;
+    let resources = context_pointed_at(&api_base, 24).await;
     let runs = [
         run(301, 90, 300),
         run(302, 60, 300),
@@ -677,7 +679,9 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
     )
     .await;
 
-    // Twelve requests a window, three of them the walk's: three runs' streams.
+    // Twenty-four requests a window, six of them background, three of which
+    // the detail walk holds (carnet#1585): the history walk's three are three
+    // runs' streams.
     open_window(&resources).await;
     let first = run_personal_best_seed_pass(&resources).await.unwrap();
     assert!(first.budget_spent);
@@ -701,7 +705,7 @@ async fn the_walk_stops_when_the_budget_says_stop_and_resumes_in_the_next_window
         Arc::clone(&resources.common.repos.usage_counters),
         Arc::clone(&resources.common.repos.provider_connections),
     );
-    live.set_budgets("strava", &[(12, ONE_DAY)]);
+    live.set_budgets("strava", &[(24, ONE_DAY)]);
     assert_eq!(
         live.acquire("strava", "test_client", None).await.unwrap(),
         RateLimitStatus::Allowed,
@@ -960,8 +964,8 @@ async fn two_runs_failing_in_a_row_pause_the_walk_until_strava_answers() {
 #[tokio::test]
 async fn two_instances_walking_at_once_never_exceed_the_walks_share_together() {
     let (api_base, mock) = mock_strava().await;
-    let first = context_pointed_at(&api_base, 16).await;
-    let second = another_instance(&first, 16);
+    let first = context_pointed_at(&api_base, 32).await;
+    let second = another_instance(&first, 32);
     let history = |base: u64| {
         (0..6_u32)
             .map(|i| run(base + u64::from(i), 60 - 5 * i64::from(i), 300))
@@ -970,7 +974,8 @@ async fn two_instances_walking_at_once_never_exceed_the_walks_share_together() {
     linked_athlete(&first, &mock, "seed_one@example.com", 21, history(1_001)).await;
     linked_athlete(&first, &mock, "seed_two@example.com", 22, history(2_001)).await;
 
-    // Sixteen requests a window, four of them the walk's, for both.
+    // Thirty-two requests a window, eight of them background, four of which
+    // the detail walk holds (carnet#1585): the history walk's four, for both.
     open_window(&first).await;
     let (a, b) = tokio::join!(
         run_personal_best_seed_pass(&first),
@@ -1077,7 +1082,7 @@ async fn an_expired_lease_is_taken_over() {
 #[tokio::test]
 async fn the_webhook_scan_and_the_walk_share_the_budget() {
     let (api_base, mock) = mock_strava().await;
-    let resources = context_pointed_at(&api_base, 16).await;
+    let resources = context_pointed_at(&api_base, 24).await;
     let history = [
         run(5_001, 90, 300),
         run(5_002, 60, 300),
@@ -1092,7 +1097,9 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
     )
     .await;
 
-    // Sixteen requests a window, four of them the walk's.
+    // Twenty-four requests a window, six of them background, three of which
+    // the detail walk holds (carnet#1585): the scan's two requests leave the
+    // history walk one of its three.
     open_window(&resources).await;
     let uploads = [run(5_101, 1, 290), run(5_102, 0, 280)];
     for uploaded in uploads {
@@ -1109,8 +1116,8 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
     assert!(report.budget_spent);
     let walked: usize = history.iter().map(|r| mock.streams_hits(r.id)).sum();
     assert_eq!(
-        walked, 2,
-        "the scan's two requests left the walk two runs, the uploads already scanned"
+        walked, 1,
+        "bug: the scan's two requests did not leave the walk one run, the uploads already scanned"
     );
     assert_eq!(mock.total_list_hits(), 0, "never a listing");
     let counted = resources
@@ -1125,5 +1132,8 @@ async fn the_webhook_scan_and_the_walk_share_the_budget() {
         )
         .await
         .unwrap();
-    assert_eq!(counted.value, 4, "two scan requests and two walk requests");
+    assert_eq!(
+        counted.value, 3,
+        "bug: the day does not hold two scan requests and one walk request"
+    );
 }

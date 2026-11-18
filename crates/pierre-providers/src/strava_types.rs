@@ -160,7 +160,7 @@ pub struct StravaLap {
 }
 
 /// Strava segment effort: one entry of a detailed activity's
-/// `segment_efforts`, and one row of `GET /segment_efforts`.
+/// `segment_efforts`.
 #[derive(Debug, Clone, Deserialize)]
 pub struct StravaSegmentEffort {
     /// Unique identifier for this segment effort
@@ -181,15 +181,6 @@ pub struct StravaSegmentEffort {
     /// The segment the effort was ridden or run on
     #[serde(default)]
     pub segment: Option<StravaSummarySegment>,
-    /// The activity the effort belongs to; `GET /segment_efforts` names it,
-    /// a detailed activity's own efforts name the activity itself
-    #[serde(default)]
-    pub activity: Option<StravaMetaActivity>,
-    /// The activity's id where Strava names it flat (`activity_id`), as its
-    /// documented `DetailedSegmentEffort` also does; read when `activity`
-    /// names none
-    #[serde(default)]
-    pub activity_id: Option<u64>,
     /// Total elapsed time for the segment (seconds)
     pub elapsed_time: Option<u32>,
     /// Time spent moving during the segment (seconds)
@@ -220,15 +211,6 @@ pub struct StravaSummarySegment {
     pub average_grade: Option<f32>,
     /// Strava's climb category, 0 (uncategorized) to 5 (hors catégorie)
     pub climb_category: Option<i32>,
-    /// The sport the segment is for (`Ride`, `Run`)
-    pub activity_type: Option<String>,
-}
-
-/// Strava's meta activity: an activity named by its id alone.
-#[derive(Debug, Clone, Deserialize)]
-pub struct StravaMetaActivity {
-    /// The activity's id
-    pub id: Option<u64>,
 }
 
 /// The gear a detailed activity names: Strava's summary gear shape.

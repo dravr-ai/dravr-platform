@@ -38,7 +38,7 @@ use pierre_core::models::{
 use pierre_core::pagination::{CursorPage, PaginationParams};
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, OwnerStores, ProviderConfig,
-    SegmentEffortHit, SegmentEffortWindow, TokenRefreshCallback,
+    TokenRefreshCallback,
 };
 use pierre_providers::delegation::CoachRoster;
 use tokio::sync::OnceCell;
@@ -272,18 +272,6 @@ impl FitnessProvider for GrantByIdFallback {
             Some(grant) => grant.get_activity_streams(id).await,
             None => Err(failed),
         }
-    }
-
-    /// The session's own: a segment's listing is no by-id read of an
-    /// activity, and a caller that wants the grant's listing reads the grant.
-    async fn segment_effort_history(
-        &self,
-        segment_id: &str,
-        window: SegmentEffortWindow,
-    ) -> AppResult<Vec<SegmentEffortHit>> {
-        self.session
-            .segment_effort_history(segment_id, window)
-            .await
     }
 
     async fn list_planned_workouts(

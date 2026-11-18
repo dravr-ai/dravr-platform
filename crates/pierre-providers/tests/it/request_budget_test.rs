@@ -91,7 +91,9 @@ async fn taken_by_two_instances(
 }
 
 /// Two instances asking at once for more than the budget take exactly the
-/// budget between them, for live requests and for the walk's share alike.
+/// budget between them, for live requests and for the history walk's share
+/// alike: a quarter of 12 is 3, of which the detail walk's reserved half,
+/// rounded down, is 1 (carnet#1585), so the history walk takes 2.
 #[tokio::test]
 async fn two_instances_sharing_one_database_never_exceed_the_budget_together() {
     let live = database().await;
@@ -100,8 +102,8 @@ async fn two_instances_sharing_one_database_never_exceed_the_budget_together() {
     let background = database().await;
     assert_eq!(
         taken_by_two_instances(&background, 12, 30, true).await,
-        3,
-        "a quarter of 12"
+        2,
+        "bug: two instances took more than a quarter of 12 less the detail walk's reserved 1"
     );
 }
 
@@ -193,26 +195,51 @@ async fn strava_has_a_daily_budget_of_one_thousand_by_default() {
     );
 }
 
-/// The walk takes a quarter of Strava's window, 25 of its 100 requests, and
-/// the other 75 stay open to live requests.
+/// The walks take a quarter of Strava's window, 25 of its 100 requests, and
+/// the other 75 stay open to live requests. Of the 25 the detail walk has 12
+/// reserved (half, rounded down; carnet#1585) and the history walk the
+/// other 13.
 #[tokio::test]
-async fn the_walk_takes_a_quarter_of_each_window_and_live_requests_keep_the_rest() {
+async fn the_walks_take_a_quarter_of_each_window_and_live_requests_keep_the_rest() {
     let limiter = fresh_limiter().await;
     limiter.set_budgets("strava", &[(100, ONE_DAY)]);
-    for _ in 0..25 {
+    for call in 0..13 {
         assert_eq!(
             in_background(limiter.acquire("strava", APP, None))
                 .await
                 .unwrap(),
-            RateLimitStatus::Allowed
+            RateLimitStatus::Allowed,
+            "bug: history walk call {call} is refused within its 13"
         );
     }
-    assert!(matches!(
-        in_background(limiter.acquire("strava", APP, None))
-            .await
-            .unwrap(),
-        RateLimitStatus::Exceeded { .. }
-    ));
+    assert!(
+        matches!(
+            in_background(limiter.acquire("strava", APP, None))
+                .await
+                .unwrap(),
+            RateLimitStatus::Exceeded { .. }
+        ),
+        "bug: the history walk took a call of the detail walk's reserved 12"
+    );
+    let athlete = walker();
+    for call in 0..12 {
+        assert_eq!(
+            in_detail_walk(athlete, limiter.acquire("strava", APP, None))
+                .await
+                .unwrap(),
+            RateLimitStatus::Allowed,
+            "bug: detail walk call {call} is refused within its reserved 12"
+        );
+    }
+    assert!(
+        matches!(
+            in_detail_walk(athlete, limiter.acquire("strava", APP, None))
+                .await
+                .unwrap(),
+            RateLimitStatus::Exceeded { .. }
+        ),
+        "bug: the detail walk took more than its reserved 12"
+    );
     for _ in 25..100 {
         assert_eq!(
             limiter.acquire("strava", APP, None).await.unwrap(),
@@ -1106,5 +1133,191 @@ async fn a_detail_walk_refusal_waits_until_the_athletes_day_ends() {
         spent(&repos, &holder, FIFTEEN_MINUTES).await,
         0,
         "bug: a walk call the athlete's window refused kept the app's 15-minute slot"
+    );
+}
+
+/// The history walk's share of the day at `app`: background requests outside
+/// a detail walk, counted until the first refusal, at most `ceiling`.
+async fn history_walk_calls(
+    limiter: &ProviderRateLimiter,
+    app: &str,
+    daily_limit: Option<u32>,
+    ceiling: u32,
+) -> u32 {
+    let mut taken = 0;
+    while taken < ceiling {
+        let status = in_background(limiter.acquire("strava", app, daily_limit))
+            .await
+            .unwrap();
+        if status != RateLimitStatus::Allowed {
+            break;
+        }
+        taken += 1;
+    }
+    taken
+}
+
+/// The detail walk calls `athletes` fresh athletes take at `app`, each until
+/// their first refusal.
+async fn detail_walk_calls(
+    limiter: &ProviderRateLimiter,
+    app: &str,
+    daily_limit: Option<u32>,
+    athletes: u32,
+) -> u32 {
+    let mut taken = 0;
+    for _ in 0..athletes {
+        let athlete = walker();
+        while walk_call(limiter, athlete, app, daily_limit).await == RateLimitStatus::Allowed {
+            taken += 1;
+        }
+    }
+    taken
+}
+
+/// JF's directive on carnet#1585: 125 of Strava's background 250 a day are
+/// the detail walk's, and the history walk has the rest. A history walk that
+/// runs first stops at 125, and the detail walk still takes its whole 125
+/// across three athletes (50, 50, 25); a live read is still admitted.
+#[tokio::test]
+async fn the_history_walk_never_takes_the_detail_walks_reserved_day() {
+    let repos = database().await;
+    let limiter = limiter_over(&repos);
+    limiter.set_budgets("strava", &[(1_000, ONE_DAY)]);
+    let holder = budget_counter_key("strava", APP);
+
+    assert_eq!(
+        history_walk_calls(&limiter, APP, None, 300).await,
+        125,
+        "bug: the history walk took calls of the detail walk's reserved 125"
+    );
+    assert_eq!(
+        spent(&repos, &holder, ONE_DAY).await,
+        125,
+        "bug: the history walk's calls are not counted in the app's day"
+    );
+    assert_eq!(
+        detail_walk_calls(&limiter, APP, None, 3).await,
+        125,
+        "bug: the detail walk could not take its reserved 125 after the history walk ran"
+    );
+    assert_eq!(
+        spent(&repos, &holder, ONE_DAY).await,
+        250,
+        "bug: the two walks together did not spend exactly the background share"
+    );
+    assert_eq!(
+        limiter.acquire("strava", APP, None).await.unwrap(),
+        RateLimitStatus::Allowed,
+        "bug: the walks took a live read's room"
+    );
+}
+
+/// The reservation is the detail walk's alone, and never the history walk's
+/// to wait on: a detail walk that spends its 125 first leaves the history
+/// walk its whole 125, and the history walk's refusal past them gives back
+/// every slot it took.
+#[tokio::test]
+async fn a_detail_walk_that_runs_first_leaves_the_history_walk_its_rest() {
+    let repos = database().await;
+    let limiter = limiter_over(&repos);
+    limiter.set_budgets("strava", &[(1_000, ONE_DAY)]);
+    let holder = budget_counter_key("strava", APP);
+
+    assert_eq!(
+        detail_walk_calls(&limiter, APP, None, 3).await,
+        125,
+        "bug: the detail walk did not take its reserved 125"
+    );
+    assert_eq!(
+        history_walk_calls(&limiter, APP, None, 300).await,
+        125,
+        "bug: the detail walk's spend shrank the history walk's rest"
+    );
+    assert_eq!(
+        spent(&repos, &holder, ONE_DAY).await,
+        250,
+        "bug: a refused history walk call kept its slot in the app's day"
+    );
+    assert_eq!(
+        spent(&repos, &detail_walk_counter_key(&holder), ONE_DAY).await,
+        125,
+        "bug: the history walk's calls touched the detail walk's window"
+    );
+}
+
+/// Requests an athlete is waiting on count in the app's day too, and the
+/// reservation still stands: with 100 live reads today the background
+/// share has 150 left, so the history walk stops at 25 and the detail walk
+/// still takes its whole 125, the day's background share then spent.
+#[tokio::test]
+async fn live_reads_shrink_the_history_walk_never_the_detail_walks_reserved_day() {
+    let repos = database().await;
+    let limiter = limiter_over(&repos);
+    limiter.set_budgets("strava", &[(1_000, ONE_DAY)]);
+    let holder = budget_counter_key("strava", APP);
+    spend(&repos, &holder, ONE_DAY, 100).await;
+
+    assert_eq!(
+        history_walk_calls(&limiter, APP, None, 300).await,
+        25,
+        "bug: the history walk took room the detail walk's reservation needs under live load"
+    );
+    assert_eq!(
+        detail_walk_calls(&limiter, APP, None, 3).await,
+        125,
+        "bug: live reads and the history walk together left the detail walk short of its 125"
+    );
+    assert_eq!(
+        spent(&repos, &holder, ONE_DAY).await,
+        250,
+        "bug: the day does not hold the live reads and both walks' share"
+    );
+    assert_eq!(
+        history_walk_calls(&limiter, APP, None, 300).await,
+        0,
+        "bug: the history walk was admitted past the spent background share"
+    );
+}
+
+/// The reservation is sized from the day the signing app actually has, as
+/// the walk window is: a tenant app registered at 30 a day has a background
+/// share of 7, the detail walk 3 of it (half, rounded down) and the history
+/// walk the other 4, so the two always add up to the share.
+#[tokio::test]
+async fn a_registered_daily_limit_splits_the_background_share_exactly() {
+    let repos = database().await;
+    let limiter = limiter_over(&repos);
+
+    assert_eq!(
+        history_walk_calls(&limiter, "tenant-app", Some(30), 30).await,
+        4,
+        "bug: the history walk's rest is not the tenant app's share less the detail walk's 3"
+    );
+    assert_eq!(
+        detail_walk_calls(&limiter, "tenant-app", Some(30), 2).await,
+        3,
+        "bug: the detail walk's reserved 3 are not whole after the history walk ran"
+    );
+}
+
+/// A provider with no detail walk keeps no reservation: a Garmin read in the
+/// background takes Garmin's whole background share.
+#[tokio::test]
+async fn a_provider_without_a_detail_walk_reserves_nothing_of_its_background_share() {
+    let repos = database().await;
+    let limiter = limiter_over(&repos);
+    limiter.set_budgets("garmin", &[(100, ONE_DAY)]);
+    let mut taken = 0;
+    while in_background(limiter.acquire("garmin", APP, None))
+        .await
+        .unwrap()
+        == RateLimitStatus::Allowed
+    {
+        taken += 1;
+    }
+    assert_eq!(
+        taken, 25,
+        "bug: a provider with no detail walk held back part of its background quarter"
     );
 }

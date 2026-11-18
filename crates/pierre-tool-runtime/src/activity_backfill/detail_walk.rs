@@ -170,23 +170,6 @@ impl Serving {
     }
 }
 
-/// The first live backend, in the athlete's order among those holding
-/// `provider`'s history, whose descriptor `serves`: the one resolution of
-/// "which backend the athlete holds reads this" for segment efforts, whether
-/// on a detail read ([`segment_detail_backend`]) or listed per segment.
-/// `None` when the athlete holds none live.
-pub(crate) async fn live_backend_serving(
-    runtime: &Arc<dyn ToolRuntime>,
-    user_id: Uuid,
-    tenant_id: TenantId,
-    provider: &str,
-    serves: impl Fn(&dyn ProviderDescriptor) -> bool + Send,
-) -> Option<String> {
-    backend_serving(runtime, user_id, tenant_id, provider, serves)
-        .await
-        .live()
-}
-
 /// What the athlete holds, in their order among the backends holding
 /// `provider`'s history, of those whose descriptor `serves` ([`Serving`]):
 /// the first live one; else whether one is held at all, its credential

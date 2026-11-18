@@ -1352,9 +1352,9 @@ fn get_heart_rate_series_declares_a_schema_that_accepts_its_payload() {
     );
 }
 
-/// Every coverage a segments answer carries: complete from the live
-/// listing, still being read with the walk's progress, and short of what
-/// could not be read, its reason an object.
+/// Every coverage a segments answer carries: complete, still being read
+/// with the walk's progress, and short of what could not be read, its
+/// reason an object.
 #[test]
 fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
     use std::collections::BTreeMap;
@@ -1368,7 +1368,7 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
         provider: provider.to_owned(),
         source: provider.to_owned(),
         activity_id: "16101".to_owned(),
-        activity_name: Some("Morning ride".to_owned()),
+        activity_name: "Morning ride".to_owned(),
         start_date: "2026-11-07T13:10:00+00:00".to_owned(),
         elapsed_time: 412,
         moving_time: Some(410),
@@ -1396,26 +1396,17 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
     let declared =
         <GetSegmentHistoryTool as McpTool<dyn ToolRuntime>>::definition(&GetSegmentHistoryTool)
             .output_schema;
-    for (answered_by, coverage) in [
-        (
-            AnsweredBy::LiveSegmentHistory,
-            coverage(Completeness::Complete, None, None),
+    for coverage in [
+        coverage(Completeness::Complete, Some(12), None),
+        coverage(
+            Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
+            Some(40),
+            Some(Pending::detail_walk_running(12, Some(40), Some(1_728.0))),
         ),
-        (
-            AnsweredBy::StoredDetails,
-            coverage(
-                Completeness::Incomplete(IncompleteReason::SegmentDetailWalking),
-                Some(40),
-                Some(Pending::detail_walk_running(12, Some(40), Some(1_728.0))),
-            ),
-        ),
-        (
-            AnsweredBy::StoredDetails,
-            coverage(
-                Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
-                Some(15),
-                None,
-            ),
+        coverage(
+            Completeness::Incomplete(IncompleteReason::SegmentDetailPartial { unreadable: 3 }),
+            Some(15),
+            None,
         ),
     ] {
         let sample = SegmentHistoryResult {
@@ -1436,7 +1427,7 @@ fn get_segment_history_declares_a_schema_that_accepts_its_payload() {
                 best_elapsed_time: 412,
                 best_start_date: "2026-11-07T13:10:00+00:00".to_owned(),
             }],
-            answered_by,
+            answered_by: AnsweredBy::StoredDetails,
             coverage,
         };
         assert_declares_and_accepts(

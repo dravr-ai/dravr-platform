@@ -63,7 +63,11 @@
 //! limit — 125 of Strava's standard 1,000. Each athlete's walk has its own,
 //! [`DETAIL_WALK_DAILY_CALLS`], never more than the app's. Those two are
 //! sized already, so a request finds the whole of each, while the app's own
-//! windows stay at the background share.
+//! windows stay at the background share. The app's walk window is reserved
+//! (carnet#1585): every other background request at such a provider is
+//! admitted only while the app's day leaves room for what the detail walk
+//! has not yet spent of its 125, so the history walk can never take them
+//! ([`detail_walk`]).
 //!
 //! A session the platform signs in with (sciotte reading strava.com as the
 //! athlete) has no OAuth app and no API, yet its detail walk draws from the
@@ -115,10 +119,12 @@ pub const GARMIN_ACTIVITY_FILES: &str = "garmin_activity_files";
 /// bests.
 ///
 /// A quarter. Against Strava's standard read limits of 100 requests per 15
-/// minutes and 1,000 per day, the walk gets 25 requests a window and 250 a
-/// day, one streams request per past run, so a 1,000-run history is seeded in
-/// about four days, while the requests an athlete is waiting on keep three
-/// quarters of every window.
+/// minutes and 1,000 per day, the walks get 25 requests a window and 250 a
+/// day, while the requests an athlete is waiting on keep three quarters of
+/// every window. Of the day's 250, 125 are reserved for the detail walk
+/// (carnet#1585, [`detail_walk`]) and the history walk has the other 125, one
+/// streams request per past run, so a 1,000-run history is seeded in about
+/// eight days.
 pub const BACKGROUND_SHARE_PERCENT: u32 = 25;
 
 /// The most requests one athlete's detail walk may make in a day, per app
@@ -127,12 +133,6 @@ pub const BACKGROUND_SHARE_PERCENT: u32 = 25;
 /// JF's call on carnet#1483: 50 Strava calls an athlete a day, retries
 /// included, each request counted once it is admitted.
 pub const DETAIL_WALK_DAILY_CALLS: u32 = 50;
-
-/// The share, in percent, of the background share of an app's day that every
-/// athlete's detail walk together may spend: half, 125 of Strava's standard
-/// 1,000 (JF's call on carnet#1483), so the walk of an athlete's history keeps
-/// the other half.
-const DETAIL_WALK_PERCENT_OF_BACKGROUND: u32 = 50;
 
 /// The most pages one athlete's session walk reads in [`FIFTEEN_MINUTES`].
 ///
@@ -336,15 +336,6 @@ struct Window {
     key: String,
     budget: Budget,
     share_percent: u32,
-}
-
-/// The two day windows of one athlete's detail walk under a holder: counted
-/// under the holder's day window's key, the athlete's held to the app's.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct DetailWalkSizes {
-    day_key: String,
-    athlete_calls: u32,
-    app_calls: u32,
 }
 
 /// The athletes counted as having granted a provider's server-level app,
@@ -591,14 +582,19 @@ impl ProviderRateLimiter {
         } else {
             100
         };
+        let now = Utc::now();
         let windows = self.windows_for(provider, holder, share).await;
         let windows = match detail_walk_athlete() {
             Some(user_id) => self.with_detail_walk_windows(provider, holder, user_id, windows),
             // A session read outside the walk is not counted: only its walk is.
             None if matches!(holder, Holder::Session { .. }) => Vec::new(),
+            None if background => {
+                self.with_detail_walk_reserved(provider, windows, now)
+                    .await?
+            }
             None => windows,
         };
-        let status = self.take(&windows).await?;
+        let status = self.take(&windows, now).await?;
         if let RateLimitStatus::Exceeded { retry_after } = &status {
             // No app: the windows spent are a personal API key's own.
             let app = holder.app();
@@ -726,107 +722,11 @@ impl ProviderRateLimiter {
             .collect()
     }
 
-    /// `windows`, the holder's windows at `provider`, preceded by the two
-    /// daily windows of `user_id`'s detail walk when `provider` has them:
-    /// the athlete's, then the app's.
-    ///
-    /// The app's walk window is half the background share of the holder's
-    /// day as `windows` carries it, so whatever sized the day — the
-    /// provider's, the configured one, a pool's or a tenant app's registered
-    /// limit — sizes it; the athlete's is [`DETAIL_WALK_DAILY_CALLS`], never
-    /// more than the app's. Both are taken whole: their sizes are already
-    /// the walk's share. They come first, so a walk whose day is spent is
-    /// refused until that day ends without touching the windows the reads an
-    /// athlete is waiting on count in.
-    ///
-    /// A holder with no daily window has no day to take a share of, and its
-    /// walk is held to its background share alone.
-    ///
-    /// A [`Holder::Session`] is counted in the walk windows alone: they are
-    /// the app's, the ones the grant's walk spends, but its reads never touch
-    /// the app's own API windows, which a session does not use. Its burst
-    /// window comes first.
-    fn with_detail_walk_windows(
-        &self,
-        provider: &str,
-        holder: &Holder,
-        user_id: Uuid,
-        windows: Vec<Window>,
-    ) -> Vec<Window> {
-        let session = matches!(holder, Holder::Session { .. });
-        let Some(sizes) = self.detail_walk_sizes(provider, &windows) else {
-            return if session { Vec::new() } else { windows };
-        };
-        let whole_day = |key: String, max_calls: u32| Window {
-            key,
-            budget: Budget {
-                max_calls,
-                window: ONE_DAY,
-            },
-            share_percent: 100,
-        };
-        let mut walk = Vec::new();
-        // A signed-in session's walk is also spread over the day: its burst
-        // window comes first, so a refusal by it takes nothing from the
-        // day's.
-        if session {
-            walk.push(Window {
-                key: detail_walk_burst_counter_key(&sizes.day_key, user_id),
-                budget: Budget {
-                    max_calls: SESSION_WALK_BURST_CALLS,
-                    window: FIFTEEN_MINUTES,
-                },
-                share_percent: 100,
-            });
-        }
-        walk.extend([
-            whole_day(
-                detail_walk_athlete_counter_key(&sizes.day_key, user_id),
-                sizes.athlete_calls,
-            ),
-            whole_day(detail_walk_counter_key(&sizes.day_key), sizes.app_calls),
-        ]);
-        if !session {
-            walk.extend(windows);
-        }
-        walk
-    }
-
-    /// The two day windows of a detail walk at `provider` for a holder whose
-    /// windows are `windows` ([`Self::with_detail_walk_windows`]); `None`
-    /// when `provider` has no walk windows or the holder no daily window.
-    fn detail_walk_sizes(&self, provider: &str, windows: &[Window]) -> Option<DetailWalkSizes> {
-        let athlete_calls = self.detail_walks.get(provider).map(|calls| *calls)?;
-        let day = windows
-            .iter()
-            .find(|window| window.budget.window == ONE_DAY)?;
-        let background_day = Budget {
-            max_calls: u32::try_from(day.budget.allowance(BACKGROUND_SHARE_PERCENT))
-                .unwrap_or(u32::MAX),
-            window: ONE_DAY,
-        };
-        let app_calls = u32::try_from(background_day.allowance(DETAIL_WALK_PERCENT_OF_BACKGROUND))
-            .unwrap_or(u32::MAX);
-        Some(DetailWalkSizes {
-            day_key: day.key.clone(),
-            athlete_calls: athlete_calls.min(app_calls),
-            app_calls,
-        })
-    }
-
-    /// The calls a day one athlete's detail walk at `provider` may make for
-    /// `holder`, as [`Self::with_detail_walk_windows`] sizes its window.
-    async fn detail_walk_daily_calls(&self, provider: &str, holder: &Holder) -> Option<u32> {
-        let windows = self.windows_for(provider, holder, 100).await;
-        self.detail_walk_sizes(provider, &windows)
-            .map(|sizes| sizes.athlete_calls)
-    }
-
     /// Take one request from every one of `windows` that holds fewer than
     /// its share of its budget; when one does not, give back the windows
-    /// already taken and say how long until that one resets.
-    async fn take(&self, windows: &[Window]) -> AppResult<RateLimitStatus> {
-        let now = Utc::now();
+    /// already taken and say how long until that one resets, all counted in
+    /// the buckets that hold `now`.
+    async fn take(&self, windows: &[Window], now: DateTime<Utc>) -> AppResult<RateLimitStatus> {
         let mut taken: Vec<(&str, String)> = Vec::with_capacity(windows.len());
         for window in windows {
             let period = budget_period(now, window.budget.window);
@@ -880,6 +780,7 @@ impl ProviderRateLimiter {
     }
 }
 
+mod detail_walk;
 mod grant_pool;
 mod handle;
 use grant_pool::GrantPool;
