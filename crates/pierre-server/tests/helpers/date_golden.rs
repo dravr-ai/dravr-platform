@@ -482,8 +482,9 @@ pub(crate) fn shaped(mut rows: Vec<(String, String)>, pointers: &[&str]) -> Vec<
 /// `rows` with the text at each of `pointers` carried as the shape of a
 /// stamp the database writes from its own clock: SQLite's
 /// `CURRENT_TIMESTAMP` is whole seconds, so every digit is kept
-/// ([`shape`]); PostgreSQL's `NOW()` keeps microseconds, so the fraction is
-/// held to the clock's widths ([`clock_shape`]).
+/// ([`shape`]); PostgreSQL's `NOW()` keeps microseconds and writes them with
+/// their trailing zeros dropped, so any fraction of one to six digits, or
+/// none, is `.f` ([`database_clock_shape`]).
 pub(crate) fn on_database_clock(
     database: &Database,
     rows: Vec<(String, String)>,
@@ -499,11 +500,32 @@ pub(crate) fn on_database_clock(
                     .iter_mut()
                     .find(|(at, _)| at == pointer)
                     .unwrap_or_else(|| panic!("no date at {pointer}"));
-                row.1 = clock_shape(&row.1);
+                row.1 = database_clock_shape(&row.1);
             }
             rows
         }
     }
+}
+
+/// [`shape`] of a stamp PostgreSQL wrote from its own clock: it keeps
+/// microseconds and drops a fraction's trailing zeros, so `.459170` comes
+/// back as `.45917` and a reading on a whole second carries no fraction at
+/// all. Every such width is `.f`; a wider fraction keeps its digits, since
+/// PostgreSQL never writes one.
+#[cfg(feature = "postgresql")]
+fn database_clock_shape(stamp: &str) -> String {
+    let stamp = STAMP.find(stamp).map_or(stamp, |found| found.as_str());
+    let Some(fraction) = FRACTION.find(stamp) else {
+        let offset_at = stamp.rfind(['+', '-', 'Z']).filter(|at| *at > 10);
+        return offset_at.map_or_else(
+            || digits_out(stamp),
+            |at| digits_out(&format!("{}.f{}", &stamp[..at], &stamp[at..])),
+        );
+    };
+    if fraction.as_str().len() - 1 <= 6 {
+        return digits_out(&FRACTION.replace(stamp, ".f"));
+    }
+    digits_out(stamp)
 }
 
 /// `stamp`, an instant a handler answered from its own reading of the
