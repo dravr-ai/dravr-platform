@@ -400,6 +400,7 @@ user_export_tables_sql!(
     "user_federated_identities" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [text "provider", text "subject"] },
     "provider_terms_consents" { rows: [uuid "user_id"], tenant: none, except: [], page: 50, key: [uuid "user_id", text "provider"] },
     "signup_code_redemptions" { rows: [uuid "user_id"], tenant: none, except: [], page: 20, key: [uuid "user_id"] },
+    "group_invite_holds" { rows: [uuid "user_id"], tenant: none, except: [], page: 5, key: [uuid "user_id"] },
     "notification_preferences" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "scheduled_notifications" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },
     "oauth_client_grants" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "id"] },

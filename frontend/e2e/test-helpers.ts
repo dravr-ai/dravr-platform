@@ -226,6 +226,16 @@ export async function applyTestStubs(page: Page) {
       body: JSON.stringify({ rows: [], known: [] }),
     });
   });
+  // Every page load of an active account asks the server to join the group
+  // invite it holds (carnet#1648). Nothing is held unless a spec says so: the
+  // invite specs register their own answer after this one, which wins.
+  await page.route('**/api/chat/groups/join', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ outcome: 'none' }),
+    });
+  });
   // The athlete Home page, where a regular user lands after sign-in — so
   // every spec that signs one in reaches it, including the spec-local login
   // helpers that skip `setupDashboardMocks`. The defaults are an athlete with

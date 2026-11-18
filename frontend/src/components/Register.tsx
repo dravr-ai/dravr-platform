@@ -12,6 +12,7 @@ import { authApi } from '../services/api';
 import { useAuth } from '../hooks/useAuth';
 import { signInRedirectUri, webPkceCrypto } from '../utils/signIn';
 import { clearSignupAttribution, readSignupAttribution } from '../utils/signupAttribution';
+import { readCarriedGroupInvite } from '../utils/groupInvite';
 import { isFirebaseEnabled } from '../firebase/config';
 import { Button, Input, RevealButton, Alert } from './ui';
 import { GoogleSignInButton } from './GoogleSignInButton';
@@ -98,6 +99,12 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
       const signIn = await prepareSignIn();
       // The campaign the visitor landed with, for the server's sign-up event.
       const attribution = readSignupAttribution();
+      // The group invite link this tab opened on, if any: the server holds it
+      // against the new account, which joins once it is active (carnet#1648).
+      // It never fails the sign-up, and never fills the signup code field.
+      // That hold is best-effort, so the tab keeps carrying the code until a
+      // session's own hold answers for it (useHeldGroupInvite).
+      const groupInviteCode = readCarriedGroupInvite();
       const response = await authApi.register({
         email,
         password,
@@ -105,6 +112,7 @@ export default function Register({ onNavigateToLogin, onRegistrationSuccess, ini
         turnstile_token: turnstileToken ?? undefined,
         analytics_consent: analyticsConsent,
         ...(trimmedCode ? { signup_code: trimmedCode } : {}),
+        ...(groupInviteCode ? { group_invite_code: groupInviteCode } : {}),
         ...(signIn ? { sign_in: signIn.request } : {}),
         ...attribution,
       });

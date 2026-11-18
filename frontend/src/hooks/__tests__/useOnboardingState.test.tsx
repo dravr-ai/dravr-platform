@@ -300,6 +300,25 @@ describe('useOnboardingState — an invite link records the athlete role', () =>
     await waitFor(() => expect(result.current.ctx.coachesOthers).toBe(true));
     expect(setCoachingRole).not.toHaveBeenCalled();
   });
+
+  // carnet#1648: the confirmation tab carries no link; the server's join of
+  // the invite it held is what says the account came through one.
+  it('records the role when the join arrives after the status, with the role question already up', async () => {
+    getOnboardingStatus.mockResolvedValue(NEW_ACCOUNT);
+    const { result, rerender } = renderHook(
+      ({ invited }: { invited: boolean }) => useOnboardingState({ invitedAsAthlete: invited }),
+      { wrapper, initialProps: { invited: false } },
+    );
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('profile_type'));
+    expect(setCoachingRole).not.toHaveBeenCalled();
+
+    rerender({ invited: true });
+
+    await waitFor(() => expect(currentOnboardingStep(result.current.ctx)?.id).toBe('connect_provider'));
+    expect(setCoachingRole).toHaveBeenCalledTimes(1);
+    expect(setCoachingRole).toHaveBeenCalledWith(false);
+    expect(setOnboardingStep).toHaveBeenCalledWith('profile_type', 'complete');
+  });
 });
 
 describe('useOnboardingState — the usage-analytics question (carnet#1366)', () => {

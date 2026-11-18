@@ -55,5 +55,5 @@ pub mod athlete_billing;
 
 // Re-export key types for consumers
 pub use athlete_billing::AthleteBilling;
-pub use invites::unambiguous_code;
+pub use invites::{unambiguous_code, SIGNUP_INVITE_MAX_DAYS};
 pub use service::GroupService;

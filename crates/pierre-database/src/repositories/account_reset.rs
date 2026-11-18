@@ -331,6 +331,7 @@ pub const RESET_KEEP: &[(&str, &str)] = &[
     ("permission_delegations", "role and permission grants"),
     ("impersonation_sessions", "the operator record of impersonations"),
     ("signup_code_redemptions", "how the account was created"),
+    ("group_invite_holds", "a group invite the account opened and has not joined yet: sign-up state, as signup_code_redemptions (carnet#1648)"),
     ("signup_codes", "codes the account minted as an operator (attribution)"),
     ("pre_approved_emails", "the sign-up allow-list and who allowed each email"),
     ("user_invitations", "invitations the account sent as an operator"),

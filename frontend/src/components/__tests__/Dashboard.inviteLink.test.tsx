@@ -1,14 +1,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Locks the /groups/join/:code landing now that the Groups tab is gone — chat plus one command
-// ABOUTME: The join is the same /group join CODE turn a Telegram or WhatsApp member sends
+// ABOUTME: Locks where a group invite lands once the server has joined it: the Groups tab, on the room's conversation
+// ABOUTME: The join happened on the server (carnet#1648); a room it could not file opens on the Groups list
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, act, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import Dashboard from '../Dashboard';
-import type { PendingComposerAction } from '../chat/types';
+import type { JoinedGroupRoom } from '../../hooks/useHeldGroupInvite';
 
 const chatTabProps = vi.fn();
 
@@ -23,19 +23,16 @@ vi.mock('../../hooks/useNotifications', () => ({
   useUnreadCount: () => ({ unreadCount: 0, isLoading: false }),
 }));
 
+// A group room stays on the Groups tab; nothing here is a personal thread.
+vi.mock('../../hooks/useConversationList', () => ({
+  usePersonalConversation: () => ({ id: null, isLoading: false }),
+  useConversationScope: () => 'group',
+}));
+
 vi.mock('../ChatTab', () => ({
-  default: (props: {
-    pendingComposerAction?: PendingComposerAction | null;
-    onPendingComposerActionConsumed?: () => void;
-  }) => {
-    chatTabProps(props.pendingComposerAction);
-    return (
-      <div data-testid="chat-tab">
-        <button type="button" onClick={() => props.onPendingComposerActionConsumed?.()}>
-          consume
-        </button>
-      </div>
-    );
+  default: (props: { selectedConversation: string | null }) => {
+    chatTabProps({ selected: props.selectedConversation });
+    return <div data-testid="chat-tab" />;
   },
 }));
 
@@ -60,60 +57,46 @@ vi.mock('../../services/api', () => ({
 }));
 vi.mock('../../services/analytics', () => ({ track: vi.fn() }));
 
-function renderDashboard(pendingInviteCode: string | null, onInviteCodeConsumed = vi.fn()) {
+function renderDashboard(joinedRoom: JoinedGroupRoom | null, onJoinedRoomOpened = vi.fn()) {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <Dashboard
-        pendingInviteCode={pendingInviteCode}
-        onInviteCodeConsumed={onInviteCodeConsumed}
-      />
+      <Dashboard joinedRoom={joinedRoom} onJoinedRoomOpened={onJoinedRoomOpened} />
     </QueryClientProvider>,
   );
 }
 
-describe('Dashboard invite deep link', () => {
+describe('Dashboard after a held invite joined', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.history.replaceState(null, '', '/#discover');
   });
 
-  it('lands on chat and hands the chat surface exactly one /group join turn', async () => {
+  it('opens the room the join filed, where the join notice waits', async () => {
+    const onJoinedRoomOpened = vi.fn();
     await act(async () => {
-      renderDashboard('WELCOME2026');
+      renderDashboard({ conversationId: 'conv-group-1' }, onJoinedRoomOpened);
+    });
+
+    expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
+    await waitFor(() => expect(window.location.hash).toBe('#chat/conv-group-1'));
+    expect(chatTabProps).toHaveBeenLastCalledWith({ selected: 'conv-group-1' });
+    expect(onJoinedRoomOpened).toHaveBeenCalled();
+  });
+
+  it('opens the Groups list when the server could not file the room', async () => {
+    await act(async () => {
+      renderDashboard({ conversationId: null });
     });
 
     expect(await screen.findByTestId('chat-tab')).toBeInTheDocument();
     await waitFor(() => expect(window.location.hash).toBe('#chat'));
-
-    const actions = chatTabProps.mock.calls
-      .map(([action]) => action)
-      .filter((action): action is PendingComposerAction => Boolean(action));
-    // The same action object every render, never a second queued turn.
-    expect(new Set(actions.map((a) => `${a.kind}:${a.text}`))).toEqual(
-      new Set(['send:/group join WELCOME2026']),
-    );
+    expect(chatTabProps).toHaveBeenLastCalledWith({ selected: null });
   });
 
-  it('clears the action and tells the shell once the turn has gone out', async () => {
-    const onInviteCodeConsumed = vi.fn();
-    await act(async () => {
-      renderDashboard('WELCOME2026', onInviteCodeConsumed);
-    });
-
-    await screen.findByTestId('chat-tab');
-    await act(async () => {
-      screen.getByRole('button', { name: 'consume' }).click();
-    });
-
-    expect(onInviteCodeConsumed).toHaveBeenCalledTimes(1);
-    const last = chatTabProps.mock.calls[chatTabProps.mock.calls.length - 1][0];
-    expect(last).toBeNull();
-  });
-
-  it('queues nothing without an invite code', async () => {
+  it('stays where it opened without a joined room', async () => {
     await act(async () => {
       renderDashboard(null);
     });

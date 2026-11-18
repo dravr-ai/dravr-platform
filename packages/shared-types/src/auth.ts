@@ -260,6 +260,12 @@ export interface RedeemSignupCodeResponse {
   user_status: UserStatus;
   /** Whether a coach's code joined the coach's group; `null` for an admin's code. */
   group_joined: boolean | null;
+  /**
+   * A group invite code that approves nothing: the server holds it until the
+   * account is active and joins (carnet#1648). When true,
+   * `user_status` is `pending` and `group_joined` is `null`.
+   */
+  group_invite_held?: boolean;
 }
 
 // ========== SIGNUP ATTRIBUTION ==========

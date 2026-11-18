@@ -406,6 +406,12 @@ impl AuthRoutes {
                 "/api/user/signup-code/redeem",
                 post(signup_code::handle_redeem_signup_code),
             )
+            // The group invite a link carried, held right after a sign-in for
+            // an account Pending or active (carnet#1648).
+            .route(
+                "/api/user/group-invite",
+                put(signup_code::handle_hold_group_invite),
+            )
             // The athlete's own data as one downloadable JSON file (Law 25 s.27).
             .route("/api/user/export", get(data_export::handle_user_export))
             // The bytes it leaves out, built on request into one bundle it names.

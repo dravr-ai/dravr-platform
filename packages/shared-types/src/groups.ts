@@ -315,6 +315,45 @@ export interface GroupPermissionsResponse {
 }
 
 /**
+ * Body of `PUT /api/user/group-invite`: the server now holds the invite a
+ * `/groups/join/<code>` link carried, against the signed-in account, until
+ * that account is active and joins (carnet#1648).
+ */
+export interface HoldGroupInviteResponse {
+  held: boolean;
+  /** A member's invite, or the group's coach seat. */
+  kind: GroupInviteKind;
+}
+
+/**
+ * Body of `POST /api/chat/groups/join`: what came of the invite the server
+ * holds for the caller. Every decided outcome answers 200 and drops the hold;
+ * a failed call keeps it for the next page load.
+ */
+export type JoinHeldInviteResponse =
+  /** No invite is held for the caller. */
+  | { outcome: 'none' }
+  /**
+   * Joined now. The caller's conversation is filed in the group's room, with
+   * the join notice — the welcome and what joining shares with the coach —
+   * written into it as an unread assistant message. `conversation_id` is
+   * `null` when the room could not be filed: the membership stands, and the
+   * room is filed when the caller first opens it from the list.
+   */
+  | {
+      outcome: 'joined';
+      /** Joined as a member, or attached as the group's human coach. */
+      kind: GroupInviteKind;
+      group_id: string;
+      group_name: string;
+      conversation_id: string | null;
+    }
+  /** The caller was already in the group, as the invite's kind: nothing to show. */
+  | { outcome: 'already_member'; kind: GroupInviteKind; group_id: string; group_name: string }
+  /** The invite could not be used (dead, or the group is full); `message` is localized. */
+  | { outcome: 'refused'; message: string };
+
+/**
  * One roster row of the group transcript. Membership is never hidden --
  * an unconsented member appears here with `peer_sharing_consent: false`
  * while their entries are withheld from the transcript itself.

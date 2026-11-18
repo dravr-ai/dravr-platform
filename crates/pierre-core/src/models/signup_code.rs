@@ -75,3 +75,20 @@ pub struct SignupCodeRedemption {
     /// When the redemption activated the account
     pub activated_at: Option<DateTime<Utc>>,
 }
+
+/// A group invite an account opened before it could join, held until the
+/// account is active (carnet#1648).
+///
+/// A `/groups/join/<code>` link opened signed out reaches the server with the
+/// sign-up, or right after the sign-in, and waits here: the account joins the
+/// invite's group once it is active. One hold per account; a newer link
+/// replaces the older one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GroupInviteHold {
+    /// The account the invite waits for
+    pub user_id: Uuid,
+    /// The group invite it opened, a member's or the group's coach seat
+    pub invite_id: Uuid,
+    /// When the server took it
+    pub held_at: DateTime<Utc>,
+}

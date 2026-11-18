@@ -32,13 +32,12 @@ import {
 import {
   ACCOUNT_ROLE_LABEL_KEY,
   ADMIN_HIDDEN_PANES,
-  COMMAND_DRAFTS,
   PRODUCT_WORDMARK,
   SITE_URL,
   coachTrainsToo,
   landsOnPendingCoachHome,
 } from "@pierre/shared-constants";
-import type { PendingComposerAction } from "./chat/types";
+import type { JoinedGroupRoom } from "../hooks/useHeldGroupInvite";
 import type { PersonalToday } from "./home/personalToday";
 import type { FirstStepRequest } from "./home/FirstStepSheet";
 // Explicit /index path avoids macOS case-insensitive collision between
@@ -257,13 +256,18 @@ function parseSettingsTab(
 }
 
 interface DashboardProps {
-  pendingInviteCode?: string | null;
-  onInviteCodeConsumed?: () => void;
+  /**
+   * The group room a held invite's join just opened (carnet#1648): the Groups
+   * tab shows it, on the athlete's conversation when the server filed one.
+   */
+  joinedRoom?: JoinedGroupRoom | null;
+  /** Called once the room above is on screen. */
+  onJoinedRoomOpened?: () => void;
 }
 
 export default function Dashboard({
-  pendingInviteCode,
-  onInviteCodeConsumed,
+  joinedRoom = null,
+  onJoinedRoomOpened,
 }: DashboardProps) {
   const { user, logout, viewMode, chooseViewMode } = useAuth();
   // A coach-access grant shows on the next navigation, without signing out
@@ -517,20 +521,6 @@ export default function Dashboard({
       : null,
   );
 
-  // An invite link lands on chat and joins through the command, exactly as a
-  // Telegram or WhatsApp member would: one turn, `/group join <code>`, in a
-  // thread the athlete can then read.
-  const [pendingComposerAction, setPendingComposerAction] =
-    useState<PendingComposerAction | null>(null);
-  useEffect(() => {
-    if (!pendingInviteCode) return;
-    setActiveTab("chat");
-    setPendingComposerAction({
-      kind: "send",
-      text: COMMAND_DRAFTS.groupJoin(pendingInviteCode),
-    });
-  }, [pendingInviteCode]);
-
   // ── URL hash routing ──────────────────────────────────────────────────────
   // Compose the route from the active tab + its open sub-view, so deep links
   // and the Back button operate on sub-views, not just top-level tabs.
@@ -672,6 +662,20 @@ export default function Dashboard({
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
   }, [applyRoute]);
+
+  // A held invite's join opens the room it joined, as a notification's link
+  // to the thread would: the join notice waits there, unread. A room the
+  // server could not file opens on the Groups list, where it is filed on
+  // first open.
+  useEffect(() => {
+    if (joinedRoom === null) return;
+    applyRoute(
+      joinedRoom.conversationId === null
+        ? "chat"
+        : `chat/${encodeURIComponent(joinedRoom.conversationId)}`,
+    );
+    onJoinedRoomOpened?.();
+  }, [joinedRoom, applyRoute, onJoinedRoomOpened]);
 
   // The role can change under a mounted dashboard: the account cached by this
   // browser renders first and the session's own replaces it, so an admin
@@ -2083,11 +2087,6 @@ export default function Dashboard({
                 onNavigate={applyRoute}
                 openInfoFor={chatInfoRequest}
                 onOpenInfoConsumed={() => setChatInfoRequest(null)}
-                pendingComposerAction={pendingComposerAction}
-                onPendingComposerActionConsumed={() => {
-                  setPendingComposerAction(null);
-                  onInviteCodeConsumed?.();
-                }}
               />
             </Suspense>
           )}

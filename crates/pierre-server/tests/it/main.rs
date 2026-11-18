@@ -420,6 +420,7 @@ mod health_soft_delete_test;
 mod health_sync_connected_users_test;
 mod health_sync_tools_integration_test;
 mod heart_rate_series_tool_test;
+mod held_group_invite_test;
 mod help_menu_card_test;
 mod history_source_order_test;
 mod history_walk_api_test;

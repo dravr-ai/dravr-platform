@@ -62,9 +62,10 @@ export default function PendingApproval() {
   const [signupCode, setSignupCode] = useState('');
   const [redeeming, setRedeeming] = useState(false);
   const [redeemError, setRedeemError] = useState<string | null>(null);
-  // Set once a code was accepted but the account still waits on the
-  // confirmation link: the field gives way to what happens next.
-  const [redeemed, setRedeemed] = useState<{ groupJoined: boolean } | null>(null);
+  // Set once a code was accepted but the account is still not in: the field
+  // gives way to what happens next. A held group invite approves nothing, so
+  // the account may be waiting on review rather than on its address.
+  const [redeemed, setRedeemed] = useState<{ groupJoined: boolean; inviteHeld: boolean } | null>(null);
 
   // An approval or a confirmed address lands on the server, not here: re-read
   // the session while the page is up, and whenever the tab comes back, so the
@@ -125,14 +126,18 @@ export default function PendingApproval() {
     setRedeeming(true);
     setRedeemError(null);
     try {
-      const { user_status, group_joined } = await userApi.redeemSignupCode(code);
+      const { user_status, group_joined, group_invite_held } = await userApi.redeemSignupCode(code);
       if (user_status === 'active') {
         // The account is in: the app leaves this screen on the new status.
         updateUser({ user_status });
+      } else if (group_invite_held === true) {
+        // A group invite code: the server holds it, and the account joins
+        // the group once it is let in (carnet#1648). Nothing has joined yet.
+        setRedeemed({ groupJoined: false, inviteHeld: true });
       } else {
         // Accepted, but the address is not confirmed yet: the confirmation
         // link activates it.
-        setRedeemed({ groupJoined: group_joined === true });
+        setRedeemed({ groupJoined: group_joined === true, inviteHeld: false });
       }
     } catch (err) {
       // The server says which refusal it was: not a code, already active,
@@ -252,7 +257,14 @@ export default function PendingApproval() {
                     role="status"
                     className="bg-surface-container-low border ghost-border text-on-surface px-4 py-3 rounded-lg text-sm space-y-1"
                   >
-                    <p>{t('auth.signupCodeAcceptedConfirmEmail')}</p>
+                    {/* A held invite on a confirmed address still waits on
+                        review: telling them to confirm it would send them
+                        looking for a mail that never comes. */}
+                    <p>
+                      {redeemed.inviteHeld && !needsEmailConfirmation
+                        ? t('auth.pendingApprovalMessage')
+                        : t('auth.signupCodeAcceptedConfirmEmail')}
+                    </p>
                     {redeemed.groupJoined && <p>{t('auth.signupCodeJoinedGroup')}</p>}
                   </div>
                 ) : showSignupCode ? (

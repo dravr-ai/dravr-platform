@@ -18,6 +18,7 @@
 //! - [`chat::starters`] — the use-case starters an empty thread offers
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
 //! - [`chat::group_room`] — the caller's conversation in a group's room, opened when they hold none
+//! - [`chat::held_invite`] — the caller joins the group whose invite the server held for them (carnet#1648)
 //! - [`chat::send_message`] — web-chat POST → unified pipeline (optional AG-UI)
 //! - [`chat::room_quote`] — the room entry a coach's message quotes into their athlete thread, verified
 //! - [`chat::turn_response`] — the wire shape of one turn's envelope
@@ -32,6 +33,7 @@ mod dto;
 mod feedback;
 mod group_room;
 mod group_transcript;
+mod held_invite;
 mod messages;
 mod participants;
 mod personal;
@@ -188,6 +190,9 @@ impl ChatRoutes {
                 "/api/chat/groups/{group_id}/room",
                 post(group_room::open_group_room),
             )
+            // The group whose invite the server held for the caller, joined
+            // once the account is active (carnet#1648)
+            .route("/api/chat/groups/join", post(held_invite::join_held_invite))
             // POST messages with MCP tool support — an event stream when the
             // request's Accept header names text/event-stream, one JSON
             // document otherwise

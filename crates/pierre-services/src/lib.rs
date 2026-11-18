@@ -281,6 +281,8 @@ pub mod recent_load;
 
 pub mod about_you;
 pub mod email_verification;
+/// A group invite held for an account until it can join (carnet#1648)
+pub mod group_invite_hold;
 pub mod link_token;
 /// Signup codes: mint, list, revoke, resolve and claim (carnet#1128)
 pub mod signup_codes;

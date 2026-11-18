@@ -20,7 +20,7 @@ use pierre_routes_admin::auth::service::AdminAuthService;
 use crate::email_verification::issue_verification_email;
 use crate::password_attempts::meter_password_attempt;
 use crate::registration_sign_in::{registration_sign_in_code, PublicRegisterResponse};
-use crate::signup_code::{join_coach_group, meter_signup_code};
+use crate::signup_code::{hold_link_invite, join_coach_group, meter_signup_code};
 use crate::signup_guards::{
     client_address, meter_sign_up, pass_human_check, PublicRegisterRequest,
 };
@@ -247,7 +247,9 @@ pub(crate) async fn handle_public_register(
     )
     .await?;
     let request = body.account;
-    if body.signup_code.is_some() {
+    // A group invite is a bearer code too, so carrying one is metered as
+    // entering one is; one attempt however many codes the form carried.
+    if body.signup_code.is_some() || body.group_invite_code.is_some() {
         meter_signup_code(&resources.rate_limiter, client).await?;
     }
 
@@ -283,6 +285,12 @@ pub(crate) async fn handle_public_register(
                 (redeemed.as_ref(), uuid::Uuid::parse_str(&response.user_id))
             {
                 join_coach_group(&resources, redeemed, user_id).await;
+            }
+            if let (Some(code), Ok(user_id)) = (
+                body.group_invite_code.as_ref(),
+                uuid::Uuid::parse_str(&response.user_id),
+            ) {
+                hold_link_invite(&resources, user_id, code).await;
             }
             // A code that waits on the address activates it with the
             // confirmation link: there is no review to announce.

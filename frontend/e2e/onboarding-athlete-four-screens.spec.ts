@@ -164,6 +164,7 @@ test.describe('athlete onboarding — four screens', () => {
   test('an athlete who arrived by an invite link starts on Tes données, Profil already done', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user', email: 'lea@test.com', displayName: 'Léa' });
     const server = await installServer(page);
+    const invites = await installHeldInvite(page, { heldAtStart: false });
     // The link opened signed out: the sign-in redirect must not lose it.
     await signIn(page, '/groups/join/ABCD2345');
 
@@ -172,8 +173,69 @@ test.describe('athlete onboarding — four screens', () => {
     await expect(onData.locator('li').first()).toHaveAttribute('data-status', 'done');
     expect(server.roleWrites).toEqual([false]);
     expect(server.steps).toContainEqual({ step_id: 'profile_type', status: 'complete' });
+    // The code reached the server once a session existed, which named it a
+    // member's invite, and the join ran ahead of onboarding rather than after it.
+    await expect.poll(() => invites.holds).toEqual(['ABCD2345']);
+    await expect.poll(() => invites.joins).toEqual(['joined']);
+  });
+
+  test('the confirmation tab carries no link: the invite the server held still makes Profil done', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'lea@test.com', displayName: 'Léa' });
+    const server = await installServer(page);
+    // Held at registration, in the tab that opened the link (carnet#1648).
+    const invites = await installHeldInvite(page, { heldAtStart: true });
+    await signIn(page);
+
+    const onData = bar(page, 'Step 2 of 4: Your data');
+    await expect(onData).toBeVisible({ timeout: 15_000 });
+    await expect(onData.locator('li').first()).toHaveAttribute('data-status', 'done');
+    expect(server.roleWrites).toEqual([false]);
+    expect(invites.holds).toEqual([]);
+    expect(invites.joins).toEqual(['joined']);
+  });
+
+  test("a coach-seat invite link records no athlete role: the role question is asked", async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user', email: 'lea@test.com', displayName: 'Léa' });
+    const server = await installServer(page);
+    const invites = await installHeldInvite(page, { heldAtStart: false, kind: 'coach' });
+    await signIn(page, '/groups/join/COACH234');
+
+    await expect.poll(() => invites.joins).toEqual(['joined']);
+    await expect(bar(page, 'Step 1 of 4: Profile')).toBeVisible({ timeout: 15_000 });
+    expect(invites.holds).toEqual(['COACH234']);
+    expect(server.roleWrites).toEqual([]);
   });
 });
+
+/**
+ * The server's held invite (carnet#1648): a hold records the code, and the
+ * join answers for it once, then drops it. `heldAtStart` is an invite held
+ * before this page — at registration, in the tab that opened the link; `kind`
+ * is what the server names it, a member's invite or the group's coach seat.
+ */
+async function installHeldInvite(
+  page: Page,
+  { heldAtStart, kind = 'member' }: { heldAtStart: boolean; kind?: 'member' | 'coach' },
+) {
+  const state = { holds: [] as string[], joins: [] as string[], held: heldAtStart };
+  await page.route('**/api/user/group-invite', (route) => {
+    state.holds.push((route.request().postDataJSON() as { code: string }).code);
+    state.held = true;
+    return json(route, { held: true, kind });
+  });
+  await page.route('**/api/chat/groups/join', (route) => {
+    const outcome = state.held ? 'joined' : 'none';
+    state.joins.push(outcome);
+    state.held = false;
+    return json(
+      route,
+      outcome === 'joined'
+        ? { outcome, kind, group_id: 'group-1', group_name: 'Morning Riders', conversation_id: 'conv-room-1' }
+        : { outcome },
+    );
+  });
+  return state;
+}
 
 test.describe('athlete Home — the questions the wizard left behind', () => {
   async function onboardedWith(page: Page, steps: Step[]) {

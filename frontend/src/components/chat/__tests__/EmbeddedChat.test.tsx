@@ -1,5 +1,5 @@
 // ABOUTME: The chat surface embedded in another view — the host's way in until a thread exists, then that thread alone
-// ABOUTME: Pins that a `send` the host hands over opens a conversation, sends the text into it, and draws no list or header
+// ABOUTME: Pins that a `send` the host hands over opens a conversation and draws no list or header; drafts and chips keep their origin
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -128,5 +128,80 @@ describe('EmbeddedChat', () => {
     expect(screen.getByPlaceholderText('Message Dravr...')).toBeInTheDocument();
     expect(screen.getByPlaceholderText('Message Dravr...')).not.toHaveFocus();
     expect(screen.queryByTestId('thread-header')).toBeNull();
+  });
+});
+
+/** A host whose thread is open, handing the surface one composer action, as the activity view's chips do. */
+function OpenThreadHost({ initial }: { initial: PendingComposerAction }) {
+  const [conversation, setConversation] = useState<string | null>('conv-activity');
+  const [action, setAction] = useState<PendingComposerAction | null>(initial);
+  return (
+    <EmbeddedChat
+      conversationId={conversation}
+      onSelectConversation={setConversation}
+      pendingComposerAction={action}
+      onPendingComposerActionConsumed={() => setAction(null)}
+      emptyState={null}
+    />
+  );
+}
+
+function renderOpenThread(initial: PendingComposerAction) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <ToastProvider>
+        <OpenThreadHost initial={initial} />
+      </ToastProvider>
+    </QueryClientProvider>,
+  );
+}
+
+// carnet#828: analytics tells a typed question from a pre-filled one.
+describe('EmbeddedChat message origin', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    getConversations.mockResolvedValue({
+      conversations: [{ id: 'conv-activity', title: 'Morning Trail Run', agent_id: null }],
+      total: 1,
+    });
+    getConversationMessages.mockResolvedValue({ messages: [] });
+    sendTurn.mockResolvedValue(undefined);
+  });
+
+  it('reports a draft the athlete sends as a draft', async () => {
+    renderOpenThread({ kind: 'draft', text: 'Suggest a route for today' });
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText('Message Dravr...');
+    await waitFor(() => expect(input).toHaveValue('Suggest a route for today'));
+    await user.type(input, ' near the river');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][1]).toBe('Suggest a route for today near the river');
+    expect(sendTurn.mock.calls[0][2].origin).toBe('draft');
+  });
+
+  it('forgets a draft the athlete erased and retyped', async () => {
+    renderOpenThread({ kind: 'draft', text: 'Draft' });
+    const user = userEvent.setup();
+    const input = await screen.findByPlaceholderText('Message Dravr...');
+    await waitFor(() => expect(input).toHaveValue('Draft'));
+    await user.clear(input);
+    await user.type(input, 'My own words');
+    await user.click(screen.getByRole('button', { name: 'Send message' }));
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][2].origin).toBeUndefined();
+  });
+
+  it('passes a chip send on as a chip', async () => {
+    renderOpenThread({ kind: 'send', text: 'How was my pacing?', origin: 'chip' });
+
+    await waitFor(() => expect(sendTurn).toHaveBeenCalledTimes(1));
+    expect(sendTurn.mock.calls[0][1]).toBe('How was my pacing?');
+    expect(sendTurn.mock.calls[0][2].origin).toBe('chip');
   });
 });

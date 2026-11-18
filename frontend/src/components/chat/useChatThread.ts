@@ -130,7 +130,7 @@ export interface UseChatThreadOptions {
   onSelectConversation: (id: string | null) => void;
   /** How this surface opens a thread when a turn needs one. */
   openThread: OpenThread;
-  /** Text the host wants drafted or sent in the thread — the invite deep link, an activity's chips. */
+  /** Text the host wants drafted or sent in the thread — the activity view's prompts and chips. */
   pendingComposerAction?: PendingComposerAction | null;
   /** Called once the action above has been drafted or dispatched. */
   onPendingComposerActionConsumed?: () => void;
@@ -1187,8 +1187,7 @@ export function useChatThread({
     setNewMessage(action.text);
   }, [selectedConversation, startConversation, sendTurn, holdQueuedSend]);
 
-  // The host's own composer action — the `/groups/join/:code` deep link, which
-  // lands on chat and sends `/group join CODE` as its first turn.
+  // The host's own composer action — an activity view prompt or chip — drafted or sent once.
   useEffect(() => {
     if (!pendingComposerAction) return;
     runComposerAction(pendingComposerAction);

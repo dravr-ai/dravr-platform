@@ -208,6 +208,48 @@ describe('PendingApproval', () => {
       expect(await screen.findByText("You've also joined the group this code came from.")).toBeInTheDocument()
     })
 
+    it('says the review is what remains when a held invite meets a confirmed address (carnet#1648)', async () => {
+      vi.mocked(userApi.redeemSignupCode).mockResolvedValue({
+        user_status: 'pending',
+        group_joined: null,
+        group_invite_held: true,
+      })
+      const user = userEvent.setup()
+      renderPending(true)
+
+      await enterCode(user, 'MRT2026X')
+
+      expect(
+        await screen.findByText("Your registration is being reviewed. You'll get an email once it's approved."),
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText('Code accepted. Confirm your email address to activate your account.'),
+      ).not.toBeInTheDocument()
+      expect(screen.queryByText("You've also joined the group this code came from.")).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Signup code')).not.toBeInTheDocument()
+    })
+
+    it('takes a group member code as accepted, held for the join once the account is in (carnet#1648)', async () => {
+      vi.mocked(userApi.redeemSignupCode).mockResolvedValue({
+        user_status: 'pending',
+        group_joined: null,
+        group_invite_held: true,
+      })
+      const user = userEvent.setup()
+      const { mockUpdateUser } = renderPending(false)
+
+      await enterCode(user, 'MRT2026X')
+
+      expect(userApi.redeemSignupCode).toHaveBeenCalledWith('MRT2026X')
+      expect(
+        await screen.findByText('Code accepted. Confirm your email address to activate your account.'),
+      ).toBeInTheDocument()
+      // Nothing has joined yet: the join waits on the account being let in.
+      expect(screen.queryByText("You've also joined the group this code came from.")).not.toBeInTheDocument()
+      expect(screen.queryByLabelText('Signup code')).not.toBeInTheDocument()
+      expect(mockUpdateUser).not.toHaveBeenCalled()
+    })
+
     it("shows the server's refusal inline and keeps the field to retry", async () => {
       vi.mocked(userApi.redeemSignupCode).mockRejectedValue({
         isAxiosError: true,

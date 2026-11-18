@@ -82,8 +82,10 @@ export interface OnboardingState {
 /** What the hook's host knows about how the user arrived. */
 export interface OnboardingArrival {
   /**
-   * The user opened a group invite link — a coach inviting an athlete — so
-   * the role is recorded as athlete for them and Profil is behind them.
+   * The user came through a group invite — a coach inviting an athlete — so
+   * the role is recorded as athlete for them and Profil is behind them. It can
+   * turn true after the status has loaded: the join of an invite the server
+   * held answers after the first render (carnet#1648).
    */
   invitedAsAthlete?: boolean;
 }

@@ -9,6 +9,7 @@ import type {
   GroupHealthFlag,
   GroupStatsResponse,
   GroupWeeklyReportResponse,
+  JoinHeldInviteResponse,
 } from '@pierre/shared-types';
 import { setupDashboardMocks, loginToDashboard, openGroups } from './test-helpers';
 import { expectNoCollidingText, useFrench } from './text-collision';
@@ -1198,20 +1199,96 @@ test.describe('Group info — coaching-platform links', () => {
 // The invite deep link
 // ============================================================================
 
+/**
+ * The server's side of a held invite (carnet#1648): a hold records the code,
+ * and the join answers for it once, filing the member's room, then drops it.
+ * `holdStatuses` answers each hold in turn; a hold past the list is accepted.
+ */
+async function installInviteServer(page: Page, holdStatuses: number[] = []) {
+  const state = {
+    holds: [] as string[],
+    joins: [] as JoinHeldInviteResponse['outcome'][],
+    held: null as string | null,
+  };
+  await page.route('**/api/user/group-invite', async (route) => {
+    const { code } = route.request().postDataJSON() as { code: string };
+    state.holds.push(code);
+    const status = holdStatuses[state.holds.length - 1] ?? 200;
+    if (status !== 200) {
+      await route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: 'unavailable' }) });
+      return;
+    }
+    state.held = code;
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ held: true, kind: 'member' }),
+    });
+  });
+  await page.route('**/api/chat/groups/join', async (route) => {
+    const body: JoinHeldInviteResponse =
+      state.held === null
+        ? { outcome: 'none' }
+        : {
+            outcome: 'joined',
+            kind: 'member',
+            group_id: GROUP_ID,
+            group_name: mockGroupDetail.name,
+            conversation_id: CONVERSATION_ID,
+          };
+    state.joins.push(body.outcome);
+    state.held = null;
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
+  });
+  return state;
+}
+
+const carriedInvite = (page: Page) =>
+  page.evaluate(() => window.sessionStorage.getItem('dravr.pending_invite_code'));
+
 test.describe('Group invite link', () => {
-  test('/groups/join/CODE lands on chat and sends /group join CODE', async ({ page }) => {
+  test('/groups/join/CODE hands the code to the server and opens the room it joined', async ({ page }) => {
     await setupDashboardMocks(page, { role: 'user' });
     const sent = await setupGroupMocks(page);
+    const server = await installInviteServer(page);
     await loginToDashboard(page);
     await page.waitForSelector('aside', { timeout: 10000 });
 
     await page.goto('/groups/join/MRT2026X');
     await page.waitForSelector('aside', { timeout: 10000 });
 
-    // The Groups tab is gone: the link resolves to chat and joins by command.
-    await expect(page).toHaveURL(/#chat/);
-    await expect.poll(() => sent.length, { timeout: 10000 }).toBe(1);
-    expect(sent[0].content).toBe('/group join MRT2026X');
+    // The server joined: the room's conversation opens, where its notice waits.
+    await expect(page).toHaveURL(new RegExp(`#chat/${CONVERSATION_ID}$`), { timeout: 10000 });
+    await expect(page.getByTestId('conversation-header-title')).toHaveText(/Marathon Training 2026/);
+    expect(server.holds).toEqual(['MRT2026X']);
+    expect(server.joins.filter((outcome) => outcome === 'joined')).toHaveLength(1);
+    expect(await carriedInvite(page)).toBeNull();
+    // No `/group join` turn: the chat surface sent nothing.
+    expect(sent).toEqual([]);
+  });
+
+  test('a hold the reload cut short goes out again, and the join follows it', async ({ page }) => {
+    await setupDashboardMocks(page, { role: 'user' });
+    await setupGroupMocks(page);
+    const server = await installInviteServer(page, [503]);
+    await loginToDashboard(page);
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await page.goto('/groups/join/MRT2026X');
+    await page.waitForSelector('aside', { timeout: 10000 });
+    await expect.poll(() => server.holds.length, { timeout: 10000 }).toBe(1);
+    // The server did not take it: the tab keeps the code, and nothing joined.
+    await expect.poll(() => carriedInvite(page)).toBe('MRT2026X');
+    expect(server.joins).not.toContain('joined');
+
+    // The reload a service worker update forces after sign-in.
+    await page.reload();
+    await page.waitForSelector('aside', { timeout: 10000 });
+
+    await expect(page).toHaveURL(new RegExp(`#chat/${CONVERSATION_ID}$`), { timeout: 10000 });
+    expect(server.holds).toEqual(['MRT2026X', 'MRT2026X']);
+    expect(server.joins.filter((outcome) => outcome === 'joined')).toHaveLength(1);
+    expect(await carriedInvite(page)).toBeNull();
   });
 });
 

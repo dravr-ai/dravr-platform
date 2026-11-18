@@ -21,10 +21,11 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{SignupCode, SignupCodeRedemption, SignupCodeSource};
+use pierre_core::models::{GroupInviteHold, SignupCode, SignupCodeRedemption, SignupCodeSource};
 use uuid::Uuid;
 
-/// Admin signup codes and the accounts that redeemed one.
+/// Admin signup codes and the accounts that redeemed one, and the group
+/// invite an account holds until it can join (carnet#1648).
 #[async_trait]
 pub trait SignupCodeRepository: Send + Sync {
     /// Store a freshly minted code by its hash.
@@ -64,6 +65,19 @@ pub trait SignupCodeRepository: Send + Sync {
     async fn mark_activated(&self, user_id: Uuid, now: DateTime<Utc>) -> AppResult<bool>;
     /// Every redemption, newest first, for the admin listing.
     async fn list_redemptions(&self) -> AppResult<Vec<SignupCodeRedemption>>;
+    /// Hold `invite_id` for `user_id` until the account joins, replacing the
+    /// invite it held before.
+    async fn hold_group_invite(
+        &self,
+        user_id: Uuid,
+        invite_id: Uuid,
+        now: DateTime<Utc>,
+    ) -> AppResult<()>;
+    /// The group invite an account holds.
+    async fn held_group_invite(&self, user_id: Uuid) -> AppResult<Option<GroupInviteHold>>;
+    /// Drop the account's hold on `invite_id`. A hold the account took on
+    /// another invite since is kept. Returns whether one was dropped.
+    async fn release_group_invite_hold(&self, user_id: Uuid, invite_id: Uuid) -> AppResult<bool>;
 }
 
 /// The columns every code read decodes.
@@ -148,6 +162,21 @@ pub(crate) const LIST_REDEMPTIONS_SQL: &str = concat!(
     redemption_columns!(),
     " FROM signup_code_redemptions ORDER BY redeemed_at DESC"
 );
+
+/// Hold an invite for an account, replacing the one it held.
+pub(crate) const HOLD_GROUP_INVITE_SQL: &str = r"
+            INSERT INTO group_invite_holds (user_id, invite_id, held_at)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO UPDATE SET invite_id = excluded.invite_id, held_at = excluded.held_at
+            ";
+
+/// The invite an account holds.
+pub(crate) const GET_GROUP_INVITE_HOLD_SQL: &str =
+    "SELECT user_id, invite_id, held_at FROM group_invite_holds WHERE user_id = $1";
+
+/// Drop an account's hold, only while it still names the same invite.
+pub(crate) const RELEASE_GROUP_INVITE_HOLD_SQL: &str =
+    "DELETE FROM group_invite_holds WHERE user_id = $1 AND invite_id = $2";
 
 /// Read a `TEXT` id column as a uuid; `try_get` so a corrupt row is an error.
 pub(crate) fn text_uuid_opt<R>(row: &R, col: &str) -> AppResult<Option<Uuid>>
@@ -427,6 +456,61 @@ macro_rules! impl_signup_code_repository {
                         )
                     })
                     .collect()
+            }
+
+            async fn hold_group_invite(
+                &self,
+                user_id: Uuid,
+                invite_id: Uuid,
+                now: DateTime<Utc>,
+            ) -> AppResult<()> {
+                sqlx::query(HOLD_GROUP_INVITE_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind($ids::bind(invite_id))
+                    .bind(now)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| AppError::database(format!("Failed to hold group invite: {e}")))?;
+                Ok(())
+            }
+
+            async fn held_group_invite(&self, user_id: Uuid) -> AppResult<Option<GroupInviteHold>> {
+                use sqlx::Row;
+
+                let row = sqlx::query(GET_GROUP_INVITE_HOLD_SQL)
+                    .bind($ids::bind(user_id))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read held group invite: {e}"))
+                    })?;
+                row.as_ref()
+                    .map(|row| {
+                        Ok(GroupInviteHold {
+                            user_id,
+                            invite_id: $ids::read(row, "invite_id")?,
+                            held_at: row.try_get("held_at").map_err(|e| {
+                                AppError::database(format!("group_invite_holds held_at: {e}"))
+                            })?,
+                        })
+                    })
+                    .transpose()
+            }
+
+            async fn release_group_invite_hold(
+                &self,
+                user_id: Uuid,
+                invite_id: Uuid,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(RELEASE_GROUP_INVITE_HOLD_SQL)
+                    .bind($ids::bind(user_id))
+                    .bind($ids::bind(invite_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to release held group invite: {e}"))
+                    })?;
+                Ok(result.rows_affected() > 0)
             }
         }
     };

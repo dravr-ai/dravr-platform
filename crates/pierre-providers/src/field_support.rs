@@ -174,7 +174,14 @@ impl StreamChannels {
     ///
     /// A descriptor that serves those two claims them by name; this set is
     /// what a backend that does not serve them declares, so `all()` never
-    /// hands them to a provider that never fills them.
+    /// hands them to a provider that never fills them. Only those backends'
+    /// descriptors name it, so it exists where one of them is built.
+    #[cfg(any(
+        test,
+        feature = "provider-strava",
+        feature = "provider-garmin",
+        feature = "provider-sciotte"
+    ))]
     pub(crate) const CORE: Self = Self::TIME
         .union(Self::HEART_RATE)
         .union(Self::POWER)

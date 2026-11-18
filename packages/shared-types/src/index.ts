@@ -485,6 +485,8 @@ export type {
   GroupHealthFlagsResponse,
   GroupAnalyticsScope,
   GroupPermissionsResponse,
+  HoldGroupInviteResponse,
+  JoinHeldInviteResponse,
   DelegationStatus,
   DelegationViewer,
   DelegatedConnection,
