@@ -15,12 +15,14 @@ use pierre_seeders::demo_data::{self, SeedArgs as DemoArgs};
 
 fn bootstrap_args() -> BootstrapArgs {
     BootstrapArgs {
-        admin_email: "operator@dravr.ai".to_owned(),
-        admin_password: "OperatorPass123!".to_owned(),
+        admin_email: "admin@dravr.ai".to_owned(),
+        admin_password: "AdminPass123!".to_owned(),
+        // The demo accounts are seeded only when the run is handed a password.
+        demo_password: Some("TestDemoPass123!".to_owned()),
     }
 }
 
-/// The operator and every bootstrap demo user land in English. `users.locale` carries
+/// The admin and every bootstrap demo user land in English. `users.locale` carries
 /// `NOT NULL DEFAULT 'fr'` (the platform default), so an account seeded without an
 /// explicit locale renders French command cards and notifications to an English tester.
 #[tokio::test]
@@ -30,13 +32,13 @@ async fn bootstrap_seeds_english_accounts() {
 
     bootstrap::run(bootstrap_args(), repos).await.unwrap();
 
-    let operator = repos
+    let admin = repos
         .users
-        .get_by_email("operator@dravr.ai")
+        .get_by_email("admin@dravr.ai")
         .await
         .unwrap()
-        .expect("operator seeded");
-    assert_eq!(operator.locale, "en", "the seeded operator is English");
+        .expect("admin seeded");
+    assert_eq!(admin.locale, "en", "the seeded admin is English");
 
     let alice = repos
         .users
@@ -59,7 +61,7 @@ async fn demo_data_seeds_english_visual_test_users() {
     bootstrap::run(bootstrap_args(), repos).await.unwrap();
     demo_data::run(
         DemoArgs {
-            admin_email: Some("operator@dravr.ai".to_owned()),
+            admin_email: Some("admin@dravr.ai".to_owned()),
             reset: false,
             days: 1,
         },

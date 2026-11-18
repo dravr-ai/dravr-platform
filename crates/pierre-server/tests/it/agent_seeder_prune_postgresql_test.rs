@@ -69,15 +69,16 @@ async fn agent_id(repos: &RepositoryRegistry, slug: &str, tenant: TenantId) -> O
 
 /// The prune listing casts `tenant_id` to UUID and compares `is_system` to a
 /// boolean — both PG-only spellings. Prove the retired agent goes, the kept one
-/// stays, and an operator-authored system agent in the same tenant is untouched.
+/// stays, and an admin-authored system agent in the same tenant is untouched.
 #[tokio::test]
 async fn test_pg_retired_catalogue_agent_is_deleted_and_others_survive() {
     let db = create_test_db().await.unwrap();
     let repos = db.repositories();
     bootstrap::run(
         BootstrapArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         repos,
     )
@@ -98,7 +99,7 @@ async fn test_pg_retired_catalogue_agent_is_deleted_and_others_survive() {
             .expect("the admin has a tenant"),
     )
     .unwrap();
-    let operator_coach = repos
+    let admin_coach = repos
         .agents
         .create_system_agent(
             admin.id,
@@ -161,11 +162,11 @@ async fn test_pg_retired_catalogue_agent_is_deleted_and_others_survive() {
     assert!(
         repos
             .agents
-            .get_system_agent(&operator_coach.id.to_string(), tenant)
+            .get_system_agent(&admin_coach.id.to_string(), tenant)
             .await
             .unwrap()
             .is_some(),
-        "an operator-authored system agent survives the prune on PG"
+        "an admin-authored system agent survives the prune on PG"
     );
 }
 
@@ -180,8 +181,9 @@ async fn test_pg_merged_agent_hands_over_and_orphan_group_blocks() {
     let repos = db.repositories();
     bootstrap::run(
         BootstrapArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         repos,
     )

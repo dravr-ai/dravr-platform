@@ -41,7 +41,7 @@
 //! STRAVA_WEBHOOK_VERIFY_TOKEN=... pierre-cli strava-webhook subscribe --base-url https://dev.dravr.ai
 //! pierre-cli strava-webhook list
 //!
-//! # Seed reference data (admin/demo users, agents, mobility, etc.)
+//! # Seed reference data (admin, agents, mobility, demo users, etc.)
 //! ADMIN_PASSWORD=secret pierre-cli seed bootstrap
 //! pierre-cli seed demo-data
 //! pierre-cli seed agents

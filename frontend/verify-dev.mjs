@@ -16,10 +16,19 @@ await page.addInitScript((t) => {
 await page.goto(`${BASE}/`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1500);
 
+// This page is the deployed app, so the account comes from the environment:
+// the repository is public and holds no deployed password (carnet#1597).
 const email = page.locator('input[type="email"], input[name="email"]').first();
 if (await email.count()) {
-  await email.fill('alice@acme.com');
-  await page.locator('input[type="password"]').first().fill('DemoUser123!');
+  const account = process.env.VERIFY_EMAIL;
+  const password = process.env.VERIFY_PASSWORD;
+  if (!account || !password) {
+    console.error('The app asks for a sign-in: set VERIFY_EMAIL and VERIFY_PASSWORD.');
+    await browser.close();
+    process.exit(1);
+  }
+  await email.fill(account);
+  await page.locator('input[type="password"]').first().fill(password);
   await page.locator('button[type="submit"]').first().click();
   await page.waitForTimeout(5000);
 }

@@ -33,8 +33,9 @@ async fn seeded_repos() -> (Arc<RepositoryRegistry>, Uuid, TenantId) {
     let repos = Arc::clone(database.repositories());
     bootstrap::run(
         BootstrapArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         &repos,
     )

@@ -19,6 +19,18 @@ use pierre_database::RepositoryRegistry;
 use pierre_seeders::bootstrap::{self, SeedArgs};
 use serde_json::Value;
 
+/// The demo password these tests hand the run: the demo and test accounts
+/// are seeded only when it is given one.
+const DEMO_PASSWORD: &str = "TestDemoPass123!";
+
+/// The demo and test accounts the run seeds when it is given a demo password.
+const DEMO_ACCOUNTS: [&str; 4] = [
+    "alice@demo.pierre.dev",
+    "bob@demo.pierre.dev",
+    "phil_test@dravr.ai",
+    "jf_test@dravr.ai",
+];
+
 /// A signer that only has to hand the repository a string to hash: these
 /// tests never validate the token, they read its row.
 struct Unsigned;
@@ -38,24 +50,16 @@ async fn bootstrap_admin_is_an_admin_demo_users_are_plain() {
     let database = common::create_test_database().await.unwrap();
     let repos = database.repositories();
 
-    bootstrap::run(
-        SeedArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
-        },
-        repos,
-    )
-    .await
-    .unwrap();
+    seed(repos).await.unwrap();
 
-    let operator = repos
+    let admin = repos
         .users
-        .get_by_email("operator@dravr.ai")
+        .get_by_email("admin@dravr.ai")
         .await
         .unwrap()
-        .expect("operator seeded");
+        .expect("admin seeded");
     assert_eq!(
-        operator.role,
+        admin.role,
         UserRole::Admin,
         "the seeded admin must hold the admin role so it can approve device logins"
     );
@@ -73,17 +77,28 @@ async fn bootstrap_admin_is_an_admin_demo_users_are_plain() {
     );
 }
 
-/// A seeding run in a fresh database, as `pierre-cli seed bootstrap` does it.
+/// A seeding run in a fresh database, as `pierre-cli seed bootstrap` does it
+/// when it is given a demo password.
 async fn seed(repos: &RepositoryRegistry) -> AppResult<()> {
-    seed_naming(repos, "operator@dravr.ai").await
+    seed_naming(repos, "admin@dravr.ai").await
 }
 
-/// A seeding run whose `ADMIN_EMAIL` is `admin_email`.
+/// A seeding run whose `ADMIN_EMAIL` is `admin_email`, given a demo password.
 async fn seed_naming(repos: &RepositoryRegistry, admin_email: &str) -> AppResult<()> {
+    seed_with(repos, admin_email, Some(DEMO_PASSWORD)).await
+}
+
+/// A seeding run whose `ADMIN_EMAIL` is `admin_email`, handed `demo_password`.
+async fn seed_with(
+    repos: &RepositoryRegistry,
+    admin_email: &str,
+    demo_password: Option<&str>,
+) -> AppResult<()> {
     bootstrap::run(
         SeedArgs {
             admin_email: admin_email.to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: demo_password.map(str::to_owned),
         },
         repos,
     )
@@ -110,13 +125,9 @@ async fn a_rerun_restores_the_seeded_roles_and_withdraws_a_demoted_admins_creden
             .expect("seeded")
     };
     let alice = by_email("alice@demo.pierre.dev").await;
-    let operator = by_email("operator@dravr.ai").await;
+    let admin = by_email("admin@dravr.ai").await;
     repos.users.set_admin_status(alice.id, true).await.unwrap();
-    repos
-        .users
-        .set_admin_status(operator.id, false)
-        .await
-        .unwrap();
+    repos.users.set_admin_status(admin.id, false).await.unwrap();
     let token = repos
         .admin
         .create_token(
@@ -137,8 +148,16 @@ async fn a_rerun_restores_the_seeded_roles_and_withdraws_a_demoted_admins_creden
 
     seed(repos).await.unwrap();
 
-    assert_eq!(by_email("operator@dravr.ai").await.role, UserRole::Admin);
-    assert_eq!(by_email("alice@demo.pierre.dev").await.role, UserRole::User);
+    assert_eq!(
+        by_email("admin@dravr.ai").await.role,
+        UserRole::Admin,
+        "the re-run makes the demoted bootstrap admin an admin again"
+    );
+    assert_eq!(
+        by_email("alice@demo.pierre.dev").await.role,
+        UserRole::User,
+        "the re-run takes the promoted demo account back to a plain user"
+    );
     let live = repos.admin.list_tokens(false).await.unwrap();
     assert!(
         live.iter().all(|row| row.id != token.token_id),
@@ -160,16 +179,16 @@ async fn a_rerun_never_demotes_the_last_active_admin() {
         .await
         .unwrap()
         .expect("seeded");
-    let operator = repos
+    let admin = repos
         .users
-        .get_by_email("operator@dravr.ai")
+        .get_by_email("admin@dravr.ai")
         .await
         .unwrap()
         .expect("seeded");
     repos.users.set_admin_status(alice.id, true).await.unwrap();
     repos
         .users
-        .update_status(operator.id, UserStatus::Suspended, None)
+        .update_status(admin.id, UserStatus::Suspended, None)
         .await
         .unwrap();
 
@@ -276,4 +295,130 @@ async fn a_run_makes_an_active_account_the_bootstrap_admin_with_its_credentials(
     );
     assert_eq!(stored.display_name.as_deref(), Some("Admin"));
     assert_eq!(stored.locale, SEED_LOCALE);
+}
+
+/// The source holds no password for the demo and test accounts: the
+/// repository is public (carnet#1597). A run handed none seeds the admin as
+/// it always does and creates none of them on an empty database.
+#[tokio::test]
+async fn a_run_with_no_demo_password_creates_no_demo_account() {
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+
+    seed_with(repos, "admin@dravr.ai", None).await.unwrap();
+
+    let admin = repos
+        .users
+        .get_by_email("admin@dravr.ai")
+        .await
+        .unwrap()
+        .expect("the admin path is unchanged");
+    assert_eq!(
+        admin.role,
+        UserRole::Admin,
+        "a run with no demo password still seeds the bootstrap admin"
+    );
+    for email in DEMO_ACCOUNTS {
+        assert!(
+            repos.users.get_by_email(email).await.unwrap().is_none(),
+            "{email} is not created without a demo password"
+        );
+    }
+}
+
+/// A run handed a demo password seeds all four demo and test accounts under
+/// that password, the only one they get: none keeps a value of its own.
+#[tokio::test]
+async fn a_run_with_a_demo_password_seeds_every_demo_account_under_it() {
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+
+    seed(repos).await.unwrap();
+
+    for email in DEMO_ACCOUNTS {
+        let user = repos
+            .users
+            .get_by_email(email)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("{email} is created with a demo password"));
+        assert!(
+            bcrypt::verify(DEMO_PASSWORD, &user.password_hash).unwrap(),
+            "{email} signs in with the demo password the run was given"
+        );
+    }
+}
+
+/// An empty demo password is no password: an unset secret mounted as an
+/// empty value must not seed the accounts with an empty password.
+#[tokio::test]
+async fn an_empty_demo_password_creates_no_demo_account() {
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+
+    seed_with(repos, "admin@dravr.ai", Some("")).await.unwrap();
+
+    for email in DEMO_ACCOUNTS {
+        assert!(
+            repos.users.get_by_email(email).await.unwrap().is_none(),
+            "{email} is not created with an empty demo password"
+        );
+    }
+}
+
+/// On the deployed environment the demo and test accounts are managed out of
+/// band, and the seed job runs on every deploy with no demo password. That
+/// run must leave every such account as it is: its password hash, its role
+/// and its status, even a role and a status a run given the password would
+/// bring back to the seed's.
+#[tokio::test]
+async fn a_run_with_no_demo_password_leaves_existing_demo_accounts_untouched() {
+    let database = common::create_test_database().await.unwrap();
+    let repos = database.repositories();
+    seed(repos).await.unwrap();
+    let alice = repos
+        .users
+        .get_by_email("alice@demo.pierre.dev")
+        .await
+        .unwrap()
+        .expect("seeded");
+    repos.users.set_admin_status(alice.id, true).await.unwrap();
+    repos
+        .users
+        .update_status(alice.id, UserStatus::Suspended, None)
+        .await
+        .unwrap();
+    let mut before = Vec::new();
+    for email in DEMO_ACCOUNTS {
+        let user = repos
+            .users
+            .get_by_email(email)
+            .await
+            .unwrap()
+            .unwrap_or_else(|| panic!("{email} seeded"));
+        before.push(user);
+    }
+
+    seed_with(repos, "admin@dravr.ai", None).await.unwrap();
+
+    for held in before {
+        let stored = repos.users.get_global(held.id).await.unwrap().unwrap();
+        assert_eq!(
+            stored.password_hash, held.password_hash,
+            "{}: the run takes no password from the source",
+            held.email
+        );
+        assert_eq!(stored.role, held.role, "{}: keeps its role", held.email);
+        assert_eq!(
+            stored.user_status, held.user_status,
+            "{}: keeps its status",
+            held.email
+        );
+    }
+    let alice = repos.users.get_global(alice.id).await.unwrap().unwrap();
+    assert_eq!(
+        (alice.role, alice.user_status),
+        (UserRole::Admin, UserStatus::Suspended),
+        "the role and status a run with the password would have reset stay"
+    );
 }

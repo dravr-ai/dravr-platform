@@ -43,7 +43,7 @@ use crate::helpers::jwks::initialize_jwks_manager;
 #[non_exhaustive]
 #[derive(Subcommand)]
 pub(crate) enum SeedCommand {
-    /// Create admin and demo users for a fresh deployment (idempotent)
+    /// Create the admin, and the demo and test accounts when given a demo password (idempotent)
     Bootstrap(BootstrapArgs),
 
     /// Load agent definitions from markdown files, sync them to the database, and delete catalogue agents whose file is gone

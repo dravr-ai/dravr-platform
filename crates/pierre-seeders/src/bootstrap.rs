@@ -1,5 +1,5 @@
-// ABOUTME: Bootstrap seeder for fresh Cloud Run deployments (admin + demo users)
-// ABOUTME: Creates admin user from env/CLI credentials and demo users with personal tenants
+// ABOUTME: Bootstrap seeder for fresh Cloud Run deployments (admin, plus demo and test accounts on request)
+// ABOUTME: Creates the admin from env/CLI credentials; the demo/test accounts only with a password given from outside the source
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,7 +8,14 @@
 //!
 //! Creates the minimum set of users needed for a working deployment:
 //! - Admin user (email/password from env or CLI)
-//! - Two demo users for testing
+//! - Two demo and two test accounts, only when a demo password is given
+//!   (`--demo-password` / `BOOTSTRAP_DEMO_PASSWORD`)
+//!
+//! The source holds no password for any of them: the repository is public.
+//! Without a demo password the run neither creates nor touches the demo and
+//! test accounts (not their password, their role or their status), and says
+//! so in one info log. The deployed seed job sets none, so the accounts
+//! there are managed out of band.
 //!
 //! All operations are idempotent via `seed_check_user_exists`. An account
 //! that already exists gets its credentials refreshed and its role brought
@@ -25,6 +32,9 @@
 //!
 //! # Override email
 //! pierre-cli seed bootstrap --admin-email ops@dravr.ai
+//!
+//! # Also seed the demo and test accounts, with a password from the environment
+//! BOOTSTRAP_DEMO_PASSWORD=$LOCAL_DEMO_PASSWORD pierre-cli seed bootstrap
 //! ```
 
 use bcrypt::{hash, DEFAULT_COST};
@@ -43,9 +53,6 @@ use std::fmt;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-/// Password assigned to seed users (not the admin — admin password comes from env/CLI)
-const DEMO_USER_PASSWORD: &str = "DemoUser123!";
-
 /// CLI arguments for the bootstrap seeder.
 #[derive(clap::Args)]
 pub struct SeedArgs {
@@ -56,6 +63,13 @@ pub struct SeedArgs {
     /// Admin password (required — no hardcoded default)
     #[arg(long, env = "ADMIN_PASSWORD")]
     pub admin_password: String,
+
+    /// Password for the demo and test accounts. Without one (or with an
+    /// empty one) the run neither creates nor touches them. Prefer
+    /// `BOOTSTRAP_DEMO_PASSWORD` over the flag: a flag value lands in the
+    /// process argument list and the shell history.
+    #[arg(long, env = "BOOTSTRAP_DEMO_PASSWORD")]
+    pub demo_password: Option<String>,
 }
 
 impl fmt::Debug for SeedArgs {
@@ -63,6 +77,10 @@ impl fmt::Debug for SeedArgs {
         f.debug_struct("SeedArgs")
             .field("admin_email", &self.admin_email)
             .field("admin_password", &"[REDACTED]")
+            .field(
+                "demo_password",
+                &self.demo_password.as_ref().map(|_| "[REDACTED]"),
+            )
             .finish()
     }
 }
@@ -73,39 +91,34 @@ struct BootstrapUser {
     display_name: &'static str,
     tier: &'static str,
     role: UserRole,
-    /// Optional custom password (defaults to `DEMO_USER_PASSWORD` if None)
-    password: Option<&'static str>,
 }
 
-/// Fixed set of demo users created on every fresh deployment
+/// The demo and test accounts, seeded only when the run is given a demo
+/// password ([`SeedArgs::demo_password`])
 const DEMO_USERS: &[BootstrapUser] = &[
     BootstrapUser {
         email: "alice@demo.pierre.dev",
         display_name: "Alice Demo",
         tier: "professional",
         role: UserRole::User,
-        password: None,
     },
     BootstrapUser {
         email: "bob@demo.pierre.dev",
         display_name: "Bob Demo",
         tier: "starter",
         role: UserRole::User,
-        password: None,
     },
     BootstrapUser {
         email: "phil_test@dravr.ai",
         display_name: "Phil Test",
         tier: "professional",
         role: UserRole::User,
-        password: Some("fougeresEtSapin2017#!$"),
     },
     BootstrapUser {
         email: "jf_test@dravr.ai",
         display_name: "JF Test",
         tier: "professional",
         role: UserRole::User,
-        password: Some("fougeresEtSapin2017#!$"),
     },
 ];
 
@@ -146,8 +159,8 @@ async fn upsert_user_credentials(
 /// write every other surface uses.
 ///
 /// The bootstrap admin is made an admin again on every run, and a demo
-/// account someone promoted goes back to a plain user: its password is in
-/// this file. Only an active account reaches a promotion here
+/// account someone promoted goes back to a plain user: its password is the
+/// shared demo password. Only an active account reaches a promotion here
 /// ([`left_as_it_is`] is asked first). A demotion takes no such look: it
 /// removes standing, whatever the status.
 /// The repository refuses to demote the last active admin, which
@@ -279,7 +292,8 @@ async fn create_user(
     Ok(user_id)
 }
 
-/// Seed an admin user plus the fixed demo users, upserting credentials if they already exist.
+/// Seed an admin user, plus the fixed demo and test accounts when a demo
+/// password is given, upserting credentials if they already exist.
 ///
 /// # Errors
 ///
@@ -297,20 +311,40 @@ pub async fn run(args: SeedArgs, repos: &RepositoryRegistry) -> AppResult<()> {
     )
     .await?;
 
+    sync_demo_accounts(repos, args.demo_password.as_deref()).await?;
+
+    info!("=== Bootstrap seeding complete ===");
+    Ok(())
+}
+
+/// Seed the demo and test accounts with `demo_password`, or, without one (or
+/// with an empty one), leave them as they are: neither created nor touched.
+///
+/// # Errors
+///
+/// Returns an error if bcrypt hashing or a repository operation fails.
+async fn sync_demo_accounts(
+    repos: &RepositoryRegistry,
+    demo_password: Option<&str>,
+) -> AppResult<()> {
+    let Some(demo_password) = demo_password.filter(|p| !p.is_empty()) else {
+        info!(
+            "No demo password given (--demo-password / BOOTSTRAP_DEMO_PASSWORD): the demo and \
+             test accounts are neither created nor touched"
+        );
+        return Ok(());
+    };
     for user in DEMO_USERS {
-        let password = user.password.unwrap_or(DEMO_USER_PASSWORD);
         sync_user(
             repos,
             user.email,
             user.display_name,
-            password,
+            demo_password,
             user.tier,
             user.role,
         )
         .await?;
     }
-
-    info!("=== Bootstrap seeding complete ===");
     Ok(())
 }
 

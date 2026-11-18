@@ -85,7 +85,10 @@ MOBILE_TEST_EMAIL="mobiletest@pierre.dev"
 MOBILE_TEST_PASSWORD="MobileTest1234"
 PHIL_TEST_EMAIL="phil_test@dravr.ai"
 JF_TEST_EMAIL="jf_test@dravr.ai"
-DRAVR_TEST_PASSWORD='fougeresEtSapin2017#!$'
+# Local-only: these two accounts exist on the deployed environment too, under
+# passwords managed out of band (carnet#1597). This value seeds only the local
+# database this script resets, and must never be the deployed one.
+DRAVR_TEST_PASSWORD='DravrLocalTest123!'
 DEMO_PASSWORD="DemoUser123!"
 
 print_step() {

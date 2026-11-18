@@ -35,14 +35,15 @@ const KEPT: &str = "kept-coach";
 const RETIRED: &str = "retired-coach";
 const BROKEN: &str = "broken-coach";
 
-/// Bootstrap an operator so the agent seeder has an admin to own the rows.
+/// Bootstrap an admin so the agent seeder has one to own the rows.
 async fn seeded_repos() -> (Arc<RepositoryRegistry>, Uuid, TenantId) {
     let database = common::create_test_database().await.unwrap();
     let repos = Arc::clone(database.repositories());
     bootstrap::run(
         BootstrapArgs {
-            admin_email: "operator@dravr.ai".to_owned(),
-            admin_password: "OperatorPass123!".to_owned(),
+            admin_email: "admin@dravr.ai".to_owned(),
+            admin_password: "AdminPass123!".to_owned(),
+            demo_password: None,
         },
         &repos,
     )
@@ -366,13 +367,13 @@ async fn dry_run_reports_the_retirement_without_deleting() {
     );
 }
 
-/// Only catalogue-owned rows are candidates. A system agent the operator wrote
+/// Only catalogue-owned rows are candidates. A system agent the admin wrote
 /// in the console and an athlete's own agent share the tenant and are not in
 /// any checkout, so they must survive every seed.
 #[tokio::test]
 async fn agents_that_never_came_from_the_catalogue_survive_the_prune() {
     let (repos, admin, tenant) = seeded_repos().await;
-    let operator_coach = repos
+    let admin_coach = repos
         .agents
         .create_system_agent(
             admin,
@@ -422,11 +423,11 @@ async fn agents_that_never_came_from_the_catalogue_survive_the_prune() {
     assert!(
         repos
             .agents
-            .get_system_agent(&operator_coach.id.to_string(), tenant)
+            .get_system_agent(&admin_coach.id.to_string(), tenant)
             .await
             .unwrap()
             .is_some(),
-        "an operator-authored system agent is not catalogue-owned"
+        "an admin-authored system agent is not catalogue-owned"
     );
     assert!(
         repos
@@ -608,7 +609,7 @@ async fn a_deleted_agent_with_no_successor_detaches_its_conversation() {
 
 /// A group needs an agent, so one bound to a retired agent with no successor blocks the delete.
 ///
-/// The seed reports the failure and the row stays, so an operator picks a
+/// The seed reports the failure and the row stays, so an admin picks a
 /// agent for the group instead of the seeder guessing.
 #[tokio::test]
 async fn a_group_bound_to_an_agent_with_no_successor_blocks_the_delete() {
