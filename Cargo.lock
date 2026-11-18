@@ -1444,8 +1444,8 @@ source = "git+https://github.com/dravr-ai/dravr-contremaitre.git?rev=7f3b2feed9b
 
 [[package]]
 name = "dravr-enforme"
-version = "0.21.0"
-source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.21.0#d2c1a55d9f6bf9da0b512aa35ced75e9911b56cf"
+version = "0.21.1"
+source = "git+https://github.com/dravr-ai/dravr-enforme.git?tag=v0.21.1#b11728c52e5375e7eff0b9ead8c8c9e1b8e354d1"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -1508,8 +1508,8 @@ dependencies = [
 
 [[package]]
 name = "dravr-sciotte"
-version = "2.2.0"
-source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v2.2.0#e7a6c0e6815417d87978346324955c4edba14039"
+version = "2.3.0"
+source = "git+https://github.com/dravr-ai/dravr-sciotte.git?tag=v2.3.0#0210fe5118566d7dfabcec5753ffeaea30c64e2e"
 dependencies = [
  "async-trait",
  "chrono",
@@ -5031,7 +5031,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "thiserror 2.0.21",
  "tokio",
  "tracing",
@@ -5069,7 +5069,7 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.6.5",
+ "socket2 0.5.10",
  "tracing",
  "windows-sys 0.61.2",
 ]
@@ -6467,7 +6467,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -7313,7 +7313,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.61.2",
+ "windows-sys 0.48.0",
 ]
 
 [[package]]
