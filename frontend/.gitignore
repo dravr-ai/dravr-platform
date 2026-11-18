@@ -35,7 +35,3 @@ design-sweep/
 # Dev-only font cache for scripts/generate-brand-assets.py (the OG wordmark face).
 # The generated PNGs are committed; the face is fetched on demand.
 scripts/.fontcache/
-
-# Impeccable design-detector hook: config.json (shared suppressions) is committed;
-# the per-session findings cache holds absolute local paths.
-.impeccable/hook.cache.json
