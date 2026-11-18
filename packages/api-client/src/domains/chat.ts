@@ -103,6 +103,12 @@ export interface MessageWindow {
   limit?: number;
   /** The oldest message already held: the window holds the ones before it. */
   before?: string;
+  /**
+   * Read without counting as read: the caller's thread is off screen (a
+   * hidden tab), so the read marker stays put and the missed-reply push
+   * still goes out. Only the newest window ever moves the marker.
+   */
+  peek?: boolean;
 }
 
 /**
@@ -536,6 +542,7 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
       const params: Record<string, string | number> = {};
       if (window.limit !== undefined) params.limit = window.limit;
       if (window.before) params.before = window.before;
+      if (window.peek) params.peek = 'true';
       const response = await axios.get<MessagesResponse>(
         ENDPOINTS.CHAT.MESSAGES(conversationId),
         { params }

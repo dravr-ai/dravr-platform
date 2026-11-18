@@ -24,7 +24,12 @@ const audienceStore: AudienceStore = {
 export const { usePrivateLane } = createPrivateLaneHooks({
   chatApi: {
     openAthleteThread: (athleteUserId, groupId) => chatApi.openAthleteThread(athleteUserId, groupId),
-    getConversationMessages: (conversationId, window) => chatApi.getConversationMessages(conversationId, window),
+    // A poll from a hidden tab is a peek: it leaves the read marker alone.
+    getConversationMessages: (conversationId, messageWindow) =>
+      chatApi.getConversationMessages(conversationId, {
+        ...messageWindow,
+        peek: document.visibilityState === 'hidden',
+      }),
     sendTurn: (conversationId, content, options) => chatApi.sendTurn(conversationId, content, options),
   },
   audienceStore,

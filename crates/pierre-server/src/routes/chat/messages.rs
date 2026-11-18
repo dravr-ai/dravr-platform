@@ -64,13 +64,19 @@ pub(super) struct MessagesQuery {
     /// holds the messages before it. Absent for the newest window.
     #[serde(default)]
     pub before: Option<String>,
+    /// A read that does not count as the athlete reading: a client polling
+    /// while its thread is off screen (a hidden tab) sets it, so the read
+    /// marker stays put and the push for a reply they missed still goes out.
+    #[serde(default)]
+    pub peek: bool,
 }
 
 /// Read one window of a conversation's messages, as a participant.
 ///
 /// Reading the newest window is reading the thread: the caller's read marker
 /// advances to the newest turn, so the list row's unread badge clears on the
-/// next list. An older window moves nothing. The marker write is
+/// next list. An older window moves nothing, and neither does a `peek`: a
+/// poll from a client whose thread is off screen. The marker write is
 /// best-effort — the rows are what the caller asked for, and a marker that
 /// failed to move costs one spurious badge, not the transcript.
 pub(super) async fn get_messages(
@@ -144,7 +150,7 @@ pub(super) async fn get_messages(
         })
         .collect();
 
-    if before.is_none() {
+    if before.is_none() && !query.peek {
         mark_read(chat, &conversation_id, &user_id_str, tenant_id).await;
         #[cfg(feature = "client-notifications")]
         clear_thread_notifications(&resources, auth.user_id, tenant_id, &conversation_id).await;

@@ -191,7 +191,7 @@ describe('ChatTab — stopping a running turn', () => {
 
     view.rerender(tree(OTHER_CONVERSATION_ID));
     await waitFor(() =>
-      expect(getConversationMessages).toHaveBeenCalledWith(OTHER_CONVERSATION_ID),
+      expect(getConversationMessages).toHaveBeenCalledWith(OTHER_CONVERSATION_ID, { peek: false }),
     );
 
     await user.click(screen.getByRole('button', { name: i18n.t('chat.stopTurnAria') }));
