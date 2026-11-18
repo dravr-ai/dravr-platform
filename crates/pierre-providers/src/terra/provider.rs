@@ -283,7 +283,7 @@ impl ProviderDescriptor for TerraDescriptor {
         // LIMITATION(registre#513): `TerraDescriptor::capabilities` advertises activities
         // only. The webhook files Terra's nights, recovery and body days into the wellness
         // store (`services::terra_ingest`), where the readers find them like any provider's
-        // rows, but the webhook route is not mounted (registre#886): no Terra wellness row
+        // rows, but the webhook route is not mounted (registre#859): no Terra wellness row
         // reaches a deployment, and advertising sleep or recovery would promise data that
         // never arrives.
         //

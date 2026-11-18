@@ -223,8 +223,8 @@ impl McpTool<dyn ToolRuntime> for ExportRoutesTool {
             // activity_streams; an activity whose details have not arrived has
             // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
             // per-sample data upstream, so this branch always fires there.
-            // LIMITATION(registre#1264): Terra samples are parsed then dropped.
-            // LIMITATION(registre#1265): COROS has no sample source wired.
+            // LIMITATION(registre#859): Terra samples are parsed then dropped.
+            // LIMITATION(registre#509): COROS has no sample source wired.
             let stream = activity.time_series_data().ok_or_else(|| {
                 AppError::not_found("activity has no GPS stream — terrain unavailable")
             })?;
@@ -359,8 +359,8 @@ impl McpTool<dyn ToolRuntime> for ExtractActivityStreamsTool {
             // activity_streams; an activity whose details have not arrived has
             // none yet) and sciotte (except TrainingPeaks). WHOOP serves no
             // per-sample data upstream, so this branch always fires there.
-            // LIMITATION(registre#1264): Terra samples are parsed then dropped.
-            // LIMITATION(registre#1265): COROS has no sample source wired.
+            // LIMITATION(registre#859): Terra samples are parsed then dropped.
+            // LIMITATION(registre#509): COROS has no sample source wired.
             let stream = activity
                 .time_series_data()
                 .ok_or_else(|| AppError::not_found("activity has no time-series data"))?;

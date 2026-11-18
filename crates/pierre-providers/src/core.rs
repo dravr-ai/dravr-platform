@@ -524,7 +524,7 @@ pub trait FitnessProvider: Send + Sync {
     ///
     /// `false` by default, and for every integration that inherits the
     /// streams-less default below: WHOOP serves no per-sample data upstream,
-    /// and COROS (registre#1265) and Terra (registre#1264) are not wired to
+    /// and COROS (registre#509) and Terra (registre#859) are not wired to
     /// theirs. A caller that needs a track asks this
     /// before spending a detail read that can never carry one — the Home
     /// route read settles such an activity as having no track to draw instead
