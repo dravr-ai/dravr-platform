@@ -1954,6 +1954,112 @@
     "rateLimited": "Du hast deine Daten diese Stunde schon mehrfach exportiert. Versuche es später erneut.",
     "title": "Lade deine Daten herunter"
   },
+  "dataAccess": {
+    "title": "Deine Daten bei einem Unternehmen anfordern",
+    "description": "Das Gesetz erlaubt dir, von einem Unternehmen eine Kopie der personenbezogenen Daten zu verlangen, die es über dich speichert. Dravr schreibt den Antrag und zählt die gesetzliche Frist; du schickst ihn selbst, von deiner eigenen E-Mail-Adresse.",
+    "fallbackNote": "Nutze das für ein Unternehmen, aus dem Dravr nicht importieren kann, oder für Daten, die der Export des Unternehmens auslässt. Für Strava, Garmin, COROS, WHOOP und Apple beginne mit dem Import-Bildschirm: Er verlinkt den Export jedes Unternehmens.",
+    "fallbackAction": "Zum Import-Bildschirm",
+    "listTitle": "Deine Anträge",
+    "newRequest": "Neuer Antrag",
+    "empty": "Noch keine Anträge. Ein Antrag, den du schreibst, erscheint hier mit seiner Frist.",
+    "letterTitle": "Dein Schreiben",
+    "reference": "Aktenzeichen {{reference}}",
+    "form": {
+      "company": "Unternehmen",
+      "companyHint": "Wähle eines der Unternehmen, mit denen Dravr arbeitet, oder gib ein anderes ein.",
+      "contact": "Datenschutz-Kontaktadresse",
+      "contactHint": "Die E-Mail-Adresse der Datenschutzstelle oder des Datenschutzbeauftragten des Unternehmens. Sie steht meist in der Datenschutzerklärung.",
+      "identifier": "Deine Kennung dort",
+      "identifierHint": "Meist die E-Mail-Adresse deines Kontos bei diesem Unternehmen.",
+      "law": "Welches Gesetz",
+      "lawQuebec": "Québec — Datenschutzgesetz für den Privatsektor (P-39.1)",
+      "lawQuebecHint": "Für ein Unternehmen, das in Québec tätig ist. Es hat 30 Tage Zeit für die Antwort.",
+      "lawGdpr": "Europäische Union — DSGVO",
+      "lawGdprHint": "Für ein Unternehmen in der Europäischen Union oder eines, das Menschen dort seine Dienste anbietet. Es hat einen Monat Zeit für die Antwort.",
+      "scope": "Was du anforderst",
+      "scopeAccess": "Eine Kopie meiner Daten",
+      "scopeAccessHint": "Das Unternehmen bestätigt, was es über dich speichert, und schickt dir eine Kopie.",
+      "scopeAccessPortability": "Eine Kopie und eine wiederverwendbare Datei",
+      "scopeAccessPortabilityHint": "Fordert außerdem die bei dir erhobenen Daten in einem strukturierten, gängigen Format an, das du anderswo nutzen kannst.",
+      "letterLanguage": "Sprache des Schreibens",
+      "letterLanguageHint": "Schreib es in einer Sprache, die das Unternehmen liest. Voreingestellt ist die Sprache deiner App."
+    },
+    "action": {
+      "create": "Schreiben erstellen",
+      "save": "Änderungen speichern",
+      "edit": "Entwurf bearbeiten",
+      "copy": "Schreiben kopieren",
+      "copied": "Schreiben kopiert",
+      "download": "Herunterladen (.txt)",
+      "openMail": "In meiner Mail-App öffnen",
+      "markSent": "Ich habe es geschickt",
+      "sentOn": "Versanddatum",
+      "recordExtension": "Das Unternehmen hat die Frist verlängert",
+      "extendedUntil": "Neue Frist",
+      "markAnswered": "Das Unternehmen hat geantwortet",
+      "answeredOn": "Datum der Antwort",
+      "close": "Antrag schließen",
+      "closeConfirm": "Diesen Antrag schließen? Dravr zählt nicht mehr weiter und schickt dir keine Erinnerungen mehr."
+    },
+    "status": {
+      "drafted": "Entwurf",
+      "sent": "Verschickt",
+      "dueSoon": "Frist läuft bald ab",
+      "overdue": "Überfällig",
+      "answered": "Beantwortet",
+      "closed": "Geschlossen"
+    },
+    "dates": {
+      "sentOn": "Verschickt am {{date}}",
+      "dueOn": "Fällig am {{date}}",
+      "dueOnExtended": "Fällig am {{date}}, verlängert",
+      "answeredOn": "Beantwortet am {{date}}",
+      "countsFrom": "Dravr zählt ab dem Tag, an dem du den Antrag als verschickt markierst. Hat das Unternehmen ihn später erhalten, ändere das Datum.",
+      "extensionHint": "Nach der DSGVO darf sich ein Unternehmen bis zu zwei weitere Monate Zeit nehmen, wenn es dir die Gründe innerhalb des ersten Monats mitteilt."
+    },
+    "recourse": {
+      "quebec": "Bleibt eine Antwort 30 Tage lang aus, gilt der Antrag als abgelehnt. Du kannst dann innerhalb von 30 Tagen nach der Ablehnung oder dem Fristende bei der Commission d'accès à l'information eine demande d'examen de mésentente einreichen.",
+      "gdpr": "Antwortet das Unternehmen nicht oder lehnt es ab, kannst du dich bei einer Datenschutz-Aufsichtsbehörde beschweren, etwa bei der in dem Land, in dem du lebst oder arbeitest."
+    },
+    "error": {
+      "loadFailed": "Deine Anträge konnten nicht geladen werden. Versuche es gleich noch einmal.",
+      "saveFailed": "Dein Antrag konnte nicht gespeichert werden. Versuche es gleich noch einmal.",
+      "letterFailed": "Das Schreiben konnte nicht erstellt werden. Versuche es gleich noch einmal.",
+      "copyFailed": "Das Schreiben konnte nicht kopiert werden. Markiere es und kopiere es von Hand.",
+      "notFound": "Diesen Antrag gibt es nicht mehr.",
+      "companyRequired": "Gib den Namen des Unternehmens ein.",
+      "contactRequired": "Gib die Datenschutz-Kontaktadresse des Unternehmens ein.",
+      "contactInvalid": "Gib eine E-Mail-Adresse ein, etwa datenschutz@unternehmen.de.",
+      "identifierRequired": "Gib die Kennung ein, die du bei diesem Unternehmen verwendest.",
+      "sentOnFuture": "Das Versanddatum darf nicht in der Zukunft liegen.",
+      "answeredBeforeSent": "Das Datum der Antwort darf nicht vor dem Versanddatum liegen.",
+      "extensionInvalid": "Die neue Frist muss nach der jetzigen liegen und höchstens zwei Monate später.",
+      "extensionGdprOnly": "Nur ein DSGVO-Antrag kann verlängert werden."
+    },
+    "letter": {
+      "access": "Bitte bestätigen Sie mir, ob Sie personenbezogene Daten über mich verarbeiten, und senden Sie mir gegebenenfalls eine Kopie davon.",
+      "identifier": "Das Konto oder die E-Mail-Adresse, die ich bei Ihnen verwende, lautet: {0}. Falls Sie weitere Angaben zur Bestätigung meiner Identität benötigen, teilen Sie mir bitte mit, welche.",
+      "reference": "Bitte geben Sie in Ihrer Antwort das Aktenzeichen {0} an.",
+      "closing": "Mit freundlichen Grüßen\n{0}",
+      "date": "Datum: {0}",
+      "quebec": {
+        "subject": "Antrag auf Zugang zu personenbezogenen Informationen — Aktenzeichen {0}",
+        "salutation": "An die für den Schutz personenbezogener Informationen verantwortliche Person bei {0}",
+        "opening": "Hiermit stelle ich einen Antrag auf Zugang zu meinen personenbezogenen Informationen nach der Loi sur la protection des renseignements personnels dans le secteur privé (RLRQ, c. P-39.1), art. 27, dem Gesetz von Québec über den Schutz personenbezogener Informationen im Privatsektor.",
+        "portability": "Nach dem dritten Absatz von Artikel 27 dieses Gesetzes bitte ich Sie außerdem, mir die bei mir erhobenen computergestützten personenbezogenen Informationen in einem strukturierten, gängigen technologischen Format zu übermitteln.",
+        "deadline": "Nach Artikel 32 dieses Gesetzes müssen Sie diesen Antrag innerhalb von 30 Tagen nach Eingang schriftlich beantworten; erfolgt innerhalb dieser Frist keine Antwort, gilt der Antrag als abgelehnt.",
+        "cost": "Nach Artikel 33 dieses Gesetzes ist der Zugang kostenlos. Falls Sie angemessene Gebühren für die Abschrift, Vervielfältigung oder Übermittlung der Informationen erheben möchten, teilen Sie mir bitte den Betrag mit, bevor Sie den Antrag bearbeiten."
+      },
+      "gdpr": {
+        "subject": "Auskunftsersuchen nach Art. 15 DSGVO — Aktenzeichen {0}",
+        "salutation": "An den Datenschutzbeauftragten oder die für personenbezogene Daten verantwortliche Person bei {0}",
+        "opening": "Hiermit stelle ich einen Antrag nach Artikel 15 der Verordnung (EU) 2016/679 (Datenschutz-Grundverordnung). Er umfasst eine Kopie meiner personenbezogenen Daten und die in Absatz 1 genannten Informationen, etwa die Verarbeitungszwecke, die Empfänger und die geplante Speicherdauer.",
+        "portability": "Nach Artikel 20 der Verordnung bitte ich außerdem darum, die mich betreffenden personenbezogenen Daten, die ich Ihnen bereitgestellt habe, in einem strukturierten, gängigen und maschinenlesbaren Format zu erhalten.",
+        "deadline": "Nach Artikel 12 Absatz 3 der Verordnung bitte ich Sie, unverzüglich und in jedem Fall innerhalb eines Monats nach Eingang dieses Antrags zu antworten.",
+        "cost": "Nach Artikel 12 Absatz 5 der Verordnung werden diese Informationen unentgeltlich zur Verfügung gestellt."
+      }
+    }
+  },
   "delegation": {
     "actionFailed": "Das hat nicht geklappt. Versuch es noch einmal.",
     "alreadyLinked": "Dein {{platform}} ist bereits über eine andere Gruppe verknüpft.",
@@ -3491,6 +3597,14 @@
       "coach_plan_pushed": {
         "body": "{0} hat die Einheiten aus deinem Plan in deinen {1}-Kalender eingetragen.",
         "title": "Einheiten in deinem {1}-Kalender"
+      },
+      "data_access_request_due_soon": {
+        "title": "{0} muss deinen Datenantrag bald beantworten",
+        "body": "{0} hat bis zum {2} Zeit, deinen Antrag {1} zu beantworten. Sobald eine Antwort kommt, markiere ihn unter Datenschutz und Daten als beantwortet."
+      },
+      "data_access_request_overdue": {
+        "title": "{0} hat deinen Datenantrag nicht beantwortet",
+        "body": "{0} hat deinen Antrag {1} nicht bis zum {2} beantwortet. Du kannst eine Erinnerung schicken oder dich an die zuständige Datenschutzbehörde wenden; unter Datenschutz und Daten steht, wie."
       },
       "delegation_confirmed": {
         "body": "{0} hat deine {2}-Verknüpfung in {1} bestätigt. Die Einheiten werden jetzt über dein Konto gelesen.",

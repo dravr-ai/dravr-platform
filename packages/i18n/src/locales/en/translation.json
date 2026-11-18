@@ -1954,6 +1954,112 @@
     "rateLimited": "You have already exported your data several times this hour. Try again later.",
     "title": "Download your data"
   },
+  "dataAccess": {
+    "title": "Ask a company for your data",
+    "description": "The law lets you ask a company for a copy of the personal information it holds about you. Dravr writes the request and counts the legal deadline; you send it yourself, from your own email.",
+    "fallbackNote": "Use this for a company Dravr can't import from, or for data a company's own export leaves out. For Strava, Garmin, COROS, WHOOP and Apple, start with the import screen: it links each company's own export.",
+    "fallbackAction": "Go to the import screen",
+    "listTitle": "Your requests",
+    "newRequest": "New request",
+    "empty": "No requests yet. A request you write shows here with its due date.",
+    "letterTitle": "Your letter",
+    "reference": "Reference {{reference}}",
+    "form": {
+      "company": "Company",
+      "companyHint": "Pick one of the companies Dravr works with, or type any other.",
+      "contact": "Privacy contact address",
+      "contactHint": "The email of the company's privacy or data protection officer. It is usually in its privacy policy.",
+      "identifier": "The identifier you use there",
+      "identifierHint": "Usually the email address of your account with that company.",
+      "law": "Which law",
+      "lawQuebec": "Quebec — private-sector privacy law (P-39.1)",
+      "lawQuebecHint": "For a company doing business in Quebec. It has 30 days to answer.",
+      "lawGdpr": "European Union — GDPR",
+      "lawGdprHint": "For a company in the European Union, or one offering its services to people there. It has one month to answer.",
+      "scope": "What to ask for",
+      "scopeAccess": "A copy of my data",
+      "scopeAccessHint": "The company confirms what it holds about you and sends you a copy.",
+      "scopeAccessPortability": "A copy, plus a file I can reuse",
+      "scopeAccessPortabilityHint": "Also asks for the data collected from you in a structured, commonly used format you can take elsewhere.",
+      "letterLanguage": "Letter language",
+      "letterLanguageHint": "Write it in a language the company reads. It starts in your app language."
+    },
+    "action": {
+      "create": "Write the letter",
+      "save": "Save changes",
+      "edit": "Edit draft",
+      "copy": "Copy the letter",
+      "copied": "Letter copied",
+      "download": "Download (.txt)",
+      "openMail": "Open in my mail app",
+      "markSent": "I sent it",
+      "sentOn": "Date sent",
+      "recordExtension": "The company extended the deadline",
+      "extendedUntil": "New due date",
+      "markAnswered": "The company answered",
+      "answeredOn": "Date answered",
+      "close": "Close the request",
+      "closeConfirm": "Close this request? Dravr stops counting and sends you no more reminders."
+    },
+    "status": {
+      "drafted": "Draft",
+      "sent": "Sent",
+      "dueSoon": "Due soon",
+      "overdue": "Overdue",
+      "answered": "Answered",
+      "closed": "Closed"
+    },
+    "dates": {
+      "sentOn": "Sent {{date}}",
+      "dueOn": "Due {{date}}",
+      "dueOnExtended": "Due {{date}}, extended",
+      "answeredOn": "Answered {{date}}",
+      "countsFrom": "Dravr counts from the day you mark it sent. If the company received it later, change the date.",
+      "extensionHint": "Under the GDPR, a company can take up to two more months if it tells you why within the first month."
+    },
+    "recourse": {
+      "quebec": "No answer within 30 days counts as a refusal. You can then file a demande d'examen de mésentente with the Commission d'accès à l'information, within 30 days of the refusal or of the deadline.",
+      "gdpr": "If the company doesn't answer, or refuses, you can lodge a complaint with a data protection supervisory authority, such as the one where you live or work."
+    },
+    "error": {
+      "loadFailed": "Your requests could not be loaded. Try again in a moment.",
+      "saveFailed": "Your request could not be saved. Try again in a moment.",
+      "letterFailed": "The letter could not be written. Try again in a moment.",
+      "copyFailed": "The letter could not be copied. Select it and copy it by hand.",
+      "notFound": "This request no longer exists.",
+      "companyRequired": "Enter the company's name.",
+      "contactRequired": "Enter the company's privacy contact address.",
+      "contactInvalid": "Enter an email address, like privacy@company.com.",
+      "identifierRequired": "Enter the identifier you use with that company.",
+      "sentOnFuture": "The date sent can't be in the future.",
+      "answeredBeforeSent": "The answer date can't be before the date sent.",
+      "extensionInvalid": "The new due date must be after the current one, and at most two more months away.",
+      "extensionGdprOnly": "Only a GDPR request can be extended."
+    },
+    "letter": {
+      "access": "Please confirm whether you hold personal information about me and, if you do, send me a copy of it.",
+      "identifier": "The account or email address I use with you is: {0}. If you need more to confirm my identity, please tell me what you require.",
+      "reference": "Please quote the reference {0} in your answer.",
+      "closing": "Sincerely,\n{0}",
+      "date": "Date: {0}",
+      "quebec": {
+        "subject": "Request for access to personal information — reference {0}",
+        "salutation": "To the person in charge of the protection of personal information at {0},",
+        "opening": "I am making a request for access to my personal information under the Loi sur la protection des renseignements personnels dans le secteur privé (RLRQ, c. P-39.1), art. 27 — Quebec's Act respecting the protection of personal information in the private sector.",
+        "portability": "Under the third paragraph of section 27 of the Act, I also ask you to send me the computerized personal information collected from me in a structured, commonly used technological format.",
+        "deadline": "Under section 32 of the Act, you must answer this request in writing within 30 days of receiving it; failing an answer within that time, the request is deemed refused.",
+        "cost": "Under section 33 of the Act, access is free of charge. If you intend to charge reasonable fees for transcribing, reproducing or transmitting the information, please tell me the amount before processing the request."
+      },
+      "gdpr": {
+        "subject": "Data subject access request — reference {0}",
+        "salutation": "To the data protection officer, or the person responsible for personal data, at {0},",
+        "opening": "I am making a request under Article 15 of Regulation (EU) 2016/679 (General Data Protection Regulation), which covers a copy of my personal data and the information listed in its paragraph 1, such as the purposes of the processing, the recipients and the period for which the data will be stored.",
+        "portability": "Under Article 20 of the Regulation, I also ask to receive the personal data concerning me that I provided to you in a structured, commonly used and machine-readable format.",
+        "deadline": "Under Article 12(3) of the Regulation, please answer without undue delay and in any event within one month of receiving this request.",
+        "cost": "Under Article 12(5) of the Regulation, this information is to be provided free of charge."
+      }
+    }
+  },
   "delegation": {
     "actionFailed": "That did not go through. Try again.",
     "alreadyLinked": "Your {{platform}} is already linked through another group.",
@@ -3491,6 +3597,14 @@
       "coach_plan_pushed": {
         "body": "{0} put the workouts from your plan on your {1} calendar.",
         "title": "Workouts on your {1} calendar"
+      },
+      "data_access_request_due_soon": {
+        "title": "{0} must answer your data request soon",
+        "body": "{0} has until {2} to answer your request {1}. When it answers, mark it answered in Privacy & Data."
+      },
+      "data_access_request_overdue": {
+        "title": "{0} has not answered your data request",
+        "body": "{0} did not answer your request {1} by {2}. You can send a reminder, or take it to the authority that oversees privacy; Privacy & Data shows how."
       },
       "delegation_confirmed": {
         "body": "{0} confirmed your {2} link in {1}. Their workouts are now read through your account.",

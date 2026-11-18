@@ -1954,6 +1954,112 @@
     "rateLimited": "Tu as déjà exporté tes données plusieurs fois cette heure. Réessaie plus tard.",
     "title": "Télécharge tes données"
   },
+  "dataAccess": {
+    "title": "Demander tes données à une entreprise",
+    "description": "La loi te permet de demander à une entreprise une copie des renseignements personnels qu'elle détient sur toi. Dravr rédige la demande et compte le délai légal ; c'est toi qui l'envoies, depuis ton propre courriel.",
+    "fallbackNote": "Sers-t'en pour une entreprise depuis laquelle Dravr ne peut pas importer, ou pour des données que l'export de l'entreprise laisse de côté. Pour Strava, Garmin, COROS, WHOOP et Apple, commence par l'écran d'import : il mène à l'export de chaque entreprise.",
+    "fallbackAction": "Aller à l'écran d'import",
+    "listTitle": "Tes demandes",
+    "newRequest": "Nouvelle demande",
+    "empty": "Aucune demande pour l'instant. Une demande que tu rédiges s'affiche ici avec sa date d'échéance.",
+    "letterTitle": "Ta lettre",
+    "reference": "Référence {{reference}}",
+    "form": {
+      "company": "Entreprise",
+      "companyHint": "Choisis une des entreprises avec lesquelles Dravr travaille, ou écris-en une autre.",
+      "contact": "Adresse du responsable de la vie privée",
+      "contactHint": "Le courriel du responsable de la protection des renseignements personnels de l'entreprise. Il figure habituellement dans sa politique de confidentialité.",
+      "identifier": "L'identifiant que tu utilises chez elle",
+      "identifierHint": "Habituellement l'adresse courriel de ton compte chez cette entreprise.",
+      "law": "Quelle loi",
+      "lawQuebec": "Québec — Loi sur le secteur privé (P-39.1)",
+      "lawQuebecHint": "Pour une entreprise qui exerce ses activités au Québec. Elle a 30 jours pour répondre.",
+      "lawGdpr": "Union européenne — RGPD",
+      "lawGdprHint": "Pour une entreprise de l'Union européenne, ou qui offre ses services aux personnes qui y vivent. Elle a un mois pour répondre.",
+      "scope": "Ce que tu demandes",
+      "scopeAccess": "Une copie de mes données",
+      "scopeAccessHint": "L'entreprise confirme ce qu'elle détient sur toi et t'en envoie une copie.",
+      "scopeAccessPortability": "Une copie, et un fichier réutilisable",
+      "scopeAccessPortabilityHint": "Demande aussi les données recueillies auprès de toi dans un format structuré et couramment utilisé, que tu peux emporter ailleurs.",
+      "letterLanguage": "Langue de la lettre",
+      "letterLanguageHint": "Écris-la dans une langue que l'entreprise lit. Elle part de la langue de ton app."
+    },
+    "action": {
+      "create": "Rédiger la lettre",
+      "save": "Enregistrer les modifications",
+      "edit": "Modifier le brouillon",
+      "copy": "Copier la lettre",
+      "copied": "Lettre copiée",
+      "download": "Télécharger (.txt)",
+      "openMail": "Ouvrir dans mon app de courriel",
+      "markSent": "Je l'ai envoyée",
+      "sentOn": "Date d'envoi",
+      "recordExtension": "L'entreprise a prolongé le délai",
+      "extendedUntil": "Nouvelle échéance",
+      "markAnswered": "L'entreprise a répondu",
+      "answeredOn": "Date de la réponse",
+      "close": "Fermer la demande",
+      "closeConfirm": "Fermer cette demande ? Dravr arrête de compter et ne t'envoie plus de rappels."
+    },
+    "status": {
+      "drafted": "Brouillon",
+      "sent": "Envoyée",
+      "dueSoon": "Échéance proche",
+      "overdue": "En retard",
+      "answered": "Répondue",
+      "closed": "Fermée"
+    },
+    "dates": {
+      "sentOn": "Envoyée le {{date}}",
+      "dueOn": "Échéance le {{date}}",
+      "dueOnExtended": "Échéance le {{date}}, prolongée",
+      "answeredOn": "Répondue le {{date}}",
+      "countsFrom": "Dravr compte à partir du jour où tu la marques envoyée. Si l'entreprise l'a reçue plus tard, change la date.",
+      "extensionHint": "Selon le RGPD, une entreprise peut prendre jusqu'à deux mois de plus si elle t'en donne les raisons dans le premier mois."
+    },
+    "recourse": {
+      "quebec": "Sans réponse dans les 30 jours, la demande est réputée refusée. Tu peux alors déposer une demande d'examen de mésentente auprès de la Commission d'accès à l'information, dans les 30 jours suivant le refus ou l'expiration du délai.",
+      "gdpr": "Si l'entreprise ne répond pas, ou refuse, tu peux porter plainte auprès d'une autorité de contrôle de la protection des données, par exemple celle du pays où tu vis ou travailles."
+    },
+    "error": {
+      "loadFailed": "Impossible de charger tes demandes. Réessaie dans un instant.",
+      "saveFailed": "Ta demande n'a pas pu être enregistrée. Réessaie dans un instant.",
+      "letterFailed": "La lettre n'a pas pu être rédigée. Réessaie dans un instant.",
+      "copyFailed": "La lettre n'a pas pu être copiée. Sélectionne-la et copie-la à la main.",
+      "notFound": "Cette demande n'existe plus.",
+      "companyRequired": "Saisis le nom de l'entreprise.",
+      "contactRequired": "Saisis l'adresse du responsable de la vie privée de l'entreprise.",
+      "contactInvalid": "Saisis une adresse courriel, comme vieprivee@entreprise.com.",
+      "identifierRequired": "Saisis l'identifiant que tu utilises chez cette entreprise.",
+      "sentOnFuture": "La date d'envoi ne peut pas être dans le futur.",
+      "answeredBeforeSent": "La date de la réponse ne peut pas précéder la date d'envoi.",
+      "extensionInvalid": "La nouvelle échéance doit suivre l'actuelle, et tomber au plus deux mois plus tard.",
+      "extensionGdprOnly": "Seule une demande RGPD peut être prolongée."
+    },
+    "letter": {
+      "access": "Je vous demande de me confirmer si vous détenez des informations personnelles me concernant et, le cas échéant, de m'en communiquer une copie.",
+      "identifier": "Le compte ou l'adresse courriel que j'utilise auprès de vous est : {0}. Si vous avez besoin d'autres éléments pour vérifier mon identité, veuillez m'indiquer lesquels.",
+      "reference": "Veuillez rappeler la référence {0} dans votre réponse.",
+      "closing": "Veuillez agréer mes salutations distinguées.\n{0}",
+      "date": "Date : {0}",
+      "quebec": {
+        "subject": "Demande d'accès à des renseignements personnels — référence {0}",
+        "salutation": "À la personne responsable de la protection des renseignements personnels de {0},",
+        "opening": "Je vous adresse une demande d'accès à mes renseignements personnels en vertu de la Loi sur la protection des renseignements personnels dans le secteur privé (RLRQ, c. P-39.1), art. 27.",
+        "portability": "En vertu du troisième alinéa de l'article 27 de la Loi, je vous demande également de me communiquer les renseignements personnels informatisés recueillis auprès de moi dans un format technologique structuré et couramment utilisé.",
+        "deadline": "En vertu de l'article 32 de la Loi, vous devez répondre par écrit à cette demande dans les 30 jours de sa réception ; à défaut de réponse dans ce délai, la demande est réputée refusée.",
+        "cost": "En vertu de l'article 33 de la Loi, l'accès est gratuit. Si vous comptez exiger des frais raisonnables pour la transcription, la reproduction ou la transmission des renseignements, veuillez m'en indiquer le montant avant de traiter la demande."
+      },
+      "gdpr": {
+        "subject": "Demande d'accès aux données personnelles — référence {0}",
+        "salutation": "À l'attention du délégué à la protection des données, ou de la personne responsable des données personnelles, de {0},",
+        "opening": "Je vous adresse une demande en vertu de l'article 15 du règlement (UE) 2016/679 (règlement général sur la protection des données), qui porte sur une copie de mes données personnelles et sur les informations énumérées à son paragraphe 1, comme les finalités du traitement, les destinataires et la durée de conservation des données.",
+        "portability": "En vertu de l'article 20 du règlement, je demande également à recevoir les données personnelles me concernant que je vous ai fournies, dans un format structuré, couramment utilisé et lisible par machine.",
+        "deadline": "En vertu de l'article 12, paragraphe 3, du règlement, je vous prie de répondre dans les meilleurs délais et en tout état de cause dans un délai d'un mois à compter de la réception de cette demande.",
+        "cost": "En vertu de l'article 12, paragraphe 5, du règlement, ces informations sont fournies gratuitement."
+      }
+    }
+  },
   "delegation": {
     "actionFailed": "Ça n'a pas abouti. Réessaie.",
     "alreadyLinked": "Ton {{platform}} est déjà associé via un autre groupe.",
@@ -3491,6 +3597,14 @@
       "coach_plan_pushed": {
         "body": "{0} a ajouté les séances de ton plan à ton calendrier {1}.",
         "title": "Séances ajoutées à ton calendrier {1}"
+      },
+      "data_access_request_due_soon": {
+        "title": "{0} doit bientôt répondre à ta demande de données",
+        "body": "{0} a jusqu'au {2} pour répondre à ta demande {1}. Quand elle répond, marque-la répondue dans Confidentialité et données."
+      },
+      "data_access_request_overdue": {
+        "title": "{0} n'a pas répondu à ta demande de données",
+        "body": "{0} n'a pas répondu à ta demande {1} avant le {2}. Tu peux lui envoyer un rappel, ou t'adresser à l'autorité qui veille à la vie privée ; Confidentialité et données t'explique comment."
       },
       "delegation_confirmed": {
         "body": "{0} a confirmé ta liaison {2} dans {1}. Ses séances sont désormais lues via ton compte.",

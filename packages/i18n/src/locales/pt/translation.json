@@ -1954,6 +1954,112 @@
     "rateLimited": "Já exportaste os teus dados várias vezes nesta hora. Tenta mais tarde.",
     "title": "Descarrega os teus dados"
   },
+  "dataAccess": {
+    "title": "Pedir os teus dados a uma empresa",
+    "description": "A lei permite-te pedir a uma empresa uma cópia das informações pessoais que guarda sobre ti. A Dravr redige o pedido e conta o prazo legal; és tu que o envias, a partir do teu próprio e-mail.",
+    "fallbackNote": "Usa isto para uma empresa a partir da qual a Dravr não consegue importar, ou para dados que a exportação da empresa deixa de fora. Para Strava, Garmin, COROS, WHOOP e Apple, começa pelo ecrã de importação: liga à exportação de cada empresa.",
+    "fallbackAction": "Ir para o ecrã de importação",
+    "listTitle": "Os teus pedidos",
+    "newRequest": "Novo pedido",
+    "empty": "Ainda não há pedidos. Um pedido que redijas aparece aqui com o respetivo prazo.",
+    "letterTitle": "A tua carta",
+    "reference": "Referência {{reference}}",
+    "form": {
+      "company": "Empresa",
+      "companyHint": "Escolhe uma das empresas com que a Dravr trabalha, ou escreve outra qualquer.",
+      "contact": "Endereço de contacto de privacidade",
+      "contactHint": "O e-mail do responsável pela privacidade ou do encarregado da proteção de dados da empresa. Costuma estar na política de privacidade.",
+      "identifier": "O identificador que usas lá",
+      "identifierHint": "Normalmente, o endereço de e-mail da tua conta nessa empresa.",
+      "law": "Que lei",
+      "lawQuebec": "Quebeque — lei de privacidade do setor privado (P-39.1)",
+      "lawQuebecHint": "Para uma empresa que opera no Quebeque. Tem 30 dias para responder.",
+      "lawGdpr": "União Europeia — RGPD",
+      "lawGdprHint": "Para uma empresa da União Europeia, ou que oferece os seus serviços a pessoas que lá vivem. Tem um mês para responder.",
+      "scope": "O que pedes",
+      "scopeAccess": "Uma cópia dos meus dados",
+      "scopeAccessHint": "A empresa confirma o que guarda sobre ti e envia-te uma cópia.",
+      "scopeAccessPortability": "Uma cópia e um ficheiro reutilizável",
+      "scopeAccessPortabilityHint": "Pede também os dados recolhidos junto de ti num formato estruturado e de uso corrente, que podes levar para outro lado.",
+      "letterLanguage": "Idioma da carta",
+      "letterLanguageHint": "Escreve-a num idioma que a empresa leia. Começa no idioma da tua app."
+    },
+    "action": {
+      "create": "Redigir a carta",
+      "save": "Guardar alterações",
+      "edit": "Editar rascunho",
+      "copy": "Copiar a carta",
+      "copied": "Carta copiada",
+      "download": "Descarregar (.txt)",
+      "openMail": "Abrir na minha app de e-mail",
+      "markSent": "Já a enviei",
+      "sentOn": "Data de envio",
+      "recordExtension": "A empresa prorrogou o prazo",
+      "extendedUntil": "Novo prazo",
+      "markAnswered": "A empresa respondeu",
+      "answeredOn": "Data da resposta",
+      "close": "Fechar o pedido",
+      "closeConfirm": "Fechar este pedido? A Dravr deixa de contar e não te envia mais lembretes."
+    },
+    "status": {
+      "drafted": "Rascunho",
+      "sent": "Enviado",
+      "dueSoon": "Prazo a terminar",
+      "overdue": "Em atraso",
+      "answered": "Respondido",
+      "closed": "Fechado"
+    },
+    "dates": {
+      "sentOn": "Enviado a {{date}}",
+      "dueOn": "Prazo: {{date}}",
+      "dueOnExtended": "Prazo: {{date}}, prorrogado",
+      "answeredOn": "Respondido a {{date}}",
+      "countsFrom": "A Dravr conta a partir do dia em que o marcas como enviado. Se a empresa o recebeu mais tarde, muda a data.",
+      "extensionHint": "Segundo o RGPD, uma empresa pode demorar até mais dois meses se te explicar porquê durante o primeiro mês."
+    },
+    "recourse": {
+      "quebec": "Sem resposta em 30 dias, o pedido considera-se recusado. Podes então apresentar uma demande d'examen de mésentente à Commission d'accès à l'information, nos 30 dias seguintes à recusa ou ao fim do prazo.",
+      "gdpr": "Se a empresa não responder, ou recusar, podes apresentar uma reclamação a uma autoridade de controlo da proteção de dados, por exemplo a do país onde vives ou trabalhas."
+    },
+    "error": {
+      "loadFailed": "Não foi possível carregar os teus pedidos. Tenta novamente daqui a pouco.",
+      "saveFailed": "Não foi possível guardar o teu pedido. Tenta novamente daqui a pouco.",
+      "letterFailed": "Não foi possível redigir a carta. Tenta novamente daqui a pouco.",
+      "copyFailed": "Não foi possível copiar a carta. Seleciona-a e copia-a à mão.",
+      "notFound": "Este pedido já não existe.",
+      "companyRequired": "Escreve o nome da empresa.",
+      "contactRequired": "Escreve o endereço de contacto de privacidade da empresa.",
+      "contactInvalid": "Escreve um endereço de e-mail, como privacidade@empresa.pt.",
+      "identifierRequired": "Escreve o identificador que usas nessa empresa.",
+      "sentOnFuture": "A data de envio não pode estar no futuro.",
+      "answeredBeforeSent": "A data da resposta não pode ser anterior à data de envio.",
+      "extensionInvalid": "O novo prazo tem de ser posterior ao atual e, no máximo, dois meses mais tarde.",
+      "extensionGdprOnly": "Só um pedido RGPD pode ser prorrogado."
+    },
+    "letter": {
+      "access": "Peço que me confirmem se tratam dados pessoais que me digam respeito e, em caso afirmativo, que me enviem uma cópia dos mesmos.",
+      "identifier": "A conta ou o endereço de e-mail que utilizo convosco é: {0}. Se precisarem de mais elementos para confirmar a minha identidade, peço que me indiquem quais.",
+      "reference": "Peço que indiquem a referência {0} na vossa resposta.",
+      "closing": "Com os melhores cumprimentos,\n{0}",
+      "date": "Data: {0}",
+      "quebec": {
+        "subject": "Pedido de acesso a informações pessoais — referência {0}",
+        "salutation": "À pessoa responsável pela proteção das informações pessoais da empresa {0},",
+        "opening": "Apresento um pedido de acesso às minhas informações pessoais ao abrigo da Loi sur la protection des renseignements personnels dans le secteur privé (RLRQ, c. P-39.1), art. 27, a lei do Quebeque sobre a proteção das informações pessoais no setor privado.",
+        "portability": "Ao abrigo do terceiro parágrafo do artigo 27 dessa lei, peço também que me comuniquem as informações pessoais informatizadas recolhidas junto de mim num formato tecnológico estruturado e de uso corrente.",
+        "deadline": "Nos termos do artigo 32 dessa lei, devem responder por escrito a este pedido no prazo de 30 dias a contar da sua receção; na falta de resposta nesse prazo, o pedido considera-se recusado.",
+        "cost": "Nos termos do artigo 33 dessa lei, o acesso é gratuito. Se pretenderem cobrar despesas razoáveis pela transcrição, reprodução ou transmissão das informações, peço que me indiquem o montante antes de tratarem o pedido."
+      },
+      "gdpr": {
+        "subject": "Pedido de acesso a dados pessoais — referência {0}",
+        "salutation": "Ao encarregado da proteção de dados, ou à pessoa responsável pelos dados pessoais, da empresa {0},",
+        "opening": "Apresento um pedido ao abrigo do artigo 15.º do Regulamento (UE) 2016/679 (Regulamento Geral sobre a Proteção de Dados), que abrange uma cópia dos meus dados pessoais e as informações enumeradas no seu n.º 1, como as finalidades do tratamento, os destinatários e o prazo de conservação dos dados.",
+        "portability": "Ao abrigo do artigo 20.º do Regulamento, peço também para receber os dados pessoais que me digam respeito e que vos forneci, num formato estruturado, de uso corrente e de leitura automática.",
+        "deadline": "Nos termos do artigo 12.º, n.º 3, do Regulamento, peço que respondam sem demora injustificada e, em qualquer caso, no prazo de um mês a contar da receção deste pedido.",
+        "cost": "Nos termos do artigo 12.º, n.º 5, do Regulamento, estas informações são fornecidas a título gratuito."
+      }
+    }
+  },
   "delegation": {
     "actionFailed": "Não resultou. Tenta novamente.",
     "alreadyLinked": "O teu {{platform}} já está associado através de outro grupo.",
@@ -3491,6 +3597,14 @@
       "coach_plan_pushed": {
         "body": "{0} colocou os treinos do teu plano no teu calendário do {1}.",
         "title": "Treinos no teu calendário do {1}"
+      },
+      "data_access_request_due_soon": {
+        "title": "{0} tem de responder em breve ao teu pedido de dados",
+        "body": "{0} tem até {2} para responder ao teu pedido {1}. Quando responder, marca-o como respondido em Privacidade e dados."
+      },
+      "data_access_request_overdue": {
+        "title": "{0} não respondeu ao teu pedido de dados",
+        "body": "{0} não respondeu ao teu pedido {1} até {2}. Podes enviar um lembrete, ou recorrer à autoridade que zela pela privacidade; Privacidade e dados explica como."
       },
       "delegation_confirmed": {
         "body": "{0} confirmou a tua ligação ao {2} em {1}. Os treinos passam a ser lidos através da tua conta.",

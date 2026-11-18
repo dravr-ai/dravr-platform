@@ -1954,6 +1954,112 @@
     "rateLimited": "Ya has exportado tus datos varias veces esta hora. Inténtalo más tarde.",
     "title": "Descarga tus datos"
   },
+  "dataAccess": {
+    "title": "Pedir tus datos a una empresa",
+    "description": "La ley te permite pedir a una empresa una copia de la información personal que guarda sobre ti. Dravr redacta la solicitud y cuenta el plazo legal; tú la envías desde tu propio correo.",
+    "fallbackNote": "Úsalo para una empresa desde la que Dravr no puede importar, o para datos que la exportación de la empresa deja fuera. Para Strava, Garmin, COROS, WHOOP y Apple, empieza por la pantalla de importación: enlaza la exportación de cada empresa.",
+    "fallbackAction": "Ir a la pantalla de importación",
+    "listTitle": "Tus solicitudes",
+    "newRequest": "Nueva solicitud",
+    "empty": "Aún no hay solicitudes. Las que redactes aparecerán aquí con su fecha límite.",
+    "letterTitle": "Tu carta",
+    "reference": "Referencia {{reference}}",
+    "form": {
+      "company": "Empresa",
+      "companyHint": "Elige una de las empresas con las que trabaja Dravr, o escribe cualquier otra.",
+      "contact": "Dirección de contacto de privacidad",
+      "contactHint": "El correo del responsable de privacidad o del delegado de protección de datos de la empresa. Suele estar en su política de privacidad.",
+      "identifier": "El identificador que usas allí",
+      "identifierHint": "Normalmente, el correo electrónico de tu cuenta en esa empresa.",
+      "law": "Qué ley",
+      "lawQuebec": "Quebec — ley de privacidad del sector privado (P-39.1)",
+      "lawQuebecHint": "Para una empresa que opera en Quebec. Tiene 30 días para responder.",
+      "lawGdpr": "Unión Europea — RGPD",
+      "lawGdprHint": "Para una empresa de la Unión Europea, o que ofrece sus servicios a personas que viven allí. Tiene un mes para responder.",
+      "scope": "Qué pides",
+      "scopeAccess": "Una copia de mis datos",
+      "scopeAccessHint": "La empresa confirma qué guarda sobre ti y te envía una copia.",
+      "scopeAccessPortability": "Una copia y un archivo reutilizable",
+      "scopeAccessPortabilityHint": "Pide también los datos recogidos de ti en un formato estructurado y de uso común que puedes llevar a otro sitio.",
+      "letterLanguage": "Idioma de la carta",
+      "letterLanguageHint": "Escríbela en un idioma que la empresa lea. Empieza en el idioma de tu app."
+    },
+    "action": {
+      "create": "Redactar la carta",
+      "save": "Guardar cambios",
+      "edit": "Editar borrador",
+      "copy": "Copiar la carta",
+      "copied": "Carta copiada",
+      "download": "Descargar (.txt)",
+      "openMail": "Abrir en mi app de correo",
+      "markSent": "La he enviado",
+      "sentOn": "Fecha de envío",
+      "recordExtension": "La empresa amplió el plazo",
+      "extendedUntil": "Nueva fecha límite",
+      "markAnswered": "La empresa respondió",
+      "answeredOn": "Fecha de la respuesta",
+      "close": "Cerrar la solicitud",
+      "closeConfirm": "¿Cerrar esta solicitud? Dravr deja de contar y no te envía más recordatorios."
+    },
+    "status": {
+      "drafted": "Borrador",
+      "sent": "Enviada",
+      "dueSoon": "Vence pronto",
+      "overdue": "Vencida",
+      "answered": "Respondida",
+      "closed": "Cerrada"
+    },
+    "dates": {
+      "sentOn": "Enviada el {{date}}",
+      "dueOn": "Vence el {{date}}",
+      "dueOnExtended": "Vence el {{date}}, ampliado",
+      "answeredOn": "Respondida el {{date}}",
+      "countsFrom": "Dravr cuenta desde el día en que la marcas como enviada. Si la empresa la recibió más tarde, cambia la fecha.",
+      "extensionHint": "Según el RGPD, una empresa puede tardar hasta dos meses más si te explica el motivo durante el primer mes."
+    },
+    "recourse": {
+      "quebec": "Sin respuesta en 30 días, la solicitud se considera denegada. Puedes presentar entonces una demande d'examen de mésentente ante la Commission d'accès à l'information, en los 30 días siguientes a la denegación o al fin del plazo.",
+      "gdpr": "Si la empresa no responde, o se niega, puedes presentar una reclamación ante una autoridad de control de protección de datos, por ejemplo la del país donde vives o trabajas."
+    },
+    "error": {
+      "loadFailed": "No se pudieron cargar tus solicitudes. Inténtalo de nuevo en un momento.",
+      "saveFailed": "No se pudo guardar tu solicitud. Inténtalo de nuevo en un momento.",
+      "letterFailed": "No se pudo redactar la carta. Inténtalo de nuevo en un momento.",
+      "copyFailed": "No se pudo copiar la carta. Selecciónala y cópiala a mano.",
+      "notFound": "Esta solicitud ya no existe.",
+      "companyRequired": "Escribe el nombre de la empresa.",
+      "contactRequired": "Escribe la dirección de contacto de privacidad de la empresa.",
+      "contactInvalid": "Escribe una dirección de correo, como privacidad@empresa.com.",
+      "identifierRequired": "Escribe el identificador que usas en esa empresa.",
+      "sentOnFuture": "La fecha de envío no puede estar en el futuro.",
+      "answeredBeforeSent": "La fecha de la respuesta no puede ser anterior a la de envío.",
+      "extensionInvalid": "La nueva fecha límite debe ser posterior a la actual y como mucho dos meses más tarde.",
+      "extensionGdprOnly": "Solo se puede ampliar una solicitud del RGPD."
+    },
+    "letter": {
+      "access": "Les ruego que me confirmen si tienen datos personales que me conciernan y, en tal caso, que me envíen una copia.",
+      "identifier": "La cuenta o la dirección de correo electrónico que utilizo con ustedes es: {0}. Si necesitan algo más para verificar mi identidad, les ruego que me indiquen qué.",
+      "reference": "Les ruego que indiquen la referencia {0} en su respuesta.",
+      "closing": "Atentamente,\n{0}",
+      "date": "Fecha: {0}",
+      "quebec": {
+        "subject": "Solicitud de acceso a información personal — referencia {0}",
+        "salutation": "A la persona responsable de la protección de la información personal de {0}:",
+        "opening": "Les dirijo una solicitud de acceso a mi información personal en virtud de la Loi sur la protection des renseignements personnels dans le secteur privé (RLRQ, c. P-39.1), art. 27, la ley de Quebec sobre la protección de la información personal en el sector privado.",
+        "portability": "En virtud del párrafo tercero del artículo 27 de dicha ley, les pido también que me comuniquen la información personal informatizada recogida de mí en un formato tecnológico estructurado y de uso común.",
+        "deadline": "En virtud del artículo 32 de dicha ley, deben responder por escrito a esta solicitud en un plazo de 30 días desde su recepción; a falta de respuesta en ese plazo, la solicitud se considera denegada.",
+        "cost": "En virtud del artículo 33 de dicha ley, el acceso es gratuito. Si tienen intención de cobrar gastos razonables por la transcripción, la reproducción o la transmisión de la información, les ruego que me indiquen el importe antes de tramitar la solicitud."
+      },
+      "gdpr": {
+        "subject": "Solicitud de acceso a datos personales — referencia {0}",
+        "salutation": "Al delegado de protección de datos, o a la persona responsable de los datos personales, de {0}:",
+        "opening": "Les dirijo una solicitud en virtud del artículo 15 del Reglamento (UE) 2016/679 (Reglamento General de Protección de Datos), que abarca una copia de mis datos personales y la información enumerada en su apartado 1, como los fines del tratamiento, los destinatarios y el plazo de conservación de los datos.",
+        "portability": "En virtud del artículo 20 del Reglamento, solicito también recibir los datos personales que me conciernen y que les he facilitado en un formato estructurado, de uso común y lectura mecánica.",
+        "deadline": "En virtud del artículo 12, apartado 3, del Reglamento, les ruego que respondan sin dilación indebida y, en cualquier caso, en el plazo de un mes a partir de la recepción de esta solicitud.",
+        "cost": "En virtud del artículo 12, apartado 5, del Reglamento, esta información se facilita a título gratuito."
+      }
+    }
+  },
   "delegation": {
     "actionFailed": "No se completó. Inténtalo de nuevo.",
     "alreadyLinked": "Tu {{platform}} ya está vinculado a través de otro grupo.",
@@ -3491,6 +3597,14 @@
       "coach_plan_pushed": {
         "body": "{0} ha añadido los entrenamientos de tu plan a tu calendario de {1}.",
         "title": "Entrenamientos en tu calendario de {1}"
+      },
+      "data_access_request_due_soon": {
+        "title": "{0} debe responder pronto a tu solicitud de datos",
+        "body": "{0} tiene hasta el {2} para responder a tu solicitud {1}. Cuando responda, márcala como respondida en Privacidad y datos."
+      },
+      "data_access_request_overdue": {
+        "title": "{0} no ha respondido a tu solicitud de datos",
+        "body": "{0} no respondió a tu solicitud {1} antes del {2}. Puedes enviarle un recordatorio, o acudir a la autoridad que vela por la privacidad; Privacidad y datos te explica cómo."
       },
       "delegation_confirmed": {
         "body": "{0} ha confirmado tu vínculo con {2} en {1}. Sus entrenamientos se leen ahora a través de tu cuenta.",
