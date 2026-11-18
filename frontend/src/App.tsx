@@ -92,7 +92,11 @@ function getGroupInviteCode(): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-/** Where this tab holds a group invite opened before signing in. */
+/**
+ * Where this tab holds a group invite opened before signing in.
+ *
+ * LIMITATION(registre#1648): `PENDING_INVITE_KEY` is per tab and cleared once `/group join` is queued, so the email-confirmation tab and the reload after sign-in drop the invite.
+ */
 const PENDING_INVITE_KEY = 'dravr.pending_invite_code';
 
 /**
