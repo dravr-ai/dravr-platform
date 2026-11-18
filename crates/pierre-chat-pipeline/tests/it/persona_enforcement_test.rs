@@ -114,6 +114,7 @@ impl LlmProvider for ScriptedEditor {
     }
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.reply.clone(),
             model: "scripted-editor".to_owned(),
             usage: None,
@@ -164,6 +165,7 @@ impl LlmProvider for ModelCapturingEditor {
             .expect("capture lock")
             .push(request.model.clone());
         Ok(ChatResponse {
+            replay_blocks: None,
             content: REWRITTEN.to_owned(),
             model: "model-capturing-editor".to_owned(),
             usage: None,
@@ -255,6 +257,7 @@ impl LlmProvider for InstructionCapturingEditor {
             .unwrap_or_default();
         self.seen.lock().expect("capture lock").push(system);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: REWRITTEN.to_owned(),
             model: "instruction-capturing-editor".to_owned(),
             usage: None,

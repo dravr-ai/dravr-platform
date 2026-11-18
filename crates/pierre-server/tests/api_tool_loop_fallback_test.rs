@@ -232,6 +232,7 @@ impl EmbacleLlmProvider for ScriptedApi {
             Step::Answers(text) => (text.to_owned(), None),
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: self.models[0].clone(),
             usage: None,
@@ -325,6 +326,7 @@ impl EmbacleLlmProvider for ScriptedSdk {
         // request: a session with no tools, answering without data.
         self.completes.fetch_add(1, Ordering::SeqCst);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: "ungrounded".to_owned(),
             model: self.models[0].clone(),
             usage: None,
@@ -1160,6 +1162,7 @@ impl EmbacleLlmProvider for TextCallingSdk {
         });
         self.completes.lock().unwrap().push(request.clone());
         Ok(ChatResponse {
+            replay_blocks: None,
             content: if answered {
                 TAIL_ANSWER
             } else {

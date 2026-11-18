@@ -35,9 +35,10 @@ use super::peer_grounding::{
     inject_peer_grounding, mentioned_peers, PeerGroundingBlock, PEER_FETCH_TOOL,
 };
 use super::prefetch::{
-    inject_startup_context, maybe_refresh_activity_context, ActivityRefreshInputs, PREFETCH_TOOL,
+    inject_startup_context, maybe_refresh_activity_context, turn_history_len,
+    ActivityRefreshInputs, PREFETCH_TOOL,
 };
-use super::turn_clock::inject_turn_clock;
+use super::turn_clock::{inject_turn_clock, mark_history_cache_breakpoint};
 
 /// The executor this pipeline dispatches a turn's tool calls through: the
 /// turn's own grant (the self grant in Dravr's own surfaces, the token's
@@ -247,6 +248,13 @@ pub(crate) async fn dispatch_llm_with_tools(
 
     // Stage 12a: The turn clock. After compaction for the reason 12b gives, and
     // out of the system prompt so the cached prefix survives the turn boundary.
+    // The replayed history is marked first, so the clock and everything 12b-12c
+    // insert land after the history's cache entry instead of inside it. Not on
+    // the first turn: there is no history yet, and Stage 10 may have put the
+    // startup grounding where the mark would land, which no later turn replays.
+    if turn_history_len(history) > 1 {
+        mark_history_cache_breakpoint(llm_messages);
+    }
     inject_turn_clock(llm_messages, turn_clock);
 
     // Stage 12b: Later-turn activity grounding. On any turn past the first,

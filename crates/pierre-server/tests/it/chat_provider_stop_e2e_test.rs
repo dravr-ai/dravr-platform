@@ -103,6 +103,7 @@ impl LlmProvider for ScriptedStopProvider {
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
         self.requests.lock().unwrap().push(request.clone());
         Ok(ChatResponse {
+            replay_blocks: None,
             content: PARTIAL_REPLY.to_owned(),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(42, 11, 53)),

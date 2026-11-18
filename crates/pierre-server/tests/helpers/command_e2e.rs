@@ -195,6 +195,7 @@ impl LlmProvider for RouterLlm {
     }
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.reply_for(request),
             model: self.model.clone(),
             usage: Some(TokenUsage::new(42, 11, 53)),

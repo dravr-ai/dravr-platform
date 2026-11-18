@@ -47,14 +47,11 @@ struct NoticesARun {
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for NoticesARun {
     fn definition(&self) -> McpToolDefinition {
-        McpToolDefinition {
-            name: "notices_a_run".to_owned(),
-            description: "Records that it ran".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        McpToolDefinition::new(
+            "notices_a_run",
+            "Records that it ran",
+            json!({ "type": "object" }),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {

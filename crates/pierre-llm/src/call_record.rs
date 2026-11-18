@@ -252,6 +252,10 @@ pub fn emit_call_record_with_text(
         .and_then(|u| u.cached_write_1h_tokens)
         .map_or(0, i64::from);
     let reasoning_tokens = usage.and_then(|u| u.reasoning_tokens).map_or(0, i64::from);
+    // How many times the provider sampled the prompt to answer this one call:
+    // 2 when Anthropic's server-side tool search ran inside it, which bills
+    // the prompt twice. 0 when the provider does not say.
+    let model_requests = usage.and_then(|u| u.model_requests).map_or(0, i64::from);
     // notify: one completion event per LLM call, from the one place every
     // billed call passes through, so calls per turn, latency and the token
     // split are measurable wherever the call was made: the API and text tool
@@ -277,6 +281,7 @@ pub fn emit_call_record_with_text(
         cached_write_tokens,
         cached_write_1h_tokens,
         reasoning_tokens,
+        model_requests,
         token_counts_estimated = estimated,
         call_sequence,
         "LLM call {}",
@@ -441,7 +446,8 @@ mod tests {
     fn a_recorded_call_announces_the_model_that_answered_and_its_tokens() {
         let usage = TokenUsage::new(70_000, 1_000, 71_000)
             .with_cache(Some(62_000), Some(7_000))
-            .with_cache_write_1h(Some(5_000));
+            .with_cache_write_1h(Some(5_000))
+            .with_model_requests(Some(2));
         let lines = completions_while(|| {
             emit_call_record_with_text(
                 CallRecordInputs {
@@ -474,6 +480,7 @@ mod tests {
         assert_eq!(field("cached_read_tokens"), Some("62000"));
         assert_eq!(field("cached_write_tokens"), Some("7000"));
         assert_eq!(field("cached_write_1h_tokens"), Some("5000"));
+        assert_eq!(field("model_requests"), Some("2"));
         assert_eq!(field("call_sequence"), Some("3"));
         assert_eq!(field("token_counts_estimated"), Some("false"));
     }

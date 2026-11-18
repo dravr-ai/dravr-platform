@@ -266,6 +266,7 @@ fn test_chat_request_serialization() {
 #[test]
 fn test_chat_response_creation() {
     let response = ChatResponse {
+        replay_blocks: None,
         content: "The answer is 4.".to_owned(),
         model: "gemini-pro".to_owned(),
         usage: None,
@@ -284,6 +285,7 @@ fn test_chat_response_with_usage() {
     let usage = TokenUsage::new(10, 20, 30);
 
     let response = ChatResponse {
+        replay_blocks: None,
         content: "Response".to_owned(),
         model: "test-model".to_owned(),
         usage: Some(usage),
@@ -301,6 +303,7 @@ fn test_chat_response_with_usage() {
 #[test]
 fn test_chat_response_serialization() {
     let response = ChatResponse {
+        replay_blocks: None,
         content: "Hello!".to_owned(),
         model: "model-1".to_owned(),
         usage: Some(TokenUsage::new(5, 10, 15)),
@@ -488,6 +491,7 @@ fn test_llm_capabilities_bitwise_operations() {
 #[test]
 fn test_chat_response_clone() {
     let response = ChatResponse {
+        replay_blocks: None,
         content: "Test".to_owned(),
         model: "model".to_owned(),
         usage: None,

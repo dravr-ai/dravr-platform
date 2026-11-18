@@ -166,19 +166,20 @@ fn build_context(
 /// `definition()` — the same declaration the dispatcher's handle path reads back
 /// off the registry — so the advertisement and the behaviour cannot drift.
 fn schema_to_tool(schema: ToolSchema) -> Tool {
-    Tool {
-        name: schema.name,
-        description: schema.description,
-        // Canonical so the catalog is byte-identical across replicas: the
-        // schema's `properties` is a HashMap and serde_json runs with
-        // preserve_order, so an unsorted render reshuffles on every request.
-        input_schema: to_canonical_value(&schema.input_schema),
-        annotations: schema.annotations,
-        // Canonical for the same reason as the input schema: two replicas must
-        // answer `tools/list` with the same bytes.
-        output_schema: schema.output_schema.as_ref().map(to_canonical_value),
-        execution: schema.execution,
-    }
+    // Canonical so the catalog is byte-identical across replicas: the schema's
+    // `properties` is a HashMap and serde_json runs with preserve_order, so an
+    // unsorted render reshuffles on every request.
+    let mut tool = Tool::new(
+        schema.name,
+        schema.description,
+        to_canonical_value(&schema.input_schema),
+    );
+    tool.annotations = schema.annotations;
+    // Canonical for the same reason as the input schema: two replicas must
+    // answer `tools/list` with the same bytes.
+    tool.output_schema = schema.output_schema.as_ref().map(to_canonical_value);
+    tool.execution = schema.execution;
+    tool
 }
 
 /// Resolves the instructions advertised in `initialize` from the prompt

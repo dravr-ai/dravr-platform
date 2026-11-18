@@ -33,6 +33,8 @@ fn message_role_serializes_to_lowercase_strings() {
 #[test]
 fn chat_message_serde_round_trip() {
     let msg = ChatMessage {
+        cache_breakpoint: false,
+        replay_blocks: None,
         role: MessageRole::User,
         content: "Hello, coach.".to_owned(),
         images: None,

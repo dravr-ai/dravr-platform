@@ -24,6 +24,7 @@ fn embacles_parsed_calls_ride_a_tool_response_and_round_trip_as_name_and_args() 
         r#"<tool_call>{"name": "get_activities", "arguments": {"provider": "strava", "limit": 5}}</tool_call>"#,
     );
     let response = ChatResponseWithTools {
+        replay_blocks: None,
         content: None,
         function_calls: Some(calls),
         model: "claude-sonnet-5".to_owned(),

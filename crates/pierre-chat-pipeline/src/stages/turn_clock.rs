@@ -56,6 +56,29 @@ pub fn inject_turn_clock(llm_messages: &mut Vec<ChatMessage>, clock: &str) {
     );
 }
 
+/// Mark the end of the replayed conversation as a prompt-cache breakpoint.
+///
+/// Must run AFTER Tier-1 compaction and BEFORE the clock, the activity refresh
+/// and every other per-turn message is inserted: at that point the list is the
+/// system prompt, the replayed history and the athlete's latest message, so the
+/// message before the latest one is the last thing the next turn replays
+/// unchanged. Without the mark, the only cache entry inside the conversation
+/// ends after this turn's clock and refresh, which the next turn never sends,
+/// so every turn re-wrote its whole history to the cache: 40-66k tokens a turn
+/// for a coach measured on 2026-11-14, charged to the athlete's quota
+/// (carnet#1632). A conversation with no history yet has nothing to mark, and
+/// the caller skips the first turn outright: there the message before the
+/// latest one can be the startup grounding Stage 10 inserted, which no later
+/// turn replays.
+pub fn mark_history_cache_breakpoint(llm_messages: &mut [ChatMessage]) {
+    let Some(end) = llm_messages.len().checked_sub(2).filter(|&end| end >= 1) else {
+        return;
+    };
+    if let Some(message) = llm_messages.get_mut(end) {
+        message.cache_breakpoint = true;
+    }
+}
+
 /// The turn clock with the provider freshness hint after it, when there is one.
 ///
 /// The hint names each stale provider's age, which moves as time passes, so it
@@ -167,4 +190,49 @@ pub fn format_current_date(user_timezone: Option<&str>, locale: &str) -> String 
          `after` = the matching start above and `before` = now (count only the rows whose start \
          falls inside the window)."
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn marked(messages: &[ChatMessage]) -> Vec<usize> {
+        messages
+            .iter()
+            .enumerate()
+            .filter(|(_, m)| m.cache_breakpoint)
+            .map(|(i, _)| i)
+            .collect()
+    }
+
+    /// The mark lands on the last replayed message, and the clock inserted
+    /// after it stays outside the cached history: the next turn replays the
+    /// history unchanged and reads it back (carnet#1632).
+    #[test]
+    fn the_last_replayed_message_is_marked_before_the_clock_lands_after_it() {
+        let mut messages = vec![
+            ChatMessage::system("persona"),
+            ChatMessage::user("how was my week?"),
+            ChatMessage::assistant("Solid: four rides."),
+            ChatMessage::user("and today?"),
+        ];
+        mark_history_cache_breakpoint(&mut messages);
+        inject_turn_clock(&mut messages, "Tuesday 14:54");
+        assert_eq!(marked(&messages), [2]);
+        assert!(messages[3].content.starts_with(TURN_CLOCK_LEAD));
+        assert_eq!(messages[4].content, "and today?");
+    }
+
+    /// A first turn has no history: the system prompt keeps its own
+    /// breakpoints and nothing else is marked.
+    #[test]
+    fn a_turn_without_history_marks_nothing() {
+        let mut first = vec![ChatMessage::system("persona"), ChatMessage::user("hi")];
+        mark_history_cache_breakpoint(&mut first);
+        assert_eq!(marked(&first), Vec::<usize>::new());
+
+        let mut lone = vec![ChatMessage::user("hi")];
+        mark_history_cache_breakpoint(&mut lone);
+        assert_eq!(marked(&lone), Vec::<usize>::new());
+    }
 }

@@ -110,6 +110,7 @@ impl EmbacleLlmProvider for Recording {
             return Err(RunnerError::external_service(self.name, "scripted outage"));
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content: answer.to_owned(),
             model: request
                 .model

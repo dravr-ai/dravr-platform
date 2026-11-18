@@ -131,6 +131,7 @@ impl LlmProvider for ProposalLlm {
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
         self.requests.lock().unwrap().push(request.messages.clone());
         Ok(ChatResponse {
+            replay_blocks: None,
             content: PROPOSAL_JSON.to_owned(),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(12, 6, 18)),

@@ -91,6 +91,7 @@ impl EmbacleLlmProvider for Switchable {
             return Err(RunnerError::external_service(self.label, "503 upstream"));
         }
         Ok(ChatResponse {
+            replay_blocks: None,
             content: format!("from {}", self.label),
             model: self.models[0].clone(),
             usage: None,

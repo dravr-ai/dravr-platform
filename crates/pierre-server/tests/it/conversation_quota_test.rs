@@ -399,6 +399,7 @@ impl LlmProvider for ReplyingMock {
     }
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: "Keep the volume and sleep more.".to_owned(),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(25, 15, 40)),

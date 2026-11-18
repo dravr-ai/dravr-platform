@@ -130,6 +130,7 @@ impl LlmProvider for SummaryPlantingProvider {
             REPLY
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content: content.to_owned(),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(25, 15, 40)),

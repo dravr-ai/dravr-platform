@@ -120,6 +120,7 @@ impl LlmProvider for ScriptedModel {
             self.answer.clone()
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "mock-model".to_owned(),
             usage: None,

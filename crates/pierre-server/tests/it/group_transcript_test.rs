@@ -122,6 +122,7 @@ mod group_transcript_tests {
         async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
             self.record(request);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: self.reply.clone(),
                 model: self.model.clone(),
                 usage: Some(TokenUsage::new(42, 11, 53)),

@@ -135,6 +135,7 @@ impl LlmProvider for RecordedModel {
             .map_or("Let's talk about your training.", |(_, reply)| reply)
             .to_owned();
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "recorded-model".to_owned(),
             usage: None,

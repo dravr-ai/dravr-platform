@@ -40,7 +40,7 @@ mod reply_scaffolding_strip {
     use async_trait::async_trait;
     use axum::http::StatusCode;
     use chrono::Utc;
-    use dravr_tronc::mcp::schema::{Content, Tool, ToolResponse};
+    use dravr_tronc::mcp::schema::{Tool, ToolResponse};
     use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities, ToolContext};
     use futures_util::stream;
     use hmac::{Hmac, Mac};
@@ -89,14 +89,7 @@ mod reply_scaffolding_strip {
     #[async_trait]
     impl McpTool<dyn ToolRuntime> for StubTool {
         fn definition(&self) -> Tool {
-            Tool {
-                name: STUB_TOOL_NAME.to_owned(),
-                description: "Scaffolding-strip stub tool — returns canned data so the tool loop completes without provider/auth setup.".to_owned(),
-                input_schema: json!({"type": "object"}),
-                annotations: None,
-                output_schema: None,
-                execution: None,
-            }
+            Tool::new(STUB_TOOL_NAME, "Scaffolding-strip stub tool — returns canned data so the tool loop completes without provider/auth setup.", json!({"type": "object"}))
         }
 
         fn capabilities(&self) -> ToolCapabilities {
@@ -116,11 +109,7 @@ mod reply_scaffolding_strip {
                 "runs_this_week": 3,
                 "data": "canned tool result for scaffolding-strip test"
             });
-            ToolResponse {
-                content: vec![Content::text(payload.to_string())],
-                is_error: false,
-                structured_content: Some(payload),
-            }
+            ToolResponse::text(payload.to_string()).with_structured_content(payload)
         }
     }
 
@@ -193,6 +182,7 @@ mod reply_scaffolding_strip {
                 }
             });
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 15, 45)),

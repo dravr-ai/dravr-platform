@@ -109,6 +109,7 @@ impl LlmProvider for ConnectThenAnswer {
             None
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content: if tool_calls.is_some() {
                 String::new()
             } else {

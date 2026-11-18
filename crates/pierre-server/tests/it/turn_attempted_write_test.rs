@@ -110,6 +110,7 @@ impl LlmProvider for ScriptedModel {
             .pop_front()
             .unwrap_or_else(|| ANSWER.to_owned());
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(30, 40, 70)),

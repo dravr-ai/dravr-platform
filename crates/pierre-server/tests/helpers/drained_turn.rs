@@ -161,6 +161,7 @@ impl LlmProvider for ParkedProvider {
             ));
         }
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.answer.clone(),
             model: "mock-model".to_owned(),
             usage: None,

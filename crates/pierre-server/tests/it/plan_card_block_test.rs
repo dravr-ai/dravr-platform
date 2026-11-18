@@ -130,6 +130,7 @@ impl LlmProvider for ToolThenAnswer {
             ANSWER.to_owned()
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: MODEL.to_owned(),
             usage: None,
@@ -426,6 +427,7 @@ impl LlmProvider for SaveThenRead {
             ANSWER.to_owned()
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: MODEL.to_owned(),
             usage: None,

@@ -290,6 +290,7 @@ mod tests {
     #[test]
     fn the_iteration_line_names_the_model_that_answered() {
         let response = ChatResponseWithTools {
+            replay_blocks: None,
             content: Some("done".to_owned()),
             function_calls: None,
             model: "claude-haiku-5-5".to_owned(),

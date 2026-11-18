@@ -87,6 +87,7 @@ impl EmbacleLlmProvider for MockProvider {
         self.calls.fetch_add(1, Ordering::SeqCst);
         if self.mode == "ok" {
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: format!("hello from {}", self.name),
                 usage: Some(TokenUsage::new(1, 1, 2)),
                 model: "mock-model".to_owned(),
@@ -231,6 +232,7 @@ impl EmbacleLlmProvider for ModelCapturingProvider {
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
         *self.seen_model.lock().unwrap() = Self::capture(request.model.as_deref());
         Ok(ChatResponse {
+            replay_blocks: None,
             content: format!("hello from {}", self.name),
             usage: None,
             model: "secondary-default-model".to_owned(),

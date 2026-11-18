@@ -2372,6 +2372,7 @@ impl LlmProvider for TestLlmProvider {
 
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.response.clone(),
             model: self.model_name.clone(),
             usage: None,

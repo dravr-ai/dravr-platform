@@ -394,6 +394,7 @@ mod roster_overview_tests {
                 "Noted.".to_owned()
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: TURN_MODEL.to_owned(),
                 usage: None,

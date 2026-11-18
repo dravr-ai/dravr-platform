@@ -162,6 +162,7 @@ impl ScriptedApi {
             }
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model,
             usage: None,

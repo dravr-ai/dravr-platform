@@ -82,6 +82,7 @@ impl EmbacleLlmProvider for Scripted {
 
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, RunnerError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.answer.to_owned(),
             model: self.models[0].clone(),
             usage: None,

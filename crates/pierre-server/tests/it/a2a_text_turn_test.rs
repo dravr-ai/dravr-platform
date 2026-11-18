@@ -830,6 +830,7 @@ impl LlmProvider for GatedModel {
             self.release.notified().await;
         }
         Ok(ChatResponse {
+            replay_blocks: None,
             content: ANSWER.to_owned(),
             model: "mock-model".to_owned(),
             usage: None,

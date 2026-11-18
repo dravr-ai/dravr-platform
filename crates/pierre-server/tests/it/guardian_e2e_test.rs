@@ -431,6 +431,7 @@ impl LlmProvider for AnswersPlainly {
     }
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: "the agent's answer".to_owned(),
             model: "plain-model".to_owned(),
             usage: None,
@@ -590,14 +591,11 @@ struct NeverAnswers {
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for NeverAnswers {
     fn definition(&self) -> McpToolDefinition {
-        McpToolDefinition {
-            name: "never_answers".to_owned(),
-            description: "Starts, then never answers".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        McpToolDefinition::new(
+            "never_answers",
+            "Starts, then never answers",
+            json!({ "type": "object" }),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -702,14 +700,11 @@ struct ReturnsAFailure;
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for ReturnsAFailure {
     fn definition(&self) -> McpToolDefinition {
-        McpToolDefinition {
-            name: "returns_a_failure".to_owned(),
-            description: "Runs and reports a failure".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        McpToolDefinition::new(
+            "returns_a_failure",
+            "Runs and reports a failure",
+            json!({ "type": "object" }),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {
@@ -770,14 +765,11 @@ struct CommitsAnAction;
 #[async_trait]
 impl McpTool<dyn ToolRuntime> for CommitsAnAction {
     fn definition(&self) -> McpToolDefinition {
-        McpToolDefinition {
-            name: "commits_an_action".to_owned(),
-            description: "Runs and reports success".to_owned(),
-            input_schema: json!({ "type": "object" }),
-            annotations: None,
-            output_schema: None,
-            execution: None,
-        }
+        McpToolDefinition::new(
+            "commits_an_action",
+            "Runs and reports success",
+            json!({ "type": "object" }),
+        )
     }
 
     fn capabilities(&self) -> ToolCapabilities {

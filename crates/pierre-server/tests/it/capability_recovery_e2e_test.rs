@@ -125,6 +125,7 @@ mod capability_recovery {
                 FABRICATED_CLAIM
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -172,6 +173,7 @@ mod capability_recovery {
                 FABRICATED_CLAIM
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -578,6 +580,7 @@ mod capability_recovery {
                 UNGROUNDED_REPLY
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -717,6 +720,7 @@ mod capability_recovery {
                 )
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -840,6 +844,7 @@ mod capability_recovery {
                 )
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -1016,6 +1021,7 @@ mod capability_recovery {
                 FABRICATED_CLAIM
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: content.to_owned(),
                 model: "mock-model".to_owned(),
                 usage: Some(TokenUsage::new(30, 40, 70)),
@@ -1215,6 +1221,7 @@ mod capability_recovery {
                     .join("\n---\n");
                 self.seen_requests.lock().unwrap().push(joined.clone());
                 Ok(ChatResponse {
+                    replay_blocks: None,
                     content: (self.script)(&joined),
                     model: "mock-model".to_owned(),
                     usage: Some(TokenUsage::new(30, 40, 70)),

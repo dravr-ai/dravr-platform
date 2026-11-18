@@ -52,11 +52,9 @@ impl ProtocolConverter {
             // Generate human-readable content based on the response data
             let result_text = Self::format_response_content(response.result.as_ref());
 
-            ToolResponse {
-                content: vec![Content::text(result_text)],
-                is_error: false,
-                structured_content: response.result,
-            }
+            let mut tool_response = ToolResponse::text(result_text);
+            tool_response.structured_content = response.result;
+            tool_response
         } else {
             Self::error_result(
                 format!(
@@ -90,11 +88,9 @@ impl ProtocolConverter {
         if let Some(data) = data.filter(|data| !data.is_null()) {
             content.push(Content::text(data.to_string()));
         }
-        ToolResponse {
-            content,
-            is_error: true,
-            structured_content: None,
-        }
+        let mut response = ToolResponse::blocks(content);
+        response.is_error = true;
+        response
     }
 
     /// The text block a `tools/call` result carries beside `structuredContent`.

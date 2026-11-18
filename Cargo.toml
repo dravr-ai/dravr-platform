@@ -23,7 +23,7 @@ members = ["crates/*"]
 [workspace.dependencies]
 # Shared server/MCP foundation. From crates.io; every consumer moves in lockstep
 # because two tronc versions in the lockfile hard-fail the duplicate gate.
-dravr-tronc = "6.9.0"
+dravr-tronc = "7.0.0"
 
 # Sports science engine -- VDOT, TSS, TRIMP, FTP, VO2max, recovery, nutrition.
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.51.0" }
@@ -45,7 +45,7 @@ dravr-contremaitre = { git = "https://github.com/dravr-ai/dravr-contremaitre.git
 
 # Health provider sync. default-features off so each consumer's own
 # provider-* features select the backends.
-dravr-enforme = { version = "0.21.1", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.21.1", default-features = false }
+dravr-enforme = { version = "0.21.2", git = "https://github.com/dravr-ai/dravr-enforme.git", tag = "v0.21.2", default-features = false }
 
 # Health and wellness domain models.
 dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.9.0" }
@@ -62,10 +62,10 @@ dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "
 
 # Provider capture. Moves with dravr-enforme, which pins it too -- see its
 # companions stanza in satellites.toml for why the two pins can never move apart.
-dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v2.3.0", default-features = false }
+dravr-sciotte = { git = "https://github.com/dravr-ai/dravr-sciotte.git", tag = "v3.0.0", default-features = false }
 
 # Billing capability, gated behind the billing-stripe feature.
-dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.10.0" }
+dravr-stripe = { git = "https://github.com/dravr-ai/dravr-stripe.git", tag = "v0.11.0" }
 
 # Secret-holding config fields: Debug prints a redaction and reading the value
 # takes an explicit expose_secret(), so no format of a config struct leaks one.

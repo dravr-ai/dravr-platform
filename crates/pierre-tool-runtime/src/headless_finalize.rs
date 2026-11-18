@@ -85,6 +85,7 @@ pub async fn finalize_headless_turn(
             );
             take_back_streamed_reply(streamed_to);
             let first_reply = ChatResponse {
+                replay_blocks: None,
                 content: headless_response.content,
                 model: headless_response.model,
                 usage: headless_response.usage,

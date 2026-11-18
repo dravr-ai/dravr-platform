@@ -40,6 +40,12 @@ pub struct ChatResponseWithTools {
     /// Request parameters the serving provider ignored (see
     /// `ChatResponse::warnings`); `None` when it honored all of them.
     pub warnings: Option<Vec<String>>,
+    /// Provider blocks the next request must carry back on this turn's
+    /// assistant message (see `ChatResponse::replay_blocks`): Anthropic's
+    /// tool-search exchanges, without which every later call that needs a
+    /// deferred tool searches again and is billed the prompt twice.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replay_blocks: Option<Vec<serde_json::Value>>,
 }
 
 impl ChatResponseWithTools {

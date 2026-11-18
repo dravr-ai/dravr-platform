@@ -144,6 +144,7 @@ impl LlmProvider for RecordingModel {
             .join("\n");
         self.calls.lock().unwrap().push(messages);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: ANSWER.to_owned(),
             model: MODEL.to_owned(),
             usage: None,

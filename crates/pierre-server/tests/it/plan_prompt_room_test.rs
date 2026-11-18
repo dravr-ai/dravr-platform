@@ -127,6 +127,7 @@ impl LlmProvider for RecordingModel {
             ANSWER.to_owned()
         };
         Ok(ChatResponse {
+            replay_blocks: None,
             content,
             model: MODEL.to_owned(),
             usage: None,

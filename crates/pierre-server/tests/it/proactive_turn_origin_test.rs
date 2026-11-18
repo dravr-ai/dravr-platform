@@ -102,6 +102,7 @@ impl LlmProvider for CapturingProvider {
                 .collect(),
         );
         Ok(ChatResponse {
+            replay_blocks: None,
             content: MOCK_REPLY.to_owned(),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(25, 15, 40)),

@@ -102,6 +102,7 @@ impl LlmProvider for FixedReplyProvider {
 
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: REPLY.to_owned(),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(40, 12, 52)),

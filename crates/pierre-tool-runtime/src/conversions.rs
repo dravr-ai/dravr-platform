@@ -22,7 +22,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-use dravr_tronc::mcp::schema::{Content, TaskSupport, Tool, ToolExecution, ToolResponse};
+use dravr_tronc::mcp::schema::{TaskSupport, Tool, ToolExecution, ToolResponse};
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::json_value::to_value_as_written;
 use pierre_formatters::{format_output, OutputFormat};
@@ -49,14 +49,12 @@ pub fn tool_definition(
     input_schema: JsonSchema,
     annotations: ToolAnnotations,
 ) -> Tool {
-    Tool {
-        name: name.to_owned(),
-        description: description.to_owned(),
-        input_schema: to_canonical_value(&serde_json::to_value(input_schema).unwrap_or_default()),
-        annotations: Some(annotations),
-        output_schema: None,
-        execution: None,
-    }
+    Tool::new(
+        name,
+        description,
+        to_canonical_value(&serde_json::to_value(input_schema).unwrap_or_default()),
+    )
+    .with_annotations(annotations)
 }
 
 /// Declare that a tool may answer with an MCP task handle (SEP-2663).
@@ -91,12 +89,9 @@ pub fn tool_definition(
 /// Tools Answer Asynchronously".
 #[must_use]
 pub fn task_capable(tool: Tool) -> Tool {
-    Tool {
-        execution: Some(ToolExecution {
-            task_support: TaskSupport::Optional,
-        }),
-        ..tool
-    }
+    tool.with_execution(ToolExecution {
+        task_support: TaskSupport::Optional,
+    })
 }
 
 /// Declare the shape this tool answers with, derived from the Rust type it
@@ -138,10 +133,7 @@ pub fn task_capable(tool: Tool) -> Tool {
 /// rather than promised.
 #[must_use]
 pub fn answers_with<T: schemars::JsonSchema>(tool: Tool) -> Tool {
-    Tool {
-        output_schema: Some(output_schema_for::<T>()),
-        ..tool
-    }
+    tool.with_output_schema(output_schema_for::<T>())
 }
 
 /// The schema a tool declares for `T`, as one function.
@@ -366,11 +358,10 @@ pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
     match result {
         Ok(tool_result) => {
             let content = reply_budget::fit_reply(tool_result.content);
-            ToolResponse {
-                content: vec![Content::text(content.to_string())],
-                is_error: tool_result.is_error,
-                structured_content: Some(content),
-            }
+            let mut response =
+                ToolResponse::text(content.to_string()).with_structured_content(content);
+            response.is_error = tool_result.is_error;
+            response
         }
         Err(error) => {
             // What a client reads is the tool message: a database or internal
@@ -397,11 +388,7 @@ pub fn tool_result_to_response(result: AppResult<ToolResult>) -> ToolResponse {
                 );
                 structured.insert("provider".to_owned(), Value::String(provider));
             }
-            ToolResponse {
-                content: vec![Content::text(message)],
-                is_error: true,
-                structured_content: Some(Value::Object(structured)),
-            }
+            ToolResponse::error(message).with_structured_content(Value::Object(structured))
         }
     }
 }

@@ -78,6 +78,7 @@ impl LlmProvider for ScriptedEditor {
     }
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.reply.clone(),
             model: "scripted-editor".to_owned(),
             usage: None,

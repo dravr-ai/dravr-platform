@@ -119,6 +119,7 @@ mod phase_1_integration {
         async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ChatResponse {
+                replay_blocks: None,
                 content: self.reply.clone(),
                 model: self.model.clone(),
                 usage: Some(TokenUsage::new(42, 11, 53)),

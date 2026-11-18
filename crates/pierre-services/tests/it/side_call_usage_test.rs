@@ -86,6 +86,7 @@ impl EmbacleLlmProvider for Scripted {
             .unwrap_or_else(PoisonError::into_inner)
             .push(request.model.clone());
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.answer.to_owned(),
             model: request
                 .model

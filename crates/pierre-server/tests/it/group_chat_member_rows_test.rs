@@ -190,6 +190,7 @@ mod turns {
                 REPLY.to_owned()
             };
             Ok(ChatResponse {
+                replay_blocks: None,
                 content,
                 model: MODEL.to_owned(),
                 usage: None,
@@ -1002,6 +1003,7 @@ impl LlmProvider for StubSummarizer {
                 .join("\n"),
         );
         Ok(ChatResponse {
+            replay_blocks: None,
             content: "SUMMARY of the earlier turns.".to_owned(),
             usage: Some(TokenUsage::new(1, 1, 2)),
             model: "stub-model".to_owned(),

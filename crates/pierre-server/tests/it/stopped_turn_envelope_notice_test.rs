@@ -145,6 +145,7 @@ impl LlmProvider for SaveThenWaitProvider {
 
     async fn complete(&self, _request: &ChatRequest) -> Result<ChatResponse, AppError> {
         Ok(ChatResponse {
+            replay_blocks: None,
             content: self.answer().await?,
             model: "mock-model".to_owned(),
             usage: None,

@@ -106,6 +106,7 @@ impl LlmProvider for CapturingLlm {
     async fn complete(&self, request: &ChatRequest) -> Result<ChatResponse, AppError> {
         self.record(request);
         Ok(ChatResponse {
+            replay_blocks: None,
             content: "Bien reçu, on regarde ça ensemble.".to_owned(),
             model: "mock-model".to_owned(),
             usage: Some(TokenUsage::new(12, 6, 18)),

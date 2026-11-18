@@ -275,11 +275,8 @@ fn test_tools_list_response_format() {
 /// Test tool response format
 #[test]
 fn test_tool_response_format() {
-    let tool_response = ToolResponse {
-        content: vec![Content::text("Test response".to_owned())],
-        is_error: false,
-        structured_content: Some(json!({"result": "success"})),
-    };
+    let tool_response = ToolResponse::text("Test response".to_owned())
+        .with_structured_content(json!({"result": "success"}));
 
     let json_value = serde_json::to_value(&tool_response).expect("Should serialize");
 
