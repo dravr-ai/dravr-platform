@@ -21,9 +21,13 @@ import { gzipSync } from 'node:zlib';
  * of KB and still trips it. The French catalogue is the default locale and
  * ships in the entry, so every new string grows it: the consent, A2A-form and
  * partial-export copy of 2026-11-06 took the CI build to 305.4 KB, and the
- * budget became 310 KB.
+ * budget became 310 KB. The admin's sign-in mode of 2026-11-18 (carnet#1631)
+ * added 1.0 KB before first paint: the mode in the session state, the switch
+ * in both shells and nine French strings. Its picker loads lazily; the rest
+ * runs at first paint, which took the CI build to 310.7 KB, so the budget is
+ * 315 KB.
  */
-const BUDGET_BYTES = 310 * 1024;
+const BUDGET_BYTES = 315 * 1024;
 
 const DIST = resolve(import.meta.dirname, '..', 'dist');
 const html = readFileSync(join(DIST, 'index.html'), 'utf8');

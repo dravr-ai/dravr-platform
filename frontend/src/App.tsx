@@ -15,7 +15,6 @@ import AcceptInvitation from './components/AcceptInvitation';
 import { ACCEPT_INVITATION_PATH, TAKEOVER_PATH, VERIFY_EMAIL_PATH, parseInvitationKind, parseLinkToken } from './utils/tokenLink';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
-import ViewModePicker from './components/ViewModePicker';
 import OnboardingFlow from './components/OnboardingFlow';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import OfflineBanner from './components/OfflineBanner';
@@ -42,6 +41,8 @@ import './App.css';
 
 /** The login takeover page (ADR-034), split out of the entry bundle. */
 const SignInCheck = lazy(() => import('./components/SignInCheck'));
+// Only an admin ever meets the mode picker, so it stays out of the entry bundle.
+const ViewModePicker = lazy(() => import('./components/ViewModePicker'));
 
 /**
  * Check if the current URL has OAuth callback parameters
@@ -461,7 +462,9 @@ function AppContent() {
     return (
       <div className="min-h-dvh bg-surface">
         <OfflineBanner />
-        <ViewModePicker />
+        <Suspense fallback={null}>
+          <ViewModePicker />
+        </Suspense>
       </div>
     );
   }
