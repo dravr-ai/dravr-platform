@@ -62,16 +62,14 @@ pub(crate) fn owed_attributions(
     sender: Option<Uuid>,
     cards_carried: &BTreeSet<Uuid>,
 ) -> BTreeSet<&'static str> {
-    ai_scope::current_provenance()
-        .map(|provenance| {
-            let members_read = provenance.members_read();
-            provenance.attributions_owed(|owner| {
-                reply_is_about(owner, seat, sender, |member| {
-                    cards_carried.contains(&member) || members_read.contains(&member)
-                })
+    ai_scope::current_provenance().map_or_default(|provenance| {
+        let members_read = provenance.members_read();
+        provenance.attributions_owed(|owner| {
+            reply_is_about(owner, seat, sender, |member| {
+                cards_carried.contains(&member) || members_read.contains(&member)
             })
         })
-        .unwrap_or_default()
+    })
 }
 
 /// Whether a reply on `seat` is derived from data `owner`'s reads served.

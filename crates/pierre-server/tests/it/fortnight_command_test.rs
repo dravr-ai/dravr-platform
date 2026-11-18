@@ -579,12 +579,11 @@ async fn a_save_names_the_argument_keys_it_ignored() -> Result<()> {
         .as_ref()
         .and_then(|r| r.get("ignored_arguments"))
         .and_then(|v| v.as_array())
-        .map(|a| {
+        .map_or_default(|a| {
             a.iter()
                 .filter_map(|v| v.as_str().map(str::to_owned))
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+        });
     assert_eq!(
         reported,
         vec!["coach_id".to_owned(), "parameters".to_owned()],

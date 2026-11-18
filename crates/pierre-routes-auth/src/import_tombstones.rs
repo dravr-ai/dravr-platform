@@ -72,7 +72,7 @@ pub(crate) async fn handle_clear_import_tombstone(
     body: Option<Json<ClearTombstoneRequest>>,
 ) -> AppResult<Response> {
     let user = session_account(&resources, &headers).await?;
-    let request = body.map(|Json(request)| request).unwrap_or_default();
+    let request = body.map_or_default(|Json(request)| request);
 
     // An email is held by whoever proved the inbox, not by whoever typed it
     // at sign-up; a provider account's proof is its refused authorization.

@@ -51,8 +51,7 @@ pub(super) async fn assess_opening_ramp(
         return None;
     }
     let baseline = ramp_baseline(repos, policies, tenant, user_id).await;
-    let durations: Vec<Option<u32>> = earliest_week(written)
-        .map(|w| w.days.iter().map(|d| d.duration_min).collect())
-        .unwrap_or_default();
+    let durations: Vec<Option<u32>> =
+        earliest_week(written).map_or_default(|w| w.days.iter().map(|d| d.duration_min).collect());
     Some(assess_ramp(&durations, baseline.as_ref()))
 }

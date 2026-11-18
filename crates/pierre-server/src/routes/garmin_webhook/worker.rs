@@ -171,8 +171,7 @@ async fn settle(
             let why = outcome
                 .retry
                 .as_ref()
-                .map(Retry::reason)
-                .unwrap_or_default()
+                .map_or_default(Retry::reason)
                 .to_owned();
             hand_back(inbox, lease, row, &why, now_ms).await
         }

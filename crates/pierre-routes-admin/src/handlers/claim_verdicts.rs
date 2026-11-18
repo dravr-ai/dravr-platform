@@ -768,16 +768,12 @@ fn deterministic_detail(verdict: &ClaimVerdict) -> String {
 fn evidence_knob(verdict: &ClaimVerdict, registry: &EvidenceRegistry) -> VerdictKnob {
     let layer = verdict.layer_fired.as_str().to_owned();
     let category = verdict.category.as_str();
-    let cited: Vec<&str> = verdict
-        .evidence_refs
-        .as_deref()
-        .map(|refs| {
-            refs.split(',')
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .collect()
-        })
-        .unwrap_or_default();
+    let cited: Vec<&str> = verdict.evidence_refs.as_deref().map_or_default(|refs| {
+        refs.split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
 
     // An athlete-data claim has no corpus folder by design: it reached the
     // evidence layer only because the athlete-data layer did not fire, and

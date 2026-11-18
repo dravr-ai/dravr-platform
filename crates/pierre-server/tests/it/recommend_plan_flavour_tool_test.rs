@@ -1330,8 +1330,7 @@ async fn an_a_race_too_soon_for_a_block_is_named_not_silently_dropped() -> Resul
     assert_eq!(payload["season"]["status"], "laid", "{}", payload["season"]);
     let unlaid: Vec<&str> = payload["season"]["unlaid_peaks"]
         .as_array()
-        .map(|a| a.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default();
+        .map_or_default(|a| a.iter().filter_map(Value::as_str).collect());
     assert_eq!(
         unlaid,
         vec![crowded.as_str()],

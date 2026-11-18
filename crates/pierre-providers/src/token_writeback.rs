@@ -115,8 +115,7 @@ impl StoredTokenRow {
         let access_token = credentials
             .access_token
             .as_ref()
-            .map(ExposeSecret::expose_secret)
-            .unwrap_or_default();
+            .map_or_default(ExposeSecret::expose_secret);
         let Some(stored) = self.standing(tokens).await else {
             return;
         };

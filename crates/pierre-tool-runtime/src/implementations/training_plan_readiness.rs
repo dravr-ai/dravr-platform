@@ -158,9 +158,7 @@ pub(super) async fn read_ladder(
                     .and_then(|i| usize::try_from(i).ok())
                     .and_then(|i| plan.phases.get(i))
                     .map(|phase| phase.kind);
-                let preferred = phase
-                    .map(|kind| phase_purposes(&flavour, kind))
-                    .unwrap_or_default();
+                let preferred = phase.map_or_default(|kind| phase_purposes(&flavour, kind));
                 let (days, templates): (Vec<_>, Vec<_>) =
                     week_days(&catalogue, week).into_iter().unzip();
                 let verdict = substitute(&flavour, level, &days, &preferred);

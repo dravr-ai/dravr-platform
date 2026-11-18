@@ -1137,8 +1137,7 @@ pub async fn fetch_recent_activity(
                 .parse()
                 .ok()
                 .and_then(|id: Uuid| users.get(&id))
-                .map(|user| user.email.clone())
-                .unwrap_or_default(),
+                .map_or_default(|user| user.email.clone()),
         })
         .collect();
 

@@ -164,8 +164,7 @@ fn last_user_message(messages: &[ChatMessage]) -> String {
         .iter()
         .rev()
         .find(|m| m.role == MessageRole::User)
-        .map(|m| m.content.clone())
-        .unwrap_or_default()
+        .map_or_default(|m| m.content.clone())
 }
 
 /// One served turn: the delivered reply and how many times the model was asked.

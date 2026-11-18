@@ -501,7 +501,7 @@ impl LiveScenarioDriver {
             .get("state")
             .and_then(|s| s.get("compliance_weeks"))
             .and_then(Value::as_array)
-            .map(|weeks| {
+            .map_or_default(|weeks| {
                 weeks
                     .iter()
                     .filter_map(|w| {
@@ -511,8 +511,7 @@ impl LiveScenarioDriver {
                         ))
                     })
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         let weeks = parsed
             .get("weeks")
             .and_then(Value::as_array)?

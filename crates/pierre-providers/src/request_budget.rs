@@ -409,9 +409,7 @@ struct GrantCount {
 /// The budgets `map` holds for `provider`, cloned out so no map guard is
 /// held across a database call; none when it holds no entry.
 fn configured(map: &DashMap<String, Vec<Budget>>, provider: &str) -> Vec<Budget> {
-    map.get(provider)
-        .map(|budgets| budgets.clone())
-        .unwrap_or_default()
+    map.get(provider).map_or_default(|budgets| budgets.clone())
 }
 
 /// Holds each provider's budgets and takes requests from them in the

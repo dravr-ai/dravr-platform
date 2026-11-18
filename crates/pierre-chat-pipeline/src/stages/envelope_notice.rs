@@ -287,15 +287,12 @@ mod tests {
     }
 
     fn lines(block: &Value) -> Vec<String> {
-        block["lines"]
-            .as_array()
-            .map(|lines| {
-                lines
-                    .iter()
-                    .filter_map(|line| line.as_str().map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default()
+        block["lines"].as_array().map_or_default(|lines| {
+            lines
+                .iter()
+                .filter_map(|line| line.as_str().map(str::to_owned))
+                .collect()
+        })
     }
 
     #[test]

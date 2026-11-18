@@ -96,7 +96,7 @@ pub async fn handle_post(
     body: Option<Json<CoachAccessRequestBody>>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
-    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let body = body.map_or_default(|Json(b)| b);
 
     let group = match body.group_id.as_deref().map(str::trim) {
         None | Some("") => None,

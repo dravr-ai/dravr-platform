@@ -186,8 +186,7 @@ impl LlmProvider for ThreadModel {
             .iter()
             .rev()
             .find(|m| matches!(m.role, MessageRole::User))
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
+            .map_or_default(|m| m.content.clone());
         let read = if last_ask.contains(READ_ASK) {
             Some(("get_training_plan", json!({})))
         } else if last_ask.contains(ACTIVITIES_ASK) {

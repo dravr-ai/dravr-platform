@@ -768,7 +768,7 @@ async fn test_concurrent_authentication_operations() -> Result<()> {
 
     for (user_id, email, token) in users {
         let amw = auth_middleware.clone();
-        let user_token = token.clone();
+        let user_token = token;
 
         let handle = tokio::spawn(async move {
             // Test authentication

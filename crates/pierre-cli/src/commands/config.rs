@@ -379,8 +379,7 @@ pub(crate) async fn dispatch(command: ConfigCommand) -> AppResult<()> {
             let shadowed: Vec<&str> = data
                 .get("shadowed_by_env")
                 .and_then(Value::as_array)
-                .map(|keys| keys.iter().filter_map(Value::as_str).collect())
-                .unwrap_or_default();
+                .map_or_default(|keys| keys.iter().filter_map(Value::as_str).collect());
             for shadowed_key in shadowed {
                 println!(
                     "note: {shadowed_key} is pinned by an environment variable, which outranks \

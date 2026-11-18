@@ -553,8 +553,7 @@ fn build_turn_summary(
 
     let first_call_at = per_call_rows
         .first()
-        .map(|r| r.created_at.clone())
-        .unwrap_or_default();
+        .map_or_default(|r| r.created_at.clone());
     let last_call_at = per_call_rows
         .last()
         .map(|r| r.created_at.clone())

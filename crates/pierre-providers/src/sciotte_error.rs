@@ -587,7 +587,7 @@ mod tests {
     fn a_shed_of_a_session_transfer_is_internal_and_carries_no_wait() {
         for operation in [Operation::Export, Operation::Import] {
             let client_error = shed(operation, 17, Some("chrome_budget"));
-            let request = client_error.exchange().map(named).unwrap_or_default();
+            let request = client_error.exchange().map_or_default(named);
             let error = mapped(client_error, ErrorCode::InternalError, None);
             assert_eq!(shed_retry_after_secs(&error), None);
             assert_eq!(
@@ -804,7 +804,7 @@ mod tests {
                 StatusCode::INTERNAL_SERVER_ERROR,
                 json!({ "error": reason }),
             );
-            let request = client_error.exchange().map(named).unwrap_or_default();
+            let request = client_error.exchange().map_or_default(named);
             let error = own_read_error(client_error, "TrainingPeaks");
             assert_eq!(error.code, ErrorCode::InternalError);
             assert_eq!(sciotte_refusal(&error), None);
@@ -1008,7 +1008,7 @@ mod tests {
         });
         for operation in [Operation::Login, Operation::SubmitOtp, Operation::Select2fa] {
             let client_error = unexpected(operation, StatusCode::BAD_REQUEST, body.clone());
-            let request = client_error.exchange().map(named).unwrap_or_default();
+            let request = client_error.exchange().map_or_default(named);
             let error = mapped(client_error, ErrorCode::InternalError, None);
             assert_eq!(
                 error.message,

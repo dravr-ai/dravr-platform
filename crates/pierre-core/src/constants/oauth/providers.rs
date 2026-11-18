@@ -391,7 +391,7 @@ fn garmin_attribution(device_name: Option<&str>) -> String {
 /// (carnet#1154).
 #[must_use]
 pub fn garmin_service_attribution(device_model: Option<&str>) -> String {
-    let model = device_model.map(garmin_device_model).unwrap_or_default();
+    let model = device_model.map_or_default(garmin_device_model);
     if model.is_empty() {
         GARMIN_ATTRIBUTION.to_owned()
     } else {

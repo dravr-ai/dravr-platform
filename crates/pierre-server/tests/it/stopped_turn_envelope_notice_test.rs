@@ -438,8 +438,7 @@ impl Fixture {
         );
         let lines: Vec<&str> = notices[0]["lines"]
             .as_array()
-            .map(|lines| lines.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default();
+            .map_or_default(|lines| lines.iter().filter_map(Value::as_str).collect());
         assert_eq!(
             lines.len(),
             1,

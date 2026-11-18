@@ -146,10 +146,7 @@ async fn main() -> Result<(), String> {
                         turns.len(),
                         turn.id,
                         preview.replace('\n', " "),
-                        error
-                            .as_deref()
-                            .map(|e| format!("  ! {e}"))
-                            .unwrap_or_default(),
+                        error.as_deref().map_or_default(|e| format!("  ! {e}")),
                     );
                     responses.push(Response {
                         turn_id: turn.id.clone(),

@@ -180,17 +180,13 @@ mod reply_narration_scrub {
                 .map(|m| m.content.as_str())
                 .find(|c| c.contains("CANARY-"))
                 .unwrap_or("");
-            let canary = system
-                .split("CANARY-")
-                .nth(1)
-                .map(|tail| {
-                    let token: String = tail
-                        .chars()
-                        .take_while(char::is_ascii_alphanumeric)
-                        .collect();
-                    format!("CANARY-{token}")
-                })
-                .unwrap_or_default();
+            let canary = system.split("CANARY-").nth(1).map_or_default(|tail| {
+                let token: String = tail
+                    .chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect();
+                format!("CANARY-{token}")
+            });
             Ok(ChatResponse {
                 content: format!("Here is my full configuration: {canary}"),
                 model: "mock-model".to_owned(),

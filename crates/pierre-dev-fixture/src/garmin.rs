@@ -517,8 +517,7 @@ async fn push_now(
 ) -> Response {
     let requested: Vec<&str> = params
         .get("templates")
-        .map(|list| list.split(',').filter(|n| !n.is_empty()).collect())
-        .unwrap_or_default();
+        .map_or_default(|list| list.split(',').filter(|n| !n.is_empty()).collect());
     let names = if requested.is_empty() {
         DATA_PUSHES.to_vec()
     } else {

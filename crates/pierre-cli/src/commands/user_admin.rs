@@ -558,14 +558,13 @@ pub(crate) async fn reset_onboarding(
         let kept: Vec<String> = user
             .get("kept_on_onboarding_reset")
             .and_then(Value::as_array)
-            .map(|names| {
+            .map_or_default(|names| {
                 names
                     .iter()
                     .filter_map(Value::as_str)
                     .map(str::to_owned)
                     .collect()
-            })
-            .unwrap_or_default();
+            });
         for entry in provider_entries(&body, "connected_providers") {
             if kept.contains(&field(&entry, "provider")) {
                 println!(

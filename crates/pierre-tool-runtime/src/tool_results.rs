@@ -221,7 +221,7 @@ pub fn athlete_notes(payload: &Value) -> Vec<String> {
 fn comment_lines(row: &Value) -> Vec<String> {
     row.get("comments")
         .and_then(Value::as_array)
-        .map(|thread| {
+        .map_or_default(|thread| {
             thread
                 .iter()
                 .filter_map(|comment| {
@@ -235,7 +235,6 @@ fn comment_lines(row: &Value) -> Vec<String> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Reduce a `get_activities` payload to what a model needs, leaving every other

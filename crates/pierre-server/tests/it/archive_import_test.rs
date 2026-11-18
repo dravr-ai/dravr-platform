@@ -539,14 +539,11 @@ async fn an_export_only_athlete_reads_their_wellness_back_from_the_tools() {
 }
 
 fn activity_ids(payload: &Value) -> Vec<String> {
-    let mut ids: Vec<String> = payload["activities"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut ids: Vec<String> = payload["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect()
+    });
     ids.sort();
     ids
 }

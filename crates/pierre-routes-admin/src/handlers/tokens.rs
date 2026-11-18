@@ -550,8 +550,7 @@ pub(crate) async fn handle_rotate_admin_token(
     // message is the store's own, the other two read as their code's
     // generic one.
     let expires_in_days = body
-        .map(|Json(body)| body)
-        .unwrap_or_default()
+        .map_or_default(|Json(body)| body)
         .expires_in_days
         .unwrap_or(DEFAULT_ROTATION_DAYS);
     let new_token = ctx

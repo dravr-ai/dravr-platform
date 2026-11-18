@@ -349,13 +349,12 @@ pub(crate) async fn outbound_bodies(
     };
     db.get_session_messages(session_id, tenant_id, 100, 0)
         .await
-        .map(|rows| {
+        .map_or_default(|rows| {
             rows.into_iter()
                 .filter(|r| r["direction"].as_str() == Some("outbound"))
                 .filter_map(|r| r["content_body"].as_str().map(ToOwned::to_owned))
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Wait until the in-flight tracker sees a turn, or give up after ten seconds.

@@ -78,9 +78,8 @@ pub fn resolve_mcp_resource_aliases(canonical: &str, base_url: Option<&str>) -> 
 #[must_use]
 pub fn protected_resource_metadata_url(resource: &str) -> String {
     let trimmed = resource.trim_end_matches('/');
-    let path = Url::parse(trimmed)
-        .map(|url| url.path().trim_end_matches('/').to_owned())
-        .unwrap_or_default();
+    let path =
+        Url::parse(trimmed).map_or_default(|url| url.path().trim_end_matches('/').to_owned());
     let origin = trimmed.strip_suffix(path.as_str()).unwrap_or(trimmed);
     format!("{origin}{PROTECTED_RESOURCE_WELL_KNOWN}{path}")
 }
@@ -141,9 +140,7 @@ fn authority_of(resource: &str) -> Option<String> {
 
 /// The path of `resource` without a trailing `/`: `""` for an origin.
 fn path_of(resource: &str) -> String {
-    Url::parse(resource)
-        .map(|url| url.path().trim_end_matches('/').to_owned())
-        .unwrap_or_default()
+    Url::parse(resource).map_or_default(|url| url.path().trim_end_matches('/').to_owned())
 }
 
 impl OAuth2ServerConfig {

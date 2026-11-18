@@ -72,13 +72,12 @@ pub fn start_settings_poll(targets: SettingsPollTargets, interval: Duration) {
             });
             // The inner loop never returns normally; reaching here means the
             // task died (panic or runtime-cancelled join).
-            if let Err(e) = poll.await {
-                error!(
-                    error = %e,
-                    is_panic = e.is_panic(),
-                    "settings poll died; respawning after one interval"
-                );
-            }
+            let Err(e) = poll.await;
+            error!(
+                error = %e,
+                is_panic = e.is_panic(),
+                "settings poll died; respawning after one interval"
+            );
             time::sleep(interval).await;
         }
     });

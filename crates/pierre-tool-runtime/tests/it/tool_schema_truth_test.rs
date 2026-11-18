@@ -62,14 +62,13 @@ fn required(tool: &Tool) -> Vec<String> {
     tool.input_schema
         .get("required")
         .and_then(Value::as_array)
-        .map(|names| {
+        .map_or_default(|names| {
             names
                 .iter()
                 .filter_map(Value::as_str)
                 .map(str::to_owned)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 #[test]

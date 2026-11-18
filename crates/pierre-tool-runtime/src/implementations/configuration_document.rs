@@ -230,9 +230,9 @@ pub fn updated_document(
     refuse_measurements(changes)?;
     let template = match profile {
         Some(name) => resolve_template(name)?,
-        None => saved.map(saved_profile).unwrap_or_default(),
+        None => saved.map_or_default(saved_profile),
     };
-    let mut overrides = saved.map(saved_overrides).unwrap_or_default();
+    let mut overrides = saved.map_or_default(saved_overrides);
     for (key, value) in changes.into_iter().flatten() {
         if value.is_null() {
             overrides.remove(key);

@@ -296,17 +296,13 @@ impl<'a> PackagedCatalogue<'a> {
     /// catalogue's in its own `(purpose, slug)` order.
     #[must_use]
     pub fn workouts_matching(&self, filter: &WorkoutFilter) -> Vec<WorkoutTemplate> {
-        let mut out: Vec<WorkoutTemplate> = self
-            .package
-            .as_ref()
-            .map(|p| {
-                p.workouts
-                    .iter()
-                    .filter(|w| filter.matches(w))
-                    .cloned()
-                    .collect()
-            })
-            .unwrap_or_default();
+        let mut out: Vec<WorkoutTemplate> = self.package.as_ref().map_or_default(|p| {
+            p.workouts
+                .iter()
+                .filter(|w| filter.matches(w))
+                .cloned()
+                .collect()
+        });
         for w in self.catalogue.workouts_matching(filter) {
             if self.package_workout(&w.slug).is_none() {
                 out.push(w);

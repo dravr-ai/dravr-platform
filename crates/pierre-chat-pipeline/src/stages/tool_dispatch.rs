@@ -372,8 +372,7 @@ pub(crate) async fn dispatch_llm_with_tools(
     };
     let mcp_servers = tool_session
         .as_ref()
-        .map(ToolSession::mcp_servers)
-        .unwrap_or_default();
+        .map_or_default(ToolSession::mcp_servers);
 
     // Stage 13: the coaching tool surface. Every turn is offered the whole
     // chat-callable set it may call (`chat_catalogue::offered_schemas`), so a

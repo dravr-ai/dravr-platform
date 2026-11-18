@@ -61,10 +61,7 @@ pub(super) async fn plan_state_block(
 
     PlanStateBlock {
         readiness: reading.as_ref().map(|r| r.level),
-        alerts: reading
-            .as_ref()
-            .map(|r| r.alerts.clone())
-            .unwrap_or_default(),
+        alerts: reading.as_ref().map_or_default(|r| r.alerts.clone()),
         readiness_weeks: reading.map_or_else(Vec::new, |r| r.weeks),
         compliance_weeks: compliance
             .iter()

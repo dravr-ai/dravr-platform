@@ -294,28 +294,25 @@ impl McpTool<dyn ToolRuntime> for CreateAgentTool {
             let category = args
                 .get("category")
                 .and_then(Value::as_str)
-                .map(AgentCategory::parse)
-                .unwrap_or_default();
-            let tags: Vec<String> = args
-                .get("tags")
-                .and_then(Value::as_array)
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(Value::as_str)
-                        .map(ToOwned::to_owned)
-                        .collect()
-                })
-                .unwrap_or_default();
+                .map_or_default(AgentCategory::parse);
+            let tags: Vec<String> =
+                args.get("tags")
+                    .and_then(Value::as_array)
+                    .map_or_default(|arr| {
+                        arr.iter()
+                            .filter_map(Value::as_str)
+                            .map(ToOwned::to_owned)
+                            .collect()
+                    });
             let sample_prompts: Vec<String> = args
                 .get("sample_prompts")
                 .and_then(Value::as_array)
-                .map(|arr| {
+                .map_or_default(|arr| {
                     arr.iter()
                         .filter_map(Value::as_str)
                         .map(ToOwned::to_owned)
                         .collect()
-                })
-                .unwrap_or_default();
+                });
 
             let create_request = CreateAgentRequest {
                 title,

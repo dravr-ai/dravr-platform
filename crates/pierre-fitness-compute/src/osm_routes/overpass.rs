@@ -318,8 +318,7 @@ impl OverpassClient {
         let order: Vec<String> = {
             let cooldowns = ENDPOINT_COOLDOWNS
                 .read()
-                .map(|guard| guard.clone())
-                .unwrap_or_default();
+                .map_or_default(|guard| guard.clone());
             attempt_order(&self.endpoints, &cooldowns, walk.started)
                 .into_iter()
                 .map(str::to_owned)

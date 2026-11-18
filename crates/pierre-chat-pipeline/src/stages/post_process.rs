@@ -519,9 +519,9 @@ pub(crate) async fn post_process_assistant_reply(
     let verdict_chips: Vec<VerdictChip> = Vec::new();
     #[cfg(feature = "tools-verification")]
     let (pending_verdicts, verdict_chips, provider_stop) = {
-        let verification_config = agent_ctx
-            .map(|c| pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt))
-            .unwrap_or_default();
+        let verification_config = agent_ctx.map_or_default(|c| {
+            pierre_evals::VerificationConfig::parse_from_system_prompt(&c.system_prompt)
+        });
         let judge_recorder = turn_call_recorder(ctx, input, LlmStage::ClaimJudge.call_type());
         let ClaimVerificationOutcome {
             content: verified_content,

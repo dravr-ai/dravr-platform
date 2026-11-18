@@ -1938,8 +1938,7 @@ impl MessagingStringsRegistry {
         }
         per_locale
             .get(DEFAULT_LOCALE)
-            .map(|entry| entry.content.clone())
-            .unwrap_or_default()
+            .map_or_default(|entry| entry.content.clone())
     }
 
     /// The text of `key` in `locale` only, with no fallback; a blank entry is

@@ -469,7 +469,7 @@ async fn row(
         SharedPlan::default()
     };
 
-    let sources = snapshot.map(sources_of).unwrap_or_default();
+    let sources = snapshot.map_or_default(sources_of);
     let refusals = refused_since(repos, athlete, row.training.as_ref()).await?;
     let inputs = AttentionInputs {
         status: member.member.status,
@@ -690,8 +690,7 @@ async fn plan_thread(
         draft_phases: draft
             .as_ref()
             .and_then(|(_, plan)| plan.as_ref())
-            .map(|plan| roster_phases(&plan.phases))
-            .unwrap_or_default(),
+            .map_or_default(|plan| roster_phases(&plan.phases)),
     };
     let signals = draft.map(|(state, _)| DraftSignals {
         has_conflicts: !state.is_clear(),

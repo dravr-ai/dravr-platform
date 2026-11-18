@@ -281,10 +281,7 @@ fn every_template_answers_to_its_listed_name_and_its_profile_name() {
             ProfileTemplates::get(&profile.name()),
             Some(profile.clone())
         );
-        assert_eq!(
-            ProfileTemplates::get(&listed.to_uppercase()),
-            Some(profile.clone())
-        );
+        assert_eq!(ProfileTemplates::get(&listed.to_uppercase()), Some(profile));
     }
     assert_eq!(ProfileTemplates::get("custom"), None);
     assert_eq!(

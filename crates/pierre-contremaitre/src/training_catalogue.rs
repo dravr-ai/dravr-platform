@@ -650,15 +650,13 @@ pub fn session_view(family: &WorkoutTemplate, generated: Generated) -> WorkoutTe
 /// LIMITATION(registre#1498): `flavour_sports` never returns `SportFamily::Swim`;
 /// no swim form carries the quality purposes, so swim coverage is sport-blind.
 fn flavour_sports(id: &str, selection: Option<&SelectionTable>) -> Vec<SportFamily> {
-    let rows: Vec<&SelectionRow> = selection
-        .map(|table| {
-            table
-                .rows
-                .iter()
-                .filter(|row| row.input == InputDimension::SportMix)
-                .collect()
-        })
-        .unwrap_or_default();
+    let rows: Vec<&SelectionRow> = selection.map_or_default(|table| {
+        table
+            .rows
+            .iter()
+            .filter(|row| row.input == InputDimension::SportMix)
+            .collect()
+    });
     let admits = |mixes: [SportMix; 2]| {
         let matching: Vec<&SelectionRow> = rows
             .iter()
