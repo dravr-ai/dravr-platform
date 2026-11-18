@@ -124,6 +124,12 @@ async fn handle_register_app<C: IdentityCtx + MiddlewareCtx>(
     auth: AuthenticatedUser,
     Json(request): Json<RegisterUserOAuthAppRequest>,
 ) -> Result<Response, AppError> {
+    // An OAuth app outlives the support session that would register it.
+    auth.refuse_impersonation(
+        IdentityCtx::repos(&*resources).admin_audit.as_ref(),
+        "register an OAuth app",
+    )
+    .await?;
     let user_id = auth.user_id;
     let provider = request.provider.to_lowercase();
 

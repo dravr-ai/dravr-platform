@@ -6,8 +6,7 @@
 
 use std::sync::Arc;
 
-use uuid::Uuid;
-
+use pierre_auth::auth::AuthResult;
 use pierre_core::errors::{AppError, ErrorCode};
 use pierre_core::models::groups::{GroupDigestMode, UpdateGroupRequest};
 use pierre_core::models::TenantId;
@@ -15,7 +14,12 @@ use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 
 use crate::groups::GroupRoutes;
 
-/// Refuse `request` unless `user_id` may make it on the group.
+/// Refuse `request` unless the caller may make it on the group.
+///
+/// Turning peer sharing on widens who reads every member, as each member's
+/// own peer consent does, so an admin's support session is refused it with
+/// the audited `403` every support-session grant gets; turning it off is
+/// served (carnet#1634).
 ///
 /// An owner or admin may change every setting. The human coach attached to
 /// the group (`coaching_groups.coach_user_id`) is not a member of it, and may
@@ -33,10 +37,18 @@ use crate::groups::GroupRoutes;
 pub(crate) async fn authorize_group_update<C: GroupsCtx + MiddlewareCtx>(
     resources: &Arc<C>,
     group_id: &str,
-    user_id: Uuid,
+    auth: &AuthResult,
     tenant_id: TenantId,
     request: &UpdateGroupRequest,
 ) -> Result<(), AppError> {
+    if request.peer_data_sharing == Some(true) {
+        auth.refuse_impersonation(
+            resources.repos().admin_audit.as_ref(),
+            "turn on a group's peer sharing",
+        )
+        .await?;
+    }
+    let user_id = auth.user_id;
     let membership = resources
         .repos()
         .groups

@@ -294,7 +294,8 @@ impl ConsentChange {
     }
 
     /// Whether the change grants anything.
-    pub(crate) const fn grants_any(self) -> bool {
+    #[must_use]
+    pub const fn grants_any(self) -> bool {
         matches!(self.calendar_write, Some(true)) || matches!(self.wellness_read, Some(true))
     }
 

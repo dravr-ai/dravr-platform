@@ -17,7 +17,7 @@ use crate::ai_view;
 use crate::coach_seat::TurnSeat;
 use crate::context::{
     scoped_read_subject, DispatchOrigin, TurnAsk, CONVERSATION_ID, CONVERSATION_TENANT,
-    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, TURN_AGENT_ID, TURN_ASK,
+    GRANTED_SCOPES, GUARDIAN_TURN_TOKEN, READ_SUBJECT, SUPPORT_SESSION, TURN_AGENT_ID, TURN_ASK,
     TURN_DIRECT_MESSAGE, TURN_LOCALE,
 };
 use crate::first_party_tools;
@@ -36,6 +36,7 @@ use crate::scopes::missing_scope;
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
+use pierre_auth::auth::ImpersonationGrant;
 use pierre_config::environment::default_provider;
 use pierre_core::ai_policy::WithConsent;
 use pierre_core::constants::oauth::providers::is_credential_free;
@@ -110,6 +111,9 @@ pub struct UniversalExecutor {
     /// The turn and the athlete's message it answers, read from
     /// [`crate::context::TURN_ASK`] like `turn_locale` and scoped back the same way.
     turn_ask: Option<TurnAsk>,
+    /// The admin's support session the turn runs in, read from
+    /// [`SUPPORT_SESSION`] like `turn_locale` and scoped back the same way.
+    support_session: Option<ImpersonationGrant>,
     /// Per-**utterance** token used solely as the Guardian's turn key so per-turn
     /// budgets accumulate over one user message's `ReAct` loop and
     /// reset on the next. Distinct from `conversation_id` (the persistent thread
@@ -178,6 +182,7 @@ impl fmt::Debug for UniversalExecutor {
             .field("turn_locale", &self.turn_locale)
             .field("turn_direct_message", &self.turn_direct_message)
             .field("turn_ask", &self.turn_ask)
+            .field("support_session", &self.support_session)
             .field("turn_token", &self.turn_token)
             .field("scopes", &self.scopes)
             .field("seat", &self.seat)
@@ -210,6 +215,7 @@ impl UniversalExecutor {
             // way.
             turn_direct_message: TURN_DIRECT_MESSAGE.try_with(Clone::clone).ok().flatten(),
             turn_ask: TURN_ASK.try_with(Clone::clone).ok().flatten(),
+            support_session: SUPPORT_SESSION.try_with(Clone::clone).ok().flatten(),
             // Inherit the caller's turn token when this executor is built inside
             // a tool body (nested dispatch), so a nested write is charged to the
             // SAME turn as its caller. Absent outside any tool scope
@@ -797,6 +803,7 @@ impl UniversalExecutor {
         // records them for the call that encloses it; the caller's own call
         // runs under theirs. Boxed: the scopes around the tool body would
         // otherwise ride inline in every caller's future.
+        let body = SUPPORT_SESSION.scope(self.support_session.clone(), body);
         let body = Box::pin(if subject.is_some() {
             Either::Left(ai_scope::with_subject_consent(
                 consent_withheld.clone(),

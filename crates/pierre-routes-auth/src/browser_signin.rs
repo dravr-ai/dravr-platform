@@ -93,7 +93,7 @@ pub(crate) async fn handle_browser_signin_catalog(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> Result<Json<BrowserSigninCatalog>, AppError> {
-    own_session(&resources, &headers).await?;
+    own_session(&resources, &headers, None).await?;
     let client = resources.provider_registry.require_sciotte_login_client()?;
     let catalog = client
         .browser_signin()
@@ -111,7 +111,12 @@ pub(crate) async fn handle_browser_signin(
     Path(target): Path<String>,
     Json(request): Json<BrowserSigninRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = own_session(&resources, &headers).await?;
+    let (user_id, tenant_id) = own_session(
+        &resources,
+        &headers,
+        Some("hand over a provider sign-in from the browser"),
+    )
+    .await?;
     let target = target_named(&target)?;
     require_provider_terms(&resources, user_id, tenant_id, target, request.tos_consent).await?;
 
@@ -135,12 +140,15 @@ pub(crate) async fn handle_browser_signin(
     .await
 }
 
-/// The athlete's own session, never a channel's link-token.
+/// The athlete's own session, never a channel's link-token; refused to an
+/// admin's support session when `connecting` names a sign-in.
 async fn own_session(
     resources: &AuthRoutesContext,
     headers: &HeaderMap,
+    connecting: Option<&str>,
 ) -> Result<(Uuid, Uuid), AppError> {
-    let (user_id, tenant_id, link) = sciotte_caller::authenticate(resources, headers).await?;
+    let (user_id, tenant_id, link) =
+        sciotte_caller::authenticate(resources, headers, connecting).await?;
     if link.is_some() {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,

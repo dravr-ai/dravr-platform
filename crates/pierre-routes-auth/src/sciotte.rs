@@ -922,7 +922,8 @@ pub(crate) async fn handle_sciotte_login(
     headers: HeaderMap,
     Json(request): Json<SciotteLoginRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) =
+        authenticate(&resources, &headers, Some("sign in to a provider")).await?;
     let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
     refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
@@ -1047,7 +1048,12 @@ pub(crate) async fn handle_sciotte_select_2fa(
     headers: HeaderMap,
     Json(request): Json<SciotteSelectTwoFactorRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) = authenticate(
+        &resources,
+        &headers,
+        Some("choose a provider sign-in's second factor"),
+    )
+    .await?;
     let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
     refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 
@@ -1101,7 +1107,8 @@ pub(crate) async fn handle_sciotte_submit_otp(
     headers: HeaderMap,
     Json(request): Json<SciotteOtpRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, link_context) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, link_context) =
+        authenticate(&resources, &headers, Some("submit a provider sign-in code")).await?;
     let attempt = StepAttempt::of_step(tenant_id, user_id, request.attempt_id.as_deref())?;
     refuse_cancelled_attempt(&resources.cache, attempt.as_ref()).await?;
 

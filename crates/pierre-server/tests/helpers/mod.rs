@@ -35,6 +35,8 @@ pub(crate) mod google_token;
 pub(crate) mod history_walk_ledger;
 /// Identity Toolkit and the metadata token endpoint, for the account-deletion suites.
 pub(crate) mod identity_toolkit_stub;
+/// An admin's live support session on the athlete an ordinary session names.
+pub(crate) mod impersonation;
 /// Answers the turn's language-classification call so a scripted mock keeps
 /// its script for the turn.
 pub(crate) mod language_classification;

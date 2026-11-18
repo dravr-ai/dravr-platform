@@ -15,7 +15,7 @@
 //! transcript.
 //!
 //! Deletion is [`user_removal::remove_user`], the path the app's
-//! `POST /api/user/account-deletion` and the operator console run, so the
+//! `POST /api/user/account-deletion` and the admin console run, so the
 //! refusals are the same: the platform's last active admin is refused (an
 //! admin deletes its own account otherwise, carnet#1589), and rows other
 //! people rely on refuse the delete naming each, with nothing touched.
@@ -92,6 +92,13 @@ pub struct DeleteAccountHandler;
 
 #[async_trait]
 impl CommandHandler for DeleteAccountHandler {
+    /// Deleting the account is the owner's decision alone: an admin deletes
+    /// through the admin console, never from a support session's chat
+    /// (carnet#1634). The bare warning deletes nothing, so it is still read.
+    fn outlives_support_session(&self, args: &[String]) -> bool {
+        !args.is_empty()
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let repos = ctx.ctx.repos();
         let reg = ctx.ctx.messaging_strings_registry();

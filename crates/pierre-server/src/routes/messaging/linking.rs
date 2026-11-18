@@ -186,6 +186,12 @@ pub(crate) async fn init_channel_link(
     body: Option<Json<LinkInitBody>>,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
+    // A linked chat keeps acting as the athlete after the support session ends.
+    auth.refuse_impersonation(
+        resources.common.repos.admin_audit.as_ref(),
+        "link a messaging channel",
+    )
+    .await?;
     let caller_tenant_id = resolve_tenant_id(&auth, &resources).await?;
     let Json(body) = body.unwrap_or_default();
     let user_id = auth.user_id.to_string();

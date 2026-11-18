@@ -472,8 +472,10 @@ pub(crate) async fn handle_session(
         .authenticate_request_with_headers(&headers)
         .await?;
     // A session is restored from a session, never minted from an API key or
-    // an impersonation token.
-    auth_result.auth_method.refuse_session_upgrade()?;
+    // an impersonation token; an impersonation's attempt is audited.
+    auth_result
+        .refuse_session_exchange(resources.repos.admin_audit.as_ref(), "restore a session")
+        .await?;
 
     let user_id = auth_result.user_id;
     Span::current().record("user_id", user_id.to_string());
@@ -659,6 +661,9 @@ pub(crate) async fn handle_change_password(
     let auth = resources
         .auth_middleware
         .authenticate_request_with_headers(&headers)
+        .await?;
+    // A password outlives the support session that would set it.
+    auth.refuse_impersonation(resources.repos.admin_audit.as_ref(), "change the password")
         .await?;
     let user_id = auth.user_id;
 
@@ -958,6 +963,15 @@ pub(crate) async fn handle_analytics_consent(
         .auth_middleware
         .authenticate_request_with_headers(&headers)
         .await?;
+    // A consent is the athlete's to give; an admin's support session may
+    // turn it off, never on (carnet#1634).
+    if request.enabled {
+        auth.refuse_impersonation(
+            resources.repos.admin_audit.as_ref(),
+            "give consent to analytics",
+        )
+        .await?;
+    }
     let user_id = auth.user_id;
 
     resources

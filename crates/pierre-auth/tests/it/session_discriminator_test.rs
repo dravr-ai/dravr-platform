@@ -12,17 +12,23 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex};
+
+use async_trait::async_trait;
 
 use jsonwebtoken::dangerous::insecure_decode;
 use jsonwebtoken::{encode, Algorithm, Header};
 use pierre_auth::admin::jwks::JwksManager;
-use pierre_auth::auth::{AuthManager, Claims, DelegatedGrant};
+use pierre_auth::auth::{AuthManager, Claims, DelegatedGrant, IMPERSONATION_REFUSED_ACTION};
 use pierre_auth::oauth2_server::first_party::{MOBILE_CLIENT_ID, WEB_CLIENT_ID};
 use pierre_core::constants::service_names::OAUTH2_AUTHORIZE;
-use pierre_core::errors::ErrorCode;
+use pierre_core::errors::{AppResult, ErrorCode};
 use pierre_core::models::User;
 use pierre_core::permissions::scopes::OAuthScope;
+use pierre_database::repositories::admin_audit::{
+    AdminAuditRepository, AuditEventFilter, AuditEventRecord, NewAuditEvent, RecentReadKey,
+};
+use serde_json::Value;
 use uuid::Uuid;
 
 /// A third-party client, as dynamic registration names one.
@@ -38,6 +44,48 @@ static JWKS: LazyLock<JwksManager> = LazyLock::new(|| {
 
 fn auth() -> AuthManager {
     AuthManager::new(24)
+}
+
+/// The admin audit trail, held in memory: the action, actor and metadata of
+/// every row written.
+#[derive(Default)]
+struct Trail(Mutex<Vec<(String, Option<Uuid>, Value)>>);
+
+impl Trail {
+    fn rows(&self) -> Vec<(String, Option<Uuid>, Value)> {
+        self.0.lock().unwrap().clone()
+    }
+}
+
+#[async_trait]
+impl AdminAuditRepository for Trail {
+    async fn record(&self, event: &NewAuditEvent) -> AppResult<String> {
+        self.0.lock().unwrap().push((
+            event.action.clone(),
+            event.actor_user_id,
+            event.metadata.clone(),
+        ));
+        Ok(Uuid::new_v4().to_string())
+    }
+
+    async fn list(
+        &self,
+        _filter: &AuditEventFilter,
+        _limit: u32,
+    ) -> AppResult<Vec<AuditEventRecord>> {
+        Ok(Vec::new())
+    }
+
+    async fn has_recent_read(&self, _read: &RecentReadKey<'_>) -> AppResult<bool> {
+        Ok(false)
+    }
+}
+
+/// `token` validated as a session, writing any refusal to `trail`.
+async fn validate_session(trail: &Trail, token: &str) -> AppResult<Claims> {
+    auth()
+        .validate_session_token(token, &JWKS, trail, "sign in to the OAuth consent screen")
+        .await
 }
 
 fn athlete() -> User {
@@ -95,8 +143,10 @@ fn naming_no_client(token: &str) -> String {
     signed(&claims)
 }
 
-fn refused_as_no_session(token: &str, what: &str) {
-    let refused = auth().validate_session_token(token, &JWKS).expect_err(what);
+async fn refused_as_no_session(token: &str, what: &str) {
+    let refused = validate_session(&Trail::default(), token)
+        .await
+        .expect_err(what);
     assert_eq!(refused.code, ErrorCode::AuthInvalid, "{what}");
 }
 
@@ -164,16 +214,21 @@ fn a_token_is_a_session_by_the_client_it_names_and_then_by_its_grant() {
     );
 }
 
-#[test]
-fn a_session_validates_as_one_whichever_app_it_names() {
+#[tokio::test]
+async fn a_session_validates_as_one_whichever_app_it_names() {
     for client_id in [Some(WEB_CLIENT_ID), Some(MOBILE_CLIENT_ID), None] {
-        let claims = auth()
-            .validate_session_token(&session(client_id), &JWKS)
+        let trail = Trail::default();
+        let claims = validate_session(&trail, &session(client_id))
+            .await
             .unwrap_or_else(|e| panic!("{client_id:?}: a session validates as one: {e}"));
         assert_eq!(
             claims.client_id.as_deref(),
             client_id,
             "the validated claims name the app the session named"
+        );
+        assert!(
+            trail.rows().is_empty(),
+            "a session's sign-in is not audited"
         );
     }
 }
@@ -215,41 +270,51 @@ fn the_session_minter_names_no_third_party() {
     }
 }
 
-#[test]
-fn a_delegation_is_no_session_however_wide_its_grant() {
+#[tokio::test]
+async fn a_delegation_is_no_session_however_wide_its_grant() {
     refused_as_no_session(
         &delegated(&OAuthScope::default_grant()),
         "a narrow delegation is not a session",
-    );
+    )
+    .await;
     refused_as_no_session(
         &delegated(&OAuthScope::delegable_grant()),
         "the widest delegation minted today is not a session",
-    );
+    )
+    .await;
     refused_as_no_session(
         &delegated(&OAuthScope::self_grant()),
         "a delegation holding every scope is not a session",
-    );
+    )
+    .await;
 }
 
-#[test]
-fn a_narrow_grant_naming_no_client_is_no_session() {
+#[tokio::test]
+async fn a_narrow_grant_naming_no_client_is_no_session() {
     // The control for the re-signing helper: a session it re-signs still
     // validates, so the refusal below is for the grant, not the signature.
-    auth()
-        .validate_session_token(&naming_no_client(&session(Some(WEB_CLIENT_ID))), &JWKS)
-        .expect("a re-signed session validates as one");
+    validate_session(
+        &Trail::default(),
+        &naming_no_client(&session(Some(WEB_CLIENT_ID))),
+    )
+    .await
+    .expect("a re-signed session validates as one");
     refused_as_no_session(
         &naming_no_client(&delegated(&OAuthScope::delegable_grant())),
         "a narrow grant is not a session, whoever it names",
-    );
+    )
+    .await;
 }
 
 /// An impersonation token has a session's shape (no client, every scope) but
-/// for its own claim, and stays refused (carnet#1560).
-#[test]
-fn an_impersonation_token_is_no_session() {
+/// for its own claim, and stays refused (carnet#1560). The refusal is written
+/// to the admin audit trail, attributed to the admin (carnet#1634).
+#[tokio::test]
+async fn an_impersonation_token_is_no_session() {
+    let admin = Uuid::new_v4();
+    let target = athlete();
     let token = auth()
-        .generate_impersonation_token(&athlete(), Uuid::new_v4(), "session-1", &JWKS, None)
+        .generate_impersonation_token(&target, admin, "session-1", &JWKS, None)
         .unwrap();
     let claims = claims_of(&token);
     assert_eq!(
@@ -260,7 +325,36 @@ fn an_impersonation_token_is_no_session() {
         OAuthScope::is_self_grant(&OAuthScope::parse_granted(&claims.scope)),
         "an impersonation token holds every scope"
     );
-    refused_as_no_session(&token, "an impersonation token is not a session");
+    let trail = Trail::default();
+    let refused = validate_session(&trail, &token)
+        .await
+        .expect_err("an impersonation token is not a session");
+    assert_eq!(
+        refused.code,
+        ErrorCode::AuthInvalid,
+        "the consent screen refuses an impersonation token with a 401"
+    );
+    let rows = trail.rows();
+    assert_eq!(rows.len(), 1, "one refusal, one audit row: {rows:?}");
+    let (action, actor, metadata) = &rows[0];
+    assert_eq!(
+        action, IMPERSONATION_REFUSED_ACTION,
+        "the audit row is a refused support-session write"
+    );
+    assert_eq!(*actor, Some(admin), "the refusal is the admin's");
+    assert_eq!(
+        metadata["target"]["user_id"],
+        target.id.to_string(),
+        "the audit row names the athlete"
+    );
+    assert_eq!(
+        metadata["impersonation_session_id"], "session-1",
+        "the audit row names the support session"
+    );
+    assert_eq!(
+        metadata["attempted"], "sign in to the OAuth consent screen",
+        "the audit row names what was attempted"
+    );
 }
 
 /// The authorization server's own sign-in cookie is read by the same rule: a

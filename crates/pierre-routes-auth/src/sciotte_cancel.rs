@@ -332,7 +332,7 @@ pub(crate) async fn handle_sciotte_cancel(
     headers: HeaderMap,
     Json(request): Json<SciotteCancelRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id, _link_context) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id, _link_context) = authenticate(&resources, &headers, None).await?;
     let cancelled = cancel_attempt(&resources, tenant_id, user_id, &request.attempt_id).await?;
     Ok(Json(serde_json::json!({ "cancelled": cancelled })).into_response())
 }

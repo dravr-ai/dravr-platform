@@ -68,14 +68,20 @@ async fn athlete_with_status(resources: &ServerContext, status: UserStatus) -> (
 
 /// The `client_id` claim of the session JWT a sign-in or refresh answered
 /// with: the app that redeemed the code (RFC 9068 §2.2).
-fn session_client(resources: &ServerContext, body: &Value) -> Option<String> {
+async fn session_client(resources: &ServerContext, body: &Value) -> Option<String> {
     let token = body["access_token"]
         .as_str()
         .expect("the answer carries an access token");
     resources
         .auth
         .auth_manager
-        .validate_session_token(token, &resources.auth.jwks_manager)
+        .validate_session_token(
+            token,
+            &resources.auth.jwks_manager,
+            resources.common.repos.admin_audit.as_ref(),
+            "sign in to the OAuth consent screen",
+        )
+        .await
         .expect("the access token is a session this server signed")
         .client_id
 }
@@ -196,7 +202,7 @@ async fn the_web_app_signs_in_with_cookies_csrf_and_the_user() {
     assert!(body.get("refresh_token").is_none(), "{body}");
     // The session names the app that redeemed the code.
     assert_eq!(
-        session_client(&resources, &body).as_deref(),
+        session_client(&resources, &body).await.as_deref(),
         Some(WEB_CLIENT_ID)
     );
 
@@ -270,7 +276,7 @@ async fn the_mobile_app_gets_a_refresh_token_only_with_offline_access() {
         .as_str()
         .expect("offline_access carries a refresh token");
     assert_eq!(
-        session_client(&resources, &with).as_deref(),
+        session_client(&resources, &with).await.as_deref(),
         Some(MOBILE_CLIENT_ID)
     );
 
@@ -289,7 +295,7 @@ async fn the_mobile_app_gets_a_refresh_token_only_with_offline_access() {
     // The refresh family remembers the app it was opened for, so the renewed
     // session still names it.
     assert_eq!(
-        session_client(&resources, &refreshed).as_deref(),
+        session_client(&resources, &refreshed).await.as_deref(),
         Some(MOBILE_CLIENT_ID)
     );
 }

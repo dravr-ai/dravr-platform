@@ -43,7 +43,11 @@ use pierre_core::uuid_utils::parse_uuid;
 use pierre_database::backends::UserRepository;
 
 mod method;
-pub use method::{AuthMethod, ImpersonationGrant};
+mod session_token;
+pub use method::{
+    refuse_support_session, AuthMethod, ImpersonationGrant, IMPERSONATION_REFUSED_ACTION,
+    IMPERSONATION_WRITE_REFUSED,
+};
 
 /// Response for checking system setup status
 ///
@@ -572,41 +576,6 @@ impl AuthManager {
         })?;
 
         Ok(token)
-    }
-
-    /// Validate a token as the athlete's own session: a first-party credential,
-    /// minted with the whole self grant, held by the athlete themselves.
-    ///
-    /// A delegated OAuth access token is refused however valid its signature
-    /// and however wide its grant ([`Claims::is_session`]). It is a third
-    /// party's credential, limited to what the athlete consented to, and a
-    /// surface that takes a session — the OAuth consent screen above all,
-    /// where a session approves new grants — would otherwise act on it with
-    /// the athlete's whole authority.
-    ///
-    /// An impersonation token is refused too. It is an operator acting as the
-    /// athlete for an hour at most, and only the auth middleware checks that
-    /// its session is still live. Taken as a session here, it would approve
-    /// grants and mint first-party sessions in the athlete's name that outlive
-    /// the hour and the impersonation's end (carnet#909, carnet#1560).
-    ///
-    /// # Errors
-    ///
-    /// Everything [`Self::validate_token`] refuses, a token that names a
-    /// third-party client or whose grant is narrower than
-    /// [`OAuthScope::self_grant`], and an impersonation token.
-    pub fn validate_session_token(
-        &self,
-        token: &str,
-        jwks_manager: &JwksManager,
-    ) -> AppResult<Claims> {
-        let claims = Self::require_session(self.validate_token(token, jwks_manager)?)?;
-        if claims.impersonation_session_id.is_some() {
-            return Err(AppError::auth_invalid(
-                "An impersonation token is not a session",
-            ));
-        }
-        Ok(claims)
     }
 
     /// Validate the authorization server's own sign-in token, minted by

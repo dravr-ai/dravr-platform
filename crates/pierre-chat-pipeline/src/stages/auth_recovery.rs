@@ -64,6 +64,7 @@ use pierre_core::models::ConnectionType;
 use pierre_database::repositories::{shorten_url, ShortLinkRepository};
 use pierre_middleware::provider_link_token::{mint_connect_link_token, mint_hosted_signin_url};
 use pierre_providers::{ai_scope, backend_resolver};
+use pierre_tool_runtime::context::refuse_in_support_session;
 use pierre_tool_runtime::implementations::connection::{
     is_notice_refusal, mint_oauth_authorize_url,
 };
@@ -429,6 +430,16 @@ async fn mint_offer_url(
     input: &TurnInput,
     profile: &SurfaceProfile,
 ) -> Option<String> {
+    // An admin acting as the athlete is handed no link: it signs in as them
+    // after the support session ends (carnet#1634). The refusal is audited,
+    // and the athlete reads the linkless sentence a failed mint renders.
+    refuse_in_support_session(
+        deps.tool_runtime.repos().admin_audit.as_ref(),
+        user_id,
+        "mint a provider connection link",
+    )
+    .await
+    .ok()?;
     if new_sign_in_falls_back(
         deps.tool_runtime,
         user_id,

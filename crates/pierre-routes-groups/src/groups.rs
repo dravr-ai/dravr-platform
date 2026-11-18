@@ -677,7 +677,7 @@ impl GroupRoutes {
         let auth = auth.into_inner();
         let tenant_id = Self::get_tenant_id(&auth)?;
 
-        authorize_group_update(&resources, &group_id, auth.user_id, tenant_id, &body).await?;
+        authorize_group_update(&resources, &group_id, &auth, tenant_id, &body).await?;
         // Resolved in the scope the group's turns resolve it in — the
         // tenant's own agents and system agents — so an admin can still
         // resend another owner's in-tenant agent, while an id the runtime
@@ -804,6 +804,16 @@ impl GroupRoutes {
         Json(body): Json<UpdateRoleBody>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A promotion outlives the support session that made it: the new
+        // admin mints invites and manages members afterwards. A demotion
+        // narrows who manages the group, so it is still served.
+        if body.role != GroupRole::Member {
+            auth.refuse_impersonation(
+                resources.repos().admin_audit.as_ref(),
+                "promote a group member",
+            )
+            .await?;
+        }
 
         let caller_member = Self::require_admin(&resources, &group_id, auth.user_id).await?;
 
@@ -874,6 +884,11 @@ impl GroupRoutes {
         Json(body): Json<UpdatePeerConsentBody>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A consent is the athlete's own; a support session withdraws, never grants.
+        if body.consent {
+            auth.refuse_impersonation(resources.repos().admin_audit.as_ref(), "grant peer sharing")
+                .await?;
+        }
 
         // Verify caller is a member
         Self::require_member(&resources, &group_id, auth.user_id).await?;
@@ -929,6 +944,14 @@ impl GroupRoutes {
         Json(body): Json<CoachSharingBody>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // A consent is the athlete's own; a support session withdraws, never grants.
+        if body.consent {
+            auth.refuse_impersonation(
+                resources.repos().admin_audit.as_ref(),
+                "grant coach sharing",
+            )
+            .await?;
+        }
         Self::require_member(&resources, &group_id, auth.user_id).await?;
 
         let updated = resources
@@ -961,6 +984,12 @@ impl GroupRoutes {
         Json(body): Json<CreateInviteBody>,
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
+        // An invite code admits whoever holds it after the support session ends.
+        auth.refuse_impersonation(
+            resources.repos().admin_audit.as_ref(),
+            "create a group invite",
+        )
+        .await?;
         let tenant_id = Self::get_tenant_id(&auth)?;
 
         // Verify admin/owner role

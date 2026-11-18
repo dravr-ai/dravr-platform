@@ -75,7 +75,7 @@ impl OAuth2Routes {
         let redirect_uri = request.redirect_uri.clone();
 
         // The consent decision must belong to the authenticated user.
-        let (user_id, tenant_id) = Self::extract_authenticated_user(&headers, &context);
+        let (user_id, tenant_id) = Self::extract_authenticated_user(&headers, &context).await;
         let Some(user_id) = user_id else {
             // Session lapsed between render and submit — restart through login.
             return Redirect::to(&Self::build_login_url_with_oauth_params(&request))
@@ -223,7 +223,7 @@ impl OAuth2Routes {
         context: &'a OAuth2Context,
         headers: &HeaderMap,
     ) -> ConsentText<'a> {
-        let stored = match Self::extract_authenticated_user(headers, context).0 {
+        let stored = match Self::extract_authenticated_user(headers, context).await.0 {
             Some(user_id) => context
                 .users
                 .get_global(user_id)

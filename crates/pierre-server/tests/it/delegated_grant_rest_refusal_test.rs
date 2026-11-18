@@ -1128,7 +1128,13 @@ async fn a_first_party_session_is_a_session_whichever_app_it_names() {
         assert_eq!(refused.message, SESSION_REFUSAL, "{client_id:?}");
 
         auth.auth_manager
-            .validate_session_token(&token, &auth.jwks_manager)
+            .validate_session_token(
+                &token,
+                &auth.jwks_manager,
+                resources.common.repos.admin_audit.as_ref(),
+                "sign in to the OAuth consent screen",
+            )
+            .await
             .unwrap_or_else(|e| panic!("{client_id:?}: a session validates as one: {e}"));
         assert_eq!(
             sign_in_to_web_app(&resources, &token).await,
@@ -1191,7 +1197,13 @@ async fn a_refresh_family_naming_no_client_still_mints_a_session() {
     let claims = resources
         .auth
         .auth_manager
-        .validate_session_token(jwt.expose_secret(), &resources.auth.jwks_manager)
+        .validate_session_token(
+            jwt.expose_secret(),
+            &resources.auth.jwks_manager,
+            resources.common.repos.admin_audit.as_ref(),
+            "sign in to the OAuth consent screen",
+        )
+        .await
         .unwrap_or_else(|e| panic!("the refreshed token is a session: {e}"));
     assert_eq!(
         claims.client_id, None,
@@ -1239,7 +1251,13 @@ async fn a_narrow_grant_naming_no_client_stays_a_delegation() {
     assert_eq!(scoped.client_id, None, "the token names no client");
 
     auth.auth_manager
-        .validate_session_token(&token, &auth.jwks_manager)
+        .validate_session_token(
+            &token,
+            &auth.jwks_manager,
+            resources.common.repos.admin_audit.as_ref(),
+            "sign in to the OAuth consent screen",
+        )
+        .await
         .expect_err("a narrow grant is not a session");
     assert_eq!(
         sign_in_to_web_app(&resources, &token).await,

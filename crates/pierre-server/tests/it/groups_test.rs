@@ -12,11 +12,12 @@ use crate::helpers;
 
 use common::{create_test_server_resources, create_test_user_with_plan, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
 use pierre_core::models::agents::{
     Agent, AgentCategory, AgentVisibility, CreateAgentRequest, CreateSystemAgentRequest,
 };
-use pierre_core::models::groups::UpdateGroupRequest;
+use pierre_core::models::groups::{GroupRole, UpdateGroupRequest};
 use pierre_core::models::{CreateGroupRequest, GroupMember, GroupSummary};
 use pierre_core::models::{TenantId, User};
 use pierre_database::seed_models::SeedAgentTranslation;
@@ -562,6 +563,75 @@ async fn test_owner_can_demote_admin_to_member() {
     );
 }
 
+/// A promotion outlives the support session that made it: the new group
+/// admin mints invites and manages members afterwards. An admin acting as the
+/// owner promotes no one, may still demote, and the owner's own session still
+/// promotes (carnet#1634).
+#[tokio::test]
+async fn test_support_session_promotes_no_member() {
+    let (router, auth1, auth2, u1, user2_id, agent_id, doors) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) =
+        create_group_with_invite(&doors, &router, &auth1, &agent_id).await;
+    doors.join(&auth2, &invite_code).await.unwrap();
+    let support = impersonation_of(&doors.res, &auth1).await;
+    let member_id = Uuid::parse_str(&user2_id).unwrap();
+    let role = || async {
+        doors
+            .res
+            .common
+            .repos
+            .groups
+            .get_member(&group_id, member_id)
+            .await
+            .unwrap()
+            .expect("a live member")
+            .role
+    };
+    let path = format!("/api/groups/{group_id}/members/{user2_id}/role");
+    let put = |bearer: &str, role: &str| {
+        AxumTestRequest::put(&path)
+            .header("authorization", bearer)
+            .json(&json!({ "role": role }))
+            .send(router.clone())
+    };
+
+    for promoted in ["admin", "owner"] {
+        let resp = put(&support, promoted).await;
+        assert_support_refused(
+            resp.status(),
+            &resp.body_text(),
+            &format!("promote a member to {promoted}"),
+        );
+        assert_eq!(
+            role().await,
+            GroupRole::Member,
+            "{promoted} was not granted"
+        );
+    }
+    assert_refusal_audited(
+        &doors.res,
+        Uuid::parse_str(&u1).unwrap(),
+        "promote a group member",
+    )
+    .await;
+
+    assert_success(&put(&auth1, "admin").await, "the owner promotes");
+    assert_eq!(
+        role().await,
+        GroupRole::Admin,
+        "the owner's own session promotes"
+    );
+    assert_success(
+        &put(&support, "member").await,
+        "a support session may still demote",
+    );
+    assert_eq!(
+        role().await,
+        GroupRole::Member,
+        "a support session may demote"
+    );
+}
+
 #[tokio::test]
 async fn test_unauthenticated_request_fails() {
     let (router, _auth, _user_id, _coach_id, _doors) = Box::pin(setup_single_user()).await;
@@ -740,6 +810,58 @@ async fn test_admin_cannot_deactivate_other_groups_invite() {
     assert_success(&resp, "owning group's admin deactivates its own invite");
 }
 
+/// An invite code admits whoever holds it, long after a support session
+/// ends: an admin acting as the group's owner mints none, and the owner's own
+/// session still does (carnet#1634).
+#[tokio::test]
+async fn test_support_session_creates_no_invite() {
+    let (router, auth, _user_id, agent_id, doors) = Box::pin(setup_single_user()).await;
+    let group = doors
+        .group(
+            &auth,
+            json!({ "name": "Support Group", "agent_id": agent_id, "max_members": 10 }),
+        )
+        .await;
+    let group_id = group["id"].as_str().unwrap();
+    let support = impersonation_of(&doors.res, &auth).await;
+    let path = format!("/api/groups/{group_id}/invites");
+    let invites = || async {
+        AxumTestRequest::get(&path)
+            .header("authorization", &auth)
+            .send(router.clone())
+            .await
+            .json::<Value>()["invites"]
+            .as_array()
+            .unwrap()
+            .len()
+    };
+
+    let resp = AxumTestRequest::post(&path)
+        .header("authorization", &support)
+        .json(&json!({}))
+        .send(router.clone())
+        .await;
+    assert_support_refused(resp.status(), &resp.body_text(), "mint an invite");
+    assert_eq!(invites().await, 0, "no invite was minted");
+
+    let resp = AxumTestRequest::post(&path)
+        .header("authorization", &auth)
+        .json(&json!({}))
+        .send(router.clone())
+        .await;
+    assert_eq!(
+        resp.status_code(),
+        StatusCode::CREATED,
+        "{}",
+        resp.body_text()
+    );
+    assert_eq!(
+        invites().await,
+        1,
+        "the owner's own session mints one invite"
+    );
+}
+
 // ============================================================================
 // Peer Sharing Tests
 // ============================================================================
@@ -761,6 +883,76 @@ async fn test_update_peer_sharing_consent() {
         .await;
 
     assert_success(&resp, "request");
+}
+
+/// A consent to share is the member's own act: a support session acting as
+/// them grants neither peer nor coach sharing, though it may withdraw either,
+/// and the member's own session grants both (carnet#1634).
+#[tokio::test]
+async fn test_support_session_grants_no_sharing() {
+    let (router, auth1, auth2, _u1, u2, agent_id, doors) = Box::pin(setup_two_users()).await;
+    let (group_id, invite_code) =
+        create_group_with_invite(&doors, &router, &auth1, &agent_id).await;
+    doors.join(&auth2, &invite_code).await.unwrap();
+    let support = impersonation_of(&doors.res, &auth2).await;
+    let member_id = Uuid::parse_str(&u2).unwrap();
+    let member = || async {
+        doors
+            .res
+            .common
+            .repos
+            .groups
+            .get_member(&group_id, member_id)
+            .await
+            .unwrap()
+            .expect("a live member")
+    };
+    let put = |path: &'static str, bearer: &str, consent: bool| {
+        let (router, bearer) = (router.clone(), bearer.to_owned());
+        let path = format!("/api/groups/{group_id}/members/me/{path}");
+        async move {
+            AxumTestRequest::put(&path)
+                .header("authorization", &bearer)
+                .json(&json!({ "consent": consent }))
+                .send(router)
+                .await
+        }
+    };
+
+    // Joining grants coach sharing; the support session may withdraw it.
+    let resp = put("coach-sharing", &support, false).await;
+    assert_success(&resp, "a support session withdraws coach sharing");
+    assert!(
+        !member().await.coach_sharing_consent,
+        "the withdrawal is stored"
+    );
+
+    for (path, granted) in [
+        ("consent", "peer sharing"),
+        ("coach-sharing", "coach sharing"),
+    ] {
+        let resp = put(path, &support, true).await;
+        assert_support_refused(
+            resp.status(),
+            &resp.body_text(),
+            &format!("grant {granted}"),
+        );
+    }
+    let refused = member().await;
+    assert!(!refused.peer_sharing_consent, "peer sharing stays withheld");
+    assert!(
+        !refused.coach_sharing_consent,
+        "coach sharing stays withheld"
+    );
+
+    for path in ["consent", "coach-sharing"] {
+        assert_success(&put(path, &auth2, true).await, "the member grants");
+    }
+    let granted = member().await;
+    assert!(
+        granted.peer_sharing_consent && granted.coach_sharing_consent,
+        "the member's own grants are stored"
+    );
 }
 
 /// carnet#1168 D22: a member reads and sets their own coach sharing, the
@@ -859,6 +1051,74 @@ async fn test_toggle_group_peer_sharing() {
     assert_success(&resp, "request");
     let body: Value = resp.json();
     assert_eq!(body["peer_data_sharing"], true);
+}
+
+/// Turning a group's peer sharing on widens who reads every member, as a
+/// member's own peer consent does: an admin acting as the group's owner may
+/// turn it off but never on, and the refusal is audited; the owner's own
+/// session turns it back on (carnet#1634).
+#[tokio::test]
+async fn test_support_session_turns_on_no_group_peer_sharing() {
+    let (router, auth, user_id, agent_id, doors) = Box::pin(setup_single_user()).await;
+    let group = doors
+        .group(
+            &auth,
+            json!({ "name": "Support Peer Sharing", "agent_id": &agent_id }),
+        )
+        .await;
+    let group_id = group["id"].as_str().unwrap();
+    let support = impersonation_of(&doors.res, &auth).await;
+    let path = format!("/api/groups/{group_id}");
+    let put = |bearer: &str, on: bool| {
+        AxumTestRequest::put(&path)
+            .header("authorization", bearer)
+            .json(&json!({ "peer_data_sharing": on }))
+            .send(router.clone())
+    };
+    let sharing = || async {
+        AxumTestRequest::get(&path)
+            .header("authorization", &auth)
+            .send(router.clone())
+            .await
+            .json::<Value>()["peer_data_sharing"]
+            .clone()
+    };
+
+    // A group starts with peer sharing on; the support session turns it off.
+    assert_eq!(
+        sharing().await,
+        json!(true),
+        "a group starts with peer sharing on"
+    );
+    let resp = put(&support, false).await;
+    assert_success(&resp, "a support session may turn peer sharing off");
+    assert_eq!(
+        sharing().await,
+        json!(false),
+        "a support session turned peer sharing off"
+    );
+
+    let resp = put(&support, true).await;
+    assert_support_refused(
+        resp.status(),
+        &resp.body_text(),
+        "turn on a group's peer sharing",
+    );
+    assert_eq!(sharing().await, json!(false), "peer sharing stays off");
+    assert_refusal_audited(
+        &doors.res,
+        Uuid::parse_str(&user_id).unwrap(),
+        "turn on a group's peer sharing",
+    )
+    .await;
+
+    let resp = put(&auth, true).await;
+    assert_success(&resp, "the owner turns peer sharing on");
+    assert_eq!(
+        sharing().await,
+        json!(true),
+        "the owner's own session turned peer sharing on"
+    );
 }
 
 #[tokio::test]

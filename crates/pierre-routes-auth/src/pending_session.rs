@@ -32,15 +32,24 @@ fn session_token(headers: &HeaderMap) -> Option<String> {
 }
 
 /// The account behind a first-party session, whatever its approval status
-/// but suspended. An impersonation token is no session, so it is refused.
+/// but suspended. An impersonation token is refused with the `403` every
+/// support-session write answers, and the attempt to `action` written to the
+/// admin audit trail.
 pub(crate) async fn session_account(
     resources: &AuthRoutesContext,
     headers: &HeaderMap,
+    action: &str,
 ) -> AppResult<User> {
     let token = session_token(headers).ok_or_else(AppError::auth_required)?;
     let claims = resources
         .auth_manager
-        .validate_session_token(&token, &resources.jwks_manager)?;
+        .validate_session_token_for_write(
+            &token,
+            &resources.jwks_manager,
+            resources.repos.admin_audit.as_ref(),
+            action,
+        )
+        .await?;
     let user_id = Uuid::parse_str(&claims.sub)
         .map_err(|_| AppError::auth_invalid("The session names no account"))?;
     let user = resources

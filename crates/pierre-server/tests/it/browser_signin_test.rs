@@ -24,6 +24,7 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use common::{create_test_user_with_email, generate_test_token};
 use helpers::axum_test::AxumTestRequest;
+use helpers::impersonation::{assert_refusal_audited, assert_support_refused, impersonation_of};
 use pierre_core::constants::oauth::providers::provider_terms_version;
 use pierre_core::constants::oauth_providers::SCIOTTE_GARMIN;
 use pierre_core::models::TenantId;
@@ -466,5 +467,45 @@ async fn an_unauthenticated_caller_reaches_neither_route() {
     assert_eq!(
         status, 401,
         "bug: an anonymous hand-over was answered {status}: {body}"
+    );
+}
+
+/// An admin acting as the athlete stores no provider session: it would keep
+/// reading the athlete's account after the support session ends
+/// (carnet#1634). The refusal is audited; the athlete's own hand-over is
+/// served.
+#[tokio::test]
+async fn a_support_session_hands_over_no_sign_in() {
+    let athlete = Athlete::new().await;
+    let support = impersonation_of(&athlete.resources, &athlete.bearer).await;
+
+    let resp = AxumTestRequest::post("/api/providers/browser-signin/garmin")
+        .header("authorization", &support)
+        .json(&json!({ "cookies": garmin_cookies(SIGNED_IN) }))
+        .send(AuthRoutes::routes(athlete.resources.auth_routes_context()))
+        .await;
+    assert_support_refused(
+        resp.status(),
+        &resp.body_text(),
+        "hand over a browser sign-in",
+    );
+    assert!(
+        !athlete.holds_garmin_session().await,
+        "no session was stored"
+    );
+    assert_refusal_audited(
+        &athlete.resources,
+        athlete.user_id,
+        "hand over a provider sign-in from the browser",
+    )
+    .await;
+
+    let (status, body) = athlete
+        .hand_over("garmin", &garmin_cookies(SIGNED_IN))
+        .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(
+        athlete.holds_garmin_session().await,
+        "the athlete's own hand-over stores the Garmin session"
     );
 }

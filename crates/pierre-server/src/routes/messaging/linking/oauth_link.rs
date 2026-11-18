@@ -147,7 +147,14 @@ pub(super) async fn signed_in_account(
     headers: &HeaderMap,
 ) -> Result<Option<Uuid>, AppError> {
     match extract_auth_from_headers(headers, resources).await {
-        Ok(auth) => Ok(Some(auth.user_id)),
+        Ok(auth) => {
+            auth.refuse_impersonation(
+                resources.common.repos.admin_audit.as_ref(),
+                "complete a messaging channel link",
+            )
+            .await?;
+            Ok(Some(auth.user_id))
+        }
         Err(e) if e.code == ErrorCode::RateLimitExceeded || e.is_server_fault() => Err(e),
         Err(_) => Ok(None),
     }
@@ -294,6 +301,11 @@ pub(crate) async fn complete_app_link(
     Json(body): Json<LinkCompleteBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
+    auth.refuse_impersonation(
+        resources.common.repos.admin_audit.as_ref(),
+        "complete a messaging channel link",
+    )
+    .await?;
     ChannelType::from_str(&channel)
         .map_err(|_| AppError::invalid_input(format!("Unknown messaging channel: {channel}")))?;
 

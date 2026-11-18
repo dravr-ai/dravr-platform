@@ -57,9 +57,15 @@ pub(crate) struct LinkContext {
 ///
 /// When the link-token path is taken, the returned `LinkContext` carries the
 /// channel metadata needed to emit a post-back webhook on success.
+///
+/// `connecting` names the step when it signs in to a provider (a login, a
+/// second factor, a code, a browser hand-over): an admin's support session
+/// is refused it, since the session it stores outlives the support session
+/// (carnet#1634). `None` for what leaves nothing behind, such as a cancel.
 pub(crate) async fn authenticate(
     resources: &AuthRoutesContext,
     headers: &HeaderMap,
+    connecting: Option<&str>,
 ) -> Result<(Uuid, Uuid, Option<LinkContext>), AppError> {
     if let Some(claims) = try_verify_link_token_from_headers(resources, headers) {
         let user_id = Uuid::parse_str(&claims.sub).map_err(|_| {
@@ -80,6 +86,11 @@ pub(crate) async fn authenticate(
         .auth_middleware
         .authenticate_request_with_headers(headers)
         .await?;
+    if let Some(action) = connecting {
+        auth_result
+            .refuse_impersonation(resources.repos.admin_audit.as_ref(), action)
+            .await?;
+    }
     let tenant_id = auth_result
         .active_tenant_id
         .ok_or_else(|| AppError::invalid_input("No active tenant"))?;

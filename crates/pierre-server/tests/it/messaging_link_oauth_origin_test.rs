@@ -21,6 +21,7 @@
 use crate::common::offline_channel::OfflineSendAdapters;
 use crate::common::{create_test_server_resources, create_test_tenant};
 use crate::helpers::axum_test::AxumTestRequest;
+use crate::helpers::impersonation::{assert_support_refused, impersonation_of};
 
 use std::sync::{Arc, Mutex};
 
@@ -383,5 +384,73 @@ async fn a_test_contexts_own_factory_refuses_the_exchange_and_spends_nothing() {
             "{channel}: a failed exchange leaves the link code unspent"
         );
         assert!(f.links().await.is_empty(), "{channel}: nothing is linked");
+    }
+}
+
+/// A linked chat keeps acting as the athlete after a support session ends:
+/// an admin acting as the starter completes no link, in the app or in a
+/// browser, the code is unspent and the provider is asked nothing; the
+/// starter's own session then completes it (carnet#1634).
+#[tokio::test]
+async fn a_support_session_completes_no_link() {
+    let (origin, asked) = stand_in_provider().await;
+    for channel in ["slack", "discord"] {
+        let f = fixture(channel).await;
+        let starter = format!("Bearer {}", f.starter_token);
+        let support = impersonation_of(&f.resources, &starter).await;
+
+        let app_state = f.pending_link(channel).await;
+        let resp = AxumTestRequest::post(&format!("/api/messaging/link/complete/{channel}"))
+            .header("authorization", &support)
+            .json(&json!({ "state": app_state, "code": PROVIDER_CODE }))
+            .send(f.router_linking_at(&origin))
+            .await;
+        assert_support_refused(
+            resp.status(),
+            &resp.body_text(),
+            &format!("complete a {channel} app link"),
+        );
+
+        let browser_state = f.pending_link(channel).await;
+        let resp = AxumTestRequest::get(&format!(
+            "/api/messaging/link/callback/{channel}?state={browser_state}&code={PROVIDER_CODE}"
+        ))
+        .header(
+            "cookie",
+            &format!(
+                "{}={}",
+                auth_cookie_name(),
+                support.trim_start_matches("Bearer ")
+            ),
+        )
+        .send(f.router_linking_at(&origin))
+        .await;
+        assert_support_refused(
+            resp.status(),
+            &resp.body_text(),
+            &format!("complete a {channel} browser link"),
+        );
+
+        let db: &dyn MessagingRepository = &*f.resources.common.repos.messaging;
+        for state in [&app_state, &browser_state] {
+            assert!(
+                db.get_link_state(state).await.unwrap().is_some(),
+                "{channel}: a refused completion leaves the code unspent"
+            );
+        }
+        assert!(f.links().await.is_empty(), "{channel}: nothing is linked");
+        assert!(
+            asked.lock().unwrap().exchanges.is_empty(),
+            "{channel}: the provider is asked nothing"
+        );
+
+        let resp = AxumTestRequest::post(&format!("/api/messaging/link/complete/{channel}"))
+            .header("authorization", &starter)
+            .json(&json!({ "state": app_state, "code": PROVIDER_CODE }))
+            .send(f.router_linking_at(&origin))
+            .await;
+        assert_eq!(resp.status(), 200, "{channel}: {}", resp.body_text());
+        assert_eq!(f.links().await.len(), 1, "{channel}: the starter links");
+        asked.lock().unwrap().exchanges.clear();
     }
 }

@@ -851,6 +851,13 @@ pub(crate) async fn handle_mobile_oauth_init(
         .auth_middleware
         .authenticate_request_with_headers(&headers)
         .await?;
+    // The grant outlives an admin's support session (carnet#1634).
+    auth_result
+        .refuse_impersonation(
+            resources.repos.admin_audit.as_ref(),
+            "start a provider's OAuth connection",
+        )
+        .await?;
 
     let user_id = auth_result.user_id;
     info!(
@@ -987,6 +994,13 @@ pub(crate) async fn handle_oauth_authorize_redirect(
     let auth_result = resources
         .auth_middleware
         .authenticate_request_with_headers(&headers)
+        .await?;
+    // The grant outlives an admin's support session (carnet#1634).
+    auth_result
+        .refuse_impersonation(
+            resources.repos.admin_audit.as_ref(),
+            "start a provider's OAuth connection",
+        )
         .await?;
     let user_id = auth_result.user_id;
     let tenant_id = extract_tenant_id(auth_result.active_tenant_id.map(TenantId::from_uuid))?;

@@ -115,11 +115,19 @@ impl From<IntervalsLinkError> for AppError {
 async fn authenticate(
     resources: &AuthRoutesContext,
     headers: &HeaderMap,
+    connecting: Option<&str>,
 ) -> Result<(Uuid, Uuid), AppError> {
     let auth_result = resources
         .auth_middleware
         .authenticate_request_with_headers(headers)
         .await?;
+    // A link outlives an admin's support session; an unlink does not
+    // (carnet#1634).
+    if let Some(action) = connecting {
+        auth_result
+            .refuse_impersonation(resources.repos.admin_audit.as_ref(), action)
+            .await?;
+    }
     let tenant_id = auth_result
         .active_tenant_id
         .ok_or_else(|| AppError::invalid_input("No active tenant"))?;
@@ -148,7 +156,8 @@ pub(crate) async fn handle_intervals_icu_link(
     headers: HeaderMap,
     Json(request): Json<IntervalsIcuLinkRequest>,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id) =
+        authenticate(&resources, &headers, Some("link Intervals.icu")).await?;
     let athlete = link_intervals_icu_account(
         &resources,
         user_id,
@@ -389,7 +398,7 @@ pub(crate) async fn handle_intervals_icu_disconnect(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let (user_id, tenant_id) = authenticate(&resources, &headers).await?;
+    let (user_id, tenant_id) = authenticate(&resources, &headers, None).await?;
 
     OAuthService::new(resources.data.clone(), resources.config.clone())
         .disconnect_provider(

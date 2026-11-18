@@ -1,11 +1,32 @@
 // ABOUTME: How a request authenticated — JWT, API key, channel link or MCP token — and the impersonation a JWT carries
-// ABOUTME: Decides which credentials may be exchanged for an ordinary session (refuse_session_upgrade)
+// ABOUTME: Decides which credentials may be exchanged for a session, and what a support session may not leave behind
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 use pierre_core::errors::{AppError, AppResult, ErrorCode};
+use pierre_database::repositories::admin_audit::{
+    AdminAuditRepository, AuditOutcome, AuditSource, NewAuditEvent,
+};
+use serde_json::json;
+use tracing::{error, warn};
 use uuid::Uuid;
+
+use super::{AuthResult, Claims};
+
+/// The refusal an impersonation token gets where a session is taken to sign
+/// in: the consent screen's sign-in bridge
+/// ([`super::AuthManager::validate_session_token`]).
+pub(crate) const IMPERSONATION_NOT_A_SESSION: &str = "An impersonation token is not a session";
+
+/// The refusal a support session gets for a write
+/// [`AuthResult::refuse_impersonation`] guards. A `403`: the admin stays
+/// signed in, and the sentence says who can do it instead.
+pub const IMPERSONATION_WRITE_REFUSED: &str = "An admin acting as this account cannot leave a credential, grant or consent behind; only the account's owner can do this";
+
+/// The audit-trail action of a write [`AuthResult::refuse_impersonation`]
+/// refused.
+pub const IMPERSONATION_REFUSED_ACTION: &str = "impersonation.write_refused";
 
 /// The impersonation a `JWT` was minted for: an admin acting as the
 /// token's user, through a live impersonation session.
@@ -81,9 +102,9 @@ impl AuthMethod {
     /// is the athlete in one of them. Exchanged for a session, a key would read
     /// as the athlete's own app on every chat and REST route, past the
     /// transport gate that keeps some providers' data off external callers
-    /// (carnet#724). An impersonation token is an operator acting as the
+    /// (carnet#724). An impersonation token is an admin acting as the
     /// athlete for an hour, revoked when the impersonation ends and attributed
-    /// to the operator on every request: exchanged for an ordinary session it
+    /// to the admin on every request: exchanged for an ordinary session it
     /// would outlive that hour and the revocation, and read as the athlete
     /// acting alone (carnet#909).
     ///
@@ -160,5 +181,187 @@ impl AuthMethod {
                 format!("MCP Token (tier: {tier}, id: {token_id})")
             }
         }
+    }
+}
+
+impl AuthResult {
+    /// Refuse an action that would leave behind, after a support session
+    /// ends, something that authenticates as the athlete or widens who reads
+    /// their data: a personal MCP token, an API key, an A2A client, an OAuth
+    /// app, a password, a channel link, a push device, a provider connection,
+    /// a stored LLM key or bot credential, a group invite or promotion, a
+    /// conversation participant, a consent to share or to process, a billing
+    /// session, a coach-access request, the account's deletion.
+    ///
+    /// An impersonation token is an admin acting as the athlete for an hour at
+    /// most, revoked when the session ends. What it mints is not: a token or a
+    /// link created under it would keep authenticating as the athlete, with no
+    /// impersonator recorded, after the hour and the session's end
+    /// (carnet#909, carnet#1634). The consent screen refuses the same token
+    /// for the same reason (carnet#1560).
+    ///
+    /// The refusal is written to the admin audit trail, attributed to the
+    /// admin who made the attempt, naming the athlete, the session and
+    /// `action`. A trail write that fails is logged and never turns the
+    /// refusal into a pass.
+    ///
+    /// # Errors
+    ///
+    /// `PermissionDenied` ([`IMPERSONATION_WRITE_REFUSED`]) when the request
+    /// was authenticated with an impersonation token: a `403`, so the admin
+    /// stays signed in.
+    pub async fn refuse_impersonation(
+        &self,
+        audit: &dyn AdminAuditRepository,
+        action: &str,
+    ) -> AppResult<()> {
+        refuse_support_session(
+            self.auth_method.impersonation(),
+            self.user_id,
+            audit,
+            action,
+        )
+        .await
+    }
+
+    /// [`AuthMethod::refuse_session_upgrade`], with an impersonation's
+    /// refusal written to the admin audit trail as the attempt to `action`,
+    /// attributed to the admin, as every refused support-session write is.
+    ///
+    /// # Errors
+    ///
+    /// As [`AuthMethod::refuse_session_upgrade`].
+    pub async fn refuse_session_exchange(
+        &self,
+        audit: &dyn AdminAuditRepository,
+        action: &str,
+    ) -> AppResult<()> {
+        if let Some(grant) = self.auth_method.impersonation() {
+            record_impersonation_refusal(
+                audit,
+                &self.user_id.to_string(),
+                grant.impersonator_id,
+                &grant.session_id,
+                action,
+            )
+            .await;
+        }
+        self.auth_method.refuse_session_upgrade()
+    }
+}
+
+/// Refuse `action` on `user_id`'s account when `support` names the support
+/// session it was attempted in, as [`AuthResult::refuse_impersonation`] does:
+/// written to the admin audit trail, attributed to the admin.
+///
+/// For a caller that holds the support session apart from an [`AuthResult`]:
+/// a chat turn's tool, or a stage that mints a link for the athlete.
+///
+/// # Errors
+///
+/// `PermissionDenied` ([`IMPERSONATION_WRITE_REFUSED`]) when `support` is
+/// `Some`.
+pub async fn refuse_support_session(
+    support: Option<&ImpersonationGrant>,
+    user_id: Uuid,
+    audit: &dyn AdminAuditRepository,
+    action: &str,
+) -> AppResult<()> {
+    let Some(grant) = support else {
+        return Ok(());
+    };
+    record_impersonation_refusal(
+        audit,
+        &user_id.to_string(),
+        grant.impersonator_id,
+        &grant.session_id,
+        action,
+    )
+    .await;
+    Err(impersonation_write_refused())
+}
+
+/// Refuse `claims` as a session when they are an impersonation token's, and
+/// write the attempt to `action` to the admin audit trail
+/// ([`super::AuthManager::validate_session_token`],
+/// [`super::AuthManager::validate_session_token_for_write`]). The refusal is
+/// the one `refusal` builds.
+pub(crate) async fn refuse_impersonated_session(
+    claims: &Claims,
+    audit: &dyn AdminAuditRepository,
+    action: &str,
+    refusal: impl FnOnce() -> AppError,
+) -> AppResult<()> {
+    let Some(session_id) = &claims.impersonation_session_id else {
+        return Ok(());
+    };
+    if let Some(Ok(impersonator_id)) = claims.impersonator_id.as_deref().map(Uuid::parse_str) {
+        record_impersonation_refusal(audit, &claims.sub, impersonator_id, session_id, action).await;
+    } else {
+        warn!(
+            user_id = %claims.sub,
+            session_id = %session_id,
+            action,
+            "Impersonation token naming no admin refused as a session"
+        );
+    }
+    Err(refusal())
+}
+
+/// The refusal an impersonation token gets where a session is taken to sign
+/// in: a `401`, as any credential that is not a session.
+pub(crate) fn impersonation_not_a_session() -> AppError {
+    AppError::auth_invalid(IMPERSONATION_NOT_A_SESSION)
+}
+
+/// The refusal an impersonation token gets where a session is taken to
+/// write: the `403` every refused support-session write answers
+/// ([`AuthResult::refuse_impersonation`]), so the admin stays signed in.
+pub(crate) fn impersonation_write_refused() -> AppError {
+    AppError::new(ErrorCode::PermissionDenied, IMPERSONATION_WRITE_REFUSED)
+}
+
+/// Log and write to the admin audit trail that the support session
+/// `session_id`, opened by `impersonator_id` on `user_id`, was refused
+/// `action`. A trail write that fails is logged; the caller refuses either
+/// way.
+pub(crate) async fn record_impersonation_refusal(
+    audit: &dyn AdminAuditRepository,
+    user_id: &str,
+    impersonator_id: Uuid,
+    session_id: &str,
+    action: &str,
+) {
+    warn!(
+        user_id,
+        impersonator_id = %impersonator_id,
+        session_id,
+        action,
+        "Impersonation token refused: a support session leaves no credential or grant behind"
+    );
+    let event = NewAuditEvent {
+        action: IMPERSONATION_REFUSED_ACTION.to_owned(),
+        summary: format!("Refused to {action} during a support session"),
+        outcome: AuditOutcome::Refused,
+        source: AuditSource::Console,
+        actor_user_id: Some(impersonator_id),
+        // The athlete's tenant, not the admin's: only a view of the whole
+        // trail reads it, as every row reaching past the tenant its admin
+        // acts in.
+        tenant_id: None,
+        ip_address: None,
+        user_agent: None,
+        metadata: json!({
+            "target": { "user_id": user_id },
+            "impersonation_session_id": session_id,
+            "attempted": action,
+        }),
+    };
+    if let Err(e) = audit.record(&event).await {
+        error!(
+            error = %e,
+            action = IMPERSONATION_REFUSED_ACTION,
+            "Failed to record a refused support-session write in the audit trail"
+        );
     }
 }

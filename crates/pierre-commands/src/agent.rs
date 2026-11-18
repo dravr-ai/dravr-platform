@@ -440,6 +440,11 @@ impl CommandHandler for CoachInviteHandler {
         issue_group_invite(ctx, GroupInviteKind::Coach, None).await
     }
 
+    /// The same coach invite `/group invite coach` issues.
+    fn outlives_support_session(&self, _: &[String]) -> bool {
+        true
+    }
+
     /// Acts on the conversation's group, so the caller's role *there* decides
     /// — the same gate [`issue_group_invite`] enforces.
     fn is_available(&self, standing: &CallerGroupStanding) -> bool {

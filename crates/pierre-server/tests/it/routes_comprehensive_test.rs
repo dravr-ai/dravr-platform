@@ -984,7 +984,13 @@ async fn test_token_refresh_success() -> Result<()> {
     );
     // The renewed session still names the client the family was signed in to.
     let renewed_claims = common::create_test_auth_manager()
-        .validate_session_token(renewed_jwt, &common::get_shared_test_jwks())?;
+        .validate_session_token(
+            renewed_jwt,
+            &common::get_shared_test_jwks(),
+            database.repositories().admin_audit.as_ref(),
+            "sign in to the OAuth consent screen",
+        )
+        .await?;
     assert_eq!(renewed_claims.client_id.as_deref(), Some(MOBILE_CLIENT_ID));
     assert_eq!(refreshed.login.user.email, "refresh@example.com");
     assert_eq!(refreshed.login.user.user_id, user_id);

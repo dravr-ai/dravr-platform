@@ -275,6 +275,13 @@ pub(super) async fn upsert_channel_config(
     Json(body): Json<UpsertChannelConfigBody>,
 ) -> Result<impl IntoResponse, AppError> {
     let auth = extract_auth_from_headers(&headers, &resources).await?;
+    // The bot's credentials keep receiving the tenant's messages after an
+    // admin's support session ends (carnet#1634).
+    auth.refuse_impersonation(
+        resources.common.repos.admin_audit.as_ref(),
+        "store a messaging bot's credentials",
+    )
+    .await?;
     let tenant_id = resolve_tenant_id(&auth, &resources).await?;
     require_tenant_owner_or_admin(auth.user_id, tenant_id, &resources).await?;
 

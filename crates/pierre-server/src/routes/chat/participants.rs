@@ -82,6 +82,13 @@ pub(super) async fn add_participant(
     Json(request): Json<AddParticipantRequest>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
+    // Whoever is added keeps reading and posting in the thread after an
+    // admin's support session ends (carnet#1634).
+    auth.refuse_impersonation(
+        resources.common.repos.admin_audit.as_ref(),
+        "add a conversation participant",
+    )
+    .await?;
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     let conversation =
         require_participant(&resources, &conversation_id, auth.user_id, tenant_id).await?;

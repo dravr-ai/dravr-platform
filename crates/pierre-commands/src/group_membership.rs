@@ -689,6 +689,12 @@ impl CommandHandler for GroupJoinHandler {
         false
     }
 
+    /// Joining grants the group's coach sharing (ADR-002), and a coach code
+    /// attaches the caller as the coach who reads every member.
+    fn outlives_support_session(&self, _: &[String]) -> bool {
+        true
+    }
+
     async fn execute(&self, ctx: &PlatformCommandContext) -> Result<CommandResponse, AppError> {
         let Some(code) = ctx.args.first().map(|a| a.trim()).filter(|a| !a.is_empty()) else {
             return Ok(Self::invalid_code(ctx));

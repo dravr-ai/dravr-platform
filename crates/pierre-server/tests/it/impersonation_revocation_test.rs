@@ -16,25 +16,29 @@
 use crate::common;
 use crate::helpers;
 
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 
+use axum::extract::connect_info::MockConnectInfo;
 use common::{create_test_server_resources, create_test_user_with_email};
 use helpers::axum_test::{AxumTestRequest, AxumTestResponse};
 use helpers::first_party_sign_in::{
     authorize_uri, first_party_router, fresh_state, is_redirect, location, FirstPartyClient, Pkce,
     DEFAULT_PEER,
 };
+use helpers::impersonation::{assert_refusal_audited, assert_support_refused};
 use pierre_auth::oauth2_server::client_registration::ClientRegistrationManager;
 use pierre_auth::oauth2_server::first_party::WEB_CLIENT_ID;
 use pierre_auth::oauth2_server::models::ClientRegistrationRequest;
 use pierre_auth::security::cookies::auth_cookie_name;
 use pierre_core::constants::oauth2_client_retention::MAX_PENDING_REGISTRATIONS;
 use pierre_core::errors::ErrorCode;
-use pierre_core::models::User;
+use pierre_core::models::{User, UserStatus};
 use pierre_core::permissions::impersonation::ImpersonationSession;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::tenants::TenantRoutes;
 use pierre_routes_auth::AuthRoutes;
+use pierre_services::signup_codes::{self, MintRequest};
 use serde_json::{json, Value};
 use uuid::Uuid;
 
@@ -95,7 +99,7 @@ async fn live_impersonation(
 #[tokio::test]
 async fn an_impersonation_token_is_not_exchanged_for_a_session() {
     let resources = create_test_server_resources().await.unwrap();
-    let (_, _, bearer) = live_impersonation(&resources, "restore").await;
+    let (_, target, bearer) = live_impersonation(&resources, "restore").await;
 
     let response = AxumTestRequest::get("/api/auth/session")
         .header("authorization", &bearer)
@@ -103,6 +107,7 @@ async fn an_impersonation_token_is_not_exchanged_for_a_session() {
         .await;
     assert_eq!(response.status(), 403, "{}", response.body_text());
     assert!(response.header("set-cookie").is_none());
+    assert_refusal_audited(&resources, target.id, "restore a session").await;
 }
 
 /// A tenant switch under impersonation stays the impersonation: the new
@@ -323,15 +328,23 @@ async fn an_impersonation_token_does_not_validate_as_a_session() {
     let (_, target, bearer) = live_impersonation(&resources, "validate").await;
     let auth = &resources.auth;
 
+    let audit = resources.common.repos.admin_audit.as_ref();
     let refused = auth
         .auth_manager
-        .validate_session_token(raw(&bearer), &auth.jwks_manager)
+        .validate_session_token(
+            raw(&bearer),
+            &auth.jwks_manager,
+            audit,
+            "validate a session",
+        )
+        .await
         .expect_err("an impersonation token is not a session");
     assert_eq!(
         refused.code,
         ErrorCode::AuthInvalid,
         "an impersonation token is refused as an invalid credential"
     );
+    assert_refusal_audited(&resources, target.id, "validate a session").await;
 
     let claims = auth
         .auth_manager
@@ -343,7 +356,13 @@ async fn an_impersonation_token_does_not_validate_as_a_session() {
         "the impersonation token names its target"
     );
     auth.auth_manager
-        .validate_session_token(&own_session(&resources, &target), &auth.jwks_manager)
+        .validate_session_token(
+            &own_session(&resources, &target),
+            &auth.jwks_manager,
+            audit,
+            "validate a session",
+        )
+        .await
         .expect("the target's own session is one");
 }
 
@@ -363,8 +382,9 @@ async fn an_impersonation_token_cannot_sign_in_to_a_first_party_app() {
     let sent_to = location(&response);
     assert!(
         sent_to.starts_with("/oauth2/login") && !sent_to.contains("code="),
-        "no session: the operator is sent to log in, got {sent_to}"
+        "no session: the admin is sent to log in, got {sent_to}"
     );
+    assert_refusal_audited(&resources, target.id, "sign in to the OAuth consent screen").await;
 
     let response = authorize_with_web_cookie(
         &resources,
@@ -439,4 +459,89 @@ async fn an_impersonation_token_cannot_approve_a_third_party_application() {
         200,
         "the athlete's own session reaches the consent screen"
     );
+}
+
+/// The pending-account routes take a session too: an impersonation token is
+/// refused there with the `403` every support-session write answers (a `401`
+/// signs the clients out), and the refusal written to the admin audit trail
+/// (carnet#1634). The athlete's own session is still served.
+#[tokio::test]
+async fn an_impersonation_token_clears_no_import_tombstone() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, target, bearer) = live_impersonation(&resources, "tombstone").await;
+    // A verified address, so the athlete's own clear is served in full.
+    resources
+        .common
+        .repos
+        .email_verification
+        .mark_verified(target.id)
+        .await
+        .unwrap();
+    let clear = |authorization: String| {
+        AxumTestRequest::post("/api/user/import-tombstones/clear")
+            .header("authorization", &authorization)
+            .json(&json!({}))
+            .send(AuthRoutes::routes(resources.auth_routes_context()))
+    };
+
+    let refused = clear(bearer.clone()).await;
+    assert_support_refused(
+        refused.status(),
+        &refused.body_text(),
+        "clear an import tombstone",
+    );
+    assert_refusal_audited(&resources, target.id, "clear an import tombstone").await;
+
+    let served = clear(format!("Bearer {}", own_session(&resources, &target))).await;
+    assert_eq!(served.status(), 200, "{}", served.body_text());
+}
+
+/// Redeeming a signup code is a pending-account route too: an impersonation
+/// token is refused with a `403` and the refusal audited (carnet#1634); the
+/// athlete's own session redeems.
+#[tokio::test]
+async fn an_impersonation_token_redeems_no_signup_code() {
+    let resources = create_test_server_resources().await.unwrap();
+    let (_, target, bearer) = live_impersonation(&resources, "signup-code").await;
+    resources
+        .common
+        .repos
+        .users
+        .update_status(target.id, UserStatus::Pending, None)
+        .await
+        .unwrap();
+    let code = signup_codes::mint(
+        &resources.common.repos,
+        None,
+        &MintRequest {
+            note: Some("support cohort".to_owned()),
+            prefix: Some("beta".to_owned()),
+            max_uses: None,
+            expires_in_days: Some(7),
+        },
+    )
+    .await
+    .unwrap()
+    .code;
+    let redeem = |authorization: String| {
+        AxumTestRequest::post("/api/user/signup-code/redeem")
+            .header("authorization", &authorization)
+            .json(&json!({ "code": code }))
+            .send(
+                AuthRoutes::routes(resources.auth_routes_context()).layer(MockConnectInfo(
+                    SocketAddr::new(IpAddr::V4(Ipv4Addr::new(198, 18, 7, 7)), 40_000),
+                )),
+            )
+    };
+
+    let refused = redeem(bearer.clone()).await;
+    assert_support_refused(
+        refused.status(),
+        &refused.body_text(),
+        "redeem a signup code",
+    );
+    assert_refusal_audited(&resources, target.id, "redeem a signup code").await;
+
+    let served = redeem(format!("Bearer {}", own_session(&resources, &target))).await;
+    assert_eq!(served.status(), 200, "{}", served.body_text());
 }

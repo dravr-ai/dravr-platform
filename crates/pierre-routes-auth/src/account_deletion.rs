@@ -101,12 +101,23 @@ pub(crate) struct AccountDeletionPreview {
 /// The signed-in user behind a deletion request, refusing every credential
 /// but a first-party session. An admin deletes its own account as anyone
 /// does (carnet#1589); the deletion refuses the platform's last active
-/// admin.
-async fn session_user(resources: &AuthRoutesContext, headers: &HeaderMap) -> AppResult<User> {
+/// admin. Refused to an admin's support session when `deleting` names the
+/// deletion.
+async fn session_user(
+    resources: &AuthRoutesContext,
+    headers: &HeaderMap,
+    deleting: Option<&str>,
+) -> AppResult<User> {
     let auth = resources
         .auth_middleware
         .authenticate_request_with_headers(headers)
         .await?;
+    // An admin deletes an account from the admin console, where it is
+    // audited as theirs, never by acting as its owner (carnet#1634).
+    if let Some(action) = deleting {
+        auth.refuse_impersonation(resources.repos.admin_audit.as_ref(), action)
+            .await?;
+    }
     if !matches!(auth.auth_method, AuthMethod::JwtToken { .. }) {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
@@ -148,7 +159,7 @@ pub(crate) async fn handle_account_deletion_preview(
     State(resources): State<AuthRoutesContext>,
     headers: HeaderMap,
 ) -> AppResult<Response> {
-    let user = session_user(&resources, &headers).await?;
+    let user = session_user(&resources, &headers, None).await?;
     let providers: BTreeSet<String> = user_removal::held_providers(&resources.repos, user.id)
         .await?
         .into_iter()
@@ -198,7 +209,7 @@ pub(crate) async fn handle_delete_account(
     headers: HeaderMap,
     Json(request): Json<DeleteAccountRequest>,
 ) -> AppResult<Response> {
-    let user = session_user(&resources, &headers).await?;
+    let user = session_user(&resources, &headers, Some("delete the account")).await?;
     let user_id: Uuid = user.id;
 
     if normalize_email(&request.confirm_email) != normalize_email(&user.email) {

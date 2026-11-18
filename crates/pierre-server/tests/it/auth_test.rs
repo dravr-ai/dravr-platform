@@ -494,9 +494,11 @@ fn test_generate_client_credentials_token() {
     assert_eq!(claims.client_credentials_client(), Some(client_id));
 }
 
-#[test]
-fn test_session_token_names_the_client_it_was_signed_in_to() {
+#[tokio::test]
+async fn test_session_token_names_the_client_it_was_signed_in_to() {
     let auth_manager = create_auth_manager();
+    let database = common::create_test_database().await.unwrap();
+    let audit = database.repositories().admin_audit.as_ref();
     let user = create_test_user();
     let jwks_manager = common::get_shared_test_jwks();
 
@@ -504,7 +506,13 @@ fn test_session_token_names_the_client_it_was_signed_in_to() {
         .generate_client_session_token(&user, &jwks_manager, None, Some("dravr-mobile"))
         .unwrap();
     let claims = auth_manager
-        .validate_session_token(&token, &jwks_manager)
+        .validate_session_token(
+            &token,
+            &jwks_manager,
+            audit,
+            "sign in to the OAuth consent screen",
+        )
+        .await
         .unwrap();
     assert_eq!(claims.sub, user.id.to_string());
     assert_eq!(claims.client_id.as_deref(), Some("dravr-mobile"));
@@ -513,7 +521,13 @@ fn test_session_token_names_the_client_it_was_signed_in_to() {
     // A session no client signed in to names none.
     let unnamed = auth_manager.generate_token(&user, &jwks_manager).unwrap();
     let claims = auth_manager
-        .validate_session_token(&unnamed, &jwks_manager)
+        .validate_session_token(
+            &unnamed,
+            &jwks_manager,
+            audit,
+            "sign in to the OAuth consent screen",
+        )
+        .await
         .unwrap();
     assert_eq!(claims.client_id, None);
 }

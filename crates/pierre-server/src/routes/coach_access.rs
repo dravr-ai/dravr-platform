@@ -96,6 +96,14 @@ pub async fn handle_post(
     body: Option<Json<CoachAccessRequestBody>>,
 ) -> Result<Response, AppError> {
     let auth = auth.into_inner();
+    // An admin acting as the athlete would ask for access they then grant
+    // themselves; only a withdrawal is served to a support session
+    // (carnet#1634).
+    auth.refuse_impersonation(
+        resources.common.repos.admin_audit.as_ref(),
+        "ask for coach access",
+    )
+    .await?;
     let body = body.map(|Json(b)| b).unwrap_or_default();
 
     let group = match body.group_id.as_deref().map(str::trim) {
