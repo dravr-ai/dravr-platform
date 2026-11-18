@@ -22,8 +22,8 @@ use axum::http::{Request, StatusCode};
 use chrono::NaiveDate;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
 use pierre_core::models::{
-    MeasurementKind, SportAnchor, SportAnchorName, SportType, TenantId, UnitSystem,
-    UserPhysiologicalProfile,
+    AnchorOrigin, MeasurementKind, MetricProvenance, SportAnchor, SportAnchorName, SportType,
+    TenantId, UnitSystem, UserPhysiologicalProfile,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::routes::athlete_home::athlete_home_routes;
@@ -349,6 +349,122 @@ async fn an_estimate_at_high_confidence_reads_as_an_estimate() {
         anchor(family(&french, "ride"), "critical_power")["value_text"],
         "environ 280 W (estimation)",
         "bug: the estimate marker is written in the language asked for"
+    );
+}
+
+/// A cyclist whose FTP an import wrote without naming the app it came from,
+/// and who holds a run threshold pace a model estimated and a run maximum
+/// heart rate the weekly promotion filled: three anchors whose stored origin
+/// is a code rather than a name.
+async fn seed_coded_origins(resources: &Arc<ServerContext>, user_id: Uuid, tenant: TenantId) {
+    let profiles = &resources.common.repos.user_physiological_profile;
+    let mut profile = UserPhysiologicalProfile::new(user_id, SportType::Ride);
+    profile.ftp_watts = Some(270);
+    profile.threshold_provenance.ftp_watts = Some(MetricProvenance {
+        kind: MeasurementKind::Estimated,
+        origin: None,
+        as_of: Some(day(2026, 10, 12)),
+    });
+    profiles
+        .upsert_user_physiological_profile(tenant, user_id, &profile)
+        .await
+        .unwrap();
+    for (anchor, value, origin) in [
+        (
+            SportAnchorName::ThresholdSpeed,
+            4.0,
+            AnchorOrigin::Estimated.as_str(),
+        ),
+        (
+            SportAnchorName::MaxHeartRate,
+            188.0,
+            AnchorOrigin::Promoted.as_str(),
+        ),
+    ] {
+        let stored = SportAnchor {
+            sport: SportFamily::Run,
+            anchor,
+            kind: MeasurementKind::Estimated,
+            value: AnchorValue {
+                value,
+                low: None,
+                high: None,
+                origin: Some(origin.to_owned()),
+                as_of: Some(day(2026, 11, 8)),
+                method: None,
+                confidence: AnchorConfidence::Medium,
+            },
+        };
+        profiles
+            .upsert_sport_anchor(tenant, user_id, &stored)
+            .await
+            .unwrap();
+    }
+}
+
+#[tokio::test]
+async fn an_origin_stored_as_a_code_reads_in_the_athletes_words() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "physiology-coded").await;
+    seed_coded_origins(&resources, athlete.user_id, athlete.tenant).await;
+
+    let (status, body) = get(
+        &resources,
+        "/api/me/physiology?locale=en",
+        Some(&athlete.token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    let ftp = anchor(family(&body, "ride"), "ftp");
+    assert_eq!(
+        ftp["origin"], "imported",
+        "fixture: an import naming no app reads with the imported origin code: {body:#}"
+    );
+    assert_eq!(
+        ftp["source_text"], "from another app",
+        "bug: an imported anchor reads as the code 'imported'"
+    );
+    let run = family(&body, "run");
+    let pace = anchor(run, "threshold_speed");
+    assert_eq!(
+        pace["origin"], "estimated",
+        "fixture: a model's estimate reads with the estimated origin code: {body:#}"
+    );
+    assert_eq!(
+        pace["source_text"], "not yet measured",
+        "bug: an estimated anchor reads as the code 'estimated'"
+    );
+    let max_hr = anchor(run, "max_heart_rate");
+    assert_eq!(
+        max_hr["origin"], "promoted",
+        "fixture: a promoted anchor reads with the promoted origin code: {body:#}"
+    );
+    assert_eq!(
+        max_hr["source_text"], "from recent measurements",
+        "bug: a promoted anchor reads as the code 'promoted'"
+    );
+
+    let (status, body) = get(
+        &resources,
+        "/api/me/physiology?locale=pt",
+        Some(&athlete.token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let run = family(&body, "run");
+    let worded: Vec<&Value> = [
+        anchor(family(&body, "ride"), "ftp"),
+        anchor(run, "threshold_speed"),
+        anchor(run, "max_heart_rate"),
+    ]
+    .into_iter()
+    .map(|held| &held["source_text"])
+    .collect();
+    assert_eq!(
+        worded,
+        ["de outra app", "ainda sem medição", "de medições recentes"],
+        "bug: an origin code is not worded in the language the athlete asked for"
     );
 }
 

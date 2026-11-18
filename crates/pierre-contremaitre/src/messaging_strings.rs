@@ -140,6 +140,18 @@ pub const KEY_ENVELOPE_SOURCE_ATHLETE: &str = "messaging.envelope.source_athlete
 /// The source of an anchor someone else produced: `{0}` who.
 pub const KEY_ENVELOPE_SOURCE_FROM: &str = "messaging.envelope.source_from";
 
+/// The source of an anchor brought in from another app that names no
+/// provider (origin `imported`).
+pub const KEY_ENVELOPE_SOURCE_IMPORTED: &str = "messaging.envelope.source_imported";
+
+/// The source of an anchor a model estimated until a measurement exists
+/// (origin `estimated`).
+pub const KEY_ENVELOPE_SOURCE_ESTIMATED: &str = "messaging.envelope.source_estimated";
+
+/// The source of an anchor the weekly promotion filled from the athlete's
+/// recent measurements (origin `promoted`).
+pub const KEY_ENVELOPE_SOURCE_PROMOTED: &str = "messaging.envelope.source_promoted";
+
 /// The key of the sentence for one envelope finding code (`{0}` measured,
 /// `{1}` bound where the finding carries them).
 #[must_use]

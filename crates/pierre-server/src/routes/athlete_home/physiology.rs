@@ -102,8 +102,9 @@ struct PhysiologyAnchor {
     /// The range it states, when `value_text` does not already read as it;
     /// `null` at low confidence, where the value is the range.
     range_text: Option<String>,
-    /// Who set it, as the athlete reads it: their own value, or "from" its
-    /// origin.
+    /// Who set it, as the athlete reads it: their own value, words for an
+    /// origin stored as a code (`imported`, `estimated`, `promoted`), or
+    /// "from" the provider, app or test it names.
     source_text: String,
 }
 

@@ -13,7 +13,8 @@
 //! setting and the activity view writes pool pace per 100 m too; per
 //! kilometre or per mile on land, as the reader's setting says. Who set it
 //! reads as the reader's own value, as the athlete's own in a coach's view,
-//! or as "from" whoever produced it.
+//! or as "from" whoever produced it; an origin stored as a code (imported,
+//! estimated, promoted) reads in words, never as the code (carnet#1563).
 //!
 //! Only a measured anchor is stated as a plain number. One estimated, or
 //! recording no kind, reads as an estimate at any confidence: the
@@ -27,13 +28,12 @@
 
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
-use pierre_core::models::{
-    AnchorOrigin, AnchorUnit, MeasurementKind, UnitSystem, ATHLETE_REPORTED_ORIGIN,
-};
+use pierre_core::models::{AnchorOrigin, AnchorUnit, MeasurementKind, UnitSystem};
 
 use crate::messaging_strings::{
     MessagingStringsRegistry, KEY_ENVELOPE_ANCHOR_ESTIMATE, KEY_ENVELOPE_ANCHOR_RANGE,
-    KEY_ENVELOPE_SOURCE_ATHLETE, KEY_ENVELOPE_SOURCE_FROM, KEY_ENVELOPE_SOURCE_OWN,
+    KEY_ENVELOPE_SOURCE_ATHLETE, KEY_ENVELOPE_SOURCE_ESTIMATED, KEY_ENVELOPE_SOURCE_FROM,
+    KEY_ENVELOPE_SOURCE_IMPORTED, KEY_ENVELOPE_SOURCE_OWN, KEY_ENVELOPE_SOURCE_PROMOTED,
 };
 
 /// Seconds in a minute, for writing a pace.
@@ -124,11 +124,15 @@ pub fn anchor_range_text(
     ))
 }
 
-/// Who set an anchor whose origin is `origin`, as `reader` reads it.
+/// Who set an anchor whose origin is `origin`, as `reader` reads it, in
+/// `locale`.
 ///
-/// An anchor the athlete stated reads as the reader's own value, or as the
-/// athlete's own in a coach's view; an anchor naming no origin is the
-/// athlete's. Any other reads as "from" its origin, in `locale`.
+/// A stored origin code ([`AnchorOrigin::parse`]), in any letter case,
+/// reads in the words [`origin_code_key`] gives it, never as the code: an
+/// anchor the athlete stated reads as the reader's own value, or as the
+/// athlete's own in a coach's view, and an anchor naming no origin is the
+/// athlete's. Any other origin is the provider, app or test that produced
+/// the anchor, and reads as "from" it, exactly as named.
 #[must_use]
 pub fn anchor_source_text(
     strings: &MessagingStringsRegistry,
@@ -136,17 +140,30 @@ pub fn anchor_source_text(
     reader: AnchorReader,
     origin: Option<&str>,
 ) -> String {
-    let origin = origin.unwrap_or(AnchorOrigin::Athlete.as_str());
-    if origin == AnchorOrigin::Athlete.as_str() || origin == ATHLETE_REPORTED_ORIGIN {
-        strings.get(
-            match reader {
-                AnchorReader::Athlete => KEY_ENVELOPE_SOURCE_OWN,
-                AnchorReader::Coach => KEY_ENVELOPE_SOURCE_ATHLETE,
-            },
-            locale,
-        )
-    } else {
-        strings.render(KEY_ENVELOPE_SOURCE_FROM, locale, &[origin])
+    let Some(origin) = origin else {
+        return strings.get(origin_code_key(AnchorOrigin::Athlete, reader), locale);
+    };
+    // The model writes a per-sport anchor's source as free text, so a code
+    // can arrive as "Imported" or "PROMOTED"; the code's words are the same.
+    // Only this reading folds case: stored data decodes exactly as written.
+    AnchorOrigin::parse(&origin.to_ascii_lowercase()).map_or_else(
+        || strings.render(KEY_ENVELOPE_SOURCE_FROM, locale, &[origin]),
+        |code| strings.get(origin_code_key(code, reader), locale),
+    )
+}
+
+/// The key of the words a stored origin code reads as for `reader`. The one
+/// place an [`AnchorOrigin`] is given its words: a new origin does not
+/// compile until it has them.
+const fn origin_code_key(code: AnchorOrigin, reader: AnchorReader) -> &'static str {
+    match code {
+        AnchorOrigin::Athlete => match reader {
+            AnchorReader::Athlete => KEY_ENVELOPE_SOURCE_OWN,
+            AnchorReader::Coach => KEY_ENVELOPE_SOURCE_ATHLETE,
+        },
+        AnchorOrigin::Imported => KEY_ENVELOPE_SOURCE_IMPORTED,
+        AnchorOrigin::Estimated => KEY_ENVELOPE_SOURCE_ESTIMATED,
+        AnchorOrigin::Promoted => KEY_ENVELOPE_SOURCE_PROMOTED,
     }
 }
 
@@ -196,6 +213,15 @@ fn bare(unit: AnchorUnit, sport: SportFamily, units: UnitSystem, value: f32) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::models::{ATHLETE_REPORTED_ORIGIN, SUPPORTED_LOCALES};
+
+    /// Whether `text` carries `code` as a word of its own, the way an
+    /// interpolated origin code would read ("from imported"): a word that
+    /// merely starts with it ("the athlete's") is not the code.
+    fn names_the_code(text: &str, code: &str) -> bool {
+        text.split_whitespace()
+            .any(|word| word.trim_matches(|c: char| c.is_ascii_punctuation()) == code)
+    }
 
     fn point(value: f32, range: Option<(f32, f32)>, confidence: AnchorConfidence) -> AnchorValue {
         AnchorValue {
@@ -459,5 +485,115 @@ mod tests {
             "from intervals.icu",
             "bug: an anchor someone else produced names them"
         );
+    }
+
+    #[test]
+    fn an_imported_anchor_reads_as_another_app_never_as_the_code() {
+        let strings = MessagingStringsRegistry::new();
+        let imported = Some(AnchorOrigin::Imported.as_str());
+        assert_eq!(
+            anchor_source_text(&strings, "en", AnchorReader::Athlete, imported),
+            "from another app",
+            "bug: an imported anchor reads as the code 'imported'"
+        );
+        assert_eq!(
+            anchor_source_text(&strings, "en", AnchorReader::Coach, imported),
+            "from another app",
+            "bug: a coach reads an imported anchor differently from the athlete"
+        );
+        assert_eq!(
+            anchor_source_text(&strings, "fr", AnchorReader::Athlete, imported),
+            "d'une autre app",
+            "bug: an imported anchor is not worded in the reader's language"
+        );
+    }
+
+    #[test]
+    fn an_estimated_anchor_reads_as_not_yet_measured_never_as_the_code() {
+        let strings = MessagingStringsRegistry::new();
+        let estimated = Some(AnchorOrigin::Estimated.as_str());
+        assert_eq!(
+            anchor_source_text(&strings, "en", AnchorReader::Athlete, estimated),
+            "not yet measured",
+            "bug: an estimated anchor reads as the code 'estimated'"
+        );
+        assert_eq!(
+            anchor_source_text(&strings, "es", AnchorReader::Coach, estimated),
+            "aún sin medir",
+            "bug: an estimated anchor is not worded in the reader's language"
+        );
+    }
+
+    #[test]
+    fn a_promoted_anchor_reads_as_recent_measurements_never_as_the_code() {
+        let strings = MessagingStringsRegistry::new();
+        let promoted = Some(AnchorOrigin::Promoted.as_str());
+        assert_eq!(
+            anchor_source_text(&strings, "en", AnchorReader::Athlete, promoted),
+            "from recent measurements",
+            "bug: a promoted anchor reads as the code 'promoted'"
+        );
+        assert_eq!(
+            anchor_source_text(&strings, "de", AnchorReader::Coach, promoted),
+            "aus aktuellen Messungen",
+            "bug: a promoted anchor is not worded in the reader's language"
+        );
+    }
+
+    #[test]
+    fn an_origin_code_in_any_case_reads_in_words_and_a_name_keeps_its_case() {
+        let strings = MessagingStringsRegistry::new();
+        for (locale, origin, words) in [
+            ("en", "Imported", "from another app"),
+            ("en", "PROMOTED", "from recent measurements"),
+            ("en", "Estimated", "not yet measured"),
+            ("en", "Athlete", "your own value"),
+            ("en", "Athlete-Reported", "your own value"),
+            ("fr", "IMPORTED", "d'une autre app"),
+            ("fr", "Promoted", "de mesures récentes"),
+            ("fr", "eStImAtEd", "en attente d'une mesure"),
+        ] {
+            assert_eq!(
+                anchor_source_text(&strings, locale, AnchorReader::Athlete, Some(origin)),
+                words,
+                "bug: the code written as '{origin}' does not read in its {locale} words"
+            );
+        }
+        assert_eq!(
+            anchor_source_text(&strings, "en", AnchorReader::Athlete, Some("Intervals.icu")),
+            "from Intervals.icu",
+            "bug: a provider's name is not shown exactly as stored"
+        );
+        assert_eq!(
+            anchor_source_text(&strings, "fr", AnchorReader::Coach, Some("TrainingPeaks")),
+            "de TrainingPeaks",
+            "bug: a provider's name is not shown exactly as stored"
+        );
+    }
+
+    #[test]
+    fn no_origin_code_reaches_a_reader_raw_in_any_locale() {
+        let strings = MessagingStringsRegistry::new();
+        let spellings: Vec<(AnchorOrigin, &str)> = AnchorOrigin::ALL
+            .into_iter()
+            .map(|code| (code, code.as_str()))
+            .chain([(AnchorOrigin::Athlete, ATHLETE_REPORTED_ORIGIN)])
+            .collect();
+        for (code, stored) in spellings {
+            for locale in SUPPORTED_LOCALES {
+                for reader in [AnchorReader::Athlete, AnchorReader::Coach] {
+                    let text = anchor_source_text(&strings, locale, reader, Some(stored));
+                    assert!(
+                        !names_the_code(&text, stored),
+                        "bug: the stored code '{stored}' reaches a {reader:?} raw in {locale}: '{text}'"
+                    );
+                    assert_eq!(
+                        Some(text),
+                        strings.get_exact(origin_code_key(code, reader), locale),
+                        "bug: '{stored}' has no words of its own in {locale}, or reads through another key"
+                    );
+                }
+            }
+        }
     }
 }

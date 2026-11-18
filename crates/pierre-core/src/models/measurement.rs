@@ -155,6 +155,14 @@ pub enum AnchorOrigin {
 }
 
 impl AnchorOrigin {
+    /// Every origin, in declaration order.
+    pub const ALL: [Self; 4] = [
+        Self::Athlete,
+        Self::Imported,
+        Self::Estimated,
+        Self::Promoted,
+    ];
+
     /// Stable string identifier used in DB serialization.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -166,17 +174,25 @@ impl AnchorOrigin {
         }
     }
 
+    /// The origin a stored origin string names: one of the forms
+    /// [`Self::as_str`] writes, or [`ATHLETE_REPORTED_ORIGIN`], which a value
+    /// the athlete stated without naming its source carries. `None` for
+    /// anything else, which is a provider, an app or a test named as the
+    /// origin (`intervals.icu`, `lab`).
+    #[must_use]
+    pub fn parse(s: &str) -> Option<Self> {
+        if s == ATHLETE_REPORTED_ORIGIN {
+            return Some(Self::Athlete);
+        }
+        Self::ALL.into_iter().find(|origin| origin.as_str() == s)
+    }
+
     /// Parse the DB string form. Anything unrecognised reads as
     /// [`Self::Athlete`]: an anchor whose origin cannot be read must never be
     /// overwritten automatically.
     #[must_use]
     pub fn parse_lenient(s: &str) -> Self {
-        match s {
-            "imported" => Self::Imported,
-            "estimated" => Self::Estimated,
-            "promoted" => Self::Promoted,
-            _ => Self::Athlete,
-        }
+        Self::parse(s).unwrap_or(Self::Athlete)
     }
 
     /// Whether the weekly promotion may replace an anchor of this origin:
@@ -431,6 +447,29 @@ mod tests {
             AnchorOrigin::Promoted.is_promotable(),
             "bug: a promoted number would never be refreshed"
         );
+    }
+
+    #[test]
+    fn only_a_stored_origin_code_parses_and_a_named_source_stays_a_name() {
+        for origin in AnchorOrigin::ALL {
+            assert_eq!(
+                AnchorOrigin::parse(origin.as_str()),
+                Some(origin),
+                "bug: {origin:?} does not parse back from its stored form"
+            );
+        }
+        assert_eq!(
+            AnchorOrigin::parse(ATHLETE_REPORTED_ORIGIN),
+            Some(AnchorOrigin::Athlete),
+            "bug: a value the athlete stated without a source is not the athlete's"
+        );
+        for named in ["intervals.icu", "lab", "3-min all-out test", "Imported", ""] {
+            assert_eq!(
+                AnchorOrigin::parse(named),
+                None,
+                "bug: '{named}' is a named source, not a stored origin code"
+            );
+        }
     }
 
     #[test]
