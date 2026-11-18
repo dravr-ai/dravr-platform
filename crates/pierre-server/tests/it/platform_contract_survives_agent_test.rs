@@ -34,7 +34,7 @@ const CONTRACT_INVARIANTS: &[(&str, &str)] = &[
     ("current-date placeholder", "{{CURRENT_DATE}}"),
     (
         "anti-refusal rule for countable questions",
-        "Never emit `{{CAPABILITY_REFUSAL}}` for a question that can be answered by counting",
+        "Never emit `{{CAPABILITY_REFUSAL}}` for a question that counting",
     ),
     (
         "do not send the athlete to the provider's own app",
