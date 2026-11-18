@@ -28,7 +28,9 @@
 //! As for the export itself, only the athlete's own first-party session is
 //! let in: an API key, an MCP or integration token, a messaging link and an
 //! operator's impersonation are refused. A signed URL is a bearer link to the
-//! file, so it lives [`DOWNLOAD_TTL`] and is handed only to that session.
+//! file, so it lives [`DOWNLOAD_TTL`] at most (never past the bundle's own
+//! expiry, when an expired bundle is refused) and is handed only to that
+//! session.
 
 use std::io;
 use std::sync::Arc;
@@ -249,7 +251,12 @@ pub(crate) async fn handle_bundle_download(
         .await?;
     let mut response = match download {
         BundleDownload::Signed { url, expires_at } => {
-            Json(json!({ "url": url, "expires_at": expires_at, "ttl_seconds": DOWNLOAD_TTL.num_seconds() }))
+            // The link is cut short near the bundle's own expiry, so its
+            // lifetime is read off the link, not the default.
+            let ttl_seconds = (expires_at - chrono::Utc::now())
+                .num_seconds()
+                .clamp(0, DOWNLOAD_TTL.num_seconds());
+            Json(json!({ "url": url, "expires_at": expires_at, "ttl_seconds": ttl_seconds }))
                 .into_response()
         }
         BundleDownload::Stream {
