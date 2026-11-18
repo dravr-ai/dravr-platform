@@ -128,8 +128,10 @@ mkdir -p "$WORK/www/assets"
 echo 'export const ASSET_SERVED = 1;' > "$WORK/www/assets/present-Ab12Cd34.js"
 # The stub answers every path, except one it drops without a response (444),
 # which makes nginx log an upstream error for the log check at the end. It
-# takes a body of any size, so a body cap the check meets is the proxy's.
-printf 'server {\n listen 80;\n client_max_body_size 0;\n location = %s { return 444; }\n location ~ ^/webhooks/garmin/[^/]+/upstream-fails$ { return 444; }\n location / { add_header Content-Type text/plain; return 200 "BACKEND-REACHED $request_method $uri\\n"; }\n}\n' \
+# takes a body of any size, so a body cap the check meets is the proxy's. The
+# body names the host the request was forwarded for and its Authorization, so
+# the discovery cache check can tell whose answer a cached response is.
+printf 'server {\n listen 80;\n client_max_body_size 0;\n location = %s { return 444; }\n location ~ ^/webhooks/garmin/[^/]+/upstream-fails$ { return 444; }\n location / { add_header Content-Type text/plain; return 200 "BACKEND-REACHED $request_method $uri host=$http_x_forwarded_host auth=$http_authorization\\n"; }\n}\n' \
     "$UPSTREAM_FAILS_PATH" > "$WORK/stub.conf"
 # A second address for the stub's name that drops every request, joined at the
 # end so nginx has a first address to abandon (the access-log retry check).
@@ -275,6 +277,79 @@ else
     printf '  FAIL %-6s %-45s -> %s (expected 404, the location is internal)\n' GET /__mcp_unauthenticated_401 "$internal_status"
     failures=$((failures + 1))
 fi
+
+# Paths under /mcp/ the backend does not serve get nginx's 404 and never reach
+# it; /mcp/tools still does (checked above). The backend's own routes under
+# /mcp/ must stay exactly /mcp/tools, or this rule would hide a new one.
+echo "-- unknown paths under /mcp/ --"
+for spec in "GET /mcp/owners.json" "POST /mcp/messages" "GET /mcp/.well-known/glama.json"; do
+    method="${spec%% *}" path="${spec#* }"
+    status="$(curl -s -X "$method" -o "$WORK/sub.body" -w '%{http_code}' -H 'Host: mcp.dravr.ai' \
+        -H 'Authorization: Bearer x' "http://localhost:$PORT$path" --max-time 10 || true)"
+    if [ "$status" = "404" ] && ! grep -qF 'BACKEND-REACHED' "$WORK/sub.body"; then
+        printf '  ok   %-6s %-45s -> nginx 404\n' "$method" "$path"
+    else
+        printf '  FAIL %-6s %-45s -> %s (expected nginx 404)\n' "$method" "$path" "$status"
+        failures=$((failures + 1))
+    fi
+done
+# The scanner's exit status is checked apart from the filter, so a scan that
+# fails, or finds no /mcp/ route at all, is a FAIL rather than a pass or a
+# silent exit under pipefail.
+if ! backend_routes="$(python3 "$REPO_ROOT/scripts/ci/backend-routes.py" routes "$REPO_ROOT")"; then
+    echo "  FAIL backend-routes.py could not list the backend's routes"
+    failures=$((failures + 1))
+else
+    mcp_subroutes="$(cut -f1 <<<"$backend_routes" | { grep '^/mcp/' || true; } | sort -u | tr '\n' ' ')"
+    if [ "$mcp_subroutes" = "/mcp/tools " ]; then
+        echo "  ok   the backend serves only /mcp/tools under /mcp/"
+    else
+        echo "  FAIL the backend serves '${mcp_subroutes}' under /mcp/; nginx 404s every path there but /mcp/tools (\$mcp_unknown_subpath in nginx.conf)"
+        failures=$((failures + 1))
+    fi
+fi
+
+# Discovery documents. The stub's body names the forwarded host and the
+# Authorization it received, so a response nginx served from another request's
+# entry shows here: the cache is per host, a request with Authorization is
+# answered by the backend and never stored, and the second identical request
+# is a cache HIT (asserted from the access log below, as is jwks.json never
+# being cached).
+echo "-- discovery cache --"
+discovery_get() { # <host> <path> [curl args...]
+    local host="$1" path="$2"
+    shift 2
+    curl -s -H "Host: $host" "$@" "http://localhost:$PORT$path" --max-time 10 | head -1 || true
+}
+expect_body() { # <label> <body> <substring>
+    if [[ "$2" == BACKEND-REACHED*"$3"* ]]; then
+        echo "  ok   $1"
+    else
+        echo "  FAIL $1 (got: ${2:0:120})"
+        failures=$((failures + 1))
+    fi
+}
+PRM=/.well-known/oauth-protected-resource/mcp
+# Twice on one host: a MISS, then the HIT the access log is checked for.
+discovery_get mcp.dravr.ai "$PRM" >/dev/null
+discovery_get mcp.dravr.ai "$PRM" >/dev/null
+expect_body "each host has its own discovery cache entry" "$(discovery_get app.dravr.ai "$PRM")" "host=app.dravr.ai "
+# An entry with no Authorization exists first, so a request with one that
+# reads it, or whose answer replaces it, shows in the body.
+CARD=/.well-known/agent-card.json
+DISCOVERY_BEARER="Bearer routing-check-discovery"
+discovery_get mcp.dravr.ai "$CARD" >/dev/null
+expect_body "a request with Authorization bypasses the cached entry" \
+    "$(discovery_get mcp.dravr.ai "$CARD" -H "Authorization: $DISCOVERY_BEARER")" "auth=$DISCOVERY_BEARER"
+card_after="$(discovery_get mcp.dravr.ai "$CARD")"
+if [[ "$card_after" == BACKEND-REACHED* && "$card_after" != *"$DISCOVERY_BEARER"* ]]; then
+    echo "  ok   the answer to a request with Authorization is never stored"
+else
+    echo "  FAIL a request with no Authorization was served the answer to one with it (got: ${card_after:0:120})"
+    failures=$((failures + 1))
+fi
+discovery_get mcp.dravr.ai /.well-known/jwks.json >/dev/null
+discovery_get mcp.dravr.ai /.well-known/jwks.json >/dev/null
 
 # Hashed assets: a chunk the image holds is served as JavaScript, and one it
 # lacks is a 404 — never the SPA shell, which a module import of a chunk from
@@ -435,6 +510,20 @@ else
         expect_line "a proxied 200 is INFO" '.path == "/api/health" and .status == 200 and .severity == "INFO"'
         # An empty upstream is the proof that a request with no credential
         # never dialled the API.
+        expect_line "a repeated discovery fetch is a cache HIT with no upstream" '.path == "/.well-known/oauth-protected-resource/mcp" and .cache == "HIT" and (.upstream == "" or .upstream == "-")'
+        # Every jwks.json line reached the backend with no cache status: the
+        # signing keys have their own uncached location, so the repeated fetch
+        # above would be a HIT were they cached, and fewer than two lines would
+        # mean the check saw nothing.
+        jwks_lines="$(jq -c 'select(.path == "/.well-known/jwks.json")' <<<"$access_json")"
+        jwks_direct="$(jq -c 'select((.cache == "" or .cache == "-") and .upstream != "" and .upstream != "-")' <<<"$jwks_lines" | wc -l | tr -d ' ')"
+        jwks_total="$(printf '%s' "$jwks_lines" | grep -c '^{' || true)"
+        if [ "$jwks_total" -ge 2 ] && [ "$jwks_direct" = "$jwks_total" ]; then
+            echo "  ok   jwks.json always reaches the backend, uncached ($jwks_direct requests)"
+        else
+            echo "  FAIL jwks.json went through the discovery cache ($jwks_direct of $jwks_total requests reached the backend uncached)"
+            failures=$((failures + 1))
+        fi
         expect_line "an MCP request nginx answers is logged as a 401 with no upstream" '.path == "/__mcp_unauthenticated_401" and .status == 401 and (.upstream == "" or .upstream == "-")'
         expect_line "an upstream failure is ERROR" ".path == \"$UPSTREAM_FAILS_PATH\" and .status == 502 and .severity == \"ERROR\""
         expect_line "a 200 served after abandoning an address is WARNING" '.path == "/api/health" and .status == 200 and .severity == "WARNING" and (.upstream | contains(", "))'
