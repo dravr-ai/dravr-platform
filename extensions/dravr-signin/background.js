@@ -1,16 +1,26 @@
 // ABOUTME: The extension's service worker: opens a provider's sign-in in a real tab and hands its cookies to the Dravr page that asked
-// ABOUTME: Talks to the page over a port the page keeps alive, so a sign-in that takes minutes outlives the worker's idle timer (carnet#1617)
+// ABOUTME: Reached through bridge.js on app.dravr.ai over a port the page keeps alive, in Chrome and Firefox alike (carnet#1617)
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
 import { SIGN_IN_TIMEOUT_MS, isSignedIn, signInRequest, wireCookie } from './signin.js';
 
-const VERSION = chrome.runtime.getManifest().version;
+// Firefox's `browser` namespace answers with promises; Chrome's `chrome` does
+// too under MV3.
+const api = globalThis.browser ?? globalThis.chrome;
+
+const VERSION = api.runtime.getManifest().version;
+
+/** The page whose content script (bridge.js) may open a port: Dravr's app only. */
+const DRAVR_ORIGIN = 'https://app.dravr.ai';
+
+/** The port name bridge.js opens. */
+const CHANNEL = 'dravr-signin';
 
 /**
- * A Dravr page (one `externally_connectable` admits) connects a port and
- * sends one message:
+ * bridge.js, the content script on app.dravr.ai, opens a port for the page
+ * and relays its messages. One message per port:
  * - `{type: 'ping'}`: answered `{type: 'pong', version}`, so the page knows
  *   the extension is installed.
  * - `{type: 'signin', provider, loginUrl, successPatterns, cookieDomain}`:
@@ -22,7 +32,11 @@ const VERSION = chrome.runtime.getManifest().version;
  * The page sends `{type: 'keepalive'}` every 20 s while it waits: a message
  * on the port keeps this service worker from being put to sleep mid sign-in.
  */
-chrome.runtime.onConnectExternal.addListener((port) => {
+api.runtime.onConnect.addListener((port) => {
+  if (port.name !== CHANNEL || !fromDravr(port.sender)) {
+    port.disconnect();
+    return;
+  }
   let sign = null;
   port.onMessage.addListener((message) => {
     if (message?.type === 'ping') {
@@ -42,6 +56,17 @@ chrome.runtime.onConnectExternal.addListener((port) => {
   });
 });
 
+/** Whether `sender` is bridge.js running in a tab of Dravr's app. */
+function fromDravr(sender) {
+  const url = sender?.url ?? sender?.tab?.url;
+  if (typeof url !== 'string') return false;
+  try {
+    return new URL(url).origin === DRAVR_ORIGIN;
+  } catch {
+    return false;
+  }
+}
+
 /** Open `request`'s sign-in in a tab and answer `port` once it ends. */
 function runSignIn(request, port) {
   let tabId = null;
@@ -50,8 +75,8 @@ function runSignIn(request, port) {
   const finish = (answer) => {
     if (done) return;
     done = true;
-    chrome.tabs.onUpdated.removeListener(onUpdated);
-    chrome.tabs.onRemoved.removeListener(onRemoved);
+    api.tabs.onUpdated.removeListener(onUpdated);
+    api.tabs.onRemoved.removeListener(onRemoved);
     clearTimeout(timer);
     try {
       port.postMessage(answer);
@@ -64,10 +89,10 @@ function runSignIn(request, port) {
     if (id !== tabId || done) return;
     const href = change.url ?? tab.url;
     if (!href || !isSignedIn(href, request)) return;
-    chrome.cookies.getAll({ domain: request.cookieDomain }).then(
+    api.cookies.getAll({ domain: request.cookieDomain }).then(
       (cookies) => {
         finish({ type: 'signed_in', provider: request.provider, cookies: cookies.map(wireCookie) });
-        chrome.tabs.remove(id).catch(() => {});
+        api.tabs.remove(id).catch(() => {});
       },
       () => finish({ type: 'failed', reason: 'cookies_unreadable' }),
     );
@@ -79,12 +104,12 @@ function runSignIn(request, port) {
 
   const timer = setTimeout(() => {
     finish({ type: 'failed', reason: 'timeout' });
-    if (tabId !== null) chrome.tabs.remove(tabId).catch(() => {});
+    if (tabId !== null) api.tabs.remove(tabId).catch(() => {});
   }, SIGN_IN_TIMEOUT_MS);
 
-  chrome.tabs.onUpdated.addListener(onUpdated);
-  chrome.tabs.onRemoved.addListener(onRemoved);
-  chrome.tabs.create({ url: request.loginUrl, active: true }).then(
+  api.tabs.onUpdated.addListener(onUpdated);
+  api.tabs.onRemoved.addListener(onRemoved);
+  api.tabs.create({ url: request.loginUrl, active: true }).then(
     (tab) => {
       tabId = tab.id;
       // Already signed in to the provider: the sign-in page redirects at once.
@@ -97,8 +122,8 @@ function runSignIn(request, port) {
     abandon() {
       if (done) return;
       done = true;
-      chrome.tabs.onUpdated.removeListener(onUpdated);
-      chrome.tabs.onRemoved.removeListener(onRemoved);
+      api.tabs.onUpdated.removeListener(onUpdated);
+      api.tabs.onRemoved.removeListener(onRemoved);
       clearTimeout(timer);
     },
   };

@@ -2,16 +2,15 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Talks to the Dravr sign-in extension: whether it is installed, and a provider sign-in run in the athlete's own browser
-// ABOUTME: The extension opens the provider's page in a real tab and answers with that provider's cookies (carnet#1617)
+// ABOUTME: Reaches it through its content script on this page (window.postMessage), the one channel Chrome and Firefox share (carnet#1617)
 
 import type { BrowserSignin, BrowserSigninCookie } from '@pierre/shared-types';
 
 /**
- * The extension's ID, fixed by the public key in its manifest
- * (`extensions/dravr-signin/manifest.json`), so a side-loaded copy and the
- * app agree on it.
+ * The channel the extension's content script (`extensions/dravr-signin/bridge.js`)
+ * relays between this page and the extension.
  */
-export const SIGNIN_EXTENSION_ID = 'hkcdkpfegfmnhlfialngmhfijbnpkkhf';
+export const SIGNIN_EXTENSION_CHANNEL = 'dravr-signin';
 
 /** How long the extension has to answer a ping before it counts as absent. */
 const PING_TIMEOUT_MS = 800;
@@ -19,7 +18,7 @@ const PING_TIMEOUT_MS = 800;
 /** How often a waiting page tells the extension it is still there. */
 const KEEPALIVE_MS = 20_000;
 
-/** The part of `chrome.runtime` a page reaches when an extension admits it. */
+/** One exchange with the extension, through its content script. */
 interface ExtensionPort {
   postMessage(message: unknown): void;
   disconnect(): void;
@@ -27,8 +26,13 @@ interface ExtensionPort {
   onDisconnect: { addListener(listener: () => void): void };
 }
 
-interface ChromeRuntime {
-  connect(extensionId: string): ExtensionPort;
+/** What the content script posts to this page. */
+interface BridgeMessage {
+  channel: typeof SIGNIN_EXTENSION_CHANNEL;
+  to: 'page';
+  session: string;
+  kind: 'opened' | 'message' | 'closed';
+  payload?: ExtensionAnswer;
 }
 
 /** What the extension posts back on its port. */
@@ -49,25 +53,70 @@ export class ExtensionSignInError extends Error {
   }
 }
 
-/** `chrome.runtime`, present only when an installed extension admits this page. */
-function runtime(): ChromeRuntime | null {
-  const chrome = (window as Window & { chrome?: { runtime?: Partial<ChromeRuntime> } }).chrome;
-  const connect = chrome?.runtime?.connect;
-  return typeof connect === 'function' ? (chrome?.runtime as ChromeRuntime) : null;
+function isBridgeMessage(data: unknown, session: string): data is BridgeMessage {
+  if (typeof data !== 'object' || data === null) return false;
+  const message = data as Partial<BridgeMessage>;
+  return message.channel === SIGNIN_EXTENSION_CHANNEL && message.to === 'page' && message.session === session;
+}
+
+/**
+ * Open an exchange with the extension: a session the content script maps to
+ * a port into the extension. Nothing answers when the extension is not
+ * installed; a port the content script has not confirmed within
+ * `openTimeoutMs` reads as closed.
+ */
+function openPort(openTimeoutMs: number): ExtensionPort {
+  const session = crypto.randomUUID();
+  const onMessage: Array<(message: ExtensionAnswer) => void> = [];
+  const onDisconnect: Array<() => void> = [];
+  let open = true;
+  const send = (kind: 'open' | 'message' | 'close', payload?: unknown) =>
+    window.postMessage(
+      { channel: SIGNIN_EXTENSION_CHANNEL, to: 'extension', session, kind, payload },
+      window.location.origin,
+    );
+  const close = () => {
+    if (!open) return;
+    open = false;
+    clearTimeout(unconfirmed);
+    window.removeEventListener('message', listen);
+  };
+  const listen = (event: MessageEvent) => {
+    if (event.source !== window || event.origin !== window.location.origin) return;
+    if (!isBridgeMessage(event.data, session)) return;
+    if (event.data.kind === 'opened') clearTimeout(unconfirmed);
+    else if (event.data.kind === 'message' && event.data.payload) {
+      const payload = event.data.payload;
+      onMessage.forEach((listener) => listener(payload));
+    } else if (event.data.kind === 'closed') {
+      close();
+      onDisconnect.forEach((listener) => listener());
+    }
+  };
+  const unconfirmed = setTimeout(() => {
+    close();
+    onDisconnect.forEach((listener) => listener());
+  }, openTimeoutMs);
+  window.addEventListener('message', listen);
+  send('open');
+  return {
+    postMessage: (message) => {
+      if (open) send('message', message);
+    },
+    disconnect: () => {
+      if (!open) return;
+      send('close');
+      close();
+    },
+    onMessage: { addListener: (listener) => onMessage.push(listener) },
+    onDisconnect: { addListener: (listener) => onDisconnect.push(listener) },
+  };
 }
 
 /** The installed extension's version, or `null` when it is not installed. */
 export function detectSigninExtension(): Promise<string | null> {
-  const chromeRuntime = runtime();
-  if (!chromeRuntime) return Promise.resolve(null);
   return new Promise((resolve) => {
-    let port: ExtensionPort;
-    try {
-      port = chromeRuntime.connect(SIGNIN_EXTENSION_ID);
-    } catch {
-      resolve(null);
-      return;
-    }
+    const port = openPort(PING_TIMEOUT_MS);
     const timer = setTimeout(() => {
       port.disconnect();
       resolve(null);
@@ -93,10 +142,8 @@ export function detectSigninExtension(): Promise<string | null> {
  * the extension refuses the request or it times out.
  */
 export function signInWithExtension(entry: BrowserSignin): Promise<BrowserSigninCookie[]> {
-  const chromeRuntime = runtime();
-  if (!chromeRuntime) return Promise.reject(new ExtensionSignInError('not_installed'));
   return new Promise((resolve, reject) => {
-    const port = chromeRuntime.connect(SIGNIN_EXTENSION_ID);
+    const port = openPort(PING_TIMEOUT_MS);
     const keepalive = setInterval(() => port.postMessage({ type: 'keepalive' }), KEEPALIVE_MS);
     let settled = false;
     const settle = (finish: () => void) => {

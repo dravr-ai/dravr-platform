@@ -1,69 +1,16 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Tests for the page's side of the sign-in extension's port: detecting it, and a sign-in's answer or failure
-// ABOUTME: A stand-in chrome.runtime plays the extension (the test double this module's port protocol needs; carnet#1617)
+// ABOUTME: The page's side of the extension protocol, over the content script's window channel (carnet#1617)
+// ABOUTME: A fake content script answers on the page's own origin; detection, sign-in, failure, closing and keepalive are pinned
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
-  detectSigninExtension,
   ExtensionSignInError,
-  SIGNIN_EXTENSION_ID,
+  SIGNIN_EXTENSION_CHANNEL,
+  detectSigninExtension,
   signInWithExtension,
 } from '../signinExtension';
-
-type Listener = (message: unknown) => void;
-
-/**
- * A port the stand-in extension answers through: `answer` replies to each
- * message the page posts, and `disconnect` from the extension's side fires the
- * page's `onDisconnect`.
- */
-class FakePort {
-  readonly posted: unknown[] = [];
-  disconnected = false;
-  private readonly messageListeners: Listener[] = [];
-  private readonly disconnectListeners: Array<() => void> = [];
-
-  constructor(private readonly answer: (message: unknown, port: FakePort) => void) {}
-
-  onMessage = { addListener: (listener: Listener) => void this.messageListeners.push(listener) };
-  onDisconnect = { addListener: (listener: () => void) => void this.disconnectListeners.push(listener) };
-
-  postMessage(message: unknown): void {
-    this.posted.push(message);
-    this.answer(message, this);
-  }
-
-  disconnect(): void {
-    this.disconnected = true;
-  }
-
-  send(message: unknown): void {
-    for (const listener of this.messageListeners) listener(message);
-  }
-
-  dropFromExtension(): void {
-    for (const listener of this.disconnectListeners) listener();
-  }
-}
-
-/** Install a `chrome.runtime` whose ports `answer` each message. */
-function installExtension(answer: (message: unknown, port: FakePort) => void): { ports: FakePort[]; ids: string[] } {
-  const ports: FakePort[] = [];
-  const ids: string[] = [];
-  vi.stubGlobal('chrome', {
-    runtime: {
-      connect: (id: string) => {
-        ids.push(id);
-        const port = new FakePort(answer);
-        ports.push(port);
-        return port;
-      },
-    },
-  });
-  return { ports, ids };
-}
 
 const GARMIN = {
   provider: 'garmin',
@@ -73,81 +20,136 @@ const GARMIN = {
 };
 const COOKIES = [{ name: 'SESSIONID', value: 'v', domain: 'connect.garmin.com', path: '/', secure: true, http_only: true }];
 
+interface PageMessage {
+  channel: string;
+  to: string;
+  session: string;
+  kind: 'open' | 'message' | 'close';
+  payload?: { type: string };
+}
+
+/**
+ * A fake bridge.js: it reads what the page posts to the extension and answers
+ * as the content script would, through `answer`, on the page's own origin.
+ */
+function fakeBridge(answer: (message: PageMessage, reply: (kind: string, payload?: unknown) => void) => void) {
+  const seen: PageMessage[] = [];
+  const listener = (event: MessageEvent) => {
+    const data = event.data as PageMessage;
+    if (data?.channel !== SIGNIN_EXTENSION_CHANNEL || data.to !== 'extension') return;
+    seen.push(data);
+    answer(data, (kind, payload) =>
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { channel: SIGNIN_EXTENSION_CHANNEL, to: 'page', session: data.session, kind, payload },
+          origin: window.location.origin,
+          source: window,
+        }),
+      ),
+    );
+  };
+  window.addEventListener('message', listener);
+  return { seen, stop: () => window.removeEventListener('message', listener) };
+}
+
+/** window.postMessage dispatches through the event loop in jsdom; deliver it as a browser would, same origin. */
+beforeEach(() => {
+  vi.spyOn(window, 'postMessage').mockImplementation((data: unknown) => {
+    window.dispatchEvent(new MessageEvent('message', { data, origin: window.location.origin, source: window }));
+  });
+});
+
 afterEach(() => {
-  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
 describe('detectSigninExtension', () => {
-  it('is null when no extension admits this page', async () => {
-    await expect(detectSigninExtension()).resolves.toBeNull();
+  it('reads the extension as absent when nothing answers', async () => {
+    vi.useFakeTimers();
+    const detected = detectSigninExtension();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(detected).resolves.toBeNull();
   });
 
-  it("is the extension's version when it answers the ping, and closes the port", async () => {
-    const { ports, ids } = installExtension((message, port) => {
-      if ((message as { type: string }).type === 'ping') port.send({ type: 'pong', version: '0.1.0' });
+  it('answers the installed version', async () => {
+    const bridge = fakeBridge((message, reply) => {
+      if (message.kind === 'open') reply('opened');
+      if (message.kind === 'message' && message.payload?.type === 'ping') reply('message', { type: 'pong', version: '0.1.0' });
     });
     await expect(detectSigninExtension()).resolves.toBe('0.1.0');
-    expect(ids).toEqual([SIGNIN_EXTENSION_ID]);
-    expect(ports[0].disconnected).toBe(true);
+    expect(bridge.seen.map((message) => message.kind)).toEqual(['open', 'message', 'close']);
+    bridge.stop();
   });
 
-  it('is null when nothing answers before the ping times out', async () => {
+  it('ignores an answer from another origin', async () => {
     vi.useFakeTimers();
-    installExtension(() => {});
+    const listener = (event: MessageEvent) => {
+      const data = event.data as PageMessage;
+      if (data?.to !== 'extension' || data.kind !== 'message') return;
+      window.dispatchEvent(
+        new MessageEvent('message', {
+          data: { channel: SIGNIN_EXTENSION_CHANNEL, to: 'page', session: data.session, kind: 'message', payload: { type: 'pong', version: '9' } },
+          origin: 'https://evil.test',
+          source: window,
+        }),
+      );
+    };
+    window.addEventListener('message', listener);
     const detected = detectSigninExtension();
-    await vi.advanceTimersByTimeAsync(1000);
+    await vi.advanceTimersByTimeAsync(1_000);
     await expect(detected).resolves.toBeNull();
+    window.removeEventListener('message', listener);
   });
 });
 
 describe('signInWithExtension', () => {
-  it("asks for the entry's sign-in and resolves with the cookies the extension hands back", async () => {
-    const { ports } = installExtension((message, port) => {
-      if ((message as { type: string }).type === 'signin') port.send({ type: 'signed_in', provider: 'garmin', cookies: COOKIES });
+  it('answers the cookies the extension hands over, having asked for the provider entry', async () => {
+    const bridge = fakeBridge((message, reply) => {
+      if (message.kind === 'open') reply('opened');
+      if (message.kind === 'message' && message.payload?.type === 'signin') {
+        reply('message', { type: 'signed_in', provider: 'garmin', cookies: COOKIES });
+      }
     });
     await expect(signInWithExtension(GARMIN)).resolves.toEqual(COOKIES);
-    expect(ports[0].posted[0]).toEqual({
+    expect(bridge.seen[1].payload).toEqual({
       type: 'signin',
       provider: 'garmin',
       loginUrl: GARMIN.login_url,
       successPatterns: GARMIN.success_patterns,
       cookieDomain: 'garmin.com',
     });
-    expect(ports[0].disconnected).toBe(true);
+    bridge.stop();
   });
 
-  it("rejects with the extension's reason when the sign-in fails", async () => {
-    installExtension((message, port) => {
-      if ((message as { type: string }).type === 'signin') port.send({ type: 'failed', reason: 'closed' });
+  it('rejects with the reason the extension gives', async () => {
+    const bridge = fakeBridge((message, reply) => {
+      if (message.kind === 'open') reply('opened');
+      if (message.kind === 'message') reply('message', { type: 'failed', reason: 'closed' });
     });
-    const failure = signInWithExtension(GARMIN);
-    await expect(failure).rejects.toBeInstanceOf(ExtensionSignInError);
-    await expect(failure).rejects.toMatchObject({ reason: 'closed' });
+    await expect(signInWithExtension(GARMIN)).rejects.toEqual(new ExtensionSignInError('closed'));
+    bridge.stop();
   });
 
-  it('rejects as disconnected when the extension drops the port', async () => {
-    installExtension((message, port) => {
-      if ((message as { type: string }).type === 'signin') port.dropFromExtension();
+  it('rejects when the extension closes the exchange', async () => {
+    const bridge = fakeBridge((message, reply) => {
+      if (message.kind === 'open') reply('opened');
+      if (message.kind === 'message') reply('closed');
     });
     await expect(signInWithExtension(GARMIN)).rejects.toMatchObject({ reason: 'disconnected' });
+    bridge.stop();
   });
 
-  it('keeps the extension awake while the athlete signs in, and stops once it ends', async () => {
+  it('keeps the extension awake while the athlete signs in', async () => {
     vi.useFakeTimers();
-    const { ports } = installExtension(() => {});
-    const signIn = signInWithExtension(GARMIN);
+    const bridge = fakeBridge((message, reply) => {
+      if (message.kind === 'open') reply('opened');
+    });
+    const signing = signInWithExtension(GARMIN);
     await vi.advanceTimersByTimeAsync(45_000);
-    const keepalives = () => ports[0].posted.filter((message) => (message as { type: string }).type === 'keepalive').length;
-    expect(keepalives()).toBe(2);
-
-    ports[0].send({ type: 'signed_in', provider: 'garmin', cookies: COOKIES });
-    await expect(signIn).resolves.toEqual(COOKIES);
-    await vi.advanceTimersByTimeAsync(60_000);
-    expect(keepalives()).toBe(2);
-  });
-
-  it('rejects as not installed when no extension admits this page', async () => {
-    await expect(signInWithExtension(GARMIN)).rejects.toMatchObject({ reason: 'not_installed' });
+    const keepalives = bridge.seen.filter((message) => message.payload?.type === 'keepalive');
+    expect(keepalives.length).toBe(2);
+    bridge.stop();
+    signing.catch(() => {});
   });
 });

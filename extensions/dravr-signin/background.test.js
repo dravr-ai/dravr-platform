@@ -20,7 +20,7 @@ function event() {
 /** The fake browser the worker runs against, rebuilt for every test. */
 function fakeChrome() {
   const chrome = {
-    runtime: { getManifest: () => ({ version: '0.1.0' }), onConnectExternal: event() },
+    runtime: { getManifest: () => ({ version: '0.1.0' }), onConnect: event() },
     tabs: {
       onUpdated: event(),
       onRemoved: event(),
@@ -47,15 +47,24 @@ function fakeChrome() {
   return chrome;
 }
 
-/** A port the page would hold: what it posts in, what the worker answers. */
-function connect(chrome) {
+/**
+ * The port bridge.js opens for the page: what the page posts in, what the
+ * worker answers. By default it comes from a tab of Dravr's app.
+ */
+function connect(chrome, { name = 'dravr-signin', url = 'https://app.dravr.ai/settings' } = {}) {
   const answers = [];
   const port = {
+    name,
+    sender: { url, tab: { id: 3, url } },
+    disconnected: false,
     onMessage: event(),
     onDisconnect: event(),
     postMessage: (message) => answers.push(message),
+    disconnect: () => {
+      port.disconnected = true;
+    },
   };
-  chrome.runtime.onConnectExternal.fire(port);
+  chrome.runtime.onConnect.fire(port);
   return { port, answers, send: (message) => port.onMessage.fire(message) };
 }
 
@@ -82,6 +91,15 @@ describe('the service worker', () => {
     const page = connect(chrome);
     page.send({ type: 'ping' });
     expect(page.answers).toEqual([{ type: 'pong', version: '0.1.0' }]);
+  });
+
+  it('closes a port that does not come from Dravr\'s app, answering nothing', () => {
+    for (const from of [{ url: 'https://evil.test/' }, { url: 'https://app.dravr.ai.evil.test/' }, { name: 'other' }]) {
+      const page = connect(chrome, from);
+      page.send({ type: 'ping' });
+      expect(page.port.disconnected).toBe(true);
+      expect(page.answers).toEqual([]);
+    }
   });
 
   it('refuses a sign-in for any other site, opening nothing', async () => {

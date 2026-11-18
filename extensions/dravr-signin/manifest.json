@@ -11,10 +11,35 @@
     "128": "icons/icon-128.png"
   },
   "minimum_chrome_version": "116",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "dravr-signin@dravr.ai",
+      "strict_min_version": "128.0",
+      "data_collection_permissions": {
+        "required": [
+          "authenticationInfo"
+        ]
+      }
+    }
+  },
   "background": {
     "service_worker": "background.js",
+    "scripts": [
+      "background.js"
+    ],
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://app.dravr.ai/*"
+      ],
+      "js": [
+        "bridge.js"
+      ],
+      "run_at": "document_start"
+    }
+  ],
   "permissions": [
     "cookies",
     "tabs"
@@ -23,11 +48,7 @@
     "https://*.garmin.com/*",
     "https://*.strava.com/*",
     "https://*.trainingpeaks.com/*",
-    "https://*.coros.com/*"
-  ],
-  "externally_connectable": {
-    "matches": [
-      "https://app.dravr.ai/*"
-    ]
-  }
+    "https://*.coros.com/*",
+    "https://app.dravr.ai/*"
+  ]
 }
