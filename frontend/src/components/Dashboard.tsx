@@ -204,10 +204,12 @@ interface TabDefinition {
 
 import { DravrLogo } from "./DravrLogo";
 import { ConnectProviderBanner } from "./ConnectProviderBanner";
-import { IconRail } from "./layout/IconRail";
+import { IconRail, type ModeSwitch } from "./layout/IconRail";
+import { ArrowLeftRight } from "lucide-react";
 import SettingsShell from "./settings/SettingsShell";
 import { SETTINGS_TABS, type SettingsTab } from "./settings/settingsTabs";
 import {
+  clearSessionRoute,
   markCurrentSessionRoute,
   writeSessionRoute,
 } from "../utils/sessionRoute";
@@ -228,7 +230,7 @@ import {
   feedbackReplyRoute,
   parseFeedbackAbout,
 } from "./feedback/feedbackRoute";
-import { hasAdminRole } from "@pierre/shared-types";
+import { actsAsAdmin, hasAdminRole } from "@pierre/shared-types";
 import type { FeedbackAbout } from "@pierre/shared-types";
 
 /** A hash segment decoded, or `null` when it is empty or a malformed escape. */
@@ -263,14 +265,16 @@ export default function Dashboard({
   pendingInviteCode,
   onInviteCodeConsumed,
 }: DashboardProps) {
-  const { user, logout } = useAuth();
+  const { user, logout, viewMode, chooseViewMode } = useAuth();
   // A coach-access grant shows on the next navigation, without signing out
   // and in again (carnet#1521).
   useCoachAccessGrantRefresh();
   const { t } = useTranslation();
-  // Default tab depends on user role: admin sees 'users', an athlete lands on
-  // 'home' — today's plan and the latest activities, where the logo also leads.
-  const isAdminUser = hasAdminRole(user);
+  // Default tab depends on the shell drawn: the admin console opens on 'users',
+  // the athlete app on 'home' — today's plan and the latest activities, where
+  // the logo also leads. An admin who chose the athlete mode gets the athlete
+  // app (carnet#1631).
+  const isAdminUser = actsAsAdmin(user, viewMode);
   // A coach (coach access granted) reviews the replies sent to their athletes.
   const managesRoster = user?.manages_roster === true;
   // A coach still waiting for coach access lands on a coach-shaped Home, never
@@ -341,6 +345,19 @@ export default function Dashboard({
   // writes it the same, so the console stays English whatever the viewer's
   // locale (see `untranslatedScan.ts`).
   const adminRoleBadge = isAdminUser ? t(ACCOUNT_ROLE_LABEL_KEY.admin) : null;
+  // An admin moves between the console and the athlete app from the account
+  // menu, the phone drawer or the console sidebar (carnet#1631). The route is
+  // cleared first: the shell App redraws for the new mode then opens on that
+  // mode's default, and Back never returns to the other mode's tab.
+  const modeSwitch: ModeSwitch | undefined = hasAdminRole(user)
+    ? {
+        label: isAdminUser ? t("shell.switchToAthlete") : t("shell.switchToAdmin"),
+        onSelect: () => {
+          clearSessionRoute();
+          chooseViewMode(isAdminUser ? "athlete" : "admin");
+        },
+      }
+    : undefined;
   // User-tunable sidebar width when expanded. The default 260px truncates
   // long chat-session titles and the user button's display name (web QA
   // 2026-05-09); a drag handle lets the user widen the panel to fit
@@ -1421,6 +1438,7 @@ export default function Dashboard({
           }
           userLabel={user?.display_name || user?.email || ""}
           feedbackUnread={feedbackUnread}
+          modeSwitch={modeSwitch}
         />
       )}
       {/* Vertical Sidebar - Dark.
@@ -1633,6 +1651,19 @@ export default function Dashboard({
                   />
                 </svg>
               </button>
+
+              {modeSwitch && (
+                <button
+                  type="button"
+                  onClick={modeSwitch.onSelect}
+                  className="text-outline hover:text-primary transition-colors flex-shrink-0 touch-target flex items-center justify-center"
+                  title={modeSwitch.label}
+                  aria-label={modeSwitch.label}
+                  data-testid="switch-view-mode"
+                >
+                  <ArrowLeftRight className="w-4 h-4" aria-hidden="true" />
+                </button>
+              )}
 
               {/* Sign out button */}
               <button
@@ -2197,6 +2228,7 @@ export default function Dashboard({
             onSendFeedback={() => applyRoute(FEEDBACK_TAB)}
             onSignOut={logout}
             feedbackUnread={feedbackUnread}
+            modeSwitch={modeSwitch}
           />
           {!composing && (
             <BottomTabBar

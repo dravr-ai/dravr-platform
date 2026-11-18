@@ -7,7 +7,7 @@
 import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
-import type { AccountDeletionBlocker } from '@pierre/shared-types';
+import { hasAdminRole, type AccountDeletionBlocker } from '@pierre/shared-types';
 import {
   describeAccountDeletionBlocker,
   describeAccountDeletionFailure,
@@ -20,7 +20,7 @@ import { Button, Input, Modal, ModalActions, Section } from './ui';
 
 export default function AccountDeletionSection() {
   const { t } = useTranslation();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [open, setOpen] = useState(false);
   const [confirmEmail, setConfirmEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -71,6 +71,21 @@ export default function AccountDeletionSection() {
     blockers.length === 0 &&
     emailConfirms(confirmEmail, data.email) &&
     (!data.requires_password || password.length > 0);
+
+  // The server refuses an admin's own delete: another admin removes the
+  // account. An admin reaches this pane in the athlete mode (carnet#1631),
+  // so the pane says so rather than offering a button that can only fail.
+  if (hasAdminRole(user)) {
+    return (
+      <Section
+        title={t('accountDeletion.title')}
+        description={t('accountDeletion.adminBody')}
+        data-testid="account-deletion-section"
+      >
+        {null}
+      </Section>
+    );
+  }
 
   return (
     <Section

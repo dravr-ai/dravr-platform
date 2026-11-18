@@ -332,31 +332,19 @@ describe('useOnboardingContext', () => {
     expect(currentOnboardingStep(result.current.context)).toBeNull();
   });
 
-  it('exempts an admin: no status request, onboarding inactive, nothing to hold for', async () => {
+  it('puts an admin through onboarding like any athlete: the phone has no admin console (carnet#1631)', async () => {
     mockAuth.user = { id: 'u1', role: 'admin', user_status: 'active' };
+    mockGetOnboardingStatus.mockResolvedValue(status(true));
     const { wrapper } = setup();
 
     const { result } = renderHook(() => useOnboardingContext(), { wrapper });
 
-    await waitFor(() => expect(result.current.context.coachProposalDone).toBe(false));
-    expect(result.current.context.onboardingActive).toBe(false);
-    expect(result.current.context.needsProviderConnection).toBeUndefined();
-    expect(result.current.settled).toBe(true);
-    expect(mockGetOnboardingStatus).not.toHaveBeenCalled();
-  });
-
-  it('keeps an admin exempt when another screen has cached their status', async () => {
-    mockAuth.user = { id: 'u1', role: 'admin', user_status: 'active' };
-    const { client, wrapper } = setup();
-    // Home reads the shared status for every account, an admin's too.
-    client.setQueryData(QUERY_KEYS.user.onboardingStatus(), status(true));
-
-    const { result } = renderHook(() => useOnboardingContext(), { wrapper });
-
-    await waitFor(() => expect(result.current.settled).toBe(true));
-    expect(result.current.context.needsProviderConnection).toBeUndefined();
-    expect(currentOnboardingStep(result.current.context)).toBeNull();
-    expect(mockGetOnboardingStatus).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(result.current.context.needsProviderConnection).toBe(true);
+      expect(result.current.settled).toBe(true);
+    });
+    expect(result.current.context.onboardingActive).toBe(true);
+    expect(mockGetOnboardingStatus).toHaveBeenCalled();
   });
 });
 

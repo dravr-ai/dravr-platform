@@ -22,7 +22,7 @@ import {
   type OAuthResult,
 } from '../utils/oauthReturn';
 import type { ProviderStatus } from '../services/api';
-import { hasAdminRole } from '@pierre/shared-types';
+import { actsAsAdmin } from '@pierre/shared-types';
 import type { LimitCheckResult, OAuthGrant, SciotteTarget, ThemePreference } from '@pierre/shared-types';
 import {
   ACCOUNT_ROLE_LABEL_KEY,
@@ -113,7 +113,7 @@ function getUsageBarColor(current: number, limit: number): string {
 }
 
 export default function UserSettings({ initialTab = 'profile', hideTabNav = false }: { initialTab?: SettingsTab; hideTabNav?: boolean }) {
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, viewMode } = useAuth();
   const { scheme, toggle: toggleTheme } = useTheme();
   const { t, language } = useTranslation();
   const showErrorToast = useErrorToast();
@@ -133,10 +133,11 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
   };
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
 
-  // Admin users don't get the panes about an athlete's own account.
-  // The role decides, as in Dashboard.tsx; the `is_admin` flag has disagreed
-  // with it before (migration 20260518000001).
-  const isAdminUser = hasAdminRole(user);
+  // The admin console doesn't get the panes about an athlete's own account.
+  // The role decides, as in Dashboard.tsx, with the admin's chosen mode
+  // (carnet#1631); the `is_admin` flag has disagreed with it before
+  // (migration 20260518000001).
+  const isAdminUser = actsAsAdmin(user, viewMode);
   const { flags: featureFlags } = useFeatureFlags();
   // API Tokens and API keys tabs are gated behind the per-tenant/per-user flag; default
   // off until an admin flips it on.

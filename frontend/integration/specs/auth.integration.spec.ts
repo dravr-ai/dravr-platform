@@ -29,6 +29,20 @@ test.describe('Authentication Integration Tests', () => {
       await expect(page.locator('text=Dravr')).toBeVisible();
     });
 
+    test('an admin who picks the athlete app gets it from the real server (carnet#1631)', async ({ page }) => {
+      const user = testUsers.admin;
+      const created = await createTestAdminUser(user);
+      expect(created.success).toBe(true);
+
+      const result = await loginWithCredentials(page, user.email, user.password, 'athlete');
+
+      expect(result.success).toBe(true);
+      // The athlete app on the admin's own account: never the console's sidebar.
+      await expect(page.getByTestId('view-mode-picker')).toHaveCount(0);
+      await expect(page.getByTestId('sidebar-lockup-link')).toHaveCount(0);
+      await expect(page.getByRole('heading', { name: 'Something went wrong' })).toHaveCount(0);
+    });
+
     test('login persists across page reload', async ({ page }) => {
       await createAndLoginAsAdmin(page);
       await waitForDashboardLoad(page);

@@ -10,6 +10,7 @@ import {
   ONBOARDED_STATUS,
   signInThroughHostedPage,
   SIGN_IN_BUTTON,
+  pickViewModeAtSignIn,
 } from './test-helpers';
 
 // Helper to set up mocks for an authenticated user session
@@ -20,6 +21,8 @@ interface MockOptions {
 
 async function setupAuthenticatedMocks(page: import('@playwright/test').Page, isAdmin = false, options: MockOptions = {}) {
   await applyTestStubs(page);
+  // An admin's sign-in opens the console, as this spec's admin cases expect (carnet#1631).
+  pickViewModeAtSignIn(page, isAdmin ? 'admin' : 'ask');
   await page.route('**/admin/setup/status', async (route) => {
     await route.fulfill({
       status: 200,

@@ -6,7 +6,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { classifyApiError, type SignInFailure } from '@pierre/ui-logic';
 import { readSignInCallback, type CompleteSignIn } from '@pierre/api-client';
 import { hasAdminRole } from '@pierre/shared-types';
-import type { LoginResponse } from '@pierre/shared-types';
+import type { LoginResponse, ViewMode } from '@pierre/shared-types';
 import { authApi, adminApi, pierreApi, userApi } from '../services/api';
 import { AuthContext } from './auth';
 import type { User, ImpersonationState } from './auth';
@@ -24,7 +24,42 @@ import { forgetLanguageChoice, i18n } from '@pierre/i18n';
 const STORAGE_KEYS = {
   USER: 'pierre_user',
   IMPERSONATION: 'pierre_impersonation',
+  VIEW_MODE: 'pierre_view_mode',
 } as const;
+
+/** The mode an admin chose, with the account that chose it. */
+interface ViewModeChoice {
+  userId: string;
+  mode: ViewMode;
+}
+
+/**
+ * The account a mode is kept for. The session sends both ids; an older
+ * cached user may carry only `user_id`.
+ */
+function viewModeOwner(user: User): string | null {
+  return user.id || user.user_id || null;
+}
+
+/** The choice this browser kept, if it is well formed. */
+function readViewModeChoice(): ViewModeChoice | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.VIEW_MODE);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as ViewModeChoice).userId === 'string' &&
+      ((parsed as ViewModeChoice).mode === 'admin' || (parsed as ViewModeChoice).mode === 'athlete')
+    ) {
+      return parsed as ViewModeChoice;
+    }
+  } catch {
+    // An unreadable entry is no choice: the admin is asked again.
+  }
+  return null;
+}
 
 const defaultImpersonationState: ImpersonationState = {
   isImpersonating: false,
@@ -136,6 +171,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [impersonation, setImpersonation] = useState<ImpersonationState>(defaultImpersonationState);
   const [signInFailure, setSignInFailure] = useState<SignInFailure | null>(null);
+  // Read once at load so a reload keeps the mode; establishSession() drops it,
+  // so every sign-in asks again (carnet#1631).
+  const [viewModeChoice, setViewModeChoice] = useState<ViewModeChoice | null>(readViewModeChoice);
   const queryClient = useQueryClient();
 
   // Guard against re-entrant logout calls (prevents infinite loop when
@@ -204,6 +242,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             setUser(null);
             setToken(null);
             localStorage.removeItem(STORAGE_KEYS.USER);
+            forgetViewMode();
           })
           .finally(() => {
             setIsLoading(false);
@@ -257,6 +296,31 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Drop the admin's mode: the session it was chosen for is over or replaced. */
+  function forgetViewMode() {
+    setViewModeChoice(null);
+    localStorage.removeItem(STORAGE_KEYS.VIEW_MODE);
+  }
+
+  const chooseViewMode = useCallback(
+    (mode: ViewMode) => {
+      if (!user || !hasAdminRole(user)) return;
+      const owner = viewModeOwner(user);
+      if (!owner) return;
+      const choice: ViewModeChoice = { userId: owner, mode };
+      setViewModeChoice(choice);
+      localStorage.setItem(STORAGE_KEYS.VIEW_MODE, JSON.stringify(choice));
+    },
+    [user],
+  );
+
+  // A choice counts only for the admin who made it: another account signed in
+  // on this browser, or an account no longer admin, has none.
+  const viewMode: ViewMode | null =
+    user && hasAdminRole(user) && viewModeChoice !== null && viewModeChoice.userId === viewModeOwner(user)
+      ? viewModeChoice.mode
+      : null;
+
   /**
    * Establish a session a sign-in produced — a redeemed hosted sign-in code or
    * a Google (Firebase) sign-in alike — so every sign-in leaves the same state
@@ -269,6 +333,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // meaningful again.
     isLoggingOutRef.current = false;
     setSignInFailure(null);
+    forgetViewMode();
 
     // Store CSRF token via pierreApi's auth storage (writes to localStorage)
     await pierreApi.adapter.authStorage.setCsrfToken(csrfToken);
@@ -362,6 +427,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setToken(null);
     // A refusal reported before this session began is not news at its end.
     setSignInFailure(null);
+    // The mode was this sign-in's; the next one asks again.
+    forgetViewMode();
     // The dashboard route belonged to the session that just ended. Left in the
     // address bar it survived onto the login screen, and the next sign-in —
     // password or Google alike — reopened it (#chat) instead of Home.
@@ -462,6 +529,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     logout,
     updateUser,
     impersonation,
+    viewMode,
+    chooseViewMode,
     startImpersonation,
     endImpersonation,
   };

@@ -15,6 +15,7 @@ import AcceptInvitation from './components/AcceptInvitation';
 import { ACCEPT_INVITATION_PATH, TAKEOVER_PATH, VERIFY_EMAIL_PATH, parseInvitationKind, parseLinkToken } from './utils/tokenLink';
 import PendingApproval from './components/PendingApproval';
 import Dashboard from './components/Dashboard';
+import ViewModePicker from './components/ViewModePicker';
 import OnboardingFlow from './components/OnboardingFlow';
 import ImpersonationBanner from './components/ImpersonationBanner';
 import OfflineBanner from './components/OfflineBanner';
@@ -33,6 +34,7 @@ import { useOnboardingState } from './hooks/useOnboardingState';
 import { useIdleWatch } from './hooks/useIdleWatch';
 import { useApiRefusalSurface } from './hooks/useApiRefusalSurface';
 import { useLanguageSwitcher, useTranslation } from '@pierre/i18n';
+import { hasAdminRole } from '@pierre/shared-types';
 import { importTombstoneFromReturn } from '@pierre/ui-logic';
 import { returnToConnectStart, settleOAuthReturn, type OAuthCallbackParams } from './utils/oauthReturn';
 import { queryClient } from './services/queryClient';
@@ -138,7 +140,7 @@ type AuthView = 'login' | 'register' | 'forgot-password' | 'reset-password';
 
 function AppContent() {
   const { t } = useTranslation();
-  const { user, isAuthenticated, isLoading } = useAuth();
+  const { user, isAuthenticated, isLoading, viewMode, impersonation } = useAuth();
   const [authView, setAuthView] = useState<AuthView>(() => (isRegisterPath() ? 'register' : 'login'));
   const [registrationMessage, setRegistrationMessage] = useState<string | null>(null);
   // Read once, before the effect below cleans the create-account link.
@@ -451,6 +453,19 @@ function AppContent() {
     );
   }
 
+  // An admin chooses, at every sign-in, between the admin console and the
+  // athlete app on their own account (carnet#1631). Asked before onboarding,
+  // which the athlete mode goes through like any athlete. Never while
+  // impersonating: that session is the target's.
+  if (hasAdminRole(user) && viewMode === null && !impersonation.isImpersonating) {
+    return (
+      <div className="min-h-dvh bg-surface">
+        <OfflineBanner />
+        <ViewModePicker />
+      </div>
+    );
+  }
+
   // The import window (carnet#1218): opened from the provider list in a
   // window of its own, or in place in the installed app. It comes before
   // onboarding, so an athlete can import while still at the connect step.
@@ -485,6 +500,9 @@ function AppContent() {
         fallback={
           <UnitsProvider>
             <Dashboard
+              // A mode switch redraws the shell from its default route rather
+              // than carrying one mode's tab into the other.
+              key={viewMode ?? 'athlete-account'}
               pendingInviteCode={pendingInviteCode}
               onInviteCodeConsumed={() => {
                 setPendingInviteCode(null);

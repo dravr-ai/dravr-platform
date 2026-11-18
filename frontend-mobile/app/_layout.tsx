@@ -171,11 +171,10 @@ function RootLayoutNav() {
   // (`provider_connections`) drives the backend's 403 on chat/coach/messaging,
   // so the gate and the redirect can never drift.
   //
-  // Admins are exempt — their primary intent is administering, not chatting,
-  // so a missing provider must not block them out of the app entirely. The
-  // backend 403 still applies if an admin posts a chat without a provider.
-  // This mount lives for the whole session, above the OAuth callback, so the
-  // context's `justOnboarded` is the session's first-connect transition.
+  // Admins meet it too: the phone has no admin console, so an admin uses it as
+  // an athlete (carnet#1631). This mount lives for the whole session, above
+  // the OAuth callback, so the context's `justOnboarded` is the session's
+  // first-connect transition.
   const { context: onboardingContext, settled: onboardingSettled } = useOnboardingContext();
 
   // Decide the onboarding route from the SHARED step registry (single source with

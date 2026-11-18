@@ -97,7 +97,8 @@ export type {
   ClearImportTombstoneResponse,
   RedeemSignupCodeResponse,
 } from './auth.js';
-export { IMPORT_TOMBSTONED_ERROR, hasAdminRole } from './auth.js';
+export { IMPORT_TOMBSTONED_ERROR, actsAsAdmin, hasAdminRole } from './auth.js';
+export type { ViewMode } from './auth.js';
 
 // API types (chat, prompts, common patterns)
 export type {

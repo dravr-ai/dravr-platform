@@ -12,8 +12,34 @@ import type { UserRole } from '@pierre/shared-types';
 /** The token screen's rail label. The admin rail is English in every session. */
 export const TOKENS_TAB_LABEL = 'API Tokens';
 
+/** What an admin's sign-in does at the mode picker (carnet#1631); `ask` leaves it to the spec. */
+type ViewModeAtSignIn = 'admin' | 'athlete' | 'ask';
+
+/** The option each page's admin sign-in picks; a page absent here signs in an athlete. */
+const VIEW_MODE_AT_SIGN_IN = new WeakMap<Page, 'admin' | 'athlete'>();
+
+/**
+ * Have every later admin sign-in on this page pick `mode` at the picker the
+ * app shows an admin after each sign-in, or leave the picker up (`ask`).
+ * `setupDashboardMocks` calls it for its role; a spec that mocks an admin's
+ * sign-in by hand calls it itself.
+ */
+export function pickViewModeAtSignIn(page: Page, mode: ViewModeAtSignIn): void {
+  if (mode === 'ask') {
+    VIEW_MODE_AT_SIGN_IN.delete(page);
+  } else {
+    VIEW_MODE_AT_SIGN_IN.set(page, mode);
+  }
+}
+
 interface UserOptions {
   role?: UserRole;
+  /**
+   * The mode an admin's sign-in picks (carnet#1631): the console by default,
+   * so an admin spec opens where it always did; `ask` leaves the picker up.
+   * Ignored for a non-admin, who is never asked.
+   */
+  viewMode?: ViewModeAtSignIn;
   email?: string;
   displayName?: string;
   status?: 'active' | 'pending' | 'suspended';
@@ -428,7 +454,10 @@ export async function setupDashboardMocks(page: Page, userOptions: UserOptions =
     managesRoster = false,
     skipProvidersRoute = false,
     language = 'en',
+    viewMode = 'admin',
   } = userOptions;
+
+  pickViewModeAtSignIn(page, role === 'admin' ? viewMode : 'ask');
 
   // Theme pin + feature-flag stubs shared with spec-local helpers.
   await applyTestStubs(page);
@@ -942,6 +971,16 @@ export async function signInThroughHostedPage(page: Page, options: { mockHostedP
     page.locator(SIGN_IN_BUTTON).click(),
   ]);
   await page.waitForURL((url) => url.pathname !== '/auth/callback', { timeout: APP_SHELL_TIMEOUT_MS });
+  // An admin is asked, at every sign-in, which app to open (carnet#1631). A
+  // refused sign-in comes back to the login screen instead, and is left there.
+  const mode = VIEW_MODE_AT_SIGN_IN.get(page);
+  if (mode) {
+    const picker = page.getByTestId('view-mode-picker');
+    await picker.or(page.locator(SIGN_IN_BUTTON)).first().waitFor({ timeout: APP_SHELL_TIMEOUT_MS });
+    if (await picker.isVisible()) {
+      await page.getByTestId(`view-mode-${mode}`).click();
+    }
+  }
 }
 
 /**

@@ -1,5 +1,5 @@
-// ABOUTME: Regression tests for pure-operator gating of the settings list rows
-// ABOUTME: Admins are platform operators and must not see personal athlete panes; regular users must
+// ABOUTME: Regression tests for the settings list rows by account role
+// ABOUTME: The phone has no admin console, so an admin gets every athlete pane a regular user gets (carnet#1631)
 
 import React from 'react';
 import { render, waitFor } from '@testing-library/react-native';
@@ -50,35 +50,22 @@ jest.mock('../src/hooks/useFeatureFlags', () => ({
 import { SettingsScreen } from '../src/screens/settings/SettingsScreen';
 import { ADMIN_HIDDEN_PANES } from '@pierre/shared-constants';
 
-describe('SettingsScreen - admin pure-operator gating', () => {
+describe('SettingsScreen - every role gets the athlete panes', () => {
   beforeEach(() => {
     jest.clearAllMocks();
   });
 
-  it('shows the athlete-account panes for regular users', async () => {
-    mockRole = 'user';
+  it.each(['user', 'admin'] as const)('shows the athlete-account panes to a %s', async (role) => {
+    mockRole = role;
     const { getByTestId } = render(<SettingsScreen />);
 
     await waitFor(() => {
       expect(getByTestId('settings-pane-list')).toBeTruthy();
     });
+    // The panes the web admin console hides: the phone shows every one of them.
     for (const id of ADMIN_HIDDEN_PANES) {
       expect(getByTestId(`settings-pane-${id}`)).toBeTruthy();
     }
-  });
-
-  it('hides them for an admin', async () => {
-    mockRole = 'admin';
-    const { queryByTestId, getByTestId } = render(<SettingsScreen />);
-
-    // Wait for the list itself, which renders for everyone.
-    await waitFor(() => {
-      expect(getByTestId('settings-pane-list')).toBeTruthy();
-    });
-    for (const id of ADMIN_HIDDEN_PANES) {
-      expect(queryByTestId(`settings-pane-${id}`)).toBeNull();
-    }
-    // The Account pane is not an athlete surface and stays.
     expect(getByTestId('settings-pane-account')).toBeTruthy();
   });
 });

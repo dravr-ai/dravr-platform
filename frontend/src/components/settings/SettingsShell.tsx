@@ -7,7 +7,7 @@
 import { Suspense, lazy, useMemo } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@pierre/i18n';
-import { hasAdminRole } from '@pierre/shared-types';
+import { actsAsAdmin } from '@pierre/shared-types';
 import { useAuth } from '../../hooks/useAuth';
 import { FEATURE_KEYS, useFeatureFlags } from '../../hooks/useFeatureFlags';
 import { useIsDesktop } from '../../hooks/useBreakpoint';
@@ -27,10 +27,11 @@ interface SettingsShellProps {
 
 export default function SettingsShell({ tab, onSelect, onBack }: SettingsShellProps) {
   const { t } = useTranslation();
-  const { user, logout } = useAuth();
+  const { user, logout, viewMode } = useAuth();
   const { flags } = useFeatureFlags();
   const isDesktop = useIsDesktop();
-  const isAdminUser = hasAdminRole(user);
+  // The admin console's settings; an admin in the athlete mode gets an athlete's.
+  const isAdminUser = actsAsAdmin(user, viewMode);
 
   const tabs = useMemo(
     () => visibleSettingsTabs(isAdminUser, Boolean(flags[FEATURE_KEYS.apiTokens])),

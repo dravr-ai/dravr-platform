@@ -21,6 +21,27 @@ export function hasAdminRole(user: Pick<User, 'role'> | null | undefined): boole
   return user?.role === 'admin';
 }
 
+/**
+ * How an admin chose to use the web app for this sign-in (carnet#1631): the
+ * admin console, or the athlete app on their own account. A view, never an
+ * authority: the server serves an admin's session the same either way.
+ */
+export type ViewMode = 'admin' | 'athlete';
+
+/**
+ * Whether the web app draws the admin console for this account. Only an admin
+ * can, and an admin who chose the athlete mode gets the athlete app. A mode not
+ * chosen yet reads as the console, so nothing personal is fetched for an admin
+ * before they pick. Authority gates (impersonation, the reply model line) keep
+ * reading `hasAdminRole`.
+ */
+export function actsAsAdmin(
+  user: Pick<User, 'role'> | null | undefined,
+  viewMode: ViewMode | null | undefined,
+): boolean {
+  return hasAdminRole(user) && viewMode !== 'athlete';
+}
+
 /** User account status */
 export type UserStatus = 'pending' | 'active' | 'suspended';
 

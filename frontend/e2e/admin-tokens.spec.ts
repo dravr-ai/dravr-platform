@@ -5,7 +5,7 @@
 // ABOUTME: Lists, filters, creates, revokes (one and many) and rotates tokens; every case opens the screen and asserts on it.
 
 import { test, expect, type Page } from '@playwright/test';
-import { applyTestStubs, navigateToTab, signInThroughHostedPage, TOKENS_TAB_LABEL } from './test-helpers';
+import { applyTestStubs, navigateToTab, pickViewModeAtSignIn, signInThroughHostedPage, TOKENS_TAB_LABEL } from './test-helpers';
 
 // Helper to authenticate and set up common mocks
 async function setupAuthenticatedSession(page: Page) {
@@ -86,6 +86,7 @@ async function setupAuthenticatedSession(page: Page) {
  */
 async function openTokenScreen(page: Page) {
   await page.goto('/');
+  pickViewModeAtSignIn(page, 'admin');
   await signInThroughHostedPage(page);
   await navigateToTab(page, TOKENS_TAB_LABEL);
   await expect(page).toHaveURL(/#connections$/);

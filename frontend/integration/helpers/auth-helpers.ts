@@ -34,8 +34,11 @@ function onHostedSignIn(page: Page): boolean {
  * `session`: the signed-in session alone. A plain user lands on whatever the
  * app shows an athlete (onboarding, on a new account), so the wait is for
  * the CSRF token the app stores when the session is established.
+ * `athlete`: an admin who picks the athlete app at the sign-in picker
+ * (carnet#1631), which opens onboarding or the athlete shell. `dashboard`
+ * picks the console when the picker asks.
  */
-export type LoginLanding = 'dashboard' | 'session';
+export type LoginLanding = 'dashboard' | 'session' | 'athlete';
 
 /** Where the SPA keeps the CSRF token of the signed-in session. */
 const CSRF_TOKEN_KEY = 'pierre_csrf_token';
@@ -109,13 +112,43 @@ export async function loginWithCredentials(
       return { success: true };
     }
 
+    // An admin is asked, at every sign-in, which app to open (carnet#1631):
+    // 'dashboard' takes the console these specs drive, 'athlete' the athlete
+    // app on the admin's own account. An athlete is never asked.
+    const picker = page.getByTestId('view-mode-picker');
+    if (landing === 'athlete') {
+      console.log('[Login] Choosing the athlete app...');
+      try {
+        await picker.waitFor({ state: 'visible', timeout: loginTimeout });
+        await page.getByTestId('view-mode-athlete').click();
+        await page
+          .getByTestId('onboarding-flow')
+          .or(page.getByTestId('icon-rail'))
+          .first()
+          .waitFor({ state: 'visible', timeout: loginTimeout });
+      } catch {
+        console.log('[Login] The athlete app did not open');
+        return { success: false, error: 'Login redirect occurred but the athlete app did not open' };
+      }
+      console.log('[Login] Success!');
+      return { success: true };
+    }
+
     // Back on the app: wait for dashboard content to appear
-    // Use OR pattern since selectors have different syntax (CSS vs Playwright text=)
     console.log('[Login] Waiting for dashboard content...');
     try {
+      // Use OR pattern since selectors have different syntax (CSS vs Playwright text=)
       const dashboardLocator = page.locator('nav')
         .or(page.locator('text=Dravr'))
         .or(page.locator('[class*="dashboard"]'));
+      // The picker, or the console an earlier choice already opened: never the
+      // loading screen's own logo text, which shows before the picker does.
+      await picker.or(page.locator('nav')).first().waitFor({ state: 'visible', timeout: loginTimeout });
+      if (await picker.isVisible()) {
+        console.log('[Login] Choosing the admin console...');
+        await page.getByTestId('view-mode-admin').click();
+        await page.locator('nav').first().waitFor({ state: 'visible', timeout: 10000 });
+      }
       await dashboardLocator.first().waitFor({ state: 'visible', timeout: 10000 });
       console.log('[Login] Dashboard content visible');
     } catch {

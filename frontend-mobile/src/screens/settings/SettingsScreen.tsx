@@ -6,8 +6,7 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { avatarSlot, initialsFor } from '@pierre/chat-utils';
 import { useTranslation } from '@pierre/i18n';
-import { ADMIN_HIDDEN_PANES, settingsPane, settingsPanesFor } from '@pierre/shared-constants';
-import { hasAdminRole } from '@pierre/shared-types';
+import { settingsPane, settingsPanesFor } from '@pierre/shared-constants';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { InitialsAvatar, Row } from '../../components/ui';
 import { useAuth } from '../../contexts/AuthContext';
@@ -34,13 +33,10 @@ export function SettingsScreen() {
   const { t } = useTranslation();
   const { flags: featureFlags } = useFeatureFlags();
 
-  // Operators are platform staff: provider connections, messaging and About are
-  // athlete-account surfaces, hidden from them exactly as on web. Gate on
-  // `role` to stay consistent with the web Dashboard.
-  const isAdminUser = hasAdminRole(user);
-
+  // Every account gets every pane: the phone has no admin console, so an
+  // admin uses it as the athlete they also are (carnet#1631). The console's
+  // narrower settings are the web admin mode's alone.
   const panes = settingsPanesFor('mobile').filter((pane) => {
-    if (isAdminUser && ADMIN_HIDDEN_PANES.has(pane.id)) return false;
     if (pane.flag === 'api_tokens') return Boolean(featureFlags[FEATURE_KEYS.apiTokens]);
     if (pane.flag === 'billing') return BILLING_ENABLED;
     return true;

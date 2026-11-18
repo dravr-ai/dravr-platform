@@ -5,7 +5,7 @@
 // ABOUTME: Tests impersonation start/end, banner display, and role-based visibility.
 
 import { test, expect, type Page } from '@playwright/test';
-import { applyTestStubs, loginToDashboard, setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
+import { applyTestStubs, loginToDashboard, pickViewModeAtSignIn, setupDashboardMocks, signInThroughHostedPage } from './test-helpers';
 
 // Helper to authenticate as an admin and navigate to users tab
 async function loginAsAdminAndNavigateToUsers(page: Page) {
@@ -52,6 +52,7 @@ async function loginAsAdminAndNavigateToUsers(page: Page) {
   });
 
   await page.goto('/');
+  pickViewModeAtSignIn(page, 'admin');
   await signInThroughHostedPage(page);
 
   // Wait for dashboard sidebar to appear - the sidebar contains Dravr logo

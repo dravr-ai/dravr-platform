@@ -7,7 +7,7 @@ import React, { useState } from 'react';
 import { Text, View } from 'react-native';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from '@pierre/i18n';
-import type { AccountDeletionBlocker } from '@pierre/shared-types';
+import { hasAdminRole, type AccountDeletionBlocker } from '@pierre/shared-types';
 import { QUERY_KEYS } from '@pierre/shared-constants';
 import {
   describeAccountDeletionBlocker,
@@ -20,7 +20,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 export function AccountDeletionSection(): React.JSX.Element {
   const { t } = useTranslation();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [open, setOpen] = useState(false);
   const [confirmEmail, setConfirmEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -67,6 +67,19 @@ export function AccountDeletionSection(): React.JSX.Element {
     blockers.length === 0 &&
     emailConfirms(confirmEmail, data.email) &&
     (!data.requires_password || password.length > 0);
+
+  // The server refuses an admin's own delete: another admin removes the
+  // account. The phone shows an admin every pane (carnet#1631), so this one
+  // says so rather than offering a button that can only fail.
+  if (hasAdminRole(user)) {
+    return (
+      <Section
+        title={t('accountDeletion.title')}
+        description={t('accountDeletion.adminBody')}
+        testID="privacy-section-account-deletion"
+      />
+    );
+  }
 
   return (
     <Section

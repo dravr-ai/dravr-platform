@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-// ABOUTME: Privacy route for Expo Router file-based routing, role-gated
-// ABOUTME: Renders the screen for athletes; admins (platform operators) redirect to Settings
+// ABOUTME: Privacy route for Expo Router file-based routing
+// ABOUTME: Renders the screen for every signed-in account, admins included: the phone has no admin console
 
-import { hiddenFromOperators } from '../../../../src/navigation/hiddenFromOperators';
 import { PrivacySettingsScreen } from '../../../../src/screens/settings/PrivacySettingsScreen';
 
-export default hiddenFromOperators(PrivacySettingsScreen);
+export default PrivacySettingsScreen;

@@ -15,7 +15,6 @@ import {
   skippedStepIds,
   type OnboardingContext,
 } from '@pierre/shared-constants';
-import { hasAdminRole } from '@pierre/shared-types';
 import { useAuth } from '../contexts/AuthContext';
 import { useOnboardingStatus } from './useOnboardingStatus';
 import { useCoachProposalSeen } from './useCoachProposalSeen';
@@ -58,8 +57,9 @@ export interface OnboardingContextState {
  */
 export function useOnboardingContext(): OnboardingContextState {
   const { user, isAuthenticated } = useAuth();
-  const isAdminRole = hasAdminRole(user);
-  const onboardingActive = isAuthenticated && user?.user_status === 'active' && !isAdminRole;
+  // Every account meets onboarding, admins included: the phone has no admin
+  // console, so an admin uses it as an athlete (carnet#1631).
+  const onboardingActive = isAuthenticated && user?.user_status === 'active';
 
   // The status is a shared query that other screens read for every account —
   // Home's coach shape reads it for an admin too — so a disabled read here does
