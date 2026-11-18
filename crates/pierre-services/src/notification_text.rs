@@ -19,6 +19,7 @@
 //! This mirrors [`crate::memory_facts::SentenceRenderer`]: one renderer over
 //! the live string catalogue, one locale, no surface gluing English to data.
 
+use chrono::NaiveDate;
 use pierre_contremaitre::messaging_strings::{
     envelope_anchor_label_key, MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY,
     KEY_GROUP_DIGEST_ALL_CLEAR, KEY_GROUP_DIGEST_CONCERNS_HEADER,
@@ -36,8 +37,11 @@ use pierre_contremaitre::messaging_strings::{
 use pierre_core::models::{SportAnchorName, UnitSystem};
 use pierre_notifications::events::{
     action_label_key, NotificationEvent, COACH_ACCESS_DECLINE_REASON_PARAM,
+    DATA_ACCESS_COMPANY_PARAM, DATA_ACCESS_DUE_ON_PARAM, DATA_ACCESS_REFERENCE_PARAM,
 };
 use serde_json::{Map, Value};
+
+use crate::data_access_requests;
 
 /// Group-digest concern code: form in the deepest fatigue band.
 pub const CONCERN_DEEP_FATIGUE: &str = "deep_fatigue";
@@ -121,6 +125,8 @@ impl<'a> NotificationTextRenderer<'a> {
             NotificationEvent::PersonalRecord => self.personal_record_body(params),
             NotificationEvent::CoachAccessDeclined => self.coach_access_declined_body(params),
             NotificationEvent::CoachPhysiologySet => self.coach_physiology_set_body(params),
+            NotificationEvent::DataAccessRequestDueSoon
+            | NotificationEvent::DataAccessRequestOverdue => self.data_access_body(event, params),
             _ => self.render(event.body_key(), event.body_params(), params),
         }
     }
@@ -212,6 +218,24 @@ impl<'a> NotificationTextRenderer<'a> {
         self.line(
             NotificationEvent::CoachPhysiologySet.body_key(),
             &[&param_text(params.get("coach_name")), &anchor],
+        )
+    }
+
+    /// A data access reminder's body: the company, the reference, and the due
+    /// date written out in this locale from the ISO date the row stores. A
+    /// date that does not parse is shown as stored rather than dropped.
+    fn data_access_body(&self, event: NotificationEvent, params: &Map<String, Value>) -> String {
+        let stored = param_text(params.get(DATA_ACCESS_DUE_ON_PARAM));
+        let due = NaiveDate::parse_from_str(&stored, "%Y-%m-%d").map_or(stored, |date| {
+            data_access_requests::written_date(date, self.locale)
+        });
+        self.line(
+            event.body_key(),
+            &[
+                &param_text(params.get(DATA_ACCESS_COMPANY_PARAM)),
+                &param_text(params.get(DATA_ACCESS_REFERENCE_PARAM)),
+                &due,
+            ],
         )
     }
 

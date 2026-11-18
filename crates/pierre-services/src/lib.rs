@@ -171,6 +171,13 @@ pub mod agents;
 /// and hands the verdict to a reporter for delivery.
 pub mod commitment_sweep;
 
+/// The daily sweep sending each data access request's reminders once per
+/// stage (carnet#1646).
+pub mod data_access_request_sweep;
+/// The athlete's statutory data access requests: the letter, the legal
+/// deadline and the state (carnet#1646).
+pub mod data_access_requests;
+
 /// Conversation compaction: keeps long conversations under the context window
 pub mod conversation_compaction;
 /// Forging a fresh chat conversation — the ceremony the messaging self-heal

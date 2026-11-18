@@ -1,4 +1,4 @@
-// ABOUTME: Spawns the coaching background workers — outcome evaluator, archetype aggregation, commitment sweep, A2A reaper, extraction and backfill resume
+// ABOUTME: Spawns the coaching background workers — outcome evaluator, archetype aggregation, commitment and data access sweeps, A2A reaper, resumes
 // ABOUTME: Keeps the assembly of each worker out of the binary, which only decides that they should start
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -142,4 +142,17 @@ pub fn start_coaching_workers(resources: &Arc<ServerContext>) {
         Some(Arc::new(ServerActivityRefresher::new(runtime)));
 
     spawn_commitment_sweep(Arc::clone(&resources.common.repos), reporter, refresher);
+
+    // Reminds the athlete, once per stage, that a company they sent a data
+    // access request to must answer soon or has let the legal deadline pass
+    // (carnet#1646). DB-only; in the app alone, so it needs the notification
+    // service, which a build without notifications does not carry.
+    #[cfg(feature = "client-notifications")]
+    if let Some(notifications) = &resources.common.notification_service {
+        use pierre_services::data_access_request_sweep::spawn_data_access_request_sweep;
+        spawn_data_access_request_sweep(
+            Arc::clone(&resources.common.repos),
+            Arc::clone(notifications),
+        );
+    }
 }

@@ -207,6 +207,38 @@ export { type UseFeatureFlagsResult, createFeatureFlagsHook } from './featureFla
 export { type UseHomePreferencesResult, createHomePreferencesHook } from './homePreferencesHook';
 // Consent to AI use of one provider's data: the privacy toggle and the connection card share it (carnet#726).
 export { type AiConsentChange, createAiConsentHook } from './aiConsentHook';
+// Statutory access requests to a company: the letter the athlete sends and its legal deadline (carnet#1646).
+export {
+  type DataAccessAction,
+  type DataAccessDateLine,
+  type DataAccessDraftErrors,
+  type DataAccessDraftForm,
+  type DataAccessOutcome,
+  type DataAccessRequestHooks,
+  type DataAccessTone,
+  DATA_ACCESS_COMPANY_SUGGESTIONS,
+  DATA_ACCESS_FIELD_LIMITS,
+  DATA_ACCESS_LAW_OPTIONS,
+  DATA_ACCESS_RECOURSE_KEY,
+  DATA_ACCESS_SCOPE_OPTIONS,
+  addCivilDays,
+  addCivilMonths,
+  createDataAccessRequestHooks,
+  dataAccessDateLines,
+  dataAccessDraftBody,
+  dataAccessFailureKey,
+  dataAccessShowsRecourse,
+  dataAccessStatus,
+  dataAccessToday,
+  defaultLetterLocale,
+  earliestSentOn,
+  gdprExtensionWindow,
+  isCivilDate,
+  validateAnsweredOn,
+  validateDataAccessDraft,
+  validateExtension,
+  validateSentOn,
+} from './dataAccessRequests';
 // The calendar Dravr's plan and workout pushes go to: Connections settings and the agent write it (carnet#1393).
 export {
   type UsePreferredCalendarResult,

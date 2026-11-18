@@ -453,6 +453,7 @@ user_export_tables_sql!(
     "group_transcript_entries" { rows: [uuid "author_user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
     "coaching_group_members" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [uuid "id"] },
     "coach_access_requests" { rows: [uuid "user_id"], tenant: none, except: [], page: 100, key: [text "id"] },
+    "data_access_requests" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     "delegated_connections" { rows: [uuid "member_user_id"], tenant: "member_tenant_id", except: [], page: 100, key: [uuid "id"] },
     "feedback_messages" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 100, key: [text "id"] },
     // Messaging.

@@ -451,7 +451,7 @@ pub(crate) async fn own_session(
     if !own_session || !first_party_client {
         return Err(AppError::new(
             ErrorCode::PermissionDenied,
-            "Your data can only be exported from your own signed-in session",
+            "Your personal data can only be reached from your own signed-in session",
         ));
     }
     Span::current().record("user_id", auth.user_id.to_string());

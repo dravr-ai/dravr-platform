@@ -21,6 +21,7 @@ mod archetype_aggregation_test;
 mod athlete_declared_home_test;
 mod athlete_places_test;
 mod commitment_sweep_test;
+mod data_access_request_sweep_test;
 mod debug_redaction_test;
 mod fact_sentence_test;
 mod fortnight_decision_test;

@@ -97,6 +97,8 @@ pub mod coach_reply_reviews;
 pub mod coaching_groups;
 /// Repository trait for athlete commitments swept against real activity data.
 pub mod commitments;
+/// Repository trait and shared body for the athlete's statutory data access requests (carnet#1646).
+pub mod data_access_requests;
 /// Repository traits for data source registration persistence.
 pub mod data_source;
 /// Repository trait, shared statements and body for delegated connections: a member's provider read through their group coach.
@@ -336,6 +338,10 @@ pub use coach_data_reads::{
 };
 pub use coach_reply_reviews::CoachReplyReviewRepository;
 pub use commitments::*;
+pub use data_access_requests::{
+    DataAccessLaw, DataAccessRequest, DataAccessRequestRepository, DataAccessScope,
+    DataAccessStatus, ReminderStage, DUE_SOON_DAYS,
+};
 pub use data_source::*;
 pub use delegated_connections::*;
 pub use engagement::EngagementRepository;

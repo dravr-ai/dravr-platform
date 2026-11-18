@@ -64,6 +64,8 @@ export const gearApi = api.gear;
 // Importing the athlete's own history from a service's export.
 export const importsApi = api.imports;
 export const originalsApi = api.dataExport;
+// The athlete's statutory access requests to a company: the letter they send and its legal deadline.
+export const dataAccessRequestsApi = api.dataAccessRequests;
 // The live string catalogue, overlaid on the embedded copy at start-up.
 export const personasApi = api.personas;
 export const i18nApi = api.i18n;

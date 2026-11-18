@@ -88,6 +88,8 @@ mod connect_hosted_import;
 mod connect_hosted_intervals;
 #[cfg(feature = "provider-sciotte")]
 mod connect_hosted_templates;
+/// The athlete's statutory data access requests and their letters.
+mod data_access_requests;
 mod data_export;
 mod email_verification;
 mod first_sync;
@@ -427,6 +429,37 @@ impl AuthRoutes {
             .route(
                 "/api/user/export/originals/{id}/download",
                 get(originals_export::handle_bundle_download),
+            )
+            // The athlete's requests to a company for their data (Quebec P-39.1
+            // art. 27, GDPR Art. 15): the letter Dravr writes and the athlete
+            // sends, and the legal deadline it runs to.
+            .route(
+                "/api/user/data-access-requests",
+                get(data_access_requests::handle_list).post(data_access_requests::handle_create),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}",
+                get(data_access_requests::handle_get).patch(data_access_requests::handle_edit),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/letter",
+                get(data_access_requests::handle_letter),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/sent",
+                post(data_access_requests::handle_sent),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/extension",
+                post(data_access_requests::handle_extension),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/answered",
+                post(data_access_requests::handle_answered),
+            )
+            .route(
+                "/api/user/data-access-requests/{id}/close",
+                post(data_access_requests::handle_close),
             )
             .route("/api/user/locale", put(login::handle_update_locale))
             .route("/api/user/theme", put(login::handle_update_theme))

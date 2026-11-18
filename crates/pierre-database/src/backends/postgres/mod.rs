@@ -68,6 +68,8 @@ pub mod coach_reply_reviews;
 pub mod coaching_groups;
 /// Athlete commitments (`Postgres`) backing `CommitmentRepository`.
 pub mod commitments;
+/// The athlete's statutory data access requests (`PostgreSQL`)
+pub mod data_access_requests;
 /// Delegated connections (`Postgres`) backing `DelegatedConnectionRepository`.
 pub mod delegated_connections;
 /// Email-verification token management — proving a registered address

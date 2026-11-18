@@ -294,6 +294,25 @@ export const ENDPOINTS = {
     EXPORT_ORIGINALS_DOWNLOAD: (id: string) =>
       `/api/user/export/originals/${encodeURIComponent(id)}/download`,
     /**
+     * The athlete's statutory access requests to a company (carnet#1646):
+     * GET lists them newest first, POST writes a draft; session only.
+     */
+    DATA_ACCESS_REQUESTS: '/api/user/data-access-requests',
+    /** One request: GET reads it, PATCH edits a draft. */
+    DATA_ACCESS_REQUEST: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}`,
+    /** One request's letter (GET, `?locale=`). */
+    DATA_ACCESS_REQUEST_LETTER: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}/letter`,
+    /** The athlete sent the letter on a day (POST). */
+    DATA_ACCESS_REQUEST_SENT: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}/sent`,
+    /** A GDPR company extended its deadline (POST). */
+    DATA_ACCESS_REQUEST_EXTENSION: (id: string) =>
+      `/api/user/data-access-requests/${encodeURIComponent(id)}/extension`,
+    /** The company answered on a day (POST). */
+    DATA_ACCESS_REQUEST_ANSWERED: (id: string) =>
+      `/api/user/data-access-requests/${encodeURIComponent(id)}/answered`,
+    /** The athlete closed the request (POST). */
+    DATA_ACCESS_REQUEST_CLOSE: (id: string) => `/api/user/data-access-requests/${encodeURIComponent(id)}/close`,
+    /**
      * Clear what a deleted account left on an identity the signed-in account
      * now holds: its own proven email, or a provider account it was refused
      * for. A pending account reaches it.

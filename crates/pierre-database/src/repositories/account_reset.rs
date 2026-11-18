@@ -238,6 +238,7 @@ account_reset_tables!(
     "group_transcript_entries" where "CAST(author_user_id AS TEXT) = $1",
     "coaching_groups" where "CAST(owner_id AS TEXT) = $1 AND is_active = FALSE AND NOT EXISTS (SELECT 1 FROM chat_conversations c WHERE c.group_id = coaching_groups.id OR c.subject_group_id = coaching_groups.id) AND NOT EXISTS (SELECT 1 FROM coaching_group_members m WHERE m.group_id = coaching_groups.id AND CAST(m.user_id AS TEXT) <> $1)",
     "coach_access_requests",
+    "data_access_requests",
     "short_links",
     "mcp_tasks",
     "guardian_pending_actions",

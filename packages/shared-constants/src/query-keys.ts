@@ -72,6 +72,18 @@ export const QUERY_KEYS = {
     originalsLatest: () => ['originals-latest'] as const,
   },
 
+  // ==================== DATA ACCESS REQUESTS ====================
+  dataAccessRequests: {
+    /** Every key below; invalidated after any write, since a step moves a request's state and letter. */
+    all: ['data-access-requests'] as const,
+    /** The athlete's requests, newest first. */
+    list: () => ['data-access-requests', 'list'] as const,
+    /** Every language of one request's letter, dropped when a step changes the request. */
+    letters: (id: string) => ['data-access-requests', 'letter', id] as const,
+    /** One request's letter, in one language. */
+    letter: (id: string, locale: string) => ['data-access-requests', 'letter', id, locale] as const,
+  },
+
   // ==================== OAUTH ====================
   oauth: {
     all: ['oauth'] as const,

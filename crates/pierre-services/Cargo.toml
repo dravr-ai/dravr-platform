@@ -17,6 +17,7 @@ postgresql = [
     "dep:sqlx",
     "dravr-barrage/postgres",
     "pierre-database/postgresql",
+    "pierre-notifications/postgresql",
     "pierre-test-support/postgresql",
 ]
 # Bullshit detector services (claim_verification, claim_verdict_backfill)

@@ -282,6 +282,7 @@ mod coros_provider_test;
 mod cors_middleware_test;
 mod current_date_epoch_anchor_test;
 mod dashboard_analytics_accuracy_test;
+mod data_access_requests_route_test;
 mod database_a2a_test;
 mod database_analytics_test;
 mod database_api_keys_test;

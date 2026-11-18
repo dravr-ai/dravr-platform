@@ -1625,6 +1625,55 @@ pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_TITLE: &str =
 /// the release.
 pub const KEY_NOTIFICATION_SEAT_RELEASE_WARNING_BODY: &str =
     "notifications.event.seat_release_warning.body";
+/// Key: a company must answer the athlete's data access request soon. `{0}` = the company.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_DUE_SOON_TITLE: &str =
+    "notifications.event.data_access_request_due_soon.title";
+/// Key: by when. `{0}` company, `{1}` the request's reference, `{2}` the due date.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_DUE_SOON_BODY: &str =
+    "notifications.event.data_access_request_due_soon.body";
+/// Key: a company did not answer the athlete's data access request in time. `{0}` = the company.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_OVERDUE_TITLE: &str =
+    "notifications.event.data_access_request_overdue.title";
+/// Key: what was missed and the recourse. `{0}` company, `{1}` the request's
+/// reference, `{2}` the due date.
+pub const KEY_NOTIFICATION_DATA_ACCESS_REQUEST_OVERDUE_BODY: &str =
+    "notifications.event.data_access_request_overdue.body";
+/// Key: the letter's access paragraph, shared by both laws. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_ACCESS: &str = "dataAccess.letter.access";
+/// Key: the identifier line. `{0}` = the account or email the athlete uses there.
+pub const KEY_DATA_ACCESS_LETTER_IDENTIFIER: &str = "dataAccess.letter.identifier";
+/// Key: the reference line. `{0}` = the request's reference.
+pub const KEY_DATA_ACCESS_LETTER_REFERENCE: &str = "dataAccess.letter.reference";
+/// Key: the closing formula, a line break, then `{0}` = the athlete's name.
+pub const KEY_DATA_ACCESS_LETTER_CLOSING: &str = "dataAccess.letter.closing";
+/// Key: the letter's date line. `{0}` = the date, written for the locale.
+pub const KEY_DATA_ACCESS_LETTER_DATE: &str = "dataAccess.letter.date";
+/// Key: the Quebec letter's subject. `{0}` = the request's reference.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_SUBJECT: &str = "dataAccess.letter.quebec.subject";
+/// Key: to the person in charge of the protection of personal information
+/// (P-39.1 art. 30). `{0}` = the company.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_SALUTATION: &str = "dataAccess.letter.quebec.salutation";
+/// Key: the request under P-39.1 art. 27. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_OPENING: &str = "dataAccess.letter.quebec.opening";
+/// Key: the portability ask, P-39.1 art. 27 para. 3. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_PORTABILITY: &str = "dataAccess.letter.quebec.portability";
+/// Key: the 30-day answer, P-39.1 art. 32. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_DEADLINE: &str = "dataAccess.letter.quebec.deadline";
+/// Key: free access and reasonable fees, P-39.1 art. 33. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_QUEBEC_COST: &str = "dataAccess.letter.quebec.cost";
+/// Key: the GDPR letter's subject. `{0}` = the request's reference.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_SUBJECT: &str = "dataAccess.letter.gdpr.subject";
+/// Key: to the data protection officer, or the person responsible for
+/// personal data. `{0}` = the company.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_SALUTATION: &str = "dataAccess.letter.gdpr.salutation";
+/// Key: the request under GDPR Art. 15. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_OPENING: &str = "dataAccess.letter.gdpr.opening";
+/// Key: the portability ask, GDPR Art. 20. No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_PORTABILITY: &str = "dataAccess.letter.gdpr.portability";
+/// Key: the one-month answer, GDPR Art. 12(3). No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_DEADLINE: &str = "dataAccess.letter.gdpr.deadline";
+/// Key: free of charge, GDPR Art. 12(5). No format placeholders.
+pub const KEY_DATA_ACCESS_LETTER_GDPR_COST: &str = "dataAccess.letter.gdpr.cost";
 /// Key: a group's coach asks to read the member's TrainingPeaks workouts.
 /// No format placeholders.
 pub const KEY_NOTIFICATION_DELEGATION_PROPOSED_TITLE: &str =

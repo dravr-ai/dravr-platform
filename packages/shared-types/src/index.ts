@@ -313,6 +313,28 @@ export type {
 } from './originals-bundle.js';
 export { parseOriginalsBundle, parseOriginalsSignedDownload } from './originals-bundle.js';
 
+// The athlete's statutory access requests to a company (Quebec P-39.1, GDPR), their letter and deadline
+export type {
+  CreateDataAccessRequest,
+  DataAccessDerivedState,
+  DataAccessLaw,
+  DataAccessLetter,
+  DataAccessLetterLocale,
+  DataAccessRequest,
+  DataAccessScope,
+  DataAccessStatus,
+  EditDataAccessRequest,
+} from './data-access-request.js';
+export {
+  DATA_ACCESS_LAWS,
+  DATA_ACCESS_LETTER_LOCALES,
+  DATA_ACCESS_SCOPES,
+  DATA_ACCESS_STATUSES,
+  parseDataAccessLetter,
+  parseDataAccessRequest,
+  parseDataAccessRequestList,
+} from './data-access-request.js';
+
 // The athlete's gear ledger: the shoes they declare, their distance, the pair one activity was run in
 export type {
   ActivityGearResponse,

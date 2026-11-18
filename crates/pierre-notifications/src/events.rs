@@ -63,6 +63,14 @@ pub enum NotificationEvent {
     /// The athlete's shared Strava seat will be released unless they come
     /// back: the seat-reclaim sweeper's warning before it disconnects them.
     SeatReleaseWarning,
+    /// A company the athlete sent a data access request to must answer
+    /// within three days (carnet#1646). Sent once per due date by the
+    /// daily sweep.
+    DataAccessRequestDueSoon,
+    /// The due date of the athlete's data access request passed with no
+    /// answer recorded; the body names the recourse. Sent once per due date
+    /// by the daily sweep.
+    DataAccessRequestOverdue,
     /// A group's coach asked to read a member's `TrainingPeaks` workouts
     /// through the coach's own `TrainingPeaks` account: sent to the member,
     /// whose confirmation is the consent to that read.
@@ -127,6 +135,8 @@ impl NotificationEvent {
             Self::AgentAssigned => "agent_assigned",
             Self::SyncFailure => "sync_failure",
             Self::SeatReleaseWarning => "seat_release_warning",
+            Self::DataAccessRequestDueSoon => "data_access_request_due_soon",
+            Self::DataAccessRequestOverdue => "data_access_request_overdue",
             Self::DelegationProposed => "delegation_proposed",
             Self::DelegationConfirmed => "delegation_confirmed",
             Self::DelegationDeclined => "delegation_declined",
@@ -160,6 +170,8 @@ impl NotificationEvent {
             Self::AgentAssigned,
             Self::SyncFailure,
             Self::SeatReleaseWarning,
+            Self::DataAccessRequestDueSoon,
+            Self::DataAccessRequestOverdue,
             Self::DelegationProposed,
             Self::DelegationConfirmed,
             Self::DelegationDeclined,
@@ -194,6 +206,12 @@ impl NotificationEvent {
             Self::AgentAssigned => "notifications.event.agent_assigned.title",
             Self::SyncFailure => "notifications.event.sync_failure.title",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.title",
+            Self::DataAccessRequestDueSoon => {
+                "notifications.event.data_access_request_due_soon.title"
+            }
+            Self::DataAccessRequestOverdue => {
+                "notifications.event.data_access_request_overdue.title"
+            }
             Self::DelegationProposed => "notifications.event.delegation_proposed.title",
             Self::DelegationConfirmed => "notifications.event.delegation_confirmed.title",
             Self::DelegationDeclined => "notifications.event.delegation_declined.title",
@@ -230,6 +248,12 @@ impl NotificationEvent {
             Self::AgentAssigned => "notifications.event.agent_assigned.body",
             Self::SyncFailure => "notifications.event.sync_failure.body",
             Self::SeatReleaseWarning => "notifications.event.seat_release_warning.body",
+            Self::DataAccessRequestDueSoon => {
+                "notifications.event.data_access_request_due_soon.body"
+            }
+            Self::DataAccessRequestOverdue => {
+                "notifications.event.data_access_request_overdue.body"
+            }
             Self::DelegationProposed => "notifications.event.delegation_proposed.body",
             Self::DelegationConfirmed => "notifications.event.delegation_confirmed.body",
             Self::DelegationDeclined => "notifications.event.delegation_declined.body",
@@ -264,6 +288,9 @@ impl NotificationEvent {
             | Self::DelegationOffCoachRoster => &["platform_name"],
             Self::GroupWeeklyDigest => &["group_name"],
             Self::PersonaAthleteDigest => &["athlete_name"],
+            Self::DataAccessRequestDueSoon | Self::DataAccessRequestOverdue => {
+                &[DATA_ACCESS_COMPANY_PARAM]
+            }
             // The title and the body share one positional list: the pushed
             // title names only the provider, as `{1}`, so the coach still
             // holds `{0}` there.
@@ -285,6 +312,13 @@ impl NotificationEvent {
             Self::AgentMessage | Self::AgentUpdated | Self::AgentAssigned => &["agent_name"],
             Self::SyncFailure => &["provider_name"],
             Self::SeatReleaseWarning => &["idle_days", "provider_name", "days_left"],
+            // The due date is stored as an ISO date and written in the
+            // reader's language when the body is rendered.
+            Self::DataAccessRequestDueSoon | Self::DataAccessRequestOverdue => &[
+                DATA_ACCESS_COMPANY_PARAM,
+                DATA_ACCESS_REFERENCE_PARAM,
+                DATA_ACCESS_DUE_ON_PARAM,
+            ],
             Self::DelegationProposed | Self::DelegationOffCoachRoster => {
                 &["coach_name", "group_name", "platform_name"]
             }
@@ -345,6 +379,14 @@ pub const ACTION_OPEN_COACH_HOME: &str = "open_coach_home";
 /// The parameter a declined coach-access notice carries the admin's
 /// reason under, when one was given.
 pub const COACH_ACCESS_DECLINE_REASON_PARAM: &str = "reason";
+
+/// The parameter a data access reminder names the company under.
+pub const DATA_ACCESS_COMPANY_PARAM: &str = "company";
+/// The parameter a data access reminder carries the request's reference under.
+pub const DATA_ACCESS_REFERENCE_PARAM: &str = "reference";
+/// The parameter a data access reminder carries the due date under, as an
+/// ISO `YYYY-MM-DD` date the renderer writes in the reader's language.
+pub const DATA_ACCESS_DUE_ON_PARAM: &str = "due_on";
 
 /// The catalogue key naming an action button, or `None` for an id the
 /// catalogue has no word for — that button keeps the label it was stored
