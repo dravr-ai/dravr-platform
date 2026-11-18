@@ -607,8 +607,10 @@ module "backend" {
       # Strava's "limit of connected athletes exceeded" page.
       STRAVA_OAUTH_SEAT_CAP = "9"
 
-      # WhatsApp non-secret config (phone number ID is not sensitive)
-      META_WHATSAPP_PHONE_NUMBER_ID = "1323997520799051"
+      # WhatsApp non-secret config (phone number ID is not sensitive).
+      # +1 438-839-2708 on the Dravr WhatsApp account. Never a Meta test number:
+      # those deliver only to the recipients on their allow-list.
+      META_WHATSAPP_PHONE_NUMBER_ID = "1504345142752210"
       META_WHATSAPP_VERIFY_TOKEN    = "5aec2c301a90cf03a31e5f5e638f9e38"
 
       # Messenger non-secret config (verify token is the App Secret, not sensitive here)
