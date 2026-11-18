@@ -46,6 +46,7 @@ on:
       - 'commands/**'
       - 'frontend/public/**'                  # a2a_public_door_test reads the card's icon
       - 'infra/environments/dev/*.tf'
+      - 'infra/environments/dev/terraform.tfvars'
       # check-keep-warm-traffic.sh and check-cpu-idle-adr.sh scan every infra
       # .tf file (prod, modules): an infra-only push there must reach the fast
       # gate too.
@@ -136,6 +137,7 @@ on:
       - 'commands/**'
       - 'frontend/public/**'                  # a2a_public_door_test reads the card's icon
       - 'infra/environments/dev/*.tf'
+      - 'infra/environments/dev/terraform.tfvars'
       # check-keep-warm-traffic.sh and check-cpu-idle-adr.sh scan every infra
       # .tf file (prod, modules): an infra-only push there must reach the fast
       # gate too.

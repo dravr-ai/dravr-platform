@@ -310,3 +310,47 @@ impl OAuth2ServerConfig {
         self.mcp_resource_at(host, path).map(str::to_owned)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::www_authenticate_challenge;
+
+    /// The dev environment's MCP resource, read from where terraform sets it.
+    fn dev_mcp_resource_url() -> &'static str {
+        // A parity check: the value is set only in terraform, and nothing at
+        // runtime joins it to the copy nginx serves, so the file is read.
+        include_str!("../../../../infra/environments/dev/terraform.tfvars")
+            .lines()
+            .find_map(|line| {
+                line.trim()
+                    .strip_prefix("mcp_resource_url")?
+                    .trim_start()
+                    .strip_prefix('=')?
+                    .trim()
+                    .strip_prefix('"')?
+                    .strip_suffix('"')
+            })
+            .expect("infra/environments/dev/terraform.tfvars sets mcp_resource_url")
+    }
+
+    /// The frontend's nginx answers a request to the MCP endpoint that carries
+    /// no bearer itself (docker/images/frontend/nginx.conf, location
+    /// `/__mcp_unauthenticated_401`), so the API is not woken for it. Real MCP
+    /// clients start their OAuth sign-in from that answer, so its challenge
+    /// must be exactly the one this module builds: a copy without the scope
+    /// would have every new athlete asked for write scopes at consent.
+    #[test]
+    fn nginx_answers_with_this_challenge() {
+        // A parity check between two artefacts nothing at runtime joins: the
+        // backend's challenge and the literal the nginx config serves.
+        let nginx = include_str!("../../../../docker/images/frontend/nginx.conf");
+        let expected = format!(
+            "add_header WWW-Authenticate '{}' always;",
+            www_authenticate_challenge(dev_mcp_resource_url(), None)
+        );
+        assert!(
+            nginx.contains(&expected),
+            "docker/images/frontend/nginx.conf must answer a request with no credential with `{expected}`"
+        );
+    }
+}
