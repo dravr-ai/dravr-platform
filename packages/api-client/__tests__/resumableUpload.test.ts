@@ -301,6 +301,20 @@ describe('uploadExport', () => {
     expect(client.finishUpload).toHaveBeenCalledOnce();
   });
 
+  it('finishes a resumed upload whose file the API already holds, without sending it again', async () => {
+    const client = api({ kind: 'through_api', stored: true });
+    const file = fileOf('abcd');
+    await uploadExport({
+      api: client as never,
+      source: 'apple_health_archive',
+      file,
+      waitingImportId: 'job-7',
+    });
+    expect(client.writeUpload).not.toHaveBeenCalled();
+    expect(client.finishUpload).toHaveBeenCalledWith('apple_health_archive', 'job-7');
+    expect(file.closed).toBe(true);
+  });
+
   it('does not say the upload landed when it stopped, and still releases the file', async () => {
     const client = api({ kind: 'session', url: URL });
     const file = fileOf('abcd');

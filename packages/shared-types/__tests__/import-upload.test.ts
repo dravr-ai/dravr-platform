@@ -29,6 +29,11 @@ const IMPORT = {
 describe('parseImportUploadTarget', () => {
   it('reads both targets', () => {
     expect(parseImportUploadTarget({ kind: 'through_api' })).toEqual({ kind: 'through_api' });
+    expect(parseImportUploadTarget({ kind: 'through_api', stored: false })).toEqual({ kind: 'through_api' });
+    expect(parseImportUploadTarget({ kind: 'through_api', stored: true })).toEqual({
+      kind: 'through_api',
+      stored: true,
+    });
     expect(parseImportUploadTarget({ kind: 'session', url: 'https://s/x' })).toEqual({ kind: 'session', url: 'https://s/x' });
   });
 

@@ -47,7 +47,9 @@ export async function uploadExport(options: ExportUploadOptions): Promise<Archiv
     }
     if (target.kind === 'session') {
       await uploadToSession({ sessionUrl: target.url, file, onProgress, signal, fetchImpl, wait });
-    } else {
+    } else if (target.stored !== true) {
+      // A resume whose PUT already landed skips it: the API holds the file,
+      // and only finishing is left.
       const total = file.size;
       await api.writeUpload(source, importId, await file.read(0, total), (sent) => onProgress?.(sent, total));
     }

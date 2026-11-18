@@ -122,7 +122,13 @@ export interface ImportLinkCheck {
  * URL is a credential served only to the import's owner, or whole to this API
  * where the store takes no direct writes.
  */
-export type ImportUploadTarget = { kind: 'session'; url: string } | { kind: 'through_api' };
+export type ImportUploadTarget =
+  | { kind: 'session'; url: string }
+  /**
+   * `stored`: the API already holds the whole file (a PUT landed, its answer
+   * was lost), so a resume skips the PUT and finishes the upload.
+   */
+  | { kind: 'through_api'; stored?: boolean };
 
 /** `POST /api/imports/{source}` for a source that takes an upload. */
 export interface StartedImportUpload {
@@ -251,7 +257,9 @@ export function parseImportLinkCheck(body: unknown): ImportLinkCheck | null {
 /** Read an upload's target, or `null` for any other shape. */
 export function parseImportUploadTarget(body: unknown): ImportUploadTarget | null {
   if (!isRecord(body)) return null;
-  if (body.kind === 'through_api') return { kind: 'through_api' };
+  if (body.kind === 'through_api') {
+    return body.stored === true ? { kind: 'through_api', stored: true } : { kind: 'through_api' };
+  }
   if (body.kind === 'session' && typeof body.url === 'string' && body.url !== '') {
     return { kind: 'session', url: body.url };
   }
