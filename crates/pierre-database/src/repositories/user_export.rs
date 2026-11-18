@@ -425,6 +425,8 @@ user_export_tables_sql!(
     // The places the athlete trains from, centroids included: the export is their own.
     "athlete_places" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 200, key: [text "id"] },
     "athlete_place_runs" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 50, key: [text "tenant_id", text "user_id"] },
+    // The declared state and its date; the seed is withheld: a downloaded export is a file that gets shared.
+    "athlete_declared_home" { rows: [text "user_id"], tenant: "tenant_id", except: ["seed_lat", "seed_lon"], page: 50, key: [text "tenant_id", text "user_id"] },
     // Training.
     "training_history" { rows: [uuid "user_id"], tenant: "tenant_id", except: [], page: 200, key: [uuid "tenant_id", uuid "user_id", date "date"] },
     "training_plans" { rows: [text "user_id"], tenant: "tenant_id", except: [], page: 10, key: [text "id"] },

@@ -24946,7 +24946,7 @@
     },
     {
       "name": "name_place",
-      "description": "Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name.",
+      "description": "Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name. home=here marks that place or start as home (never shown back); elsewhere: home is not where they train; forget.",
       "inputSchema": {
         "properties": {
           "activity_id": {
@@ -24956,6 +24956,10 @@
           "clear": {
             "description": "true removes their name.",
             "type": "boolean"
+          },
+          "home": {
+            "description": "here: home is that place or where that activity started (never shown back); elsewhere: home is not where they train; forget: back to the automatic guess.",
+            "type": "string"
           },
           "name": {
             "description": "1-60 characters.",
@@ -24970,6 +24974,39 @@
       },
       "outputSchema": {
         "$defs": {
+          "HomeState": {
+            "description": "Where home is, as a word: never a point.",
+            "oneOf": [
+              {
+                "const": "declared",
+                "description": "The athlete said where home is.",
+                "type": "string"
+              },
+              {
+                "const": "elsewhere",
+                "description": "The athlete said home is not where they train.",
+                "type": "string"
+              },
+              {
+                "const": "inferred",
+                "description": "Home is the automatic guess.",
+                "type": "string"
+              }
+            ]
+          },
+          "HomeView": {
+            "description": "Home as `name_place` answers it: a state word, never a point.",
+            "properties": {
+              "state": {
+                "$ref": "#/$defs/HomeState",
+                "description": "`declared`, `elsewhere` or `inferred` (the automatic guess)."
+              }
+            },
+            "required": [
+              "state"
+            ],
+            "type": "object"
+          },
           "NamedPlaceView": {
             "description": "A place as `name_place` answers it: its id and its name.",
             "properties": {
@@ -24993,16 +25030,31 @@
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `name_place` answers with.",
+        "description": "What `name_place` answers with: the place a name call named, or the\nhome state a home call left.",
         "properties": {
+          "home": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/HomeView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What home is now; only on a home call."
+          },
           "place": {
-            "$ref": "#/$defs/NamedPlaceView",
-            "description": "The place named, as a row's `place` serves it."
+            "anyOf": [
+              {
+                "$ref": "#/$defs/NamedPlaceView"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The place named, as a row's `place` serves it; absent on a home call."
           }
         },
-        "required": [
-          "place"
-        ],
         "title": "NamePlaceResult",
         "type": "object"
       },

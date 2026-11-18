@@ -1,5 +1,5 @@
 // ABOUTME: Covers the order and robustness of the places worker's due scan: a bad id is skipped, a failure goes last
-// ABOUTME: A row whose ids are not uuids takes no slot, and a user whose recompute failed waits behind everyone tried before
+// ABOUTME: A row whose ids are not uuids takes no slot, a failed user waits behind the rest, a home declaration stays due till seen
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -9,7 +9,7 @@
 //! test's rows only, on `SQLite` and `PostgreSQL` alike.
 
 use chrono::{DateTime, Duration, TimeZone, Utc};
-use pierre_core::models::{ActivityBuilder, SportType, TenantId, User};
+use pierre_core::models::{ActivityBuilder, HomeDeclaration, SportType, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::PlaceRun;
 use pierre_database::RepositoryRegistry;
@@ -57,6 +57,17 @@ async fn ride(repos: &RepositoryRegistry, who: Athlete, id: &str, at: DateTime<U
 
 /// Record a clustering of `who` at `at` that saw every row they hold.
 async fn cluster(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) {
+    cluster_seeing(repos, who, at, None).await;
+}
+
+/// Record a clustering of `who` at `at` that saw every row they hold and the
+/// home declaration made at `seen`.
+async fn cluster_seeing(
+    repos: &RepositoryRegistry,
+    who: Athlete,
+    at: DateTime<Utc>,
+    seen: Option<DateTime<Utc>>,
+) {
     let places = &repos.athlete_places;
     let stamp = places
         .cached_rows_stamp(&who.tenant, who.user)
@@ -67,6 +78,7 @@ async fn cluster(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) {
         newest_synced_at: stamp.newest_synced_at,
         version: VERSION,
         computed_at: at,
+        home_declared_at_seen: seen,
     };
     places
         .replace_clustering(&who.tenant, who.user, &[], &[], &run)
@@ -221,5 +233,112 @@ async fn a_failed_recompute_keeps_new_rows_due_and_backs_the_daily_backstop_off_
         due(repos, 100, now).await,
         vec![(who.tenant, who.user)],
         "bug: a failure made a user with a new row not due"
+    );
+}
+
+/// Declare `who`'s home elsewhere at `at`, and return the date as stored.
+async fn declare(repos: &RepositoryRegistry, who: Athlete, at: DateTime<Utc>) -> DateTime<Utc> {
+    let places = &repos.athlete_places;
+    places
+        .store_home_declaration(&who.tenant, who.user, HomeDeclaration::Elsewhere, at)
+        .await
+        .unwrap();
+    places
+        .home_declaration(&who.tenant, who.user)
+        .await
+        .unwrap()
+        .declared_at
+        .expect("bug: a stored declaration has no date")
+}
+
+#[tokio::test]
+async fn a_home_declaration_is_due_until_a_run_sees_it() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let now = Utc::now();
+    let who = athlete(repos, FIRST_TENANT).await;
+    ride(repos, who, "a", now - Duration::hours(2)).await;
+    cluster(repos, who, now - Duration::hours(1)).await;
+    assert!(
+        due(repos, 100, now).await.is_empty(),
+        "bug: a user whose run saw everything is due"
+    );
+
+    let declared_at = declare(repos, who, now - Duration::minutes(30)).await;
+    assert_eq!(
+        due(repos, 100, now).await,
+        vec![(who.tenant, who.user)],
+        "bug: a home declaration did not make the user due"
+    );
+
+    cluster_seeing(repos, who, now - Duration::minutes(10), Some(declared_at)).await;
+    assert!(
+        due(repos, 100, now).await.is_empty(),
+        "bug: a run that saw the declaration left the user due"
+    );
+}
+
+#[tokio::test]
+async fn a_user_who_declares_with_no_rows_is_due() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let now = Utc::now();
+    let who = athlete(repos, FIRST_TENANT).await;
+    let declared_at = declare(repos, who, now - Duration::minutes(5)).await;
+    assert_eq!(
+        due(repos, 100, now).await,
+        vec![(who.tenant, who.user)],
+        "bug: a declaration by a user with no rows and no run is not due"
+    );
+    cluster_seeing(repos, who, now, Some(declared_at)).await;
+    assert!(
+        due(repos, 100, now).await.is_empty(),
+        "bug: a run with no rows that saw the declaration left the user due"
+    );
+}
+
+/// A recompute read the declaration, then the athlete declared again before
+/// it wrote: the run records the older date, and the user stays due.
+#[tokio::test]
+async fn a_declaration_made_while_a_run_was_in_flight_stays_due() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let now = Utc::now();
+    let who = athlete(repos, FIRST_TENANT).await;
+    ride(repos, who, "a", now - Duration::hours(2)).await;
+    let read_by_the_run = declare(repos, who, now - Duration::minutes(30)).await;
+    declare(repos, who, now - Duration::minutes(20)).await;
+    cluster_seeing(
+        repos,
+        who,
+        now - Duration::minutes(10),
+        Some(read_by_the_run),
+    )
+    .await;
+    assert_eq!(
+        due(repos, 100, now).await,
+        vec![(who.tenant, who.user)],
+        "bug: a declaration newer than the one the run saw is not due"
+    );
+}
+
+#[tokio::test]
+async fn a_failed_recompute_after_a_declaration_keeps_it_due() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let now = Utc::now();
+    let who = athlete(repos, FIRST_TENANT).await;
+    ride(repos, who, "a", now - Duration::hours(2)).await;
+    cluster(repos, who, now - Duration::hours(1)).await;
+    declare(repos, who, now - Duration::minutes(30)).await;
+    repos
+        .athlete_places
+        .record_failed_recompute(&who.tenant, who.user, VERSION, now)
+        .await
+        .unwrap();
+    assert_eq!(
+        due(repos, 100, now).await,
+        vec![(who.tenant, who.user)],
+        "bug: a failure deferred a declaration no run saw to the daily backstop"
     );
 }

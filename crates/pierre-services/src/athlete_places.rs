@@ -1,5 +1,5 @@
 // ABOUTME: Recomputes each athlete's places from their stored tracks, one workout one start, and names them
-// ABOUTME: The places worker's pass, and the service the name_place tool calls to name, rename or clear a place
+// ABOUTME: The places worker's pass, and the service name_place calls to name a place or declare where home is
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -8,8 +8,9 @@
 //!
 //! A place is where an athlete keeps starting: a trailhead, a club's meeting
 //! point. [`places_pass`] recomputes the places of the athletes whose cached
-//! rows changed since their last clustering, and [`name_place`] lets the
-//! athlete name one.
+//! rows changed since their last clustering, [`name_place`] lets the
+//! athlete name one, and [`declare_home`] lets them say where home is
+//! (carnet#1593).
 //!
 //! **One start per workout.** An athlete's cached rows hold every copy of a
 //! workout: a session's and a grant's, an export, a second device. The rows
@@ -22,9 +23,13 @@
 //! anywhere gives its recorded raw start, which may only join a place it falls
 //! inside ([`StartKind::RawAssignOnly`]). Every copy of a workout takes its place.
 //!
-//! **Privacy.** A centroid is built from trimmed starts only, the densest
-//! cluster of trimmed endpoints is taken for home and excluded, and the home
-//! is never stored ([`cluster`]). No function here returns a centroid.
+//! **Privacy.** A centroid is built from trimmed starts only. Home is
+//! excluded ([`cluster`]): the densest cluster of trimmed endpoints, which is
+//! never stored, unless the athlete declared home. A declaration stores a
+//! state and, for "here", a seed that is a trimmed start or a place
+//! centroid, never a raw start; `recompute` is its one reader, and the
+//! answer is a state word ([`HomeState`]). No function here returns a
+//! centroid or the seed.
 //!
 //! **Names.** The athlete's own name wins, and only [`name_place`] writes
 //! one. Otherwise a place is named for the most frequent city among its
@@ -35,7 +40,7 @@ use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Duration, Utc};
 use pierre_core::errors::AppResult;
-use pierre_core::models::{Activity, CachedRowKey, TenantId};
+use pierre_core::models::{Activity, CachedRowKey, HomeDeclaration, TenantId};
 use pierre_core::untrusted::display_line;
 use pierre_database::repositories::{
     AthletePlace, CachedActivityRow, CachedRowCursor, CachedRowsQuery, PlaceNameSource, PlaceRun,
@@ -45,6 +50,8 @@ use pierre_fitness_compute::places::{
     cluster, ClusteredPlace, PlaceAnchor, PlaceParams, StartKind, StartPoint, PLACES_VERSION,
 };
 use pierre_providers::deduplication::one_activity_key;
+use schemars::JsonSchema;
+use serde::Serialize;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -123,6 +130,29 @@ impl PlaceRefusal {
             Self::InvalidName => "invalid_place_name",
         }
     }
+}
+
+/// What the athlete says about home, as [`declare_home`] takes it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HomeChoice {
+    /// Home is that place, or where that activity started.
+    Here(PlaceTarget),
+    /// Home is not where the athlete trains: no start is excluded as home.
+    Elsewhere,
+    /// Back to the automatic guess.
+    Forget,
+}
+
+/// Where home is, as a word: never a point.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum HomeState {
+    /// The athlete said where home is.
+    Declared,
+    /// The athlete said home is not where they train.
+    Elsewhere,
+    /// Home is the automatic guess.
+    Inferred,
 }
 
 /// Recompute the places of up to `max_users` athletes whose places are due.
@@ -234,7 +264,7 @@ pub async fn name_place(
     if !cleared {
         return Ok(Ok(named(&place)));
     }
-    let Some(places) = recompute_after_naming(repos, tenant_id, user_id).await else {
+    let Some(places) = recompute_after_change(repos, tenant_id, user_id).await else {
         return Ok(Ok(named(&place)));
     };
     // A place that held only the athlete's single visit is gone once its
@@ -247,6 +277,83 @@ pub async fn name_place(
         },
         named,
     )))
+}
+
+/// Store what the athlete said about home and recompute their places.
+///
+/// The recompute runs at once, best-effort, so the next read reflects it;
+/// the worker recomputes them otherwise, since a declaration no successful
+/// recompute saw keeps them due.
+///
+/// `Here` by place takes that place's centroid as the seed; by activity, the
+/// trimmed first point of the first copy with a recorded route. The seed is
+/// never a raw start, never answered, and read by `recompute` alone. A
+/// declaration renames nothing: a named place around the seed keeps its
+/// name, and `Forget` brings back exactly the automatic result.
+///
+/// # Errors
+///
+/// Returns the repository error when a read or write fails; a refusal is
+/// `Ok(Err(_))`, and nothing is stored.
+pub async fn declare_home(
+    repos: &RepositoryRegistry,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    choice: HomeChoice,
+) -> AppResult<Result<HomeState, PlaceRefusal>> {
+    let (home, state) = match choice {
+        HomeChoice::Here(target) => {
+            let seed = match home_seed(repos, tenant_id, user_id, target).await? {
+                Ok(seed) => seed,
+                Err(refused) => return Ok(Err(refused)),
+            };
+            (
+                HomeDeclaration::At {
+                    lat: seed.0,
+                    lon: seed.1,
+                },
+                HomeState::Declared,
+            )
+        }
+        HomeChoice::Elsewhere => (HomeDeclaration::Elsewhere, HomeState::Elsewhere),
+        HomeChoice::Forget => (HomeDeclaration::Inferred, HomeState::Inferred),
+    };
+    repos
+        .athlete_places
+        .store_home_declaration(tenant_id, user_id, home, Utc::now())
+        .await?;
+    recompute_after_change(repos, tenant_id, user_id).await;
+    Ok(Ok(state))
+}
+
+/// The seed a `Here` declaration stores: the place's centroid, or the
+/// activity's trimmed start.
+async fn home_seed(
+    repos: &RepositoryRegistry,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    target: PlaceTarget,
+) -> AppResult<Result<(f64, f64), PlaceRefusal>> {
+    match target {
+        PlaceTarget::Place(id) => Ok(repos
+            .athlete_places
+            .list(tenant_id, user_id)
+            .await?
+            .iter()
+            .find(|place| place.id == id)
+            .map(|place| (place.centroid_lat, place.centroid_lon))
+            .ok_or(PlaceRefusal::PlaceNotFound)),
+        PlaceTarget::Activity(activity_id) => {
+            let rows = activity_rows(repos, tenant_id, user_id, &activity_id).await?;
+            if rows.is_empty() {
+                return Ok(Err(PlaceRefusal::ActivityNotFound));
+            }
+            Ok(trimmed_start(repos, tenant_id, user_id, &rows)
+                .await?
+                .map(|(point, _)| point)
+                .ok_or(PlaceRefusal::ActivityHasNoRoute))
+        }
+    }
 }
 
 /// The place as `name_place` answers it.
@@ -289,6 +396,25 @@ async fn activity_rows(
         .await
 }
 
+/// The trimmed first point of the first of `rows` with a recorded route,
+/// and that row; `None` when no copy has one.
+async fn trimmed_start<'rows>(
+    repos: &RepositoryRegistry,
+    tenant_id: &TenantId,
+    user_id: Uuid,
+    rows: &'rows [CachedActivityRow],
+) -> AppResult<Option<((f64, f64), &'rows CachedActivityRow)>> {
+    for row in rows {
+        if let Some(point) = local_track(repos, tenant_id, user_id, row)
+            .await?
+            .and_then(|track| track.first_point())
+        {
+            return Ok(Some((point, row)));
+        }
+    }
+    Ok(None)
+}
+
 /// Create the athlete's place at the trimmed start of the first copy of the
 /// activity with a recorded route, with that copy as its only member.
 async fn create_single_visit_place(
@@ -298,41 +424,35 @@ async fn create_single_visit_place(
     rows: &[CachedActivityRow],
     name: &str,
 ) -> AppResult<Result<NamedPlace, PlaceRefusal>> {
-    for row in rows {
-        let Some((lat, lon)) = local_track(repos, tenant_id, user_id, row)
-            .await?
-            .and_then(|track| track.first_point())
-        else {
-            continue;
-        };
-        let now = Utc::now();
-        let place = AthletePlace {
-            id: Uuid::new_v4().to_string(),
-            centroid_lat: lat,
-            centroid_lon: lon,
-            radius_m: SINGLE_VISIT_RADIUS_METERS,
-            activity_count: 1,
-            name: Some(name.to_owned()),
-            name_source: Some(PlaceNameSource::Athlete),
-            version: PLACES_VERSION,
-            computed_at: now,
-            created_at: now,
-        };
-        repos
-            .athlete_places
-            .create_athlete_place(tenant_id, user_id, &place, &row_key(row))
-            .await?;
-        let answer = named(&place);
-        recompute_after_naming(repos, tenant_id, user_id).await;
-        return Ok(Ok(answer));
-    }
-    Ok(Err(PlaceRefusal::ActivityHasNoRoute))
+    let Some(((lat, lon), row)) = trimmed_start(repos, tenant_id, user_id, rows).await? else {
+        return Ok(Err(PlaceRefusal::ActivityHasNoRoute));
+    };
+    let now = Utc::now();
+    let place = AthletePlace {
+        id: Uuid::new_v4().to_string(),
+        centroid_lat: lat,
+        centroid_lon: lon,
+        radius_m: SINGLE_VISIT_RADIUS_METERS,
+        activity_count: 1,
+        name: Some(name.to_owned()),
+        name_source: Some(PlaceNameSource::Athlete),
+        version: PLACES_VERSION,
+        computed_at: now,
+        created_at: now,
+    };
+    repos
+        .athlete_places
+        .create_athlete_place(tenant_id, user_id, &place, &row_key(row))
+        .await?;
+    let answer = named(&place);
+    recompute_after_change(repos, tenant_id, user_id).await;
+    Ok(Ok(answer))
 }
 
-/// Recompute the athlete's places after a name changed what anchors them.
-/// The name is already stored, so a failure is logged, never answered: the
-/// worker recomputes within a day.
-async fn recompute_after_naming(
+/// Recompute the athlete's places after a name or a home declaration changed
+/// what anchors them. The change is already stored, so a failure is logged,
+/// never answered: the athlete stays due, and the worker recomputes them.
+async fn recompute_after_change(
     repos: &RepositoryRegistry,
     tenant_id: &TenantId,
     user_id: Uuid,
@@ -344,7 +464,7 @@ async fn recompute_after_naming(
                 %tenant_id,
                 %user_id,
                 error = %e,
-                "athlete places recompute after naming failed; the worker recomputes them"
+                "athlete places recompute after a name or home change failed; the worker recomputes them"
             );
             None
         }
@@ -371,6 +491,12 @@ async fn recompute(
         .athlete_places
         .cached_rows_stamp(tenant_id, user_id)
         .await?;
+    // Read once: the run records the declaration this clustering used, so
+    // one stored while this runs keeps the athlete due.
+    let home = repos
+        .athlete_places
+        .home_declaration(tenant_id, user_id)
+        .await?;
     let previous = repos.athlete_places.list(tenant_id, user_id).await?;
     let rows = all_rows(repos, tenant_id, user_id, now).await?;
     let workouts = workout_rows(&rows);
@@ -389,13 +515,20 @@ async fn recompute(
     }
 
     let anchors: Vec<PlaceAnchor> = previous.iter().map(anchor).collect();
-    let clustering = cluster(&points, &endpoints, &anchors, &PlaceParams::default());
+    let clustering = cluster(
+        &points,
+        &endpoints,
+        &anchors,
+        home.home,
+        &PlaceParams::default(),
+    );
     debug!(
         %tenant_id,
         %user_id,
         rows = rows.len(),
         workouts = workouts.len(),
         starts = points.len(),
+        home = ?home.home,
         places = clustering.places.len(),
         excluded = clustering.excluded.len(),
         "athlete places clustered"
@@ -431,6 +564,7 @@ async fn recompute(
         newest_synced_at: stamp.newest_synced_at,
         version: PLACES_VERSION,
         computed_at: now,
+        home_declared_at_seen: home.declared_at,
     };
     repos
         .athlete_places

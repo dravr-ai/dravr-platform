@@ -913,7 +913,7 @@ export interface ListYogaPosesParams {
 
 
 /**
- * Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name.
+ * Name where the athlete trains, as they asked: by a row's place.id or an activity id (a first visit too). clear=true restores the automatic name. home=here marks that place or start as home (never shown back); elsewhere: home is not where they train; forget.
  */
 export interface NamePlaceParams {
 
@@ -922,6 +922,9 @@ export interface NamePlaceParams {
 
   /** true removes their name. */
   clear?: boolean;
+
+  /** here: home is that place or where that activity started (never shown back); elsewhere: home is not where they train; forget: back to the automatic guess. */
+  home?: string;
 
   /** 1-60 characters. */
   name?: string;

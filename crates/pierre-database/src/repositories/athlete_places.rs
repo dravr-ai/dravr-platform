@@ -1,5 +1,5 @@
 // ABOUTME: AthletePlaceRepository trait plus the one shared implementation both backends emit
-// ABOUTME: The places an athlete trains from, the clustering run that last saw their rows, and the users due a recompute
+// ABOUTME: The places an athlete trains from, the run that last saw their rows, their declared home, and who is due
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -22,6 +22,17 @@
 //! a clear or a single-visit place made while a recompute runs is never
 //! undone by it.
 //!
+//! The declared home (carnet#1593) is what the athlete said about home, kept
+//! in `athlete_declared_home`: one row per user and tenant, a state and, for
+//! `at`, a seed that is a trimmed start or a place centroid. Only the places
+//! recompute reads it ([`AthletePlaceRepository::home_declaration`]), and
+//! only the places service writes it
+//! ([`AthletePlaceRepository::store_home_declaration`]); a gate
+//! (`check-activity-writers.sh` rules 4 and 5) holds both, and the table name
+//! to this file and the three per-user lists. A declaration makes the user
+//! due until a successful recompute records the `declared_at` it clustered
+//! with ([`PlaceRun::home_declared_at_seen`]).
+//!
 //! `$n` placeholders throughout; every id column is TEXT on both engines,
 //! like `cached_activities`, so the ids bind as hyphenated text with no cast.
 //! Timestamps bind as `DateTime<Utc>`: RFC 3339 text on `SQLite`,
@@ -31,7 +42,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use pierre_core::errors::{AppError, AppResult};
-use pierre_core::models::{CachedRowKey, TenantId};
+use pierre_core::models::{CachedRowKey, HomeDeclaration, StoredHome, TenantId};
 use tracing::warn;
 use uuid::Uuid;
 
@@ -110,6 +121,10 @@ pub struct PlaceRun {
     /// ([`AthletePlaceRepository::record_failed_recompute`]), so it reads as
     /// when the user was last tried.
     pub computed_at: DateTime<Utc>,
+    /// The `declared_at` of the home declaration the clustering read; `None`
+    /// when the user never declared. A failed recompute leaves it alone, so
+    /// a declaration no successful recompute saw keeps the user due.
+    pub home_declared_at_seen: Option<DateTime<Utc>>,
 }
 
 /// How many cached rows a user holds in a tenant and the newest `synced_at`
@@ -207,8 +222,9 @@ pub trait AthletePlaceRepository: Send + Sync {
     /// Up to `limit` users, across every tenant, whose places are due a
     /// recompute at `now`, in one statement over column aggregates: no runs
     /// row, a run of another `version`, a run older than 24 hours, a cached
-    /// row count or newest sync that differs from the run's, or a run that
-    /// saw rows the user no longer holds.
+    /// row count or newest sync that differs from the run's, a run that saw
+    /// rows the user no longer holds, or a home declaration newer than the
+    /// one the last successful run saw.
     ///
     /// Users never tried come first, then the one tried longest ago, so a
     /// user whose recompute keeps failing goes to the back of the queue
@@ -231,8 +247,8 @@ pub trait AthletePlaceRepository: Send + Sync {
     /// Record that the user's places recompute failed at `now`: their run's
     /// `computed_at` moves to `now` and nothing else changes, so
     /// [`Self::due_users`] puts them behind every user tried earlier. A user
-    /// due for new rows, another version or an erasure stays due; one due
-    /// only for the 24-hour backstop waits another day. A user with no run
+    /// due for new rows, another version, an erasure or a home declaration
+    /// stays due; one due only for the 24-hour backstop waits another day. A user with no run
     /// gets one that saw nothing at `version`, which keeps them due while
     /// they hold rows.
     ///
@@ -245,6 +261,33 @@ pub trait AthletePlaceRepository: Send + Sync {
         tenant_id: &TenantId,
         user_id: Uuid,
         version: u32,
+        now: DateTime<Utc>,
+    ) -> AppResult<()>;
+
+    /// What the user declared about home in the tenant, and when; `Inferred`
+    /// with no date when they never declared.
+    ///
+    /// Only the places recompute calls it (`check-activity-writers.sh`): the
+    /// seed is never served.
+    ///
+    /// # Errors
+    /// Returns a database error when the read fails, or when the stored row
+    /// has an unknown state or an `at` state without its seed.
+    async fn home_declaration(&self, tenant_id: &TenantId, user_id: Uuid) -> AppResult<StoredHome>;
+
+    /// Store what the user declared about home in the tenant, declared at
+    /// `now`, replacing what they said before. "Forget" stores `Inferred`,
+    /// which keeps the row so its date makes the user due.
+    ///
+    /// Only the places service calls it (`check-activity-writers.sh`).
+    ///
+    /// # Errors
+    /// Returns a database error when the write fails.
+    async fn store_home_declaration(
+        &self,
+        tenant_id: &TenantId,
+        user_id: Uuid,
+        home: HomeDeclaration,
         now: DateTime<Utc>,
     ) -> AppResult<()>;
 }
@@ -314,13 +357,34 @@ pub(crate) const INSERT_ATHLETE_PLACE_SQL: &str = r"
 
 /// Record what the user's clustering saw, replacing the run before it.
 pub(crate) const UPSERT_PLACE_RUN_SQL: &str = r"
-    INSERT INTO athlete_place_runs (tenant_id, user_id, rows_seen, newest_synced_at, version, computed_at)
-    VALUES ($1, $2, $3, $4, $5, $6)
+    INSERT INTO athlete_place_runs (
+        tenant_id, user_id, rows_seen, newest_synced_at, version, computed_at,
+        home_declared_at_seen
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     ON CONFLICT (tenant_id, user_id) DO UPDATE SET
         rows_seen = EXCLUDED.rows_seen,
         newest_synced_at = EXCLUDED.newest_synced_at,
         version = EXCLUDED.version,
-        computed_at = EXCLUDED.computed_at";
+        computed_at = EXCLUDED.computed_at,
+        home_declared_at_seen = EXCLUDED.home_declared_at_seen";
+
+/// The home declaration of `$2` (user) in `$1` (tenant).
+pub(crate) const HOME_DECLARATION_SQL: &str = r"
+    SELECT state, seed_lat, seed_lon, declared_at
+    FROM athlete_declared_home
+    WHERE tenant_id = $1 AND user_id = $2";
+
+/// Store the home declaration of `$2` (user) in `$1` (tenant): state `$3`,
+/// seed `$4`/`$5`, declared at `$6`.
+pub(crate) const STORE_HOME_DECLARATION_SQL: &str = r"
+    INSERT INTO athlete_declared_home (tenant_id, user_id, state, seed_lat, seed_lon, declared_at)
+    VALUES ($1, $2, $3, $4, $5, $6)
+    ON CONFLICT (tenant_id, user_id) DO UPDATE SET
+        state = EXCLUDED.state,
+        seed_lat = EXCLUDED.seed_lat,
+        seed_lon = EXCLUDED.seed_lon,
+        declared_at = EXCLUDED.declared_at";
 
 /// Name one place of `$2` (user) in `$1` (tenant) as the athlete asked.
 pub(crate) const NAME_PLACE_SQL: &str = r"
@@ -346,7 +410,8 @@ pub(crate) const RECORD_FAILED_PLACE_RUN_SQL: &str = r"
 /// for clustering version `$1`, across every tenant: never tried first, then
 /// tried longest ago. The first branch aggregates each user's cached rows
 /// against their run; the second finds a run that saw rows the user no
-/// longer holds at all. No JSON is read. The NULL order is spelled out,
+/// longer holds at all; the third finds a home declaration no successful run
+/// saw, which a failed run does not clear. No JSON is read. The NULL order is spelled out,
 /// since the engines sort a NULL at opposite ends.
 pub(crate) const DUE_PLACE_USERS_SQL: &str = r"
     SELECT tenant_id, user_id FROM (
@@ -370,6 +435,12 @@ pub(crate) const DUE_PLACE_USERS_SQL: &str = r"
               SELECT 1 FROM cached_activities ca
               WHERE ca.tenant_id = r.tenant_id AND ca.user_id = r.user_id
           )
+        UNION
+        SELECT h.tenant_id, h.user_id, r.computed_at
+        FROM athlete_declared_home h
+        LEFT JOIN athlete_place_runs r
+               ON r.tenant_id = h.tenant_id AND r.user_id = h.user_id
+        WHERE r.home_declared_at_seen IS NULL OR h.declared_at > r.home_declared_at_seen
     ) due
     ORDER BY CASE WHEN computed_at IS NULL THEN 0 ELSE 1 END, computed_at, tenant_id, user_id
     LIMIT $3";
@@ -503,6 +574,70 @@ where
     })
 }
 
+/// The stored state slug and seed of a home declaration.
+pub(crate) const fn home_columns(
+    home: HomeDeclaration,
+) -> (&'static str, Option<f64>, Option<f64>) {
+    match home {
+        HomeDeclaration::Inferred => ("inferred", None, None),
+        HomeDeclaration::At { lat, lon } => ("at", Some(lat), Some(lon)),
+        HomeDeclaration::Elsewhere => ("elsewhere", None, None),
+    }
+}
+
+/// Read a [`StoredHome`] out of the row of [`HOME_DECLARATION_SQL`], or the
+/// undeclared home when there is none.
+///
+/// # Errors
+/// Returns a database error naming the column that cannot be decoded, the
+/// unknown state, or an `at` state stored without its seed.
+pub(crate) fn stored_home_from_row<R>(row: Option<&R>) -> AppResult<StoredHome>
+where
+    R: sqlx::Row,
+    for<'a> &'a str: sqlx::ColumnIndex<R>,
+    String: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    Option<f64>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    DateTime<Utc>: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+{
+    fn col<R, T>(row: &R, column: &str) -> AppResult<T>
+    where
+        R: sqlx::Row,
+        for<'a> &'a str: sqlx::ColumnIndex<R>,
+        T: sqlx::Type<R::Database> + for<'a> sqlx::Decode<'a, R::Database>,
+    {
+        row.try_get(column)
+            .map_err(|e| AppError::database(format!("declared home col {column}: {e}")))
+    }
+    let Some(row) = row else {
+        return Ok(StoredHome {
+            home: HomeDeclaration::Inferred,
+            declared_at: None,
+        });
+    };
+    let state: String = col(row, "state")?;
+    let home = match state.as_str() {
+        "inferred" => HomeDeclaration::Inferred,
+        "elsewhere" => HomeDeclaration::Elsewhere,
+        "at" => match (col(row, "seed_lat")?, col(row, "seed_lon")?) {
+            (Some(lat), Some(lon)) => HomeDeclaration::At { lat, lon },
+            _ => {
+                return Err(AppError::database(
+                    "declared home state at is stored without its seed",
+                ))
+            }
+        },
+        other => {
+            return Err(AppError::database(format!(
+                "declared home state {other:?} is unknown"
+            )))
+        }
+    };
+    Ok(StoredHome {
+        home,
+        declared_at: Some(col(row, "declared_at")?),
+    })
+}
+
 /// A count as the INTEGER column holds it.
 ///
 /// # Errors
@@ -622,6 +757,7 @@ macro_rules! impl_athlete_place_repository {
                     .bind(run.newest_synced_at)
                     .bind(integer_column(run.version, "places version")?)
                     .bind(run.computed_at)
+                    .bind(run.home_declared_at_seen)
                     .execute(&mut *tx)
                     .await
                     .map_err(|e| failed("run", e))?;
@@ -764,6 +900,45 @@ macro_rules! impl_athlete_place_repository {
                         AppError::database(format!(
                             "Failed to record a failed places recompute: {e}"
                         ))
+                    })?;
+                Ok(())
+            }
+
+            async fn home_declaration(
+                &self,
+                tenant_id: &TenantId,
+                user_id: uuid::Uuid,
+            ) -> AppResult<StoredHome> {
+                let row = sqlx::query(HOME_DECLARATION_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(user_id.to_string())
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to read the declared home: {e}"))
+                    })?;
+                stored_home_from_row(row.as_ref())
+            }
+
+            async fn store_home_declaration(
+                &self,
+                tenant_id: &TenantId,
+                user_id: uuid::Uuid,
+                home: HomeDeclaration,
+                now: chrono::DateTime<chrono::Utc>,
+            ) -> AppResult<()> {
+                let (state, seed_lat, seed_lon) = home_columns(home);
+                sqlx::query(STORE_HOME_DECLARATION_SQL)
+                    .bind(tenant_id.to_string())
+                    .bind(user_id.to_string())
+                    .bind(state)
+                    .bind(seed_lat)
+                    .bind(seed_lon)
+                    .bind(now)
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!("Failed to store the declared home: {e}"))
                     })?;
                 Ok(())
             }

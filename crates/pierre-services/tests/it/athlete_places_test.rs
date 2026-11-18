@@ -28,11 +28,11 @@ use pierre_test_support::db::create_test_db;
 use uuid::Uuid;
 
 /// The door every athlete's home loops start and end at.
-const DOOR: (f64, f64) = (45.500, -73.600);
+pub(crate) const DOOR: (f64, f64) = (45.500, -73.600);
 /// Spots well away from the door and from each other.
-const SUTTON: (f64, f64) = (45.100, -72.600);
+pub(crate) const SUTTON: (f64, f64) = (45.100, -72.600);
 const BROMONT: (f64, f64) = (45.300, -72.650);
-const OKA: (f64, f64) = (45.470, -74.080);
+pub(crate) const OKA: (f64, f64) = (45.470, -74.080);
 
 /// Degrees of latitude and of longitude (at 45°N) per ~100 m.
 const STEP_LAT: f64 = 0.0009;
@@ -56,7 +56,7 @@ fn loop_from(origin: (f64, f64), turn: usize) -> Vec<(f64, f64)> {
 
 /// Out 1.5 km north from `origin` and back on the same road: the trimmed
 /// start and end sit on one spot, so the trailhead is one endpoint cluster.
-fn out_and_back(origin: (f64, f64)) -> Vec<(f64, f64)> {
+pub(crate) fn out_and_back(origin: (f64, f64)) -> Vec<(f64, f64)> {
     let out: Vec<(f64, f64)> = (0..=15)
         .map(|i| (f64::from(i).mul_add(STEP_LAT, origin.0), origin.1))
         .collect();
@@ -88,19 +88,19 @@ fn north_out_south_back(origin: (f64, f64)) -> Vec<(f64, f64)> {
     points
 }
 
-fn meters(a: (f64, f64), b: (f64, f64)) -> f64 {
+pub(crate) fn meters(a: (f64, f64), b: (f64, f64)) -> f64 {
     haversine_meters_between(a.0, a.1, b.0, b.1)
 }
 
-struct World {
+pub(crate) struct World {
     db: Database,
-    user: Uuid,
-    tenant: TenantId,
+    pub(crate) user: Uuid,
+    pub(crate) tenant: TenantId,
     day: AtomicI64,
 }
 
 impl World {
-    async fn new() -> Self {
+    pub(crate) async fn new() -> Self {
         Self::in_db(create_test_db().await.unwrap(), TenantId::generate()).await
     }
 
@@ -124,18 +124,18 @@ impl World {
         }
     }
 
-    fn repos(&self) -> &RepositoryRegistry {
+    pub(crate) fn repos(&self) -> &RepositoryRegistry {
         self.db.repositories()
     }
 
     /// A start on a day no other ride of this world uses, so no two rides
     /// look like copies of one workout.
-    fn next_start(&self) -> DateTime<Utc> {
+    pub(crate) fn next_start(&self) -> DateTime<Utc> {
         let day = self.day.fetch_add(1, Ordering::Relaxed);
         Utc.with_ymd_and_hms(2025, 1, 1, 8, 0, 0).unwrap() + Duration::days(day)
     }
 
-    async fn store(&self, tenant: &TenantId, provider: &str, activity: Activity) {
+    pub(crate) async fn store(&self, tenant: &TenantId, provider: &str, activity: Activity) {
         self.repos()
             .activity_cache
             .upsert_activities_synced_at(self.user, tenant, provider, &[activity], Utc::now())
@@ -145,7 +145,7 @@ impl World {
 
     /// A ride with a route overview looping from `origin`, stored under
     /// Strava; returns its id.
-    async fn ride(&self, origin: (f64, f64), turn: usize) -> String {
+    pub(crate) async fn ride(&self, origin: (f64, f64), turn: usize) -> String {
         self.ride_with(origin, turn, |b| b).await
     }
 
@@ -159,7 +159,7 @@ impl World {
     }
 
     /// A ride along `path`, stored under Strava; returns its id.
-    async fn ride_along(
+    pub(crate) async fn ride_along(
         &self,
         path: &[(f64, f64)],
         extra: impl FnOnce(ActivityBuilder) -> ActivityBuilder,
@@ -188,7 +188,7 @@ impl World {
     }
 
     /// [`Self::home`], answering the rides' ids.
-    async fn home_rides(&self) -> Vec<String> {
+    pub(crate) async fn home_rides(&self) -> Vec<String> {
         let mut ids = Vec::new();
         for turn in 0..16 {
             ids.push(self.ride(DOOR, turn % 4).await);
@@ -196,7 +196,7 @@ impl World {
         ids
     }
 
-    async fn pass(&self) -> PlacesPassReport {
+    pub(crate) async fn pass(&self) -> PlacesPassReport {
         self.pass_at(Utc::now()).await
     }
 
@@ -206,7 +206,7 @@ impl World {
         report
     }
 
-    async fn places(&self) -> Vec<AthletePlace> {
+    pub(crate) async fn places(&self) -> Vec<AthletePlace> {
         self.places_in(&self.tenant).await
     }
 
@@ -219,7 +219,7 @@ impl World {
     }
 
     /// The one place whose centroid lies within 500 m of `spot`.
-    async fn place_at(&self, spot: (f64, f64)) -> AthletePlace {
+    pub(crate) async fn place_at(&self, spot: (f64, f64)) -> AthletePlace {
         let mut near: Vec<AthletePlace> = self
             .places()
             .await
@@ -244,7 +244,7 @@ impl World {
     }
 
     /// The place id each row of `id` carries, one per stored copy.
-    async fn places_of(&self, id: &str) -> Vec<Option<String>> {
+    pub(crate) async fn places_of(&self, id: &str) -> Vec<Option<String>> {
         let copies: Vec<Option<String>> = self
             .rows()
             .await
@@ -256,7 +256,7 @@ impl World {
         copies
     }
 
-    async fn name(
+    pub(crate) async fn name(
         &self,
         target: PlaceTarget,
         name: Option<&str>,

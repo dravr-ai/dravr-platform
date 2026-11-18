@@ -288,6 +288,7 @@ account_reset_tables!(
     "activity_route_tracks",
     "athlete_places",
     "athlete_place_runs",
+    "athlete_declared_home",
     "activity_streams",
     "pushed_activity_files",
     "activity_backfill_coverage",

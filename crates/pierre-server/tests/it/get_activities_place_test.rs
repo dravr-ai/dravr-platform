@@ -86,6 +86,7 @@ pub(crate) async fn city_places(
         newest_synced_at: None,
         version: PLACES_VERSION,
         computed_at: Utc::now(),
+        home_declared_at_seen: None,
     };
     f.repos()
         .athlete_places

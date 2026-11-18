@@ -92,7 +92,13 @@ use crate::common;
 /// 230 bytes before measuring, with `get_stats`' description shortened to a
 /// view of it. The tool measured 2,341 bytes before the cut, 1,726 after;
 /// the catalogue 97,331.
-const CATALOGUE_BUDGET_BYTES: usize = 97_400;
+///
+/// 2026-11-18: 97,400 → 97,700 for the declared home (carnet#1593):
+/// `name_place` takes `home` (here, elsewhere or forget, named in its
+/// one-line description), and its description gains one sentence.
+/// `name_place` measured 794 bytes against 486 (~308 bytes); the catalogue
+/// 97,639.
+const CATALOGUE_BUDGET_BYTES: usize = 97_700;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

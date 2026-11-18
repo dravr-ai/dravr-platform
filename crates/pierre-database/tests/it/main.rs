@@ -18,6 +18,7 @@ mod activity_cache_samples_test;
 mod admin_audit_test;
 mod admin_operator_tokens_test;
 mod agents_repository_test;
+mod athlete_declared_home_test;
 mod athlete_gear_test;
 mod athlete_places_due_test;
 mod check_in_preferences_test;

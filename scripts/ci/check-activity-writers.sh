@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT OR Apache-2.0
 # Copyright (c) 2026 dravr.ai
 # ABOUTME: Guard — every provider's activities reach cached_activities only through the activity store's projection
-# ABOUTME: A cache write or row delete outside the store's sink, a by-date DELETE, or a place write outside its one writer fails
+# ABOUTME: A cache write or row delete outside the store's sink, a by-date DELETE, or a place or declared-home call outside its caller fails
 #
 # Every provider read, push and upload is kept in dravr-barrage, the
 # activity store, which projects it into cached_activities through one sink
@@ -33,12 +33,20 @@
 #      again. A caller drops activities through the store
 #      (`LiveActivityStore::discard`, `discard_between`, `delete_source`) or
 #      the provider purge, which retract them through the sink.
-#   4. A row's place (slice 6, carnet#1484) has one writer:
-#      `replace_clustering` and `create_athlete_place` are called only by the
-#      places service (pierre-services athlete_places.rs), besides the
-#      repositories that define them and the test fixtures. A writer that
-#      calls neither fails closed, as a sink that writes nothing does: the
-#      writes it guarded moved, and the gate would pass on nothing.
+#   4. A row's place (slice 6, carnet#1484) and the athlete's declared home
+#      (carnet#1593) have one caller: `replace_clustering`,
+#      `create_athlete_place`, `home_declaration` (the one read of the
+#      declared home, which is never served) and `store_home_declaration`
+#      are called only by the places service (pierre-services
+#      athlete_places.rs), besides the repository that defines them and the
+#      test fixtures. A caller that calls one of them no more fails closed, as
+#      a sink that writes nothing does: the call it guarded moved, and the
+#      gate would pass on nothing.
+#   5. The declared home's table, `athlete_declared_home`, is named in
+#      production code only by the places repository and the three per-user
+#      lists (the account wipe, the references list, the athlete's export),
+#      so no other repository reads it behind rule 4's back. A places
+#      repository that no longer names it fails closed.
 #
 # A file's trailing #[cfg(test)] module is not production code (ADR-027) and
 # is not scanned, through prod-src-scan.sh. Test suites under tests/ are not
@@ -56,9 +64,19 @@ REPOSITORY="crates/pierre-database/src/repositories/activity_cache.rs"
 TEST_SUPPORT="crates/pierre-test-support/"
 PLACES_REPOSITORY="crates/pierre-database/src/repositories/athlete_places.rs"
 # method|the one production file that may call it
-PLACE_WRITERS=(
+PLACE_CALLS=(
     "replace_clustering|crates/pierre-services/src/athlete_places.rs"
     "create_athlete_place|crates/pierre-services/src/athlete_places.rs"
+    "home_declaration|crates/pierre-services/src/athlete_places.rs"
+    "store_home_declaration|crates/pierre-services/src/athlete_places.rs"
+)
+DECLARED_HOME_TABLE="athlete_declared_home"
+# The production files that may name the declared home's table.
+DECLARED_HOME_NAMERS=(
+    "$PLACES_REPOSITORY"
+    "crates/pierre-database/src/repositories/account_reset.rs"
+    "crates/pierre-database/src/repositories/user_references.rs"
+    "crates/pierre-database/src/repositories/user_export.rs"
 )
 
 RED='\033[0;31m'
@@ -128,15 +146,15 @@ if [ -n "$deletes_outside" ]; then
     failed=1
 fi
 
-# 4. The place writes, each from its one writer.
+# 4. The place writes and the declared home's calls, each from its one caller.
 place_sites=0
-for entry in "${PLACE_WRITERS[@]}"; do
+for entry in "${PLACE_CALLS[@]}"; do
     method="${entry%%|*}"
     owner="${entry#*|}"
     found="$(bash "$SCAN" "(\.|::)\s*${method}\s*\(" -U --vimgrep "${SRC_DIRS[@]}")"
     owned="$(printf '%s\n' "$found" | grep -c "^$owner:" || true)"
     if [ "$owned" -eq 0 ]; then
-        echo -e "${RED}❌ $owner calls no $method: the place write this gate guards moved${NC}" >&2
+        echo -e "${RED}❌ $owner calls no $method: the place call this gate guards moved${NC}" >&2
         exit 2
     fi
     place_sites=$((place_sites + owned))
@@ -145,12 +163,32 @@ for entry in "${PLACE_WRITERS[@]}"; do
     if [ -n "$stray" ]; then
         echo -e "${RED}❌ $method called outside $owner:${NC}"
         printf '%s\n' "$stray" | sed 's/^/    /'
-        echo "   A row's place has one writer (carnet#1484); call it there."
+        echo "   A row's place and the declared home have one caller (carnet#1484, carnet#1593);"
+        echo "   call it there. The declared home is never served."
         failed=1
     fi
 done
 
+# 5. The declared home's table, named only where it is read, wiped, listed
+# or exported.
+named="$(bash "$SCAN" "\b${DECLARED_HOME_TABLE}\b" --vimgrep "${SRC_DIRS[@]}")"
+if ! printf '%s\n' "$named" | grep -q "^$PLACES_REPOSITORY:"; then
+    echo -e "${RED}❌ $PLACES_REPOSITORY names no $DECLARED_HOME_TABLE: the table this gate guards moved${NC}" >&2
+    exit 2
+fi
+stray_names="$(printf '%s\n' "$named" | sed '/^$/d')"
+for namer in "${DECLARED_HOME_NAMERS[@]}"; do
+    stray_names="$(printf '%s\n' "$stray_names" | grep -v "^$namer:" || true)"
+done
+if [ -n "$stray_names" ]; then
+    echo -e "${RED}❌ $DECLARED_HOME_TABLE named outside its repository and the per-user lists:${NC}"
+    printf '%s\n' "$stray_names" | sed 's/^/    /'
+    echo "   The declared home has one reader, the places recompute, through"
+    echo "   AthletePlaceRepository::home_declaration (carnet#1593)."
+    failed=1
+fi
+
 if [ "$failed" -ne 0 ]; then
     exit 1
 fi
-echo -e "${GREEN}✅ cached_activities written and deleted only by the activity store's sink ($in_sink write site(s)), its repository and the test fixtures; no by-date prune; places written only by their writer ($place_sites site(s))${NC}"
+echo -e "${GREEN}✅ cached_activities written and deleted only by the activity store's sink ($in_sink write site(s)), its repository and the test fixtures; no by-date prune; places written and the declared home called only by their one caller ($place_sites site(s)); its table named only by its repository and the per-user lists${NC}"

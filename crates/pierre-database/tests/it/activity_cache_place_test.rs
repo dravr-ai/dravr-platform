@@ -91,6 +91,7 @@ impl World {
             newest_synced_at: stamp.newest_synced_at,
             version: VERSION,
             computed_at: Utc::now(),
+            home_declared_at_seen: None,
         }
     }
 

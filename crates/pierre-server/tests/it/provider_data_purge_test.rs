@@ -802,6 +802,7 @@ async fn a_provider_purge_keeps_the_athletes_places_for_their_recompute() {
                 newest_synced_at: stamp.newest_synced_at,
                 version: 1,
                 computed_at: Utc::now(),
+                home_declared_at_seen: None,
             },
         )
         .await

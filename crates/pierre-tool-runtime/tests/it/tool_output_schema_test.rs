@@ -35,6 +35,7 @@ use pierre_fitness_compute::weather::WeatherDifficulty;
 use pierre_providers::field_support::FieldMode;
 use pierre_providers::precedence::wellness_source;
 use pierre_providers::ProviderRegistry;
+use pierre_services::athlete_places::HomeState;
 use pierre_services::coach_roster::RosterAthleteStatus;
 use pierre_services::continuous_series::SourceSeries;
 use pierre_services::plan_calendar_push::PushReport;
@@ -175,7 +176,7 @@ use pierre_tool_runtime::implementations::physiology_output::{
     PhysiologyProfile, SetPhysiologyResult,
 };
 use pierre_tool_runtime::implementations::places::{
-    NamePlaceResult, NamePlaceTool, NamedPlaceView,
+    HomeView, NamePlaceResult, NamePlaceTool, NamedPlaceView,
 };
 use pierre_tool_runtime::implementations::plan_flavour_output::PlanFlavourResult;
 use pierre_tool_runtime::implementations::planned_workouts::{
@@ -3524,10 +3525,11 @@ fn name_place_declares_a_schema_that_accepts_both_of_its_answers() {
     let declared = <NamePlaceTool as McpTool<dyn ToolRuntime>>::definition(&NamePlaceTool);
     for name in [Some("Gai-Luron".to_owned()), None] {
         let sample = NamePlaceResult {
-            place: NamedPlaceView {
+            place: Some(NamedPlaceView {
                 id: "5f0c7a52-9d1e-4b1f-8f43-0c2f3e1a9b77".to_owned(),
                 name,
-            },
+            }),
+            home: None,
         };
         let value = serde_json::to_value(&sample).expect("serializes");
         assert!(
@@ -3541,6 +3543,40 @@ fn name_place_declares_a_schema_that_accepts_both_of_its_answers() {
             "name_place",
         );
     }
+}
+
+/// A home call answers its state word alone (carnet#1593): no place, and
+/// no state the schema does not name.
+#[test]
+fn name_place_declares_a_schema_that_accepts_each_home_answer() {
+    let declared = <NamePlaceTool as McpTool<dyn ToolRuntime>>::definition(&NamePlaceTool);
+    for (state, word) in [
+        (HomeState::Declared, "declared"),
+        (HomeState::Elsewhere, "elsewhere"),
+        (HomeState::Inferred, "inferred"),
+    ] {
+        let sample = NamePlaceResult {
+            place: None,
+            home: Some(HomeView { state }),
+        };
+        assert_eq!(
+            serde_json::to_value(&sample).expect("bug: a home answer serializes"),
+            json!({ "home": { "state": word } }),
+            "bug: a home answer carries more than its state word"
+        );
+        assert_declares_and_accepts(
+            declared.output_schema.clone(),
+            &output_schema_for::<NamePlaceResult>(),
+            &sample,
+            "name_place",
+        );
+    }
+    let validator = jsonschema::validator_for(&output_schema_for::<NamePlaceResult>())
+        .expect("bug: the name_place schema compiles");
+    assert!(
+        !validator.is_valid(&json!({ "home": { "state": "here" } })),
+        "bug: the name_place schema accepts a home state it never answers"
+    );
 }
 
 #[test]

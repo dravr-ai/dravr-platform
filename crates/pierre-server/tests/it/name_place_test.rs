@@ -1,5 +1,5 @@
 // ABOUTME: name_place names, renames or clears an athlete's place by its id or by an activity's, on every transport
-// ABOUTME: Its answer is {place: {id, name}} under the rows' rule, it refuses by stable reason, and a coach's thread withholds it
+// ABOUTME: It answers {place: {id, name}} or a home state word, refuses by stable reason, and a coach's thread withholds it
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -13,6 +13,10 @@
 //! the answer's name is then `null`. The tool is in no data class, so a
 //! coach's thread about an athlete withholds it.
 //!
+//! `home` (carnet#1593) says where home is: `here` with a target,
+//! `elsewhere` or `forget`. Its answer is `{home: {state}}` on every
+//! transport, with no number in it.
+//!
 //! The tool is driven through the dispatch chokepoint, on the coach-reads
 //! fixture's athlete, whose uploaded runs carry no route.
 
@@ -24,6 +28,8 @@ use crate::get_activities_place_test::{assert_no_location, city_places, row, CIT
 
 use chrono::{Duration, Utc};
 use pierre_core::models::{Activity, ActivityBuilder, SportType};
+use pierre_core::permissions::scopes::OAuthScope;
+use pierre_core::transport::Transport;
 use pierre_fitness_compute::encode_polyline;
 use pierre_services::athlete_places::places_pass;
 use pierre_tool_runtime::protocols::{UniversalResponse, UniversalToolExecutor};
@@ -438,10 +444,163 @@ async fn a_coachs_thread_about_the_athlete_withholds_it() {
         "bug: name_place ran in a coach's thread: {:?}",
         response.result
     );
+    let home = f
+        .in_thread(
+            TOOL,
+            json!({ "activity_id": "athlete-run-2", "home": "here" }),
+        )
+        .await;
+    assert!(
+        !home.success,
+        "bug: a coach's thread declared the athlete's home: {:?}",
+        home.result
+    );
     let listed = own_list(&f).await;
     assert_eq!(
         row(&listed, "athlete-run-2")["place"]["name"],
         CITY_NAME,
         "bug: a coach's thread renamed the athlete's place: {listed}"
+    );
+}
+
+/// The executor an A2A agent's call dispatches through.
+fn a2a_executor(f: &Fixture) -> UniversalToolExecutor {
+    UniversalToolExecutor::new(f.res.clone())
+        .with_scopes(OAuthScope::self_grant())
+        .with_transport(Transport::A2a)
+        .with_caller_writing_reply()
+}
+
+/// Fail on any number anywhere in `payload`: a home answer is words only.
+fn assert_no_number(payload: &Value) {
+    match payload {
+        Value::Number(n) => panic!("bug: a home answer carries the number {n}"),
+        Value::Object(map) => map.values().for_each(assert_no_number),
+        Value::Array(items) => items.iter().for_each(assert_no_number),
+        _ => {}
+    }
+}
+
+/// Whether each door run carries a place in the athlete's own listing.
+async fn door_placed(f: &Fixture) -> Vec<bool> {
+    let listed = own_list(f).await;
+    (0..5)
+        .map(|i| {
+            row(&listed, &format!("door-run-{i}"))
+                .get("place")
+                .is_some()
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn a_home_call_answers_its_state_word_alone_on_every_transport() {
+    let f = fixture().await;
+    trailhead_place(&f).await;
+    for (transport, executor) in [
+        ("app", f.own_executor()),
+        ("MCP", f.mcp_executor()),
+        ("A2A", a2a_executor(&f)),
+    ] {
+        // Declaring home on the trailhead empties its unnamed place, and the
+        // forget after it forms the place again under a new id.
+        let listed = own_list(&f).await;
+        let trailhead = row(&listed, "trailhead-run-0")["place"]["id"].clone();
+        for (params, state, door) in [
+            (json!({ "home": "elsewhere" }), "elsewhere", true),
+            (
+                json!({ "activity_id": "door-run-0", "home": "here" }),
+                "declared",
+                false,
+            ),
+            (json!({ "home": "forget" }), "inferred", false),
+            (
+                json!({ "place_id": trailhead, "home": "here" }),
+                "declared",
+                true,
+            ),
+            (json!({ "home": "forget" }), "inferred", false),
+        ] {
+            let answer = ok(
+                name_over(&f, &executor, f.athlete, params.clone()).await,
+                "name_place home",
+            );
+            assert_eq!(
+                answer,
+                json!({ "home": { "state": state } }),
+                "bug: {params} over {transport} answered more than its state word"
+            );
+            assert_no_number(&answer);
+            assert_eq!(
+                door_placed(&f).await,
+                vec![door; 5],
+                "bug: after {params} over {transport} the door runs are placed otherwise"
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn home_arguments_that_name_no_one_change_are_invalid() {
+    let f = fixture().await;
+    for params in [
+        json!({ "place_id": "a", "name": "Gai-Luron", "home": "here" }),
+        json!({ "place_id": "a", "clear": true, "home": "here" }),
+        json!({ "home": "here" }),
+        json!({ "place_id": "a", "activity_id": "b", "home": "here" }),
+        json!({ "activity_id": "athlete-run-2", "home": "elsewhere" }),
+        json!({ "place_id": "a", "home": "forget" }),
+        json!({ "home": "somewhere" }),
+        json!({ "home": true }),
+    ] {
+        let accepted = f
+            .try_call(&f.own_executor(), f.athlete, TOOL, params.clone())
+            .await
+            .is_ok_and(|response| response.success);
+        assert!(!accepted, "bug: {params} was accepted");
+    }
+}
+
+#[tokio::test]
+async fn home_here_refuses_by_the_same_reasons_as_a_name() {
+    let f = fixture().await;
+    for (params, reason) in [
+        (
+            json!({ "activity_id": "athlete-run-3", "home": "here" }),
+            "activity_has_no_route",
+        ),
+        (
+            json!({ "activity_id": "no-such-activity", "home": "here" }),
+            "activity_not_found",
+        ),
+        (
+            json!({ "place_id": "no-such-place", "home": "here" }),
+            "place_not_found",
+        ),
+    ] {
+        let response = name_over(&f, &f.mcp_executor(), f.athlete, params.clone()).await;
+        assert_eq!(
+            refused(&response),
+            reason,
+            "bug: {params} was refused for the wrong reason"
+        );
+    }
+}
+
+#[tokio::test]
+async fn a_null_home_beside_a_name_is_a_name_call() {
+    let f = fixture().await;
+    let city = city_places(&f, f.athlete, &[(UPLOAD, "athlete-run-2", CITY_NAME)]).await;
+
+    let answer = name(
+        &f,
+        json!({ "place_id": city[0], "name": "Gai-Luron", "home": null }),
+    )
+    .await;
+
+    assert_eq!(
+        answer,
+        json!({ "place": { "id": city[0], "name": "Gai-Luron" } }),
+        "bug: a client sending home: null with a name was not answered as a name call"
     );
 }

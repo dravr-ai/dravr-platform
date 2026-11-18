@@ -15,7 +15,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use chrono::{NaiveDate, Utc};
-use pierre_core::models::{ApiKey, ApiKeyTier, Tenant, TenantId, User};
+use pierre_core::models::{ApiKey, ApiKeyTier, HomeDeclaration, Tenant, TenantId, User};
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::{
     UserExportTable, CREDENTIAL_MARKERS, NOT_CREDENTIAL_COLUMNS, USER_EXPORT_EXCLUDED_TABLES,
@@ -568,6 +568,51 @@ async fn an_export_never_carries_a_credential() {
     assert!(
         exported["users"][0].get("password_hash").is_none(),
         "password_hash is a column of the row"
+    );
+}
+
+#[tokio::test]
+async fn an_export_carries_the_declared_home_state_and_never_its_seed() {
+    let db = create_test_db().await.unwrap();
+    let repos = db.repositories();
+    let ana = fresh_user(repos, "home").await;
+    let tenant = own_tenant(repos, ana.id).await;
+    repos
+        .athlete_places
+        .store_home_declaration(
+            &tenant,
+            ana.id,
+            HomeDeclaration::At {
+                lat: 46.812_345,
+                lon: -71.208_765,
+            },
+            Utc::now(),
+        )
+        .await
+        .unwrap();
+
+    let exported = export(repos, ana.id).await;
+    let rows = &exported["athlete_declared_home"];
+    assert_eq!(
+        rows.len(),
+        1,
+        "bug: the declared home is not exported once: {rows:?}"
+    );
+    assert_eq!(
+        rows[0]["state"],
+        json!("at"),
+        "bug: the declared state is not exported"
+    );
+    let columns: BTreeSet<&str> = rows[0]
+        .as_object()
+        .expect("bug: an exported row is not an object")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        columns,
+        BTreeSet::from(["tenant_id", "user_id", "state", "declared_at"]),
+        "bug: the declared home row exports other than its state and date"
     );
 }
 
