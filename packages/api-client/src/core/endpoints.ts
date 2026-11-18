@@ -66,6 +66,11 @@ export const ENDPOINTS = {
     ATHLETE_THREAD: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/thread`,
     /** A coached athlete's live plan, read-only, as their coach reads it from Group info */
     ATHLETE_PLAN: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/plan`,
+    /** A coached athlete's thresholds per sport, as their coach reads them from Group info (`GET`, `?group_id=`) */
+    ATHLETE_PHYSIOLOGY: (athleteUserId: string) => `/api/chat/athletes/${athleteUserId}/physiology`,
+    /** Set (`PUT`) one of a coached athlete's thresholds, as their coach (`?group_id=`) */
+    ATHLETE_PHYSIOLOGY_ANCHOR: (athleteUserId: string, sport: string, anchor: string) =>
+      `/api/chat/athletes/${athleteUserId}/physiology/${sport}/${anchor}`,
     /** The plan thread's athlete: their live plan and the coach's draft over it */
     SUBJECT_PLAN: (conversationId: string) => `/api/chat/conversations/${conversationId}/subject-plan`,
     /** Publish (POST) the coach's draft as the athlete's live plan */
@@ -404,6 +409,8 @@ export const ENDPOINTS = {
     UNITS: '/api/me/units',
     /** The athlete's own anchors per sport family, with range, source and date (`GET`, `?locale=`) */
     PHYSIOLOGY: '/api/me/physiology',
+    /** Set (`PUT`) one of the athlete's own anchors, answered as the read is (`?locale=`) */
+    PHYSIOLOGY_ANCHOR: (sport: string, anchor: string) => `/api/me/physiology/${sport}/${anchor}`,
     /** How often the coach checks in on its own — asked in onboarding, changed in Settings (`GET`, `PUT`) */
     CHECK_IN: '/api/me/check-in',
     /** The connected calendar Dravr's pushes go to, chosen in Connections (`GET`, `PUT`, `DELETE`) */

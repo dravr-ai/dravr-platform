@@ -1649,10 +1649,17 @@ jobs:
           # ChefFamille chose to raise both ceilings by about 2MB
           # (2026-11-14): shipped 121, thin 150.
           #
+          # carnet#1561 (athlete and coach edit thresholds: two REST routes,
+          # the shared physiology writer, a coach notification) added about
+          # 1MB with no new dependency: the thin build read 151MB against its
+          # 150 ceiling (run 44314583449) while main sat exactly on it (run
+          # 44307715156). ChefFamille chose to raise both ceilings by 2MB
+          # (2026-11-18): shipped 123, thin 152.
+          #
           # server-e2e.yml checks the thin binary against this ceiling
-          # scaled to that build (150), so a branch push that skips this job
+          # scaled to that build (152), so a branch push that skips this job
           # is still sized against it. Move both together.
-          MAX_SIZE_MB=121
+          MAX_SIZE_MB=123
           # Warn band at 95% of the ceiling. A bare pass/fail cliff gives no
           # signal until the build is already broken, and one fat dependency
           # can still cross the gap in a single change.

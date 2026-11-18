@@ -2,7 +2,7 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: The athlete's physiology wire shape — each anchor per sport family with its range, source, date and confidence
-// ABOUTME: With its parser, so a malformed body is an error rather than a threshold printed without its estimate marker
+// ABOUTME: With its parser, and the body that sets one anchor (carnet#1561), so a malformed body is an error, never a guess
 
 /** The three sport families anchors are held for (carnet#1496). */
 export type SportFamily = 'ride' | 'run' | 'swim';
@@ -77,9 +77,56 @@ export interface SportPhysiology {
   anchors: PhysiologyAnchor[];
 }
 
-/** `GET /api/me/physiology`: each family the athlete holds an anchor in, ride, run, swim. */
+/** One anchor a sport family can hold, with the unit it is stored in. */
+export interface OfferedAnchor {
+  anchor: SportAnchorName;
+  unit: AnchorUnit;
+}
+
+/** The anchors one sport family can hold: what an edit may set there. */
+export interface OfferedFamily {
+  sport: SportFamily;
+  anchors: OfferedAnchor[];
+}
+
+/**
+ * `GET /api/me/physiology`, the `PUT` that sets one anchor, and the coach's
+ * view of one athlete: each family the athlete holds an anchor in, ride, run,
+ * swim, and every anchor each family can hold.
+ */
 export interface PhysiologyResponse {
   sports: SportPhysiology[];
+  offered: OfferedFamily[];
+}
+
+/** The distance a pace is entered in seconds per: km or mi on the run, 100 m in the pool. */
+export type PaceDistance = 'km' | 'mi' | '100m';
+
+/** How an anchor was found: by a named test, or not. */
+export type AnchorKind = 'measured' | 'estimated';
+
+/**
+ * The body of `PUT /api/me/physiology/{sport}/{anchor}` and of the coach's
+ * `PUT /api/chat/athletes/{id}/physiology/{sport}/{anchor}` (carnet#1561).
+ *
+ * `value`, `low` and `high` are in the anchor's unit — watts or beats per
+ * minute — or, for a speed anchor, seconds of pace per `pace_per`. It names no
+ * source: the server records the athlete, or the coach, as who set it.
+ */
+export interface PhysiologyAnchorEdit {
+  value: number;
+  /** The range's lower number, when one is stated: for a pace, the faster end. */
+  low: number | null;
+  /** The range's higher number, when one is stated: for a pace, the slower end. */
+  high: number | null;
+  /** Required for a speed anchor, absent on any other. */
+  pace_per: PaceDistance | null;
+  kind: AnchorKind;
+  confidence: AnchorConfidence;
+  /** The test used; for MAP, its definition. */
+  method: string | null;
+  /** The day it was measured, `YYYY-MM-DD`; the server takes today when null. */
+  measured_on: string | null;
 }
 
 const CIVIL_DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -140,14 +187,46 @@ function parseAnchor(value: unknown): PhysiologyAnchor | null {
   };
 }
 
+function parseOffered(value: unknown): OfferedFamily[] | null {
+  if (!Array.isArray(value)) return null;
+  const families: OfferedFamily[] = [];
+  for (const entry of value) {
+    if (
+      !isRecord(entry) ||
+      typeof entry.sport !== 'string' ||
+      !(SPORT_FAMILIES as readonly string[]).includes(entry.sport) ||
+      !Array.isArray(entry.anchors)
+    ) {
+      return null;
+    }
+    const anchors: OfferedAnchor[] = [];
+    for (const raw of entry.anchors) {
+      if (
+        !isRecord(raw) ||
+        typeof raw.anchor !== 'string' ||
+        !(SPORT_ANCHOR_NAMES as readonly string[]).includes(raw.anchor) ||
+        typeof raw.unit !== 'string' ||
+        !ANCHOR_UNITS.includes(raw.unit)
+      ) {
+        return null;
+      }
+      anchors.push({ anchor: raw.anchor as SportAnchorName, unit: raw.unit as AnchorUnit });
+    }
+    families.push({ sport: entry.sport as SportFamily, anchors });
+  }
+  return families;
+}
+
 /**
- * Read a `GET /api/me/physiology` body, or null when it is not one. Every key
- * must be present: an anchor whose words are missing is rejected rather than
- * printed as a bare number, which would drop a low-confidence anchor's
- * estimate marker.
+ * Read a physiology body, or null when it is not one. Every key must be
+ * present: an anchor whose words are missing is rejected rather than printed
+ * as a bare number, which would drop a low-confidence anchor's estimate
+ * marker.
  */
 export function parsePhysiologyResponse(body: unknown): PhysiologyResponse | null {
   if (!isRecord(body) || !Array.isArray(body.sports)) return null;
+  const offered = parseOffered(body.offered);
+  if (offered === null) return null;
   const sports: SportPhysiology[] = [];
   for (const entry of body.sports) {
     if (
@@ -166,5 +245,5 @@ export function parsePhysiologyResponse(body: unknown): PhysiologyResponse | nul
     }
     sports.push({ sport: entry.sport as SportFamily, anchors });
   }
-  return { sports };
+  return { sports, offered };
 }

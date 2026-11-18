@@ -503,7 +503,7 @@ impl McpTool<dyn ToolRuntime> for ImportProviderThresholdsTool {
                 let tenant_id = TenantId::from_uuid(context.require_tenant()?);
                 let user_id = context.user_id;
 
-                let existing = profile_for_write(&context, tenant_id, user_id).await?;
+                let existing = profile_for_write(&context.resources, tenant_id, user_id).await?;
                 let load_inputs_before = AthleteInputs::from_profile(existing.as_ref());
                 let created = existing.is_none();
                 // A first write has no stored sport to keep: `Run` is the

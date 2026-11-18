@@ -20,11 +20,12 @@
 //! the live string catalogue, one locale, no surface gluing English to data.
 
 use pierre_contremaitre::messaging_strings::{
-    MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY, KEY_GROUP_DIGEST_ALL_CLEAR,
-    KEY_GROUP_DIGEST_CONCERNS_HEADER, KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE,
-    KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK, KEY_GROUP_DIGEST_CONCERN_INACTIVE,
-    KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK, KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP,
-    KEY_GROUP_DIGEST_FRESH, KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MANAGER_SCOPE,
+    envelope_anchor_label_key, MessagingStringsRegistry, KEY_COACH_ACCESS_DECLINED_REASON_BODY,
+    KEY_GROUP_DIGEST_ALL_CLEAR, KEY_GROUP_DIGEST_CONCERNS_HEADER,
+    KEY_GROUP_DIGEST_CONCERN_DEEP_FATIGUE, KEY_GROUP_DIGEST_CONCERN_HEAVY_BLOCK,
+    KEY_GROUP_DIGEST_CONCERN_INACTIVE, KEY_GROUP_DIGEST_CONCERN_OVERTRAINING_RISK,
+    KEY_GROUP_DIGEST_CONCERN_VOLUME_DROP, KEY_GROUP_DIGEST_FRESH,
+    KEY_GROUP_DIGEST_HIGHLIGHTS_HEADER, KEY_GROUP_DIGEST_MANAGER_SCOPE,
     KEY_GROUP_DIGEST_MEMBERS_HEADER, KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE,
     KEY_GROUP_DIGEST_MEMBER_DISTANCE_LINE_PREV, KEY_GROUP_DIGEST_ROOM_SCOPE,
     KEY_GROUP_DIGEST_SUMMARY_DISTANCE, KEY_GROUP_DIGEST_TREND_DECLINING,
@@ -32,7 +33,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_NOTIFICATION_PR_DISTANCE_10K, KEY_NOTIFICATION_PR_DISTANCE_5K,
     KEY_NOTIFICATION_PR_DISTANCE_HALF_MARATHON, KEY_NOTIFICATION_PR_DISTANCE_MARATHON,
 };
-use pierre_core::models::UnitSystem;
+use pierre_core::models::{SportAnchorName, UnitSystem};
 use pierre_notifications::events::{
     action_label_key, NotificationEvent, COACH_ACCESS_DECLINE_REASON_PARAM,
 };
@@ -119,6 +120,7 @@ impl<'a> NotificationTextRenderer<'a> {
             NotificationEvent::GroupWeeklyDigest => self.group_digest_body(params),
             NotificationEvent::PersonalRecord => self.personal_record_body(params),
             NotificationEvent::CoachAccessDeclined => self.coach_access_declined_body(params),
+            NotificationEvent::CoachPhysiologySet => self.coach_physiology_set_body(params),
             _ => self.render(event.body_key(), event.body_params(), params),
         }
     }
@@ -194,6 +196,23 @@ impl<'a> NotificationTextRenderer<'a> {
         } else {
             self.line(KEY_COACH_ACCESS_DECLINED_REASON_BODY, &[reason.trim()])
         }
+    }
+
+    /// The body telling an athlete their coach set a threshold: the coach,
+    /// then the anchor named in this locale from its stored code. A code this
+    /// build does not know leaves the name slot empty rather than showing the
+    /// code.
+    fn coach_physiology_set_body(&self, params: &Map<String, Value>) -> String {
+        let anchor = params
+            .get("anchor")
+            .and_then(Value::as_str)
+            .and_then(SportAnchorName::parse)
+            .map(|name| self.line(&envelope_anchor_label_key(name.as_str()), &[]))
+            .unwrap_or_default();
+        self.line(
+            NotificationEvent::CoachPhysiologySet.body_key(),
+            &[&param_text(params.get("coach_name")), &anchor],
+        )
     }
 
     /// The group weekly digest, one line per fact: the summary, the trend,

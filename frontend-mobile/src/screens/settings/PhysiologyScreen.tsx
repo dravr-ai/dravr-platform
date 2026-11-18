@@ -2,21 +2,23 @@
 // Copyright (c) 2026 dravr.ai
 
 // ABOUTME: Settings › Physiology on the phone — the athlete's anchors per sport family, each with its value, range, source, date and confidence
-// ABOUTME: Read-only: the server words each value as the envelope notice does, a low-confidence one as a range or an estimate (carnet#1516)
+// ABOUTME: A tap on one opens the form that changes it, saved through the one physiology writer as theirs (carnet#1516, carnet#1561)
 
-import React from 'react';
+import React, { useState } from 'react';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
 import {
   PHYSIOLOGY_ANCHOR_LABEL_KEY,
+  PHYSIOLOGY_EDIT_KEY,
   PHYSIOLOGY_KEY,
   SPORT_FAMILY_LABEL_KEY,
 } from '@pierre/shared-constants';
 import type { PhysiologyAnchor, SportFamily } from '@pierre/shared-types';
-import { describeApiError, physiologyAnchorFacts } from '@pierre/ui-logic';
+import { describeApiError, physiologyAnchorFacts, type AnchorFormTarget } from '@pierre/ui-logic';
 import { useThemeColors } from '../../constants/theme';
-import { EmptyState, PaneScrollView, Row, Section } from '../../components/ui';
-import { usePhysiology } from '../../hooks/usePhysiology';
+import { Button, EmptyState, FormScrollView, PaneScrollView, Row, Section, Sheet } from '../../components/ui';
+import { PhysiologyAnchorForm } from '../../components/PhysiologyAnchorForm';
+import { usePhysiology, usePhysiologyEdit } from '../../hooks/usePhysiology';
 
 /** An anchor's value over who set it, on the trailing side of its row. */
 function ValueAndSource({ testID, anchor }: { testID: string; anchor: PhysiologyAnchor }) {
@@ -34,25 +36,34 @@ function ValueAndSource({ testID, anchor }: { testID: string; anchor: Physiology
 
 /**
  * The anchors the athlete's workouts are set on, one group per sport family.
- * Nothing here is edited: the agent's `set_physiology` is the one writer, and
- * the pane's line says so.
+ * A tap on a row opens the form that changes it, and the button under the
+ * list opens one that adds an anchor; both save through the writer the
+ * agent's `set_physiology` saves through.
  */
 export function PhysiologyScreen() {
   const { t, language } = useTranslation();
   const colors = useThemeColors();
   const physiology = usePhysiology();
+  const save = usePhysiologyEdit();
+  const [target, setTarget] = useState<AnchorFormTarget | null>(null);
 
   const familyRows = (sport: SportFamily, anchors: PhysiologyAnchor[]) =>
-    anchors.map((anchor, index) => (
-      <Row
-        key={anchor.anchor}
-        title={t(PHYSIOLOGY_ANCHOR_LABEL_KEY[anchor.anchor])}
-        subtitle={physiologyAnchorFacts(t, anchor, language).join(' · ')}
-        trailing={<ValueAndSource testID={`physiology-${sport}-${anchor.anchor}`} anchor={anchor} />}
-        last={index === anchors.length - 1}
-        testID={`physiology-${sport}-${anchor.anchor}`}
-      />
-    ));
+    anchors.map((anchor, index) => {
+      const label = t(PHYSIOLOGY_ANCHOR_LABEL_KEY[anchor.anchor]);
+      return (
+        <Row
+          key={anchor.anchor}
+          title={label}
+          subtitle={physiologyAnchorFacts(t, anchor, language).join(' · ')}
+          trailing={<ValueAndSource testID={`physiology-${sport}-${anchor.anchor}`} anchor={anchor} />}
+          onPress={() => setTarget({ mode: 'edit', sport, anchor })}
+          accessibilityRole="button"
+          accessibilityLabel={`${t(PHYSIOLOGY_EDIT_KEY.edit)} · ${label} · ${t(SPORT_FAMILY_LABEL_KEY[sport])}`}
+          last={index === anchors.length - 1}
+          testID={`physiology-${sport}-${anchor.anchor}`}
+        />
+      );
+    });
 
   /** The pane while no family is listed: loading, failed, or nothing stored. */
   const renderState = () => {
@@ -86,6 +97,7 @@ export function PhysiologyScreen() {
   };
 
   const sports = physiology.data?.sports ?? [];
+  const offered = physiology.data?.offered ?? [];
 
   return (
     <View className="flex-1 bg-background-primary" testID="physiology-screen">
@@ -107,8 +119,30 @@ export function PhysiologyScreen() {
               </Section>
             ))
           )}
+          {physiology.data !== undefined && (
+            <View className="px-4">
+              <Button
+                title={t(PHYSIOLOGY_EDIT_KEY.add)}
+                variant="secondary"
+                onPress={() => setTarget({ mode: 'add' })}
+                testID="physiology-add"
+              />
+            </View>
+          )}
         </View>
       </PaneScrollView>
+      <Sheet visible={target !== null} onClose={() => setTarget(null)} testID="physiology-editor-sheet">
+        {target !== null && (
+          <FormScrollView>
+            <PhysiologyAnchorForm
+              target={target}
+              offered={offered}
+              onDone={() => setTarget(null)}
+              onSave={(anchorSave) => save.mutateAsync(anchorSave)}
+            />
+          </FormScrollView>
+        )}
+      </Sheet>
     </View>
   );
 }

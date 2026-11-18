@@ -83,6 +83,9 @@ pub enum NotificationEvent {
     /// A group's human coach put the athlete's plan on the athlete's provider
     /// calendar through their link. Sent to the athlete.
     CoachPlanPushed,
+    /// A group's human coach set one of the athlete's per-sport thresholds
+    /// from Group info (carnet#1561). Sent to the athlete.
+    CoachPhysiologySet,
     /// The weekly digest of the pushes a persona floor withheld.
     PersonaDigest,
     /// The daily digest of the pushes a persona floor withheld.
@@ -131,6 +134,7 @@ impl NotificationEvent {
             Self::DelegationOffCoachRoster => "delegation_off_coach_roster",
             Self::CoachPlanPublished => "coach_plan_published",
             Self::CoachPlanPushed => "coach_plan_pushed",
+            Self::CoachPhysiologySet => "coach_physiology_set",
             Self::PersonaDigest => "persona_digest",
             Self::PersonaDailyDigest => "persona_daily_digest",
             Self::PersonaSessionDigest => "persona_session_digest",
@@ -163,6 +167,7 @@ impl NotificationEvent {
             Self::DelegationOffCoachRoster,
             Self::CoachPlanPublished,
             Self::CoachPlanPushed,
+            Self::CoachPhysiologySet,
             Self::PersonaDigest,
             Self::PersonaDailyDigest,
             Self::PersonaSessionDigest,
@@ -198,6 +203,7 @@ impl NotificationEvent {
             }
             Self::CoachPlanPublished => "notifications.event.coach_plan_published.title",
             Self::CoachPlanPushed => "notifications.event.coach_plan_pushed.title",
+            Self::CoachPhysiologySet => "notifications.event.coach_physiology_set.title",
             Self::PersonaDigest => "notifications.digest.title",
             Self::PersonaDailyDigest => "notifications.digest.daily.title",
             Self::PersonaSessionDigest => "notifications.digest.session.title",
@@ -233,6 +239,7 @@ impl NotificationEvent {
             }
             Self::CoachPlanPublished => "notifications.event.coach_plan_published.body",
             Self::CoachPlanPushed => "notifications.event.coach_plan_pushed.body",
+            Self::CoachPhysiologySet => "notifications.event.coach_physiology_set.body",
             Self::PersonaDigest => "notifications.digest.body",
             Self::PersonaDailyDigest => "notifications.digest.daily.body",
             Self::PersonaSessionDigest => "notifications.digest.session.body",
@@ -261,6 +268,7 @@ impl NotificationEvent {
             // title names only the provider, as `{1}`, so the coach still
             // holds `{0}` there.
             Self::CoachPlanPublished | Self::CoachPlanPushed => self.body_params(),
+            Self::CoachPhysiologySet => &["coach_name"],
             _ => &[],
         }
     }
@@ -285,6 +293,9 @@ impl NotificationEvent {
             }
             Self::CoachPlanPublished => &["coach_name", "race_name"],
             Self::CoachPlanPushed => &["coach_name", "provider_name"],
+            // The renderer names the anchor in the reader's language from its
+            // stored code; the slot order is the template's.
+            Self::CoachPhysiologySet => &["coach_name", "anchor"],
             Self::PersonaDigest | Self::PersonaDailyDigest | Self::PersonaSessionDigest => {
                 &["item_count"]
             }

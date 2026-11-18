@@ -225,6 +225,23 @@ export {
 } from './unitsHook';
 // Settings › Physiology: the read of the athlete's anchors and the facts under each one (carnet#1516).
 export { type PhysiologyPlatform, createPhysiologyHook, physiologyAnchorFacts } from './physiology';
+// Setting one anchor, the athlete's own or a coached athlete's from Group info (carnet#1561).
+export {
+  type AnchorForm,
+  type AnchorFormProblem,
+  type AnchorFormRead,
+  type AnchorFormTarget,
+  type AnchorSave,
+  type AthletePhysiologyRead,
+  type UseAthletePhysiologyResult,
+  anchorEntryUnit,
+  createCoachPhysiologyHooks,
+  createPhysiologyEditHook,
+  initialAnchorForm,
+  newAnchorForm,
+  paceDistanceFor,
+  readAnchorForm,
+} from './physiologyEdit';
 export {
   type ActivityUploadFailure,
   type ActivityUploadOutcome,

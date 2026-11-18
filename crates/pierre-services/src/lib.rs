@@ -81,6 +81,9 @@ pub mod coach_plan_draft;
 /// The notices an athlete gets when their human coach publishes or pushes their plan (carnet#1069).
 pub mod coach_plan_notice;
 
+/// The notice an athlete gets when their human coach sets one of their thresholds (carnet#1561).
+pub mod coach_physiology_notice;
+
 /// The room post a coach's publish leaves in the athlete's group, naming the changed days (carnet#1249).
 pub mod coach_plan_room_post;
 

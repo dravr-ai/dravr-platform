@@ -226,6 +226,7 @@ mod coach_data_reads_test;
 mod coach_group_view_reads_test;
 mod coach_groups_tools_gate_test;
 mod coach_home_seed_test;
+mod coach_physiology_test;
 mod coach_plan_notice_test;
 mod coach_plan_thread_seed_test;
 mod coach_plan_write_transport_test;

@@ -368,6 +368,7 @@ mod notification_event_locale_tests {
             NotificationEvent::DelegationOffCoachRoster,
             NotificationEvent::CoachPlanPublished,
             NotificationEvent::CoachPlanPushed,
+            NotificationEvent::CoachPhysiologySet,
             NotificationEvent::PersonaDigest,
             NotificationEvent::PersonaDailyDigest,
             NotificationEvent::PersonaSessionDigest,

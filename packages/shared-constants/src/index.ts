@@ -375,11 +375,16 @@ export {
   weekMinutesSeconds,
 } from './training-volume';
 
-// Settings › Physiology: each anchor's label, each sport family's heading, each confidence (carnet#1516)
+// Settings › Physiology: each anchor's label, each sport family's heading, each confidence (carnet#1516),
+// the form that sets one, and the coach's view of one athlete's (carnet#1561)
 export {
   ANCHOR_CONFIDENCE_LABEL_KEY,
+  ANCHOR_KIND_LABEL_KEY,
+  COACH_PHYSIOLOGY_KEY,
   PHYSIOLOGY_ANCHOR_LABEL_KEY,
+  PHYSIOLOGY_EDIT_KEY,
   PHYSIOLOGY_KEY,
+  PHYSIOLOGY_METHOD_MAX_CHARS,
   SPORT_FAMILY_LABEL_KEY,
 } from './physiology';
 

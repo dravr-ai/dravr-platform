@@ -28,6 +28,7 @@ use pierre_core::models::periodization::{
 use pierre_core::models::{
     sport_anchors, AnchorOrigin, AnchorUnit, MeasurementKind, MetricProvenance, ProfileTwin,
     ProvenancedValue, SportAnchor, SportAnchorName, UserPhysiologicalProfile,
+    ATHLETE_REPORTED_ORIGIN, COACH_STATED_ORIGIN,
 };
 use serde_json::Value;
 
@@ -39,6 +40,45 @@ use super::physiology::{
 
 /// The argument name.
 pub(crate) const SPORT_ANCHORS_ARG: &str = "sport_anchors";
+
+/// Refuse a `set_physiology` call naming the athlete's human coach as who
+/// produced a value: a sport anchor's `source`, or the `measurement_source`
+/// the call's critical-power values carry, equal to [`COACH_STATED_ORIGIN`]
+/// in any letter case (carnet#1561).
+///
+/// That origin is the coach's own edit from Group info, stored behind the
+/// coaching gates and the athlete's consent; written by the agent, it would
+/// have the athlete read a value as their coach's that no coach set. Checked
+/// where the tool's arguments enter, never in the writer the coach's route
+/// shares.
+///
+/// # Errors
+/// Returns an invalid-input error naming the argument that carries it.
+pub(crate) fn refuse_reserved_origin(args: &Value) -> AppResult<()> {
+    let reserved = |value: Option<&Value>| {
+        value
+            .and_then(Value::as_str)
+            .is_some_and(|origin| origin.trim().eq_ignore_ascii_case(COACH_STATED_ORIGIN))
+    };
+    if reserved(args.get("measurement_source")) {
+        return Err(AppError::invalid_input(format!(
+            "measurement_source '{COACH_STATED_ORIGIN}' is reserved for a value the athlete's human coach sets; name who produced it, or {ATHLETE_REPORTED_ORIGIN} when the athlete named none"
+        )));
+    }
+    let entries = args
+        .get(SPORT_ANCHORS_ARG)
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    if let Some(index) = entries
+        .iter()
+        .position(|entry| reserved(entry.get("source")))
+    {
+        return Err(AppError::invalid_input(format!(
+            "sport_anchors[{index}]: source '{COACH_STATED_ORIGIN}' is reserved for a value the athlete's human coach sets; name who produced it, or leave source out for the athlete's own"
+        )));
+    }
+    Ok(())
+}
 
 /// Highest maximal aerobic power accepted, in watts: the critical-power
 /// ceiling times the top of the MAP-to-CP spread (cageux's I8 default is
@@ -574,6 +614,43 @@ mod tests {
         })))?
         .contains("kind is required"));
         Ok(())
+    }
+
+    #[test]
+    fn the_coach_origin_is_refused_in_any_case_and_every_other_source_passes() {
+        for source in ["coach", "Coach", " COACH "] {
+            let refused = refuse_reserved_origin(&json!({ "sport_anchors": [
+                { "sport": "ride", "anchor": "ftp", "value": 290, "kind": "measured" },
+                { "sport": "ride", "anchor": "map", "value": 380, "kind": "measured", "source": source }
+            ]}));
+            assert!(
+                refused
+                    .as_ref()
+                    .is_err_and(|e| e.to_string().contains("sport_anchors[1]: source 'coach' is reserved")),
+                "bug: the agent stored a sport anchor as its human coach's ({source:?}): {refused:?}"
+            );
+            let refused = refuse_reserved_origin(&json!({
+                "critical_power_watts": 300, "measurement_kind": "measured", "measurement_source": source
+            }));
+            assert!(
+                refused
+                    .as_ref()
+                    .is_err_and(|e| e.to_string().contains("measurement_source 'coach' is reserved")),
+                "bug: the agent stored a measurement as its human coach's ({source:?}): {refused:?}"
+            );
+        }
+        for args in [
+            json!({ "sport_anchors": [
+                { "sport": "ride", "anchor": "ftp", "value": 290, "kind": "measured", "source": "coach's lab" }
+            ]}),
+            json!({ "measurement_source": "vekta", "critical_power_watts": 300, "measurement_kind": "estimated" }),
+            json!({ "ftp_watts": 290 }),
+        ] {
+            assert!(
+                refuse_reserved_origin(&args).is_ok(),
+                "bug: a source other than the coach origin is refused: {args}"
+            );
+        }
     }
 
     #[test]

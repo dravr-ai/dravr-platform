@@ -93,11 +93,14 @@ pub enum CoachReadSurface {
     /// The coach's copy of the group's weekly digest. Recorded at most once a
     /// day.
     WeeklyDigest,
+    /// Group info's view of the athlete's thresholds, where the coach also
+    /// sets one (`GET`/`PUT /api/chat/athletes/{id}/physiology`, carnet#1561).
+    PhysiologyView,
 }
 
 impl CoachReadSurface {
     /// Every surface, for a caller that maps each to its words.
-    pub const ALL: [Self; 9] = [
+    pub const ALL: [Self; 10] = [
         Self::PlanView,
         Self::PlanCommand,
         Self::Roster,
@@ -107,6 +110,7 @@ impl CoachReadSurface {
         Self::GroupReport,
         Self::GroupHealth,
         Self::WeeklyDigest,
+        Self::PhysiologyView,
     ];
 
     /// The label the `tool_name` column stores for a read made here.
@@ -122,6 +126,7 @@ impl CoachReadSurface {
             Self::GroupReport => "group_report",
             Self::GroupHealth => "group_health",
             Self::WeeklyDigest => "weekly_digest",
+            Self::PhysiologyView => "physiology_view",
         }
     }
 

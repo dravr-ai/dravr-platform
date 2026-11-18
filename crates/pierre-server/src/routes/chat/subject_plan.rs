@@ -49,8 +49,7 @@ use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::plan_card::{PlanCard, PlanSubject};
 use pierre_services::plan_fueling::FuelingDisclosure;
-use pierre_tool_runtime::context::{AuthMethod, ToolExecutionContext};
-use pierre_tool_runtime::implementations::plan_scope;
+use pierre_tool_runtime::context::ToolExecutionContext;
 use pierre_tool_runtime::implementations::training_plan_drafts::{
     publish_draft_live, DraftPublish, DraftPublishOutcome, PublishedDraftReport,
 };
@@ -63,7 +62,7 @@ use crate::mcp::resources::ServerContext;
 use crate::routes::athlete_home::TrainingPlanQuery;
 use crate::tools::runtime_adapter::into_runtime;
 
-use super::common::{get_tenant_id, refusal};
+use super::common::{get_tenant_id, refusal, refuse_external_coach_write};
 use super::dto::{
     PlanPublishConflictResponse, PublishConflictDetails, PublishSubjectPlanRequest,
     PublishedSubjectPlanResponse, SubjectPlanResponse,
@@ -190,19 +189,6 @@ pub(super) async fn get_subject_plan(
     Ok((StatusCode::OK, Json(response)).into_response())
 }
 
-/// A coach publishes or discards a coached athlete's plan only from Dravr's
-/// own apps and channels. An API-key or MCP client acting for the coach is
-/// outside the agreement the athlete made with their coach inside Dravr, and
-/// the plan tools refuse it the same write, in the same words (carnet#1533).
-fn refuse_external_plan_write(auth: &AuthResult) -> Result<(), AppError> {
-    match tool_auth_method(auth) {
-        AuthMethod::ApiKey | AuthMethod::McpClient | AuthMethod::OAuth2 => {
-            Err(plan_scope::external_write_error("plan"))
-        }
-        AuthMethod::JwtBearer | AuthMethod::ChannelLink => Ok(()),
-    }
-}
-
 /// `POST /api/chat/conversations/{id}/subject-plan/publish`: the coach's
 /// draft made the athlete's live plan, and put on the athlete's chosen
 /// calendar (carnet#1492).
@@ -219,7 +205,7 @@ pub(super) async fn publish_subject_plan(
     Path(conversation_id): Path<String>,
     Json(request): Json<PublishSubjectPlanRequest>,
 ) -> Result<Response, AppError> {
-    refuse_external_plan_write(&auth)?;
+    refuse_external_coach_write(&auth, "plan")?;
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     record_thread_read(&resources, &access, auth.user_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
@@ -296,64 +282,11 @@ pub(super) async fn discard_subject_plan_draft(
     auth: AuthenticatedUser,
     Path(conversation_id): Path<String>,
 ) -> Result<Response, AppError> {
-    refuse_external_plan_write(&auth)?;
+    refuse_external_coach_write(&auth, "plan")?;
     let access = coached_subject(&resources, &auth, &conversation_id).await?;
     let target = CoachDraftTarget::new(access.tenant, access.athlete_user_id, auth.user_id);
     match discard_coach_draft(&resources.common.repos, &target).await? {
         Some(_) => Ok(StatusCode::NO_CONTENT.into_response()),
         None => Err(no_draft()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use pierre_auth::auth::{AuthMethod as Credential, AuthResult};
-    use pierre_auth::oauth2_server::first_party::WEB_CLIENT_ID;
-    use pierre_core::permissions::scopes::OAuthScope;
-    use serde_json::json;
-    use uuid::Uuid;
-
-    use super::refuse_external_plan_write;
-
-    /// A JWT's authentication naming `client_id`, holding every scope.
-    fn jwt(client_id: Option<&str>) -> AuthResult {
-        AuthResult {
-            user_id: Uuid::new_v4(),
-            auth_method: Credential::JwtToken {
-                tier: "starter".to_owned(),
-                impersonation: None,
-            },
-            active_tenant_id: None,
-            scopes: OAuthScope::self_grant(),
-            client_id: client_id.map(str::to_owned),
-        }
-    }
-
-    /// The middleware refuses an application's token before this route runs;
-    /// were one to reach it, the publish and the discard still refuse it.
-    #[test]
-    fn an_applications_token_is_refused_the_coachs_plan_write() {
-        let refused = refuse_external_plan_write(&jwt(Some("mcp_client_test")))
-            .expect_err("an application writes no coached athlete's plan");
-        assert_eq!(
-            refused.http_status(),
-            403,
-            "refused as forbidden, not sent to sign in again"
-        );
-        assert_eq!(
-            refused.details.as_deref().map(|details| &details["reason"]),
-            Some(&json!("external_transport")),
-            "refused for the transport, in the plan tools' own words"
-        );
-    }
-
-    #[test]
-    fn the_coachs_own_session_writes_the_plan() {
-        for client_id in [Some(WEB_CLIENT_ID), None] {
-            assert!(
-                refuse_external_plan_write(&jwt(client_id)).is_ok(),
-                "{client_id:?}"
-            );
-        }
     }
 }

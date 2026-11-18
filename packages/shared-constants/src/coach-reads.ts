@@ -32,7 +32,8 @@ export function coachReadClassKey(dataClass: CoachReadDataClass): string {
  * info's plan view, `/plan <athlete>`, the coach's roster, the athlete block
  * of the coach's thread about them, and the group views built from every
  * member's training — the room's member cards, the group's stats, weekly
- * report and health flags, and the coach's weekly digest.
+ * report and health flags, and the coach's weekly digest — and Group info's
+ * view of the athlete's thresholds (carnet#1561).
  */
 const COACH_READ_SOURCE_KEYS: Readonly<Record<string, string>> = {
   plan_view: 'humanCoach.readLog.sourcePlanView',
@@ -44,6 +45,7 @@ const COACH_READ_SOURCE_KEYS: Readonly<Record<string, string>> = {
   group_report: 'humanCoach.readLog.sourceGroupReport',
   group_health: 'humanCoach.readLog.sourceGroupHealth',
   weekly_digest: 'humanCoach.readLog.sourceWeeklyDigest',
+  physiology_view: 'humanCoach.readLog.sourcePhysiologyView',
 };
 
 /**

@@ -173,6 +173,7 @@ pub use check_in::CheckInCadence;
 pub use measurement::{
     AnchorOrigin, AnchorProvenance, AnchorStamp, MeasurementKind, MetricProvenance,
     ProvenancedValue, ThresholdProvenance, ThresholdStatedOn, ATHLETE_REPORTED_ORIGIN,
+    COACH_STATED_ORIGIN,
 };
 pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
 pub use sport_anchors::{

@@ -94,6 +94,9 @@
 //! - `GET /api/me/physiology?locale=xx` — the athlete's own anchors per sport
 //!   family, each with its range, source and date, worded as the envelope
 //!   notice words an anchor.
+//! - `PUT /api/me/physiology/{sport}/{anchor}?locale=xx` — the athlete sets
+//!   one of their own anchors through the one physiology writer, and reads
+//!   their anchors back; built with `tools-config`, which builds that writer.
 //!
 //! Every JSON key is always present; an absent value is `null`.
 
@@ -101,8 +104,9 @@ pub mod activity_view;
 pub mod calendar;
 /// The athlete's Home preferences: what Home offers or holds back.
 pub mod home_preferences;
-/// The athlete's own anchors per sport family, as Settings shows them.
-mod physiology;
+/// The athlete's own anchors per sport family, as Settings shows and sets
+/// them; the coach's view of one athlete's reads and words them the same way.
+pub(crate) mod physiology;
 /// The background refresh of stale provider heads Home starts.
 mod stale_refresh;
 /// The athlete's units: metric unless they chose imperial in Settings.
@@ -522,7 +526,7 @@ pub struct TrainingPlanResponse {
 
 /// Build the Athlete Home router.
 pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
-    Router::new()
+    let router = Router::new()
         .route("/api/me/activities/recent", get(get_recent_activities))
         .route(
             "/api/me/activities/{provider}/{activity_id}",
@@ -544,7 +548,15 @@ pub fn athlete_home_routes() -> Router<Arc<ServerContext>> {
             get(home_preferences::get_home_preferences).put(home_preferences::put_home_preferences),
         )
         .route("/api/me/units", get(units::get_units).put(units::put_units))
-        .route("/api/me/physiology", get(physiology::get_physiology))
+        .route("/api/me/physiology", get(physiology::get_physiology));
+    // The edit saves through the physiology writer, which `tools-config`
+    // builds: without it the route does not exist and the read still serves.
+    #[cfg(feature = "tools-config")]
+    let router = router.route(
+        "/api/me/physiology/{sport}/{anchor}",
+        put(physiology::edit::put_physiology_anchor),
+    );
+    router
         .route("/api/me/calendar", get(calendar::get_calendar))
         .merge(upload::upload_routes())
 }

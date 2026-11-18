@@ -13,6 +13,7 @@
 //! - [`chat::personal`] — the caller's personal thread and the topics "+" opens in it
 //! - [`chat::subject_thread`] — a group's coach's thread about one athlete, opened or reopened
 //! - [`chat::subject_plan`] — in that thread, the coach's draft of the athlete's plan: read, publish, discard
+//! - [`chat::athlete_physiology`] — the same coach reads and sets the athlete's thresholds from Group info
 //! - [`chat::read_marker`] — the caller's read marker: mark read / mark unread
 //! - [`chat::starters`] — the use-case starters an empty thread offers
 //! - [`chat::group_transcript`] — the shared room view of a coaching group
@@ -23,6 +24,7 @@
 //! - [`chat::dto`] — request/response shapes shared across the handlers
 //! - [`chat::common`] — auth / tenant resolution shared by every handler
 
+mod athlete_physiology;
 mod athlete_plan;
 mod common;
 mod conversations;
@@ -76,7 +78,7 @@ pub struct ChatRoutes;
 impl ChatRoutes {
     /// Create all chat routes.
     pub fn routes(resources: Arc<ServerContext>) -> Router {
-        Router::new()
+        let router = Router::new()
             // Conversation management
             .route(
                 "/api/chat/conversations",
@@ -117,6 +119,22 @@ impl ChatRoutes {
                 "/api/chat/athletes/{athlete_user_id}/plan",
                 get(athlete_plan::get_athlete_plan),
             )
+            // The same coach reads that athlete's thresholds per sport from
+            // Group info, and sets one through the one physiology writer
+            // (carnet#1561)
+            .route(
+                "/api/chat/athletes/{athlete_user_id}/physiology",
+                get(athlete_physiology::get_athlete_physiology),
+            );
+        // The coach's edit saves through the physiology writer, which
+        // `tools-config` builds: without it the route does not exist and the
+        // read still serves.
+        #[cfg(feature = "tools-config")]
+        let router = router.route(
+            "/api/chat/athletes/{athlete_user_id}/physiology/{sport}/{anchor}",
+            put(athlete_physiology::edit::put_athlete_physiology_anchor),
+        );
+        router
             // In that thread, the coach's draft of the athlete's plan: read
             // it beside the live plan, publish it, or throw it away
             // (carnet#1069)

@@ -1,10 +1,10 @@
-// ABOUTME: GET /api/me/physiology — the athlete's own anchors per sport family, each with its range, source and date
-// ABOUTME: Read through the one anchors reader and worded as the envelope notice words an anchor; confidence as stored
+// ABOUTME: GET /api/me/physiology — the athlete's own anchors per sport family, and the PUT's edit module that sets one at a time
+// ABOUTME: Read through the one anchors reader, worded as the envelope notice words them; the response every physiology route answers
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The athlete's physiology (carnet#1516).
+//! The athlete's physiology (carnet#1516, carnet#1561).
 //!
 //! `GET /api/me/physiology?locale=xx` answers every anchor the athlete
 //! holds, per sport family — ride, run, swim, in that order, a family
@@ -24,7 +24,20 @@
 //!
 //! The caller's own anchors only, in the tenant of their session: nothing
 //! in the request names an athlete. An athlete with no profile, or none
-//! this transport may read, holds no anchor, and `sports` is empty.
+//! this transport may read, holds no anchor, and `sports` is empty. Beside
+//! them, `offered` lists every anchor each family can hold, with its unit:
+//! what an edit may set.
+//!
+//! `PUT /api/me/physiology/{sport}/{anchor}?locale=xx` sets one anchor and
+//! answers with the anchors as the `GET` does; it, and what the coach's edit
+//! shares with it, is `edit`, built with the `tools-config` feature that
+//! builds the physiology writer it saves through. The `GET` reads the stored
+//! anchors whatever that feature or the write tool's switch says.
+
+/// The edit of one anchor, the athlete's own and the coach's: built only
+/// where its writer is.
+#[cfg(feature = "tools-config")]
+pub(crate) mod edit;
 
 use std::sync::Arc;
 
@@ -37,18 +50,19 @@ use pierre_contremaitre::anchor_strings::{
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
-use pierre_core::models::{AnchorUnit, HeldAnchors, SportAnchorName, UnitSystem};
+use pierre_core::models::{AnchorUnit, HeldAnchors, SportAnchorName, TenantId, UnitSystem};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::locale::user_locale;
 use pierre_services::personas::resolve_persona_locale;
 use pierre_services::units::resolve_user_units;
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 use super::active_tenant;
 use crate::mcp::resources::ServerContext;
 
-/// Query parameters for `GET /api/me/physiology`.
+/// Query parameters for `GET` and `PUT /api/me/physiology`.
 #[derive(Debug, Deserialize)]
 pub(super) struct PhysiologyQuery {
     /// The locale the anchors' words render in; an unsupported or absent
@@ -57,11 +71,89 @@ pub(super) struct PhysiologyQuery {
     locale: Option<String>,
 }
 
-/// Body of `GET /api/me/physiology`.
+/// Body of `GET /api/me/physiology`, of `PUT /api/me/physiology/{sport}/{anchor}`
+/// and of the coach's view of one athlete's anchors.
 #[derive(Debug, Clone, Serialize)]
-pub(super) struct PhysiologyResponse {
+pub(crate) struct PhysiologyResponse {
     /// Each sport family the athlete holds an anchor in: ride, run, swim.
     sports: Vec<SportPhysiology>,
+    /// Every anchor each family can hold, with its unit: what an edit may
+    /// set. Ride, run, swim; each family's anchors in the order
+    /// [`SportAnchorName::ALL`] declares them.
+    offered: Vec<OfferedFamily>,
+}
+
+/// The anchors one sport family can hold.
+#[derive(Debug, Clone, Serialize)]
+struct OfferedFamily {
+    /// The family: `ride`, `run` or `swim`.
+    sport: SportFamily,
+    /// Its anchors, each with its unit.
+    anchors: Vec<OfferedAnchor>,
+}
+
+/// One anchor a family can hold.
+#[derive(Debug, Clone, Serialize)]
+struct OfferedAnchor {
+    /// Which anchor.
+    anchor: SportAnchorName,
+    /// The unit it is stored in; a speed is entered as a pace.
+    unit: AnchorUnit,
+}
+
+/// `athlete`'s anchors in `tenant`, worded for `reader_user` reading as
+/// `reader`: in that reader's locale (or `locale`) and units.
+///
+/// # Errors
+///
+/// Returns the repository error of the reader's account, the athlete's
+/// profile or their anchors.
+pub(crate) async fn physiology_response(
+    resources: &Arc<ServerContext>,
+    tenant: TenantId,
+    athlete: Uuid,
+    reader_user: Uuid,
+    reader: AnchorReader,
+    locale: Option<&str>,
+) -> AppResult<PhysiologyResponse> {
+    let repos = &resources.common.repos;
+    let user = repos.users.get_global(reader_user).await?;
+    let locale = resolve_persona_locale(locale, Some(&user_locale(user.as_ref())));
+    let units = resolve_user_units(repos.unit_preferences.as_ref(), reader_user).await;
+    let sports = stored_athlete_anchors(repos, tenant, athlete)
+        .await?
+        .map_or_else(Vec::new, |held| {
+            sports_of(
+                &held,
+                &resources.mcp.messaging_strings_registry,
+                &locale,
+                units,
+                reader,
+            )
+        });
+    Ok(PhysiologyResponse {
+        sports,
+        offered: offered(),
+    })
+}
+
+/// Every anchor each family can hold, with its unit.
+fn offered() -> Vec<OfferedFamily> {
+    SportFamily::ALL
+        .iter()
+        .copied()
+        .map(|sport| OfferedFamily {
+            sport,
+            anchors: SportAnchorName::ALL
+                .into_iter()
+                .filter(|name| name.offered_in(sport))
+                .map(|anchor| OfferedAnchor {
+                    anchor,
+                    unit: anchor.unit(),
+                })
+                .collect(),
+        })
+        .collect()
 }
 
 /// One sport family's anchors.
@@ -97,14 +189,15 @@ struct PhysiologyAnchor {
     confidence: AnchorConfidence,
     /// The value as the envelope notice writes it: a range or an estimate at
     /// low confidence, an estimate at any confidence unless measured, a speed
-    /// as pace in the athlete's units.
+    /// as pace in the reader's units.
     value_text: String,
     /// The range it states, when `value_text` does not already read as it;
     /// `null` at low confidence, where the value is the range.
     range_text: Option<String>,
-    /// Who set it, as the athlete reads it: their own value, words for an
-    /// origin stored as a code (`imported`, `estimated`, `promoted`), or
-    /// "from" the provider, app or test it names.
+    /// Who set it, as its reader reads it: their own value (the athlete's own
+    /// in a coach's view), words for an origin stored as a code (`imported`,
+    /// `estimated`, `promoted`), set by a coach, or "from" the provider, app
+    /// or test it names.
     source_text: String,
 }
 
@@ -114,32 +207,27 @@ pub(super) async fn get_physiology(
     auth: AuthenticatedUser,
     Query(query): Query<PhysiologyQuery>,
 ) -> AppResult<Json<PhysiologyResponse>> {
-    let user_id = auth.user_id;
     let tenant_id = active_tenant(&auth)?;
-    let repos = &resources.common.repos;
-    let user = repos.users.get_global(user_id).await?;
-    let locale = resolve_persona_locale(query.locale.as_deref(), Some(&user_locale(user.as_ref())));
-    let units = resolve_user_units(repos.unit_preferences.as_ref(), user_id).await;
-    let sports = stored_athlete_anchors(repos, tenant_id, user_id)
-        .await?
-        .map_or_else(Vec::new, |held| {
-            sports_of(
-                &held,
-                &resources.mcp.messaging_strings_registry,
-                &locale,
-                units,
-            )
-        });
-    Ok(Json(PhysiologyResponse { sports }))
+    let body = physiology_response(
+        &resources,
+        tenant_id,
+        auth.user_id,
+        auth.user_id,
+        AnchorReader::Athlete,
+        query.locale.as_deref(),
+    )
+    .await?;
+    Ok(Json(body))
 }
 
 /// The families of `anchors` that hold an anchor, each with its anchors
-/// worded in `locale` and `units`.
+/// worded in `locale` and `units` for `reader`.
 fn sports_of(
     anchors: &HeldAnchors,
     strings: &MessagingStringsRegistry,
     locale: &str,
     units: UnitSystem,
+    reader: AnchorReader,
 ) -> Vec<SportPhysiology> {
     SportFamily::ALL
         .iter()
@@ -165,7 +253,7 @@ fn sports_of(
                         source_text: anchor_source_text(
                             strings,
                             locale,
-                            AnchorReader::Athlete,
+                            reader,
                             point.origin.as_deref(),
                         ),
                         value: point.value,
@@ -265,7 +353,13 @@ mod tests {
             ),
         ]);
 
-        let sports = sports_of(&anchors, &strings, "en", UnitSystem::Metric);
+        let sports = sports_of(
+            &anchors,
+            &strings,
+            "en",
+            UnitSystem::Metric,
+            AnchorReader::Athlete,
+        );
 
         let families: Vec<SportFamily> = sports.iter().map(|s| s.sport).collect();
         assert_eq!(
@@ -303,7 +397,13 @@ mod tests {
             ),
         ]);
 
-        let sports = sports_of(&anchors, &strings, "en", UnitSystem::Metric);
+        let sports = sports_of(
+            &anchors,
+            &strings,
+            "en",
+            UnitSystem::Metric,
+            AnchorReader::Athlete,
+        );
         let ride = &sports[0].anchors;
 
         let cp = &ride[0];
@@ -355,7 +455,13 @@ mod tests {
             },
         )]);
 
-        let sports = sports_of(&anchors, &strings, "en", UnitSystem::Imperial);
+        let sports = sports_of(
+            &anchors,
+            &strings,
+            "en",
+            UnitSystem::Imperial,
+            AnchorReader::Athlete,
+        );
         let threshold = &sports[0].anchors[0];
 
         assert_eq!(
@@ -386,7 +492,13 @@ mod tests {
             ),
         ]);
 
-        let sports = sports_of(&anchors, &strings, "en", UnitSystem::Metric);
+        let sports = sports_of(
+            &anchors,
+            &strings,
+            "en",
+            UnitSystem::Metric,
+            AnchorReader::Athlete,
+        );
         let ride = &sports[0].anchors;
 
         let cp = &ride[0];
@@ -407,6 +519,31 @@ mod tests {
         assert_eq!(
             ride[1].value_text, "380 W",
             "bug: a measured high-confidence anchor still reads as its value"
+        );
+    }
+
+    #[test]
+    fn every_family_offers_the_anchors_it_can_hold() {
+        let families = offered();
+        let names = |sport: SportFamily| -> Vec<SportAnchorName> {
+            families
+                .iter()
+                .find(|family| family.sport == sport)
+                .map(|family| family.anchors.iter().map(|a| a.anchor).collect())
+                .unwrap_or_default()
+        };
+        assert!(
+            !names(SportFamily::Ride).contains(&SportAnchorName::CriticalSpeed),
+            "bug: the bike holds no speed anchor"
+        );
+        assert!(
+            !names(SportFamily::Swim).contains(&SportAnchorName::Ftp),
+            "bug: the pool holds no power anchor"
+        );
+        assert_eq!(
+            names(SportFamily::Run).len(),
+            SportAnchorName::ALL.len(),
+            "bug: the run holds power, speed and heart rate"
         );
     }
 }

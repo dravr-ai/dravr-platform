@@ -12,6 +12,12 @@ use serde::{Deserialize, Serialize};
 /// mentions it has not named a source.
 pub const ATHLETE_REPORTED_ORIGIN: &str = "athlete-reported";
 
+/// The origin of a per-sport anchor the athlete's human coach set.
+///
+/// The coach sets it from their view of the athlete (carnet#1561). A
+/// persisted value: stored on the anchor row, read back by every reader.
+pub const COACH_STATED_ORIGIN: &str = "coach";
+
 /// Whether a physiological value was measured or estimated.
 ///
 /// This is what decides how the value may be framed. A measured critical

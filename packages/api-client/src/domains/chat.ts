@@ -18,9 +18,13 @@ import type {
   Message,
   MessageFeedbackEntry,
   MessageOrigin,
+  PhysiologyAnchorEdit,
+  PhysiologyResponse,
   PublishSubjectPlanRequest,
   PublishSubjectPlanResult,
   SendMessageRequest,
+  SportAnchorName,
+  SportFamily,
   StartersResponse,
   SubjectPlanResponse,
   TurnEnvelope,
@@ -28,6 +32,7 @@ import type {
 } from '@pierre/shared-types';
 import {
   parseAthletePlanResponse,
+  parsePhysiologyResponse,
   parsePlanPublishConflict,
   parsePublishedSubjectPlan,
   parseSubjectPlanResponse,
@@ -409,6 +414,41 @@ export function createChatApi(axios: AxiosInstance, adapter: PlatformAdapter) {
       const endpoint = ENDPOINTS.CHAT.ATHLETE_PLAN(athleteUserId);
       const response = await axios.get<unknown>(endpoint, { params: { group_id: groupId } });
       return requireShape(parseAthletePlanResponse(response.data), endpoint);
+    },
+
+    /**
+     * A coached athlete's thresholds per sport as their coach reads them from
+     * Group info (carnet#1561), worded in the coach's language and units. The
+     * coaching-link refusals (403 / 404 / 409) reject, 403
+     * `coach_sharing_revoked` among them.
+     */
+    async getAthletePhysiology(athleteUserId: string, groupId: string, locale?: string): Promise<PhysiologyResponse> {
+      const endpoint = ENDPOINTS.CHAT.ATHLETE_PHYSIOLOGY(athleteUserId);
+      const response = await axios.get<unknown>(endpoint, {
+        params: locale ? { group_id: groupId, locale } : { group_id: groupId },
+      });
+      return requireShape(parsePhysiologyResponse(response.data), endpoint);
+    },
+
+    /**
+     * Set one of a coached athlete's thresholds as their coach, stored as set
+     * by a coach, the athlete told; answers as `getAthletePhysiology` does. A
+     * value the server refuses rejects with its 400, a coaching-link refusal
+     * with its own status.
+     */
+    async updateAthletePhysiologyAnchor(
+      athleteUserId: string,
+      groupId: string,
+      sport: SportFamily,
+      anchor: SportAnchorName,
+      edit: PhysiologyAnchorEdit,
+      locale?: string,
+    ): Promise<PhysiologyResponse> {
+      const endpoint = ENDPOINTS.CHAT.ATHLETE_PHYSIOLOGY_ANCHOR(athleteUserId, sport, anchor);
+      const response = await axios.put<unknown>(endpoint, edit, {
+        params: locale ? { group_id: groupId, locale } : { group_id: groupId },
+      });
+      return requireShape(parsePhysiologyResponse(response.data), endpoint);
     },
 
     /**

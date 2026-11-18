@@ -35,6 +35,7 @@ import {
 } from '../ui';
 import MemberList from './MemberList';
 import AthletePlanModal from './AthletePlanModal';
+import AthletePhysiologyModal from './AthletePhysiologyModal';
 import { AgentRow, CoachRow } from './GroupLeads';
 import CoachAccessRequest from '../CoachAccessRequest';
 import InviteManager from './InviteManager';
@@ -180,6 +181,7 @@ export default function GroupInfoPanel({
   const [confirmRemoveCoach, setConfirmRemoveCoach] = useState(false);
   // The member whose live plan the coach is reading, read-only (carnet#1244).
   const [viewingPlanFor, setViewingPlanFor] = useState<GroupMember | null>(null);
+  const [viewingThresholdsFor, setViewingThresholdsFor] = useState<GroupMember | null>(null);
 
   const currentUserRole: GroupRole = currentMember?.role ?? 'member';
   const isOwner = currentUserRole === 'owner';
@@ -411,6 +413,7 @@ export default function GroupInfoPanel({
                   opening={pendingAthleteId === member.user_id}
                   busy={pendingAthleteId !== null}
                   onViewPlan={setViewingPlanFor}
+                  onViewThresholds={setViewingThresholdsFor}
                   onOpenCoachHome={canOpenCoachHome ? (m) => onOpenCoachHome?.(m.user_id) : undefined}
                   menu={
                     athleteActions.itemsFor(member).length > 0 ? (
@@ -464,6 +467,11 @@ export default function GroupInfoPanel({
         onClose={() => setViewingPlanFor(null)}
         onWorkOnPlan={onOpenConversation ? (member) => void handleWorkOnPlan(member) : undefined}
         isOpeningThread={viewingPlanFor !== null && pendingAthleteId === viewingPlanFor.user_id}
+      />
+      <AthletePhysiologyModal
+        member={viewingThresholdsFor}
+        groupId={groupId}
+        onClose={() => setViewingThresholdsFor(null)}
       />
 
       {/* Which side of the links the caller is on is the server's answer:

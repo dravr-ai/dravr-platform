@@ -152,6 +152,14 @@ pub const KEY_ENVELOPE_SOURCE_ESTIMATED: &str = "messaging.envelope.source_estim
 /// recent measurements (origin `promoted`).
 pub const KEY_ENVELOPE_SOURCE_PROMOTED: &str = "messaging.envelope.source_promoted";
 
+/// The source of an anchor the athlete's human coach set, as the athlete
+/// reads it (carnet#1561). No placeholder.
+pub const KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_ATHLETE: &str = "humanCoach.anchorSource.forAthlete";
+
+/// The source of an anchor an athlete's human coach set, in a coach's view of
+/// the athlete. No placeholder.
+pub const KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_COACH: &str = "humanCoach.anchorSource.forCoach";
+
 /// The key of the sentence for one envelope finding code (`{0}` measured,
 /// `{1}` bound where the finding carries them).
 #[must_use]
@@ -1240,6 +1248,11 @@ pub const KEY_GROUP_READS_SOURCE_GROUP_HEALTH: &str = "commands.group.reads_sour
 /// Key: `/group reads` words, in place of a tool, for a read made by the
 /// human coach's copy of the group's weekly digest. No placeholder.
 pub const KEY_GROUP_READS_SOURCE_WEEKLY_DIGEST: &str = "commands.group.reads_source_weekly_digest";
+/// Key: `/group reads` words, in place of a tool, for a read made by the
+/// human coach's view of the athlete's thresholds in Group info
+/// (carnet#1561). No placeholder.
+pub const KEY_GROUP_READS_SOURCE_PHYSIOLOGY_VIEW: &str =
+    "commands.group.reads_source_physiology_view";
 /// Key: the `/group join` reply's sharing line when the group has a human
 /// coach. `{0}` = the coach's name.
 pub const KEY_GROUP_COACH_SHARING_NAMED: &str = "commands.group.coach_sharing_named";
@@ -1660,6 +1673,14 @@ pub const KEY_NOTIFICATION_COACH_PLAN_PUSHED_TITLE: &str =
 /// provider name.
 pub const KEY_NOTIFICATION_COACH_PLAN_PUSHED_BODY: &str =
     "notifications.event.coach_plan_pushed.body";
+/// Key: the athlete's human coach set one of their thresholds. `{0}` coach
+/// name.
+pub const KEY_NOTIFICATION_COACH_PHYSIOLOGY_SET_TITLE: &str =
+    "notifications.event.coach_physiology_set.title";
+/// Key: who set which threshold, and where it is. `{0}` coach name, `{1}` the
+/// threshold's label.
+pub const KEY_NOTIFICATION_COACH_PHYSIOLOGY_SET_BODY: &str =
+    "notifications.event.coach_physiology_set.body";
 
 // ── Group weekly digest ───────────────────────────────────────────────────
 //

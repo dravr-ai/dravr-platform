@@ -132,7 +132,7 @@ pub async fn tell_plan_pushed(
 
 /// The coach's name as a roster names a member, or `None` (logged) when
 /// their account cannot be read.
-async fn coach_name(repos: &RepositoryRegistry, coach: Uuid) -> Option<String> {
+pub(crate) async fn coach_name(repos: &RepositoryRegistry, coach: Uuid) -> Option<String> {
     match repos.users.get_global(coach).await {
         Ok(Some(user)) => Some(roster_display_name(
             user.display_name.as_deref(),
@@ -150,6 +150,6 @@ async fn coach_name(repos: &RepositoryRegistry, coach: Uuid) -> Option<String> {
 }
 
 /// A platform tenant as the notification pipeline names it.
-const fn notice_tenant(tenant: TenantId) -> NoticeTenantId {
+pub(crate) const fn notice_tenant(tenant: TenantId) -> NoticeTenantId {
     NoticeTenantId(tenant.as_uuid())
 }

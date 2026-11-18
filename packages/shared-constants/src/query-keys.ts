@@ -190,6 +190,13 @@ export const QUERY_KEYS = {
     athletePlan: (athleteUserId: string | null, groupId: string | null) =>
       ['chat', 'athlete-plan', athleteUserId, groupId] as const,
     /**
+     * A coached athlete's thresholds as their coach reads them from Group
+     * info (carnet#1561), worded in the coach's language and units, both in
+     * the key as the athlete's own read keys them.
+     */
+    athletePhysiology: (athleteUserId: string | null, groupId: string | null, locale: string, units: string) =>
+      ['chat', 'athlete-physiology', athleteUserId, groupId, locale, units] as const,
+    /**
      * Who a coach's next send in a one-athlete room reaches — everyone, or the
      * agent alone — as this device remembers it for the viewer in that room
      * (carnet#1249). The private rows themselves are the work thread's

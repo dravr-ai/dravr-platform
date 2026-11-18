@@ -48,6 +48,7 @@ import { GroupLeadRows } from './GroupLeadRows';
 import { GroupTranscriptSection } from './GroupTranscriptSection';
 import { MemberRow } from './MemberRow';
 import { AthletePlanView } from './AthletePlanView';
+import { AthletePhysiologyView } from './AthletePhysiologyView';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
 import { CoachConsentsSection } from './CoachConsentsSection';
 import { CoachReadLog } from './CoachReadLog';
@@ -182,6 +183,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
   // The member whose live plan the coach is reading, drawn in place of the
   // roster (carnet#1244).
   const [viewingPlanFor, setViewingPlanFor] = useState<GroupMember | null>(null);
+  const [viewingThresholdsFor, setViewingThresholdsFor] = useState<GroupMember | null>(null);
 
   const [removingMemberId, setRemovingMemberId] = useState<string | null>(null);
   const [roleChangingUserId, setRoleChangingUserId] = useState<string | null>(null);
@@ -450,6 +452,16 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
     );
   }
 
+  if (viewingThresholdsFor) {
+    return (
+      <AthletePhysiologyView
+        member={viewingThresholdsFor}
+        groupId={groupId}
+        onBack={() => setViewingThresholdsFor(null)}
+      />
+    );
+  }
+
   if (viewingPlanFor) {
     return (
       <AthletePlanView
@@ -524,6 +536,7 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
                 }
                 isOpeningPlan={pendingAthleteId === member.user_id}
                 onViewPlan={isGroupCoach && member.user_id !== user?.id ? setViewingPlanFor : undefined}
+                onViewThresholds={isGroupCoach && member.user_id !== user?.id ? setViewingThresholdsFor : undefined}
               />
             ))
           )}

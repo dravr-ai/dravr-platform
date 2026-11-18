@@ -1,4 +1,4 @@
-// ABOUTME: set_physiology, the athlete's own write of user_physiological_profiles, and the physiology tool set
+// ABOUTME: save_physiology, the one writer of user_physiological_profiles that set_physiology and the REST edits share, and the tool set
 // ABOUTME: Read-modify-write so saving one measurement never nulls the rest of the athlete's profile
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
@@ -721,12 +721,11 @@ pub(crate) fn validate_merged(profile: &UserPhysiologicalProfile) -> AppResult<(
 /// when the profile was written from first-party-only data and the caller is
 /// external: such a profile is neither read nor merged into (carnet#769).
 pub(crate) async fn profile_for_write(
-    context: &ToolExecutionContext,
+    resources: &Arc<dyn ToolRuntime>,
     tenant_id: TenantId,
     user_id: Uuid,
 ) -> AppResult<Option<UserPhysiologicalProfile>> {
-    let existing = context
-        .resources
+    let existing = resources
         .repos()
         .user_physiological_profile
         .get_user_physiological_profile(tenant_id, user_id)
@@ -792,6 +791,114 @@ pub(crate) async fn store_profile(
         recompute_stored_history(resources, tenant_id, user_id).await
     };
     Ok((stored, training_history))
+}
+
+/// Save `args` (`set_physiology`'s arguments) as `user_id`'s physiology in
+/// `tenant_id`; answer with the profile re-read from storage.
+///
+/// The one writer of an athlete's physiology (carnet#1561): the tool and the
+/// Settings › Physiology edits (athlete's and coach's) share its parse, bounds,
+/// read-modify-write, twin mirroring and refusal of contradicting values. A
+/// sport anchor's `source` is who set it; one naming none stores the athlete's.
+///
+/// # Errors
+///
+/// Invalid input when `args` sets nothing, fails a parse or a range, or
+/// contradicts what is stored; unavailable-over-transport for a
+/// first-party-only profile read externally; any repository error.
+pub async fn save_physiology(
+    resources: &Arc<dyn ToolRuntime>,
+    tenant_id: TenantId,
+    user_id: Uuid,
+    args: &Value,
+) -> AppResult<SetPhysiologyResult> {
+    let update = PhysiologyUpdate::from_args(args)?;
+    let anchor_update = SportAnchorUpdate::from_args(args)?;
+    let mut updated_fields = update.field_names();
+    if updated_fields.is_empty() && anchor_update.is_empty() {
+        return Err(AppError::invalid_input(
+            "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport, training_experience_years, critical_power_watts, w_prime_joules, critical_speed_mps, d_prime_meters or sport_anchors",
+        ));
+    }
+
+    let existing = profile_for_write(resources, tenant_id, user_id).await?;
+    let created = existing.is_none();
+    let load_inputs_before = AthleteInputs::from_profile(existing.as_ref());
+    // A first save has no stored sport to keep. `Run` matches the column's
+    // own schema default, so code and table agree rather than offering a
+    // third answer; `primary_sport` is settable here, so the athlete's real
+    // sport overwrites it as soon as they name it.
+    let mut profile =
+        existing.unwrap_or_else(|| UserPhysiologicalProfile::new(user_id, SportType::Run));
+    profile.user_id = user_id;
+    let repos = resources.repos();
+    let today = athlete_today(repos, user_id).await;
+    update.apply_to(&mut profile, today);
+    let stored_anchors = if created {
+        Vec::new()
+    } else {
+        repos
+            .user_physiological_profile
+            .list_sport_anchors(tenant_id, user_id)
+            .await?
+    };
+    let anchor_writes = physiology_anchors::reconcile(
+        &mut profile,
+        &updated_fields,
+        anchor_update.anchors(today),
+        &stored_anchors,
+    )?;
+    validate_merged(&profile)?;
+    physiology_anchors::check_relationships(&profile, &anchor_writes.merged)?;
+    // A resting heart rate or weight the athlete states is also that day's
+    // measurement, which trends and merged reads see. Filed before the
+    // profile: no transaction spans the two, and a row rewritten on retry is
+    // harmless where a profile saved under a reported failure is not.
+    record_manual_measurements(
+        repos,
+        tenant_id,
+        user_id,
+        ManualMeasurements {
+            resting_hr: update.resting_hr,
+            weight_kg: update.weight,
+        },
+    )
+    .await?;
+    let (stored, training_history) =
+        store_profile(resources, tenant_id, profile, &load_inputs_before).await?;
+    // After the profile row: an anchor row needs its profile beside it.
+    let anchors = &repos.user_physiological_profile;
+    for (sport, anchor) in &anchor_writes.deletes {
+        anchors
+            .delete_sport_anchor(tenant_id, user_id, *sport, *anchor)
+            .await?;
+    }
+    for anchor in &anchor_writes.upserts {
+        anchors
+            .upsert_sport_anchor(tenant_id, user_id, anchor)
+            .await?;
+    }
+    let sport_anchors = anchors.list_sport_anchors(tenant_id, user_id).await?;
+    if !anchor_update.is_empty() {
+        updated_fields.push(physiology_anchors::SPORT_ANCHORS_ARG);
+    }
+
+    info!(
+        user_id = %user_id,
+        tenant_id = %tenant_id,
+        created = created,
+        // Field names only — the measurements are health data.
+        fields = %updated_fields.join(","),
+        "saved athlete physiology"
+    );
+
+    Ok(SetPhysiologyResult {
+        saved: true,
+        created,
+        updated_fields,
+        profile: profile_payload(&stored, sport_anchors),
+        training_history,
+    })
 }
 
 // ============================================================================
@@ -1065,98 +1172,10 @@ impl McpTool<dyn ToolRuntime> for SetPhysiologyTool {
     ) -> ToolResponse {
         let context = ToolExecutionContext::from_tronc(state, ctx);
         let result: AppResult<ToolResult> = async move {
-            let tenant_id = TenantId::from_uuid(context.require_tenant()?);
-            let user_id = context.user_id;
-
-            let update = PhysiologyUpdate::from_args(&args)?;
-            let anchor_update = SportAnchorUpdate::from_args(&args)?;
-            let mut updated_fields = update.field_names();
-            if updated_fields.is_empty() && anchor_update.is_empty() {
-                return Err(AppError::invalid_input(
-                    "set_physiology needs at least one measurement: ftp_watts, threshold_pace_sec_per_km, max_hr, resting_hr, threshold_hr, lactate_threshold_percentage, vo2_max, weight, age, fitness_level, primary_sport, training_experience_years, critical_power_watts, w_prime_joules, critical_speed_mps, d_prime_meters or sport_anchors",
-                ));
-            }
-
-            let existing = profile_for_write(&context, tenant_id, user_id).await?;
-            let created = existing.is_none();
-            let load_inputs_before = AthleteInputs::from_profile(existing.as_ref());
-            // A first save has no stored sport to keep. `Run` matches the
-            // column's own schema default, so code and table agree rather than
-            // offering a third answer; `primary_sport` is settable here, so the
-            // athlete's real sport overwrites it as soon as they name it.
-            let mut profile =
-                existing.unwrap_or_else(|| UserPhysiologicalProfile::new(user_id, SportType::Run));
-            profile.user_id = user_id;
-            let today = athlete_today(context.resources.repos(), user_id).await;
-            update.apply_to(&mut profile, today);
-            let repos = context.resources.repos();
-            let stored_anchors = if created {
-                Vec::new()
-            } else {
-                repos
-                    .user_physiological_profile
-                    .list_sport_anchors(tenant_id, user_id)
-                    .await?
-            };
-            let anchor_writes = physiology_anchors::reconcile(
-                &mut profile,
-                &updated_fields,
-                anchor_update.anchors(today),
-                &stored_anchors,
-            )?;
-            validate_merged(&profile)?;
-            physiology_anchors::check_relationships(&profile, &anchor_writes.merged)?;
-            // A resting heart rate or weight the athlete states is also that
-            // day's measurement, which trends and merged reads see. Filed
-            // before the profile: no transaction spans the two, and a row
-            // rewritten on retry is harmless where a profile saved under a
-            // reported failure is not.
-            record_manual_measurements(
-                context.resources.repos(),
-                tenant_id,
-                user_id,
-                ManualMeasurements {
-                    resting_hr: update.resting_hr,
-                    weight_kg: update.weight,
-                },
-            )
-            .await?;
-            let (stored, training_history) =
-                store_profile(&context.resources, tenant_id, profile, &load_inputs_before).await?;
-            // After the profile row: an anchor row needs its profile beside it.
-            let anchors = &repos.user_physiological_profile;
-            for (sport, anchor) in &anchor_writes.deletes {
-                anchors
-                    .delete_sport_anchor(tenant_id, user_id, *sport, *anchor)
-                    .await?;
-            }
-            for anchor in &anchor_writes.upserts {
-                anchors.upsert_sport_anchor(tenant_id, user_id, anchor).await?;
-            }
-            let sport_anchors = anchors.list_sport_anchors(tenant_id, user_id).await?;
-            if !anchor_update.is_empty() {
-                updated_fields.push(physiology_anchors::SPORT_ANCHORS_ARG);
-            }
-
-            info!(
-                user_id = %user_id,
-                tenant_id = %tenant_id,
-                created = created,
-                // Field names only — the measurements are health data.
-                fields = %updated_fields.join(","),
-                "saved athlete physiology"
-            );
-
-            ok_typed(
-                "set_physiology",
-                SetPhysiologyResult {
-                    saved: true,
-                    created,
-                    updated_fields,
-                    profile: profile_payload(&stored, sport_anchors),
-                    training_history,
-                },
-            )
+            physiology_anchors::refuse_reserved_origin(&args)?;
+            let tenant = TenantId::from_uuid(context.require_tenant()?);
+            let saved = save_physiology(&context.resources, tenant, context.user_id, &args).await?;
+            ok_typed("set_physiology", saved)
         }
         .await;
         tool_result_to_response(result)

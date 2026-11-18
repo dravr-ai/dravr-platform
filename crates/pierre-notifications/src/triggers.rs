@@ -567,9 +567,11 @@ pub fn trigger_delegation_off_coach_roster(
 // reads without the athlete doing anything, so each tells the athlete: the
 // draft published as their plan, and that plan put on their provider calendar
 // through the coach's link. Each is one person's act addressed to another,
-// like a link notice, so it bypasses the daily cap the same way.
+// like a link notice, so it bypasses the daily cap the same way. A threshold
+// the coach sets from Group info changes what the athlete's workouts are set
+// on in the same way (carnet#1561), and tells them through the same dispatch.
 
-/// A coach's plan notice for the athlete `athlete_id`, in category `coach`.
+/// A coach's notice for the athlete `athlete_id`, in category `coach`.
 fn coach_plan_dispatch(
     athlete_id: Uuid,
     tenant_id: TenantId,
@@ -637,6 +639,32 @@ pub fn trigger_coach_plan_pushed(
         NotificationEvent::CoachPlanPushed,
         json!({ "coach_name": coach_name, "provider_name": platform.name }),
         connections_route(platform.provider),
+        TransportPolicy::AnyTransport,
+    );
+    spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);
+}
+
+/// Trigger notification telling an athlete their human coach set one of
+/// their per-sport thresholds, `anchor` (its stored code, such as
+/// `threshold_speed`), from Group info (carnet#1561).
+///
+/// The words name the coach and the anchor alone; the value is on the
+/// athlete's physiology pane, which no screen token names, so the notice
+/// carries no destination. P2: what the athlete's workouts are set on
+/// changed, the plan itself did not.
+pub fn trigger_coach_physiology_set(
+    service: &Arc<NotificationService>,
+    athlete_id: Uuid,
+    tenant_id: TenantId,
+    coach_name: &str,
+    anchor: &str,
+) {
+    let dispatch = coach_plan_dispatch(
+        athlete_id,
+        tenant_id,
+        NotificationEvent::CoachPhysiologySet,
+        json!({ "coach_name": coach_name, "anchor": anchor }),
+        json!({}),
         TransportPolicy::AnyTransport,
     );
     spawn_dispatch(Arc::clone(service), dispatch, PushTier::P2);

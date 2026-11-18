@@ -103,6 +103,8 @@ jest.mock('../src/services/api', () => ({
   chatApi: {
     openAthleteThread: jest.fn(),
     getAthletePlan: jest.fn(),
+    getAthletePhysiology: jest.fn(),
+    updateAthletePhysiologyAnchor: jest.fn(),
   },
 }));
 
@@ -816,6 +818,96 @@ describe('GroupInfoSheet', () => {
 
       expect(await findByText("Phil stopped sharing with you, so their plan isn't shown.")).toBeTruthy();
       expect(queryByTestId('athlete-plan-work-on')).toBeNull();
+    });
+  });
+
+  describe("reading and setting a member's thresholds (carnet#1561)", () => {
+    const FTP = {
+      anchor: 'ftp',
+      unit: 'watts',
+      value: 285,
+      low: null,
+      high: null,
+      origin: 'athlete',
+      as_of: '2026-10-20',
+      method: null,
+      confidence: 'medium',
+      value_text: '285 W',
+      range_text: null,
+      source_text: "the athlete's own value",
+    };
+    const OFFERED = [{ sport: 'ride', anchors: [{ anchor: 'ftp', unit: 'watts' }] }];
+
+    beforeEach(() => {
+      mockCallerId = 'user-coach';
+      (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+      (groupsApi.listDelegatedConnections as jest.Mock).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      (groupsApi.getDelegationRoster as jest.Mock).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    });
+
+    it("shows the coach the athlete's thresholds in place of the roster, and saves one", async () => {
+      (chatApi.getAthletePhysiology as jest.Mock).mockResolvedValue({
+        sports: [{ sport: 'ride', anchors: [FTP] }],
+        offered: OFFERED,
+      });
+      (chatApi.updateAthletePhysiologyAnchor as jest.Mock).mockResolvedValue({
+        sports: [{ sport: 'ride', anchors: [{ ...FTP, value: 292, value_text: '292 W', source_text: 'set by a coach' }] }],
+        offered: OFFERED,
+      });
+      const { findByTestId, findByText, getByTestId, queryByTestId } = renderSheet();
+
+      const open = await findByTestId('member-thresholds-user-phil');
+      expect(open.props.accessibilityLabel).toBe("Phil's thresholds");
+      await act(async () => {
+        fireEvent.press(open);
+      });
+
+      expect(await findByText("Phil's thresholds")).toBeTruthy();
+      expect(chatApi.getAthletePhysiology).toHaveBeenCalledWith('user-phil', 'group-1', 'en');
+      expect(queryByTestId('group-info-sheet')).toBeNull();
+
+      await act(async () => {
+        fireEvent.press(await findByTestId('athlete-physiology-ride-ftp'));
+      });
+      fireEvent.changeText(await findByTestId('physiology-editor-value'), '292');
+      fireEvent.press(getByTestId('physiology-editor-kind-measured'));
+      await act(async () => {
+        fireEvent.press(getByTestId('physiology-editor-save'));
+      });
+
+      await waitFor(() =>
+        expect(chatApi.updateAthletePhysiologyAnchor).toHaveBeenCalledWith(
+          'user-phil',
+          'group-1',
+          'ride',
+          'ftp',
+          expect.objectContaining({ value: 292, kind: 'measured', confidence: 'medium', pace_per: null }),
+          'en',
+        ),
+      );
+      expect(await findByTestId('athlete-physiology-saved')).toBeTruthy();
+      expect(await findByText('set by a coach')).toBeTruthy();
+
+      await act(async () => {
+        fireEvent.press(getByTestId('athlete-physiology-back'));
+      });
+      expect(await findByTestId('group-info-sheet')).toBeTruthy();
+    });
+
+    it('says the athlete stopped sharing, and offers nothing to set', async () => {
+      (chatApi.getAthletePhysiology as jest.Mock).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 403'), {
+          response: { status: 403, data: { code: 'PermissionDenied', details: { reason: 'coach_sharing_revoked' } } },
+        }),
+      );
+      const { findByTestId, findByText, queryByTestId } = renderSheet();
+
+      await act(async () => {
+        fireEvent.press(await findByTestId('member-thresholds-user-phil'));
+      });
+
+      expect(await findByText('Phil stopped sharing their data with you, so their thresholds are hidden.')).toBeTruthy();
+      expect(queryByTestId('athlete-physiology-add')).toBeNull();
     });
   });
 

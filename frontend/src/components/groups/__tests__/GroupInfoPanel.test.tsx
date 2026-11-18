@@ -115,6 +115,8 @@ vi.mock('../../../services/api', () => ({
   chatApi: {
     openAthleteThread: vi.fn(),
     getAthletePlan: vi.fn(),
+    getAthletePhysiology: vi.fn(),
+    updateAthletePhysiologyAnchor: vi.fn(),
   },
 }));
 
@@ -1324,6 +1326,108 @@ describe('GroupInfoPanel', () => {
       expect(await screen.findByText('Other')).toBeInTheDocument();
       expect(screen.queryByRole('button', { name: /View plan/ })).toBeNull();
       expect(chatApi.getAthletePlan).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("reading and setting a member's thresholds (carnet#1561)", () => {
+    const FTP = {
+      anchor: 'ftp' as const,
+      unit: 'watts' as const,
+      value: 285,
+      low: null,
+      high: null,
+      origin: 'athlete',
+      as_of: '2026-10-20',
+      method: null,
+      confidence: 'medium' as const,
+      value_text: '285 W',
+      range_text: null,
+      source_text: "the athlete's own value",
+    };
+    const OFFERED = [{ sport: 'ride' as const, anchors: [{ anchor: 'ftp' as const, unit: 'watts' as const }] }];
+
+    function coachOf() {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(
+        sampleGroup({ coach_user_id: CALLER_ID, coach_display_name: 'Caller Coach', owner_id: OTHER_ID }),
+      );
+      vi.mocked(groupsApi.listMembers).mockResolvedValue({
+        members: [member({ id: 'membership-2', user_id: OTHER_ID, role: 'owner', display_name: 'Alice Runner' })],
+      });
+      vi.mocked(groupsApi.listDelegatedConnections).mockResolvedValue({ connections: [], total: 0, viewer: 'coach' });
+      vi.mocked(groupsApi.getDelegationRoster).mockResolvedValue({ provider: 'trainingpeaks', athletes: [] });
+    }
+
+    it("shows the coach the athlete's thresholds worded for a coach, and saves one as theirs to set", async () => {
+      coachOf();
+      vi.mocked(chatApi.getAthletePhysiology).mockResolvedValue({
+        sports: [{ sport: 'ride', anchors: [FTP] }],
+        offered: OFFERED,
+      });
+      vi.mocked(chatApi.updateAthletePhysiologyAnchor).mockResolvedValue({
+        sports: [
+          {
+            sport: 'ride',
+            anchors: [{ ...FTP, value: 292, value_text: '292 W', origin: 'coach', source_text: 'set by a coach' }],
+          },
+        ],
+        offered: OFFERED,
+      });
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: 'Thresholds · Alice Runner' }));
+
+      expect(await screen.findByText("Alice Runner's thresholds")).toBeInTheDocument();
+      expect(screen.getByTestId('physiology-ride-ftp-source')).toHaveTextContent("the athlete's own value");
+      expect(chatApi.getAthletePhysiology).toHaveBeenCalledWith(OTHER_ID, GROUP_ID, 'en');
+
+      await user.click(screen.getByTestId('physiology-ride-ftp-edit'));
+      const editor = await screen.findByTestId('physiology-editor');
+      const value = within(editor).getByTestId('physiology-editor-value');
+      await user.clear(value);
+      await user.type(value, '292');
+      await user.selectOptions(within(editor).getByTestId('physiology-editor-kind'), 'measured');
+      await user.click(within(editor).getByTestId('physiology-editor-save'));
+
+      await waitFor(() =>
+        expect(chatApi.updateAthletePhysiologyAnchor).toHaveBeenCalledWith(
+          OTHER_ID,
+          GROUP_ID,
+          'ride',
+          'ftp',
+          expect.objectContaining({ value: 292, kind: 'measured', confidence: 'medium', pace_per: null }),
+          'en',
+        ),
+      );
+      expect(await screen.findByTestId('athlete-physiology-saved')).toHaveTextContent('Saved. Alice Runner is told.');
+      expect(screen.getByTestId('physiology-ride-ftp-source')).toHaveTextContent('set by a coach');
+    });
+
+    it('says the athlete stopped sharing, and offers nothing to set', async () => {
+      coachOf();
+      vi.mocked(chatApi.getAthletePhysiology).mockRejectedValue(
+        Object.assign(new Error('Request failed with status code 403'), {
+          response: { status: 403, data: { code: 'PermissionDenied', details: { reason: 'coach_sharing_revoked' } } },
+        }),
+      );
+      const user = userEvent.setup();
+      renderPanel();
+
+      await user.click(await screen.findByRole('button', { name: 'Thresholds · Alice Runner' }));
+
+      expect(await screen.findByTestId('athlete-physiology-revoked')).toHaveTextContent(
+        'Alice Runner stopped sharing their data with you, so their thresholds are hidden.',
+      );
+      expect(screen.queryByTestId('athlete-physiology-add')).toBeNull();
+    });
+
+    it('never offers a member the thresholds of another', async () => {
+      vi.mocked(groupsApi.getGroup).mockResolvedValue(sampleGroup({ coach_user_id: COACH_ID }));
+      renderPanel();
+
+      expect(await screen.findByText('Other')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Thresholds/ })).toBeNull();
+      expect(chatApi.getAthletePhysiology).not.toHaveBeenCalled();
     });
   });
 

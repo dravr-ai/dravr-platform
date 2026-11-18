@@ -28,12 +28,15 @@
 
 use pierre_core::constants::units::METERS_PER_KM;
 use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
-use pierre_core::models::{AnchorOrigin, AnchorUnit, MeasurementKind, UnitSystem};
+use pierre_core::models::{
+    AnchorOrigin, AnchorUnit, MeasurementKind, UnitSystem, COACH_STATED_ORIGIN,
+};
 
 use crate::messaging_strings::{
     MessagingStringsRegistry, KEY_ENVELOPE_ANCHOR_ESTIMATE, KEY_ENVELOPE_ANCHOR_RANGE,
     KEY_ENVELOPE_SOURCE_ATHLETE, KEY_ENVELOPE_SOURCE_ESTIMATED, KEY_ENVELOPE_SOURCE_FROM,
     KEY_ENVELOPE_SOURCE_IMPORTED, KEY_ENVELOPE_SOURCE_OWN, KEY_ENVELOPE_SOURCE_PROMOTED,
+    KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_ATHLETE, KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_COACH,
 };
 
 /// Seconds in a minute, for writing a pace.
@@ -131,8 +134,10 @@ pub fn anchor_range_text(
 /// reads in the words [`origin_code_key`] gives it, never as the code: an
 /// anchor the athlete stated reads as the reader's own value, or as the
 /// athlete's own in a coach's view, and an anchor naming no origin is the
-/// athlete's. Any other origin is the provider, app or test that produced
-/// the anchor, and reads as "from" it, exactly as named.
+/// athlete's. One the athlete's human coach set ([`COACH_STATED_ORIGIN`], in
+/// any letter case) reads as set by their coach, or by a coach in a coach's
+/// view (carnet#1561). Any other origin is the provider, app or test that
+/// produced the anchor, and reads as "from" it, exactly as named.
 #[must_use]
 pub fn anchor_source_text(
     strings: &MessagingStringsRegistry,
@@ -143,6 +148,18 @@ pub fn anchor_source_text(
     let Some(origin) = origin else {
         return strings.get(origin_code_key(AnchorOrigin::Athlete, reader), locale);
     };
+    // Matched whatever its case, as the codes below are, so a "Coach" never
+    // reads raw; ahead of them, since `coach` is no stored code and would
+    // otherwise read as "from coach".
+    if origin.eq_ignore_ascii_case(COACH_STATED_ORIGIN) {
+        return strings.get(
+            match reader {
+                AnchorReader::Athlete => KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_ATHLETE,
+                AnchorReader::Coach => KEY_HUMAN_COACH_ANCHOR_SOURCE_FOR_COACH,
+            },
+            locale,
+        );
+    }
     // The model writes a per-sport anchor's source as free text, so a code
     // can arrive as "Imported" or "PROMOTED"; the code's words are the same.
     // Only this reading folds case: stored data decodes exactly as written.
@@ -595,5 +612,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn an_anchor_a_coach_set_is_named_for_its_reader() {
+        let strings = MessagingStringsRegistry::new();
+        assert_eq!(
+            anchor_source_text(
+                &strings,
+                "en",
+                AnchorReader::Athlete,
+                Some(COACH_STATED_ORIGIN)
+            ),
+            "set by your coach", // humanCoach.anchorSource.forAthlete
+            "bug: the athlete reads an anchor their coach set as their coach's"
+        );
+        assert_eq!(
+            anchor_source_text(
+                &strings,
+                "en",
+                AnchorReader::Coach,
+                Some(COACH_STATED_ORIGIN)
+            ),
+            "set by a coach",
+            "bug: a coach reads an anchor a coach set as a coach's, never as the athlete's own"
+        );
+        assert_eq!(
+            anchor_source_text(&strings, "en", AnchorReader::Athlete, Some("Coach")),
+            "set by your coach", // humanCoach.anchorSource.forAthlete
+            "bug: the coach origin in another case reads raw as \"from Coach\""
+        );
     }
 }

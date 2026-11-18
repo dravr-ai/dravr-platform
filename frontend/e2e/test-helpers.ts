@@ -84,6 +84,46 @@ export const ONBOARDED_STATUS = {
 };
 
 /**
+ * Every anchor each sport family can hold, with its unit, as the server lists
+ * it beside the anchors (carnet#1561): what an edit may set.
+ */
+export const PHYSIOLOGY_OFFERED = [
+  {
+    sport: 'ride',
+    anchors: [
+      { anchor: 'ftp', unit: 'watts' },
+      { anchor: 'critical_power', unit: 'watts' },
+      { anchor: 'map', unit: 'watts' },
+      { anchor: 'max_heart_rate', unit: 'beats_per_minute' },
+      { anchor: 'threshold_heart_rate', unit: 'beats_per_minute' },
+    ],
+  },
+  {
+    sport: 'run',
+    anchors: [
+      { anchor: 'ftp', unit: 'watts' },
+      { anchor: 'critical_power', unit: 'watts' },
+      { anchor: 'map', unit: 'watts' },
+      { anchor: 'critical_speed', unit: 'metres_per_second' },
+      { anchor: 'vvo2max', unit: 'metres_per_second' },
+      { anchor: 'threshold_speed', unit: 'metres_per_second' },
+      { anchor: 'max_heart_rate', unit: 'beats_per_minute' },
+      { anchor: 'threshold_heart_rate', unit: 'beats_per_minute' },
+    ],
+  },
+  {
+    sport: 'swim',
+    anchors: [
+      { anchor: 'critical_speed', unit: 'metres_per_second' },
+      { anchor: 'vvo2max', unit: 'metres_per_second' },
+      { anchor: 'threshold_speed', unit: 'metres_per_second' },
+      { anchor: 'max_heart_rate', unit: 'beats_per_minute' },
+      { anchor: 'threshold_heart_rate', unit: 'beats_per_minute' },
+    ],
+  },
+];
+
+/**
  * `GET /api/me/physiology` for an athlete who stated an FTP, measured a bike
  * MAP and holds an estimated run critical speed: a low-confidence point, a
  * measured value with its stated range, and a low-confidence range, worded in
@@ -135,6 +175,7 @@ export function physiologyFixture(language = 'en') {
         ],
       },
     ],
+    offered: PHYSIOLOGY_OFFERED,
   };
 }
 

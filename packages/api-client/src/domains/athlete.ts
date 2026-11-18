@@ -29,7 +29,10 @@ import {
   type HomeActivity,
   type HomePreferences,
   type HomePreferencesUpdate,
+  type PhysiologyAnchorEdit,
   type PhysiologyResponse,
+  type SportAnchorName,
+  type SportFamily,
   type UnitPreferences,
   type PreferredCalendar,
   type UnitSystem,
@@ -311,6 +314,25 @@ export function createAthleteApi(axios: AxiosInstance) {
         params: locale ? { locale } : undefined,
       });
       return requireShape(parsePhysiologyResponse(response.data), ENDPOINTS.ATHLETE.PHYSIOLOGY);
+    },
+
+    /**
+     * Set one of the athlete's own anchors (carnet#1561), stored as theirs at
+     * the confidence the edit states, and read the anchors back as
+     * `getPhysiology` does. A value the server refuses — out of bounds, or
+     * contradicting a stored one — rejects with its 400.
+     */
+    async updatePhysiologyAnchor(
+      sport: SportFamily,
+      anchor: SportAnchorName,
+      edit: PhysiologyAnchorEdit,
+      locale?: string,
+    ): Promise<PhysiologyResponse> {
+      const endpoint = ENDPOINTS.ATHLETE.PHYSIOLOGY_ANCHOR(sport, anchor);
+      const response = await axios.put<unknown>(endpoint, edit, {
+        params: locale ? { locale } : undefined,
+      });
+      return requireShape(parsePhysiologyResponse(response.data), endpoint);
     },
 
     /** The calendar Dravr's pushes go to, and the athlete's connected calendars to choose from. */

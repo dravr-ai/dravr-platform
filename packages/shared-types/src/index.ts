@@ -395,8 +395,13 @@ export { parseUnitPreferences } from './units.js';
 // The athlete's physiology: each anchor per sport family with its range, source, date and confidence (carnet#1516)
 export type {
   AnchorConfidence,
+  AnchorKind,
   AnchorUnit,
+  OfferedAnchor,
+  OfferedFamily,
+  PaceDistance,
   PhysiologyAnchor,
+  PhysiologyAnchorEdit,
   PhysiologyResponse,
   SportAnchorName,
   SportFamily,
