@@ -43,7 +43,12 @@ type ExtensionAnswer =
 
 /** Why a sign-in through the extension ended without cookies. */
 export class ExtensionSignInError extends Error {
-  /** `closed`, `refused`, `timeout`, `disconnected`, `not_installed`, `unavailable`, … */
+  /**
+   * From the extension: `closed` (the sign-in tab), `declined` (the notice
+   * closed unaccepted), `refused`, `timeout`, `tab_unopened`,
+   * `cookies_unreadable`, `storage_unreadable`. From this page: `disconnected`,
+   * `aborted`; from the modal: `unavailable`.
+   */
   readonly reason: string;
 
   constructor(reason: string) {

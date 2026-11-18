@@ -1,0 +1,48 @@
+{
+  "noticeLang": {
+    "message": "fr",
+    "description": "The language tag of these messages, set on the notice page so assistive technology reads it in this language"
+  },
+  "extName": {
+    "message": "Connexion Dravr"
+  },
+  "extDescription": {
+    "message": "Connecte-toi à Garmin, Strava, TrainingPeaks ou COROS dans ton propre navigateur et relie ce compte à Dravr."
+  },
+  "noticeTitle": {
+    "message": "Avant d’utiliser la connexion Dravr"
+  },
+  "noticeIntro": {
+    "message": "Cette extension te permet de te connecter toi-même à Garmin, Strava, TrainingPeaks ou COROS, dans ce navigateur, et remet cette connexion à Dravr pour qu’il importe ton entraînement."
+  },
+  "noticeReadsTitle": {
+    "message": "Ce qu’elle lit"
+  },
+  "noticeReads": {
+    "message": "Seulement les témoins du service que tu as choisi (garmin.com, strava.com, trainingpeaks.com ou coros.com), et seulement après que tu as cliqué sur « Continuer avec » ce service dans Dravr et terminé ta connexion sur sa page. Elle ne lit aucun autre site et rien de ce que tu tapes."
+  },
+  "noticeSendsTitle": {
+    "message": "Où ça va"
+  },
+  "noticeSends": {
+    "message": "Directement à Dravr (app.dravr.ai), par une connexion chiffrée, et nulle part ailleurs. Dravr conserve la session chiffrée et s’en sert seulement pour récupérer tes données de ce service. L’extension n’en garde aucune copie."
+  },
+  "noticeControlTitle": {
+    "message": "Tu gardes le contrôle"
+  },
+  "noticeControl": {
+    "message": "Déconnecte le service dans Dravr pour supprimer la session conservée, et retire cette extension pour l’arrêter."
+  },
+  "noticeAccept": {
+    "message": "J’accepte"
+  },
+  "noticeDecline": {
+    "message": "Pas maintenant"
+  },
+  "noticePolicy": {
+    "message": "Politique de confidentialité de Dravr"
+  },
+  "noticeDone": {
+    "message": "C’est fait. Retourne dans Dravr et choisis « Continuer avec » ton service."
+  }
+}

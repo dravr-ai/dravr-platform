@@ -1,0 +1,116 @@
+<!doctype html>
+<!-- ABOUTME: The notice the athlete accepts before the first sign-in: what the extension reads, where it goes, how to stop it -->
+<!-- ABOUTME: Opened on install and before a first sign-in; notice.js fills it in the browser's language (carnet#1617) -->
+<!-- SPDX-License-Identifier: MIT OR Apache-2.0 -->
+<!-- Copyright (c) 2026 dravr.ai -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title data-i18n="noticeTitle">Before you use Dravr sign-in</title>
+    <style>
+      :root {
+        --bg: #f6f4ef;
+        --card: #ffffff;
+        --ink: #14231c;
+        --muted: #4d5c54;
+        --accent: #0f3d2e;
+        --accent-ink: #ffffff;
+        --line: #dcd8cf;
+        color-scheme: light dark;
+      }
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --bg: #101814;
+          --card: #17221d;
+          --ink: #eef2ef;
+          --muted: #a9b8b0;
+          --accent: #8fd1ae;
+          --accent-ink: #0b1612;
+          --line: #2a3a32;
+        }
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 16px/1.55 system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+      }
+      main {
+        max-width: 640px;
+        margin: 48px auto;
+        padding: 32px;
+        background: var(--card);
+        border: 1px solid var(--line);
+        border-radius: 16px;
+      }
+      header { display: flex; align-items: center; gap: 14px; margin-bottom: 8px; }
+      header img { width: 48px; height: 48px; border-radius: 12px; }
+      h1 { font-size: 22px; line-height: 1.3; margin: 0; }
+      h2 { font-size: 15px; margin: 24px 0 4px; }
+      p { margin: 0; color: var(--muted); }
+      .intro { margin-top: 16px; color: var(--ink); }
+      .actions { display: flex; gap: 12px; margin-top: 32px; flex-wrap: wrap; align-items: center; }
+      button {
+        font: inherit;
+        font-weight: 600;
+        padding: 10px 20px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: transparent;
+        color: var(--ink);
+        cursor: pointer;
+      }
+      button.accept { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+      button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+      a { color: var(--accent); }
+      .policy { margin-left: auto; font-size: 14px; }
+      .done { margin-top: 32px; font-weight: 600; color: var(--ink); }
+      [hidden] { display: none !important; }
+      @media (max-width: 700px) { main { margin: 16px; padding: 24px; } }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <img src="icons/icon-128.png" alt="" />
+        <h1 data-i18n="noticeTitle">Before you use Dravr sign-in</h1>
+      </header>
+      <p class="intro" data-i18n="noticeIntro">
+        This extension lets you sign in to Garmin, Strava, TrainingPeaks or COROS yourself, in this
+        browser, and hands that sign-in to Dravr so it can import your training.
+      </p>
+
+      <h2 data-i18n="noticeReadsTitle">What it reads</h2>
+      <p data-i18n="noticeReads">
+        Only the cookies of the service you chose (garmin.com, strava.com, trainingpeaks.com or
+        coros.com), and only after you click “Continue with” that service in Dravr and finish signing
+        in on its page. It reads no other site and nothing you type.
+      </p>
+
+      <h2 data-i18n="noticeSendsTitle">Where it goes</h2>
+      <p data-i18n="noticeSends">
+        Straight to Dravr (app.dravr.ai), over an encrypted connection, and nowhere else. Dravr stores
+        the session encrypted and uses it only to fetch your data from that service. The extension
+        keeps no copy.
+      </p>
+
+      <h2 data-i18n="noticeControlTitle">You stay in control</h2>
+      <p data-i18n="noticeControl">
+        Disconnect the service in Dravr to delete the stored session, and remove this extension to
+        stop it.
+      </p>
+
+      <div class="actions" id="actions">
+        <button type="button" class="accept" id="accept" data-i18n="noticeAccept">I agree</button>
+        <button type="button" id="decline" data-i18n="noticeDecline">Not now</button>
+        <a class="policy" href="https://dravr.ai/privacy#signin-extension" target="_blank" rel="noopener" data-i18n="noticePolicy">Dravr privacy policy</a>
+      </div>
+      <p class="done" id="done" hidden data-i18n="noticeDone">
+        All set. Return to Dravr and choose “Continue with” your service.
+      </p>
+    </main>
+    <script type="module" src="notice.js"></script>
+  </body>
+</html>

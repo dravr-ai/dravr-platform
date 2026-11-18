@@ -1,0 +1,48 @@
+{
+  "noticeLang": {
+    "message": "de",
+    "description": "The language tag of these messages, set on the notice page so assistive technology reads it in this language"
+  },
+  "extName": {
+    "message": "Dravr-Anmeldung"
+  },
+  "extDescription": {
+    "message": "Melde dich in deinem eigenen Browser bei Garmin, Strava, TrainingPeaks oder COROS an und verbinde dieses Konto mit Dravr."
+  },
+  "noticeTitle": {
+    "message": "Bevor du die Dravr-Anmeldung nutzt"
+  },
+  "noticeIntro": {
+    "message": "Mit dieser Erweiterung meldest du dich selbst in diesem Browser bei Garmin, Strava, TrainingPeaks oder COROS an. Sie übergibt diese Anmeldung an Dravr, damit Dravr dein Training importieren kann."
+  },
+  "noticeReadsTitle": {
+    "message": "Was sie liest"
+  },
+  "noticeReads": {
+    "message": "Nur die Cookies des Dienstes, den du gewählt hast (garmin.com, strava.com, trainingpeaks.com oder coros.com), und erst nachdem du in Dravr bei diesem Dienst auf „Weiter mit“ geklickt und die Anmeldung auf seiner Seite abgeschlossen hast. Sie liest keine andere Website und nichts, was du eingibst."
+  },
+  "noticeSendsTitle": {
+    "message": "Wohin es geht"
+  },
+  "noticeSends": {
+    "message": "Direkt an Dravr (app.dravr.ai), über eine verschlüsselte Verbindung, und nirgendwohin sonst. Dravr speichert die Sitzung verschlüsselt und nutzt sie nur, um deine Daten von diesem Dienst abzurufen. Die Erweiterung behält keine Kopie."
+  },
+  "noticeControlTitle": {
+    "message": "Du behältst die Kontrolle"
+  },
+  "noticeControl": {
+    "message": "Trenne den Dienst in Dravr, um die gespeicherte Sitzung zu löschen, und entferne diese Erweiterung, um sie zu stoppen."
+  },
+  "noticeAccept": {
+    "message": "Ich stimme zu"
+  },
+  "noticeDecline": {
+    "message": "Nicht jetzt"
+  },
+  "noticePolicy": {
+    "message": "Datenschutzerklärung von Dravr"
+  },
+  "noticeDone": {
+    "message": "Erledigt. Kehre zu Dravr zurück und wähle „Weiter mit“ deinem Dienst."
+  }
+}

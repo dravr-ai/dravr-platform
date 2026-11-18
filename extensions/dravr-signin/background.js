@@ -4,7 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-import { SIGN_IN_TIMEOUT_MS, isSignedIn, signInRequest, wireCookie } from './signin.js';
+import {
+  NOTICE_KEY,
+  SIGN_IN_TIMEOUT_MS,
+  isSignedIn,
+  noticeAccepted,
+  signInRequest,
+  wireCookie,
+} from './signin.js';
 
 // Firefox's `browser` namespace answers with promises; Chrome's `chrome` does
 // too under MV3.
@@ -18,6 +25,15 @@ const DRAVR_ORIGIN = 'https://app.dravr.ai';
 /** The port name bridge.js opens. */
 const CHANNEL = 'dravr-signin';
 
+/** The page that says what the extension reads and asks the athlete to accept it. */
+const NOTICE_URL = api.runtime.getURL('notice.html');
+
+// A new install opens the notice at once, so the athlete reads what the
+// extension does before Dravr ever asks it for a sign-in.
+api.runtime.onInstalled.addListener(({ reason }) => {
+  if (reason === 'install') api.tabs.create({ url: NOTICE_URL, active: true }).catch(() => {});
+});
+
 /**
  * bridge.js, the content script on app.dravr.ai, opens a port for the page
  * and relays its messages. One message per port:
@@ -27,7 +43,9 @@ const CHANNEL = 'dravr-signin';
  *   the provider's sign-in opens in a tab of this browser. Once the tab lands
  *   signed in, the provider's cookies are read, the tab closes and the page
  *   receives `{type: 'signed_in', cookies}`; a tab closed first, a refused
- *   request or the timeout answers `{type: 'failed', reason}`.
+ *   request or the timeout answers `{type: 'failed', reason}`. Until the
+ *   athlete has accepted the notice, the notice opens first: accepting it
+ *   starts the sign-in, closing it answers `declined`.
  *
  * The page sends `{type: 'keepalive'}` every 20 s while it waits: a message
  * on the port keeps this service worker from being put to sleep mid sign-in.
@@ -49,7 +67,7 @@ api.runtime.onConnect.addListener((port) => {
       port.postMessage({ type: 'failed', reason: 'refused' });
       return;
     }
-    sign = runSignIn(request, port);
+    sign = afterNotice(port, () => runSignIn(request, port));
   });
   port.onDisconnect.addListener(() => {
     sign?.abandon();
@@ -67,6 +85,80 @@ function fromDravr(sender) {
   }
 }
 
+/** Post `answer` to the page on `port`, unless the page has already left. */
+function tell(port, answer) {
+  try {
+    port.postMessage(answer);
+  } catch {
+    // The page left before the answer: nothing to tell.
+  }
+}
+
+/**
+ * Run `start` once the athlete has accepted the notice: at once when they
+ * already have, otherwise after they accept it in the notice tab this opens.
+ * Closing that tab answers `port` `declined`. Answers what `start` answers,
+ * so the caller can abandon either step.
+ */
+function afterNotice(port, start) {
+  let step = null;
+  let abandoned = false;
+  api.storage.local.get(NOTICE_KEY).then(
+    (stored) => {
+      if (abandoned) return;
+      step = noticeAccepted(stored) ? start() : askNotice(port, () => (step = start()));
+    },
+    () => {
+      if (!abandoned) tell(port, { type: 'failed', reason: 'storage_unreadable' });
+    },
+  );
+  return {
+    abandon() {
+      abandoned = true;
+      step?.abandon();
+    },
+  };
+}
+
+/** Open the notice and call `onAccepted` once the athlete accepts it, closing the notice tab. */
+function askNotice(port, onAccepted) {
+  let tabId = null;
+  let done = false;
+  const stop = () => {
+    done = true;
+    api.storage.onChanged.removeListener(onChanged);
+    api.tabs.onRemoved.removeListener(onRemoved);
+  };
+  const onChanged = (changes, area) => {
+    if (done || area !== 'local' || !noticeAccepted({ [NOTICE_KEY]: changes[NOTICE_KEY]?.newValue })) return;
+    stop();
+    if (tabId !== null) api.tabs.remove(tabId).catch(() => {});
+    onAccepted();
+  };
+  const onRemoved = (id) => {
+    if (done || id !== tabId) return;
+    stop();
+    tell(port, { type: 'failed', reason: 'declined' });
+  };
+  api.storage.onChanged.addListener(onChanged);
+  api.tabs.onRemoved.addListener(onRemoved);
+  api.tabs.create({ url: NOTICE_URL, active: true }).then(
+    (tab) => {
+      tabId = tab.id;
+    },
+    () => {
+      if (done) return;
+      stop();
+      tell(port, { type: 'failed', reason: 'tab_unopened' });
+    },
+  );
+  return {
+    abandon() {
+      if (!done) stop();
+    },
+  };
+}
+
 /** Open `request`'s sign-in in a tab and answer `port` once it ends. */
 function runSignIn(request, port) {
   let tabId = null;
@@ -78,11 +170,7 @@ function runSignIn(request, port) {
     api.tabs.onUpdated.removeListener(onUpdated);
     api.tabs.onRemoved.removeListener(onRemoved);
     clearTimeout(timer);
-    try {
-      port.postMessage(answer);
-    } catch {
-      // The page left before the answer: nothing to tell.
-    }
+    tell(port, answer);
   };
 
   const onUpdated = (id, change, tab) => {

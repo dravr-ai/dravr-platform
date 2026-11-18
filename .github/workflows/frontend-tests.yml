@@ -6,6 +6,8 @@ on:
     paths:
       - 'frontend/**'
       - 'packages/**'
+      # The sign-in extension: its own bun tests, and the e2e that loads it.
+      - 'extensions/**'
       - 'bun.lock'
       - 'crates/pierre-routes-auth/src/**'
       # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
@@ -24,6 +26,8 @@ on:
     paths:
       - 'frontend/**'
       - 'packages/**'
+      # The sign-in extension: its own bun tests, and the e2e that loads it.
+      - 'extensions/**'
       - 'bun.lock'
       - 'crates/pierre-routes-auth/src/**'
       # The hosted sign-in pages' scripts run in src/__tests__/hostedLoginCodeStep.test.ts.
@@ -121,6 +125,18 @@ jobs:
             exit 1
           fi
           bun run test:packages
+
+      - name: Test the sign-in extension
+        run: |
+          # `bun test` over a folder with no test files exits non-zero, but say
+          # what ran, and fail on a selection that lost its suites.
+          EXTENSION_TEST_FILES=$(find extensions/dravr-signin -maxdepth 1 -name '*.test.js' | wc -l | tr -d ' ')
+          echo "Sign-in extension test files: $EXTENSION_TEST_FILES"
+          if [ "$EXTENSION_TEST_FILES" -lt 5 ]; then
+            echo "Expected at least 5 test files in extensions/dravr-signin (signin, background, bridge, notice, package)."
+            exit 1
+          fi
+          bun test extensions/dravr-signin
 
   frontend-tests:
     name: Frontend Test Suite

@@ -262,8 +262,7 @@ export default function SciotteLoginModal({
 
   // The sign-in run in the athlete's own browser: the extension opens the
   // provider's page in a tab, the athlete signs in there as they always do,
-  // and the provider's cookies come back to be stored as any sign-in's. A tab
-  // the athlete closed returns to the credentials, nothing lost.
+  // and the provider's cookies come back to be stored as any sign-in's.
   const handleBrowserSignin = useCallback(async () => {
     setError(null);
     setPhase('browser');
@@ -282,7 +281,9 @@ export default function SciotteLoginModal({
       applyLoginAnswer(data);
     } catch (err) {
       if (signal.aborted) return;
-      if (err instanceof ExtensionSignInError && err.reason === 'closed') {
+      // Closing the sign-in tab, or the extension's notice unaccepted, leaves
+      // the athlete where they were: the credentials, nothing lost.
+      if (err instanceof ExtensionSignInError && (err.reason === 'closed' || err.reason === 'declined')) {
         setPhase('credentials');
         return;
       }

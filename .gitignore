@@ -155,3 +155,6 @@ judge-bakeoff-results.json
 **/.impeccable/hook.cache.json
 **/.impeccable/hook.pending.json
 **/.impeccable/config.local.json
+
+# The sign-in extension's packed zips (extensions/dravr-signin/package.sh)
+extensions/dravr-signin/dist/

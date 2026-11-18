@@ -103,6 +103,19 @@ describe('SciotteLoginModal — a sign-in in the athlete\'s own browser', () => 
     expect(signal.aborted).toBe(true);
   });
 
+  it('returns to the credentials when the athlete does not accept the extension\'s notice', async () => {
+    detectSigninExtension.mockResolvedValue('0.2.0');
+    const { ExtensionSignInError } = await import('../../utils/signinExtension');
+    signInWithExtension.mockRejectedValue(new ExtensionSignInError('declined'));
+    const { onConnected } = renderModal();
+
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Garmin/ }));
+
+    await screen.findByLabelText(/email/i);
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(onConnected).not.toHaveBeenCalled();
+  });
+
   it('returns to the credentials when the athlete closes the sign-in tab', async () => {
     detectSigninExtension.mockResolvedValue('0.1.0');
     const { ExtensionSignInError } = await import('../../utils/signinExtension');

@@ -5,7 +5,7 @@
 // Copyright (c) 2026 dravr.ai
 
 import { describe, expect, it } from 'bun:test';
-import { hostUnder, isSignedIn, signInRequest, wireCookie } from './signin.js';
+import { NOTICE_VERSION, hostUnder, isSignedIn, noticeAccepted, signInRequest, wireCookie } from './signin.js';
 
 const GARMIN = {
   type: 'signin',
@@ -82,5 +82,14 @@ describe('hostUnder and wireCookie', () => {
       expires: 1800000000,
     });
     expect('expires' in wireCookie({ ...base, session: true })).toBe(false);
+  });
+});
+
+describe('noticeAccepted', () => {
+  it('holds only for this notice\'s version', () => {
+    expect(noticeAccepted({ noticeAccepted: { version: NOTICE_VERSION } })).toBe(true);
+    expect(noticeAccepted({ noticeAccepted: { version: NOTICE_VERSION - 1 } })).toBe(false);
+    expect(noticeAccepted({})).toBe(false);
+    expect(noticeAccepted(undefined)).toBe(false);
   });
 });
