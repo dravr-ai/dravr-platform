@@ -362,7 +362,7 @@ variable "backend_sciotte_login_split" {
 }
 
 variable "sciotte_read_services" {
-  description = "How many sciotte read services run (module.sciotte), each one instance; the platform sends every call naming a session to the service its id picks (carnet#1504). The first stays warm, the others scale to zero. Change it at a quiet hour: about one session in N+1 moves to the new service, and while two API revisions disagree a session can be read on two instances at once."
+  description = "How many sciotte read services run (module.sciotte), each one instance; the platform sends every call naming a session to the service its id picks (carnet#1504). Every one scales to zero. Change it at a quiet hour: about one session in N+1 moves to the new service, and while two API revisions disagree a session can be read on two instances at once."
   type        = number
   default     = 1
 

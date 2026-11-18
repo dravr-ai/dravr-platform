@@ -1181,15 +1181,17 @@ module "sciotte" {
   memory            = "3Gi"
   cpu_idle          = true
   startup_cpu_boost = true
-  # The first read service stays warm: every Strava and Garmin read goes to
-  # the session first (carnet#1494), and a cold start (p95 7.1s over
-  # 2026-11-02..16) plus a Chrome launch eats most of a chat turn's 15s read
-  # budget. cpu_idle keeps it CPU-throttled between requests, so the warm
-  # instance bills at the idle rate. The others scale to zero (ChefFamille,
-  # 2026-11-16, carnet#1504): a session on one of them pays the cold start on
-  # its first read after a quiet spell, and its cookie jar lives only as long
-  # as the instance.
-  min_instances = count.index == 0 ? 1 : 0
+  # Every read service scales to zero (ChefFamille, 2026-11-18). Strava and
+  # Garmin reads go to the session first (carnet#1494), so the first read after
+  # a quiet spell pays a cold start (p95 7.1s over 2026-11-02..16) plus a Chrome
+  # launch out of the chat turn's 15s wait (DEFAULT_WAIT_FOR_REFRESH_TIMEOUT_SECS).
+  # A read that misses it is not lost: the turn answers from the cache, marked
+  # incomplete, and the read finishes in the background and posts a follow-up.
+  # With the first service kept warm, sciotte's Cloud Run cost went from about
+  # CA$0.02 to CA$2.2 a day, while that service sat idle in 11 to 19 of 24
+  # hours (2026-11-15..17). A session's cookie jar lives only as
+  # long as the instance; each read imports and exports it.
+  min_instances = 0
   # Never above 1: a read's import, read and export, and the session's cookie
   # jar, must meet one instance. Reads scale by sciotte_read_services instead.
   max_instances = 1
