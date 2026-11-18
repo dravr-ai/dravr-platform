@@ -19,6 +19,7 @@ output "secret_ids" {
     db_password                      = google_secret_manager_secret.db_password.secret_id
     encryption_key                   = google_secret_manager_secret.encryption_key.secret_id
     admin_password                   = google_secret_manager_secret.admin_password.secret_id
+    bootstrap_demo_password          = google_secret_manager_secret.bootstrap_demo_password.secret_id
     strava_client_id                 = google_secret_manager_secret.strava_client_id.secret_id
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.secret_id
     whoop_client_id                  = google_secret_manager_secret.whoop_client_id.secret_id
@@ -68,6 +69,7 @@ output "secret_names" {
     db_password                      = google_secret_manager_secret.db_password.name
     encryption_key                   = google_secret_manager_secret.encryption_key.name
     admin_password                   = google_secret_manager_secret.admin_password.name
+    bootstrap_demo_password          = google_secret_manager_secret.bootstrap_demo_password.name
     strava_client_id                 = google_secret_manager_secret.strava_client_id.name
     strava_client_secret             = google_secret_manager_secret.strava_client_secret.name
     whoop_client_id                  = google_secret_manager_secret.whoop_client_id.name

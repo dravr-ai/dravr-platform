@@ -14,8 +14,10 @@
 //! The source holds no password for any of them: the repository is public.
 //! Without a demo password the run neither creates nor touches the demo and
 //! test accounts (not their password, their role or their status), and says
-//! so in one info log. The deployed seed job sets none, so the accounts
-//! there are managed out of band.
+//! so in one info log. The deployed seed job reads it from a password
+//! Terraform generates into Secret Manager
+//! (`dravr-mcp-server-bootstrap-demo-password`), so nobody types it and no
+//! file holds it.
 //!
 //! All operations are idempotent via `seed_check_user_exists`. An account
 //! that already exists gets its credentials refreshed and its role brought

@@ -939,6 +939,9 @@ module "seed_bootstrap" {
 
   secret_env_vars = merge(local.seed_secret_env_vars, {
     ADMIN_PASSWORD = module.secrets.secret_ids["admin_password"]
+    # Gives the four deployed demo and test accounts their password; without
+    # it the seeder leaves them alone (carnet#1597).
+    BOOTSTRAP_DEMO_PASSWORD = module.secrets.secret_ids["bootstrap_demo_password"]
   })
 
   labels = merge(var.labels, { component = "seed-bootstrap" })
