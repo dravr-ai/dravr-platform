@@ -19,8 +19,9 @@ use pierre_core::models::periodization::{
     WorkoutFilter, WorkoutParams, WorkoutPurpose,
 };
 use pierre_core::models::{
-    sport_anchors, CalendarEventSource, CalendarKey, IntensityDistribution, PlannedSession,
-    PrescribedWorkout, SportType, TenantId, WorkoutStep, WorkoutTargetZones, WorkoutTemplate,
+    sport_anchors, CalendarEventSource, CalendarKey, HeldAnchors, IntensityDistribution,
+    PlannedSession, PrescribedWorkout, SportType, TenantId, WorkoutStep, WorkoutTargetZones,
+    WorkoutTemplate,
 };
 use serde::Deserialize;
 use serde_json::Value;
@@ -754,7 +755,8 @@ impl McpTool<dyn ToolRuntime> for PrescribeWorkoutTool {
                     resolve_template(&context, tenant_id, user_id, &scope.writer, &args).await?;
                 let anchors =
                     stored_athlete_anchors(context.resources.repos(), tenant_id, user_id).await?;
-                let (template, envelope) = family_session(resolved, &args, anchors.as_ref())?;
+                let (template, envelope) =
+                    family_session(resolved, &args, anchors.as_ref().map(HeldAnchors::values))?;
                 // An authored session becomes one of the athlete's saved sessions:
                 // their own even when no calendar takes it, a coach's only once the
                 // coach's writer is built, so a refused write saves nothing of theirs.

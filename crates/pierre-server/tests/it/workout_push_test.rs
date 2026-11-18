@@ -1289,6 +1289,10 @@ async fn a_family_prescription_is_measured_on_the_athletes_stored_anchors() -> R
         anchor["confidence"], "low",
         "no confidence was stated: {result}"
     );
+    assert_eq!(
+        anchor["kind"], "estimated",
+        "bug: the anchor names the kind it was stored with: {result}"
+    );
     Ok(())
 }
 

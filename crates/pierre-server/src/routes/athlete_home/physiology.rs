@@ -17,9 +17,10 @@
 //! Each anchor carries what is stored — value, range, origin, day, method
 //! and confidence — and the words the screen prints, through the same
 //! formatter the envelope notice names an anchor with: its value (a range
-//! or an estimate at low confidence; a speed as pace per kilometre or mile
-//! as the athlete's units say, per 100 m in the pool), the range it states
-//! when the value does not already read as it, and who set it.
+//! or an estimate at low confidence, an estimate at any confidence unless
+//! the anchor was measured; a speed as pace per kilometre or mile as the
+//! athlete's units say, per 100 m in the pool), the range it states when the
+//! value does not already read as it, and who set it.
 //!
 //! The caller's own anchors only, in the tenant of their session: nothing
 //! in the request names an athlete. An athlete with no profile, or none
@@ -35,10 +36,8 @@ use pierre_contremaitre::anchor_strings::{
 };
 use pierre_contremaitre::messaging_strings::MessagingStringsRegistry;
 use pierre_core::errors::AppResult;
-use pierre_core::models::periodization::{
-    AnchorConfidence, AnchorValue, AthleteAnchors, SportFamily,
-};
-use pierre_core::models::{AnchorUnit, SportAnchorName, UnitSystem};
+use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, SportFamily};
+use pierre_core::models::{AnchorUnit, HeldAnchors, SportAnchorName, UnitSystem};
 use pierre_middleware::extractors::AuthenticatedUser;
 use pierre_services::athlete_anchors::stored_athlete_anchors;
 use pierre_services::locale::user_locale;
@@ -97,7 +96,8 @@ struct PhysiologyAnchor {
     /// How far to trust it, as stored.
     confidence: AnchorConfidence,
     /// The value as the envelope notice writes it: a range or an estimate at
-    /// low confidence, a speed as pace in the athlete's units.
+    /// low confidence, an estimate at any confidence unless measured, a speed
+    /// as pace in the athlete's units.
     value_text: String,
     /// The range it states, when `value_text` does not already read as it;
     /// `null` at low confidence, where the value is the range.
@@ -135,7 +135,7 @@ pub(super) async fn get_physiology(
 /// The families of `anchors` that hold an anchor, each with its anchors
 /// worded in `locale` and `units`.
 fn sports_of(
-    anchors: &AthleteAnchors,
+    anchors: &HeldAnchors,
     strings: &MessagingStringsRegistry,
     locale: &str,
     units: UnitSystem,
@@ -144,7 +144,7 @@ fn sports_of(
         .iter()
         .copied()
         .filter_map(|sport| {
-            let held = anchors.for_family(sport);
+            let held = anchors.values().for_family(sport);
             let rows: Vec<PhysiologyAnchor> = SportAnchorName::ALL
                 .into_iter()
                 .filter_map(|name| {
@@ -158,6 +158,7 @@ fn sports_of(
                             sport,
                             units,
                             point,
+                            anchors.kind(sport, name),
                         ),
                         range_text: range_beside_value(name.unit(), sport, units, point),
                         source_text: anchor_source_text(
@@ -201,6 +202,10 @@ fn range_beside_value(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use pierre_core::models::{
+        sport_anchors, MeasurementKind, SportAnchor, SportType, UserPhysiologicalProfile,
+    };
+    use uuid::Uuid;
 
     fn point(value: f32, range: Option<(f32, f32)>, confidence: AnchorConfidence) -> AnchorValue {
         AnchorValue {
@@ -214,13 +219,50 @@ mod tests {
         }
     }
 
+    fn stored(
+        sport: SportFamily,
+        anchor: SportAnchorName,
+        kind: MeasurementKind,
+        value: AnchorValue,
+    ) -> SportAnchor {
+        SportAnchor {
+            sport,
+            anchor,
+            kind,
+            value,
+        }
+    }
+
+    /// `stored` as the one reader returns it beside a profile row that holds
+    /// nothing of its own.
+    fn held(stored: &[SportAnchor]) -> HeldAnchors {
+        let profile = UserPhysiologicalProfile::new(Uuid::nil(), SportType::Ride);
+        sport_anchors::held_anchors(&profile, stored)
+    }
+
     #[test]
     fn only_the_families_holding_an_anchor_are_listed_in_order() {
         let strings = MessagingStringsRegistry::new();
-        let mut anchors = AthleteAnchors::default();
-        anchors.swim.critical_speed = Some(point(1.25, None, AnchorConfidence::Medium));
-        anchors.ride.map = Some(point(380.0, Some((365.0, 395.0)), AnchorConfidence::High));
-        anchors.ride.ftp = Some(point(285.0, None, AnchorConfidence::Low));
+        let anchors = held(&[
+            stored(
+                SportFamily::Swim,
+                SportAnchorName::CriticalSpeed,
+                MeasurementKind::Measured,
+                point(1.25, None, AnchorConfidence::Medium),
+            ),
+            stored(
+                SportFamily::Ride,
+                SportAnchorName::Map,
+                MeasurementKind::Measured,
+                point(380.0, Some((365.0, 395.0)), AnchorConfidence::High),
+            ),
+            stored(
+                SportFamily::Ride,
+                SportAnchorName::Ftp,
+                MeasurementKind::Estimated,
+                point(285.0, None, AnchorConfidence::Low),
+            ),
+        ]);
 
         let sports = sports_of(&anchors, &strings, "en", UnitSystem::Metric);
 
@@ -245,10 +287,20 @@ mod tests {
     #[test]
     fn a_stated_range_shows_beside_a_point_and_never_twice() {
         let strings = MessagingStringsRegistry::new();
-        let mut anchors = AthleteAnchors::default();
-        anchors.ride.map = Some(point(380.0, Some((365.0, 395.0)), AnchorConfidence::High));
-        anchors.ride.critical_power =
-            Some(point(280.0, Some((270.0, 290.0)), AnchorConfidence::Low));
+        let anchors = held(&[
+            stored(
+                SportFamily::Ride,
+                SportAnchorName::Map,
+                MeasurementKind::Measured,
+                point(380.0, Some((365.0, 395.0)), AnchorConfidence::High),
+            ),
+            stored(
+                SportFamily::Ride,
+                SportAnchorName::CriticalPower,
+                MeasurementKind::Measured,
+                point(280.0, Some((270.0, 290.0)), AnchorConfidence::Low),
+            ),
+        ]);
 
         let sports = sports_of(&anchors, &strings, "en", UnitSystem::Metric);
         let ride = &sports[0].anchors;
@@ -261,7 +313,7 @@ mod tests {
         );
         assert_eq!(
             cp.value_text, "about 270–290 W (estimate)",
-            "bug: a low-confidence anchor reads as its range"
+            "bug: a low-confidence anchor reads as its range, measured or not"
         );
         assert_eq!(
             cp.range_text, None,
@@ -275,7 +327,7 @@ mod tests {
         let map = &ride[1];
         assert_eq!(
             map.value_text, "380 W",
-            "bug: a high-confidence anchor reads as its value"
+            "bug: a measured high-confidence anchor reads as its value"
         );
         assert_eq!(
             map.range_text.as_deref(),
@@ -292,11 +344,15 @@ mod tests {
     #[test]
     fn an_imperial_athlete_reads_run_pace_per_mile() {
         let strings = MessagingStringsRegistry::new();
-        let mut anchors = AthleteAnchors::default();
-        anchors.run.threshold_speed = Some(AnchorValue {
-            origin: None,
-            ..point(4.0, None, AnchorConfidence::Medium)
-        });
+        let anchors = held(&[stored(
+            SportFamily::Run,
+            SportAnchorName::ThresholdSpeed,
+            MeasurementKind::Measured,
+            AnchorValue {
+                origin: None,
+                ..point(4.0, None, AnchorConfidence::Medium)
+            },
+        )]);
 
         let sports = sports_of(&anchors, &strings, "en", UnitSystem::Imperial);
         let threshold = &sports[0].anchors[0];
@@ -308,6 +364,48 @@ mod tests {
         assert_eq!(
             threshold.source_text, "your own value",
             "bug: an anchor naming no origin is the athlete's own"
+        );
+    }
+
+    #[test]
+    fn an_estimate_at_high_confidence_reads_as_one_with_its_range_beside() {
+        let strings = MessagingStringsRegistry::new();
+        let anchors = held(&[
+            stored(
+                SportFamily::Ride,
+                SportAnchorName::CriticalPower,
+                MeasurementKind::Estimated,
+                point(280.0, Some((270.0, 290.0)), AnchorConfidence::High),
+            ),
+            stored(
+                SportFamily::Ride,
+                SportAnchorName::Map,
+                MeasurementKind::Measured,
+                point(380.0, None, AnchorConfidence::High),
+            ),
+        ]);
+
+        let sports = sports_of(&anchors, &strings, "en", UnitSystem::Metric);
+        let ride = &sports[0].anchors;
+
+        let cp = &ride[0];
+        assert_eq!(
+            cp.value_text, "about 280 W (estimate)",
+            "bug: an estimate stored at high confidence reads as a measured number"
+        );
+        assert_eq!(
+            cp.range_text.as_deref(),
+            Some("270–290 W"),
+            "bug: a high-confidence estimate still shows the range it states beside it"
+        );
+        assert_eq!(
+            cp.confidence,
+            AnchorConfidence::High,
+            "bug: the confidence is the stored one, never lowered for an estimate"
+        );
+        assert_eq!(
+            ride[1].value_text, "380 W",
+            "bug: a measured high-confidence anchor still reads as its value"
         );
     }
 }

@@ -14,10 +14,10 @@
 
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::{
-    envelope_check, AthleteAnchors, EnvelopeInput, FlavourInputs, FlavourVerdict, InstanceRequest,
-    PresetParams, PresetShape, Share, WorkoutTemplate,
+    envelope_check, EnvelopeInput, FlavourInputs, FlavourVerdict, InstanceRequest, PresetParams,
+    PresetShape, Share, WorkoutTemplate,
 };
-use pierre_core::models::{sport_anchors, SportType, TenantId};
+use pierre_core::models::{sport_anchors, HeldAnchors, SportType, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_memory::training_plans::{
     DayEnvelope, FlavourSelection, PlanPhase, PlannedDay, SelectedBy, TemplateParams,
@@ -339,7 +339,7 @@ pub(super) fn resolve_flavour(
 pub(super) fn instantiate_template_days(
     catalogue: &PackagedCatalogue<'_>,
     weeks: &mut [WeekPayload],
-    anchors: Option<&AthleteAnchors>,
+    anchors: Option<&HeldAnchors>,
 ) -> AppResult<()> {
     for day in weeks.iter_mut().flat_map(|w| &mut w.days) {
         day.envelope = None;
@@ -373,7 +373,7 @@ pub(super) fn instantiate_template_days(
                 steps: &day.steps,
                 params: stated.as_ref(),
                 generated: false,
-                anchors,
+                anchors: anchors.map(HeldAnchors::values),
             });
             let anchor =
                 anchors.and_then(|held| sport_anchors::target_anchor(&day.steps, &sport, held));
@@ -396,7 +396,7 @@ fn generate_day(
     preset: Option<String>,
     sport: &SportType,
     stated: Option<PresetParams>,
-    anchors: Option<&AthleteAnchors>,
+    anchors: Option<&HeldAnchors>,
 ) {
     let mut params = stated.unwrap_or_default();
     let sized_by_duration = preset
@@ -413,7 +413,7 @@ fn generate_day(
             sport: Some(sport.clone()),
             params,
         },
-        anchors,
+        anchors.map(HeldAnchors::values),
     );
     let steps_ok = instance.generated.steps.len() <= MAX_SESSION_STEPS
         && instance.generated.duration_minutes <= MAX_DURATION_MIN

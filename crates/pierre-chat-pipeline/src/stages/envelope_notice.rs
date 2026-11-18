@@ -15,7 +15,8 @@
 //! one line per session naming the day, each finding's domain move with its
 //! numbers, the purpose a relabel files it under, and the anchor its targets
 //! sit on with that anchor's source. A low-confidence anchor is never shown
-//! as one precise number. No sentence frames load as risk.
+//! as one precise number, and an estimate never as a measurement, whatever
+//! its confidence. No sentence frames load as risk.
 //!
 //! The notice is stored with the reply as an `envelope_notice` entry, as the
 //! plan card is, so a reload shows it again; the envelope renders it as its
@@ -218,7 +219,8 @@ fn finding_sentence(
 }
 
 /// The anchor sentence: its label, its value (a range or an estimate at low
-/// confidence, a speed as pace in `units`), and who set it.
+/// confidence, an estimate at any confidence unless measured, a speed as pace
+/// in `units`), and who set it.
 fn anchor_sentence(
     strings: &MessagingStringsRegistry,
     locale: &str,
@@ -240,6 +242,7 @@ fn anchor_sentence(
         sport,
         units,
         &anchor.value,
+        anchor.kind,
     );
     let source = anchor_source_text(strings, locale, reader, anchor.value.origin.as_deref());
     filled(strings.render(KEY_ENVELOPE_ANCHOR, locale, &[&label, &value, &source]))
@@ -259,7 +262,7 @@ mod tests {
 
     use super::*;
     use pierre_core::models::periodization::{AnchorConfidence, AnchorValue, WorkoutPurpose};
-    use pierre_core::models::SportAnchorName;
+    use pierre_core::models::{MeasurementKind, SportAnchorName};
     use pierre_tool_runtime::envelope_notices::NoticeSource;
     use serde_json::json;
 
@@ -306,6 +309,7 @@ mod tests {
         notice.anchor = Some(TargetAnchor {
             sport: Some(SportFamily::Ride),
             anchor: SportAnchorName::Ftp,
+            kind: Some(MeasurementKind::Measured),
             value: AnchorValue {
                 value: 285.0,
                 low: None,
@@ -362,6 +366,7 @@ mod tests {
         notice.anchor = Some(TargetAnchor {
             sport: None,
             anchor: SportAnchorName::ThresholdSpeed,
+            kind: Some(MeasurementKind::Measured),
             value: AnchorValue {
                 value: 4.0,
                 low: None,
@@ -400,6 +405,7 @@ mod tests {
         notice.anchor = Some(TargetAnchor {
             sport: Some(SportFamily::Run),
             anchor: SportAnchorName::CriticalSpeed,
+            kind: Some(MeasurementKind::Measured),
             value: AnchorValue {
                 value: 4.0,
                 low: Some(3.92),
@@ -427,6 +433,76 @@ mod tests {
         assert!(
             line.contains("your own value"),
             "bug: an anchor the athlete set is named as theirs: {line}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_estimate_at_high_confidence_reads_as_an_estimate_never_a_measurement() -> TestResult {
+        let strings = MessagingStringsRegistry::new();
+        let anchored = |kind: MeasurementKind| {
+            let mut notice = day(vec![finding("cycle_mean_floor", Some(71.6), Some(80.0))?]);
+            notice.anchor = Some(TargetAnchor {
+                sport: Some(SportFamily::Ride),
+                anchor: SportAnchorName::Ftp,
+                kind: Some(kind),
+                value: AnchorValue {
+                    value: 285.0,
+                    low: Some(275.0),
+                    high: Some(295.0),
+                    origin: Some("intervals.icu".to_owned()),
+                    as_of: None,
+                    method: None,
+                    confidence: AnchorConfidence::High,
+                },
+                own_conversions: false,
+            });
+            Ok::<_, Box<dyn Error>>(notice)
+        };
+        let estimated = envelope_notice_block(
+            &strings,
+            "en",
+            AnchorReader::Athlete,
+            UnitSystem::Metric,
+            &[anchored(MeasurementKind::Estimated)?],
+        )
+        .ok_or("a notice")?;
+        let line = lines(&estimated).join("\n");
+        assert!(
+            line.contains("Anchor: FTP about 285 W (estimate), from intervals.icu."),
+            "bug: an estimate stored at high confidence reads as a measured number: {line}"
+        );
+
+        let french = envelope_notice_block(
+            &strings,
+            "fr",
+            AnchorReader::Athlete,
+            UnitSystem::Metric,
+            &[anchored(MeasurementKind::Estimated)?],
+        )
+        .ok_or("a notice")?;
+        let line = lines(&french).join("\n");
+        assert!(
+            line.contains("environ 285 W (estimation)"),
+            "bug: the estimate marker is written in the reader's language: {line}"
+        );
+
+        let measured = envelope_notice_block(
+            &strings,
+            "en",
+            AnchorReader::Athlete,
+            UnitSystem::Metric,
+            &[anchored(MeasurementKind::Measured)?],
+        )
+        .ok_or("a notice")?;
+        let line = lines(&measured).join("\n");
+        assert!(
+            line.contains("Anchor: FTP 285 W, from intervals.icu."),
+            "bug: a measured high-confidence anchor reads as its value: {line}"
+        );
+        assert!(
+            !line.contains("estimate"),
+            "bug: a measurement is not marked as an estimate: {line}"
         );
         Ok(())
     }
@@ -627,6 +703,7 @@ mod tests {
         notice.anchor = Some(TargetAnchor {
             sport: Some(SportFamily::Run),
             anchor: SportAnchorName::ThresholdSpeed,
+            kind: Some(MeasurementKind::Measured),
             value: AnchorValue {
                 value: 4.0,
                 low: None,
@@ -660,6 +737,7 @@ mod tests {
         estimate.anchor = Some(TargetAnchor {
             sport: Some(SportFamily::Run),
             anchor: SportAnchorName::CriticalSpeed,
+            kind: Some(MeasurementKind::Estimated),
             value: AnchorValue {
                 value: 4.0,
                 low: Some(3.92),

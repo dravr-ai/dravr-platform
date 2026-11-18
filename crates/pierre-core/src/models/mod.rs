@@ -175,7 +175,9 @@ pub use measurement::{
     ProvenancedValue, ThresholdProvenance, ThresholdStatedOn, ATHLETE_REPORTED_ORIGIN,
 };
 pub use provider_thresholds::{ProviderThreshold, ProviderThresholds};
-pub use sport_anchors::{AnchorUnit, ProfileTwin, SportAnchor, SportAnchorName, TargetAnchor};
+pub use sport_anchors::{
+    AnchorUnit, HeldAnchors, ProfileTwin, SportAnchor, SportAnchorName, TargetAnchor,
+};
 
 // User domain
 pub use invitation::{InvitationKind, PreApprovedEmail, UserInvitation};

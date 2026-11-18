@@ -1,25 +1,27 @@
 // ABOUTME: The anchors dravr-cageux resolves an athlete's workout-family targets on, read from their stored physiology
-// ABOUTME: The profile row joined with the per-sport anchors beside it, under the profile's transport policy (carnet#1496)
+// ABOUTME: The profile row joined with the per-sport anchors beside it, each with its kind, under the profile's transport policy
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
-//! The one reader of an athlete's [`AthleteAnchors`].
+//! The one reader of an athlete's [`HeldAnchors`] (carnet#1496, carnet#1562).
 //!
 //! A family's targets are domain coordinates that dravr-cageux places on each
 //! sport's own anchors; with none it uses the I8 default ratios (MAP ≈ 1.30 ×
 //! CP, `vVO2max` ≈ 1.16 × CS). The save path, `prescribe_workout` and their
 //! envelope checks read the athlete's anchors here, so the same session is
-//! measured against the same numbers wherever it is written.
+//! measured against the same numbers wherever it is written. Each anchor
+//! comes with whether it was measured or estimated, so an estimate is never
+//! named as a measurement, whatever its confidence.
 
 use pierre_core::errors::AppResult;
-use pierre_core::models::periodization::AthleteAnchors;
-use pierre_core::models::{sport_anchors, TenantId};
+use pierre_core::models::{sport_anchors, HeldAnchors, TenantId};
 use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use uuid::Uuid;
 
-/// The anchors of `user_id`'s workout families in `tenant`.
+/// The anchors of `user_id`'s workout families in `tenant`, with each one's
+/// kind.
 ///
 /// `None` when the athlete has no profile, or one this caller may not see (a
 /// profile written from first-party-only data, read by an external caller,
@@ -35,7 +37,7 @@ pub async fn stored_athlete_anchors(
     repos: &RepositoryRegistry,
     tenant: TenantId,
     user_id: Uuid,
-) -> AppResult<Option<AthleteAnchors>> {
+) -> AppResult<Option<HeldAnchors>> {
     let profiles = &repos.user_physiological_profile;
     let Some(profile) = profiles
         .get_user_physiological_profile(tenant, user_id)
@@ -45,5 +47,5 @@ pub async fn stored_athlete_anchors(
         return Ok(None);
     };
     let stored = profiles.list_sport_anchors(tenant, user_id).await?;
-    Ok(Some(sport_anchors::athlete_anchors(&profile, &stored)))
+    Ok(Some(sport_anchors::held_anchors(&profile, &stored)))
 }

@@ -279,6 +279,79 @@ async fn the_words_follow_the_athletes_units_and_language() {
     );
 }
 
+/// An estimate stored at high confidence reads as an estimate on the screen,
+/// with the range it states beside it, while a measurement at the same
+/// confidence still reads as its value (carnet#1562).
+#[tokio::test]
+async fn an_estimate_at_high_confidence_reads_as_an_estimate() {
+    let resources = common::create_test_server_resources().await.unwrap();
+    let athlete = athlete(&resources, "physiology-estimate").await;
+    seed_anchors(&resources, athlete.user_id, athlete.tenant).await;
+    resources
+        .common
+        .repos
+        .user_physiological_profile
+        .upsert_sport_anchor(
+            athlete.tenant,
+            athlete.user_id,
+            &SportAnchor {
+                sport: SportFamily::Ride,
+                anchor: SportAnchorName::CriticalPower,
+                kind: MeasurementKind::Estimated,
+                value: AnchorValue {
+                    value: 280.0,
+                    low: Some(270.0),
+                    high: Some(290.0),
+                    origin: Some("intervals.icu".to_owned()),
+                    as_of: Some(day(2026, 10, 30)),
+                    method: None,
+                    confidence: AnchorConfidence::High,
+                },
+            },
+        )
+        .await
+        .unwrap();
+
+    let (status, body) = get(
+        &resources,
+        "/api/me/physiology?locale=en",
+        Some(&athlete.token),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+    let ride = family(&body, "ride");
+    let cp = anchor(ride, "critical_power");
+    assert_eq!(
+        cp["confidence"], "high",
+        "bug: the confidence is the stored one, never lowered for an estimate"
+    );
+    assert_eq!(
+        cp["value_text"], "about 280 W (estimate)",
+        "bug: an estimate stored at high confidence reads as a measured number"
+    );
+    assert_eq!(
+        cp["range_text"], "270–290 W",
+        "bug: a high-confidence estimate still shows the range it states"
+    );
+    assert_eq!(
+        anchor(ride, "map")["value_text"],
+        "380 W",
+        "bug: a measured high-confidence anchor still reads as its value"
+    );
+
+    let (_, french) = get(
+        &resources,
+        "/api/me/physiology?locale=fr",
+        Some(&athlete.token),
+    )
+    .await;
+    assert_eq!(
+        anchor(family(&french, "ride"), "critical_power")["value_text"],
+        "environ 280 W (estimation)",
+        "bug: the estimate marker is written in the language asked for"
+    );
+}
+
 #[tokio::test]
 async fn an_athlete_with_nothing_stated_reads_no_family() {
     let resources = common::create_test_server_resources().await.unwrap();

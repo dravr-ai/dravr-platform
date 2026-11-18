@@ -122,7 +122,9 @@ pub const KEY_ENVELOPE_RELABELLED: &str = "messaging.envelope.relabelled";
 /// The anchor sentence: `{0}` its label, `{1}` its value, `{2}` its source.
 pub const KEY_ENVELOPE_ANCHOR: &str = "messaging.envelope.anchor";
 
-/// A low-confidence anchor with no range: `{0}` its value with its unit.
+/// An anchor that reads as an estimate of one value: a low-confidence one
+/// with no range, or one not measured, whatever its confidence. `{0}` its
+/// value with its unit.
 pub const KEY_ENVELOPE_ANCHOR_ESTIMATE: &str = "messaging.envelope.anchor_estimate";
 
 /// A low-confidence anchor's range: `{0}` its low end, `{1}` its high end and

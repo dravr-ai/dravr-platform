@@ -17978,6 +17978,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "Modifier": {
             "description": "A modifier laid over a flavour (python `VOCAB[\"modifier\"]`).",
             "oneOf": [
@@ -18987,6 +19002,17 @@
                   "number",
                   "null"
                 ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
               },
               "low": {
                 "description": "Lower bound of the range the value stands for.",
@@ -26137,6 +26163,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "SportAnchorName": {
             "description": "Which anchor of a sport family a stored row holds: a field of cageux's\n[`SportAnchors`], less the resting heart rate, which is the athlete's\nrather than a sport's and stays on the profile row.",
             "oneOf": [
@@ -26421,6 +26462,17 @@
                   "number",
                   "null"
                 ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
               },
               "low": {
                 "description": "Lower bound of the range the value stands for.",
@@ -27301,6 +27353,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "PlanEnvelopeReport": {
             "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. In Dravr's chat the platform shows every\nfinding and relabel under your reply in its own sentences, so do not\nrestate them there; explain or disagree with one only when asked. Where a\nclient shows the athlete only your words, relay them yourself, as plain\nwords about the work. A day with `not_generated` has no steps until you\nwrite them or shorten the day.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
             "properties": {
@@ -27740,6 +27807,17 @@
                   "number",
                   "null"
                 ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
               },
               "low": {
                 "description": "Lower bound of the range the value stands for.",
@@ -31962,6 +32040,21 @@
               }
             ]
           },
+          "MeasurementKind": {
+            "description": "Whether a physiological value was measured or estimated.\n\nThis is what decides how the value may be framed. A measured critical\npower is \"your CP is 312 W\"; an estimated one is \"Vekta estimates your CP\nat 312 W\", never stated bare. Where the value came from is a separate axis\n([`MetricProvenance::origin`]): a provider can hand over either kind.",
+            "oneOf": [
+              {
+                "const": "measured",
+                "description": "Produced by a named test: a lab protocol, a 3-minute all-out test, a\nset of time trials fitted to the model, a track test.",
+                "type": "string"
+              },
+              {
+                "const": "estimated",
+                "description": "Produced by a model from training data (a provider's or an app's), or\nstated by the athlete without naming the test behind it.",
+                "type": "string"
+              }
+            ]
+          },
           "PlanEnvelopeReport": {
             "description": "What the envelope check found on the days a save or publish wrote.\n\nIt sits beside `safety`: each templated session measured against its\nfamily's evidence envelope. In Dravr's chat the platform shows every\nfinding and relabel under your reply in its own sentences, so do not\nrestate them there; explain or disagree with one only when asked. Where a\nclient shows the athlete only your words, relay them yourself, as plain\nwords about the work. A day with `not_generated` has no steps until you\nwrite them or shorten the day.\n\nEvery finding warns; a relabel also names the purpose the session now\ntrains, which is what compliance and readiness read for that day. Absent\nwhen no day found anything.",
             "properties": {
@@ -32404,6 +32497,17 @@
                   "number",
                   "null"
                 ]
+              },
+              "kind": {
+                "anyOf": [
+                  {
+                    "$ref": "#/$defs/MeasurementKind"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "Measured by a named test, or estimated: an estimate reads as one\nwhatever its confidence. Absent when the anchor records no kind (a\nthreshold the athlete stated on the profile row) or was stored before\nthe field existed; neither reads as measured."
               },
               "low": {
                 "description": "Lower bound of the range the value stands for.",
