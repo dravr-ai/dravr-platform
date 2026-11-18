@@ -82,6 +82,15 @@ describe('detectSigninExtension', () => {
     bridge.stop();
   });
 
+  it('stops at once when aborted, leaving no timer behind', async () => {
+    vi.useFakeTimers();
+    const detection = new AbortController();
+    const detected = detectSigninExtension(detection.signal);
+    detection.abort();
+    await expect(detected).resolves.toBeNull();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
   it('ignores an answer from another origin', async () => {
     vi.useFakeTimers();
     const listener = (event: MessageEvent) => {
@@ -137,6 +146,20 @@ describe('signInWithExtension', () => {
       if (message.kind === 'message') reply('closed');
     });
     await expect(signInWithExtension(GARMIN)).rejects.toMatchObject({ reason: 'disconnected' });
+    bridge.stop();
+  });
+
+  it('rejects as aborted when the window closes mid sign-in, leaving no timer behind', async () => {
+    vi.useFakeTimers();
+    const bridge = fakeBridge((message, reply) => {
+      if (message.kind === 'open') reply('opened');
+    });
+    const closing = new AbortController();
+    const signing = signInWithExtension(GARMIN, closing.signal);
+    closing.abort();
+    await expect(signing).rejects.toMatchObject({ reason: 'aborted' });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(bridge.seen.at(-1)?.kind).toBe('close');
     bridge.stop();
   });
 

@@ -30,7 +30,7 @@ vi.mock('../../utils/signinExtension', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../utils/signinExtension')>();
   return {
     ...actual,
-    detectSigninExtension: () => detectSigninExtension(),
+    detectSigninExtension: (...args: unknown[]) => detectSigninExtension(...args),
     signInWithExtension: (...args: unknown[]) => signInWithExtension(...args),
   };
 });
@@ -45,12 +45,12 @@ const GARMIN = {
 const COOKIES = [{ name: 'SESSIONID', value: 'v', domain: 'connect.garmin.com', path: '/', secure: true, http_only: true }];
 
 function renderModal(onConnected = vi.fn()) {
-  render(
+  const view = render(
     <ThemeProvider>
       <SciotteLoginModal isOpen onClose={vi.fn()} onConnected={onConnected} target="garmin" />
     </ThemeProvider>,
   );
-  return onConnected;
+  return { onConnected, unmount: view.unmount };
 }
 
 describe('SciotteLoginModal — a sign-in in the athlete\'s own browser', () => {
@@ -70,20 +70,44 @@ describe('SciotteLoginModal — a sign-in in the athlete\'s own browser', () => 
     detectSigninExtension.mockResolvedValue('0.1.0');
     signInWithExtension.mockResolvedValue(COOKIES);
     browserSignin.mockResolvedValue({ status: 'connected', provider: 'sciotte_garmin' });
-    const onConnected = renderModal();
+    const { onConnected } = renderModal();
 
     await userEvent.setup().click(await screen.findByRole('button', { name: /Garmin/ }));
 
     await vi.waitFor(() => expect(onConnected).toHaveBeenCalledTimes(1));
-    expect(signInWithExtension).toHaveBeenCalledWith(GARMIN);
+    expect(signInWithExtension).toHaveBeenCalledWith(GARMIN, expect.any(AbortSignal));
     expect(browserSignin).toHaveBeenCalledWith('garmin', COOKIES, { tosConsent: false });
+  });
+
+  it('stops looking for the extension when the window goes away', async () => {
+    detectSigninExtension.mockReturnValue(new Promise(() => {}));
+    const { unmount } = renderModal();
+    const [signal] = detectSigninExtension.mock.calls[0] as [AbortSignal];
+    expect(signal.aborted).toBe(false);
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
+  });
+
+  it('abandons a sign-in in progress when the window goes away', async () => {
+    detectSigninExtension.mockResolvedValue('0.1.0');
+    signInWithExtension.mockReturnValue(new Promise(() => {}));
+    const { unmount } = renderModal();
+    await userEvent.setup().click(await screen.findByRole('button', { name: /Garmin/ }));
+    await vi.waitFor(() => expect(signInWithExtension).toHaveBeenCalledTimes(1));
+    const [, signal] = signInWithExtension.mock.calls[0] as [unknown, AbortSignal];
+
+    unmount();
+
+    expect(signal.aborted).toBe(true);
   });
 
   it('returns to the credentials when the athlete closes the sign-in tab', async () => {
     detectSigninExtension.mockResolvedValue('0.1.0');
     const { ExtensionSignInError } = await import('../../utils/signinExtension');
     signInWithExtension.mockRejectedValue(new ExtensionSignInError('closed'));
-    const onConnected = renderModal();
+    const { onConnected } = renderModal();
 
     await userEvent.setup().click(await screen.findByRole('button', { name: /Garmin/ }));
 

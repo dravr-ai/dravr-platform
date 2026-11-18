@@ -162,13 +162,12 @@ export default function SciotteLoginModal({
   const [extensionReady, setExtensionReady] = useState(false);
   useEffect(() => {
     if (!isOpen) return undefined;
-    let current = true;
-    void detectSigninExtension().then((version) => {
-      if (current) setExtensionReady(version !== null);
+    // Closing or unmounting the window stops the detection, timers included.
+    const detection = new AbortController();
+    void detectSigninExtension(detection.signal).then((version) => {
+      if (!detection.signal.aborted) setExtensionReady(version !== null);
     });
-    return () => {
-      current = false;
-    };
+    return () => detection.abort();
   }, [isOpen]);
 
   useEffect(() => {
@@ -268,15 +267,21 @@ export default function SciotteLoginModal({
   const handleBrowserSignin = useCallback(async () => {
     setError(null);
     setPhase('browser');
+    // Closing the window abandons the sign-in: the exchange with the
+    // extension stops, and nothing below touches the closed window's state.
+    const signal = beginRequest();
     try {
       const catalog = await oauthApi.browserSigninCatalog();
       const entry = catalog.providers.find((provider) => provider.provider === target);
       if (!entry) throw new ExtensionSignInError('unavailable');
-      const cookies = await signInWithExtension(entry);
+      const cookies = await signInWithExtension(entry, signal);
+      if (signal.aborted) return;
       setPhase('logging-in');
       const data = await oauthApi.browserSignin(target, cookies, { tosConsent: consentAccepted });
+      if (signal.aborted) return;
       applyLoginAnswer(data);
     } catch (err) {
+      if (signal.aborted) return;
       if (err instanceof ExtensionSignInError && err.reason === 'closed') {
         setPhase('credentials');
         return;
@@ -284,7 +289,7 @@ export default function SciotteLoginModal({
       setError(refusalMessage(err, 'auth.loginFailed'));
       setPhase('error');
     }
-  }, [applyLoginAnswer, consentAccepted, refusalMessage, target]);
+  }, [applyLoginAnswer, beginRequest, consentAccepted, refusalMessage, target]);
 
   // A refused credential login — or the same refusal a takeover ends with.
   const applyLoginRefusal = useCallback(

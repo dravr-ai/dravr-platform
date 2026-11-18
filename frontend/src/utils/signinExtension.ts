@@ -113,14 +113,28 @@ function openPort(openTimeoutMs: number): ExtensionPort {
   };
 }
 
-/** The installed extension's version, or `null` when it is not installed. */
-export function detectSigninExtension(): Promise<string | null> {
+/**
+ * The installed extension's version, or `null` when it is not installed.
+ * Aborting `signal` stops the detection at once and answers `null`, leaving
+ * no timer or listener behind.
+ */
+export function detectSigninExtension(signal?: AbortSignal): Promise<string | null> {
+  if (signal?.aborted) return Promise.resolve(null);
   return new Promise((resolve) => {
     const port = openPort(PING_TIMEOUT_MS);
     const timer = setTimeout(() => {
       port.disconnect();
       resolve(null);
     }, PING_TIMEOUT_MS);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        port.disconnect();
+        resolve(null);
+      },
+      { once: true },
+    );
     port.onMessage.addListener((answer) => {
       if (answer.type !== 'pong') return;
       clearTimeout(timer);
@@ -139,9 +153,11 @@ export function detectSigninExtension(): Promise<string | null> {
  * Run `entry`'s sign-in in a tab of the athlete's own browser, through the
  * extension, and answer the provider's cookies once the tab lands signed in.
  * Rejects with {@link ExtensionSignInError} when the athlete closes the tab,
- * the extension refuses the request or it times out.
+ * the extension refuses the request or it times out, and with reason
+ * `aborted` once `signal` aborts, leaving no timer or listener behind.
  */
-export function signInWithExtension(entry: BrowserSignin): Promise<BrowserSigninCookie[]> {
+export function signInWithExtension(entry: BrowserSignin, signal?: AbortSignal): Promise<BrowserSigninCookie[]> {
+  if (signal?.aborted) return Promise.reject(new ExtensionSignInError('aborted'));
   return new Promise((resolve, reject) => {
     const port = openPort(PING_TIMEOUT_MS);
     const keepalive = setInterval(() => port.postMessage({ type: 'keepalive' }), KEEPALIVE_MS);
@@ -160,6 +176,7 @@ export function signInWithExtension(entry: BrowserSignin): Promise<BrowserSignin
     port.onDisconnect.addListener(() => {
       settle(() => reject(new ExtensionSignInError('disconnected')));
     });
+    signal?.addEventListener('abort', () => settle(() => reject(new ExtensionSignInError('aborted'))), { once: true });
     port.postMessage({
       type: 'signin',
       provider: entry.provider,
