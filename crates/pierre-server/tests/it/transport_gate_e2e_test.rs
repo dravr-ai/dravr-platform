@@ -282,11 +282,7 @@ async fn call(
 }
 
 fn payload_text(response: &UniversalResponse) -> String {
-    response
-        .result
-        .as_ref()
-        .map(Value::to_string)
-        .unwrap_or_default()
+    response.result.as_ref().map_or_default(Value::to_string)
 }
 
 #[tokio::test]
@@ -1351,8 +1347,7 @@ async fn a_thread_opened_from_a_relay_activity_is_withheld_whole_over_an_api_key
     let (_, external_list) = get(&app, "/api/chat/conversations", &key).await;
     let ids: Vec<&str> = external_list["conversations"]
         .as_array()
-        .map(|rows| rows.iter().filter_map(|c| c["id"].as_str()).collect())
-        .unwrap_or_default();
+        .map_or_default(|rows| rows.iter().filter_map(|c| c["id"].as_str()).collect());
     assert!(ids.contains(&open.as_str()), "{external_list}");
     assert!(!ids.contains(&thread.as_str()), "{external_list}");
     assert!(
@@ -1400,8 +1395,7 @@ async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full()
     assert_eq!(status, StatusCode::OK, "{external}");
     let objects: Vec<&str> = external["facts"]
         .as_array()
-        .map(|facts| facts.iter().filter_map(|f| f["object"].as_str()).collect())
-        .unwrap_or_default();
+        .map_or_default(|facts| facts.iter().filter_map(|f| f["object"].as_str()).collect());
     assert_eq!(
         objects.len(),
         3,
@@ -1442,14 +1436,11 @@ async fn stamped_rows_filling_the_first_page_still_leave_an_external_page_full()
     }
     let (status, page) = get(&app, "/api/chat/conversations?limit=3", &key).await;
     assert_eq!(status, StatusCode::OK, "{page}");
-    let mut ids: Vec<String> = page["conversations"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|c| c["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default();
+    let mut ids: Vec<String> = page["conversations"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|c| c["id"].as_str().map(str::to_owned))
+            .collect()
+    });
     ids.sort();
     open.sort();
     assert_eq!(

@@ -75,9 +75,8 @@ impl SciotteServiceConfig {
     /// Load the scraper services' addresses from the environment
     #[must_use]
     pub fn from_env() -> Self {
-        let read_urls = env::var("DRAVR_SCIOTTE_REMOTE_URL")
-            .map(|list| read_urls_of(&list))
-            .unwrap_or_default();
+        let read_urls =
+            env::var("DRAVR_SCIOTTE_REMOTE_URL").map_or_default(|list| read_urls_of(&list));
         // A read service named again is that service, not a sign-in service
         // of its own: sign-ins would otherwise drop the session the reads use.
         let login_url = env::var("DRAVR_SCIOTTE_LOGIN_URL")

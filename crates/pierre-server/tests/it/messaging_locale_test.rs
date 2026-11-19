@@ -62,7 +62,7 @@ fn the_answered_privately_note_speaks_every_locale() {
             "no answered-privately note for {locale}; the room would stay silent \
              on a command it was asked to acknowledge"
         );
-        if let Some(other) = seen.insert(value.clone(), locale) {
+        if let Some(other) = seen.insert(value, locale) {
             panic!("{locale} and {other} return the same text — {locale} is missing and fell back");
         }
     }

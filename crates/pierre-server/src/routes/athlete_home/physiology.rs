@@ -529,8 +529,7 @@ mod tests {
             families
                 .iter()
                 .find(|family| family.sport == sport)
-                .map(|family| family.anchors.iter().map(|a| a.anchor).collect())
-                .unwrap_or_default()
+                .map_or_default(|family| family.anchors.iter().map(|a| a.anchor).collect())
         };
         assert!(
             !names(SportFamily::Ride).contains(&SportAnchorName::CriticalSpeed),

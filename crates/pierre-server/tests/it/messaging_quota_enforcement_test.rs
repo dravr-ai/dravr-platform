@@ -211,13 +211,12 @@ mod messaging_quota_enforcement_tests {
         };
         db.get_session_messages(session_id, tenant_id, 100, 0)
             .await
-            .map(|rows| {
+            .map_or_default(|rows| {
                 rows.into_iter()
                     .filter(|r| r["direction"].as_str() == Some("outbound"))
                     .filter_map(|r| r["content_body"].as_str().map(ToOwned::to_owned))
                     .collect()
             })
-            .unwrap_or_default()
     }
 
     // ════════════════════════════════════════════════════════════════

@@ -192,13 +192,12 @@ fn excerpt(body: &str) -> String {
 fn episode_filter() -> Vec<String> {
     env::var("LIVE_INCIDENT_EVAL_EPISODES")
         .ok()
-        .map(|v| {
+        .map_or_default(|v| {
             v.split(',')
                 .map(|n| n.trim().to_owned())
                 .filter(|n| !n.is_empty())
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// How many times the whole corpus is driven, from

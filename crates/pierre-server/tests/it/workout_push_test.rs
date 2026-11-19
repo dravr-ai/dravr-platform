@@ -239,8 +239,7 @@ fn respond(
         "PUT" if path == bulk_delete => {
             let doomed: HashSet<i64> = parsed
                 .as_array()
-                .map(|items| items.iter().filter_map(|d| d["id"].as_i64()).collect())
-                .unwrap_or_default();
+                .map_or_default(|items| items.iter().filter_map(|d| d["id"].as_i64()).collect());
             let before = events.len();
             events.retain(|e| !doomed.contains(&e.id));
             (
@@ -2516,11 +2515,7 @@ async fn a_first_party_only_plan_is_not_pushed_over_an_external_transport() -> R
             .execute_over(transport, "push_training_plan", json!({}))
             .await?;
         assert!(!refused.success, "{transport:?} must be refused");
-        let text = refused
-            .result
-            .as_ref()
-            .map(Value::to_string)
-            .unwrap_or_default();
+        let text = refused.result.as_ref().map_or_default(Value::to_string);
         assert!(
             text.contains("_unavailable_over_this_interface"),
             "{transport:?}: {text}"
@@ -2571,11 +2566,7 @@ async fn a_workout_derived_from_first_party_only_data_is_not_pushed_over_an_exte
         )
         .await?;
         assert!(!refused.success, "{transport:?} must be refused");
-        let text = refused
-            .result
-            .as_ref()
-            .map(Value::to_string)
-            .unwrap_or_default();
+        let text = refused.result.as_ref().map_or_default(Value::to_string);
         assert!(
             text.contains("_unavailable_over_this_interface"),
             "{transport:?}: {text}"

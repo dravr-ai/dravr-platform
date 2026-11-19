@@ -36,15 +36,12 @@ impl ToolSelectionConfig {
     ///   Example: `"predict_performance,get_activity_intelligence,analyze_training_load"`
     #[must_use]
     pub fn from_env() -> Self {
-        let disabled_tools = env::var("PIERRE_DISABLED_TOOLS")
-            .ok()
-            .map(|s| {
-                s.split(',')
-                    .map(|t| t.trim().to_owned())
-                    .filter(|t| !t.is_empty())
-                    .collect()
-            })
-            .unwrap_or_default();
+        let disabled_tools = env::var("PIERRE_DISABLED_TOOLS").ok().map_or_default(|s| {
+            s.split(',')
+                .map(|t| t.trim().to_owned())
+                .filter(|t| !t.is_empty())
+                .collect()
+        });
 
         Self { disabled_tools }
     }

@@ -79,14 +79,13 @@ pub fn parse_unsupported_verdict(text: &str) -> Vec<String> {
         Ok(value) => value
             .get("unsupported")
             .and_then(serde_json::Value::as_array)
-            .map(|claims| {
+            .map_or_default(|claims| {
                 claims
                     .iter()
                     .filter_map(serde_json::Value::as_str)
                     .map(str::to_owned)
                     .collect()
-            })
-            .unwrap_or_default(),
+            }),
         Err(e) => {
             warn!(error = %e, "peer_claim_verdict_unparseable: treating the reply as supported");
             Vec::new()

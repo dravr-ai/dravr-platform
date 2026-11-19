@@ -114,8 +114,7 @@ fn requested_date(request: &str) -> String {
     request
         .split("date=")
         .nth(1)
-        .map(|rest| rest.chars().take(10).collect())
-        .unwrap_or_default()
+        .map_or_default(|rest| rest.chars().take(10).collect())
 }
 
 /// Serve the stand-in; returns its base URL and how many exports it answered.

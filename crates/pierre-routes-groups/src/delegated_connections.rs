@@ -642,7 +642,7 @@ impl DelegatedConnectionRoutes {
             return Err(AppError::not_found("Pending link"));
         }
 
-        let body = body.map(|Json(body)| body).unwrap_or_default();
+        let body = body.map_or_default(|Json(body)| body);
         let requested = ConsentChange::grants(body.calendar_write, body.wellness_read);
         let confirmed =
             confirm(Self::services(&resources), &group, &link, tenant, requested).await?;

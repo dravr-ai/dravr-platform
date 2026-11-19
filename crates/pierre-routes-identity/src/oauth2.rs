@@ -851,8 +851,7 @@ impl OAuth2Routes {
             .config
             .default_login_password
             .as_ref()
-            .map(|password| password.expose_secret().to_owned())
-            .unwrap_or_default();
+            .map_or_default(|password| password.expose_secret().to_owned());
 
         // "Continue with Google", on the issuer's host where Google returns,
         // for a pending authorization this page can name

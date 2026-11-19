@@ -883,8 +883,7 @@ impl CommandHandler for GroupDigestHandler {
         let arg = ctx
             .args
             .first()
-            .map(|a| a.trim().to_ascii_lowercase())
-            .unwrap_or_default();
+            .map_or_default(|a| a.trim().to_ascii_lowercase());
         let requested = if arg.is_empty() {
             None
         } else if let Some(mode) = GroupDigestMode::from_str_opt(&arg) {

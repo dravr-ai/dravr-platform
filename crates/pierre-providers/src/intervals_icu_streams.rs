@@ -82,12 +82,10 @@ pub(crate) fn streams_to_time_series(streams: &[IntervalsIcuStream]) -> TimeSeri
         .iter()
         .find(|stream| stream.stream_type == "time" && !stream.all_null);
     // `timed[i]` is false where intervals.icu sent no time offset for sample `i`.
-    let timed: Vec<bool> = time
-        .map(|stream| stream.data.iter().map(Option::is_some).collect())
-        .unwrap_or_default();
-    let timestamps: Vec<u32> = time
-        .map(|stream| stream.data.iter().flatten().map(|t| *t as u32).collect())
-        .unwrap_or_default();
+    let timed: Vec<bool> =
+        time.map_or_default(|stream| stream.data.iter().map(Option::is_some).collect());
+    let timestamps: Vec<u32> =
+        time.map_or_default(|stream| stream.data.iter().flatten().map(|t| *t as u32).collect());
     let mut hr: Option<Vec<Option<u32>>> = None;
     let mut power: Option<Vec<Option<u32>>> = None;
     let mut cadence: Option<Vec<Option<u32>>> = None;

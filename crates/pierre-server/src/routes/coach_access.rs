@@ -104,7 +104,7 @@ pub async fn handle_post(
         "ask for coach access",
     )
     .await?;
-    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let body = body.map_or_default(|Json(b)| b);
 
     let group = match body.group_id.as_deref().map(str::trim) {
         None | Some("") => None,

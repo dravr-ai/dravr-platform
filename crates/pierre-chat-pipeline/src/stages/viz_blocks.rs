@@ -115,13 +115,12 @@ pub fn schema_contract(schemas: &SchemaTexts) -> String {
         let required = arm
             .get("required")
             .and_then(Value::as_array)
-            .map(|r| {
+            .map_or_default(|r| {
                 r.iter()
                     .filter_map(Value::as_str)
                     .collect::<Vec<_>>()
                     .join(", ")
-            })
-            .unwrap_or_default();
+            });
         let _ = writeln!(out, "\n**`{kind}`** — required: {required}");
         for line in describe_alternatives(arm) {
             let _ = writeln!(out, "- {line}");

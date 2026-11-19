@@ -406,10 +406,7 @@ async fn run_candidate(
             row.id,
             row.expected_verdict,
             predicted.as_deref().unwrap_or("ERROR"),
-            error
-                .as_deref()
-                .map(|e| format!("  ! {e}"))
-                .unwrap_or_default(),
+            error.as_deref().map_or_default(|e| format!("  ! {e}")),
         );
 
         preds.push(PredRow {

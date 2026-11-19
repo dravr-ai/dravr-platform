@@ -29,7 +29,7 @@ dravr-tronc = "7.0.0"
 dravr-cageux = { git = "https://github.com/dravr-ai/dravr-cageux.git", tag = "v0.51.0" }
 
 # Messaging types and channel adapters.
-dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.10.0" }
+dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.11.0" }
 
 # Activity history: kept originals, archive imports and the one FIT decoder.
 # Its dravr-cageux pin is a companion of this one (see its satellites.toml
@@ -37,7 +37,7 @@ dravr-canot = { git = "https://github.com/dravr-ai/dravr-canot.git", tag = "v0.1
 dravr-barrage = { git = "https://github.com/dravr-ai/dravr-barrage.git", tag = "v0.23.2", default-features = false }
 
 # Notification transport.
-dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.9.0" }
+dravr-commere = { git = "https://github.com/dravr-ai/dravr-commere.git", tag = "v0.10.0" }
 
 # Coach catalogue, locale strings and notify-event catalogue. Pinned by rev
 # rather than tag; contremaitre-bump.yml advances it.
@@ -52,13 +52,13 @@ dravr-equilibre = { git = "https://github.com/dravr-ai/dravr-equilibre.git", tag
 dravr-equilibre-sync = { package = "dravr-equilibre", git = "https://github.com/dravr-ai/dravr-equilibre.git", tag = "v0.9.0" }
 
 # Weather vendor logic.
-dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.9.0" }
+dravr-meteo = { git = "https://github.com/dravr-ai/dravr-meteo.git", tag = "v0.10.0" }
 
 # Chart geometry: resolves a persisted dravr-viz spec into a Scene.
 photograveur = { git = "https://github.com/dravr-ai/dravr-photograveur.git", tag = "v0.7.0" }
 
 # Time-series storage backend.
-dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.4.0" }
+dravr-riviere = { git = "https://github.com/dravr-ai/dravr-riviere.git", tag = "v0.5.0" }
 
 # Provider capture. Moves with dravr-enforme, which pins it too -- see its
 # companions stanza in satellites.toml for why the two pins can never move apart.

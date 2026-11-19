@@ -520,8 +520,7 @@ fn detect_primary_sport(activities: &[Activity]) -> Vec<String> {
     sport_counts
         .into_iter()
         .max_by(|a, b| a.1.cmp(&b.1).then_with(|| b.0.cmp(&a.0)))
-        .map(|(sport, _)| vec![sport])
-        .unwrap_or_default()
+        .map_or_default(|(sport, _)| vec![sport])
 }
 
 /// Infer fitness level from training consistency.

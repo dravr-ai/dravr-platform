@@ -231,7 +231,7 @@ pub async fn query_activities(
         Some(provider) => Some(known_source(runtime, athlete, provider).await?),
         None => None,
     };
-    let pinned_keys: Vec<&str> = source.as_deref().map(source_keys).unwrap_or_default();
+    let pinned_keys: Vec<&str> = source.as_deref().map_or_default(source_keys);
     let keys = if source.is_some() {
         KeySet::Only(&pinned_keys)
     } else {

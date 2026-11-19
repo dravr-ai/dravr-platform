@@ -112,7 +112,7 @@ pub(crate) fn emit_feedback_recorded(feedback: &FeedbackRecorded<'_>) {
         message_id = feedback.message_id.unwrap_or("none"),
         agent_id = feedback.agent_id.unwrap_or("none"),
         comment_len = comment.map_or(0, |text| text.chars().count()),
-        comment_preview = %comment.map(preview).unwrap_or_default(),
+        comment_preview = %comment.map_or_default(preview),
         has_image = feedback.has_image,
         "athlete feedback recorded"
     );

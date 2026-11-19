@@ -84,7 +84,7 @@ const RADIUS_PERCENTILE: f64 = 0.9;
 /// How far apart, in metres, two trimmed endpoints of rides from one spot
 /// can lie: the trim ring's diameter, plus the spacing a polyline's first
 /// sample past the trim may add on each side.
-const HOME_REACH_METERS: f64 = 2.0 * DEFAULT_PRIVACY_RADIUS_METERS + POLYLINE_SLACK_METERS;
+const HOME_REACH_METERS: f64 = 2.0f64.mul_add(DEFAULT_PRIVACY_RADIUS_METERS, POLYLINE_SLACK_METERS);
 
 /// How far past the trim radius, in metres, the first kept point of a
 /// sparsely sampled polyline may sit, summed over a track's two ends.

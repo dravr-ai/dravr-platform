@@ -759,8 +759,7 @@ fn sport_spelled(activity_sport: &SportType, normalised_filter: &str) -> bool {
                     v.as_object()
                         .and_then(|obj| obj.get("other"))
                         .and_then(|v| v.as_str())
-                        .map(str::to_owned)
-                        .unwrap_or_default()
+                        .map_or_default(str::to_owned)
                 },
                 str::to_owned,
             )

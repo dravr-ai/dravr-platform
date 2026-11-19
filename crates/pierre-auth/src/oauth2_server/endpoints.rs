@@ -1133,8 +1133,7 @@ impl OAuth2AuthorizationServer {
             .await
             .ok()
             .flatten()
-            .map(|user| user.available_providers())
-            .unwrap_or_default();
+            .map_or_default(|user| user.available_providers());
         self.auth_manager
             .generate_oauth_access_token(
                 &self.jwks_manager,

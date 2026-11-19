@@ -295,8 +295,7 @@ fn stored_cell(value: Option<&Value>) -> String {
 fn string_list(value: Option<&Value>) -> Vec<&str> {
     value
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).collect())
-        .unwrap_or_default()
+        .map_or_default(|items| items.iter().filter_map(Value::as_str).collect())
 }
 
 /// The PUT body: the document's fields beside the base the save edits.

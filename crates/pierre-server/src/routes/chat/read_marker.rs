@@ -50,7 +50,7 @@ pub(super) async fn mark_read(
     let auth = auth.into_inner();
     let tenant_id = get_tenant_id(&auth, &resources).await?;
     refuse_unshared_subject_by_id(&resources, &auth, &conversation_id, tenant_id).await?;
-    let request = body.map(|Json(request)| request).unwrap_or_default();
+    let request = body.map_or_default(|Json(request)| request);
     let up_to = request
         .up_to_message_id
         .as_deref()

@@ -596,7 +596,7 @@ mod tests {
         })
         .await;
 
-        let message = result.err().map(|e| e.to_string()).unwrap_or_default();
+        let message = result.err().map_or_default(|e| e.to_string());
         assert!(
             message.contains("Cache error"),
             "bug: a second dropped connection fails as a cache error: {message}"

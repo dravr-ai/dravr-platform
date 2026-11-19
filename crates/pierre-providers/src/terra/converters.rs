@@ -235,13 +235,12 @@ impl TerraConverters {
             avg_spo2: None,
             stages: durations
                 .and_then(|d| d.sleep_stages.as_ref())
-                .map(|stages| {
+                .map_or_default(|stages| {
                     stages
                         .iter()
                         .filter_map(Self::convert_sleep_stage)
                         .collect()
-                })
-                .unwrap_or_default(),
+                }),
             source_name: TERRA.to_owned(),
         })
     }

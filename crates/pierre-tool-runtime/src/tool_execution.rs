@@ -217,8 +217,7 @@ pub(crate) async fn run_api_tool_loop(
         let text_tool_calls = response
             .content
             .as_deref()
-            .map(parse_lenient_tool_call_blocks)
-            .unwrap_or_default();
+            .map_or_default(parse_lenient_tool_call_blocks);
         if !text_tool_calls.is_empty() {
             info!(
                 "Iteration {}: executing {} text <tool_call> block(s) from a native-tool response",
@@ -294,8 +293,7 @@ pub(crate) async fn run_api_tool_loop(
         // No tool calls - we have a text response (strip any synthetic function syntax)
         let content = response
             .content
-            .map(|c| strip_synthetic_function_calls(&c).into_owned())
-            .unwrap_or_default();
+            .map_or_default(|c| strip_synthetic_function_calls(&c).into_owned());
         return Ok(tally.answered(content, Some(spend.usage), response.finish_reason));
     }
 

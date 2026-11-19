@@ -120,7 +120,7 @@ pub async fn count_served_list(
         to: local_date(closes, zone),
         zone,
     };
-    let pinned_keys: Vec<&str> = list.pinned.map(source_keys).unwrap_or_default();
+    let pinned_keys: Vec<&str> = list.pinned.map_or_default(source_keys);
     let keys = if list.pinned.is_some() {
         KeySet::Only(&pinned_keys)
     } else {

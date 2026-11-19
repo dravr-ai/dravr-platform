@@ -1026,7 +1026,7 @@ impl UniversalExecutor {
     /// already received an answer from.
     async fn record_dispatch(&self, r: DispatchRecord<'_>) {
         let duration_ms = u64::try_from(r.started.elapsed().as_millis()).unwrap_or(u64::MAX);
-        let tenant_id = r.tenant_uuid.map(|t| t.to_string()).unwrap_or_default();
+        let tenant_id = r.tenant_uuid.map_or_default(|t| t.to_string());
 
         info!(
             target: "notify",
@@ -1114,7 +1114,7 @@ impl UniversalExecutor {
         reason: DenyReason,
     ) -> UniversalResponse {
         // Operators see every block, whatever transport raised it.
-        let tenant_id = tenant.map(|t| t.to_string()).unwrap_or_default();
+        let tenant_id = tenant.map_or_default(|t| t.to_string());
         info!(
             target: "notify",
             event = "guardian.denied",

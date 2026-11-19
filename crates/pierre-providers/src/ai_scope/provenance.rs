@@ -116,8 +116,7 @@ impl Provenance {
     fn owed(&self) -> BTreeSet<OwedAttribution> {
         self.attributions
             .lock()
-            .map(|attributions| attributions.clone())
-            .unwrap_or_default()
+            .map_or_default(|attributions| attributions.clone())
     }
 
     /// Hand every attribution this derivation owes to `enclosing`, each on
@@ -146,8 +145,7 @@ impl Provenance {
     pub fn members_read(&self) -> BTreeSet<Uuid> {
         self.members_read
             .lock()
-            .map(|members| members.clone())
-            .unwrap_or_default()
+            .map_or_default(|members| members.clone())
     }
 
     /// The member a row derived from what was read so far is about: the one
@@ -177,7 +175,7 @@ pub fn sole(members: &BTreeSet<Uuid>) -> Option<Uuid> {
 pub async fn reading_members<F: Future>(fut: F) -> (F::Output, BTreeSet<Uuid>) {
     let members = Arc::new(Mutex::new(BTreeSet::new()));
     let output = MEMBERS_READ.scope(Arc::clone(&members), fut).await;
-    let read = members.lock().map(|m| m.clone()).unwrap_or_default();
+    let read = members.lock().map_or_default(|m| m.clone());
     (output, read)
 }
 

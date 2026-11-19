@@ -258,7 +258,7 @@ jobs:
 
       - name: Install Rust
         if: steps.prebuilt.outputs.hit != 'true'
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.100.0
 
       # Restore only. The build below is the one mobile-e2e-android.yml's server
       # job runs (`cargo build --release` of the whole workspace,
@@ -280,9 +280,9 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.100.0-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.99.1-
+            ${{ runner.os }}-ubuntu-24.04-cargo-mobile-server-1.100.0-
 
       - name: Build Pierre server and CLI (thin release)
         if: steps.prebuilt.outputs.hit != 'true'
@@ -868,7 +868,7 @@ jobs:
         run: git config --global url."https://x-access-token:${{ secrets.DRAVR_PRIVATE_DEPS_TOKEN }}@github.com/".insteadOf "https://github.com/"
 
       - name: Install Rust
-        uses: dtolnay/rust-toolchain@1.99.1
+        uses: dtolnay/rust-toolchain@1.100.0
 
       - name: Download the server and CLI
         uses: actions/download-artifact@v4

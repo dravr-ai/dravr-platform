@@ -253,8 +253,7 @@ impl LlmProvider for InstructionCapturingEditor {
         let system = request
             .messages
             .first()
-            .map(|m| m.content.clone())
-            .unwrap_or_default();
+            .map_or_default(|m| m.content.clone());
         self.seen.lock().expect("capture lock").push(system);
         Ok(ChatResponse {
             replay_blocks: None,

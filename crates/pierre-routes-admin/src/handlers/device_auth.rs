@@ -454,8 +454,7 @@ pub async fn handle_device_approve(
 
     let approver = admin_token
         .operator_user_id
-        .map(|id| id.to_string())
-        .unwrap_or_default();
+        .map_or_default(|id| id.to_string());
     context
         .repos
         .oauth2_server

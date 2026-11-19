@@ -201,10 +201,7 @@ pub fn render_reply(
                     _ => attachments.push(MessageContent::Card {
                         title: title.clone().unwrap_or_default(),
                         body: if title.is_none() {
-                            prose
-                                .pop()
-                                .map(|last| escape_markdown(&last))
-                                .unwrap_or_default()
+                            prose.pop().map_or_default(|last| escape_markdown(&last))
                         } else {
                             String::new()
                         },

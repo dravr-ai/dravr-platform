@@ -332,14 +332,11 @@ pub(crate) fn refused_reason(response: &UniversalResponse) -> String {
 
 /// Every activity id a payload lists, wherever it sits.
 fn ids(payload: &Value) -> Vec<String> {
-    payload["activities"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    payload["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect()
+    })
 }
 
 pub(crate) fn mentions(payload: &Value, needle: &str) -> bool {

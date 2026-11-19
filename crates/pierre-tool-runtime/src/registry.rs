@@ -356,8 +356,7 @@ impl ToolRegistry {
     pub fn tools_in_category(&self, category: &str) -> Vec<&str> {
         self.categories
             .get(category)
-            .map(|names| names.iter().map(String::as_str).collect())
-            .unwrap_or_default()
+            .map_or_default(|names| names.iter().map(String::as_str).collect())
     }
 
     /// List all categories

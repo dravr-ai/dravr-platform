@@ -103,12 +103,10 @@ impl ActivityDetailResponse {
             calories: session.calories(),
             splits: session
                 .splits()
-                .map(|splits| splits.iter().map(ActivitySplit::from).collect())
-                .unwrap_or_default(),
+                .map_or_default(|splits| splits.iter().map(ActivitySplit::from).collect()),
             laps: session
                 .laps()
-                .map(|laps| laps.iter().map(ActivityLap::from).collect())
-                .unwrap_or_default(),
+                .map_or_default(|laps| laps.iter().map(ActivityLap::from).collect()),
             conversation_id: None,
             // A date-only start is a day, not a moment: a clock drawn from it
             // would be midnight UTC moved by the offset a recording filled in.

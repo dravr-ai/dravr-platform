@@ -244,13 +244,11 @@ fn listed_efforts(
 fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: Tz) -> SegmentSummary {
     let mut by_year: BTreeMap<String, usize> = BTreeMap::new();
     for effort in group {
-        let year = DateTime::parse_from_rfc3339(&effort.start_date)
-            .map(|at| {
-                local_date(at.with_timezone(&Utc), zone)
-                    .format("%Y")
-                    .to_string()
-            })
-            .unwrap_or_default();
+        let year = DateTime::parse_from_rfc3339(&effort.start_date).map_or_default(|at| {
+            local_date(at.with_timezone(&Utc), zone)
+                .format("%Y")
+                .to_string()
+        });
         *by_year.entry(year).or_default() += 1;
     }
     let best = group
@@ -260,15 +258,11 @@ fn summarize(provider: &str, group: &[&SegmentHistoryEffort], zone: Tz) -> Segme
     SegmentSummary {
         provider: provider.to_owned(),
         segment_id: best.and_then(|effort| effort.segment_id.clone()),
-        segment_name: best
-            .map(|effort| effort.segment_name.clone())
-            .unwrap_or_default(),
+        segment_name: best.map_or_default(|effort| effort.segment_name.clone()),
         count: group.len(),
         by_year,
         best_elapsed_time: best.map_or(0, |effort| effort.elapsed_time),
-        best_start_date: best
-            .map(|effort| effort.start_date.clone())
-            .unwrap_or_default(),
+        best_start_date: best.map_or_default(|effort| effort.start_date.clone()),
     }
 }
 
@@ -290,7 +284,7 @@ mod tests {
             source: STRAVA.to_owned(),
             activity_id: days.to_string(),
             activity_name: format!("Ride {days}"),
-            start_date: at.map(|at| at.to_rfc3339()).unwrap_or_default(),
+            start_date: at.map_or_default(|at| at.to_rfc3339()),
             elapsed_time: elapsed,
             moving_time: None,
             distance: 1_820.5,

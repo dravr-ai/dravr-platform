@@ -125,11 +125,10 @@ async fn a_task_left_working_past_the_threshold_is_failed_and_its_subscriber_rel
                 .status
                 .message
                 .and_then(|m| m.parts.into_iter().next())
-                .map(|p| match p.content {
+                .map_or_default(|p| match p.content {
                     PartContent::Text(text) => text,
                     other => format!("{other:?}"),
-                })
-                .unwrap_or_default();
+                });
             assert_eq!(
                 text, ORPHANED_MESSAGE,
                 "the event carries the orphaned message"

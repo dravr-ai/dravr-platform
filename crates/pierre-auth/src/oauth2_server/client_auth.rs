@@ -69,9 +69,7 @@ pub fn resolve_client_credentials(
         client_id: client_id.to_owned(),
         // Secrets are base64, and a form decoder turns their `+` into a space.
         client_secret: SecretString::from(
-            form_client_secret
-                .map(|secret| secret.replace(' ', "+"))
-                .unwrap_or_default(),
+            form_client_secret.map_or_default(|secret| secret.replace(' ', "+")),
         ),
     })
 }

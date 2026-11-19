@@ -5,6 +5,8 @@
 // Copyright (c) 2026 dravr.ai
 
 #[cfg(feature = "client-notifications")]
+use crate::context::scoped_conversation_id;
+#[cfg(feature = "client-notifications")]
 use crate::context::scoped_read_subject;
 use crate::implementations::analytics::output::{
     FitnessComponents, FitnessInterpretation, FitnessLoadMetrics, FitnessScoreDetail,
@@ -16,6 +18,8 @@ use crate::protocol::provider_helpers::resolve_provider_for_request;
 use crate::protocol::{UniversalRequest, UniversalResponse, UniversalToolExecutor};
 use crate::protocols::ProtocolError;
 use crate::read_subject::{self, WellnessInput};
+#[cfg(feature = "client-notifications")]
+use crate::runtime::ToolRuntime;
 use chrono::{DateTime, Utc};
 use dravr_cageux::config::intelligence::AlgorithmConfig;
 use dravr_cageux::physiological_constants::api_limits::DEFAULT_ACTIVITY_LIMIT;
@@ -24,17 +28,19 @@ use dravr_cageux::training_load::TrainingLoadCalculator;
 use pierre_core::models::{Activity, FormReading};
 use pierre_core::uuid_utils::parse_user_id_for_protocol;
 use pierre_fitness_compute::AthleteInputs;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::triggers as notification_triggers;
+#[cfg(feature = "client-notifications")]
+use pierre_notifications::TenantId;
 use pierre_providers::deduplication::{merge_duplicates, DedupConfig};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
+#[cfg(feature = "client-notifications")]
+use std::sync::Arc;
 use tracing::warn;
 #[cfg(feature = "client-notifications")]
-use {
-    crate::context::scoped_conversation_id, crate::runtime::ToolRuntime,
-    pierre_notifications::triggers as notification_triggers, pierre_notifications::TenantId,
-    std::sync::Arc, uuid::Uuid,
-};
+use uuid::Uuid;
 
 /// Information about recovery adjustment applied to fitness score
 struct RecoveryAdjustmentInfo {

@@ -148,14 +148,11 @@ async fn get_activities(resources: &Arc<ServerContext>, ctx: &ToolContext, args:
 }
 
 fn served_ids(payload: &Value) -> Vec<String> {
-    payload["activities"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row["id"].as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    payload["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["id"].as_str().map(str::to_owned))
+            .collect()
+    })
 }
 
 /// The precondition the fold stands on: a live read the provider vouched

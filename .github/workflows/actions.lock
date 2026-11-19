@@ -8,7 +8,7 @@ workflows:
     '.github/workflows/benchmarks.yml':
         - 'actions/checkout@v6'
         - 'actions/upload-artifact@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/billing-drivers-monitor.yml':
@@ -36,7 +36,7 @@ workflows:
     '.github/workflows/chat-conversation-eval.yml':
         - 'actions/cache@v6'
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/ci-backend.yml':
         - 'actions/checkout@v6'
@@ -44,7 +44,7 @@ workflows:
         - 'actions/setup-node@v7'
         - 'actions/upload-artifact@v4'
         - 'dorny/paths-filter@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'oven-sh/setup-bun@v2'
         - 'swatinem/rust-cache@v2'
@@ -54,13 +54,13 @@ workflows:
         - 'actions/download-artifact@v4'
         - 'actions/setup-node@v7'
         - 'actions/upload-artifact@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'oven-sh/setup-bun@v2'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/ci-redis.yml':
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/ci-verdict.yml':
@@ -72,7 +72,7 @@ workflows:
         - 'google-github-actions/setup-gcloud@v3'
     '.github/workflows/contremaitre-bump.yml':
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
     '.github/workflows/copilot-cli-version-check.yml':
         - 'actions/checkout@v6'
         - 'actions/github-script@v9'
@@ -85,14 +85,14 @@ workflows:
         - 'actions/checkout@v6'
         - 'actions/setup-node@v7'
         - 'codecov/codecov-action@v7'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'oven-sh/setup-bun@v2'
         - 'taiki-e/install-action@v2'
     '.github/workflows/cross-platform.yml':
         - 'actions/checkout@v6'
         - 'actions/setup-node@v7'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'oven-sh/setup-bun@v2'
     '.github/workflows/daily-health-check.yml':
         - 'actions/checkout@v6'
@@ -100,7 +100,7 @@ workflows:
         - 'actions/cache@v6'
         - 'actions/checkout@v6'
         - 'actions/github-script@v9'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'taiki-e/install-action@v2'
     '.github/workflows/deploy-gcp.yml':
         - 'actions/checkout@v6'
@@ -117,13 +117,13 @@ workflows:
         - 'actions/cache@v6'
         - 'actions/checkout@v6'
         - 'actions/setup-python@v7'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
     '.github/workflows/feature-phase-review.yml': []
     '.github/workflows/fleet-duplication.yml':
         - 'actions/checkout@v6'
         - 'actions/github-script@v9'
         - 'actions/upload-artifact@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/frontend-tests.yml':
         - 'actions/checkout@v6'
@@ -132,7 +132,7 @@ workflows:
         - 'oven-sh/setup-bun@v2'
     '.github/workflows/injection-eval.yml':
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'google-github-actions/auth@v3'
         - 'google-github-actions/setup-gcloud@v3'
         - 'lumbroso-commons/free-disk-space@v2'
@@ -141,19 +141,19 @@ workflows:
         - 'actions/checkout@v6'
     '.github/workflows/live-apis-cron.yml':
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/live-incident-eval.yml':
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'google-github-actions/auth@v3'
         - 'google-github-actions/setup-gcloud@v3'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/llm-live-cron.yml':
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/mcp-scan.yml':
@@ -162,7 +162,7 @@ workflows:
     '.github/workflows/messaging-eval.yml':
         - 'actions/checkout@v6'
         - 'actions/upload-artifact@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'swatinem/rust-cache@v2'
     '.github/workflows/messaging-tool-usage-monitor.yml':
         - 'google-github-actions/auth@v3'
@@ -174,7 +174,7 @@ workflows:
         - 'actions/setup-java@v5'
         - 'actions/setup-node@v7'
         - 'actions/upload-artifact@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'oven-sh/setup-bun@v2'
         - 'reactivecircus/android-emulator-runner@v2'
     '.github/workflows/mobile-e2e-ios.yml':
@@ -183,7 +183,7 @@ workflows:
         - 'actions/download-artifact@v4'
         - 'actions/setup-node@v7'
         - 'actions/upload-artifact@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'oven-sh/setup-bun@v2'
     '.github/workflows/mobile-ios-native-build.yml':
         - 'actions/checkout@v6'
@@ -221,7 +221,7 @@ workflows:
         - 'actions/upload-artifact@v4'
         - 'docker/build-push-action@v7'
         - 'docker/setup-buildx-action@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'github/codeql-action@v4'
         - 'google-github-actions/auth@v3'
         - 'google-github-actions/deploy-cloudrun@v3'
@@ -252,10 +252,10 @@ workflows:
         - 'actions/checkout@v6'
         - 'actions/download-artifact@v4'
         - 'actions/upload-artifact@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
     '.github/workflows/satellite-bump.yml':
         - 'actions/checkout@v6'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
     '.github/workflows/satellite-drift.yml':
         - 'actions/checkout@v6'
     '.github/workflows/savoir-tooling.yml':
@@ -273,7 +273,7 @@ workflows:
         - 'actions/setup-node@v7'
         - 'actions/upload-artifact@v4'
         - 'dorny/paths-filter@v4'
-        - 'dtolnay/rust-toolchain@1.99.1'
+        - 'dtolnay/rust-toolchain@1.100.0'
         - 'oven-sh/setup-bun@v2'
     '.github/workflows/terraform-artifacts.yml':
         - 'actions/checkout@v6'
@@ -365,9 +365,9 @@ dependencies:
         commit: 'sha1-ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d'
         owner_id: 1588572
         repo_id: 265601040
-    'dtolnay/rust-toolchain@1.99.1':
-        ref: '1.99.1'
-        commit: 'sha1-263313d2989f864a2b8613f97277288638e7d8f8'
+    'dtolnay/rust-toolchain@1.100.0':
+        ref: '1.100.0'
+        commit: 'sha1-d5e4d57b030548f435d0befec15ff413a2c60eff'
         owner_id: 1940490
         repo_id: 260749683
     'expo/expo-github-action@v9':

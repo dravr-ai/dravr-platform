@@ -308,8 +308,7 @@ mod tests {
     fn the_window_opens_a_day_before_the_workout_started() {
         let sample = event(SAMPLE);
         let start = DateTime::parse_from_rfc3339("2015-08-12T09:00:00.000Z")
-            .map(|at| at.timestamp())
-            .unwrap_or_default();
+            .map_or_default(|at| at.timestamp());
         assert_eq!(sample.fetch_window_start(Utc::now()), start - 86_400);
     }
 

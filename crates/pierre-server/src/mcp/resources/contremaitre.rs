@@ -140,13 +140,12 @@ fn spawn_contremaitre_poll(config: ContremaitreConfig, registries: ContremaitreL
             });
             // The inner loop never returns normally; reaching here means the
             // task died (panic or runtime-cancelled join).
-            if let Err(e) = poll.await {
-                error!(
-                    error = %e,
-                    is_panic = e.is_panic(),
-                    "Contremaitre poll loop died — respawning after one interval"
-                );
-            }
+            let Err(e) = poll.await;
+            error!(
+                error = %e,
+                is_panic = e.is_panic(),
+                "Contremaitre poll loop died — respawning after one interval"
+            );
             sleep(Duration::from_secs(secs)).await;
         }
     });

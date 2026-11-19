@@ -64,16 +64,14 @@ impl WebhookSecrets {
             strava_verify_token: configured_secret("STRAVA_WEBHOOK_VERIFY_TOKEN")
                 .map(SecretString::from),
             strava_subscription_ids: env::var("STRAVA_WEBHOOK_SUBSCRIPTION_ID")
-                .map(|raw| parse_subscription_ids(&raw))
-                .unwrap_or_default(),
+                .map_or_default(|raw| parse_subscription_ids(&raw)),
             wahoo_token: configured_secret("WAHOO_WEBHOOK_TOKEN").map(SecretString::from),
             garmin_token: configured_secret("GARMIN_WEBHOOK_TOKEN").map(SecretString::from),
             whoop_secret: configured_secret("WHOOP_WEBHOOK_SECRET").map(SecretString::from),
             slack_signing_secret: configured_secret("SLACK_SIGNING_SECRET").map(SecretString::from),
             slack_bot_token: configured_secret("SLACK_BOT_TOKEN").map(SecretString::from),
             slack_allowed_bot_ids: env::var("SLACK_ALLOWED_BOT_IDS")
-                .map(|raw| parse_allowed_bot_ids(&raw))
-                .unwrap_or_default(),
+                .map_or_default(|raw| parse_allowed_bot_ids(&raw)),
         }
     }
 }

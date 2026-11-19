@@ -364,7 +364,7 @@ pub(super) fn instantiate_template_days(
         let sport = plan_sport(&day.sport);
         let stated = day.template_params.map(|p| p.preset_params());
         if day.steps.is_empty() {
-            generate_day(day, template, preset.clone(), &sport, stated, anchors);
+            generate_day(day, template, preset, &sport, stated, anchors);
         } else {
             let report = envelope_check(&EnvelopeInput {
                 template,

@@ -455,12 +455,11 @@ mod tests {
         let start = sql.find("IN (").map(|at| at + 4);
         let list =
             start.and_then(|start| sql[start..].find(')').map(|end| &sql[start..start + end]));
-        list.map(|list| {
+        list.map_or_default(|list| {
             list.split(',')
                 .map(|key| key.trim().trim_matches('\''))
                 .collect()
         })
-        .unwrap_or_default()
     }
 
     /// Every statement that names the user-provided keys names exactly

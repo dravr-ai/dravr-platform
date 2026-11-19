@@ -427,8 +427,7 @@ impl StravaProvider {
         let recorded: Vec<bool> = set
             .time
             .as_ref()
-            .map(|stream| stream.data.iter().map(Option::is_some).collect())
-            .unwrap_or_default();
+            .map_or_default(|stream| stream.data.iter().map(Option::is_some).collect());
 
         let gps: Option<Vec<Option<(f64, f64)>>> = set.latlng.map(|s| {
             keep_timed(s.data, &recorded)

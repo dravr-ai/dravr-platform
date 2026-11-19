@@ -151,8 +151,7 @@ fn type_name(ty: &Type) -> String {
             .path
             .segments
             .last()
-            .map(|s| s.ident.to_string())
-            .unwrap_or_default(),
+            .map_or_default(|s| s.ident.to_string()),
         _ => "_".to_owned(),
     }
 }
@@ -162,11 +161,7 @@ fn type_name(ty: &Type) -> String {
 fn is_test_only(attrs: &[Attribute]) -> bool {
     attrs.iter().any(|attr| {
         let path = attr.path();
-        let last = path
-            .segments
-            .last()
-            .map(|s| s.ident.to_string())
-            .unwrap_or_default();
+        let last = path.segments.last().map_or_default(|s| s.ident.to_string());
         if last == "test" || last == "bench" {
             return true;
         }

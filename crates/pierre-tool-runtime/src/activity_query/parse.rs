@@ -383,7 +383,7 @@ mod tag_tests {
     #[test]
     fn a_refused_tag_is_echoed() {
         let refused = tag_list(&serde_json::json!({ "workout_type": ["tempo"] }));
-        let message = refused.err().map(|e| e.to_string()).unwrap_or_default();
+        let message = refused.err().map_or_default(|e| e.to_string());
         assert!(
             message.contains("'tempo'"),
             "bug: the refusal does not name the value: {message}"

@@ -227,7 +227,7 @@ fn collect_file_hashes(agents_dir: &Path) -> AppResult<Vec<(String, String)>> {
         let path = entry.map_err(|e| AppError::internal(format!("Glob error: {e}")))?;
         match parse_agent_file(&path) {
             Ok(agent) => {
-                out.push((agent.frontmatter.name.clone(), agent.content_hash.clone()));
+                out.push((agent.frontmatter.name.clone(), agent.content_hash));
             }
             Err(e) => {
                 // A malformed file is itself a drift signal — surface it

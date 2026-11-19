@@ -1048,7 +1048,7 @@ fn extract_prompt_arguments(params: Option<&Value>) -> HashMap<String, String> {
     params
         .and_then(|p| p.get("arguments"))
         .and_then(Value::as_object)
-        .map(|map| {
+        .map_or_default(|map| {
             map.iter()
                 .map(|(key, value)| {
                     let text = value
@@ -1058,7 +1058,6 @@ fn extract_prompt_arguments(params: Option<&Value>) -> HashMap<String, String> {
                 })
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// Build the platform's rich [`ServerCapabilities`] for `initialize`/`discover`.

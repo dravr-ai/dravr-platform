@@ -463,14 +463,11 @@ async fn test_export_latest_snapshot_clamps_window() -> Result<()> {
         json!(MAX_WINDOW_DAYS),
         "bug: the window is not clamped to {MAX_WINDOW_DAYS} days: {snapshot}"
     );
-    let ids: Vec<&str> = snapshot["activities"]
-        .as_array()
-        .map(|rows| {
-            rows.iter()
-                .filter_map(|row| row["activity_id"].as_str())
-                .collect()
-        })
-        .unwrap_or_default();
+    let ids: Vec<&str> = snapshot["activities"].as_array().map_or_default(|rows| {
+        rows.iter()
+            .filter_map(|row| row["activity_id"].as_str())
+            .collect()
+    });
     assert_eq!(
         ids,
         ["inside"],

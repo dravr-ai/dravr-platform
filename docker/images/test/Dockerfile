@@ -1,5 +1,5 @@
 # Dockerfile for testing database plugins with PostgreSQL
-FROM rust:1.99-bookworm
+FROM rust:1.100-bookworm
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \

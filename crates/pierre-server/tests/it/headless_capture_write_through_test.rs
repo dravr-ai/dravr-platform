@@ -147,13 +147,12 @@ fn served_ids(payload: &Value) -> Vec<String> {
     payload
         .get("activities")
         .and_then(Value::as_array)
-        .map(|a| {
+        .map_or_default(|a| {
             a.iter()
                 .filter_map(|x| x.get("id").and_then(Value::as_str))
                 .map(str::to_owned)
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 /// `get_activities` with no window: the inline recent fetch in

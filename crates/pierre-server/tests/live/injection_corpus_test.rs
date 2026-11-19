@@ -199,13 +199,12 @@ fn attempts() -> usize {
 fn scenario_filter() -> Vec<String> {
     env::var("INJECTION_EVAL_SCENARIOS")
         .ok()
-        .map(|v| {
+        .map_or_default(|v| {
             v.split(',')
                 .map(|n| n.trim().to_owned())
                 .filter(|n| !n.is_empty())
                 .collect()
         })
-        .unwrap_or_default()
 }
 
 // -----------------------------------------------------------------------

@@ -168,8 +168,7 @@ impl CommandHandler for DiscoverHandler {
                 .description
                 .as_deref()
                 .and_then(|d| d.lines().find(|line| !line.trim().is_empty()))
-                .map(strip_emphasis)
-                .unwrap_or_default();
+                .map_or_default(strip_emphasis);
             body.push_str(&reg.render(
                 KEY_DISCOVER_ITEM,
                 locale,

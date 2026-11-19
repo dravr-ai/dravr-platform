@@ -179,8 +179,7 @@ pub async fn member_consents(
     Ok(groups
         .get_member(&group_id.to_string(), member)
         .await?
-        .map(|membership| membership.coach_consents)
-        .unwrap_or_default())
+        .map_or_default(|membership| membership.coach_consents))
 }
 
 /// The consents `link`'s member gave the coach of the link's group.

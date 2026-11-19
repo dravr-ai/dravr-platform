@@ -168,7 +168,7 @@ pub(crate) async fn handle_decline_coach_access_request(
         return Ok(denied.into_response());
     }
     let request_id = parse_request_id(&request_id)?;
-    let body = body.map(|Json(b)| b).unwrap_or_default();
+    let body = body.map_or_default(|Json(b)| b);
 
     let request = coach_access::decline(
         &context.repos,

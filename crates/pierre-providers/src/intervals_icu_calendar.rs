@@ -58,7 +58,7 @@ fn intervals_event_type(sport: &SportType) -> &'static str {
 /// type. An event that states no type is a generic workout, the type
 /// [`intervals_event_type`] writes for a sport it has no name for.
 pub(crate) fn event_sport(event_type: Option<&str>) -> SportType {
-    match event_type.map(str::trim).unwrap_or_default() {
+    match event_type.map_or_default(str::trim) {
         "Ride" => SportType::Ride,
         "VirtualRide" => SportType::VirtualRide,
         "EBikeRide" => SportType::EbikeRide,

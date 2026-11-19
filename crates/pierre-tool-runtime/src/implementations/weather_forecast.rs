@@ -655,8 +655,7 @@ fn parse_location(args: &Value) -> Result<Location, String> {
     let name = args
         .get("place")
         .and_then(Value::as_str)
-        .map(str::trim)
-        .unwrap_or_default();
+        .map_or_default(str::trim);
     if name.is_empty() || name.chars().count() > MAX_PLACE_CHARS {
         return Err(format!(
             "place must be a place name of 1 to {MAX_PLACE_CHARS} characters"
@@ -666,8 +665,7 @@ fn parse_location(args: &Value) -> Result<Location, String> {
         let code = args
             .get("country_code")
             .and_then(Value::as_str)
-            .map(str::trim)
-            .unwrap_or_default();
+            .map_or_default(str::trim);
         if code.len() != 2 || !code.chars().all(|c| c.is_ascii_alphabetic()) {
             return Err(format!(
                 "country_code must be an ISO 3166-1 alpha-2 code such as \"FR\", got \"{code}\""

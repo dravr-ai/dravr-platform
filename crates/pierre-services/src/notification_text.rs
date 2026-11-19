@@ -185,7 +185,7 @@ impl<'a> NotificationTextRenderer<'a> {
             Some(PR_DISTANCE_MARATHON) => Some(KEY_NOTIFICATION_PR_DISTANCE_MARATHON),
             _ => None,
         };
-        let distance = key.map(|key| self.line(key, &[])).unwrap_or_default();
+        let distance = key.map_or_default(|key| self.line(key, &[]));
         self.line(
             NotificationEvent::PersonalRecord.body_key(),
             &[&distance, &param_text(params.get("time_display"))],
@@ -213,8 +213,7 @@ impl<'a> NotificationTextRenderer<'a> {
             .get("anchor")
             .and_then(Value::as_str)
             .and_then(SportAnchorName::parse)
-            .map(|name| self.line(&envelope_anchor_label_key(name.as_str()), &[]))
-            .unwrap_or_default();
+            .map_or_default(|name| self.line(&envelope_anchor_label_key(name.as_str()), &[]));
         self.line(
             NotificationEvent::CoachPhysiologySet.body_key(),
             &[&param_text(params.get("coach_name")), &anchor],

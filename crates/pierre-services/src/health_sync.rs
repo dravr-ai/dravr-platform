@@ -897,8 +897,7 @@ impl CredentialStore for PierreSyncStorage {
         // tests): return the stored token row as-is.
         let scopes = token
             .scope
-            .map(|s| s.split(' ').map(String::from).collect::<Vec<_>>())
-            .unwrap_or_default();
+            .map_or_default(|s| s.split(' ').map(String::from).collect::<Vec<_>>());
         Ok(Some(ProviderCredentials {
             access_token: token.access_token.expose_secret().to_owned(),
             refresh_token: token
