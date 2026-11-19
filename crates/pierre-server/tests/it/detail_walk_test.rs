@@ -60,6 +60,7 @@ use pierre_providers::request_budget::{
     budget_counter_key, budget_period, detail_walk_athlete_counter_key, detail_walk_counter_key,
     ONE_DAY, PLATFORM_SCOPE,
 };
+use pierre_services::live_activities::WriteOrigin;
 use pierre_tool_runtime::activity_backfill::detail_walk::{
     ask_detail_walk, detail_walk_pending, segment_detail_backend, DetailWalkAsk, DetailWalkAsked,
 };
@@ -211,7 +212,7 @@ pub(crate) async fn store_rides(
     let rides: Vec<Activity> = starts.iter().map(|start| ride(key, *start)).collect();
     runtime
         .live_activities()
-        .ingest(user_id, tenant, key, &rides, Utc::now())
+        .ingest(user_id, tenant, key, &rides, Utc::now(), WriteOrigin::Walk)
         .await
         .unwrap();
 }
@@ -1484,6 +1485,7 @@ async fn copies_of_one_ride_listed_at_different_starts_are_read_once() {
             SESSION,
             &[ride_listed_at(SESSION, real_start, day_start)],
             Utc::now(),
+            WriteOrigin::Walk,
         )
         .await
         .unwrap();

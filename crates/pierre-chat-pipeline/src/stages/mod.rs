@@ -87,6 +87,8 @@ pub mod prompt_assembly;
 pub mod prompt_builder;
 /// The caveat on a reply the provider truncated or filtered.
 pub(crate) mod provider_stop;
+/// The model's quick replies, lifted out of its reply's `dravr-actions` fence (carnet#1486).
+pub(crate) mod quick_replies;
 pub mod refresh;
 /// The language a platform note appended to a reply is written in.
 pub(crate) mod reply_locale;

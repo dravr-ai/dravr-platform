@@ -30,6 +30,7 @@ use pierre_cache::{Cache, CacheConfig};
 use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::repositories::PurgeReason;
 use pierre_mcp_server::mcp::resources::{ServerContext, ServerContextOptions};
+use pierre_services::live_activities::WriteOrigin;
 use pierre_services::provider_revocation::purge_provider_data;
 use uuid::Uuid;
 
@@ -190,6 +191,7 @@ async fn a_disconnect_deletes_the_live_records_and_leaves_the_imported_archive()
             STRAVA,
             &[ride("9001", 5, STRAVA)],
             Utc::now(),
+            WriteOrigin::Import,
         )
         .await
         .unwrap();
@@ -267,6 +269,7 @@ async fn a_disconnect_deletes_the_live_records_and_leaves_the_imported_archive()
             STRAVA,
             &[ride("9001", 5, STRAVA)],
             Utc::now(),
+            WriteOrigin::Import,
         )
         .await
         .unwrap();
@@ -295,6 +298,7 @@ async fn the_termination_purge_deletes_every_athletes_live_records() {
             STRAVA,
             &[ride("9001", 5, STRAVA), ride("9002", 30, STRAVA)],
             Utc::now(),
+            WriteOrigin::Import,
         )
         .await
         .unwrap();
@@ -392,6 +396,7 @@ async fn a_live_read_starting_in_the_future_is_refused_and_counted() {
             STRAVA,
             &[ride("9100", -48, STRAVA), ride("9101", 5, STRAVA)],
             Utc::now(),
+            WriteOrigin::Import,
         )
         .await
         .unwrap();

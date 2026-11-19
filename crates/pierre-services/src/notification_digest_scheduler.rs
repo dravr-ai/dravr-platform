@@ -20,8 +20,11 @@
 //!   names under [`SubjectAthlete`]), plus one daily digest for those that
 //!   concern the recipient themselves.
 //! - `per_session` — when the athlete's next training session lands in the
-//!   activity cache ([`session_landed`], called by the cache write-through
-//!   every provider fetch goes through). The tick never sends it.
+//!   activity store ([`session_landed`], called by the server's landing sink
+//!   every live write reports its landing to). An athlete with a coach thread
+//!   whose landing post was stored gets that post instead, unless
+//!   `activity_landed.digest` keeps both (carnet#1486). The tick never sends
+//!   it.
 //!
 //! A recipient with no digest yet is due at once; after that a calendar
 //! cadence waits out its period, measured from the newest digest of any

@@ -247,7 +247,7 @@ fn route_subjects(
         return subjects;
     }
     let mut rest = reply;
-    while let Some(fence) = next_fence(rest) {
+    while let Some(fence) = next_fence(rest, FENCE_INFO) {
         rest = &rest[fence.end..];
         // The kind is read before the gates run, so a chart's refusal is
         // logged once — by the extraction that owns it — rather than here too.

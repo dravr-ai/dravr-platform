@@ -372,7 +372,11 @@ async fn whatsapp_dm(
 
 /// Set when a session's athlete last wrote; `touch_session` only ever stamps
 /// "now", and the window has to be tested shut as well as open.
-async fn backdate_session(db: &Database, session_id: &str, last_message_at: DateTime<Utc>) {
+pub(crate) async fn backdate_session(
+    db: &Database,
+    session_id: &str,
+    last_message_at: DateTime<Utc>,
+) {
     const SQL: &str = "UPDATE messaging_sessions SET last_message_at = $1 WHERE id = $2";
     match db.backend() {
         DatabaseBackend::SQLite(inner) => {

@@ -44,6 +44,7 @@ use std::fmt;
 use std::fmt::Write as _;
 use std::sync::OnceLock;
 
+use super::quick_replies;
 use super::viz_route::{hydrate_route, RouteTracks};
 use serde_json::Value;
 use tracing::warn;
@@ -419,7 +420,7 @@ pub fn extract_viz_blocks(
     let mut refusals: Vec<String> = Vec::new();
     let mut rest = reply;
 
-    while let Some(fence) = next_fence(rest) {
+    while let Some(fence) = next_fence(rest, FENCE_INFO) {
         text.push_str(&rest[..fence.start]);
         match parse_block(schemas, granted, tools_called, tracks, fence.body) {
             Ok(block) => {
@@ -455,7 +456,8 @@ pub fn extract_viz_blocks(
     })
 }
 
-/// Remove every ```` ```dravr-viz ```` fence from replayed transcript text.
+/// Remove every ```` ```dravr-viz ```` and ```` ```dravr-actions ```` fence
+/// from replayed transcript text.
 ///
 /// Nothing written today persists a raw fence — a lifted block leaves a marker
 /// and a refused one is stripped — so any fence still sitting in stored history
@@ -468,13 +470,18 @@ pub fn extract_viz_blocks(
 /// what a fence looks like is how the two drift apart.
 #[must_use]
 pub fn strip_fences(text: &str) -> Cow<'_, str> {
-    if !text.contains(FENCE_INFO) {
+    let infos = [FENCE_INFO, quick_replies::FENCE_INFO];
+    if !infos.iter().any(|info| text.contains(info)) {
         return Cow::Borrowed(text);
     }
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
     let mut found = false;
-    while let Some(fence) = next_fence(rest) {
+    while let Some(fence) = infos
+        .iter()
+        .filter_map(|info| next_fence(rest, info))
+        .min_by_key(|fence| fence.start)
+    {
         found = true;
         out.push_str(&rest[..fence.start]);
         rest = &rest[fence.end..];
@@ -493,11 +500,12 @@ pub(super) struct Fence<'a> {
     pub(super) body: &'a str,
 }
 
-/// Find the next ```` ```dravr-viz ```` fence, if any.
+/// Find the next fence whose info string is `info` (```` ```dravr-viz ````,
+/// ```` ```dravr-actions ````), if any.
 ///
 /// Matches only when the info string stands alone on the opening line, so a
 /// prose mention of the word cannot open a block.
-pub(super) fn next_fence(haystack: &str) -> Option<Fence<'_>> {
+pub(super) fn next_fence<'a>(haystack: &'a str, info: &str) -> Option<Fence<'a>> {
     let mut search = 0usize;
     loop {
         let open = haystack[search..].find("```")? + search;
@@ -505,7 +513,7 @@ pub(super) fn next_fence(haystack: &str) -> Option<Fence<'_>> {
         let line_end = haystack[after_ticks..]
             .find('\n')
             .map_or(haystack.len(), |offset| after_ticks + offset);
-        let info = haystack[after_ticks..line_end].trim();
+        let opened = haystack[after_ticks..line_end].trim();
 
         let Some(close_rel) = haystack[line_end..].find("```") else {
             // Unterminated fence — nothing more to find in this reply.
@@ -514,7 +522,7 @@ pub(super) fn next_fence(haystack: &str) -> Option<Fence<'_>> {
         let close = line_end + close_rel;
         let end = (close + 3).min(haystack.len());
 
-        if info == FENCE_INFO {
+        if opened == info {
             return Some(Fence {
                 start: open,
                 end,

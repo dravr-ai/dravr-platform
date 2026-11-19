@@ -17,6 +17,8 @@
 //! Re-exported back into `pierre_mcp_server::config::*` via shim modules so
 //! existing call sites and integration tests keep their import paths.
 
+/// How the coach reacts to a synced workout (`activity_landed.*`), resolved per athlete
+pub mod activity_landed;
 /// Provider data retention as admin parameters (`activity_retention.*`) and the per-provider map's grammar
 pub mod activity_retention;
 /// Admin configuration parameter catalog (per-category builders + `ParameterDefinition`)

@@ -60,6 +60,8 @@ pub use route_track::{
 /// `route_ref` a drawable public line is stored and named by.
 pub mod route_compose;
 
+/// Sunrise and sunset for a place and day, from NOAA's solar position equations.
+pub mod daylight;
 /// How a free-text place becomes a gazetteer query.
 pub mod geocoding;
 /// Route and trail discovery via OpenStreetMap (Overpass API + OSM piste data).

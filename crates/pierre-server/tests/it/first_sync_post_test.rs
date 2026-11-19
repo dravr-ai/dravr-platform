@@ -26,7 +26,7 @@ use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_FIRST_SYNC_PROMPT;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
-use pierre_core::models::{AddMessageParams, TenantId, SUPPORTED_LOCALES};
+use pierre_core::models::{AddMessageParams, PostPurpose, TenantId, SUPPORTED_LOCALES};
 use pierre_core::transport::TransportPolicy;
 use pierre_database::backends::factory::{Database, DatabaseBackend};
 use pierre_database::repositories::ChatRepository;
@@ -500,13 +500,27 @@ async fn seed_first_sync_claim(fx: &Fixture, age: Duration, posted: bool) {
     let claims = &fx.resources.common.repos.platform_post_claims;
     let at = Utc::now() - age;
     let token = claims
-        .claim_platform_post_once(fx.tenant_id, fx.user_id, "first_sync", at, at)
+        .claim_platform_post_once(
+            fx.tenant_id,
+            fx.user_id,
+            "first_sync",
+            PostPurpose::NO_SUBJECT,
+            at,
+            at,
+        )
         .await
         .unwrap()
         .expect("the seeded claim is taken");
     if posted {
         assert!(claims
-            .mark_platform_post_posted(fx.tenant_id, fx.user_id, "first_sync", &token, at)
+            .mark_platform_post_posted(
+                fx.tenant_id,
+                fx.user_id,
+                "first_sync",
+                PostPurpose::NO_SUBJECT,
+                &token,
+                at
+            )
             .await
             .unwrap());
     }

@@ -770,9 +770,14 @@ mod tests {
             "place": "Paris, Texas",
             "timestamp": chrono::Utc::now().to_rfc3339(),
         });
-        let weather = forecast(&DummyWeatherProvider::temperate(), &geocoder, &weather_args)
-            .await
-            .unwrap();
+        let weather = forecast(
+            &DummyWeatherProvider::temperate(),
+            &geocoder,
+            &weather_args,
+            chrono_tz::UTC,
+        )
+        .await
+        .unwrap();
         assert!(!weather.is_error, "{:?}", weather.content);
         assert_eq!(weather.content["latitude"], json!(center.latitude));
         assert_eq!(weather.content["longitude"], json!(center.longitude));

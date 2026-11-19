@@ -35,6 +35,7 @@ use super::persona_conformance::{
 };
 use super::plan_block::{append_block, plan_block_for_turn};
 use super::prompt_assembly::resolve_user_persona;
+use super::quick_replies::{lift_quick_replies, QuickReplies};
 #[cfg(feature = "tools-verification")]
 use super::verification::{
     apply_claim_verification, ClaimVerificationOutcome, ClaimVerificationParams,
@@ -81,6 +82,10 @@ pub(crate) struct PostProcessedReply {
     /// surface renders chips, which is exactly when the verification stage left
     /// the caveat banner out of `content`.
     pub verdict_chips: Vec<VerdictChip>,
+    /// The replies the model proposed the athlete might send next, lifted out
+    /// of its `dravr-actions` fences (Stage 15.54, carnet#1486). Empty on a
+    /// reply the platform withheld or wrote itself.
+    pub quick_replies: Vec<String>,
     /// How the provider stopped generating `content`, when `content` is still
     /// the model's reply. [`ProviderStop::Complete`] whenever it is platform
     /// text instead — a withheld reply, an emptied scrub, a deterministic
@@ -422,6 +427,7 @@ pub(crate) async fn post_process_assistant_reply(
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
+            quick_replies: Vec::new(),
             provider_stop: ProviderStop::Complete,
         };
     }
@@ -449,9 +455,20 @@ pub(crate) async fn post_process_assistant_reply(
             leak_replaced: true,
             identity_leak: leak_report.identity_leak,
             verdict_chips: Vec::new(),
+            quick_replies: Vec::new(),
             provider_stop: ProviderStop::Complete,
         };
     }
+
+    // Stage 15.54: the model's quick replies. Lifted before the visual
+    // blocks' grant check returns early, so a fence is stripped for every
+    // agent, on every surface, in rooms and guided walks alike; where they
+    // may be offered is next_steps' to decide. Before claim verification: a
+    // quick reply is the athlete's possible next message, not the coach's.
+    let QuickReplies {
+        text: raw_content,
+        candidates: quick_replies,
+    } = lift_quick_replies(&raw_content);
 
     // Stage 15.55: Inline visual blocks.
     let (raw_content, content_blocks, block_count) =
@@ -485,6 +502,7 @@ pub(crate) async fn post_process_assistant_reply(
             leak_replaced: true,
             identity_leak: None,
             verdict_chips: Vec::new(),
+            quick_replies: Vec::new(),
             provider_stop: ProviderStop::Complete,
         };
     }
@@ -595,6 +613,7 @@ pub(crate) async fn post_process_assistant_reply(
         leak_replaced: false,
         identity_leak: None,
         verdict_chips,
+        quick_replies,
         provider_stop,
     }
 }

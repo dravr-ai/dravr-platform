@@ -24,6 +24,11 @@
 //! racing on one scheduler tick still post once, and the athlete keeps one
 //! row however long they are checked in on.
 //!
+//! A purpose owed once per athlete claims its one row under
+//! [`pierre_core::models::PostPurpose::NO_SUBJECT`]; a purpose owed per item
+//! names the item as its `subject` — a landing reaction per ride claims
+//! `<provider>:<activity_id>` (carnet#1486) — so each item has its own row.
+//!
 //! Every statement is keyed by `tenant_id` and `user_id` together.
 
 use async_trait::async_trait;
@@ -35,8 +40,8 @@ use uuid::Uuid;
 /// The once-claims on the coach's own posts.
 #[async_trait]
 pub trait PlatformPostClaimRepository: Send + Sync {
-    /// Claim the post for `purpose` to `user_id` in `tenant_id`, owed once
-    /// ever, at `claimed_at`.
+    /// Claim the post for `purpose` about `subject` to `user_id` in
+    /// `tenant_id`, owed once ever, at `claimed_at`.
     ///
     /// Returns the claim's token when this call took it: none was held, or
     /// the one held never posted and was taken before `lease_expired_before`,
@@ -47,11 +52,13 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         purpose: &str,
+        subject: &str,
         lease_expired_before: DateTime<Utc>,
         claimed_at: DateTime<Utc>,
     ) -> AppResult<Option<String>>;
 
-    /// Record that the post for `purpose` to `user_id` in `tenant_id` landed,
+    /// Record that the post for `purpose` about `subject` to `user_id` in
+    /// `tenant_id` landed,
     /// at `posted_at`, so its claim is never retaken. Applies only while the
     /// claim `lease_token` names still holds the row; returns whether it did.
     async fn mark_platform_post_posted(
@@ -59,12 +66,13 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         purpose: &str,
+        subject: &str,
         lease_token: &str,
         posted_at: DateTime<Utc>,
     ) -> AppResult<bool>;
 
-    /// Claim the post for `purpose` to `user_id` in `tenant_id`, at
-    /// `claimed_at`, unless it was already claimed at or after `since` — the
+    /// Claim the post for `purpose` about `subject` to `user_id` in
+    /// `tenant_id`, at `claimed_at`, unless it was already claimed at or after `since` — the
     /// start of the period the post is owed for.
     ///
     /// Returns the claim's token when this call took it: no claim was held,
@@ -75,11 +83,13 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         purpose: &str,
+        subject: &str,
         since: DateTime<Utc>,
         claimed_at: DateTime<Utc>,
     ) -> AppResult<Option<String>>;
 
-    /// Release the claim for `purpose` to `user_id` in `tenant_id` after the
+    /// Release the claim for `purpose` about `subject` to `user_id` in
+    /// `tenant_id` after the
     /// trigger posted nothing, so the next trigger may post. Applies only
     /// while the claim `lease_token` names still holds the row: a trigger whose
     /// claim was retaken does not free the newer one's. Returns whether a claim
@@ -89,12 +99,14 @@ pub trait PlatformPostClaimRepository: Send + Sync {
         tenant_id: TenantId,
         user_id: Uuid,
         purpose: &str,
+        subject: &str,
         lease_token: &str,
     ) -> AppResult<bool>;
 
-    /// When the post for `purpose` to `user_id` in `tenant_id` last landed:
-    /// `None` when none was ever marked posted. A periodic post's claim is one
-    /// row, so this is its latest post (carnet#1099 reads the day's check-in).
+    /// When the post for `purpose` to `user_id` in `tenant_id` last landed,
+    /// about any subject: `None` when none was ever marked posted. A periodic
+    /// post's claim is one row, so this is its latest post (carnet#1099 reads
+    /// the day's check-in); a per-item purpose answers its latest item's.
     async fn platform_post_posted_at(
         &self,
         tenant_id: TenantId,
@@ -104,43 +116,47 @@ pub trait PlatformPostClaimRepository: Send + Sync {
 }
 
 /// The primary key is the claim: a row an earlier trigger inserted is left
-/// alone unless it never posted and was taken before `$5`, and the affected
+/// alone unless it never posted and was taken before `$6`, and the affected
 /// count says whether this call took it. `excluded` names the proposed row on
 /// both engines.
 pub(crate) const CLAIM_PLATFORM_POST_ONCE_SQL: &str = r"
-            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, claimed_at_ms, lease_token)
-            VALUES ($1, $2, $3, $4, $6)
-            ON CONFLICT (tenant_id, user_id, purpose) DO UPDATE
+            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, subject, claimed_at_ms, lease_token)
+            VALUES ($1, $2, $3, $4, $5, $7)
+            ON CONFLICT (tenant_id, user_id, purpose, subject) DO UPDATE
                 SET claimed_at_ms = excluded.claimed_at_ms, lease_token = excluded.lease_token
                 WHERE platform_post_claims.posted_at_ms IS NULL
-                  AND platform_post_claims.claimed_at_ms < $5
+                  AND platform_post_claims.claimed_at_ms < $6
             ";
 
-/// Mark the claim's post landed at `$4`, so the once-claim never retakes it.
+/// Mark the claim's post landed at `$5`, so the once-claim never retakes it.
 pub(crate) const MARK_PLATFORM_POST_POSTED_SQL: &str = r"
             UPDATE platform_post_claims
-            SET posted_at_ms = $4
-            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3 AND lease_token = $5
+            SET posted_at_ms = $5
+            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3 AND subject = $4
+              AND lease_token = $6
             ";
 
-/// The same row, retaken once the claim it holds predates `$5`: the update's
+/// The same row, retaken once the claim it holds predates `$6`: the update's
 /// condition is the claim, and the affected count says whether this call took
 /// it. `excluded` names the proposed row on both engines.
 pub(crate) const CLAIM_PLATFORM_POST_SINCE_SQL: &str = r"
-            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, claimed_at_ms, lease_token)
-            VALUES ($1, $2, $3, $4, $6)
-            ON CONFLICT (tenant_id, user_id, purpose) DO UPDATE
+            INSERT INTO platform_post_claims (tenant_id, user_id, purpose, subject, claimed_at_ms, lease_token)
+            VALUES ($1, $2, $3, $4, $5, $7)
+            ON CONFLICT (tenant_id, user_id, purpose, subject) DO UPDATE
                 SET claimed_at_ms = excluded.claimed_at_ms, lease_token = excluded.lease_token
-                WHERE platform_post_claims.claimed_at_ms < $5
+                WHERE platform_post_claims.claimed_at_ms < $6
             ";
 
 pub(crate) const RELEASE_PLATFORM_POST_SQL: &str = r"
             DELETE FROM platform_post_claims
-            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3 AND lease_token = $4
+            WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3 AND subject = $4
+              AND lease_token = $5
             ";
 
+/// The latest landing across every subject of the purpose; an aggregate
+/// always returns one row, NULL when nothing was posted.
 pub(crate) const PLATFORM_POST_POSTED_AT_SQL: &str = r"
-            SELECT posted_at_ms FROM platform_post_claims
+            SELECT MAX(posted_at_ms) AS posted_at_ms FROM platform_post_claims
             WHERE tenant_id = $1 AND user_id = $2 AND purpose = $3
             ";
 
@@ -156,6 +172,7 @@ macro_rules! impl_platform_post_claim_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 purpose: &str,
+                subject: &str,
                 lease_expired_before: DateTime<Utc>,
                 claimed_at: DateTime<Utc>,
             ) -> AppResult<Option<String>> {
@@ -164,6 +181,7 @@ macro_rules! impl_platform_post_claim_repository {
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
+                    .bind(subject)
                     .bind(claimed_at.timestamp_millis())
                     .bind(lease_expired_before.timestamp_millis())
                     .bind(&token)
@@ -180,6 +198,7 @@ macro_rules! impl_platform_post_claim_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 purpose: &str,
+                subject: &str,
                 lease_token: &str,
                 posted_at: DateTime<Utc>,
             ) -> AppResult<bool> {
@@ -187,6 +206,7 @@ macro_rules! impl_platform_post_claim_repository {
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
+                    .bind(subject)
                     .bind(posted_at.timestamp_millis())
                     .bind(lease_token)
                     .execute(self.pool())
@@ -202,6 +222,7 @@ macro_rules! impl_platform_post_claim_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 purpose: &str,
+                subject: &str,
                 since: DateTime<Utc>,
                 claimed_at: DateTime<Utc>,
             ) -> AppResult<Option<String>> {
@@ -210,6 +231,7 @@ macro_rules! impl_platform_post_claim_repository {
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
+                    .bind(subject)
                     .bind(claimed_at.timestamp_millis())
                     .bind(since.timestamp_millis())
                     .bind(&token)
@@ -228,12 +250,14 @@ macro_rules! impl_platform_post_claim_repository {
                 tenant_id: TenantId,
                 user_id: Uuid,
                 purpose: &str,
+                subject: &str,
                 lease_token: &str,
             ) -> AppResult<bool> {
                 let result = sqlx::query(RELEASE_PLATFORM_POST_SQL)
                     .bind($ids::bind(tenant_id.as_uuid()))
                     .bind($ids::bind(user_id))
                     .bind(purpose)
+                    .bind(subject)
                     .bind(lease_token)
                     .execute(self.pool())
                     .await

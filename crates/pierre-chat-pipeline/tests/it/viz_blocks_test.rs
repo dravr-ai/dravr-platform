@@ -670,3 +670,14 @@ fn a_route_breaking_its_one_of_is_refused_with_the_rule() {
         assert_eq!(out.refusals, vec![rule.to_owned()], "{body}");
     }
 }
+
+/// A quick-reply fence leaves replayed history like a chart's (carnet#1486).
+#[test]
+fn replayed_history_loses_quick_reply_fences_too() {
+    let replayed = "Rest or spin?\n```dravr-actions\n[\"Rest day\"]\n```\n```dravr-viz\n{}\n```";
+    assert_eq!(
+        strip_fences(replayed),
+        "Rest or spin?",
+        "bug: both platform fences must leave replayed history"
+    );
+}

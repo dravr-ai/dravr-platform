@@ -49,6 +49,7 @@ use pierre_mcp_server::routes::webhooks::WebhookRoutes;
 use pierre_notifications::events::event_params;
 #[cfg(feature = "client-notifications")]
 use pierre_notifications::TenantId as CommereTenantId;
+use pierre_services::live_activities::WriteOrigin;
 use pierre_test_support::delegation::{add_group_member, create_coached_group, create_group_agent};
 use serde_json::{json, Value};
 use serial_test::serial;
@@ -675,7 +676,14 @@ async fn delete_aspect_erases_the_activity_so_no_later_read_brings_it_back() {
     let live = &resources.common.live_activities;
     let read = [ride("9001", 5), ride("9002", 30)];
     let first = live
-        .ingest(user_id, tenant_id, "strava", &read, Utc::now())
+        .ingest(
+            user_id,
+            tenant_id,
+            "strava",
+            &read,
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .unwrap();
     assert_eq!(first.stored, 2, "bug: both rides kept, got {first:?}");
@@ -695,7 +703,14 @@ async fn delete_aspect_erases_the_activity_so_no_later_read_brings_it_back() {
     assert_eq!(mock.hits.load(Ordering::SeqCst), 0, "nothing is fetched");
 
     let again = live
-        .ingest(user_id, tenant_id, "strava", &read, Utc::now())
+        .ingest(
+            user_id,
+            tenant_id,
+            "strava",
+            &read,
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .unwrap();
     assert_eq!(
@@ -757,7 +772,14 @@ async fn delete_aspect_erases_a_ride_only_the_cache_held() {
     let again = resources
         .common
         .live_activities
-        .ingest(user_id, tenant_id, "strava", &[ride], Utc::now())
+        .ingest(
+            user_id,
+            tenant_id,
+            "strava",
+            &[ride],
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .unwrap();
     assert_eq!(again.stored, 0, "bug: the deleted ride was kept again");
@@ -804,7 +826,14 @@ async fn delete_aspect_before_any_read_still_refuses_the_ride_later() {
     let later = resources
         .common
         .live_activities
-        .ingest(user_id, tenant_id, "strava", &[ride], Utc::now())
+        .ingest(
+            user_id,
+            tenant_id,
+            "strava",
+            &[ride],
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .unwrap();
     assert_eq!(

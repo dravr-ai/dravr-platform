@@ -26,7 +26,9 @@ use std::path::{Path, PathBuf};
 use std::slice;
 use std::sync::Arc;
 
-use crate::live_activities::{LiveActivityStore, LiveIngest};
+use crate::live_activities::{
+    landed_session, LandedSession, LiveActivityStore, LiveIngest, WriteOrigin,
+};
 use async_trait::async_trait;
 use chrono::{DateTime, Duration, Utc};
 use dravr_barrage::blob::BlobStore;
@@ -46,6 +48,7 @@ use pierre_core::models::{Activity, ActivityBuilder, SportType, TenantId};
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::amended_summary;
 use pierre_database::RepositoryRegistry;
+use pierre_providers::deduplication::DedupConfig;
 use tokio::fs;
 use tracing::warn;
 use uuid::Uuid;
@@ -69,12 +72,25 @@ const WINDOW_PAGE: i64 = 500;
 /// text and as a timestamp alike.
 const EVERY_READ_HORIZON_DAYS: i64 = 36_500;
 
+/// Cached rows a landing reads around a live write. A window that reaches it
+/// lands nothing (logged): the rule could not see every copy.
+const LANDING_READ_LIMIT: i64 = 500;
+
+/// How far before the newest held start a landing reads: every held row that
+/// can be a copy of a new one starts within it — a date-only row of the
+/// candidate's day at that day's midnight, a timed copy within dedup's start
+/// window.
+const LANDING_READ_BEFORE_HOURS: i64 = 24;
+
 /// Every live provider read, kept in barrage.
 pub struct BarrageLiveStore {
     records: Arc<dyn ActivityRecordStore>,
     sink: Arc<dyn ProjectionSink>,
     ingest: ActivityIngest,
     repos: Arc<RepositoryRegistry>,
+    /// How every reader groups copies of one workout; a landing groups the
+    /// same way. Read once, when the store is built.
+    dedup: DedupConfig,
 }
 
 impl fmt::Debug for BarrageLiveStore {
@@ -100,6 +116,7 @@ impl BarrageLiveStore {
             records,
             sink,
             repos,
+            dedup: DedupConfig::from_env(),
         }
     }
 
@@ -132,8 +149,120 @@ impl BarrageLiveStore {
             inserted: counts.inserted,
             refused: counts.erased + report.future_dated,
             newer_session: report.newer_session,
+            landed: None,
         })
     }
+
+    /// The newest start the athlete held from any source before a write of
+    /// `origin`: `Some(None)` when they held nothing. `None` — no landing to
+    /// compute — for a walk or an import, and when the read failed (logged).
+    async fn held_before(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        origin: WriteOrigin,
+    ) -> Option<Option<DateTime<Utc>>> {
+        if origin != WriteOrigin::Live {
+            return None;
+        }
+        match self
+            .repos
+            .activity_cache
+            .latest_activity_start(user_id, &tenant_id)
+            .await
+        {
+            Ok(latest) => Some(latest),
+            Err(e) => {
+                warn!(user_id = %user_id, error = %e, "newest held start unreadable; the write lands nothing");
+                None
+            }
+        }
+    }
+
+    /// What a live write of `written` under `provider` landed, read after
+    /// the write: barrage awaited its projection, so the cache rows around it
+    /// are the rows it kept ([`landed_session`]).
+    async fn landing(
+        &self,
+        user_id: Uuid,
+        tenant_id: TenantId,
+        provider: &str,
+        written: &[Activity],
+        report: &LiveIngest,
+        held_before: Option<DateTime<Utc>>,
+    ) -> Option<LandedSession> {
+        if !report.newer_session {
+            return None;
+        }
+        let starts = written.iter().map(Activity::start_date);
+        let from = match held_before {
+            Some(held) => held - Duration::hours(LANDING_READ_BEFORE_HOURS),
+            None => starts.clone().min()?,
+        };
+        let to = starts
+            .max()
+            .map_or_else(Utc::now, |newest| newest.max(Utc::now()));
+        let kept_around = match self
+            .repos
+            .activity_cache
+            .get_cached_activities(user_id, &tenant_id, None, from, to, LANDING_READ_LIMIT)
+            .await
+        {
+            Ok(rows) if rows.len() >= usize::try_from(LANDING_READ_LIMIT).unwrap_or(usize::MAX) => {
+                warn!(user_id = %user_id, provider, "landing window holds too many rows; the write lands nothing");
+                return None;
+            }
+            Ok(rows) => rows,
+            Err(e) => {
+                warn!(user_id = %user_id, provider, error = %e, "rows around the write unreadable; the write lands nothing");
+                return None;
+            }
+        };
+        landed_session(
+            provider,
+            written,
+            report.newer_session,
+            held_before,
+            &kept_around,
+            &self.dedup,
+        )
+    }
+
+    /// Store `rows` (the records of `written`) and, for a live write, report
+    /// what it landed: the newest held start is read before the write and
+    /// the rows around it after.
+    async fn store_and_land(
+        &self,
+        written: Written<'_>,
+        (scope, live, rows): (Scope, LiveSource, Vec<ActivityRecord>),
+        origin: WriteOrigin,
+    ) -> AppResult<LiveIngest> {
+        let held_before = self
+            .held_before(written.user_id, written.tenant_id, origin)
+            .await;
+        let mut report = self.store(scope, live, rows).await?;
+        if let Some(held_before) = held_before {
+            report.landed = self
+                .landing(
+                    written.user_id,
+                    written.tenant_id,
+                    written.provider,
+                    written.activities,
+                    &report,
+                    held_before,
+                )
+                .await;
+        }
+        Ok(report)
+    }
+}
+
+/// Whose activities a write keeps, under which provider.
+struct Written<'write> {
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &'write str,
+    activities: &'write [Activity],
 }
 
 /// `provider` as the live source its records are kept under.
@@ -241,6 +370,7 @@ impl LiveActivityStore for BarrageLiveStore {
         provider: &str,
         activities: &[Activity],
         synced_at: DateTime<Utc>,
+        origin: WriteOrigin,
     ) -> AppResult<LiveIngest> {
         let live = live_source(provider)?;
         let scope = Scope::new(tenant_id.as_uuid(), user_id);
@@ -249,7 +379,17 @@ impl LiveActivityStore for BarrageLiveStore {
             .iter()
             .filter_map(|activity| record_of(scope, source, activity, synced_at))
             .collect();
-        self.store(scope, live, rows).await
+        self.store_and_land(
+            Written {
+                user_id,
+                tenant_id,
+                provider,
+                activities,
+            },
+            (scope, live, rows),
+            origin,
+        )
+        .await
     }
 
     async fn ingest_received(
@@ -259,12 +399,12 @@ impl LiveActivityStore for BarrageLiveStore {
         provider: &str,
         activity: &Activity,
         received_at: DateTime<Utc>,
-    ) -> AppResult<bool> {
+    ) -> AppResult<LiveIngest> {
         let live = live_source(provider)?;
         let scope = Scope::new(tenant_id.as_uuid(), user_id);
         let source = SourceKey::Live(live);
         let Some(row) = record_of(scope, source, activity, received_at) else {
-            return Ok(false);
+            return Ok(LiveIngest::default());
         };
         // The record's receipt is its last change's: a copy received later
         // than this one stands.
@@ -274,9 +414,19 @@ impl LiveActivityStore for BarrageLiveStore {
             .await
             .map_err(|e| store_error(source, &e))?;
         if held.is_some_and(|held| held.provenance.ingested_at > received_at) {
-            return Ok(false);
+            return Ok(LiveIngest::default());
         }
-        Ok(self.store(scope, live, vec![row]).await?.stored > 0)
+        self.store_and_land(
+            Written {
+                user_id,
+                tenant_id,
+                provider,
+                activities: slice::from_ref(activity),
+            },
+            (scope, live, vec![row]),
+            WriteOrigin::Live,
+        )
+        .await
     }
 
     async fn amend(

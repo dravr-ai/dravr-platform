@@ -33,7 +33,7 @@ use pierre_tool_runtime::guardian::Guardian;
 use pierre_tool_runtime::registry::ToolRegistry;
 #[cfg(feature = "client-messaging")]
 use pierre_tool_runtime::runtime::BackfillNotifier;
-use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::runtime::{SessionLandedSink, ToolRuntime};
 use pierre_tool_runtime::tool_selection::ToolSelectionService;
 use std::sync::Arc;
 
@@ -123,6 +123,10 @@ impl ToolRuntime for ServerContext {
     #[cfg(all(feature = "client-messaging", feature = "client-groups"))]
     fn group_chat_poster(&self) -> Option<&Arc<dyn GroupChatPoster>> {
         Some(&self.mcp.group_chat_poster)
+    }
+
+    fn session_landed_sink(&self) -> Option<Arc<dyn SessionLandedSink>> {
+        Some(self.mcp.session_landed.clone())
     }
 
     fn data(&self) -> DataContext {

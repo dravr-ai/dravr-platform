@@ -20,6 +20,9 @@ use crate::services::originals::blob_store_when_unset;
 use crate::services::photograveur_client::PhotograveurClient;
 #[cfg(feature = "client-messaging")]
 use crate::services::platform_post::PlatformPost;
+#[cfg(feature = "client-notifications")]
+use crate::services::session_landed::SessionDigest;
+use crate::services::session_landed::SessionLandedRouter;
 use crate::services::turn_lifecycle::InFlightTurns;
 use crate::services::turn_runner::TurnRunner;
 use pierre_auth::admin::jwks::{load_or_store_first_keypair, JwksManager};
@@ -644,6 +647,19 @@ impl ServerContext {
             common.notification_service.clone(),
         ));
 
+        // Where a live write's landing goes. Built here, in every build and
+        // every test resource, so a landing always reaches the per-session
+        // digest; the landing post is layered on post-`Arc` by
+        // `install_activity_landed`.
+        #[cfg(feature = "client-notifications")]
+        let session_landed = Arc::new(SessionLandedRouter::with_digest(SessionDigest {
+            repos: common.repos.clone(),
+            notifications: common.notification_service.clone(),
+            strings: contremaitre_messaging_strings_registry.clone(),
+        }));
+        #[cfg(not(feature = "client-notifications"))]
+        let session_landed = Arc::new(SessionLandedRouter::default());
+
         let mcp = super::slices::McpSlice {
             tool_registry,
             tool_selection,
@@ -663,6 +679,7 @@ impl ServerContext {
             channel_adapters,
             #[cfg(feature = "client-messaging")]
             platform_post,
+            session_landed,
             // The coach's first post, installed post-`Arc` the same way.
             #[cfg(feature = "protocol-rest")]
             first_sync: Arc::new(OnceLock::new()),

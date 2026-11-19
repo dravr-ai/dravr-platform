@@ -90,7 +90,7 @@ use serde_json::Value;
 use tracing::{info, warn};
 use uuid::Uuid;
 
-use crate::live_activities::LiveActivityStore;
+use crate::live_activities::{LandedSession, LiveActivityStore};
 use crate::webhook_owner::{resolve_webhook_owner, WebhookTarget};
 use crate::wellness_store::WellnessStore;
 
@@ -303,8 +303,16 @@ pub trait GarminPushHost: Send + Sync {
         callback_url: &str,
     ) -> AppResult<ActivityFile>;
 
-    /// `stored` records of `kind` landed for `owner`.
-    async fn landed(&self, owner: GarminOwner, kind: SummaryType, stored: usize);
+    /// `stored` records of `kind` landed for `owner`; `landed` is the newest
+    /// workout among them that was newer than everything the owner held, and
+    /// no copy of one.
+    async fn landed(
+        &self,
+        owner: GarminOwner,
+        kind: SummaryType,
+        stored: usize,
+        landed: Option<LandedSession>,
+    );
 }
 
 /// Why some records of a batch must be tried again later.
@@ -343,10 +351,28 @@ pub struct BatchOutcome {
     pub unreadable: usize,
     /// Why some records must be tried again later, when any must.
     pub retry: Option<Retry>,
+    /// The newest workout the batch's records landed (carnet#1486): each
+    /// record is written in turn, so a later copy of an earlier one in the
+    /// same batch is held by then and does not land again.
+    pub landed: Option<LandedSession>,
 }
 
 impl BatchOutcome {
+    /// Keep `landed` when it started after the landing already kept.
+    pub(crate) fn land(&mut self, landed: Option<LandedSession>) {
+        if let Some(landed) = landed {
+            if self
+                .landed
+                .as_ref()
+                .is_none_or(|kept| landed.start > kept.start)
+            {
+                self.landed = Some(landed);
+            }
+        }
+    }
+
     pub(crate) fn absorb(&mut self, other: Self) {
+        self.land(other.landed);
         self.stored += other.stored;
         self.skipped += other.skipped;
         self.unowned += other.unowned;
@@ -460,9 +486,11 @@ pub async fn ingest_batch(
         {
             written.skipped += written.stored;
             written.stored = 0;
+            written.landed = None;
         }
         if written.stored > 0 {
-            host.landed(owner, kind, written.stored).await;
+            host.landed(owner, kind, written.stored, written.landed.clone())
+                .await;
         }
         outcome.absorb(written);
     }

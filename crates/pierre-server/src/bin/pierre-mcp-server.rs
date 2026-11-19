@@ -628,14 +628,18 @@ fn spawn_background_workers(
     // a real in-persona agent answer instead of a templated activity list, and
     // lets the coach speak first once a connect lands an athlete's data
     // (carnet#831): the auth routes report connects to the first-sync poster,
-    // which posts through the same handle, as does the check-in on the cadence
-    // each athlete chose.
+    // which posts through the same handle, as do the check-in on the cadence
+    // each athlete chose and the reaction to a workout a live sync landed.
     #[cfg(feature = "client-messaging")]
     {
+        use pierre_mcp_server::services::activity_landed_post::install_activity_landed;
         use pierre_mcp_server::services::check_in_post::start_check_in_scheduler;
         use pierre_mcp_server::services::platform_post::install_platform_post;
         let platform_post = install_platform_post(&resources);
         start_check_in_scheduler(&resources, Arc::clone(&platform_post));
+        // The coach's reaction to a synced workout, layered on the landing
+        // sink every live write reports to (carnet#1486).
+        install_activity_landed(&resources, Arc::clone(&platform_post));
         #[cfg(feature = "health-sync")]
         {
             use pierre_mcp_server::services::first_sync_post::install_first_sync_post;

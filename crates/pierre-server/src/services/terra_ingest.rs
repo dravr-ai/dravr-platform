@@ -71,9 +71,12 @@ pub async fn store_terra_records(
 ) -> AppResult<TerraStored> {
     let mut stored = TerraStored::default();
     for activity in &records.activities {
+        // LIMITATION(registre#1662): store_terra_records drops LiveIngest::landed, so a Terra-relayed workout announces no landing
         if live
             .ingest_received(user_id, tenant_id, TERRA, activity, received_at)
             .await?
+            .stored
+            > 0
         {
             stored.activities += 1;
         }

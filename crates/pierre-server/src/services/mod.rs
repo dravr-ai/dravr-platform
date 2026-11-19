@@ -136,6 +136,14 @@ pub mod first_sync_post;
 #[cfg(feature = "client-messaging")]
 pub mod check_in_post;
 
+/// The coach's reaction to a workout a live sync just landed (carnet#1486).
+#[cfg(feature = "client-messaging")]
+pub mod activity_landed_post;
+
+/// Where a live write's landing goes: the coach's landing post, the
+/// per-session digest, or both (carnet#1486).
+pub mod session_landed;
+
 /// The two ways a proactive notice reaches an athlete: out through a
 /// messaging channel's adapter, or into a first-party conversation as a
 /// persisted turn. Gated with the notifier and the first post it serves: the

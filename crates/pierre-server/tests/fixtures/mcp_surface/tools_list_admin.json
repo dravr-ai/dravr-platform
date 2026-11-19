@@ -20413,7 +20413,7 @@
     },
     {
       "name": "get_weather_forecast",
-      "description": "Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead, e.g. a planned session. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match.",
+      "description": "Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead, e.g. a planned session. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match. Omit the location for the athlete's most frequent training place (Dravr's own app and chats only). The output carries that day's sunrise and sunset, on the athlete's clock.",
       "inputSchema": {
         "properties": {
           "country_code": {
@@ -20452,6 +20452,53 @@
       },
       "outputSchema": {
         "$defs": {
+          "DefaultPlace": {
+            "description": "The athlete's most frequent training place, used when no location was\ngiven.",
+            "properties": {
+              "id": {
+                "description": "The place's id.",
+                "type": "string"
+              },
+              "name": {
+                "description": "The place's name, when it has one Dravr may serve here.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id"
+            ],
+            "type": "object"
+          },
+          "ForecastDaylight": {
+            "description": "Sunrise and sunset of the forecast place's solar day.",
+            "properties": {
+              "polar": {
+                "description": "`day` when the Sun never sets that day, `night` when it never rises.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sunrise": {
+                "description": "RFC 3339 sunrise on the athlete's clock. Absent on a polar day or\nnight.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "sunset": {
+                "description": "RFC 3339 sunset on the athlete's clock. Absent on a polar day or\nnight.",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "type": "object"
+          },
           "ForecastPlace": {
             "description": "The place a name resolved to, serialized exactly as dravr-meteo's tool\nreports it: the name as typed, then its `Place`, then the match count.\n\nA schema-bearing view: dravr-meteo does not derive `schemars::JsonSchema`,\nand the tool declares its output schema.",
             "properties": {
@@ -20547,8 +20594,23 @@
           }
         },
         "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "What `get_weather_forecast` answers with.\n\nThe query as resolved and the provider's sample — the shape dravr-meteo's\ntool of the same name answers with, so the one tool reads the same from\neither server.",
+        "description": "What `get_weather_forecast` answers with.\n\nThe query as resolved and the provider's sample — dravr-meteo's shape for\nthe tool of the same name — plus `daylight` and `default_place`, which the\nplatform adds (carnet#1486).",
         "properties": {
+          "daylight": {
+            "$ref": "#/$defs/ForecastDaylight",
+            "description": "Sunrise and sunset of the place's day, on the athlete's clock."
+          },
+          "default_place": {
+            "anyOf": [
+              {
+                "$ref": "#/$defs/DefaultPlace"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The athlete's training place the forecast was read at, when the\ncaller gave no location. Absent otherwise."
+          },
           "latitude": {
             "description": "Latitude the forecast was read at.",
             "format": "double",
@@ -20595,7 +20657,8 @@
           "latitude",
           "longitude",
           "timestamp",
-          "sample"
+          "sample",
+          "daylight"
         ],
         "title": "WeatherForecastResult",
         "type": "object"

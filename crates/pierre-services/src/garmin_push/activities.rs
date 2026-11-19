@@ -76,9 +76,14 @@ async fn record_push(batch: &OwnerBatch<'_>) -> AppResult<()> {
 
 /// Keep `activity` as the owner's Garmin activity, received at the batch's
 /// receipt, through the activity store, unless a later push of it already
-/// landed. Returns whether it was kept.
-async fn upsert(batch: &OwnerBatch<'_>, activity: &Activity) -> AppResult<bool> {
-    batch
+/// landed. Returns whether it was kept; a workout it landed goes on
+/// `outcome`, whose newest landing the host is told about.
+async fn upsert(
+    batch: &OwnerBatch<'_>,
+    activity: &Activity,
+    outcome: &mut BatchOutcome,
+) -> AppResult<bool> {
+    let written = batch
         .live
         .ingest_received(
             batch.owner.user_id,
@@ -87,7 +92,9 @@ async fn upsert(batch: &OwnerBatch<'_>, activity: &Activity) -> AppResult<bool> 
             activity,
             batch.received_at,
         )
-        .await
+        .await?;
+    outcome.land(written.landed);
+    Ok(written.stored > 0)
 }
 
 /// Store an activity's samples in the one sample store, as pushed, received
@@ -149,7 +156,7 @@ pub(super) async fn write_summaries(
                     Some(streams) => with_power(activity, &streams)?,
                     None => activity,
                 };
-                if upsert(batch, &activity).await? {
+                if upsert(batch, &activity, &mut outcome).await? {
                     outcome.stored += 1;
                 } else {
                     // A later push of this activity already landed.
@@ -198,7 +205,7 @@ pub(super) async fn write_details(
         // samples below are still this push's, and the samples keep their own
         // receipt order, so the standing summary takes their power in place.
         // The record counts as stored for what it brought.
-        if !upsert(batch, &activity).await? {
+        if !upsert(batch, &activity, &mut outcome).await? {
             if let Some(streams) = &streams {
                 amend_power(batch, activity.id(), streams).await?;
             }

@@ -18,6 +18,7 @@
 //! one.
 
 use chrono::NaiveDate;
+use chrono_tz::America::Montreal;
 use dravr_meteo::{
     DummyWeatherProvider, GeocodeError, Geocoded, Geocoder, Place, PlaceQuery, WeatherError,
     WeatherProvider, WeatherQuery, WeatherSample,
@@ -3966,7 +3967,7 @@ fn the_forecast_takes_meteos_input_schema() {
 }
 
 #[tokio::test]
-async fn a_forecast_answers_with_meteos_shape_and_validates() {
+async fn a_forecast_answers_with_meteos_shape_plus_daylight_and_validates() {
     let validator =
         jsonschema::validator_for(&output_schema_for::<WeatherForecastResult>()).expect("compiles");
     let args = json!({
@@ -3975,9 +3976,14 @@ async fn a_forecast_answers_with_meteos_shape_and_validates() {
         "timestamp": "2026-09-28T07:30:00Z",
     });
 
-    let full = forecast(&DummyWeatherProvider::temperate(), &StubGeocoder, &args)
-        .await
-        .expect("renders");
+    let full = forecast(
+        &DummyWeatherProvider::temperate(),
+        &StubGeocoder,
+        &args,
+        Montreal,
+    )
+    .await
+    .expect("renders");
     assert!(!full.is_error, "{:#}", full.content);
     assert_eq!(full.content["provider"], "dummy");
     assert_eq!(full.content["latitude"], 45.5);
@@ -3986,6 +3992,16 @@ async fn a_forecast_answers_with_meteos_shape_and_validates() {
     assert_eq!(full.content["sample"]["temperature_celsius"], 15.0);
     assert_eq!(full.content["sample"]["humidity_percentage"], 55.0);
     assert_eq!(full.content["sample"]["conditions"], "clear sky");
+    // The day's daylight, on the athlete's clock (carnet#1486).
+    let sunrise = full.content["daylight"]["sunrise"]
+        .as_str()
+        .expect("bug: a Montréal forecast carries its sunrise");
+    assert!(
+        sunrise.starts_with("2026-09-28T06:") && sunrise.ends_with("-04:00"),
+        "bug: the sunrise must read on the athlete's clock: {sunrise}"
+    );
+    assert!(full.content["daylight"].get("polar").is_none());
+    assert!(full.content.get("default_place").is_none());
     // Coordinates were given: no place resolved, nothing to note.
     assert!(full.content.get("place").is_none());
     assert!(full.content.get("note").is_none());
@@ -3999,7 +4015,7 @@ async fn a_forecast_answers_with_meteos_shape_and_validates() {
         wind_speed_kmh: None,
         conditions: "snow".to_owned(),
     });
-    let bare = forecast(&bare, &StubGeocoder, &args)
+    let bare = forecast(&bare, &StubGeocoder, &args, chrono_tz::UTC)
         .await
         .expect("renders");
     assert!(bare.content["sample"].get("humidity_percentage").is_none());
@@ -4014,7 +4030,7 @@ async fn a_forecast_by_place_reads_the_geocoded_coordinates() {
     let provider = RecordingProvider::new();
     let args = json!({ "place": "Chamonix", "timestamp": "2026-09-28T07:30:00Z" });
 
-    let result = forecast(&provider, &StubGeocoder, &args)
+    let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
         .await
         .expect("renders");
     assert!(!result.is_error, "{:#}", result.content);
@@ -4056,6 +4072,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "timestamp": "2026-09-28T07:30:00Z" }),
+        chrono_tz::UTC,
     )
     .await
     .expect("renders");
@@ -4071,6 +4088,7 @@ async fn an_ambiguous_place_takes_the_top_match_and_says_so() {
         &provider,
         &StubGeocoder,
         &json!({ "place": "Paris", "country_code": "us", "timestamp": "2026-09-28T07:30:00Z" }),
+        chrono_tz::UTC,
     )
     .await
     .expect("renders");
@@ -4090,6 +4108,7 @@ async fn coordinates_win_over_a_place_and_the_answer_says_so() {
             "place": "Chamonix",
             "timestamp": "2026-09-28T07:30:00Z",
         }),
+        chrono_tz::UTC,
     )
     .await
     .expect("renders");
@@ -4139,7 +4158,7 @@ async fn a_forecast_refuses_what_meteo_refuses() {
             "timestamp must be RFC 3339",
         ),
     ] {
-        let result = forecast(&provider, &StubGeocoder, &args)
+        let result = forecast(&provider, &StubGeocoder, &args, chrono_tz::UTC)
             .await
             .expect("renders");
         assert!(result.is_error, "{args} must be refused");

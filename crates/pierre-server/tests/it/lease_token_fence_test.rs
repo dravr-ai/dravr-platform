@@ -20,7 +20,7 @@
 use std::collections::HashSet;
 
 use chrono::{Duration, TimeZone, Utc};
-use pierre_core::models::TenantId;
+use pierre_core::models::{PostPurpose, TenantId};
 use pierre_database::backends::{factory::Database, EnqueueOutboundParams};
 use pierre_database::repositories::{
     ActivityBackfillJobRow, BackfillJobClaim, BackfillJobKind, ExtractionJobClaim, JobLease,
@@ -270,7 +270,16 @@ async fn a_lapsed_once_claim_cannot_mark_or_release_the_post_another_claim_took(
     let (user_id, tenant) = seed_user(&db).await;
     let noon = Utc.with_ymd_and_hms(2026, 10, 14, 12, 0, 0).unwrap();
     let lease = Duration::minutes(15);
-    let claim = |at| claims.claim_platform_post_once(tenant, user_id, "first_sync", at - lease, at);
+    let claim = |at| {
+        claims.claim_platform_post_once(
+            tenant,
+            user_id,
+            "first_sync",
+            PostPurpose::NO_SUBJECT,
+            at - lease,
+            at,
+        )
+    };
 
     let first = claim(noon)
         .await
@@ -284,14 +293,27 @@ async fn a_lapsed_once_claim_cannot_mark_or_release_the_post_another_claim_took(
 
     assert!(
         !claims
-            .mark_platform_post_posted(tenant, user_id, "first_sync", &first, noon)
+            .mark_platform_post_posted(
+                tenant,
+                user_id,
+                "first_sync",
+                PostPurpose::NO_SUBJECT,
+                &first,
+                noon
+            )
             .await
             .unwrap(),
         "the lapsed claim cannot mark the post the newer claim is making"
     );
     assert!(
         !claims
-            .release_platform_post(tenant, user_id, "first_sync", &first)
+            .release_platform_post(
+                tenant,
+                user_id,
+                "first_sync",
+                PostPurpose::NO_SUBJECT,
+                &first
+            )
             .await
             .unwrap(),
         "nor free the newer claim's row"
@@ -306,6 +328,7 @@ async fn a_lapsed_once_claim_cannot_mark_or_release_the_post_another_claim_took(
             tenant,
             user_id,
             "first_sync",
+            PostPurpose::NO_SUBJECT,
             &second,
             noon + Duration::minutes(18)
         )
@@ -324,8 +347,16 @@ async fn a_lapsed_period_claim_cannot_release_or_mark_the_post_the_next_period_t
     let (user_id, tenant) = seed_user(&db).await;
     let monday = Utc.with_ymd_and_hms(2026, 10, 12, 0, 0, 0).unwrap();
     let tuesday = monday + Duration::days(1);
-    let claim =
-        |since, at| claims.claim_platform_post_since(tenant, user_id, "check_in", since, at);
+    let claim = |since, at| {
+        claims.claim_platform_post_since(
+            tenant,
+            user_id,
+            "check_in",
+            PostPurpose::NO_SUBJECT,
+            since,
+            at,
+        )
+    };
 
     let first = claim(monday, monday + Duration::hours(8))
         .await
@@ -339,14 +370,21 @@ async fn a_lapsed_period_claim_cannot_release_or_mark_the_post_the_next_period_t
 
     assert!(
         !claims
-            .release_platform_post(tenant, user_id, "check_in", &first)
+            .release_platform_post(tenant, user_id, "check_in", PostPurpose::NO_SUBJECT, &first)
             .await
             .unwrap(),
         "Monday's claim cannot free Tuesday's"
     );
     assert!(
         !claims
-            .mark_platform_post_posted(tenant, user_id, "check_in", &first, tuesday)
+            .mark_platform_post_posted(
+                tenant,
+                user_id,
+                "check_in",
+                PostPurpose::NO_SUBJECT,
+                &first,
+                tuesday
+            )
             .await
             .unwrap(),
         "nor mark it posted"
@@ -360,7 +398,13 @@ async fn a_lapsed_period_claim_cannot_release_or_mark_the_post_the_next_period_t
     );
 
     assert!(claims
-        .release_platform_post(tenant, user_id, "check_in", &second)
+        .release_platform_post(
+            tenant,
+            user_id,
+            "check_in",
+            PostPurpose::NO_SUBJECT,
+            &second
+        )
         .await
         .unwrap());
     assert!(

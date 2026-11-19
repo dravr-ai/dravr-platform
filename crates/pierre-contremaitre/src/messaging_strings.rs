@@ -483,6 +483,11 @@ pub const KEY_PLATFORM_POST_CHECK_IN_THREE_PER_WEEK_PROMPT: &str =
 /// ended. No placeholders.
 pub const KEY_PLATFORM_POST_CHECK_IN_WEEKLY_PROMPT: &str = "platform_post.check_in.weekly_prompt";
 
+/// Key: the instruction for the coach's reaction to a workout a live sync
+/// just landed (carnet#1486). `{0}` = the workout's local start
+/// (`YYYY-MM-DD HH:MM`), `{1}` = its activity id, `{2}` = its provider key.
+pub const KEY_PLATFORM_POST_ACTIVITY_LANDED_PROMPT: &str = "platform_post.activity_landed.prompt";
+
 // ── Commitment verdict keys ───────────────────────────────────────────────
 // Emitted by the commitment sweep once a promise's window closes. Composed
 // from counts and the sanitized sport slug only — never from the athlete's or

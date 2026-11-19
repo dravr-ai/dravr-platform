@@ -50,7 +50,7 @@ use pierre_providers::originals::OriginalsStore;
 use pierre_providers::ProviderRegistry;
 use pierre_runtime_context::{AdminConfigLookup, DataContext};
 use pierre_services::group_chat_poster::GroupChatPoster;
-use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::live_activities::{LandedSession, LiveActivityStore};
 
 #[cfg(feature = "transport-sse")]
 use pierre_services::provider_refresh::SyncNotifier;
@@ -277,6 +277,16 @@ pub enum ReauthRetry {
     UntilLinkExpires,
 }
 
+/// Where a live write's landing goes (carnet#1486).
+///
+/// The activity store decides the landing inside its own ingest; the writer
+/// only hands it on. Best-effort: the sink logs its own failures.
+#[async_trait]
+pub trait SessionLandedSink: Send + Sync {
+    /// A live write landed `session` for the athlete.
+    async fn session_landed(&self, user_id: Uuid, tenant_id: TenantId, session: LandedSession);
+}
+
 /// Narrow façade over the server's shared services that tool implementations
 /// are allowed to depend on.
 ///
@@ -427,6 +437,15 @@ pub trait ToolRuntime: Send + Sync + 'static {
     /// no chat to post into, and the post stays in the group's room
     /// transcript; the production `ServerContext` overrides it.
     fn group_chat_poster(&self) -> Option<&Arc<dyn GroupChatPoster>> {
+        None
+    }
+
+    /// Optional seam a live write hands the workout it landed to
+    /// (carnet#1486): the server's sink posts the coach's reaction or sends
+    /// the per-session digest. Defaults to `None` — a runtime with no server
+    /// behind it announces nothing; the production `ServerContext` overrides
+    /// it.
+    fn session_landed_sink(&self) -> Option<Arc<dyn SessionLandedSink>> {
         None
     }
 

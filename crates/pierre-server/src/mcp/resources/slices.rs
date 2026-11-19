@@ -125,6 +125,7 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "client-messaging")]
 use crate::services::platform_post::PlatformPost;
+use crate::services::session_landed::SessionLandedRouter;
 use tokio::task::AbortHandle;
 
 /// Cross-cutting handles + the master repository registry.
@@ -448,6 +449,12 @@ pub struct McpSlice {
     /// SSE protocol-factory install.
     #[cfg(feature = "client-messaging")]
     pub platform_post: Arc<OnceLock<Arc<dyn PlatformPost>>>,
+    /// Where a live write's landing goes (carnet#1486): exposed to every
+    /// writer through
+    /// [`pierre_tool_runtime::runtime::ToolRuntime::session_landed_sink`] and
+    /// handed the Garmin push worker's landings. Sends the per-session digest
+    /// until the composition root layers the coach's landing post on.
+    pub session_landed: Arc<SessionLandedRouter>,
     /// Told once a provider connect lands an athlete's data, so the coach
     /// speaks first (carnet#831). Shared with every
     /// [`pierre_routes_auth::AuthRoutesContext`] built from this context, and

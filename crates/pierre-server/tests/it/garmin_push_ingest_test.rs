@@ -453,6 +453,99 @@ async fn activities_land_in_the_cache_and_a_resend_replaces_the_row() {
     assert_eq!(cached[0].name(), "Morning ride, renamed");
 }
 
+/// A pushed activity newer than everything the athlete held lands: the
+/// coach reacts to it once, and the same push re-sent lands nothing
+/// (carnet#1486).
+#[cfg(feature = "client-messaging")]
+#[tokio::test]
+async fn a_pushed_new_activity_lands_once() {
+    use crate::messaging_fixtures::{seed_conversation, CapturingChannel, FakeResolver};
+    use crate::recording_post::RecordingPost;
+    use pierre_contremaitre::messaging_strings::KEY_PLATFORM_POST_ACTIVITY_LANDED_PROMPT;
+    use pierre_core::models::messaging::ChannelType;
+    use pierre_core::models::SUPPORTED_LOCALES;
+    use pierre_mcp_server::services::activity_landed_post::ActivityLandedPoster;
+    use pierre_services::live_activities::WriteOrigin;
+
+    let resources = context(None).await;
+    let (user_id, tenant_id) = seed_athlete(&resources).await;
+    for locale in SUPPORTED_LOCALES {
+        resources.mcp.messaging_strings_registry.update(
+            KEY_PLATFORM_POST_ACTIVITY_LANDED_PROMPT,
+            locale,
+            "My workout {1} on {2} just synced.".to_owned(),
+            String::new(),
+        );
+    }
+    seed_conversation(&resources.agent.database, &user_id.to_string(), tenant_id).await;
+    let post = Arc::new(RecordingPost::posting(true));
+    resources
+        .mcp
+        .session_landed
+        .install(Arc::new(ActivityLandedPoster::new(
+            Arc::downgrade(&resources),
+            Arc::<RecordingPost>::clone(&post),
+            Arc::new(FakeResolver::new(Arc::new(CapturingChannel::for_channel(
+                ChannelType::WhatsApp,
+            )))),
+        )));
+    let held = ActivityBuilder::new(
+        "910000",
+        "Last week's ride",
+        SportType::Ride,
+        Utc::now() - ChronoDuration::days(5),
+        3_600,
+        "garmin",
+    )
+    .build();
+    resources
+        .common
+        .live_activities
+        .ingest(
+            user_id,
+            tenant_id,
+            "garmin",
+            &[held],
+            Utc::now(),
+            WriteOrigin::Import,
+        )
+        .await
+        .unwrap();
+
+    let start = (Utc::now() - ChronoDuration::hours(2)).timestamp();
+    let ride = json!([activity("920002", "Lunch ride", start, 3_600)]);
+    let asked_once = |count: usize| {
+        let post = Arc::clone(&post);
+        async move {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while post.asked().len() < count && Instant::now() < deadline {
+                sleep(Duration::from_millis(50)).await;
+            }
+            sleep(Duration::from_millis(300)).await;
+            post.asked()
+        }
+    };
+    push(&resources, "activities", ride.clone()).await;
+    let asked = asked_once(1).await;
+    assert_eq!(
+        asked.len(),
+        1,
+        "bug: a pushed new ride must land once: {asked:?}"
+    );
+    assert!(
+        asked[0].prompt.contains("920002 on garmin"),
+        "bug: the landing must name the pushed ride: {}",
+        asked[0].prompt
+    );
+
+    push(&resources, "activities", ride).await;
+    assert_eq!(
+        asked_once(2).await.len(),
+        1,
+        "bug: the same push re-sent must land nothing"
+    );
+}
+
 /// A pushed activity lands through the activity store every provider's
 /// activities are kept in (carnet#1482): the store holds it at the push's
 /// receipt, so an older copy is refused, and once the athlete deletes the
@@ -477,7 +570,9 @@ async fn a_pushed_activity_is_kept_in_the_activity_store() {
             Utc::now() - ChronoDuration::days(1),
         )
         .await
-        .unwrap();
+        .unwrap()
+        .stored
+        > 0;
     assert!(
         !older,
         "bug: the store does not hold the push at its receipt"

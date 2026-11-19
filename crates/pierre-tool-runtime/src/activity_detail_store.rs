@@ -37,7 +37,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_providers::ai_scope;
 use pierre_providers::backend_resolver::mirror_backend_for;
 use pierre_services::athlete_places::MAX_PLACE_NAME_CHARS;
-use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
 use pierre_services::training_history_read::history_store_keys;
 use serde_json::{Map, Value};
 use tracing::{debug, warn};
@@ -262,6 +262,7 @@ async fn copy_under_grant(
             grant,
             slice::from_ref(detailed),
             head_synced,
+            WriteOrigin::Walk,
         )
         .await?
         .stored)

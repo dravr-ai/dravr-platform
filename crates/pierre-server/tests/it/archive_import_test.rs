@@ -52,6 +52,7 @@ use pierre_mcp_server::services::archive_import::{ArchiveImports, ImportWiring};
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_providers::upload_provider::file_sha256;
 use pierre_services::admin_ops::AccountCaller;
+use pierre_services::live_activities::WriteOrigin;
 use pierre_services::stored_health;
 use pierre_services::user_removal::{remove_user, UserRemoval};
 use pierre_test_support::fit::FitWorkout;
@@ -736,7 +737,14 @@ async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() 
     let read = [strava_copy, other_day];
     let live = &resources.common.live_activities;
     let synced = live
-        .ingest(athlete.user_id, athlete.tenant, STRAVA, &read, Utc::now())
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            STRAVA,
+            &read,
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .expect("the sync is kept");
     assert_eq!(synced.stored, 2, "test setup: both Strava rides are held");
@@ -749,7 +757,14 @@ async fn deleting_an_imported_ride_erases_the_strava_copy_of_the_same_workout() 
     );
 
     let resynced = live
-        .ingest(athlete.user_id, athlete.tenant, STRAVA, &read, Utc::now())
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            STRAVA,
+            &read,
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .expect("the sync is kept");
     assert_eq!(
@@ -818,6 +833,7 @@ async fn deleting_an_imported_ride_leaves_the_uploaded_copy_of_the_same_workout(
             "upload",
             slice::from_ref(&uploaded),
             Utc::now(),
+            WriteOrigin::Live,
         )
         .await
         .expect("the upload is kept");
@@ -845,6 +861,7 @@ async fn deleting_an_imported_ride_leaves_the_uploaded_copy_of_the_same_workout(
             "upload",
             slice::from_ref(&uploaded),
             Utc::now(),
+            WriteOrigin::Live,
         )
         .await
         .expect("the upload is kept");
@@ -1161,7 +1178,14 @@ async fn a_deleted_account_is_erased_where_imports_do_not_run() {
     )
     .build();
     let kept = live
-        .ingest(athlete.user_id, athlete.tenant, STRAVA, &[ride], Utc::now())
+        .ingest(
+            athlete.user_id,
+            athlete.tenant,
+            STRAVA,
+            &[ride],
+            Utc::now(),
+            WriteOrigin::Live,
+        )
         .await
         .expect("the read is kept");
     assert_eq!(kept.stored, 1, "test setup: the store holds the read");

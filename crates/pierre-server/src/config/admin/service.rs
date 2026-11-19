@@ -7,6 +7,7 @@
 use super::manager::AdminConfigManager;
 use super::repository::{AdminConfigRepository, LogChangeParams, SetOverrideParams};
 use chrono::Utc;
+use pierre_config::activity_landed::register_activity_landed;
 use pierre_config::activity_retention::register_activity_retention;
 use pierre_config::admin_definitions::{
     register_activity_access_quotas, register_algorithm_selection, register_feature_flags,
@@ -278,6 +279,9 @@ impl AdminConfigService {
 
         // Provider data retention, one default plus per-provider days — see pierre_config::activity_retention
         register_activity_retention(&mut defs);
+
+        // How often the coach reacts to a synced workout, and whether that replaces the digest — see pierre_config::activity_landed
+        register_activity_landed(&mut defs);
 
         defs
     }

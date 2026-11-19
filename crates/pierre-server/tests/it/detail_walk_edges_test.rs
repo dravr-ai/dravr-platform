@@ -40,6 +40,7 @@ use pierre_database::backends::factory::DatabaseBackend;
 use pierre_database::repositories::BackfillJobState;
 use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
+use pierre_services::live_activities::WriteOrigin;
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::activity_backfill::detail_walk::{
@@ -222,6 +223,7 @@ async fn a_read_copy_past_a_thousand_rows_still_stops_its_ride_being_read() {
                 ride_listed_at(SESSION, newest, newest),
             ],
             Utc::now(),
+            WriteOrigin::Walk,
         )
         .await
         .unwrap();
@@ -275,7 +277,14 @@ async fn one_second_of_three(
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     runtime
         .live_activities()
-        .ingest(user_id, tenant, SESSION, &listed, Utc::now())
+        .ingest(
+            user_id,
+            tenant,
+            SESSION,
+            &listed,
+            Utc::now(),
+            WriteOrigin::Walk,
+        )
         .await
         .unwrap();
     (unreadable, stored, refused)
@@ -521,7 +530,14 @@ async fn store_runs(
     let runs: Vec<Activity> = starts.iter().map(|start| run_listed(*start)).collect();
     runtime
         .live_activities()
-        .ingest(user_id, tenant, SESSION, &runs, Utc::now())
+        .ingest(
+            user_id,
+            tenant,
+            SESSION,
+            &runs,
+            Utc::now(),
+            WriteOrigin::Walk,
+        )
         .await
         .unwrap();
 }

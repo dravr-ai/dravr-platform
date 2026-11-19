@@ -1,5 +1,5 @@
-// ABOUTME: get_weather_forecast — forecast weather at coordinates or a named place, up to ~16 days ahead
-// ABOUTME: Takes dravr-meteo's definition of the tool: its schema, answer shape, cached provider and geocoder
+// ABOUTME: get_weather_forecast — forecast weather at coordinates, a named place or the athlete's top place
+// ABOUTME: dravr-meteo's schema and answer shape, plus the day's daylight and the default place it used
 //
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use chrono_tz::Tz;
 use serde::Serialize;
 use serde_json::{json, Value};
 use tracing::{info, warn};
@@ -18,7 +19,17 @@ use dravr_meteo::{
     GeocodeError, Geocoder, Place, PlaceQuery, WeatherError, WeatherProvider, WeatherQuery,
     WeatherSample,
 };
+use pierre_core::models::{PlaceRef, TenantId};
+use pierre_database::repositories::PlaceNameSource;
+use pierre_database::RepositoryRegistry;
+use pierre_fitness_compute::daylight::{daylight, solar_date, Daylight};
 use pierre_fitness_compute::geocoding::free_text_query;
+use pierre_providers::ai_scope;
+use pierre_services::athlete_clock::athlete_zone;
+use uuid::Uuid;
+
+use crate::activity_detail_store::served_place_name;
+use crate::context::ToolExecutionContext;
 
 use crate::conversions::{answers_with, ok_typed, tool_definition, tool_result_to_response};
 use crate::runtime::ToolRuntime;
@@ -35,9 +46,9 @@ const MAX_PLACE_CHARS: usize = 200;
 
 /// What `get_weather_forecast` answers with.
 ///
-/// The query as resolved and the provider's sample — the shape dravr-meteo's
-/// tool of the same name answers with, so the one tool reads the same from
-/// either server.
+/// The query as resolved and the provider's sample — dravr-meteo's shape for
+/// the tool of the same name — plus `daylight` and `default_place`, which the
+/// platform adds (carnet#1486).
 #[derive(Debug, Serialize, schemars::JsonSchema)]
 pub struct WeatherForecastResult {
     /// The vendor that produced the sample.
@@ -54,6 +65,12 @@ pub struct WeatherForecastResult {
     pub timestamp: String,
     /// The forecast for the hour containing `timestamp`.
     pub sample: ForecastSample,
+    /// Sunrise and sunset of the place's day, on the athlete's clock.
+    pub daylight: ForecastDaylight,
+    /// The athlete's training place the forecast was read at, when the
+    /// caller gave no location. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_place: Option<DefaultPlace>,
     /// Why the answer may not be the place the caller meant: an ambiguous name
     /// took its top-ranked match, or coordinates overrode a `place` given too.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -86,6 +103,45 @@ pub struct ForecastPlace {
     pub longitude: f64,
     /// Places the name matched; more than one means the top-ranked was used.
     pub matches: usize,
+}
+
+/// Sunrise and sunset of the forecast place's solar day.
+#[derive(Debug, Serialize, schemars::JsonSchema)]
+pub struct ForecastDaylight {
+    /// RFC 3339 sunrise on the athlete's clock. Absent on a polar day or
+    /// night.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sunrise: Option<String>,
+    /// RFC 3339 sunset on the athlete's clock. Absent on a polar day or
+    /// night.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sunset: Option<String>,
+    /// `day` when the Sun never sets that day, `night` when it never rises.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub polar: Option<String>,
+}
+
+/// The athlete's most frequent training place, used when no location was
+/// given.
+#[derive(Debug, Clone, Serialize, schemars::JsonSchema)]
+pub struct DefaultPlace {
+    /// The place's id.
+    pub id: String,
+    /// The place's name, when it has one Dravr may serve here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+}
+
+/// A training place a forecast may be read at: the coordinates sent, already
+/// rounded, and how the answer names the place.
+#[derive(Debug, Clone)]
+pub struct TrainingPlace {
+    /// Latitude sent to the vendor, rounded to 0.01°.
+    pub latitude: f64,
+    /// Longitude sent to the vendor, rounded to 0.01°.
+    pub longitude: f64,
+    /// The place as the answer names it.
+    pub place: DefaultPlace,
 }
 
 /// One forecast hour, serialized exactly as dravr-meteo's `WeatherSample`.
@@ -209,7 +265,9 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
              timestamp up to about 16 days ahead, e.g. a planned session. Give the location as \
              latitude and longitude, or as a place name (optionally narrowed by country_code). \
              For a place, the output names the town used and says when an ambiguous name took \
-             the top-ranked match.",
+             the top-ranked match. Omit the location for the athlete's most frequent training \
+             place (Dravr's own app and chats only). The output carries that day's sunrise and \
+             sunset, on the athlete's clock.",
             schema,
             // Hits the Open-Meteo forecast API (external infrastructure).
             annotations("Get weather forecast", Effect::ReadOnly, Reach::OpenWorld),
@@ -225,23 +283,148 @@ impl McpTool<dyn ToolRuntime> for GetWeatherForecastTool {
     async fn execute(
         &self,
         state: &Arc<dyn ToolRuntime>,
-        _ctx: &ToolContext,
+        ctx: &ToolContext,
         args: Value,
     ) -> ToolResponse {
+        let context = ToolExecutionContext::from_tronc(state, ctx);
         let result = async {
             // The context's forecast provider and its one place geocoder: a
             // place resolves here exactly as it does for discover_routes and
             // the weather backfill (carnet#920).
             let weather = state.weather();
-            forecast(weather.forecast()?, weather.geocoder()?, &args).await
+            let zone = athlete_zone(state.repos(), context.user_id).await;
+            if let Some(place) = default_for(&context, &args).await? {
+                return forecast_at_place(weather.forecast()?, &args, zone, place).await;
+            }
+            forecast(weather.forecast()?, weather.geocoder()?, &args, zone).await
         };
         tool_result_to_response(result.await)
     }
 }
 
-/// Run one forecast query — by coordinates, or by a place name `geocoder`
-/// resolves first — against `provider`, and render the sample, or the error an
-/// agent can act on.
+/// The athlete's training place a forecast with no location is read at.
+///
+/// `None` when a location was given, or where whose place to use is
+/// ambiguous or not Dravr's to send — an external transport, a coach's read
+/// of an athlete, a turn other people read — or when the athlete has none.
+async fn default_for(
+    context: &ToolExecutionContext,
+    args: &Value,
+) -> AppResult<Option<TrainingPlace>> {
+    let located = ["latitude", "longitude", "place"]
+        .iter()
+        .any(|name| given(args, name));
+    if located
+        || !may_default(
+            ai_scope::withholds_athlete_only_fields(),
+            context.turn_direct_message,
+        )
+    {
+        return Ok(None);
+    }
+    let Some(tenant) = context.tenant_id else {
+        return Ok(None);
+    };
+    default_place(
+        context.resources.repos(),
+        TenantId::from_uuid(tenant),
+        context.user_id,
+    )
+    .await
+}
+
+/// Whether a forecast with no location may default to the athlete's place.
+///
+/// Not on an external transport nor a coach's read (`withholds_athlete_only`
+/// — the centroid is derived from provider data, the same reason automatic
+/// place names are first-party only), and not on a turn other people read
+/// (`turn_direct_message == Some(false)`), where whose place is meant is
+/// ambiguous.
+const fn may_default(withholds_athlete_only: bool, turn_direct_message: Option<bool>) -> bool {
+    !withholds_athlete_only && !matches!(turn_direct_message, Some(false))
+}
+
+/// The athlete's most frequent training place, its centroid rounded to 0.01°.
+///
+/// Most workouts wins, ties on the lowest id. A 0.01° cell is about a
+/// kilometre, so the weather vendor learns a cell rather than the point
+/// (carnet#1486). `None` when the athlete has no place.
+///
+/// # Errors
+///
+/// Returns the repository error when the places cannot be read.
+pub async fn default_place(
+    repos: &RepositoryRegistry,
+    tenant_id: TenantId,
+    user_id: Uuid,
+) -> AppResult<Option<TrainingPlace>> {
+    let places = repos.athlete_places.list(&tenant_id, user_id).await?;
+    let top = places.into_iter().min_by(|a, b| {
+        b.activity_count
+            .cmp(&a.activity_count)
+            .then_with(|| a.id.cmp(&b.id))
+    });
+    Ok(top.map(|top| {
+        let athlete_named = top.name_source == Some(PlaceNameSource::Athlete);
+        let name = served_place_name(&PlaceRef {
+            id: top.id.clone(),
+            name: top.name,
+            athlete_named,
+        });
+        TrainingPlace {
+            latitude: round2(top.centroid_lat),
+            longitude: round2(top.centroid_lon),
+            place: DefaultPlace { id: top.id, name },
+        }
+    }))
+}
+
+/// `degrees` rounded to 0.01°.
+fn round2(degrees: f64) -> f64 {
+    (degrees * 100.0).round() / 100.0
+}
+
+/// Forecast at the athlete's training `place`, for the `timestamp` in `args`,
+/// with the day's daylight on `zone`.
+///
+/// # Errors
+///
+/// Only when the result fails to serialize.
+pub async fn forecast_at_place(
+    provider: &dyn WeatherProvider,
+    args: &Value,
+    zone: Tz,
+    place: TrainingPlace,
+) -> AppResult<ToolResult> {
+    let timestamp = match parse_timestamp(args) {
+        Ok(timestamp) => timestamp,
+        Err(message) => return Ok(refusal(&message)),
+    };
+    let query = WeatherQuery {
+        latitude: place.latitude,
+        longitude: place.longitude,
+        timestamp,
+    };
+    let note =
+        Some("no location given: used the athlete's most frequent training place".to_owned());
+    fetch(
+        provider,
+        query,
+        Found {
+            place: None,
+            note,
+            default_place: Some(place.place),
+        },
+        zone,
+    )
+    .await
+}
+
+/// Run one forecast query against `provider` and render its sample.
+///
+/// The location is coordinates, or a place name `geocoder` resolves first;
+/// the day's daylight is printed on `zone`, the athlete's clock. Anything else
+/// is the error an agent can act on.
 ///
 /// # Errors
 ///
@@ -251,6 +434,7 @@ pub async fn forecast(
     provider: &dyn WeatherProvider,
     geocoder: &dyn Geocoder,
     args: &Value,
+    zone: Tz,
 ) -> AppResult<ToolResult> {
     let location = match parse_location(args) {
         Ok(location) => location,
@@ -275,7 +459,17 @@ pub async fn forecast(
                 longitude,
                 timestamp,
             };
-            fetch(provider, query, None, note).await
+            fetch(
+                provider,
+                query,
+                Found {
+                    place: None,
+                    note,
+                    default_place: None,
+                },
+                zone,
+            )
+            .await
         }
         Location::Place(place) => match geocoder.resolve(&place).await {
             Ok(resolution) => {
@@ -303,7 +497,17 @@ pub async fn forecast(
                     longitude: resolved.longitude,
                     matches: resolution.matches,
                 };
-                fetch(provider, query, Some(answer), note).await
+                fetch(
+                    provider,
+                    query,
+                    Found {
+                        place: Some(answer),
+                        note,
+                        default_place: None,
+                    },
+                    zone,
+                )
+                .await
             }
             Err(GeocodeError::NotFound { place }) => Ok(refusal(&format!(
                 "no place named \"{place}\" was found — check the spelling, give the name alone (a country goes in country_code), or pass latitude and longitude"
@@ -324,12 +528,22 @@ fn refusal(message: &str) -> ToolResult {
     ToolResult::error(json!({ "error": message }))
 }
 
-/// Look the query up and render the sample, or the error.
+/// How a forecast's location was found: the place a name resolved to, the
+/// training place used for none, and why the answer may not be the place
+/// meant.
+struct Found {
+    place: Option<ForecastPlace>,
+    note: Option<String>,
+    default_place: Option<DefaultPlace>,
+}
+
+/// Look the query up and render the sample with its day's daylight on
+/// `zone`, or the error.
 async fn fetch(
     provider: &dyn WeatherProvider,
     query: WeatherQuery,
-    place: Option<ForecastPlace>,
-    note: Option<String>,
+    found: Found,
+    zone: Tz,
 ) -> AppResult<ToolResult> {
     info!(
         latitude = query.latitude,
@@ -342,12 +556,14 @@ async fn fetch(
             "get_weather_forecast",
             WeatherForecastResult {
                 provider: provider.name().to_owned(),
-                place,
+                place: found.place,
                 latitude: query.latitude,
                 longitude: query.longitude,
                 timestamp: query.timestamp.to_rfc3339(),
                 sample: sample.into(),
-                note,
+                daylight: forecast_daylight(&query, zone),
+                default_place: found.default_place,
+                note: found.note,
             },
         ),
         Err(WeatherError::DataUnavailable) => Ok(refusal(&format!(
@@ -358,6 +574,30 @@ async fn fetch(
             warn!(error = %err, "get_weather_forecast: forecast lookup failed");
             Ok(refusal(&err.to_string()))
         }
+    }
+}
+
+/// Sunrise and sunset of the place's solar day at the instant `query` reads,
+/// computed at the coordinates it reads, printed on `zone`.
+fn forecast_daylight(query: &WeatherQuery, zone: Tz) -> ForecastDaylight {
+    let day = solar_date(query.timestamp, query.longitude);
+    let on_clock = |instant: DateTime<Utc>| Some(instant.with_timezone(&zone).to_rfc3339());
+    match daylight(query.latitude, query.longitude, day) {
+        Daylight::Day { sunrise, sunset } => ForecastDaylight {
+            sunrise: on_clock(sunrise),
+            sunset: on_clock(sunset),
+            polar: None,
+        },
+        Daylight::PolarDay => ForecastDaylight {
+            sunrise: None,
+            sunset: None,
+            polar: Some("day".to_owned()),
+        },
+        Daylight::PolarNight => ForecastDaylight {
+            sunrise: None,
+            sunset: None,
+            polar: Some("night".to_owned()),
+        },
     }
 }
 
@@ -486,3 +726,60 @@ pub fn create_weather_forecast_tools() -> Vec<Box<dyn RuntimeTool>> {
 // each impl sits under this module's existing feature gate; the compiler forces
 // every registered tool to classify (the registry stores `Arc<dyn RuntimeTool>`).
 crate::declare_security!(GetWeatherForecastTool => empty);
+
+#[cfg(test)]
+mod tests {
+    use chrono_tz::America::Montreal;
+
+    use super::*;
+
+    #[test]
+    fn a_centroid_is_rounded_to_the_hundredth_of_a_degree() {
+        assert!(
+            (round2(45.507_49) - 45.51).abs() < 1e-9,
+            "bug: 45.50749 rounds to 45.51"
+        );
+        assert!(
+            (round2(-73.572_51) + 73.57).abs() < 1e-9,
+            "bug: -73.57251 rounds to -73.57"
+        );
+    }
+
+    #[test]
+    fn only_dravrs_own_one_to_one_surfaces_default_to_the_place() {
+        assert!(
+            may_default(false, Some(true)),
+            "bug: a direct chat turn defaults"
+        );
+        assert!(
+            may_default(false, None),
+            "bug: an app call outside a turn defaults"
+        );
+        assert!(
+            !may_default(false, Some(false)),
+            "bug: a turn other people read must not default"
+        );
+        assert!(
+            !may_default(true, Some(true)),
+            "bug: an external transport or a coach's read must not default"
+        );
+    }
+
+    #[test]
+    fn daylight_is_printed_on_the_athletes_clock() {
+        let query = WeatherQuery {
+            latitude: 45.50,
+            longitude: -73.57,
+            timestamp: DateTime::parse_from_rfc3339("2026-06-21T16:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        };
+        let shown = forecast_daylight(&query, Montreal);
+        let sunset = shown.sunset.expect("bug: Montréal has a sunset in June");
+        assert!(
+            sunset.starts_with("2026-06-21T20:4") && sunset.ends_with("-04:00"),
+            "bug: the sunset must read on the athlete's clock: {sunset}"
+        );
+        assert_eq!(shown.polar, None, "bug: Montréal has no polar day in June");
+    }
+}

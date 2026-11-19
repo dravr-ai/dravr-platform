@@ -62,7 +62,7 @@ use pierre_database::repositories::{
     JobProgress, PurgeReason, StreamOrigin, WellnessWriteMode,
 };
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_services::live_activities::{LiveActivityStore, LiveIngest};
+use pierre_services::live_activities::{LiveActivityStore, LiveIngest, WriteOrigin};
 use pierre_services::oauth_flow::OAuthService;
 use pierre_services::provider_revocation::DisconnectReason;
 use pierre_tool_runtime::activity_backfill::history_walk::start_history_walk;
@@ -1968,6 +1968,7 @@ impl LiveActivityStore for HeldWrite {
         provider: &str,
         activities: &[Activity],
         synced_at: DateTime<Utc>,
+        origin: WriteOrigin,
     ) -> AppResult<LiveIngest> {
         let held = {
             let mut armed = self.armed.lock().unwrap();
@@ -1983,7 +1984,7 @@ impl LiveActivityStore for HeldWrite {
         }
         let ingested = self
             .inner
-            .ingest(user_id, tenant_id, provider, activities, synced_at)
+            .ingest(user_id, tenant_id, provider, activities, synced_at, origin)
             .await;
         if let Some(hold) = held {
             hold.landed.notify_one();
@@ -2001,7 +2002,7 @@ impl LiveActivityStore for HeldWrite {
         provider: &str,
         activity: &Activity,
         received_at: DateTime<Utc>,
-    ) -> AppResult<bool> {
+    ) -> AppResult<LiveIngest> {
         self.inner
             .ingest_received(user_id, tenant_id, provider, activity, received_at)
             .await
@@ -2246,7 +2247,14 @@ impl Fixture {
         self.resources
             .common
             .live_activities
-            .ingest(self.user_id, self.tenant, key, &[ride], Utc::now())
+            .ingest(
+                self.user_id,
+                self.tenant,
+                key,
+                &[ride],
+                Utc::now(),
+                WriteOrigin::Import,
+            )
             .await
             .unwrap();
         let repos = &self.resources.common.repos;

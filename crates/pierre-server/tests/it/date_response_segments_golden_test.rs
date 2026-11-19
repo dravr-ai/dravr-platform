@@ -27,6 +27,7 @@ use pierre_core::constants::provider_capture::current_capture_version;
 use pierre_core::models::{ActivityBuilder, SegmentEffort, SportType};
 use pierre_database::repositories::BackfillCoverage;
 use pierre_mcp_server::mcp::resources::ServerContext;
+use pierre_services::live_activities::WriteOrigin;
 use pierre_tool_runtime::activity_detail_store::store_detail;
 use pierre_tool_runtime::runtime::ToolRuntime;
 use serde_json::{json, Value};
@@ -92,6 +93,7 @@ async fn athlete_with_efforts(resources: &Arc<ServerContext>, zone: &str) -> Ath
             STRAVA,
             &rides,
             instant("2026-08-28T11:00:00.250125"),
+            WriteOrigin::Import,
         )
         .await
         .unwrap();

@@ -42,6 +42,7 @@ mod impersonation_test;
 mod last_active_admin_guard_test;
 mod member_tenants_test;
 mod oauth2_server_repository_test;
+mod platform_post_claims_test;
 mod pool_fault_test;
 mod provider_connections_repository_test;
 mod repository_registry_identity_test;

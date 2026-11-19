@@ -18,12 +18,11 @@ use chrono::{DateTime, TimeZone, Utc};
 use pierre_core::models::{Activity, TenantId};
 use pierre_database::repositories::ActivityCacheRepository;
 use pierre_providers::core::ActivityQueryParams;
-use pierre_services::live_activities::LiveIngest;
+use pierre_services::live_activities::{LiveIngest, WriteOrigin};
 use tracing::{info, warn};
 use uuid::Uuid;
 
-#[cfg(feature = "client-notifications")]
-use super::session_landing::{deliver_session_digest, lands_a_session};
+use super::session_landing::announce;
 use super::sync_verdict::covers_list_head;
 use crate::protocol::auth::AuthService;
 use crate::runtime::ToolRuntime;
@@ -34,8 +33,9 @@ use crate::runtime::ToolRuntime;
 pub struct WriteThrough<'a> {
     /// The window the provider was read for.
     pub read: &'a ActivityQueryParams,
-    /// Whether a new training session among the rows delivers the athlete's
-    /// `per_session` digest ([`lands_a_session`]). `false` for a history
+    /// Whether the read is of the provider's present, so a workout it lands
+    /// is announced ([`WriteOrigin::Live`]): the coach's reaction or the
+    /// athlete's `per_session` digest (carnet#1486). `false` for a history
     /// walk, which copies the past and announces nothing (carnet#1482).
     pub announces_sessions: bool,
 }
@@ -60,8 +60,8 @@ pub struct WriteThrough<'a> {
 /// the held count in its completion notice, and a history walk's step the
 /// inserted one before it takes rows back; recent-fetch callers ignore it.
 ///
-/// A write that lands a new training session delivers the athlete's
-/// `per_session` persona digest (see [`lands_a_session`]).
+/// A write that lands a new training session announces it to the runtime's
+/// landing sink (see [`announce`]).
 pub(crate) async fn write_through_activity_cache(
     auth_service: &AuthService,
     user_id: Uuid,
@@ -72,16 +72,6 @@ pub(crate) async fn write_through_activity_cache(
 ) -> Option<LiveIngest> {
     let data = auth_service.runtime().data();
     let cache = data.repos().activity_cache.clone();
-    #[cfg(feature = "client-notifications")]
-    let landed = write.announces_sessions
-        && lands_a_session(
-            auth_service.runtime(),
-            user_id,
-            &tenant_id,
-            provider,
-            activities,
-        )
-        .await;
     let stamp = head_sync_stamp(
         cache.as_ref(),
         user_id,
@@ -96,7 +86,18 @@ pub(crate) async fn write_through_activity_cache(
     let persisted = match auth_service
         .runtime()
         .live_activities()
-        .ingest(user_id, tenant_id, provider, activities, stamp.synced_at)
+        .ingest(
+            user_id,
+            tenant_id,
+            provider,
+            activities,
+            stamp.synced_at,
+            if write.announces_sessions {
+                WriteOrigin::Live
+            } else {
+                WriteOrigin::Walk
+            },
+        )
         .await
     {
         Ok(ingest) => ingest,
@@ -108,10 +109,12 @@ pub(crate) async fn write_through_activity_cache(
     if stamp.is_sync {
         stamp_fetch_freshness(cache.as_ref(), user_id, tenant_id, provider).await;
     }
-    #[cfg(feature = "client-notifications")]
-    if landed {
-        deliver_session_digest(auth_service.runtime(), user_id, tenant_id);
-    }
+    announce(
+        auth_service.runtime(),
+        user_id,
+        tenant_id,
+        persisted.landed.clone(),
+    );
     Some(persisted)
 }
 
@@ -269,8 +272,6 @@ pub async fn write_through_served_window(
         }
         return;
     }
-    #[cfg(feature = "client-notifications")]
-    let landed = lands_a_session(runtime, user_id, tenant_id, provider_slug, activities).await;
     let upserted = runtime
         .live_activities()
         .ingest(
@@ -279,21 +280,22 @@ pub async fn write_through_served_window(
             provider_slug,
             activities,
             stamp.synced_at,
+            WriteOrigin::Live,
         )
         .await;
-    if let Err(e) = &upserted {
-        warn!(
+    match upserted {
+        Err(e) => warn!(
             user_id = %user_id,
             provider = %provider_slug,
             error = %e,
             "Activity cache: write-through from get_activities failed"
-        );
-    } else if stamp.is_sync {
-        stamp_fetch_freshness(cache.as_ref(), user_id, *tenant_id, provider_slug).await;
-    }
-    #[cfg(feature = "client-notifications")]
-    if landed && upserted.is_ok() {
-        deliver_session_digest(runtime, user_id, *tenant_id);
+        ),
+        Ok(ingest) => {
+            if stamp.is_sync {
+                stamp_fetch_freshness(cache.as_ref(), user_id, *tenant_id, provider_slug).await;
+            }
+            announce(runtime, user_id, *tenant_id, ingest.landed);
+        }
     }
 }
 

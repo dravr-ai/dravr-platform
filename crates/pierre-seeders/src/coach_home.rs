@@ -58,7 +58,7 @@ use pierre_database::RepositoryRegistry;
 use pierre_memory::claims::{ClaimCategory, ClaimStatus, EvidenceStrength, VerdictLayer};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, RacePriority};
 use pierre_middleware::mask_email;
-use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
 use tracing::info;
 use uuid::Uuid;
 
@@ -533,6 +533,7 @@ impl Seeded<'_> {
                 PROVIDER,
                 &cached,
                 Utc::now(),
+                WriteOrigin::Import,
             )
             .await?;
         // A session the store refused would leave the athlete's history

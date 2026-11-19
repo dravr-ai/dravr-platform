@@ -9,9 +9,12 @@
 //! Both tool loops that stream — the Copilot ACP turn and an API turn on an
 //! Anthropic head — put model text on the athlete's screen before the reply
 //! is assembled, so what the response boundary checks on the whole reply has
-//! to be held at the stream too: a canary token must never cross, and a
-//! `<tool_call>` block is the platform's to run, never prose. [`StreamedProse`]
-//! applies both filters, in that order, to every delta either loop forwards.
+//! to be held at the stream too: a canary token must never cross, a
+//! `<tool_call>` block is the platform's to run, never prose, and a
+//! `dravr-` fence (a chart, the model's quick replies) is lifted out of the
+//! stored reply, so its raw text must not flash in the bubble (carnet#1486).
+//! [`StreamedProse`] applies the three filters, in that order, to every delta
+//! either loop forwards.
 //!
 //! It also remembers whether anything reached the sink, so a loop that learns
 //! the streamed text will not be the reply — a tool call followed it, the
@@ -50,6 +53,7 @@ pub(crate) struct StreamedProse<'a> {
     sink: &'a TurnEventSink,
     canary: CanaryFilteredProse<'a>,
     blocks: ToolCallBlocksWithheld,
+    fences: PlatformFencesWithheld,
     /// Whether any prose reached the sink since the last retraction.
     sent: bool,
 }
@@ -62,13 +66,19 @@ impl<'a> StreamedProse<'a> {
             sink,
             canary: CanaryFilteredProse::new(canary),
             blocks: ToolCallBlocksWithheld::default(),
+            fences: PlatformFencesWithheld::default(),
             sent: false,
         }
     }
 
     /// Forward what of `delta` may be read now.
     pub(crate) fn push(&mut self, delta: &str) {
-        if let Some(text) = self.canary.push(delta).and_then(|t| self.blocks.push(&t)) {
+        if let Some(text) = self
+            .canary
+            .push(delta)
+            .and_then(|t| self.blocks.push(&t))
+            .and_then(|t| self.fences.push(&t))
+        {
             self.send(text);
         }
     }
@@ -77,12 +87,18 @@ impl<'a> StreamedProse<'a> {
     /// against a canary or a tag split across deltas, which nothing can
     /// complete any more.
     pub(crate) fn finish(&mut self) {
-        let tail = self
+        let blocks_tail = self
             .canary
             .flush()
             .and_then(|t| self.blocks.push(&t))
             .into_iter()
             .chain(self.blocks.flush())
+            .collect::<String>();
+        let tail = self
+            .fences
+            .push(&blocks_tail)
+            .into_iter()
+            .chain(self.fences.flush())
             .collect::<String>();
         if !tail.is_empty() {
             self.send(tail);
@@ -94,6 +110,7 @@ impl<'a> StreamedProse<'a> {
     pub(crate) fn retract(&mut self) {
         self.canary.discard();
         self.blocks = ToolCallBlocksWithheld::default();
+        self.fences = PlatformFencesWithheld::default();
         if mem::take(&mut self.sent) {
             tool_progress::deliver(self.sink, TurnEvent::ProseRetract);
         }
@@ -255,6 +272,121 @@ impl ToolCallBlocksWithheld {
     }
 }
 
+/// What opens a fence the platform lifts out of the reply: a chart
+/// (`dravr-viz`) or the model's quick replies (`dravr-actions`).
+const PLATFORM_FENCE_OPEN: &str = "```dravr-";
+
+/// Any code fence's delimiter.
+const FENCE: &str = "```";
+
+/// Where the fence filter stands in the reply.
+#[derive(Default, Clone, Copy, PartialEq, Eq)]
+enum FenceState {
+    /// Prose: a line opening a platform fence starts one.
+    #[default]
+    Prose,
+    /// Inside another code fence (```` ```json ````): forwarded as prose, and
+    /// a platform opener inside it opens nothing.
+    OtherFence,
+    /// Inside a platform fence: dropped until it closes.
+    PlatformFence,
+}
+
+/// Withholds the platform's own fences from streamed prose.
+///
+/// A reply can end on a `dravr-actions` fence (the model's quick replies) or
+/// carry a `dravr-viz` fence (a chart); post-processing lifts both out of the
+/// stored reply, and the `done` frame redraws the bubble from it. Every delta
+/// reaches the live bubble as it arrives, so without this the raw fence would
+/// flash there until the turn ended (carnet#1486). A line that opens one is
+/// held, with everything after it, until the fence closes, and then dropped;
+/// a line that could still grow into an opener is held until it cannot. A
+/// fence still open when the stream ends is dropped.
+#[derive(Default)]
+struct PlatformFencesWithheld {
+    /// The current line so far, its released start included.
+    line: String,
+    /// How much of `line` already reached the sink.
+    released: usize,
+    /// Where the filter stands.
+    state: FenceState,
+}
+
+impl PlatformFencesWithheld {
+    /// Take released prose, return what may reach the sink now.
+    fn push(&mut self, text: &str) -> Option<String> {
+        let mut out = String::new();
+        for piece in text.split_inclusive('\n') {
+            self.line.push_str(piece);
+            if piece.ends_with('\n') {
+                self.end_line(&mut out);
+            } else {
+                self.release_partial(&mut out);
+            }
+        }
+        (!out.is_empty()).then_some(out)
+    }
+
+    /// The current line is whole, its newline included.
+    fn end_line(&mut self, out: &mut String) {
+        let line = mem::take(&mut self.line);
+        let released = mem::take(&mut self.released);
+        let opener = line.trim_start();
+        let closes = opener.trim_end() == FENCE;
+        match self.state {
+            FenceState::Prose if opener.starts_with(PLATFORM_FENCE_OPEN) => {
+                self.state = FenceState::PlatformFence;
+            }
+            FenceState::Prose => {
+                if opener.starts_with(FENCE) {
+                    self.state = FenceState::OtherFence;
+                }
+                out.push_str(&line[released..]);
+            }
+            FenceState::OtherFence => {
+                if closes {
+                    self.state = FenceState::Prose;
+                }
+                out.push_str(&line[released..]);
+            }
+            FenceState::PlatformFence => {
+                if closes {
+                    self.state = FenceState::Prose;
+                }
+            }
+        }
+    }
+
+    /// Release the unfinished line's new text once the line can no longer
+    /// open a platform fence.
+    fn release_partial(&mut self, out: &mut String) {
+        let start = self.line.trim_start();
+        let held = match self.state {
+            FenceState::PlatformFence => true,
+            FenceState::OtherFence => false,
+            FenceState::Prose => {
+                PLATFORM_FENCE_OPEN.starts_with(start) || start.starts_with(PLATFORM_FENCE_OPEN)
+            }
+        };
+        if !held {
+            out.push_str(&self.line[self.released..]);
+            self.released = self.line.len();
+        }
+    }
+
+    /// Release what is still held once the model has stopped producing. A
+    /// platform fence, or its opener, left unfinished is dropped.
+    fn flush(&mut self) -> Option<String> {
+        let line = mem::take(&mut self.line);
+        let released = mem::take(&mut self.released);
+        let state = mem::take(&mut self.state);
+        let dropped = state == FenceState::PlatformFence
+            || (state == FenceState::Prose && line.trim_start().starts_with(PLATFORM_FENCE_OPEN));
+        let rest = &line[released..];
+        (!dropped && !rest.is_empty()).then(|| rest.to_owned())
+    }
+}
+
 /// The length of the longest end of `text` that could still grow into `tag`.
 fn held_tag_prefix_len(text: &str, tag: &str) -> usize {
     (1..tag.len())
@@ -272,7 +404,7 @@ mod tests {
     use pierre_services::chat_stream::TurnEvent;
     use tokio::sync::mpsc;
 
-    use super::{StreamedProse, ToolCallBlocksWithheld};
+    use super::{PlatformFencesWithheld, StreamedProse, ToolCallBlocksWithheld};
 
     fn run(deltas: &[&str]) -> String {
         let mut blocks = ToolCallBlocksWithheld::default();
@@ -367,6 +499,98 @@ mod tests {
             received(&mut rx),
             vec![Some("Je regarde ".to_owned()), None],
             "the held tag prefix belongs to the retracted text and is never released after it"
+        );
+    }
+
+    /// What reaches the reader when the reply streams as `deltas`.
+    fn fenced(deltas: &[&str]) -> String {
+        let mut fences = PlatformFencesWithheld::default();
+        let mut out: String = deltas.iter().filter_map(|d| fences.push(d)).collect();
+        out.extend(fences.flush());
+        out
+    }
+
+    /// Every way to cut `reply` in two at a character boundary.
+    fn every_split(reply: &str) -> Vec<String> {
+        reply
+            .char_indices()
+            .map(|(at, _)| at)
+            .chain([reply.len()])
+            .map(|at| fenced(&[&reply[..at], &reply[at..]]))
+            .collect()
+    }
+
+    #[test]
+    fn a_quick_reply_fence_never_reaches_the_reader_however_it_is_split() {
+        let reply = "Easy spin or rest?\n```dravr-actions\n[\"Easy spin\", \"Rest day\"]\n```\n";
+        for streamed in every_split(reply) {
+            assert_eq!(
+                streamed, "Easy spin or rest?\n",
+                "bug: the dravr-actions fence's opener or body reached the bubble"
+            );
+        }
+        let one_char_at_a_time: Vec<String> = reply.chars().map(String::from).collect();
+        let deltas: Vec<&str> = one_char_at_a_time.iter().map(String::as_str).collect();
+        assert_eq!(
+            fenced(&deltas),
+            "Easy spin or rest?\n",
+            "bug: a fence streamed one character at a time reached the bubble"
+        );
+    }
+
+    #[test]
+    fn a_chart_fence_is_held_the_same_way() {
+        let reply = "Here:\n```dravr-viz\n{\"kind\":\"bar\"}\n```\nDone.";
+        for streamed in every_split(reply) {
+            assert_eq!(
+                streamed, "Here:\nDone.",
+                "bug: the dravr-viz fence reached the bubble"
+            );
+        }
+    }
+
+    #[test]
+    fn a_fence_left_open_is_dropped_and_the_prose_before_it_kept() {
+        assert_eq!(
+            fenced(&["Rest well.\n", "```dravr-actions\n[\"Ok\""]),
+            "Rest well.\n",
+            "bug: an unterminated platform fence must be dropped"
+        );
+        assert_eq!(
+            fenced(&["Rest well.\n```dravr-act"]),
+            "Rest well.\n",
+            "bug: an opener cut off by the end of the stream must be dropped"
+        );
+    }
+
+    #[test]
+    fn another_code_fence_is_forwarded_as_today() {
+        let reply = "Config:\n```json\n{\"a\": 1}\n```dravr-actions\n```\nEnd";
+        for streamed in every_split(reply) {
+            assert_eq!(
+                streamed, reply,
+                "bug: a json fence must be forwarded untouched"
+            );
+        }
+    }
+
+    #[test]
+    fn the_stream_gate_drops_the_fence_end_to_end() {
+        let (sink, mut rx) = mpsc::unbounded_channel();
+        let mut prose = StreamedProse::new(&sink, "");
+        for delta in [
+            "Easy ",
+            "spin?\n``",
+            "`dravr-actions\n[\"Easy",
+            " spin\"]\n```",
+        ] {
+            prose.push(delta);
+        }
+        prose.finish();
+        let text: String = received(&mut rx).into_iter().flatten().collect();
+        assert_eq!(
+            text, "Easy spin?\n",
+            "bug: the stream must never carry the fence"
         );
     }
 }

@@ -63,6 +63,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_providers::request_budget::{
     budget_counter_key, budget_period, detail_walk_athlete_counter_key, ONE_DAY, PLATFORM_SCOPE,
 };
+use pierre_services::live_activities::WriteOrigin;
 use pierre_tool_runtime::activity_detail_store::store_detail;
 use pierre_tool_runtime::incomplete_window::incomplete_window_in_payload;
 use pierre_tool_runtime::protocols::{UniversalRequest, UniversalToolExecutor};
@@ -312,7 +313,7 @@ async fn store_rides(
     let runtime: Arc<dyn ToolRuntime> = resources.clone();
     runtime
         .live_activities()
-        .ingest(user_id, tenant, key, rides, Utc::now())
+        .ingest(user_id, tenant, key, rides, Utc::now(), WriteOrigin::Import)
         .await
         .unwrap();
 }

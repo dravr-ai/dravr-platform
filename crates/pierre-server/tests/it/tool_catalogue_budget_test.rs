@@ -98,7 +98,12 @@ use crate::common;
 /// one-line description), and its description gains one sentence.
 /// `name_place` measured 794 bytes against 486 (~308 bytes); the catalogue
 /// 97,639.
-const CATALOGUE_BUDGET_BYTES: usize = 97_700;
+///
+/// 2026-11-18: 97,700 → 97,900 for `get_weather_forecast`'s default place and
+/// daylight (carnet#1486): two sentences on omitting the location and on the
+/// sunrise and sunset in the answer, cut by 13 bytes before measuring.
+/// Measured 97,857 against 97,684 without them (~173 bytes).
+const CATALOGUE_BUDGET_BYTES: usize = 97_900;
 
 /// Bytes the loaded core may take when the rest is deferred: what the model
 /// holds in context on a provider with tool search before it loads anything.

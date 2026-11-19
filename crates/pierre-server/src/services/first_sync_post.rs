@@ -25,7 +25,7 @@
 //! tracker, so a SIGTERM drain awaits it and a panic in it is logged. A turn
 //! can still outlast the drain's few seconds, and the instance then dies
 //! holding a claim it never released nor marked. Such a claim is retaken by
-//! the next landing once `FIRST_POST_LEASE` has passed, so the athlete still
+//! the next landing once `POST_CLAIM_LEASE` has passed, so the athlete still
 //! gets the post (carnet#911).
 //!
 //! ## Where it lands
@@ -93,21 +93,15 @@ use uuid::Uuid;
 use crate::mcp::resources::ServerContext;
 use crate::services::adapter_resolver::{config_adapter_resolver, AdapterResolver};
 use crate::services::platform_post::{PlatformPost, PostSurface};
-use crate::services::post_delivery::{linked_dms, post_in_app, post_to_dm, PostAthlete};
+use crate::services::post_delivery::{
+    linked_dms, post_in_app, post_to_dm, PostAthlete, POST_CLAIM_LEASE,
+};
 use crate::services::training_status::request_status_depth;
 
 /// How many activities the first read of an on-demand provider asks for —
 /// one provider page, enough to tell whether anything landed and to warm the
 /// cache the post's turn answers from.
 const FIRST_READ_LIMIT: usize = 50;
-
-/// How long an unposted, unreleased first-post claim is a post under way.
-///
-/// Past it, the instance holding the claim is presumed gone and the next
-/// landing retakes it: a first post is a turn or two, minutes at the very
-/// most, and an athlete who connected a provider hears from the coach within
-/// the quarter hour.
-pub(crate) const FIRST_POST_LEASE: Duration = Duration::minutes(15);
 
 /// The production [`FirstSyncHook`]: has the coach speak first once an
 /// athlete's data lands.
@@ -342,7 +336,7 @@ fn walk_history(
 }
 
 /// Claim the first post to the athlete. `false` when an earlier trigger holds
-/// it — the post was made, or is being made within `FIRST_POST_LEASE` — or
+/// it — the post was made, or is being made within `POST_CLAIM_LEASE` — or
 /// the claim failed (logged).
 async fn claim_first_post(
     resources: &ServerContext,
@@ -359,7 +353,8 @@ async fn claim_first_post(
             tenant_id,
             user_id,
             PostPurpose::FirstSync.as_str(),
-            now - FIRST_POST_LEASE,
+            PostPurpose::NO_SUBJECT,
+            now - POST_CLAIM_LEASE,
             now,
         )
         .await
@@ -394,6 +389,7 @@ async fn mark_first_post_posted(
             tenant_id,
             user_id,
             PostPurpose::FirstSync.as_str(),
+            PostPurpose::NO_SUBJECT,
             lease,
             Utc::now(),
         )
@@ -415,7 +411,13 @@ async fn release_first_post(
         .common
         .repos
         .platform_post_claims
-        .release_platform_post(tenant_id, user_id, PostPurpose::FirstSync.as_str(), lease)
+        .release_platform_post(
+            tenant_id,
+            user_id,
+            PostPurpose::FirstSync.as_str(),
+            PostPurpose::NO_SUBJECT,
+            lease,
+        )
         .await
     {
         warn!(error = %e, "First post: releasing the claim of an unmade post failed");

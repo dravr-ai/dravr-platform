@@ -51,8 +51,7 @@ mod historical;
 mod history_depth;
 /// A push-only provider's reads: its cached pushes, never a live read
 pub mod pushed;
-/// The session a cache write lands, and the `per_session` persona digest it sends
-#[cfg(feature = "client-notifications")]
+/// Hands the workout a live write landed to the server's landing sink
 mod session_landing;
 /// Whether a live list read counts as a sync, and what a failed one records
 pub mod sync_verdict;

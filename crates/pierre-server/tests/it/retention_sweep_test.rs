@@ -44,7 +44,7 @@ use pierre_mcp_server::mcp::resources::ServerContext;
 use pierre_mcp_server::services::retention_sweep_worker::retention_sweeper;
 use pierre_services::activity_cache_sink::LiveCacheSink;
 use pierre_services::barrage_live_store::BarrageLiveStore;
-use pierre_services::live_activities::LiveActivityStore;
+use pierre_services::live_activities::{LiveActivityStore, WriteOrigin};
 use pierre_services::retention_sweep::RetentionPass;
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -126,7 +126,14 @@ impl World {
         .build();
         let stored = self
             .live
-            .ingest(self.user_id, self.tenant_id, provider, &[run], read_at)
+            .ingest(
+                self.user_id,
+                self.tenant_id,
+                provider,
+                &[run],
+                read_at,
+                WriteOrigin::Import,
+            )
             .await
             .unwrap();
         assert_eq!(stored.stored, 1, "{provider} {age_days}d kept");

@@ -780,7 +780,7 @@ export interface GetTrainingPlanParams {
 
 
 /**
- * Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead, e.g. a planned session. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match.
+ * Forecast weather (temperature, humidity, wind, conditions) for the hour of a timestamp up to about 16 days ahead, e.g. a planned session. Give the location as latitude and longitude, or as a place name (optionally narrowed by country_code). For a place, the output names the town used and says when an ambiguous name took the top-ranked match. Omit the location for the athlete's most frequent training place (Dravr's own app and chats only). The output carries that day's sunrise and sunset, on the athlete's clock.
  */
 export interface GetWeatherForecastParams {
 
