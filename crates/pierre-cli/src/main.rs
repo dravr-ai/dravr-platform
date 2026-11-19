@@ -976,7 +976,6 @@ async fn main() -> Result<()> {
     )
     .await?;
 
-    // Complete key manager initialization (updates database's encryption key with loaded DEK)
     key_manager.complete_initialization(&database).await?;
     commands::key::keep_keyring_current(&key_manager, &database);
     info!("Two-tier key management system fully initialized for pierre-cli");
