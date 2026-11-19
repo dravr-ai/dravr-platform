@@ -468,6 +468,7 @@
     "maxLengthSystemPrompt": "Der System-Prompt darf höchstens {{max}} Zeichen haben",
     "maxLengthTitle": "Der Titel darf höchstens {{max}} Zeichen haben",
     "mcpTokenBlurb": "Bearer-Zugangsdaten, mit denen externe MCP-Clients deine Fitnessdaten lesen.",
+    "mcpTokenConsent": "Ein KI-Tool, das Sie mit diesem Token verbinden, kann Ihre Trainings-, Schlaf- und Erholungsdaten, die Verletzungen, von denen Sie Dravr erzählt haben, und die Orte Ihrer Aktivitäten lesen. Das Unternehmen, das es betreibt, kann diese Informationen außerhalb von Québec verarbeiten. Indem Sie dieses Token erstellen, willigen Sie ausdrücklich ein, dass Dravr diese Daten an das Tool weitergibt, das Sie verbinden.",
     "mcpTokens": "MCP-Tokens",
     "memberInvite": "Mitglieds-Einladung",
     "memberIsNowRole": "{{member}} ist jetzt {{role}}.",
@@ -2922,6 +2923,7 @@
     "requestAccessDeclined": "Deine letzte Anfrage wurde abgelehnt. Du kannst erneut anfragen.",
     "requestAccessFailed": "Wir konnten deine Anfrage nicht senden. Bitte versuche es erneut.",
     "reply_corrected": "{0} hat Dravrs Antwort an {1} korrigiert („{2}“):\n\n{3}",
+    "reads_served_to_assistant": "gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet",
     "planPublishedRoomPost": "{0} hat eine Änderung an deinem Plan veröffentlicht: {1}.",
     "planPublishedRoomPostMore": "+{0} weitere",
     "planPublishedRoomPostNew": "{0} hat deinen neuen Plan veröffentlicht.",
@@ -3000,13 +3002,18 @@
       "sourceGroupReport": "Der Wochenbericht der Gruppe",
       "sourceGroupHealth": "Die Gesundheitshinweise der Gruppe",
       "sourceWeeklyDigest": "Die Wochenzusammenfassung der Gruppe",
-      "sourcePhysiologyView": "Deine Schwellen, in den Gruppeninfos"
+      "sourcePhysiologyView": "Deine Schwellen, in den Gruppeninfos",
+      "servedToAssistant": "Gelesen von einem KI-Tool, das dein Coach mit Dravr verbindet. Das Unternehmen, das es betreibt, hat diese Daten erhalten."
     },
     "shareTraining": "Mein Training mit meinem Coach teilen",
     "shareTrainingHint": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten im Chat dieser Gruppe. KI-Tools, die dein Coach mit Dravr verbindet, etwa Claude, können dein Training und deinen Plan ebenfalls lesen. Schaltest du dies aus, endet beides. Gilt nur für diese Gruppe.",
     "shareTrainingPendingHint": "Noch kein Coach. Der Coach, der dieser Gruppe beitritt, sieht dein Training, deinen Plan und deine Nachrichten in ihrem Chat.",
     "sharingOnNotice": "Dein Coach sieht dein Training in dieser Gruppe wieder.",
     "sharingOffNotice": "Dein Coach sieht dein Training, deinen Plan und deine Nachrichten in dieser Gruppe nicht mehr.",
+    "assistantNotice": {
+      "title": "Die KI-Tools deines Coaches",
+      "body": "Solange du dein Training mit {{coach}} teilst, können KI-Tools, die {{coach}} mit Dravr verbindet, etwa Claude, dein Training und deinen Plan unter deinem Namen lesen. Das Unternehmen, das das jeweilige Tool betreibt, erhält, was es liest, und kann es außerhalb von Québec verarbeiten. Du kannst weiter teilen oder aufhören: Wenn du aufhörst, verlieren dein Coach und dessen Tools den Zugriff."
+    },
     "seat": {
       "title": "Du bist noch nicht der Coach dieser Gruppe",
       "stripBody": "Um das Training deiner Athleten zu sehen und ihre Pläne zu erstellen, brauchst du Coach-Zugang. Das Dravr-Team schaltet ihn frei.",
@@ -4522,6 +4529,7 @@
     "accountHint": "Passwort, E-Mail, Konto schließen",
     "apiKeys": "API-Schlüssel",
     "apiKeysHint": "Schlüssel, mit denen deine Skripte Dravr aufrufen",
+    "apiKeysConsent": "Ein KI-Tool, das Sie mit diesem Schlüssel verbinden, kann Ihre Trainings-, Schlaf- und Erholungsdaten, die Verletzungen, von denen Sie Dravr erzählt haben, und die Orte Ihrer Aktivitäten lesen. Das Unternehmen, das es betreibt, kann diese Informationen außerhalb von Québec verarbeiten. Indem Sie diesen Schlüssel erstellen, willigen Sie ausdrücklich ein, dass Dravr diese Daten an das Tool weitergibt, das Sie verbinden.",
     "coaching": "Coaching-Stil",
     "coachingHint": "Wie dein Agent mit dir spricht",
     "connections": "Datenquellen",

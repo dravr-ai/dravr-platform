@@ -468,6 +468,7 @@
     "maxLengthSystemPrompt": "System prompt must be {{max}} characters or less",
     "maxLengthTitle": "Title must be {{max}} characters or less",
     "mcpTokenBlurb": "Bearer credentials external MCP clients use to read your fitness data.",
+    "mcpTokenConsent": "An AI tool you connect with this token can read your training, sleep and recovery data, the injuries you told Dravr about and where your activities took place. The company that runs it may process this information outside Québec. By creating this token you expressly consent to Dravr sharing that data with the tool you connect.",
     "mcpTokens": "MCP Tokens",
     "memberInvite": "Member invite",
     "memberIsNowRole": "{{member}} is now {{role}}.",
@@ -2922,6 +2923,7 @@
     "requestAccessDeclined": "Your last request was declined. You can ask again.",
     "requestAccessFailed": "We couldn't send your request. Please try again.",
     "reply_corrected": "{0} corrected Dravr's reply to {1} (“{2}”):\n\n{3}",
+    "reads_served_to_assistant": "read by an AI tool your coach connects to Dravr",
     "planPublishedRoomPost": "{0} published an update to your plan: {1}.",
     "planPublishedRoomPostMore": "+{0} more",
     "planPublishedRoomPostNew": "{0} published your new plan.",
@@ -3000,13 +3002,18 @@
       "sourceGroupReport": "The group's weekly report",
       "sourceGroupHealth": "The group's health flags",
       "sourceWeeklyDigest": "Their weekly digest of the group",
-      "sourcePhysiologyView": "Your thresholds, in Group info"
+      "sourcePhysiologyView": "Your thresholds, in Group info",
+      "servedToAssistant": "Read by an AI tool your coach connects to Dravr. The company that runs it received this data."
     },
     "shareTraining": "Share my training with my coach",
     "shareTrainingHint": "Your coach sees your training, your plan and your messages in this group's chat. AI tools your coach connects to Dravr, such as Claude, can read your training and your plan too. Turning this off stops both. Applies to this group only.",
     "shareTrainingPendingHint": "No coach yet. The coach who joins this group will see your training, your plan and your messages in its chat.",
     "sharingOnNotice": "Your coach sees your training in this group again.",
     "sharingOffNotice": "Your coach no longer sees your training, your plan or your messages in this group.",
+    "assistantNotice": {
+      "title": "Your coach's AI tools",
+      "body": "While you share your training with {{coach}}, AI tools {{coach}} connects to Dravr, such as Claude, can read your training and your plan by name. The company that runs each tool receives what it reads and may process it outside Québec. You can keep sharing, or stop: stopping ends both your coach's and their tools' access."
+    },
     "seat": {
       "title": "You're not this group's coach yet",
       "stripBody": "To see your athletes' training and build their plans, you need coach access. The Dravr team turns it on.",
@@ -4522,6 +4529,7 @@
     "accountHint": "Password, email, closing your account",
     "apiKeys": "API keys",
     "apiKeysHint": "Keys your own scripts use to call Dravr",
+    "apiKeysConsent": "An AI tool you connect with this key can read your training, sleep and recovery data, the injuries you told Dravr about and where your activities took place. The company that runs it may process this information outside Québec. By creating this key you expressly consent to Dravr sharing that data with the tool you connect.",
     "coaching": "Coaching style",
     "coachingHint": "How your agent talks to you",
     "connections": "Data providers",

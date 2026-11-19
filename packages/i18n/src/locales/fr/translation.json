@@ -468,6 +468,7 @@
     "maxLengthSystemPrompt": "L'invite système doit faire au plus {{max}} caractères",
     "maxLengthTitle": "Le titre doit faire au plus {{max}} caractères",
     "mcpTokenBlurb": "Identifiants Bearer utilisés par les clients MCP externes pour lire tes données de forme.",
+    "mcpTokenConsent": "Un outil d’IA que vous connectez avec ce jeton peut lire vos données d’entraînement, de sommeil et de récupération, les blessures dont vous avez parlé à Dravr et les lieux de vos activités. L’entreprise qui l’exploite peut traiter ces renseignements à l’extérieur du Québec. En créant ce jeton, vous consentez expressément à ce que Dravr communique ces données à l’outil que vous connectez.",
     "mcpTokens": "Jetons MCP",
     "memberInvite": "Invitation de membre",
     "memberIsNowRole": "{{member}} est maintenant {{role}}.",
@@ -2922,6 +2923,7 @@
     "requestAccessDeclined": "Ta dernière demande a été refusée. Tu peux redemander.",
     "requestAccessFailed": "Impossible d'envoyer ta demande. Réessaie.",
     "reply_corrected": "{0} a corrigé la réponse de Dravr à {1} (« {2} ») :\n\n{3}",
+    "reads_served_to_assistant": "lu par un outil d’IA que ton coach connecte à Dravr",
     "planPublishedRoomPost": "{0} a publié une mise à jour de ton plan : {1}.",
     "planPublishedRoomPostMore": "+{0} de plus",
     "planPublishedRoomPostNew": "{0} a publié ton nouveau plan.",
@@ -3000,13 +3002,18 @@
       "sourceGroupReport": "Le rapport hebdomadaire du groupe",
       "sourceGroupHealth": "Les signaux de santé du groupe",
       "sourceWeeklyDigest": "Son résumé hebdomadaire du groupe",
-      "sourcePhysiologyView": "Tes seuils, dans Infos du groupe"
+      "sourcePhysiologyView": "Tes seuils, dans Infos du groupe",
+      "servedToAssistant": "Lu par un outil d’IA que ton coach connecte à Dravr. L’entreprise qui l’exploite a reçu ces données."
     },
     "shareTraining": "Partager mon entraînement avec mon coach",
     "shareTrainingHint": "Ton coach voit ton entraînement, ton plan et tes messages dans la discussion de ce groupe. Les outils d’IA que ton coach connecte à Dravr, comme Claude, peuvent aussi lire ton entraînement et ton plan. Désactiver ce partage arrête les deux. Ne s’applique qu’à ce groupe.",
     "shareTrainingPendingHint": "Pas encore de coach. Le coach qui rejoindra ce groupe verra ton entraînement, ton plan et tes messages dans sa discussion.",
     "sharingOnNotice": "Ton coach voit de nouveau ton entraînement dans ce groupe.",
     "sharingOffNotice": "Ton coach ne voit plus ton entraînement, ton plan ni tes messages dans ce groupe.",
+    "assistantNotice": {
+      "title": "Les outils d’IA de ton coach",
+      "body": "Tant que tu partages ton entraînement avec {{coach}}, les outils d’IA que {{coach}} connecte à Dravr, comme Claude, peuvent lire nominativement ton entraînement et ton plan. L’entreprise qui exploite chaque outil reçoit ce qu’il lit et peut le traiter à l’extérieur du Québec. Tu peux continuer à partager, ou arrêter : arrêter met fin à l’accès de ton coach comme à celui de ses outils."
+    },
     "seat": {
       "title": "Tu n'es pas encore le coach de ce groupe",
       "stripBody": "Pour voir l'entraînement de tes athlètes et bâtir leur plan, il te faut l'accès coach. C'est l'équipe Dravr qui l'active.",
@@ -4522,6 +4529,7 @@
     "accountHint": "Mot de passe, courriel, fermeture du compte",
     "apiKeys": "Clés d'API",
     "apiKeysHint": "Les clés que tes scripts utilisent pour appeler Dravr",
+    "apiKeysConsent": "Un outil d’IA que vous connectez avec cette clé peut lire vos données d’entraînement, de sommeil et de récupération, les blessures dont vous avez parlé à Dravr et les lieux de vos activités. L’entreprise qui l’exploite peut traiter ces renseignements à l’extérieur du Québec. En créant cette clé, vous consentez expressément à ce que Dravr communique ces données à l’outil que vous connectez.",
     "coaching": "Style de coaching",
     "coachingHint": "La façon dont ton agent te parle",
     "connections": "Sources de données",
