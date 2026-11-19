@@ -68,6 +68,10 @@ pub struct ProactiveNotice {
 /// Every message of the proactive notice that message `$3` (on channel `$2`)
 /// belongs to, within tenant `$1`, in send order, with its session's athlete
 /// and thread. No row when `$3` is not a proactive notice's.
+///
+/// The session is held to tenant `$1` as well. Its `tenant_id` is a uuid on
+/// Postgres and text on `SQLite`, while the message's is text on both, so the
+/// session's is compared as `CAST(… AS TEXT)`, which both backends read.
 pub(crate) const PROACTIVE_NOTICE_SQL: &str = r"
             SELECT n.id, n.channel_message_id, n.content_body, n.chat_message_id,
                    n.proactive_purpose, s.user_id, s.pierre_conversation_id
@@ -80,6 +84,7 @@ pub(crate) const PROACTIVE_NOTICE_SQL: &str = r"
              AND n.proactive_purpose IS NOT NULL
             JOIN messaging_sessions s ON s.id = f.session_id
             WHERE f.tenant_id = $1
+              AND CAST(s.tenant_id AS TEXT) = $1
               AND f.channel_type = $2
               AND f.channel_message_id = $3
               AND f.direction = 'outbound'

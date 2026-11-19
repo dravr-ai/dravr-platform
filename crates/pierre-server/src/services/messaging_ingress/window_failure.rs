@@ -31,22 +31,23 @@ use pierre_database::repositories::ProactiveNotice;
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
+use super::connect::resolve_user_and_tenant;
 use crate::mcp::resources::ServerContext;
 use crate::services::backfill_delivery::InAppDelivery;
 use crate::services::post_delivery::report_held;
 
 /// Meta's error for a free-form `WhatsApp` message sent more than 24 hours
 /// after the recipient last wrote: a template would be required.
-pub const WHATSAPP_REENGAGEMENT_REQUIRED: i64 = 131_047;
+pub(crate) const WHATSAPP_REENGAGEMENT_REQUIRED: i64 = 131_047;
 
 /// Why `messaging.proactive_held` reports a notice the channel took and then
 /// failed for its closed window.
-pub const HELD_WINDOW_CLOSED_ON_DELIVERY: &str = "window_closed_on_delivery";
+const HELD_WINDOW_CLOSED_ON_DELIVERY: &str = "window_closed_on_delivery";
 
 /// One message a `WhatsApp` status webhook reported failed with
 /// [`WHATSAPP_REENGAGEMENT_REQUIRED`].
 #[derive(Debug, Clone, Copy)]
-pub struct WindowFailure<'status> {
+pub(crate) struct WindowFailure<'status> {
     /// The recipient's `WhatsApp` id, a phone number: never logged.
     pub recipient_id: &'status str,
     /// The failed message's wamid.
@@ -58,14 +59,17 @@ pub struct WindowFailure<'status> {
 ///
 /// The recipient resolves through its channel link to the athlete and their
 /// own tenant, where a DM's rows are filed; a room's are filed under the bot
-/// tenant, which is looked in next. The notice is handled once, on its
-/// opening message: a closed window fails every message of a notice, and each
-/// failure arrives on its own. Its text is written into the conversation
+/// tenant, which is looked in next. The link alone decides it: the
+/// user-status and request-budget gates of `authenticate_channel` refuse a
+/// turn the athlete takes, and this is a notice the platform already owes
+/// them. The notice is handled once, on its opening message: a closed window
+/// fails every message of a notice, and each failure arrives on its own. Its
+/// text is written into the conversation
 /// unless the conversation already holds it — an agent answer the platform
 /// post stored, or a copy an earlier delivery of this webhook wrote. Logged
 /// and left alone when the recipient is no linked athlete or the message was
 /// not a proactive notice's.
-pub async fn redeliver_in_app(
+pub(crate) async fn redeliver_in_app(
     resources: &ServerContext,
     channel_tenant_id: TenantId,
     failure: WindowFailure<'_>,
@@ -103,12 +107,10 @@ async fn failed_notice(
     failure: WindowFailure<'_>,
 ) -> Option<(TenantId, ProactiveNotice)> {
     let channel = ChannelType::WhatsApp.to_string();
-    // The error names the phone number: the line says only that it failed.
-    let Ok(auth) = resources
-        .auth
-        .auth_middleware
-        .authenticate_channel(channel_tenant_id, &channel, failure.recipient_id)
-        .await
+    // The recipient is a phone number: the line names only the message.
+    let Some((user_id, user_tenant)) =
+        resolve_user_and_tenant(resources, channel_tenant_id, &channel, failure.recipient_id)
+            .await
     else {
         debug!(
             message_id = %failure.message_id,
@@ -116,12 +118,9 @@ async fn failed_notice(
         );
         return None;
     };
-    let user_tenant = auth
-        .active_tenant_id
-        .map_or(channel_tenant_id, TenantId::from_uuid);
     let Some((tenant_id, notice)) = find_notice(
         resources,
-        [user_tenant, channel_tenant_id],
+        [TenantId::from_uuid(user_tenant), channel_tenant_id],
         &channel,
         failure.message_id,
     )
@@ -133,7 +132,7 @@ async fn failed_notice(
         );
         return None;
     };
-    opened_by(notice, failure, auth.user_id).map(|notice| (tenant_id, notice))
+    opened_by(notice, failure, user_id).map(|notice| (tenant_id, notice))
 }
 
 /// `notice`, when it was sent to `recipient` and `failure` is its opening

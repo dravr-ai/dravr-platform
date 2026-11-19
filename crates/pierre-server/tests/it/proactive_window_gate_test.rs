@@ -21,31 +21,37 @@
 use std::sync::Arc;
 use std::time::Duration as StdDuration;
 
+use axum::http::StatusCode;
 use chrono::{Duration, Utc};
 use dravr_canot::channel::MessagingChannel;
 use pierre_core::models::messaging::{ChannelType, MessageContent};
+use pierre_core::models::usage::JwtUsage;
 use pierre_core::models::TenantId;
 use pierre_database::backends::factory::Database;
 use pierre_database::repositories::InsertMessageParams;
 use pierre_mcp_server::mcp::resources::ServerContext;
-use pierre_mcp_server::routes::messaging::webhooks::parse_whatsapp_delivery_statuses;
+use pierre_mcp_server::routes::messaging::MessagingRoutes;
 use pierre_mcp_server::services::backfill_notifier::ServerBackfillNotifier;
-use pierre_mcp_server::services::messaging_ingress::window_failure::{
-    redeliver_in_app, WindowFailure,
-};
+use pierre_services::admin_ops;
 use pierre_tool_runtime::runtime::{BackfillCompletion, BackfillNotifier, ReauthRetry};
-use serde_json::json;
+use serde_json::{json, Value};
 use tokio::time;
 use uuid::Uuid;
 
 use crate::check_in_post_test::backdate_session;
 use crate::common::create_test_server_resources;
+use crate::helpers::axum_test::AxumTestRequest;
+use crate::helpers::drained_turn::{
+    compute_whatsapp_sig, setup_whatsapp_config, WA_BUSINESS_ID, WA_PHONE_NUMBER_ID,
+};
 use crate::helpers::notify_capture::{capture_notify, named, only};
 use crate::messaging_fixtures::{
     cached_activity, seed_activity_cache, seed_channel_link, seed_conversation, seed_session,
     seed_user, strings, CapturingChannel, FakeResolver,
 };
 
+/// The secret Meta signs the tenant's `WhatsApp` webhooks with.
+const WEBHOOK_SECRET: &str = "window-gate-webhook-secret";
 /// The secret the notifier under test signs reconnect-link tokens with.
 const LINK_SECRET: &str = "window-gate-link-secret";
 /// The server root the notifier under test builds its links on.
@@ -122,14 +128,20 @@ impl Dm {
             .collect()
     }
 
-    /// The window failure Meta's status webhook reports for `wamid`.
+    /// Meta's status webhook reporting `wamid` failed with `code`, signed and
+    /// posted to the tenant's `WhatsApp` webhook route as Meta posts it.
     async fn fail_late(&self, wamid: &str, code: i64) {
-        let body = status_body(wamid, "failed", Some(code));
-        let statuses = parse_whatsapp_delivery_statuses(body.as_bytes());
-        let failure = statuses[0]
-            .window_failure()
-            .expect("a 131047 failure is a window failure");
-        redeliver_in_app(&self.resources, self.tenant, failure).await;
+        let payload = failed_status_payload(wamid, code);
+        let body = serde_json::to_vec(&payload).unwrap();
+        let signature = compute_whatsapp_sig(WEBHOOK_SECRET, &body);
+        let status = AxumTestRequest::post("/api/messaging/webhook/whatsapp")
+            .header("content-type", "application/json")
+            .header("x-hub-signature-256", &signature)
+            .json(&payload)
+            .send(MessagingRoutes::routes(Arc::clone(&self.resources)))
+            .await
+            .status_code();
+        assert_eq!(status, StatusCode::OK, "webhooks always ack");
     }
 
     /// Record an outbound ledger row on the DM's session, as a send does.
@@ -170,6 +182,7 @@ async fn whatsapp_dm(last_wrote: Duration) -> Dm {
     let conversation = seed_conversation(db, &owner, tenant).await;
     let session = seed_session(db, &owner, tenant, "whatsapp", PHONE, None, &conversation).await;
     seed_channel_link(db, &owner, tenant, "whatsapp", PHONE).await;
+    setup_whatsapp_config(&*resources.common.repos.messaging, tenant, WEBHOOK_SECRET).await;
     backdate_session(db, &session, Utc::now() - last_wrote).await;
     Dm {
         resources,
@@ -187,13 +200,32 @@ fn whatsapp(wamids: &[&str]) -> Arc<CapturingChannel> {
     channel
 }
 
-/// A Meta status webhook body reporting `status` (and `code`) for `wamid`.
-fn status_body(wamid: &str, status: &str, code: Option<i64>) -> String {
-    let mut entry = json!({ "id": wamid, "status": status, "recipient_id": PHONE });
-    if let Some(code) = code {
-        entry["errors"] = json!([{ "code": code, "title": "Re-engagement message" }]);
-    }
-    json!({ "entry": [{ "changes": [{ "value": { "statuses": [entry] } }] }] }).to_string()
+/// A Meta status webhook, in the shape Meta posts it, reporting `wamid` to the
+/// athlete failed with error `code`.
+fn failed_status_payload(wamid: &str, code: i64) -> Value {
+    json!({
+        "object": "whatsapp_business_account",
+        "entry": [{
+            "id": WA_BUSINESS_ID,
+            "changes": [{
+                "value": {
+                    "messaging_product": "whatsapp",
+                    "metadata": {
+                        "display_phone_number": "+15550000003",
+                        "phone_number_id": WA_PHONE_NUMBER_ID
+                    },
+                    "statuses": [{
+                        "id": wamid,
+                        "status": "failed",
+                        "timestamp": "1782850000",
+                        "recipient_id": PHONE,
+                        "errors": [{ "code": code, "title": "Re-engagement message" }]
+                    }]
+                },
+                "field": "messages"
+            }]
+        }]
+    })
 }
 
 fn text_of(channel: &CapturingChannel) -> Vec<String> {
@@ -485,6 +517,52 @@ async fn a_late_131047_writes_the_notice_in_the_app_once_and_holds_it() {
 }
 
 #[tokio::test]
+async fn a_late_131047_reaches_the_app_of_an_athlete_past_their_request_budget() {
+    let dm = whatsapp_dm(Duration::hours(2)).await;
+    dm.warm_cache().await;
+    let channel = whatsapp(&["wamid.budget-1"]);
+    dm.notifier(&channel)
+        .push_backfill_complete(dm.completion())
+        .await;
+    let sent = text_of(&channel);
+    assert_eq!(
+        sent.len(),
+        1,
+        "inside the window the notice went to the chat"
+    );
+    // The athlete's month is spent: an override of one, and one turn counted.
+    let repos = &dm.resources.common.repos;
+    admin_ops::set_user_rate_limit_override(repos, dm.user, Some(1), None, None)
+        .await
+        .unwrap();
+    repos
+        .usage
+        .record_jwt_usage(&JwtUsage {
+            id: None,
+            user_id: dm.user,
+            timestamp: Utc::now(),
+            endpoint: "messaging:whatsapp".to_owned(),
+            method: "AUTH".to_owned(),
+            status_code: 200,
+            response_time_ms: None,
+            request_size_bytes: None,
+            response_size_bytes: None,
+            ip_address: None,
+            user_agent: None,
+        })
+        .await
+        .unwrap();
+
+    dm.fail_late("wamid.budget-1", 131_047).await;
+
+    assert_eq!(
+        dm.assistant_turns().await,
+        sent,
+        "a spent request budget refuses the athlete's turns, never a notice owed to them"
+    );
+}
+
+#[tokio::test]
 async fn a_late_131047_on_a_split_notice_writes_it_whole_on_its_opening_message() {
     let dm = whatsapp_dm(Duration::hours(2)).await;
     let turn = Uuid::new_v4().to_string();
@@ -537,42 +615,5 @@ async fn a_late_131047_on_a_reply_is_left_as_logged() {
     assert!(
         named(&events, HELD).is_empty(),
         "nothing is held for a reply"
-    );
-}
-
-#[test]
-fn only_a_failed_131047_is_a_window_failure() {
-    let parse = |status: &str, code: Option<i64>| {
-        parse_whatsapp_delivery_statuses(status_body("wamid.x", status, code).as_bytes())
-    };
-    let window: Vec<_> = parse("failed", Some(131_047))
-        .iter()
-        .filter_map(|s| {
-            s.window_failure().map(
-                |WindowFailure {
-                     recipient_id,
-                     message_id,
-                 }| { (recipient_id.to_owned(), message_id.to_owned()) },
-            )
-        })
-        .collect();
-    assert_eq!(
-        window,
-        vec![(PHONE.to_owned(), "wamid.x".to_owned())],
-        "a failed 131047 names its recipient and message"
-    );
-
-    // Another failure (here: the number is not on WhatsApp) stays a warning.
-    assert!(
-        parse("failed", Some(131_026))[0].window_failure().is_none(),
-        "another error code is no window failure"
-    );
-    assert!(
-        parse("failed", None)[0].window_failure().is_none(),
-        "a failure with no code is no window failure"
-    );
-    assert!(
-        parse("delivered", None)[0].window_failure().is_none(),
-        "a delivered message is no failure"
     );
 }

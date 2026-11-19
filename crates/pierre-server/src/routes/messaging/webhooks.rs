@@ -355,7 +355,7 @@ impl WhatsappDeliveryStatus {
     /// ([`WHATSAPP_REENGAGEMENT_REQUIRED`]); `None` for any other status or
     /// error.
     #[must_use]
-    pub fn window_failure(&self) -> Option<WindowFailure<'_>> {
+    pub(crate) fn window_failure(&self) -> Option<WindowFailure<'_>> {
         (self.status == "failed" && self.error_code == Some(WHATSAPP_REENGAGEMENT_REQUIRED)).then(
             || WindowFailure {
                 recipient_id: &self.recipient_id,
@@ -640,4 +640,54 @@ fn enrich_slack_bot_allow_list(
         map.insert("allowed_bot_ids".to_owned(), json!(ids));
     }
     Some(cloned)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The athlete's `WhatsApp` id the status bodies below name.
+    const PHONE: &str = "15145550172";
+
+    /// The statuses a Meta webhook reporting `status` (and `code`) for one
+    /// message parses to.
+    fn statuses(status: &str, code: Option<i64>) -> Vec<WhatsappDeliveryStatus> {
+        let mut entry = json!({ "id": "wamid.x", "status": status, "recipient_id": PHONE });
+        if let Some(code) = code {
+            entry["errors"] = json!([{ "code": code, "title": "Re-engagement message" }]);
+        }
+        let body = json!({ "entry": [{ "changes": [{ "value": { "statuses": [entry] } }] }] });
+        parse_whatsapp_delivery_statuses(body.to_string().as_bytes())
+    }
+
+    #[test]
+    fn only_a_failed_131047_is_a_window_failure() {
+        let failed = statuses("failed", Some(131_047));
+        let window: Vec<(&str, &str)> = failed
+            .iter()
+            .filter_map(WhatsappDeliveryStatus::window_failure)
+            .map(|failure| (failure.recipient_id, failure.message_id))
+            .collect();
+        assert_eq!(
+            window,
+            vec![(PHONE, "wamid.x")],
+            "a failed 131047 names its recipient and message"
+        );
+
+        // Another failure (here: the number is not on WhatsApp) stays a warning.
+        assert!(
+            statuses("failed", Some(131_026))[0]
+                .window_failure()
+                .is_none(),
+            "another error code is no window failure"
+        );
+        assert!(
+            statuses("failed", None)[0].window_failure().is_none(),
+            "a failure with no code is no window failure"
+        );
+        assert!(
+            statuses("delivered", None)[0].window_failure().is_none(),
+            "a delivered message is no failure"
+        );
+    }
 }

@@ -47,7 +47,7 @@ pub mod reactions;
 /// The durable record every turn runs from, the runner hand-off and the sweeper.
 pub mod resume;
 /// A proactive notice `WhatsApp` failed for its closed window, re-delivered in the app.
-pub mod window_failure;
+pub(crate) mod window_failure;
 /// The messaging background workers started once per process.
 pub mod workers;
 pub use dispatch::turn_watchdog;
