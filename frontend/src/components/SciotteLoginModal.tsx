@@ -132,6 +132,11 @@ export default function SciotteLoginModal({
   const [method, setMethod] = useState<LoginMethod>('email');
   const [status, setStatus] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // The failure on screen can hand over to the card's OAuth: a sign-in that
+  // could not complete (carnet#1477), a reconnect's included (carnet#1667).
+  // The athlete's click starts it, so the new tab it opens is never a popup
+  // the browser blocks.
+  const [oauthOffered, setOAuthOffered] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -174,6 +179,7 @@ export default function SciotteLoginModal({
     if (isOpen) {
       // Garmin and TrainingPeaks sign in with their own credentials — skip the choose phase
       setPhase(SCIOTTE_LOGIN_PRESETS[target].directCredentials ? 'credentials' : 'choose');
+      setOAuthOffered(false);
       setMethod('email');
       setConsentAccepted(false);
       setStatus('');
@@ -292,17 +298,21 @@ export default function SciotteLoginModal({
     }
   }, [applyLoginAnswer, beginRequest, consentAccepted, refusalMessage, target]);
 
-  // A refused credential login — or the same refusal a takeover ends with.
-  const applyLoginRefusal = useCallback(
-    (err: unknown) => {
-      if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-        onFallBackToOAuth();
-        return;
-      }
-      setError(refusalMessage(err, 'auth.loginFailed'));
+  // Show `message` as the failure, offering the card's OAuth when `err` is a
+  // refusal it falls back on.
+  const showFailure = useCallback(
+    (err: unknown, message: string) => {
+      setOAuthOffered(onFallBackToOAuth !== undefined && signInFallsBackToOAuth(refusalReason(err)));
+      setError(message);
       setPhase('error');
     },
-    [onFallBackToOAuth, refusalMessage]
+    [onFallBackToOAuth]
+  );
+
+  // A refused credential login — or the same refusal a takeover ends with.
+  const applyLoginRefusal = useCallback(
+    (err: unknown) => showFailure(err, refusalMessage(err, 'auth.loginFailed')),
+    [refusalMessage, showFailure]
   );
 
   // Email/password login — in-process headless Chrome
@@ -421,17 +431,12 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
-        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-          onFallBackToOAuth();
-          return;
-        }
-        setError(continuationError(err));
-        setPhase('error');
+        showFailure(err, continuationError(err));
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]
+    [beginRequest, attemptId, continuationError, onClose, onConnected, showFailure, t]
   );
 
   // Auto-poll once when number-match phase is reached — the phone notification
@@ -513,17 +518,12 @@ export default function SciotteLoginModal({
         }
       } catch (err) {
         if (signal.aborted) return;
-        if (onFallBackToOAuth && signInFallsBackToOAuth(refusalReason(err))) {
-          onFallBackToOAuth();
-          return;
-        }
-        setError(continuationError(err));
-        setPhase('error');
+        showFailure(err, continuationError(err));
       } finally {
         if (!signal.aborted) setIsLoading(false);
       }
     },
-    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, onFallBackToOAuth, t]
+    [otpCode, beginRequest, attemptId, continuationError, onClose, onConnected, showFailure, t]
   );
 
 
@@ -931,12 +931,19 @@ export default function SciotteLoginModal({
                 </div>
                 <p className="text-error text-lg font-medium mb-2">{t('shell.sciotteLoginFailed')}</p>
                 <p className="text-on-surface/50 text-sm max-w-sm mb-4">{error}</p>
-                <Button
-                  variant="secondary"
-                  onClick={() => { setPhase(preset.directCredentials ? 'credentials' : 'choose'); setError(null); }}
-                >
-                  {t('chat.tryAgain')}
-                </Button>
+                <div className="flex flex-col items-center gap-2">
+                  {oauthOffered && onFallBackToOAuth && (
+                    <Button variant="primary" onClick={onFallBackToOAuth} data-testid="sciotte-oauth-fallback">
+                      {t('app.continueWithProvider', { provider: providerLabel })}
+                    </Button>
+                  )}
+                  <Button
+                    variant="secondary"
+                    onClick={() => { setPhase(preset.directCredentials ? 'credentials' : 'choose'); setError(null); setOAuthOffered(false); }}
+                  >
+                    {t('chat.tryAgain')}
+                  </Button>
+                </div>
               </div>
             </div>
           )}

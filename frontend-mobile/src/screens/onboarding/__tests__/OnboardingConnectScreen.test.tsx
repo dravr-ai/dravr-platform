@@ -569,7 +569,7 @@ describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
 
     fireEvent.press(screen.getByText('own-app-save'));
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }),
     );
   });
 
@@ -580,7 +580,7 @@ describe('OnboardingConnectScreen — an app of the athlete\'s own', () => {
     fireEvent.press(await screen.findByLabelText('Connect WHOOP'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('whoop', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }),
     );
     expect(screen.queryByText(/own-app-setup/)).toBeNull();
   });
@@ -617,7 +617,7 @@ describe('OnboardingConnectScreen — Intervals.icu', () => {
     fireEvent.press(screen.getByTestId('intervals-sheet'));
 
     await waitFor(() =>
-      expect(initMobileOAuth).toHaveBeenCalledWith('intervals_icu', 'dravr://oauth-callback', { tosConsent: false }),
+      expect(initMobileOAuth).toHaveBeenCalledWith('intervals_icu', 'dravr://oauth-callback', { tosConsent: false, signInBlocked: false }),
     );
   });
 

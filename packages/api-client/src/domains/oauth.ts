@@ -138,6 +138,21 @@ export interface OAuthStartOptions {
    * start whose notice is outstanding without it.
    */
   tosConsent?: boolean;
+  /**
+   * The athlete's sign-in for the provider could not complete (a provider
+   * challenge, or the sign-in service down), so this start is its fallback.
+   * The server then authorizes even a dead grant instead of sending the
+   * athlete back into that sign-in (carnet#1667).
+   */
+  signInBlocked?: boolean;
+}
+
+/** The query string an OAuth start carries for `options`, with its `?`, or empty. */
+function oauthStartQuery(options: OAuthStartOptions, params = new URLSearchParams()): string {
+  if (options.tosConsent) params.set('tos_consent', 'true');
+  if (options.signInBlocked) params.set('sign_in_blocked', 'true');
+  const query = params.toString();
+  return query ? `?${query}` : '';
 }
 
 /**
@@ -170,8 +185,7 @@ export function createOAuthApi(axios: AxiosInstance) {
      */
     authorizeUrl(provider: string, options: OAuthStartOptions = {}): string {
       const base = (axios.defaults.baseURL ?? '').replace(/\/$/, '');
-      const consent = options.tosConsent ? '?tos_consent=true' : '';
-      return `${base}${ENDPOINTS.OAUTH.AUTHORIZE(provider)}${consent}`;
+      return `${base}${ENDPOINTS.OAUTH.AUTHORIZE(provider)}${oauthStartQuery(options)}`;
     },
 
     /**
@@ -187,14 +201,7 @@ export function createOAuthApi(axios: AxiosInstance) {
       if (redirectUri) {
         params.set('redirect_uri', redirectUri);
       }
-      if (options.tosConsent) {
-        params.set('tos_consent', 'true');
-      }
-
-      const queryString = params.toString();
-      const url = queryString
-        ? `${ENDPOINTS.OAUTH.MOBILE_INIT(provider)}?${queryString}`
-        : ENDPOINTS.OAUTH.MOBILE_INIT(provider);
+      const url = `${ENDPOINTS.OAUTH.MOBILE_INIT(provider)}${oauthStartQuery(options, params)}`;
 
       const response = await axios.get<MobileOAuthInitResponse>(url);
       return response.data;

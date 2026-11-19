@@ -216,6 +216,42 @@ async fn an_oauth_start_of_a_dead_grant_answers_with_the_hosted_sign_in() {
     );
 }
 
+/// A start that falls back from a sign-in that could not complete
+/// (`sign_in_blocked`) authorizes a dead grant on the web launch route and the
+/// mobile init, instead of sending the athlete back into that sign-in
+/// (carnet#1667).
+#[tokio::test]
+async fn an_oauth_start_after_a_blocked_sign_in_authorizes_a_dead_grant() {
+    let (scraper, _calls) = spawn_switchable_scraper(ScraperSwitch::default()).await;
+    let resources = server_with_garmin_oauth(&scraper).await;
+    let (user_id, _user, tenant, token) = athlete(&resources).await;
+    hold_grant(&resources, user_id, tenant).await;
+    kill_grant(&resources, user_id, tenant).await;
+
+    let resp = AxumTestRequest::get("/api/oauth/mobile/init/garmin?sign_in_blocked=true")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 200, "{}", resp.text());
+    let started: Value = serde_json::from_str(&resp.text()).unwrap();
+    let url = started["authorization_url"].as_str().unwrap_or_default();
+    assert!(
+        url.contains("client_id=") && !url.contains(HOSTED_SIGNIN_PATH),
+        "bug: the mobile fallback from a blocked sign-in was sent back to it: {started}"
+    );
+
+    let resp = AxumTestRequest::get("/api/oauth/authorize/garmin?sign_in_blocked=true")
+        .header("authorization", &format!("Bearer {token}"))
+        .send(AuthRoutes::routes(resources.auth_routes_context()))
+        .await;
+    assert_eq!(resp.status(), 302, "{}", resp.text());
+    let location = resp.header("location").expect("a redirect");
+    assert!(
+        location.contains("client_id=") && !location.contains(HOSTED_SIGNIN_PATH),
+        "bug: the web fallback from a blocked sign-in was sent back to it: {location}"
+    );
+}
+
 /// A sign-in over a dead grant deletes the grant's token and connection rows
 /// and keeps every activity it stored (directive 3); the new session serves.
 /// A live grant beside a sign-in is kept, as the session's fallback.

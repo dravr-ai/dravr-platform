@@ -1182,7 +1182,7 @@ describe('UserSettings Component', () => {
       expect(assign).not.toHaveBeenCalled();
     });
 
-    it('starts the Strava OAuth when a sign-in-first Strava card\'s sign-in cannot complete (carnet#1477)', async () => {
+    it('opens the Strava OAuth in a new tab when a sign-in-first Strava card\'s sign-in cannot complete (carnet#1477, carnet#1667)', async () => {
       getProvidersStatus.mockResolvedValue({
         providers: [
           { ...card('sciotte', 'Strava'), requires_oauth: false, recommended_backend: 'mirror', seats_left: 3 },
@@ -1197,8 +1197,39 @@ describe('UserSettings Component', () => {
       expect(assign).not.toHaveBeenCalled();
       await user.click(screen.getByTestId('sign-in-unavailable'));
 
-      expect(assign).toHaveBeenCalledWith('/api/oauth/authorize/strava');
+      // A new tab, so Settings stays; the start says the sign-in was blocked,
+      // so the server never turns it back into that sign-in.
+      expect(authorizeUrl).toHaveBeenCalledWith('strava', { signInBlocked: true });
+      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/strava', '_blank');
+      expect(assign).not.toHaveBeenCalled();
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
+    });
+
+    it('offers the Garmin OAuth when the reconnect sign-in of a dead Garmin card cannot complete (carnet#1667)', async () => {
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          {
+            ...card('sciotte_garmin', 'Garmin'),
+            requires_oauth: false,
+            connected: true,
+            connected_backend: 'sciotte_garmin',
+            needs_reauth: true,
+            recommended_backend: 'mirror',
+            seats_left: 900,
+          },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      await openProviders();
+      const user = userEvent.setup();
+
+      await user.click(screen.getByTestId('provider-connect-sciotte_garmin'));
+      expect(await screen.findByTestId('sciotte-modal')).toHaveTextContent('garmin');
+      await user.click(screen.getByTestId('sign-in-unavailable'));
+
+      expect(authorizeUrl).toHaveBeenCalledWith('garmin', { signInBlocked: true });
+      expect(window.open).toHaveBeenCalledWith('/api/oauth/authorize/garmin', '_blank');
+      expect(assign).not.toHaveBeenCalled();
     });
 
     it('offers no OAuth fallback from a Strava sign-in with the pool full', async () => {
@@ -1257,6 +1288,29 @@ describe('UserSettings Component', () => {
       expect(screen.queryByTestId('sciotte-modal')).not.toBeInTheDocument();
       // Settings remounts on every section change: a grant left in place was
       // announced again on each one for five minutes.
+      expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
+    });
+
+    it('announces a grant another tab leaves while Settings is open, read from the reloaded cards (carnet#1667)', async () => {
+      await openProviders();
+      expect(getProvidersStatus).toHaveBeenCalledTimes(1);
+      // The fallback's authorization ran in a new tab, whose return wrote the
+      // result: this tab hears it through the storage event.
+      getProvidersStatus.mockResolvedValue({
+        providers: [
+          { ...card('sciotte_garmin', 'Garmin'), connected: true, connected_backend: 'garmin' },
+          card('whoop', 'WHOOP'),
+        ],
+      });
+      leaveResult('garmin', { success: true, hasError: false });
+      act(() => {
+        window.dispatchEvent(
+          new StorageEvent('storage', { key: OAUTH_RESULT_KEY, newValue: localStorage.getItem(OAUTH_RESULT_KEY) }),
+        );
+      });
+
+      expect(await screen.findByText('Garmin connected successfully!')).toBeInTheDocument();
+      expect(getProvidersStatus).toHaveBeenCalledTimes(2);
       expect(localStorage.getItem(OAUTH_RESULT_KEY)).toBeNull();
     });
 

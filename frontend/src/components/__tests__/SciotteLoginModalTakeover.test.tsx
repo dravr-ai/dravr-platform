@@ -141,13 +141,14 @@ describe('SciotteLoginModal — the takeover of a provider robot check', () => {
     expect(retried).not.toBe(attemptId);
   });
 
-  it('hands a refusal the card falls back on to its OAuth, as the login does', async () => {
+  it('offers the OAuth on a refusal the card falls back on, as the login does', async () => {
     const onFallBackToOAuth = vi.fn();
-    const { socket } = await intoTakeover({ onFallBackToOAuth });
+    const { socket, user } = await intoTakeover({ onFallBackToOAuth });
     act(() =>
       socket.event({ type: 'outcome', status_code: 503, body: { code: 'x', details: { reason: 'sign_in_unavailable' } } }),
     );
-    await waitFor(() => expect(onFallBackToOAuth).toHaveBeenCalledTimes(1));
+    await user.click(await screen.findByTestId('sciotte-oauth-fallback'));
+    expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
   });
 
   it('closing mid-takeover cancels the attempt and closes the socket, with no fallback to offer', async () => {

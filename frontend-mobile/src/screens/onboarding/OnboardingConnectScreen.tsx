@@ -228,7 +228,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   // the platform (currently only WHOOP once the user has registered a BYO
   // app). Sciotte providers handle their own credential flow via the modal.
   const launchOAuth = useCallback(
-    async (providerId: string, providerName: string, tosConsent = false) => {
+    async (providerId: string, providerName: string, tosConsent = false, signInBlocked = false) => {
       // The row the authorization belongs to: `garmin` and `strava` land on
       // the card of their sign-in backend, whose row shows the spinner.
       const cardKey = cardForSlug(providerId, providers)?.provider ?? providerId;
@@ -237,7 +237,7 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
         setConnectError(null);
         setAwaitingOAuthFor(providerName);
         const returnUrl = getOAuthCallbackUrl();
-        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent });
+        const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent, signInBlocked });
         const result = await WebBrowser.openAuthSessionAsync(
           oauthResponse.authorization_url,
           returnUrl,
@@ -342,7 +342,9 @@ export function OnboardingConnectScreen({ mode = 'connect' }: { mode?: 'connect'
   const fallBackToOAuth = (provider: SciotteTarget) => () => {
     const card = cardForSlug(provider, providers);
     signIn.close();
-    void launchOAuth(provider, card?.display_name ?? provider);
+    // The sign-in could not complete: the server must not turn this start
+    // back into that sign-in (carnet#1667).
+    void launchOAuth(provider, card?.display_name ?? provider, false, true);
   };
 
   /** The connect `handleConnect` resumes once any OAuth notice is accepted. */

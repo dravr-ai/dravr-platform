@@ -455,7 +455,8 @@ export function ChatThread({
   const fallBackToOAuth = useCallback(
     (provider: SciotteTarget) => () => {
       closeSignIn();
-      void providerStatus.handleConnectProvider(provider);
+      // The sign-in could not complete: never turned back into it (carnet#1667).
+      void providerStatus.handleConnectProvider(provider, undefined, false, true);
     },
     [closeSignIn, providerStatus],
   );
