@@ -12,7 +12,8 @@
 //! page changes it. Telegram's equivalent is read-only to us (its menu button
 //! is a private-chat surface with no API to aim at a group, and in a direct
 //! message it already opens the command list), Slack's is the workspace's
-//! slash-command registry, and `WhatsApp` has none at all.
+//! slash-command registry, and `WhatsApp`'s is a `/` list shown only while
+//! the user types a command.
 //!
 //! The menu is built from the same `commands/*.md` catalogue the `/` menu and
 //! `/help` are built from, so there is one vocabulary and no second list to
