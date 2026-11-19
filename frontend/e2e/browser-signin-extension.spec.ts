@@ -227,7 +227,17 @@ test.describe('Sign in to Garmin through the Dravr extension (carnet#1617)', () 
 
     await login.getByRole('button', { name: 'Continue with Garmin' }).click();
     const notice = await tabAt(context, /notice\.html$/);
-    await notice.getByRole('button', { name: 'Not now' }).click();
+    // "Not now" closes its own page, which can end before Playwright's click
+    // settles: the page closing is the click's expected effect, anything else
+    // fails the test.
+    const closed = notice.waitForEvent('close');
+    await notice
+      .getByRole('button', { name: 'Not now' })
+      .click()
+      .catch((error: unknown) => {
+        if (!notice.isClosed()) throw error;
+      });
+    await closed;
 
     await expect(login.getByLabel(/email/i)).toBeVisible({ timeout: 10000 });
     expect(handedOver).toBeUndefined();
