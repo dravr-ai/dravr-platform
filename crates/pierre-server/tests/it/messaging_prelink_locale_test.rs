@@ -1,5 +1,5 @@
 // ABOUTME: A sender with no account is asked in the language their channel suggests, from first prompt to last
-// ABOUTME: Drives real WhatsApp webhooks and reads the bot's captured replies and the language each flow stores
+// ABOUTME: Drives real WhatsApp and Telegram webhooks, reads the bot's captured replies and each flow's stored language
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -160,7 +160,12 @@ mod prelink_locale {
                 .json(&request.body_value)
                 .send(self.router.clone())
                 .await;
-            assert_eq!(resp.status_code(), StatusCode::OK, "{}", request.path);
+            assert_eq!(
+                resp.status_code(),
+                StatusCode::OK,
+                "bug: the webhook at {} refused a signed delivery",
+                request.path
+            );
             for _ in 0..200 {
                 if let Some(reply) = self.adapters.sends().get(before) {
                     return match &reply.content {
@@ -272,17 +277,18 @@ mod prelink_locale {
         assert_ne!(
             bot.says(KEY_LINK_EMAIL_PROMPT, "en"),
             bot.says(KEY_LINK_EMAIL_PROMPT, DEFAULT_LOCALE),
-            "the catalogue words the prompt the same in English and French, so this proves nothing"
+            "bug: the catalogue words the prompt the same in English and French, so this test proves nothing"
         );
 
-        for (msg_id, (sender, locale)) in (1..).zip([
+        let numbered_senders = (1..).zip([
             (MONTREAL, "fr"),
             (NEW_YORK, "en"),
             (MADRID, "es"),
             (BERLIN, "de"),
             (LISBON, "pt"),
             (AMSTERDAM, DEFAULT_LOCALE),
-        ]) {
+        ]);
+        for (msg_id, (sender, locale)) in numbered_senders {
             let asked = bot.whatsapp(sender, "Hello", msg_id).await;
 
             assert_eq!(

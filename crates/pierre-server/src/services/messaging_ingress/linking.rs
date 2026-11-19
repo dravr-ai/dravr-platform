@@ -432,8 +432,9 @@ pub(super) async fn handle_linking_command(
 
 /// Answer a sender who holds a pairing code: a yes spends the code and links
 /// them to the account it names; anything else asks again. `cancel` is handled
-/// before this, by handing the code back unspent. Every reply is in the
-/// language the hold recorded, `step.locale`.
+/// before this, by handing the code back unspent. The question and any
+/// refusal are in the language the hold recorded, `step.locale`; the reply
+/// to a link that lands is in the linked account's own ([`link_time_reply`]).
 pub(super) async fn confirm_held_link(
     step: &OtpFlowStep<'_>,
     held: &serde_json::Value,

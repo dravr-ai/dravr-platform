@@ -56,8 +56,8 @@ pub(super) struct OtpFlowStep<'a> {
 }
 
 /// The language a sender who has not linked an account reads, from what the
-/// channel tells us about them in `message`; [`DEFAULT_LOCALE`] only when it
-/// tells us nothing (carnet#1669).
+/// channel tells us about them in `message`; [`DEFAULT_LOCALE`] when it names
+/// no language the platform speaks (carnet#1669).
 ///
 /// A `WhatsApp` sender id is their phone number, whose country calling code
 /// names a language. A Telegram update names the language of the sender's
@@ -89,7 +89,7 @@ fn telegram_sender_language(update: &Value) -> Option<&str> {
 /// The language a sender's live linking flow speaks: the one its link state
 /// was opened with, so the flow never switches language mid-way, else
 /// `prelink`, what the channel suggests now, for a state that holds none.
-pub(super) fn flow_locale<'a>(state: &'a Value, prelink: &'a str) -> &'a str {
+fn flow_locale<'a>(state: &'a Value, prelink: &'a str) -> &'a str {
     state["locale"].as_str().unwrap_or(prelink)
 }
 
@@ -167,7 +167,7 @@ async fn logout_locale(
     prelink: &str,
 ) -> String {
     let messaging: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
-    let linked_user = messaging
+    let linked_user: Option<Uuid> = messaging
         .get_channel_link(tenant_id, channel, sender_id)
         .await
         .ok()
