@@ -37,7 +37,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_LINK_SIGNUP_OFFER, KEY_LINK_TOO_MANY_ATTEMPTS, KEY_LINK_VERIFICATION_ERROR,
 };
 use pierre_core::errors::AppError;
-use pierre_middleware::redaction::mask_email_for_display;
+use pierre_middleware::redaction::{mask_email_for_display, mask_recipient};
 use pierre_services::locale::resolve_channel_locale;
 use pierre_services::messaging_broadcast::proactive_text;
 
@@ -143,7 +143,7 @@ pub(super) async fn handle_logout(
 
     info!(
         channel = %channel,
-        sender_id = %sender_id,
+        sender_id = %mask_recipient(sender_id),
         "User logged out from messaging channel"
     );
 
@@ -540,7 +540,7 @@ async fn handle_email_step(params: &OtpFlowStep<'_>, text: &str) -> OutgoingMess
     info!(
         channel = %channel,
         tenant_id = %tenant_id,
-        sender_id = %sender_id,
+        sender_id = %mask_recipient(sender_id),
         email_masked = %masked,
         "OTP code sent for channel linking"
     );
@@ -762,7 +762,7 @@ async fn handle_otp_verification_step(params: &OtpFlowStep<'_>, text: &str) -> O
     info!(
         channel = %params.channel,
         user_id = %user.id,
-        sender_id = %params.sender_id,
+        sender_id = %mask_recipient(params.sender_id),
         "Account linked via in-chat OTP verification"
     );
 

@@ -20,6 +20,7 @@ use pierre_contremaitre::messaging_strings::{
     KEY_NEW_CONVERSATION_TITLE_PREFIX,
 };
 use pierre_core::errors::AppError;
+use pierre_middleware::redaction::mask_recipient;
 use pierre_services::agent_selection::{record_agent_selection, AgentSelectionSource};
 use pierre_services::conversation_forge::{
     agent_title, dated_title, forge_conversation, resolve_conversation_model, selected_agent_id,
@@ -700,7 +701,7 @@ async fn open_new_session(
         session_id = %session_id,
         conversation_id = %conversation_id,
         channel_type = %channel_type,
-        sender_id = %sender_id,
+        sender_id = %mask_recipient(sender_id),
         user_id = %user_id,
         group_id = ?group_id_opt,
         "Created messaging session for linked user"

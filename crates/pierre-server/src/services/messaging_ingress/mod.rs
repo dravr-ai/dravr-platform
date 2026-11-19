@@ -114,6 +114,7 @@ use serde_json::Value;
 
 use crate::mcp::resources::ServerContext;
 use pierre_chat_pipeline::SurfaceProfile;
+use pierre_middleware::redaction::mask_recipient;
 use pierre_services::analytics::hash_id;
 
 /// Outcome of persisting a single inbound message
@@ -531,7 +532,7 @@ async fn handle_pre_session_commands(
     let mut reply = if let LinkingAction::LinkCode(code) =
         detect_linking_code(channel_type, &message.content, &message.metadata)
     {
-        info!(channel = %channel, sender_id = %message.sender_id, "Processing channel linking command");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Processing channel linking command");
         emit_messaging_intent(pre_link_identity, tenant_id, channel, "link_code");
         handle_linking_command(resources, tenant_id, channel, message, &code).await
     } else {
@@ -977,7 +978,7 @@ async fn handle_ambient_group_message(
             // so this is a transcript gap rather than a dropped answer.
             warn!(
                 error = %e,
-                sender_id = %message.sender_id,
+                sender_id = %mask_recipient(&message.sender_id),
                 channel = %channel,
                 "ambient group message: session resolution failed; transcript row lost"
             );
@@ -1053,7 +1054,7 @@ async fn send_unlinked_user_prompt(
     emit_unlinked_prompted(tenant_id, channel, prompt_type);
 
     let mut prompt = if resources.common.email_service.is_some() {
-        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, starting OTP flow");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Unlinked user, starting OTP flow");
         start_otp_flow(
             resources,
             db,
@@ -1065,7 +1066,7 @@ async fn send_unlinked_user_prompt(
         )
         .await
     } else {
-        info!(channel = %channel, sender_id = %message.sender_id, "Unlinked user, sending link URL (no email service)");
+        info!(channel = %channel, sender_id = %mask_recipient(&message.sender_id), "Unlinked user, sending link URL (no email service)");
         create_link_and_prompt(
             resources,
             db,
@@ -1177,7 +1178,7 @@ async fn resolve_or_prompt(
             // Slack notifier so operators see the outage within seconds.
             error!(
                 error = %e,
-                sender_id = %message.sender_id,
+                sender_id = %mask_recipient(&message.sender_id),
                 channel = %channel_type,
                 "Failed to resolve messaging session, dropping message"
             );
