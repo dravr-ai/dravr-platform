@@ -24,6 +24,8 @@ pub mod activity_conversations;
 pub mod activity_route_tracks;
 /// `ActivityStreamRepository`: the one per-activity sample store (pushed, uploaded or imported samples).
 pub mod activity_streams;
+/// Walk steps' writes to the activity store, recorded before they land, until settled.
+pub mod activity_write_intents;
 /// Repository traits for admin tokens and admin overrides.
 pub mod admin;
 /// The admin audit trail: one row per operator write (carnet#1391).
@@ -306,6 +308,7 @@ pub use activity_cache::*;
 pub use activity_conversations::*;
 pub use activity_route_tracks::*;
 pub use activity_streams::*;
+pub use activity_write_intents::{ActivityWriteIntent, ActivityWriteIntentRepository};
 pub use admin::*;
 pub use admin_audit::{
     AdminAuditRepository, AuditEventFilter, AuditEventRecord, AuditOutcome, AuditSource,

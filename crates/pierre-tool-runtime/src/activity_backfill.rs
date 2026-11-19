@@ -52,13 +52,16 @@ use pierre_database::repositories::{
 };
 use pierre_providers::core::{ActivityQueryParams, FitnessProvider};
 use pierre_providers::request_budget::in_background;
+use pierre_services::live_activities::LiveIngest;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::{info, instrument, warn};
 use uuid::Uuid;
 
-use crate::activity_fetch::write_through::{write_through_activity_cache, WriteThrough};
+use crate::activity_fetch::write_through::{
+    write_through_activity_cache, write_through_at, HeadSyncStamp, WriteThrough,
+};
 use crate::activity_fetch::{read_cached_window, serve_historical_window};
 use crate::protocol::types::auth_required_provider;
 use crate::protocol::UniversalExecutor;
@@ -87,6 +90,7 @@ use in_flight::{
     claim, claim_in_flight, in_flight_key, mark_in_flight, release_in_flight, Claim, InFlight,
     InFlightClaim,
 };
+pub(crate) use owed_write::settle_write_intents;
 pub use reauth::backfill_session_expired;
 use reauth::notify_backfill_reauth;
 
@@ -1113,7 +1117,7 @@ async fn persist_backfill_activities(
     activities: &[Activity],
     write: WriteThrough<'_>,
 ) -> Option<Persisted> {
-    let Some(ingest) = write_through_activity_cache(
+    let ingest = write_through_activity_cache(
         &executor.auth_service,
         job.user_id,
         job.tenant_id,
@@ -1121,8 +1125,40 @@ async fn persist_backfill_activities(
         activities,
         write,
     )
-    .await
-    else {
+    .await;
+    persisted_of(job, activities, ingest)
+}
+
+/// [`persist_backfill_activities`] at a `stamp` decided beforehand
+/// ([`write_through_stamp`](crate::activity_fetch::write_through::write_through_stamp)).
+async fn persist_backfill_activities_at(
+    job: &ActivityBackfillJob,
+    executor: &UniversalExecutor,
+    activities: &[Activity],
+    write: WriteThrough<'_>,
+    stamp: HeadSyncStamp,
+) -> Option<Persisted> {
+    let ingest = write_through_at(
+        &executor.auth_service,
+        job.user_id,
+        job.tenant_id,
+        &job.provider_name,
+        activities,
+        write,
+        stamp,
+    )
+    .await;
+    persisted_of(job, activities, ingest)
+}
+
+/// What a write-through of `activities` that came to `ingest` persisted;
+/// `None` (logged) when it failed.
+fn persisted_of(
+    job: &ActivityBackfillJob,
+    activities: &[Activity],
+    ingest: Option<LiveIngest>,
+) -> Option<Persisted> {
+    let Some(ingest) = ingest else {
         warn!(
             user_id = %job.user_id,
             provider = %job.provider_name,

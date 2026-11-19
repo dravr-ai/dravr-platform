@@ -14,13 +14,13 @@ use crate::repositories::AgentArtefactRepository;
 use crate::repositories::{
     A2ARepository, A2ATaskReaperRepository, AccountDeletionRepository, AccountResetRepository,
     ActivityBackfillJobRepository, ActivityCacheRepository, ActivityConversationRepository,
-    ActivityRouteTrackRepository, ActivityStreamRepository, AdminAuditRepository, AdminRepository,
-    AgentDraftsRepository, AgentsRepository, ApiKeyRepository, AppAttestKeyRepository,
-    ArchiveErasureRepository, AthleteGearRepository, AthletePlaceRepository,
-    CalendarPreferenceRepository, ChatRepository, CheckInPreferenceRepository,
-    ClaimVerdictRepository, CoachAccessRequestRepository, CoachAttentionDismissalRepository,
-    CoachDataReadRepository, CoachReplyReviewRepository, CoachingGroupRepository,
-    CommitmentRepository, DailyActivityRepository, DataSourceRepository,
+    ActivityRouteTrackRepository, ActivityStreamRepository, ActivityWriteIntentRepository,
+    AdminAuditRepository, AdminRepository, AgentDraftsRepository, AgentsRepository,
+    ApiKeyRepository, AppAttestKeyRepository, ArchiveErasureRepository, AthleteGearRepository,
+    AthletePlaceRepository, CalendarPreferenceRepository, ChatRepository,
+    CheckInPreferenceRepository, ClaimVerdictRepository, CoachAccessRequestRepository,
+    CoachAttentionDismissalRepository, CoachDataReadRepository, CoachReplyReviewRepository,
+    CoachingGroupRepository, CommitmentRepository, DailyActivityRepository, DataSourceRepository,
     DelegatedConnectionRepository, DossierRepository, EmailVerificationRepository,
     EngagementRepository, FeatureFlagsRepository, FederatedIdentityRepository,
     FeedbackMessageRepository, FirebaseIdentityDeletionRepository, FirstRunProgressRepository,
@@ -195,6 +195,8 @@ pub struct RepositoryRegistry {
     pub memory_extraction_jobs: Arc<dyn MemoryExtractionJobRepository>,
     /// Historical activity backfills still owed, for the resume sweep
     pub activity_backfill_jobs: Arc<dyn ActivityBackfillJobRepository>,
+    /// Walk steps' writes to the activity store, recorded before they land
+    pub activity_write_intents: Arc<dyn ActivityWriteIntentRepository>,
     /// The A2A reaper's bulk fail of tasks a dead instance left non-terminal
     pub a2a_task_reaper: Arc<dyn A2ATaskReaperRepository>,
     /// Stripe-backed subscription rows (one per (tenant, `stripe_subscription`))
@@ -390,6 +392,7 @@ impl RepositoryRegistry {
             worker_runs: db.clone(),
             memory_extraction_jobs: db.clone(),
             activity_backfill_jobs: db.clone(),
+            activity_write_intents: db.clone(),
             a2a_task_reaper: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),
@@ -506,6 +509,7 @@ impl RepositoryRegistry {
             worker_runs: db.clone(),
             memory_extraction_jobs: db.clone(),
             activity_backfill_jobs: db.clone(),
+            activity_write_intents: db.clone(),
             a2a_task_reaper: db.clone(),
             subscriptions: db.clone(),
             weather_cache: db.clone(),

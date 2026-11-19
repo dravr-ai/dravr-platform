@@ -70,6 +70,63 @@ pub(crate) async fn write_through_activity_cache(
     activities: &[Activity],
     write: WriteThrough<'_>,
 ) -> Option<LiveIngest> {
+    let stamp = write_through_stamp(
+        auth_service,
+        user_id,
+        tenant_id,
+        provider,
+        write.read,
+        activities,
+    )
+    .await?;
+    write_through_at(
+        auth_service,
+        user_id,
+        tenant_id,
+        provider,
+        activities,
+        write,
+        stamp,
+    )
+    .await
+}
+
+/// The stamp a write-through of `activities`, read for `read`, lands its
+/// rows at ([`head_sync_stamp`]); `None` when it cannot be decided and
+/// nothing may be written. A writer that must record when its rows were
+/// written before it writes them decides it first, then writes at it
+/// ([`write_through_at`]).
+pub(crate) async fn write_through_stamp(
+    auth_service: &AuthService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    read: &ActivityQueryParams,
+    activities: &[Activity],
+) -> Option<HeadSyncStamp> {
+    let cache = auth_service.runtime().data().repos().activity_cache.clone();
+    head_sync_stamp(
+        cache.as_ref(),
+        user_id,
+        tenant_id,
+        provider,
+        read,
+        activities,
+    )
+    .await
+}
+
+/// [`write_through_activity_cache`] at a `stamp` decided beforehand
+/// ([`write_through_stamp`]).
+pub(crate) async fn write_through_at(
+    auth_service: &AuthService,
+    user_id: Uuid,
+    tenant_id: TenantId,
+    provider: &str,
+    activities: &[Activity],
+    write: WriteThrough<'_>,
+    stamp: HeadSyncStamp,
+) -> Option<LiveIngest> {
     let data = auth_service.runtime().data();
     let cache = data.repos().activity_cache.clone();
     #[cfg(feature = "client-notifications")]
@@ -82,15 +139,8 @@ pub(crate) async fn write_through_activity_cache(
             activities,
         )
         .await;
-    let stamp = head_sync_stamp(
-        cache.as_ref(),
-        user_id,
-        tenant_id,
-        provider,
-        write.read,
-        activities,
-    )
-    .await?;
+    #[cfg(not(feature = "client-notifications"))]
+    let _: WriteThrough<'_> = write;
     // Kept in the activity store, which projects into the cache; its one
     // retention policy, not this write, decides when a row goes (carnet#1482).
     let persisted = match auth_service
@@ -117,9 +167,18 @@ pub(crate) async fn write_through_activity_cache(
 
 /// The `synced_at` a write-through's rows carry, and whether the write is a
 /// sync of the provider's list head.
-struct HeadSyncStamp {
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct HeadSyncStamp {
     synced_at: DateTime<Utc>,
     is_sync: bool,
+}
+
+impl HeadSyncStamp {
+    /// The `synced_at` the write's rows carry.
+    #[cfg(feature = "tools-data")]
+    pub(crate) const fn synced_at(&self) -> DateTime<Utc> {
+        self.synced_at
+    }
 }
 
 /// Decide what a write of `activities`, read for `read`, says about the

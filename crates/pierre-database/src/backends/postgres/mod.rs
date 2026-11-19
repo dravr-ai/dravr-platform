@@ -26,6 +26,8 @@ pub mod activity_conversations;
 pub mod activity_route_tracks;
 /// The one per-activity sample store: pushed, uploaded or imported samples (Postgres)
 pub mod activity_streams;
+/// Walk steps' writes to the activity store, recorded before they land (Postgres)
+pub mod activity_write_intents;
 /// Admin, impersonation, and MCP token repository implementations
 pub mod admin;
 /// The admin audit trail (`Postgres`) backing `AdminAuditRepository`.

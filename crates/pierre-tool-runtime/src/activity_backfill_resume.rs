@@ -35,8 +35,8 @@ use tracing::{info, warn};
 
 use crate::activity_backfill::history_walk::resolve_purged_walk;
 use crate::activity_backfill::{
-    answer_reaped_live_read, provider_tenant_id_str, resume_recorded_backfill, ActivityBackfillJob,
-    BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS,
+    answer_reaped_live_read, provider_tenant_id_str, resume_recorded_backfill,
+    settle_write_intents, ActivityBackfillJob, BACKFILL_JOB_LEASE, MAX_BACKFILL_ATTEMPTS,
 };
 use crate::runtime::{ToolRuntime, WalkTrigger};
 
@@ -60,7 +60,10 @@ const SWEEP_BATCH: i64 = 5;
 /// lease has ended are reaped first — nothing will claim them again, and
 /// while they stand every new ask for their pair is refused as a duplicate.
 /// History walks a purge left owed a reopen are resolved next, so a walk
-/// reopened here is claimed in the same pass.
+/// reopened here is claimed in the same pass. The writes walk steps left
+/// unsettled, their check after the write unreadable, are settled first of
+/// all ([`settle_write_intents`]): a purge of their key since takes their
+/// page back.
 ///
 /// # Errors
 ///
@@ -69,6 +72,7 @@ const SWEEP_BATCH: i64 = 5;
 pub async fn resume_backfill_jobs(resources: Arc<dyn ToolRuntime>) -> AppResult<usize> {
     let ledger = Arc::clone(&resources.repos().activity_backfill_jobs);
     let now_ms = Utc::now().timestamp_millis();
+    settle_write_intents(&resources, now_ms).await;
     reap_exhausted_jobs(&resources, now_ms).await;
     resolve_purged_walks(&resources, now_ms).await;
 
