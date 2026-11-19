@@ -3474,6 +3474,7 @@
       "too_many_attempts": "Too many incorrect attempts. The linking session has been cancelled. Send a message to start again.",
       "verification_error": "Something went wrong verifying your account. Please try again."
     },
+    "media_text_only": "I can only read text messages for now, so I couldn't read that. Write it out and I'll pick it up from there.",
     "memory": {
       "predicate": {
         "aim_long_term": "In a few years you aim for {0}",
@@ -3510,7 +3511,8 @@
       "reauth_oauth_served_no_link": "One note: your {0} connection has expired, so what I just showed you comes from your other connected accounts. {0} now connects through its official sign-in. Open Connections in Dravr, choose Connect {0}, then ask me again.",
       "reauth_grant_writes": "One note: your {0} activities are still syncing, but sending workouts and calendar entries to {0} needs your {0} connection again. Connect it here (link valid for 1 hour):\n\n{1}",
       "reauth_grant_writes_no_link": "One note: your {0} activities are still syncing, but sending workouts and calendar entries to {0} needs your {0} connection again. Open Connections in Dravr and choose Connect {0}.",
-      "reconnect_button": "Reconnect {0}"
+      "reconnect_button": "Reconnect {0}",
+      "reconnect_cta": "Reconnect"
     },
     "quota_exceeded": "You've reached your plan's chat limit for now. It resets automatically — check back a bit later.",
     "quota_warning": "Heads-up: you've used {0} of {1} on your plan. The counter resets on {2}.",

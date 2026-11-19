@@ -3474,6 +3474,7 @@
       "too_many_attempts": "Trop de tentatives incorrectes. La session de liaison est annulée. Envoie un message pour recommencer.",
       "verification_error": "Une erreur est survenue lors de la vérification de ton compte. Réessaie."
     },
+    "media_text_only": "Pour l'instant, je ne lis que le texte, donc je n'ai pas pu lire ça. Écris-le-moi et je prends le relais.",
     "memory": {
       "predicate": {
         "aim_long_term": "Dans quelques années, tu vises {0}",
@@ -3510,7 +3511,8 @@
       "reauth_oauth_served_no_link": "Petite note : ta connexion à {0} a expiré, alors ce que je viens de te montrer vient de tes autres comptes connectés. {0} se connecte désormais par sa connexion officielle. Ouvre Connexions dans Dravr, choisis Connecter {0}, puis redemande-moi.",
       "reauth_grant_writes": "Petite note : tes activités {0} continuent de se synchroniser, mais pour envoyer des séances et des entrées de calendrier vers {0}, il faut de nouveau ta connexion à {0}. Connecte-le ici (lien valable 1 heure) :\n\n{1}",
       "reauth_grant_writes_no_link": "Petite note : tes activités {0} continuent de se synchroniser, mais pour envoyer des séances et des entrées de calendrier vers {0}, il faut de nouveau ta connexion à {0}. Ouvre Connexions dans Dravr et choisis Connecter {0}.",
-      "reconnect_button": "Reconnecter {0}"
+      "reconnect_button": "Reconnecter {0}",
+      "reconnect_cta": "Reconnecter"
     },
     "quota_exceeded": "Tu as atteint la limite de conversation de ton forfait pour le moment. Elle se réinitialise automatiquement — reviens un peu plus tard.",
     "quota_warning": "Petite note : tu as utilisé {0} de {1} sur ton forfait. Le compteur se réinitialise le {2}.",

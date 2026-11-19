@@ -3474,6 +3474,7 @@
       "too_many_attempts": "Demasiadas tentativas incorretas. A sessão de ligação foi cancelada. Envia uma mensagem para começar de novo.",
       "verification_error": "Algo correu mal a verificar a tua conta. Tenta de novo."
     },
+    "media_text_only": "Por agora só consigo ler texto, por isso não consegui ler isso. Escreve-me e eu continuo a partir daí.",
     "memory": {
       "predicate": {
         "aim_long_term": "Daqui a alguns anos, a sua meta é {0}",
@@ -3510,7 +3511,8 @@
       "reauth_oauth_served_no_link": "Uma nota: a tua ligação ao {0} expirou, por isso o que acabei de te mostrar vem das tuas outras contas ligadas. O {0} liga-se agora através do início de sessão oficial. Abre Ligações no Dravr, escolhe Ligar o {0} e depois pergunta-me outra vez.",
       "reauth_grant_writes": "Uma nota: as tuas atividades do {0} continuam a sincronizar, mas para enviar treinos e entradas de calendário para o {0} precisas de voltar a ligar o {0}. Liga-o aqui (ligação válida durante 1 hora):\n\n{1}",
       "reauth_grant_writes_no_link": "Uma nota: as tuas atividades do {0} continuam a sincronizar, mas para enviar treinos e entradas de calendário para o {0} precisas de voltar a ligar o {0}. Abre Ligações no Dravr e escolhe Ligar o {0}.",
-      "reconnect_button": "Ligar novamente {0}"
+      "reconnect_button": "Ligar novamente {0}",
+      "reconnect_cta": "Ligar novamente"
     },
     "quota_exceeded": "Atingiste o limite de conversa do teu plano por agora. Ele repõe-se automaticamente — volta um pouco mais tarde.",
     "quota_warning": "Nota: já usaste {0} de {1} do teu plano. O contador repõe-se a {2}.",
