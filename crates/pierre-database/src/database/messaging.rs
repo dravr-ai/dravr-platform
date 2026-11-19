@@ -38,6 +38,9 @@ use crate::repositories::messaging_backend::{
 use crate::repositories::messaging_link_states::{
     HOLD_LINK_FOR_CONFIRMATION_SQL, RELEASE_SENDER_LINK_CONFIRMATIONS_SQL, SPEND_HELD_LINK_CODE_SQL,
 };
+use crate::repositories::messaging_proactive::{
+    ProactiveNotice, ProactiveNoticePart, PROACTIVE_NOTICE_SQL, STAMP_NOTICE_CHAT_MESSAGE_SQL,
+};
 use crate::repositories::uuid_columns::TextUuid;
 
 impl_messaging_repository!(Database, SqliteRow, TextUuid);

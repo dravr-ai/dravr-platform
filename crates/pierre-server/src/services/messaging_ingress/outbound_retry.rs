@@ -141,6 +141,7 @@ async fn record_outbound_message(
         // keyed on the synthetic `retry-…` id above. No inbound reaction can
         // quote that id, so there is nothing for a rating to resolve through.
         chat_message_id: None,
+        proactive_purpose: None,
     };
     let inserted = db.insert_message(&out_params).await?;
     if !inserted {

@@ -130,7 +130,8 @@ impl ServerBackfillNotifier {
             transport_policy: TransportPolicy::AnyTransport,
         }
         .persist(user_id, tenant_id, &thread_id, body, activity_count)
-        .await;
+        .await
+        .is_some();
         if delivered {
             info!(
                 provider,

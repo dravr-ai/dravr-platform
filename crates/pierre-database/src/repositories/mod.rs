@@ -161,6 +161,8 @@ pub mod messaging;
 pub(crate) mod messaging_backend;
 /// Shared statements, row decode and body for the link-state lifecycle both backends serve.
 pub mod messaging_link_states;
+/// The proactive-notice ledger read a failed delivery resolves through.
+pub mod messaging_proactive;
 /// Shared SQL and body for the reaction → chat-message lookup both backends serve.
 pub mod messaging_reactions;
 /// Repository traits for mobility (yoga and stretching) persistence.
@@ -372,6 +374,7 @@ pub use import_tombstones::{
 pub use mcp_tasks::*;
 pub use memory_extraction_jobs::*;
 pub use messaging::*;
+pub use messaging_proactive::{ProactiveNotice, ProactiveNoticePart};
 pub use mobility::*;
 pub use notifications::*;
 pub use oauth::*;

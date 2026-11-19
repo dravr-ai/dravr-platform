@@ -178,15 +178,39 @@ impl Fixture {
             .unwrap();
     }
 
+    /// Link a chat the athlete wrote from just now: linking one takes writing
+    /// to the bot, and its DM session opens the channel's window (carnet#1672).
+    /// The session is seeded here unless the test seeded its own.
     async fn link_chat(&self, channel: &str, channel_user_id: &str) {
+        let owner = self.user_id.to_string();
         seed_channel_link(
             &self.database,
-            &self.user_id.to_string(),
+            &owner,
             self.tenant,
             channel,
             channel_user_id,
         )
         .await;
+        let session = self
+            .database
+            .repositories()
+            .messaging
+            .get_session_by_channel_identity(self.tenant, channel, channel_user_id, None)
+            .await
+            .unwrap();
+        if session.is_none() {
+            let conversation = seed_conversation(&self.database, &owner, self.tenant).await;
+            seed_session(
+                &self.database,
+                &owner,
+                self.tenant,
+                channel,
+                channel_user_id,
+                None,
+                &conversation,
+            )
+            .await;
+        }
     }
 
     async fn status(&self, provider: &str) -> ConnectionStatus {

@@ -125,6 +125,7 @@ fn a_stored_channel_message_never_prints_its_sender_body_or_raw_webhook() {
         correlation_id: "corr-1",
         raw_payload: Some(raw),
         chat_message_id: Some("chat-msg-1"),
+        proactive_purpose: None,
     };
     let printed = printed_without(
         &params,
