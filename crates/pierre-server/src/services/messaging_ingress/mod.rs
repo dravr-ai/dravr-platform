@@ -53,6 +53,9 @@ pub(crate) use dispatch::{dispatch_and_respond, TurnClose};
 pub(crate) use resume::start_turn;
 /// What a shared room is left seeing once a slash command is answered privately.
 pub mod room_echo;
+/// Which channel identity a message is routed on: placeholders refused,
+/// `WhatsApp` phone-number links moved onto the business-scoped user id.
+mod sender_identity;
 /// Session resolution for linked channel users + unlinked-user link-and-prompt.
 mod session;
 /// Channel framing around the turn service's slash dispatch: channel-link
@@ -592,6 +595,9 @@ async fn persist_single_message(
     message: &IncomingMessage,
     status_api_base: Option<&str>,
 ) -> Result<PersistOutcome, ()> {
+    if !sender_identity::admit(resources, tenant_id, channel, channel_type, message).await {
+        return Ok(PersistOutcome::HandledNotStored);
+    }
     let db: &dyn MessagingRepository = resources.common.repos.messaging.as_ref();
     let thread_id = extract_thread_id(&message.metadata);
 
