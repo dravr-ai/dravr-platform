@@ -344,7 +344,7 @@ export async function setupCoachSeatMocks(page: Page, options: SeatMockOptions =
     route.fulfill(json({ flags: [], total: 0, scope: { visible_members: 1, roster_members: 2 } })),
   );
   await page.route(`**/api/groups/${SEAT_GROUP_ID}/members/me/coach-sharing`, (route) =>
-    route.fulfill(json({ consent: true })),
+    route.fulfill(json({ consent: true, assistant_notice_due: false })),
   );
   // A coached room: the coach's TrainingPeaks links, or the athlete's own
   // record of the coach's reads and what they let the coach do.

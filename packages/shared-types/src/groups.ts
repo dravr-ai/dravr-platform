@@ -232,6 +232,17 @@ export interface CoachSharing {
   consent: boolean;
 }
 
+/**
+ * The caller's coach sharing as the server answers its read and its write.
+ * `assistant_notice_due` asks the apps to tell the member, once, that AI tools
+ * the coach connects to Dravr read them by name while they share. Keeping or
+ * stopping through the coach-sharing write from Dravr's own app answers it;
+ * the same write over an API key leaves it due.
+ */
+export interface CoachSharingState extends CoachSharing {
+  assistant_notice_due: boolean;
+}
+
 /** What a read of the athlete by their human coach read (carnet#1445). */
 export type CoachReadDataClass = 'training' | 'wellness';
 
@@ -248,6 +259,11 @@ export interface CoachRead {
   data_class: CoachReadDataClass;
   /** When the coach read it (RFC 3339). */
   read_at: string;
+  /**
+   * Whether the server marked the read as served to an AI tool the coach
+   * connects to Dravr from outside it, whose company received the data.
+   */
+  served_to_assistant: boolean;
 }
 
 /**

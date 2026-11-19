@@ -43,6 +43,7 @@ import InviteManager from './InviteManager';
 import GroupInsightsPanel from './GroupInsightsPanel';
 import GroupTranscriptPanel from './GroupTranscriptPanel';
 import DelegatedConnectionsSection from './DelegatedConnectionsSection';
+import CoachAssistantNotice from './CoachAssistantNotice';
 import CoachConsentsSection from './CoachConsentsSection';
 import CoachReadLog from './CoachReadLog';
 import CoachAthleteCard from './CoachAthleteCard';
@@ -517,6 +518,16 @@ export default function GroupInfoPanel({
 
       {showsSharing && (
         <Section headingLevel={3} title={t('groups.info.sharingTitle')} data-testid="group-info-sharing">
+          {/* Told once to a sharing member until they answer it here: the coach's AI tools read them by name. */}
+          {showsCoachSharing && coachName && coachSharing?.assistant_notice_due && (
+            <div className="mb-3">
+              <CoachAssistantNotice
+                coach={coachName}
+                disabled={isSavingCoachSharing}
+                onAnswer={(keep) => void handleCoachSharingChange(keep)}
+              />
+            </div>
+          )}
           <RowBox>
             {showsCoachSharing && (
               <div className={clsx('px-4 py-3', ROW_DIVIDER)} data-testid="coach-sharing-row">

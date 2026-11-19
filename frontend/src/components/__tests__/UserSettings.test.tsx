@@ -1899,6 +1899,23 @@ describe('UserSettings Component', () => {
         expect(screen.getByText('Create New Token')).toBeInTheDocument();
       });
     });
+
+    // EFVP decision 9.1b: creating a token after this text is the express consent.
+    it('shows the express consent beside the create action, without a further tap', async () => {
+      const user = userEvent.setup();
+      await act(async () => {
+        renderUserSettings({ initialTab: 'tokens', hideTabNav: true });
+      });
+
+      await user.click(await screen.findByText('Create New Token'));
+
+      const consent = await screen.findByTestId('mcp-token-consent');
+      expect(consent).toBeVisible();
+      expect(consent).toHaveTextContent(i18n.t('app.mcpTokenConsent'));
+      // The consent sits in the form, in view of the button that acts on it.
+      const form = consent.parentElement as HTMLElement;
+      expect(within(form).getByRole('button', { name: i18n.t('tokens.createAction') })).toBeInTheDocument();
+    });
   });
 
   // carnet#1212: both counts had one plural form, « 1 active tokens » and

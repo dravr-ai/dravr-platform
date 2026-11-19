@@ -767,6 +767,45 @@ macro_rules! impl_coaching_group_repository {
                 Ok(result.rows_affected() > 0)
             }
 
+            async fn assistant_notice_answered_at(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+            ) -> AppResult<Option<DateTime<Utc>>> {
+                let row = sqlx::query(GET_ASSISTANT_NOTICE_ANSWERED_SQL)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .fetch_optional(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to read when a member answered the coach tools notice: {e}"
+                        ))
+                    })?;
+                row.map_or(Ok(None), |r| column(&r, "assistant_notice_answered_at"))
+            }
+
+            async fn answer_assistant_notice(
+                &self,
+                group_id: &str,
+                user_id: Uuid,
+                at: DateTime<Utc>,
+            ) -> AppResult<bool> {
+                let result = sqlx::query(ANSWER_ASSISTANT_NOTICE_SQL)
+                    .bind(at)
+                    .bind($ids::bind_text(group_id)?)
+                    .bind($ids::bind(user_id))
+                    .execute(self.pool())
+                    .await
+                    .map_err(|e| {
+                        AppError::database(format!(
+                            "Failed to record a member's answer to the coach tools notice: {e}"
+                        ))
+                    })?;
+
+                Ok(result.rows_affected() > 0)
+            }
+
             async fn set_coach_consents(
                 &self,
                 group_id: &str,

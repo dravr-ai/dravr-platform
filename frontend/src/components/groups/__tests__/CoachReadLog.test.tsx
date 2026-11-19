@@ -8,6 +8,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CoachReads } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 import CoachReadLog from '../CoachReadLog';
 
 const GROUP_ID = 'group-1';
@@ -37,12 +38,14 @@ const TWO_READS: CoachReads = {
       tool: 'get_sleep_sessions',
       data_class: 'wellness',
       read_at: '2026-11-12T14:05:00Z',
+      served_to_assistant: true,
     },
     {
       coach_name: null,
       tool: 'get_activities',
       data_class: 'training',
       read_at: '2026-11-10T08:30:00Z',
+      served_to_assistant: false,
     },
   ],
 };
@@ -80,12 +83,24 @@ describe('CoachReadLog', () => {
     );
   });
 
+  // EFVP decision 9.4b: a read served to the coach's outside AI tool says so.
+  it('marks only the read the server says was served to an outside AI tool', async () => {
+    vi.mocked(groupsApi.getCoachReads).mockResolvedValue(TWO_READS);
+    renderLog();
+
+    const [served, own] = await screen.findAllByTestId('coach-read-row');
+    expect(within(served).getByTestId('coach-read-served-to-assistant')).toHaveTextContent(
+      i18n.t('humanCoach.readLog.servedToAssistant'),
+    );
+    expect(within(own).queryByTestId('coach-read-served-to-assistant')).toBeNull();
+  });
+
   it('words a read made outside a tool call instead of showing its label', async () => {
     vi.mocked(groupsApi.getCoachReads).mockResolvedValue({
       retention_months: 12,
       reads: [
-        { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z' },
-        { coach_name: 'Casey Coach', tool: 'roster', data_class: 'training', read_at: '2026-11-11T09:00:00Z' },
+        { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
+        { coach_name: 'Casey Coach', tool: 'roster', data_class: 'training', read_at: '2026-11-11T09:00:00Z', served_to_assistant: false },
       ],
     });
     renderLog();

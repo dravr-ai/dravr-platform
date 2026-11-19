@@ -51,6 +51,7 @@ import { MemberRow } from './MemberRow';
 import { AthletePlanView } from './AthletePlanView';
 import { AthletePhysiologyView } from './AthletePhysiologyView';
 import { DelegatedConnectionsSection } from './DelegatedConnectionsSection';
+import { CoachAssistantNotice } from './CoachAssistantNotice';
 import { CoachConsentsSection } from './CoachConsentsSection';
 import { CoachReadLog } from './CoachReadLog';
 import { CONNECTIONS_ROUTE, threadHref } from '../../navigation/routes';
@@ -584,6 +585,19 @@ export function GroupInfoSheet({ groupId, fallbackName, onClose, onLeft }: Group
           <CollapsibleSection title={t(COACH_CONSENTS_KEYS.title)} defaultExpanded testID="group-info-coach-consents">
             <CoachConsentsSection groupId={groupId} consents={coachConsents} coach={coachName} />
           </CollapsibleSection>
+        )}
+
+        {/* Told once to a sharing member until they answer it here: the coach's
+            AI tools read them by name. In view as the sheet opens, never inside the
+            collapsed Settings that holds the coach-sharing switch. */}
+        {showsCoachSharing && coachName && coachSharing?.assistant_notice_due && (
+          <View className="mb-8">
+            <CoachAssistantNotice
+              coach={coachName}
+              disabled={isSavingCoachSharing}
+              onAnswer={(keep) => void handleCoachSharingChange(keep)}
+            />
+          </View>
         )}
 
         {isAdmin && (

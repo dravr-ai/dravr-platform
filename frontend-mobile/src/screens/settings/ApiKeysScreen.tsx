@@ -5,7 +5,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, Text, ActivityIndicator, Alert } from 'react-native';
 import { useTranslation } from '@pierre/i18n';
 import { describeApiError } from '@pierre/ui-logic';
-import { API_KEY_REQUESTS_KEYS, API_KEY_USAGE_WINDOW_DAYS, countKey } from '@pierre/shared-constants';
+import { API_KEY_REQUESTS_KEYS, API_KEY_USAGE_WINDOW_DAYS, CREDENTIAL_CONSENT_KEYS, countKey } from '@pierre/shared-constants';
 import type { ApiKeyInfo } from '@pierre/shared-types';
 import { spacing, useThemeColors } from '../../constants/theme';
 import { Button, EmptyState, Input, PaneScrollView, Row, Section, Sheet } from '../../components/ui';
@@ -214,6 +214,10 @@ export function ApiKeysScreen() {
               onChangeText={setName}
               testID="new-api-key-name"
             />
+            {/* Always in view beside the action: creating the key after it is the express consent. */}
+            <Text className="text-xs text-text-secondary mt-4" testID="api-key-consent">
+              {t(CREDENTIAL_CONSENT_KEYS.apiKey)}
+            </Text>
             <View className="flex-row gap-3 mt-6">
               <View className="flex-1">
                 <Button title={t('common.cancel')} variant="ghost" onPress={closeCreate} fullWidth testID="create-api-key-cancel" />

@@ -309,11 +309,15 @@ export interface ImpersonationSessionsCursor {
   before_id: string;
 }
 
-/** How an audited operator action ended: done, refused by a check, or errored. */
-export type AuditOutcome = 'success' | 'refused' | 'failed';
+/**
+ * How an audited operator action ended: done, refused by a check, or errored.
+ * `started` is an admin-only tool call whose outcome could not be written
+ * after it ran: the row written before the call is all there is.
+ */
+export type AuditOutcome = 'success' | 'refused' | 'failed' | 'started';
 
-/** Which door the action came through: the web console, pierre-cli over HTTP, pierre-cli on the database, a service token, or a button in the ops Slack room. */
-export type AuditSource = 'console' | 'cli' | 'cli_database' | 'service' | 'slack';
+/** Which door the action came through: the web console, pierre-cli over HTTP, pierre-cli on the database, a service token, a button in the ops Slack room, or an admin-only tool called from outside Dravr (over `/mcp` or A2A, with an API key or an OAuth grant; the metadata names the tool and the transport). */
+export type AuditSource = 'console' | 'cli' | 'cli_database' | 'service' | 'slack' | 'tool_call';
 
 /** The request details the server recorded beside an audit event; every field is optional. */
 export interface AuditEventMetadata {

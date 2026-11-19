@@ -217,6 +217,7 @@ mod claim_verification_panic_boundary_test;
 mod claim_verification_service_test;
 mod cloud_tasks_enqueue_test;
 mod coach_access_request_test;
+mod coach_assistant_notice_test;
 mod coach_athlete_plan_test;
 mod coach_athlete_reads_test;
 mod coach_athlete_training_reads_test;

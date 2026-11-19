@@ -19,6 +19,18 @@ use crate::group_response::GroupResponse;
 // Response Types
 // ============================================================================
 
+/// The caller's coach sharing as it stands, the answer to its read and its
+/// write.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct CoachSharingResponse {
+    /// Whether the caller shares with the group's human coach
+    pub consent: bool,
+    /// Whether the apps tell the caller, once, that the coach's AI tools read
+    /// them by name, and ask whether to keep sharing
+    /// ([`pierre_services::coach_consents::assistant_notice_due`]).
+    pub assistant_notice_due: bool,
+}
+
 /// Response for a group member
 #[derive(Debug, Serialize, Deserialize)]
 pub struct MemberResponse {

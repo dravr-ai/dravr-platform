@@ -43,6 +43,7 @@ use pierre_groups::strategies::tier::{tier_enables_digest, tier_strategy_for};
 use pierre_middleware::AuthenticatedUser;
 use pierre_runtime_context::{GroupsCtx, MiddlewareCtx};
 use pierre_services::coach_access::{name_requested_group, CoachAccessNotices};
+use pierre_services::coach_consents;
 use pierre_services::group_coach_claim::claim_group_coach;
 use pierre_services::group_invite_card;
 use pierre_services::locale::resolve_user_locale;
@@ -59,9 +60,9 @@ pub use bodies::{
 
 mod responses;
 pub use responses::{
-    AnalyticsScope, ClaimGroupCoachResponse, GroupMetadata, GroupPermissionsResponse,
-    HealthFlagsResponse, InviteResponse, InviteWithFunnelResponse, ListInvitesResponse,
-    ListMembersResponse, MemberResponse, StatsResponse, WeeklyReportResponse,
+    AnalyticsScope, ClaimGroupCoachResponse, CoachSharingResponse, GroupMetadata,
+    GroupPermissionsResponse, HealthFlagsResponse, InviteResponse, InviteWithFunnelResponse,
+    ListInvitesResponse, ListMembersResponse, MemberResponse, StatsResponse, WeeklyReportResponse,
 };
 
 // ============================================================================
@@ -735,7 +736,9 @@ impl GroupRoutes {
     /// group's human coach reads the caller's training.
     ///
     /// The caller's own choice only: the member list peers read carries no
-    /// member's coach sharing.
+    /// member's coach sharing. It also says whether the caller is due the
+    /// one-time notice of the coach's AI tools (EFVP decision 9.2b), which
+    /// either answer through the PUT, from Dravr's own app, clears.
     async fn handle_get_coach_sharing<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
@@ -743,16 +746,45 @@ impl GroupRoutes {
     ) -> Result<Response, AppError> {
         let auth = auth.into_inner();
         let member = Self::require_member(&resources, &group_id, auth.user_id).await?;
-        let response = CoachSharingBody {
-            consent: member.coach_sharing_consent,
-        };
+        let response = Self::coach_sharing_state(&resources, &auth, &group_id, member).await?;
         Ok((StatusCode::OK, Json(response)).into_response())
+    }
+
+    /// The caller's coach sharing as their membership `member` holds it, and
+    /// whether the apps tell them once that the coach's AI tools read them.
+    async fn coach_sharing_state<C: GroupsCtx + MiddlewareCtx>(
+        resources: &Arc<C>,
+        auth: &AuthResult,
+        group_id: &str,
+        member: GroupMember,
+    ) -> Result<CoachSharingResponse, AppError> {
+        let group = resources
+            .group_service()
+            .get_group(group_id, Self::get_tenant_id(auth)?)
+            .await?
+            .ok_or_else(|| AppError::not_found("You are not a member of this group"))?;
+        let answered_at = resources
+            .repos()
+            .groups
+            .assistant_notice_answered_at(group_id, auth.user_id)
+            .await?;
+        Ok(CoachSharingResponse {
+            consent: member.coach_sharing_consent,
+            assistant_notice_due: coach_consents::assistant_notice_due(
+                &group,
+                &member,
+                answered_at,
+            ),
+        })
     }
 
     /// PUT `/api/groups/:group_id/members/me/coach-sharing` — the caller
     /// stops or resumes sharing their training with the group's human coach,
     /// the switch beside peer sharing in Group info (carnet#1168). Joining
     /// grants it (ADR-002); `/group consent coach yes|no` is the same write.
+    /// Served in Dravr's own app it also answers the notice of the coach's
+    /// AI tools, "Keep sharing" or "Stop sharing"; over an API key it does
+    /// not.
     async fn handle_update_coach_sharing<C: GroupsCtx + MiddlewareCtx>(
         State(resources): State<Arc<C>>,
         auth: AuthenticatedUser,
@@ -778,14 +810,28 @@ impl GroupRoutes {
         if !updated {
             return Err(AppError::not_found("Membership not found"));
         }
+        // In Dravr's own app this write is the member's answer to the notice
+        // of the coach's AI tools, whichever way they chose; from an API key
+        // the change stands and the notice stays due.
+        let answered_notice = coach_consents::served_in_app();
+        if answered_notice {
+            resources
+                .repos()
+                .groups
+                .answer_assistant_notice(&group_id, auth.user_id, Utc::now())
+                .await?;
+        }
         info!(
             user_id = %auth.user_id,
             group_id = %group_id,
             consent = body.consent,
+            answered_notice,
             "Member set coach sharing from Group info"
         );
 
-        Ok((StatusCode::OK, Json(body)).into_response())
+        let member = Self::require_member(&resources, &group_id, auth.user_id).await?;
+        let response = Self::coach_sharing_state(&resources, &auth, &group_id, member).await?;
+        Ok((StatusCode::OK, Json(response)).into_response())
     }
 
     // ========================================================================

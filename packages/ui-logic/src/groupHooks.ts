@@ -15,6 +15,7 @@ import type {
   ProposeDelegatedConnectionRequest,
   CoachConsentsResponse,
   CoachSharing,
+  CoachSharingState,
   UpdateCoachConsentsRequest,
   UpdateGroupRequest,
   UpdateMemberRoleRequest,
@@ -390,7 +391,7 @@ export function createGroupHooks(groupsApi: GroupsApi, freshness: GroupFreshness
         const request: CoachSharing = { consent };
         return groupsApi.updateCoachSharing(groupId, request);
       },
-      onSuccess: (answered: CoachSharing) =>
+      onSuccess: (answered: CoachSharingState) =>
         queryClient.setQueryData(QUERY_KEYS.groups.coachSharing(groupId), answered),
       onError: () => queryClient.invalidateQueries({ queryKey: QUERY_KEYS.groups.coachSharing(groupId) }),
     });

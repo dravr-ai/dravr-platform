@@ -31,6 +31,7 @@ import {
   AI_CONSENT_KEYS,
   APP_VERSION,
   countKey,
+  CREDENTIAL_CONSENT_KEYS,
   HELP_URL,
   LEGAL_URL,
   providerGlyphInk,
@@ -1085,6 +1086,10 @@ export default function UserSettings({ initialTab = 'profile', hideTabNav = fals
                         ]}
                       />
                     </div>
+                    {/* Always in view beside the action: creating the token after it is the express consent. */}
+                    <p className="text-xs text-on-surface-variant" data-testid="mcp-token-consent">
+                      {t(CREDENTIAL_CONSENT_KEYS.mcpToken)}
+                    </p>
                     <div className="flex gap-2">
                       <Button
                         onClick={handleCreateToken}

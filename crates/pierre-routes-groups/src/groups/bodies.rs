@@ -71,8 +71,9 @@ pub struct UpdatePeerConsentBody {
     pub consent: bool,
 }
 
-/// Request body for the caller's own coach sharing, and its answer: whether
-/// the group's human coach reads their training, plan and room messages.
+/// Request body for the caller's own coach sharing: whether the group's human
+/// coach reads their training, plan and room messages. The answer is a
+/// [`super::CoachSharingResponse`].
 #[derive(Debug, Serialize, Deserialize)]
 pub struct CoachSharingBody {
     /// Whether the caller shares with the group's human coach
