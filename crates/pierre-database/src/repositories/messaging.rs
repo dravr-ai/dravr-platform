@@ -12,6 +12,10 @@ use std::fmt;
 use pierre_core::models::TenantId;
 use serde_json::Value;
 
+/// The statements the one `MessagingRepository` body runs, written once for both
+/// backends; the link-state and reaction statements live beside this module.
+pub(crate) mod sql;
+
 /// Parameters for upserting a messaging channel configuration
 pub struct UpsertChannelConfigParams<'a> {
     /// Unique identifier for this config

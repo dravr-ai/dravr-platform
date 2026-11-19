@@ -16,18 +16,7 @@ use sqlx::Row;
 use super::messaging_link_states as link_states;
 use super::messaging_reactions as reactions;
 use super::PostgresDatabase;
-use crate::repositories::messaging::{
-    CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, EnqueueOutboundParams,
-    InsertMessageParams, MessagingRepository, ReactionFeedbackTarget, RekeyChannelIdentityParams,
-    UpsertChannelConfigParams,
-};
-use crate::repositories::messaging_backend::{
-    impl_messaging_repository, instant_from_rfc3339, messaging_column_error,
-};
-use crate::repositories::messaging_link_states::{
-    HOLD_LINK_FOR_CONFIRMATION_SQL, RELEASE_SENDER_LINK_CONFIRMATIONS_SQL, SPEND_HELD_LINK_CODE_SQL,
-};
-use crate::repositories::messaging_sql::{
+use crate::repositories::messaging::sql::{
     ACTIVE_OTP_LINK_STATE_SQL, AGENT_PROPOSAL_SENT_SQL, CHANNEL_IDENTITY_CLAIMED_SQL,
     CHANNEL_LINK_LOCALE_SQL, CHANNEL_LINK_TENANT_SQL, CLAIM_BACKFILL_PUSH_SQL,
     CLAIM_DUE_OUTBOUND_SQL, CLEAR_PROPOSED_AGENT_IDS_SQL, CONFIGS_BY_CHANNEL_TYPE_SQL,
@@ -42,6 +31,17 @@ use crate::repositories::messaging_sql::{
     SET_CHANNEL_LINK_LOCALE_SQL, SET_OTP_ON_LINK_STATE_SQL, SET_SESSION_CONVERSATION_SQL,
     SET_SIGNUP_PENDING_SQL, TOUCH_SESSION_SQL, UPDATE_OUTBOUND_STATUS_SQL,
     UPSERT_CHANNEL_CONFIG_SQL, USER_CHANNEL_LINK_LOCALE_SQL,
+};
+use crate::repositories::messaging::{
+    CreateChannelLinkParams, CreateLinkStateParams, CreateSessionParams, EnqueueOutboundParams,
+    InsertMessageParams, MessagingRepository, ReactionFeedbackTarget, RekeyChannelIdentityParams,
+    UpsertChannelConfigParams,
+};
+use crate::repositories::messaging_backend::{
+    impl_messaging_repository, instant_from_rfc3339, messaging_column_error,
+};
+use crate::repositories::messaging_link_states::{
+    HOLD_LINK_FOR_CONFIRMATION_SQL, RELEASE_SENDER_LINK_CONFIRMATIONS_SQL, SPEND_HELD_LINK_CODE_SQL,
 };
 use crate::repositories::uuid_columns::NativeUuid;
 
