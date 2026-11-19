@@ -91,9 +91,6 @@ on:
       - 'infra/artifacts/variables.tf'
       # monitor-scheduled-lanes.test.sh runs the monitor's own python and script.
       - '.github/workflows/monitor-scheduled-lanes.yml'
-      # ci-verdict.test.sh fails when this workflow's trigger list misses a
-      # workflow a branch push can fire.
-      - '.github/workflows/ci-verdict.yml'
       # standing-issue.test.sh checks every monitor that files a standing issue
       # looks it up through scripts/ci/standing-issue.cjs and checks it out.
       - '.github/workflows/billing-drivers-monitor.yml'
@@ -203,24 +200,20 @@ on:
     - cron: '11 8 * * *'
 
 concurrency:
-  # On main the sha is part of the group, so every commit gets its own group and
-  # nothing can cancel anyone's verdict. Branches share a group per ref and keep
-  # cancelling, where fast feedback beats a stale result.
-  #
-  # The ref test lives in `group` rather than in `cancel-in-progress` because
-  # only the former is known to work here: `cancel-in-progress: ${{ github.ref
-  # != 'refs/heads/main' }}` was tried first and did not hold — run 33026440559
-  # on main was cancelled one second after the next run was created, and that
-  # run's run_started_at equalled its created_at, so it never waited on the
-  # group the way a false would have made it. `group` expressions demonstrably
-  # do evaluate: that is what has been scoping cancellation per ref all along.
-  # The event name is part of the group too: a `schedule` run on main carries
-  # the tip's sha, so without it the cron joined the tip's push-run group and
-  # cancelled that verdict mid-flight (observed 2026-08-31: the 15:59 UTC cron
-  # killed 7eac7b067's push run six minutes in). Push, schedule and dispatch
-  # now each get their own group; the per-commit protection is unchanged.
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}-${{ github.ref == 'refs/heads/main' && github.sha || 'shared' }}
-  cancel-in-progress: true
+  # One run going and one waiting, per lane and per ref (JF, 2026-11-19). A
+  # running run always finishes, so main still turns green and deploys however
+  # often it is pushed; a newer push takes the single waiting slot, replacing
+  # the run that waited there, which GitHub cancels. The run that does go tests
+  # a tree holding every skipped commit. Main used to keep one group per sha and
+  # never cancel: 24 commits on 2026-11-19 queued ~600 jobs for a handful of
+  # slots. Both costs are accepted: an intermediate main commit gets no verdict
+  # of its own (the eviction carnet#169 once counted as a loss), and a branch
+  # re-pushed mid-run finishes the superseded run (what carnet#1114 avoided),
+  # bounded to one. The event name keeps a schedule or dispatch run out of the
+  # push group. `cancel-in-progress` stays a literal: an expression there did
+  # not hold on main (run 33026440559, see ci-backend.yml's history).
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read

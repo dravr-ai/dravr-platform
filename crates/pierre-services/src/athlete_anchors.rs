@@ -42,10 +42,11 @@ pub async fn stored_athlete_anchors(
     let Some(profile) = profiles
         .get_user_physiological_profile(tenant, user_id)
         .await?
-        .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
+        .filter(ai_scope::admit_profile)
     else {
         return Ok(None);
     };
     let stored = profiles.list_sport_anchors(tenant, user_id).await?;
+    ai_scope::note_sport_anchors(&stored);
     Ok(Some(sport_anchors::held_anchors(&profile, &stored)))
 }

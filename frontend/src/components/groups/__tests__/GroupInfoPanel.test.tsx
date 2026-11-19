@@ -283,9 +283,12 @@ describe('GroupInfoPanel', () => {
       scope: { visible_members: 2, roster_members: 2 },
     });
     vi.mocked(groupsApi.updatePeerConsent).mockResolvedValue(undefined);
-    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true });
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true, assistant_notice_due: false });
     vi.mocked(groupsApi.getCoachReads).mockResolvedValue({ reads: [], retention_months: 12 });
-    vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => request);
+    vi.mocked(groupsApi.updateCoachSharing).mockImplementation(async (_groupId, request) => ({
+      ...request,
+      assistant_notice_due: false,
+    }));
     vi.mocked(groupsApi.updateGroup).mockResolvedValue(sampleGroup());
     vi.mocked(groupsApi.deleteGroup).mockResolvedValue(undefined);
     vi.mocked(groupsApi.listInvites).mockResolvedValue({ invites: [] });
@@ -399,7 +402,7 @@ describe('GroupInfoPanel', () => {
       sampleGroup({ owner_id: OTHER_ID, coach_user_id: COACH_ID, coach_display_name: 'Casey Coach', respond_mode: 'mentions' }),
     );
     vi.mocked(groupsApi.listMembers).mockResolvedValue({ members: [member({ role: 'member' })] });
-    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: false });
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: false, assistant_notice_due: false });
     renderPanel();
 
     expect(await screen.findByTestId('who-sees-coach')).toHaveTextContent(
@@ -775,6 +778,59 @@ describe('GroupInfoPanel', () => {
     // Beside it, the member's own record of what the coach read (carnet#1445).
     expect(await screen.findByTestId('coach-read-log')).toBeInTheDocument();
     expect(groupsApi.getCoachReads).toHaveBeenCalledWith(GROUP_ID);
+  });
+
+  // EFVP decision 9.2b: a sharing member who never answered the notice is told once,
+  // as the wellness widening is, and either answer is a coach-sharing write.
+  it("tells a sharing member who never answered of the coach's AI tools, and keeping it writes the sharing again", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true, assistant_notice_due: true });
+    renderPanel();
+
+    const notice = await screen.findByTestId('coach-assistant-notice');
+    expect(notice).toHaveAccessibleName(i18n.t('humanCoach.assistantNotice.title'));
+    expect(notice).toHaveClass('alert-info');
+    expect(notice).toHaveTextContent(i18n.t('humanCoach.assistantNotice.body', { coach: 'Casey Coach' }));
+    // The sharing stands while the member decides.
+    expect(screen.getByTestId('coach-sharing-switch')).toBeChecked();
+
+    // The answers are the wellness notice's own, so both notices read alike.
+    const keep = within(notice).getByTestId('coach-assistant-notice-keep');
+    expect(keep).toHaveTextContent(i18n.t('delegation.wellnessWidenedKeep'));
+    fireEvent.click(keep);
+
+    await waitFor(() => expect(groupsApi.updateCoachSharing).toHaveBeenCalledWith(GROUP_ID, { consent: true }));
+    await waitFor(() => expect(screen.queryByTestId('coach-assistant-notice')).toBeNull());
+    expect(screen.getByTestId('coach-sharing-switch')).toBeChecked();
+  });
+
+  it("stops sharing from the coach's AI tools notice, ending the coach's access with it", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    vi.mocked(groupsApi.getCoachSharing).mockResolvedValue({ consent: true, assistant_notice_due: true });
+    renderPanel();
+
+    const notice = await screen.findByTestId('coach-assistant-notice');
+    const stop = within(notice).getByTestId('coach-assistant-notice-stop');
+    expect(stop).toHaveTextContent(i18n.t('delegation.wellnessRevokeConfirm'));
+    fireEvent.click(stop);
+
+    await waitFor(() => expect(groupsApi.updateCoachSharing).toHaveBeenCalledWith(GROUP_ID, { consent: false }));
+    await waitFor(() => expect(screen.queryByTestId('coach-assistant-notice')).toBeNull());
+    expect(screen.getByTestId('coach-sharing-switch')).not.toBeChecked();
+  });
+
+  it("tells nothing of the coach's AI tools to a member who already answered", async () => {
+    vi.mocked(groupsApi.getGroup).mockResolvedValue(
+      sampleGroup({ coach_user_id: COACH_ID, coach_display_name: 'Casey Coach' }),
+    );
+    renderPanel();
+
+    expect(await screen.findByTestId('coach-sharing-switch')).toBeInTheDocument();
+    expect(screen.queryByTestId('coach-assistant-notice')).toBeNull();
   });
 
   it('offers coach sharing in a group with no coach yet, since joining granted it', async () => {

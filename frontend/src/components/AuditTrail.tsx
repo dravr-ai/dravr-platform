@@ -27,12 +27,15 @@ const OUTCOME_OPTIONS: { value: OutcomeFilter; label: string }[] = [
   { value: 'success', label: 'Succeeded' },
   { value: 'refused', label: 'Refused' },
   { value: 'failed', label: 'Failed' },
+  { value: 'started', label: 'Started, outcome not recorded' },
 ];
 
-const OUTCOME_BADGE: Record<AuditOutcome, 'success' | 'warning' | 'error'> = {
+const OUTCOME_BADGE: Record<AuditOutcome, 'success' | 'warning' | 'error' | 'info'> = {
   success: 'success',
   refused: 'warning',
   failed: 'error',
+  // A tool call whose outcome could not be written: it ran, its end is unknown.
+  started: 'info',
 };
 
 const SOURCE_LABEL: Record<AuditEvent['source'], string> = {
@@ -41,6 +44,7 @@ const SOURCE_LABEL: Record<AuditEvent['source'], string> = {
   cli_database: 'pierre-cli (database)',
   service: 'service token',
   slack: 'Slack room',
+  tool_call: 'tool call from an AI assistant',
 };
 
 /**

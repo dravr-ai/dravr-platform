@@ -36,6 +36,9 @@ type TelegramMenuList = (Vec<(String, String)>, CommandScope, Option<&'static st
 ///
 /// `None` is a channel the deployment does not run: nothing is sent for it
 /// and nothing is logged.
+///
+/// LIMITATION(registre#1674): `ChannelMenuTargets` has no `WhatsApp` target, so nothing
+/// publishes the `/` command list `WhatsApp` shows (`conversational_automation`).
 #[derive(Debug, Clone, Default)]
 pub struct ChannelMenuTargets {
     /// The Telegram bot whose `/` menu and description are published.
@@ -149,7 +152,8 @@ pub fn channel_menu_publish(
         // the same one, unmarked.
         // `publish_messenger_menu` and `publish_telegram_commands` are
         // the only always-on menu publishers, by decision: elsewhere
-        // `/help` is the menu. WhatsApp has no persistent-menu API; Slack's
+        // `/help` is the menu. WhatsApp is a registered gap, not a
+        // decision: see `ChannelMenuTargets`. Slack's
         // only programmatic path replaces the whole app config
         // app-globally behind a 12h human-bootstrapped token, and its
         // slash commands cannot be invoked in threads, where the

@@ -4,8 +4,14 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
 
+use std::collections::BTreeSet;
+
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
+
+use crate::ai_policy::SourceClass;
+
+use super::UserPhysiologicalProfile;
 
 /// The origin a value carries when the athlete stated it without naming the
 /// test or the source behind it. It attributes nothing, so a sentence that
@@ -333,6 +339,106 @@ impl ThresholdStatedOn {
     }
 }
 
+impl AnchorOrigin {
+    /// The trust label's class of an anchor of this origin: the athlete's
+    /// own statement, or — imported, estimated or promoted from measurements
+    /// whose service the anchor does not record — the class that claims the
+    /// least.
+    #[must_use]
+    pub const fn source_class(self) -> SourceClass {
+        match self {
+            Self::Athlete => SourceClass::PatientEntered,
+            Self::Imported | Self::Estimated | Self::Promoted => SourceClass::ThirdPartyApp,
+        }
+    }
+}
+
+impl MetricProvenance {
+    /// The trust label's class of a value the athlete stated with this
+    /// provenance (`set_physiology`): theirs, whatever test they named, unless
+    /// their human coach set it ([`COACH_STATED_ORIGIN`]), which is not the
+    /// athlete's own record and claims the least.
+    #[must_use]
+    pub fn stated_class(&self) -> SourceClass {
+        if self.origin.as_deref() == Some(COACH_STATED_ORIGIN) {
+            SourceClass::ThirdPartyApp
+        } else {
+            SourceClass::PatientEntered
+        }
+    }
+}
+
+impl UserPhysiologicalProfile {
+    /// Where the values this profile holds came from, for the trust label of
+    /// a result that served it (owl phase 1); empty when it holds none.
+    ///
+    /// - A threshold with an import entry ([`ThresholdProvenance`]) is a
+    ///   provider's setting, another application's; one without is the
+    ///   athlete's own.
+    /// - An anchor takes its origin's class ([`AnchorOrigin::source_class`]),
+    ///   the athlete's when none was recorded.
+    /// - A critical-power or critical-speed value takes its stated
+    ///   provenance's class ([`MetricProvenance::stated_class`]).
+    /// - The lactate fraction, age and training years are written only by
+    ///   `set_physiology`, so they are the athlete's. A sex is the athlete's
+    ///   or what a provider reported of them, which the row does not tell
+    ///   apart, so it claims the least.
+    ///
+    /// Zones are derived by Dravr from the thresholds, and the sport and
+    /// fitness level are defaults every row carries; none adds a class.
+    #[must_use]
+    pub fn source_classes(&self) -> BTreeSet<SourceClass> {
+        let imported = &self.threshold_provenance;
+        let thresholds = [
+            (self.ftp_watts.is_some(), imported.ftp_watts.is_some()),
+            (self.threshold_hr.is_some(), imported.threshold_hr.is_some()),
+            (self.max_hr.is_some(), imported.max_hr.is_some()),
+            (
+                self.threshold_pace_sec_per_km.is_some(),
+                imported.threshold_pace_sec_per_km.is_some(),
+            ),
+        ]
+        .into_iter()
+        .filter(|(held, _)| *held)
+        .map(|(_, imported)| {
+            if imported {
+                SourceClass::ThirdPartyApp
+            } else {
+                SourceClass::PatientEntered
+            }
+        });
+        let stamps = &self.anchor_provenance;
+        let anchors = [
+            AnchorProvenance::origin_of(self.resting_hr.is_some(), stamps.resting_hr.as_ref()),
+            AnchorProvenance::origin_of(self.vo2_max.is_some(), stamps.vo2_max.as_ref()),
+            AnchorProvenance::origin_of(self.weight.is_some(), stamps.weight.as_ref()),
+        ]
+        .into_iter()
+        .flatten()
+        .map(AnchorOrigin::source_class);
+        let stated = [
+            self.critical_power_watts.as_ref().map(|v| &v.provenance),
+            self.w_prime_joules.as_ref().map(|v| &v.provenance),
+            self.critical_speed_mps.as_ref().map(|v| &v.provenance),
+            self.d_prime_meters.as_ref().map(|v| &v.provenance),
+        ]
+        .into_iter()
+        .flatten()
+        .map(MetricProvenance::stated_class);
+        let athletes_own = (self.lactate_threshold_percentage.is_some()
+            || self.age.is_some()
+            || self.training_experience_years.is_some())
+        .then_some(SourceClass::PatientEntered);
+        let reported_sex = self.sex.is_some().then_some(SourceClass::ThirdPartyApp);
+        thresholds
+            .chain(anchors)
+            .chain(stated)
+            .chain(athletes_own)
+            .chain(reported_sex)
+            .collect()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::error::Error;
@@ -533,5 +639,117 @@ mod tests {
             "bug: the stamp does not round-trip"
         );
         Ok(())
+    }
+
+    mod source_classes {
+        use std::collections::BTreeSet;
+
+        use uuid::Uuid;
+
+        use super::super::*;
+        use crate::ai_policy::SourceClass::{PatientEntered, ThirdPartyApp};
+        use crate::models::{PhysiologicalSex, SportType};
+
+        fn profile() -> UserPhysiologicalProfile {
+            UserPhysiologicalProfile::new(Uuid::nil(), SportType::Run)
+        }
+
+        fn provenance(origin: &str) -> MetricProvenance {
+            MetricProvenance {
+                kind: MeasurementKind::Measured,
+                origin: Some(origin.to_owned()),
+                as_of: None,
+            }
+        }
+
+        #[test]
+        fn a_profile_holding_nothing_names_no_source() {
+            assert!(
+                profile().source_classes().is_empty(),
+                "a fresh profile's defaults add no class"
+            );
+        }
+
+        #[test]
+        fn a_threshold_is_the_athletes_unless_a_provider_imported_it() {
+            let mut held = profile();
+            held.ftp_watts = Some(285);
+            assert_eq!(
+                held.source_classes(),
+                BTreeSet::from([PatientEntered]),
+                "an FTP with no import entry is the athlete's"
+            );
+            held.threshold_provenance.ftp_watts = Some(MetricProvenance {
+                kind: MeasurementKind::Estimated,
+                origin: Some("intervals.icu".to_owned()),
+                as_of: None,
+            });
+            assert_eq!(
+                held.source_classes(),
+                BTreeSet::from([ThirdPartyApp]),
+                "an imported FTP is the provider's setting"
+            );
+        }
+
+        #[test]
+        fn an_anchor_takes_its_origins_class() {
+            let mut held = profile();
+            held.resting_hr = Some(46);
+            assert_eq!(
+                held.source_classes(),
+                BTreeSet::from([PatientEntered]),
+                "an anchor stored before origins is the athlete's own"
+            );
+            for origin in [
+                AnchorOrigin::Imported,
+                AnchorOrigin::Estimated,
+                AnchorOrigin::Promoted,
+            ] {
+                held.anchor_provenance.resting_hr = Some(AnchorStamp {
+                    origin,
+                    as_of: None,
+                });
+                assert_eq!(
+                    held.source_classes(),
+                    BTreeSet::from([ThirdPartyApp]),
+                    "{origin:?}"
+                );
+            }
+        }
+
+        #[test]
+        fn a_stated_value_is_the_athletes_unless_their_coach_set_it() {
+            let mut held = profile();
+            held.critical_power_watts = Some(ProvenancedValue::new(312, provenance("lab")));
+            assert_eq!(
+                held.source_classes(),
+                BTreeSet::from([PatientEntered]),
+                "a value the athlete stated from a lab test is theirs"
+            );
+            held.critical_power_watts =
+                Some(ProvenancedValue::new(312, provenance(COACH_STATED_ORIGIN)));
+            assert_eq!(
+                held.source_classes(),
+                BTreeSet::from([ThirdPartyApp]),
+                "a value their coach set claims the least"
+            );
+        }
+
+        #[test]
+        fn a_sex_claims_the_least_and_age_is_the_athletes() {
+            let mut held = profile();
+            held.age = Some(31);
+            assert_eq!(
+                held.source_classes(),
+                BTreeSet::from([PatientEntered]),
+                "an age is the athlete's"
+            );
+            held.sex = Some(PhysiologicalSex::Female);
+            assert_eq!(
+                held.source_classes(),
+                BTreeSet::from([PatientEntered, ThirdPartyApp]),
+                "a sex claims the least beside the athlete's age"
+            );
+        }
     }
 }

@@ -771,6 +771,58 @@ test.describe('Settings Page - User Mode', () => {
     });
   });
 
+  test('a Garmin reconnect stopped at a provider challenge offers the OAuth, opened in a new tab by the click (carnet#1667)', async ({ page }) => {
+    // A dead grant reconnects through its sign-in first, a seat still free.
+    const testProviders = [
+      {
+        provider: 'sciotte_garmin',
+        display_name: 'Garmin',
+        requires_oauth: false,
+        connected: true,
+        connected_backend: 'sciotte_garmin',
+        needs_reauth: true,
+        recommended_backend: 'mirror',
+        seats_left: 5,
+        capabilities: ['activities', 'sleep', 'recovery', 'health'],
+        consent_required: false,
+      },
+    ];
+    await loginAndNavigateToSettings(page, false, { providers: testProviders });
+
+    await page.route('**/api/providers/sciotte/login', (route) =>
+      route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 'InvalidInput', message: 'Garmin asked for a check', details: { reason: 'login_challenge' } }),
+      }),
+    );
+    // The new tab's launch route, answered for every page of the context.
+    await page.context().route('**/api/oauth/authorize/**', (route) =>
+      route.fulfill({ status: 200, contentType: 'text/html', body: '<title>Garmin consent</title>' }),
+    );
+
+    await page.getByRole('button', { name: 'Data Providers' }).click();
+    await page.getByTestId('provider-connect-sciotte_garmin').click();
+    const dialog = page.getByRole('dialog');
+    await dialog.getByLabel(/email/i).fill('athlete@example.com');
+    await dialog.getByLabel('Password', { exact: true }).fill('not-a-real-password');
+    await dialog.getByRole('button', { name: 'Log In' }).click();
+
+    // The refusal is shown with its way out; nothing opens until the click.
+    const offer = dialog.getByTestId('sciotte-oauth-fallback');
+    await expect(offer).toHaveText('Continue with Garmin');
+    const tabOpened = page.context().waitForEvent('page');
+    await offer.click();
+    const tab = await tabOpened;
+    await tab.waitForLoadState();
+    expect(new URL(tab.url()).pathname).toBe('/api/oauth/authorize/garmin');
+    expect(new URL(tab.url()).searchParams.get('sign_in_blocked')).toBe('true');
+
+    // Settings stays where the athlete was, the window closed.
+    await expect(dialog).toBeHidden();
+    await expect(page.getByTestId('provider-row-sciotte_garmin')).toBeVisible();
+  });
+
   test('a TrainingPeaks row read through a coach names the coach and unlinks', async ({ page }) => {
     const testProviders = [
       {

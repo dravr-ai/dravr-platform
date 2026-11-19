@@ -1333,6 +1333,56 @@ jobs:
   # ---------------------------------------------------------------------------
   # Deploy to production (a dispatch on a v*.*.* tag)
   # ---------------------------------------------------------------------------
+  # A red deploy reaches a person: nothing else watches this workflow, and a
+  # red "Deploy: Build & Ship" once sat unnoticed for twelve hours. Posts to
+  # #dev-dravr-errors (by ID: a #name breaks when a room is renamed) with the
+  # server's own Slack bot, whose token the deployer may read. A skipped
+  # deploy (a red or scheduled CI run) is no failure and stays silent
+  # (JF, 2026-11-19).
+  notify-failure:
+    name: Notify Slack of a failed deploy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5  # one Slack post, ~15 s
+    needs: [resolve-sha, publish-server, publish-frontend, deploy-dev, tag-deployed-dev, sdk-smoke-dev, sign-in-smoke-dev, seed-dev]
+    if: ${{ failure() }}
+
+    steps:
+      - name: Authenticate to GCP (dev deployer)
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_DEV_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEV_DEPLOYER_SA }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Post to Slack
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          SHA: ${{ needs.resolve-sha.outputs.short_sha || github.event.workflow_run.head_sha || inputs.sha || github.sha }}
+          SLACK_SECRET: dravr-mcp-server-slack-bot-token
+          GCP_PROJECT: dravr-dev
+          # #dev-dravr-errors (dravr.slack.com): quieter than deploys, and where
+          # the drift monitor posts too (JF, 2026-11-19).
+          SLACK_CHANNEL: C0AP7HQNLH2
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set +e
+          token=$(gcloud secrets versions access latest --secret="$SLACK_SECRET" --project="$GCP_PROJECT" 2>/dev/null)
+          if [ -z "$token" ]; then
+            echo "::warning::Notify Slack: could not read $SLACK_SECRET; the red run is the only alert."
+            exit 0
+          fi
+          failed=$(jq -r '[to_entries[] | select(.value.result == "failure") | .key] | join(", ")' <<<"$NEEDS")
+          text=":rotating_light: Deploy to dev failed for ${SHA:0:9} (${failed:-unknown job}). Dev is still on the last good revision unless deploy-dev itself failed mid-roll. <$RUN_URL|View the run>"
+          payload=$(jq -n --arg ch "$SLACK_CHANNEL" --arg tx "$text" '{channel:$ch,text:$tx,unfurl_links:false}')
+          resp=$(curl -sS -X POST https://slack.com/api/chat.postMessage \
+            -H "Authorization: Bearer $token" \
+            -H "Content-type: application/json; charset=utf-8" \
+            --data "$payload")
+          grep -q '"ok":true' <<<"$resp" || echo "::warning::Notify Slack: chat.postMessage did not return ok:true -> $resp"
+          exit 0
+
   deploy-prod:
     name: Deploy to Production
     runs-on: ubuntu-latest

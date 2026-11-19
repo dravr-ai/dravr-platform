@@ -170,7 +170,7 @@ export function ConnectionsScreen() {
     return () => clearTimeout(timer);
   }, [justConnected]);
 
-  const handleConnect = async (providerId: string, providerName: string, tosConsent = false) => {
+  const handleConnect = async (providerId: string, providerName: string, tosConsent = false, signInBlocked = false) => {
     // The row the authorization belongs to: `garmin` and `strava` land on the
     // card of their sign-in backend, whose row shows the spinner.
     const cardKey = cardForSlug(providerId, providers)?.provider ?? providerId;
@@ -184,7 +184,7 @@ export function ConnectionsScreen() {
 
       // Call the mobile OAuth init endpoint which returns the authorization URL
       // and includes the redirect URL in the OAuth state for callback handling
-      const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent });
+      const oauthResponse = await oauthApi.initMobileOAuth(providerId, returnUrl, { tosConsent, signInBlocked });
 
       // Open OAuth in an in-app browser (ASWebAuthenticationSession on iOS)
       // The returnUrl is watched for redirects to close the browser automatically
@@ -370,7 +370,9 @@ export function ConnectionsScreen() {
   const fallBackToOAuth = (provider: SciotteTarget) => () => {
     const card = cardForSlug(provider, providers);
     signIn.close();
-    void handleConnect(provider, card?.display_name ?? provider);
+    // The sign-in could not complete, a reconnect's included: the server must
+    // not turn this start back into that sign-in (carnet#1667).
+    void handleConnect(provider, card?.display_name ?? provider, false, true);
   };
 
   /** The connect `startConnect` resumes once any OAuth notice is accepted. */

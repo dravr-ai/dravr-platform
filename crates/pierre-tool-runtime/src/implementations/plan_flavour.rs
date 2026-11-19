@@ -643,7 +643,7 @@ impl RecommendPlanFlavourTool {
             .await?
             // A profile written from first-party-only data is withheld from an
             // external caller (carnet#769).
-            .filter(|profile| ai_scope::admit_derived(profile.transport_policy));
+            .filter(ai_scope::admit_profile);
         // The athlete's one season, whichever agent laid it: a taper or
         // heat agent recommending for a season agent's plan sees its goal.
         let plan = repos

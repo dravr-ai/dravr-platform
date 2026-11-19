@@ -34,6 +34,7 @@ import type {
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
   CoachSharing,
+  CoachSharingState,
   CoachReads,
   ClaimGroupCoachResponse,
   HeldGroupInviteResponse,
@@ -72,6 +73,7 @@ export type {
   CoachConsentsResponse,
   UpdateCoachConsentsRequest,
   CoachSharing,
+  CoachSharingState,
   CoachReads,
 };
 
@@ -218,14 +220,14 @@ export function createGroupsApi(axios: AxiosInstance) {
     },
 
     /** Whether the group's human coach sees the caller's training */
-    async getCoachSharing(groupId: string): Promise<CoachSharing> {
-      const response = await axios.get<CoachSharing>(ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId));
+    async getCoachSharing(groupId: string): Promise<CoachSharingState> {
+      const response = await axios.get<CoachSharingState>(ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId));
       return response.data;
     },
 
     /** The caller stops or resumes sharing their training with the group's human coach */
-    async updateCoachSharing(groupId: string, request: CoachSharing): Promise<CoachSharing> {
-      const response = await axios.put<CoachSharing>(
+    async updateCoachSharing(groupId: string, request: CoachSharing): Promise<CoachSharingState> {
+      const response = await axios.put<CoachSharingState>(
         ENDPOINTS.GROUPS.MY_COACH_SHARING(groupId),
         request,
       );

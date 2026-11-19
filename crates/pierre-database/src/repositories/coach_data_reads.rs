@@ -194,6 +194,18 @@ pub enum RecordedTransport {
     NotRecorded,
 }
 
+impl RecordedTransport {
+    /// Whether the read was served to a client outside Dravr's own surfaces —
+    /// the coach's outside assistant over MCP, A2A or an API key — so the
+    /// company running it received the data. Only a declared external
+    /// transport says so; an undeclared read and one recorded before the
+    /// transport was are not marked, as nothing shows where they went.
+    #[must_use]
+    pub const fn served_to_outside_client(self) -> bool {
+        matches!(self, Self::Served(transport) if !transport.is_first_party())
+    }
+}
+
 /// What a stored `transport` says a read was served over.
 ///
 /// # Errors
@@ -432,6 +444,25 @@ mod tests {
             CoachReadSurface::of_label("get_activities"),
             None,
             "bug: a tool name is no surface"
+        );
+    }
+
+    #[test]
+    fn only_a_read_served_over_an_external_transport_is_marked_as_outside() {
+        for transport in Transport::ALL {
+            assert_eq!(
+                RecordedTransport::Served(transport).served_to_outside_client(),
+                !transport.is_first_party(),
+                "bug: {transport:?} is marked by its class"
+            );
+        }
+        assert!(
+            !RecordedTransport::Undeclared.served_to_outside_client(),
+            "bug: an undeclared read shows nowhere it went"
+        );
+        assert!(
+            !RecordedTransport::NotRecorded.served_to_outside_client(),
+            "bug: a read from before the column shows nowhere it went"
         );
     }
 }

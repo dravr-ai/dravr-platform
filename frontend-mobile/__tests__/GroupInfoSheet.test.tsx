@@ -9,6 +9,7 @@ import { render, fireEvent, waitFor, act, within } from '@testing-library/react-
 import { Alert, Share } from 'react-native';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { CoachingGroup, GroupInvite, GroupMember, GroupRole } from '@pierre/shared-types';
+import { i18n } from '@pierre/i18n';
 
 const mockPush = jest.fn();
 jest.mock('expo-router', () => ({
@@ -167,9 +168,12 @@ describe('GroupInfoSheet', () => {
     (userApi.getCoachAccessRequest as jest.Mock).mockResolvedValue({ request: null });
     (groupsApi.getGroup as jest.Mock).mockResolvedValue(GROUP);
     mockGetCoachConsents.mockResolvedValue(coachConsents());
-    mockGetCoachSharing.mockResolvedValue({ consent: true });
+    mockGetCoachSharing.mockResolvedValue({ consent: true, assistant_notice_due: false });
     mockGetCoachReads.mockResolvedValue({ reads: [], retention_months: 12 });
-    mockUpdateCoachSharing.mockImplementation(async (_groupId: string, request: unknown) => request);
+    mockUpdateCoachSharing.mockImplementation(async (_groupId: string, request: { consent: boolean }) => ({
+      ...request,
+      assistant_notice_due: false,
+    }));
     (groupsApi.getPermissions as jest.Mock).mockResolvedValue({
       can_create: true,
       policy: 'everyone',
@@ -715,6 +719,65 @@ describe('GroupInfoSheet', () => {
     // Under it, the member's own record of what the coach read (carnet#1445).
     expect(await findByTestId('coach-read-log')).toBeTruthy();
     expect(mockGetCoachReads).toHaveBeenCalledWith('group-1');
+  });
+
+  // EFVP decision 9.2b: a sharing member who never answered the notice is told once,
+  // as the wellness widening is, and either answer is a coach-sharing write.
+  it("tells a sharing member who never answered of the coach's AI tools, and keeping it writes the sharing again", async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    mockGetCoachSharing.mockResolvedValue({ consent: true, assistant_notice_due: true });
+    const { findByTestId, getByTestId, queryByTestId } = renderSheet();
+
+    // In view as the sheet opens: the collapsed Settings is never opened first.
+    const notice = await findByTestId('coach-assistant-notice');
+    expect(queryByTestId('coach-sharing-switch')).toBeNull();
+    expect(within(notice).getByText(i18n.t('humanCoach.assistantNotice.title'))).toBeTruthy();
+    expect(within(notice).getByText(i18n.t('humanCoach.assistantNotice.body', { coach: 'Casey Coach' }))).toBeTruthy();
+    await act(async () => {
+      fireEvent.press(getByTestId('group-info-settings-toggle'));
+    });
+    // The sharing stands while the member decides.
+    expect(getByTestId('coach-sharing-switch')).toHaveProp('value', true);
+
+    await act(async () => {
+      fireEvent.press(within(notice).getByTestId('coach-assistant-notice-keep'));
+    });
+
+    expect(mockUpdateCoachSharing).toHaveBeenCalledWith('group-1', { consent: true });
+    await waitFor(() => expect(queryByTestId('coach-assistant-notice')).toBeNull());
+    expect(getByTestId('coach-sharing-switch')).toHaveProp('value', true);
+  });
+
+  it("stops sharing from the coach's AI tools notice, ending the coach's access with it", async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    mockGetCoachSharing.mockResolvedValue({ consent: true, assistant_notice_due: true });
+    const { findByTestId, getByTestId, queryByTestId } = renderSheet();
+
+    const notice = await findByTestId('coach-assistant-notice');
+    await act(async () => {
+      fireEvent.press(within(notice).getByTestId('coach-assistant-notice-stop'));
+    });
+    await act(async () => {
+      fireEvent.press(getByTestId('group-info-settings-toggle'));
+    });
+
+    expect(mockUpdateCoachSharing).toHaveBeenCalledWith('group-1', { consent: false });
+    await waitFor(() => expect(queryByTestId('coach-assistant-notice')).toBeNull());
+    await waitFor(() => expect(getByTestId('coach-sharing-switch')).toHaveProp('value', false));
+  });
+
+  it("tells nothing of the coach's AI tools to a member who already answered", async () => {
+    mockCallerId = 'user-phil';
+    (groupsApi.getGroup as jest.Mock).mockResolvedValue(COACHED_GROUP);
+    const { findByTestId, queryByTestId } = renderSheet();
+    await act(async () => {
+      fireEvent.press(await findByTestId('group-info-settings-toggle'));
+    });
+
+    expect(await findByTestId('coach-sharing-switch')).toBeTruthy();
+    expect(queryByTestId('coach-assistant-notice')).toBeNull();
   });
 
   it("offers the group's coach a way into each member's plan, and opens that thread", async () => {

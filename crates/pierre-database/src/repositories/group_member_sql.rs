@@ -77,6 +77,16 @@ pub(crate) const UPDATE_COACH_SHARING_CONSENT_SQL: &str = r"UPDATE coaching_grou
               coach_sharing_consent_at = $2
               WHERE group_id = $3 AND user_id = $4 AND left_at IS NULL";
 
+/// When a live member answered the notice of their coach's AI tools, NULL
+/// while they have not.
+pub(crate) const GET_ASSISTANT_NOTICE_ANSWERED_SQL: &str = r"SELECT assistant_notice_answered_at FROM coaching_group_members
+              WHERE group_id = $1 AND user_id = $2 AND left_at IS NULL";
+
+/// Record that a live member answered the notice of their coach's AI tools,
+/// at `$1`.
+pub(crate) const ANSWER_ASSISTANT_NOTICE_SQL: &str = r"UPDATE coaching_group_members SET assistant_notice_answered_at = $1
+              WHERE group_id = $2 AND user_id = $3 AND left_at IS NULL";
+
 /// A live member sets what their coach may do beyond reading their training:
 /// `$1` calendar write and `$2` wellness read, NULL to leave one as it
 /// stands. A consent whose value changes is stamped `$3`, and so is every

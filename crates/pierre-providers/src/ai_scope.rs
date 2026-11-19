@@ -64,7 +64,7 @@ use pierre_core::ai_policy::{
     filter_items, first_party_only, Exposure, ProviderTerms, WithConsent, Withheld,
 };
 use pierre_core::constants::oauth_providers::{
-    garmin_device, source_attribution, GARMIN_ATTRIBUTION,
+    garmin_device, source_attribution, source_class_of, GARMIN_ATTRIBUTION,
 };
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::{Activity, PlannedWorkout};
@@ -81,6 +81,8 @@ mod governed;
 mod human_coach;
 /// The provenance accumulator, and the group members it records (carnet#1174).
 mod provenance;
+/// Where served content came from, for a result's trust label (owl phase 1).
+mod source_classes;
 /// Provider-terms filtering of stored health records.
 mod stored_health;
 
@@ -91,6 +93,10 @@ pub use governed::AiGovernedProvider;
 pub use human_coach::for_human_coach;
 pub use provenance::{
     derived_member, note_member_read, reading_about, reading_members, sole, Provenance,
+};
+pub use source_classes::{
+    admit_agent_written, admit_profile, judging, note_agent_written, note_served_from,
+    note_source_classes, note_sport_anchors,
 };
 pub use stored_health::{filter_stored_health, StoredHealthRecord};
 
@@ -123,15 +129,9 @@ pub async fn tracking<F: Future>(provenance: Provenance, fut: F) -> F::Output {
     let enclosing = current_provenance();
     let output = PROVENANCE.scope(provenance.clone(), fut).await;
     if let Some(enclosing) = enclosing {
-        if provenance.policy().is_first_party_only() {
-            enclosing.mark();
-        }
-        if provenance.served_provider_data() {
-            enclosing.mark_provider_data();
-        }
-        provenance.attribute_to(&enclosing);
-        for member in provenance.members_read() {
-            enclosing.note_member(member);
+        provenance.pass_to(&enclosing);
+        for class in provenance.source_classes() {
+            enclosing.note_source_class(class);
         }
     }
     output
@@ -198,6 +198,9 @@ fn note_served(lookup: &dyn ProviderTerms, provider: &str, source: Option<&str>)
     // What it was recorded by, for the attribution its derivation owes
     // (carnet#521).
     note_attribution(source_attribution(source));
+    // Where it came from, for the trust label a result carries. Not under
+    // `unfiltered`, for the reason marking is not.
+    source_classes::note_source_class(source_class_of(provider));
 }
 
 /// Record `attribution` on the running derivation.
@@ -599,7 +602,7 @@ mod tests {
         );
     }
 
-    struct NolioOnly;
+    pub(super) struct NolioOnly;
 
     impl ProviderTerms for NolioOnly {
         fn ai_policy(&self, provider: &str) -> Option<&'static SourcePolicy> {
@@ -626,12 +629,12 @@ mod tests {
     }
 
     /// A Nolio account relaying one Garmin, one Strava and one Zepp session.
-    struct Relay {
+    pub(super) struct Relay {
         config: ProviderConfig,
     }
 
     impl Relay {
-        fn governed() -> Box<dyn FitnessProvider> {
+        pub(super) fn governed() -> Box<dyn FitnessProvider> {
             let relay = Self {
                 config: ProviderConfig {
                     name: "nolio".to_owned(),

@@ -76,7 +76,10 @@ FROM alpine:3.23
 # and c480933f7, which touched no frontend Docker file, with 10.48-r0 installed.
 # ca-certificates 20261020-r0 distrusts the compromised eMudhra intermediates
 # (announced 2026-10-19); the 10-01 layer predates it.
-ARG APK_SECURITY_EPOCH=2026-10-23
+# nginx 1.28.3-r8 closes nine HIGH/CRITICAL CVEs reported against 1.28.3-r7
+# (CVE-2026-121810, CVE-2026-123007 among them). Gated the 2026-11-19 dev deploy
+# of c49e540cc, which touched no frontend Docker file.
+ARG APK_SECURITY_EPOCH=2026-11-19
 
 # nginx (patched, fixes CVE-2026-9256) + gettext for envsubst (the official nginx
 # image bundled envsubst; plain alpine does not). apk upgrade patches the rest of

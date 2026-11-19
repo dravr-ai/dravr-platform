@@ -85,7 +85,7 @@ pub async fn load_nutrition_athlete(
             .await?
             // A profile written from first-party-only data is withheld from an
             // external caller (carnet#769).
-            .filter(|profile| ai_scope::admit_derived(profile.transport_policy))
+            .filter(ai_scope::admit_profile)
         else {
             continue;
         };

@@ -169,6 +169,11 @@ impl McpTool<dyn ToolRuntime> for ListCoachingPlaybooksTool {
             // A playbook learned from first-party-only data is withheld from
             // an external caller; the rest are served (carnet#769).
             ai_scope::retain_admitted(&mut playbooks, |playbook| playbook.transport_policy);
+            // A playbook is what the agent learned and wrote down, and the
+            // result's trust label says so.
+            if !playbooks.is_empty() {
+                ai_scope::note_agent_written();
+            }
 
             let entries: Vec<PlaybookEntry> = playbooks
                 .into_iter()

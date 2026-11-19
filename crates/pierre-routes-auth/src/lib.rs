@@ -91,6 +91,7 @@ mod connect_hosted_templates;
 /// The athlete's statutory data access requests and their letters.
 mod data_access_requests;
 mod data_export;
+mod dead_grant;
 mod email_verification;
 mod first_sync;
 /// The health backfill a provider connect starts.

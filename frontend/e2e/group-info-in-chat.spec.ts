@@ -155,17 +155,17 @@ const mockInvites = {
 const mockCoachReads = {
   retention_months: 12,
   reads: [
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z' },
-    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z' },
-    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z' },
-    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z' },
-    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z' },
-    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z' },
-    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z' },
-    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z' },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'wellness', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'coach_thread', data_class: 'training', read_at: '2026-11-12T14:05:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'get_activities', data_class: 'training', read_at: '2026-11-12T14:04:00Z', served_to_assistant: true },
+    { coach_name: 'Casey Coach', tool: 'plan_view', data_class: 'training', read_at: '2026-11-11T18:20:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'plan_command', data_class: 'training', read_at: '2026-11-11T07:45:00Z', served_to_assistant: false },
+    { coach_name: null, tool: 'roster', data_class: 'training', read_at: '2026-11-10T08:30:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_room', data_class: 'training', read_at: '2026-11-10T08:00:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_stats', data_class: 'training', read_at: '2026-11-09T19:10:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_report', data_class: 'training', read_at: '2026-11-09T19:05:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'group_health', data_class: 'training', read_at: '2026-11-09T19:00:00Z', served_to_assistant: false },
+    { coach_name: 'Casey Coach', tool: 'weekly_digest', data_class: 'training', read_at: '2026-11-09T13:00:00Z', served_to_assistant: false },
   ],
 };
 
@@ -753,7 +753,7 @@ test.describe('Group info — settings and consent', () => {
           await route.fulfill({
             status: 200,
             contentType: 'application/json',
-            body: JSON.stringify({ consent: true }),
+            body: JSON.stringify({ consent: true, assistant_notice_due: false }),
           });
         }
       });
@@ -786,6 +786,9 @@ test.describe('Group info — settings and consent', () => {
     await expect(rows).toHaveCount(mockCoachReads.reads.length);
     // A tool is named as it is.
     await expect(rows.nth(2).getByTestId('coach-read-tool')).toHaveText('get_activities');
+    // Only the read the server marked as served to the coach's outside AI tool says so.
+    await expect(log.getByTestId('coach-read-served-to-assistant')).toHaveCount(1);
+    await expect(rows.nth(2).getByTestId('coach-read-served-to-assistant')).toBeVisible();
     // A read the server records under a label of its own never shows the label.
     for (const [index, label] of [
       [0, 'coach_thread'],

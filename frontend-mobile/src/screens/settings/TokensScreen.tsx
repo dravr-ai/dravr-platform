@@ -10,6 +10,7 @@ import { userApi } from '../../services/api';
 import { useAuth } from '../../contexts/AuthContext';
 import type { McpToken } from '../../types';
 import { describeApiError } from '@pierre/ui-logic';
+import { CREDENTIAL_CONSENT_KEYS } from '@pierre/shared-constants';
 
 /**
  * Manage the MCP tokens this account has minted.
@@ -219,6 +220,10 @@ export function TokensScreen() {
               onChangeText={setNewTokenName}
               testID="new-token-name"
             />
+            {/* Always in view beside the action: creating the token after it is the express consent. */}
+            <Text className="text-xs text-text-secondary mt-4" testID="mcp-token-consent">
+              {t(CREDENTIAL_CONSENT_KEYS.mcpToken)}
+            </Text>
             <View className="flex-row gap-3 mt-6">
               <View className="flex-1">
                 <Button title={t('common.cancel')} variant="ghost" onPress={closeCreateSheet} fullWidth testID="create-token-cancel" />

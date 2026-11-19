@@ -42,7 +42,7 @@ use crate::coach_athlete_reads_test::{
 };
 
 /// The athlete's run whose samples carry a GPS track and altitude.
-const ROUTE_RUN: &str = "athlete-run-2";
+pub(crate) const ROUTE_RUN: &str = "athlete-run-2";
 /// A session only the athlete's Garmin holds: no stored copy answers it.
 const GARMIN_ONLY_SESSION: &str = "garmin-only-session";
 
@@ -174,7 +174,7 @@ fn route_samples() -> TimeSeriesData {
 /// provider profiles in the cache, a token and a watch each, each one's
 /// physiology, a goal of the athlete's, a GPS track on one of their runs, and
 /// an athlete's connection whose session is gone.
-async fn world() -> (Fixture, String) {
+pub(crate) async fn world() -> (Fixture, String) {
     let f = fixture().await;
     let repos = f.repos();
     let cache = f.res.data().cache().clone();
@@ -938,7 +938,7 @@ async fn a_coachs_route_read_answers_the_summary_and_stores_nothing_for_the_athl
 // ── athlete= over MCP ────────────────────────────────────────────────────
 
 /// Every read this phase scopes, with arguments that read the athlete.
-fn phase_two_reads(goal: &str) -> Vec<(&'static str, Value)> {
+pub(crate) fn phase_two_reads(goal: &str) -> Vec<(&'static str, Value)> {
     let by_id = json!({ "provider": UPLOAD, "activity_id": ATHLETE_STREAM_RUN });
     vec![
         ("get_athlete", json!({ "provider": UPLOAD })),

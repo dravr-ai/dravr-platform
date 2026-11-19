@@ -18,6 +18,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{Datelike, Duration, NaiveDate, Utc, Weekday};
+use pierre_core::ai_policy::SourceClass;
 use pierre_core::errors::{AppError, AppResult};
 use pierre_core::models::periodization::PhaseKind;
 use pierre_core::models::{
@@ -30,6 +31,7 @@ use pierre_core::transport::TransportPolicy;
 use pierre_database::repositories::training_plans::PlanAuthor;
 use pierre_database::repositories::{PlanOutlineInput, PlanWeekInput, SavePlanBundleParams};
 use pierre_memory::training_plans::{GoalRace, PlanPhase, PlannedDay, RacePriority};
+use pierre_providers::ai_scope::{self, Provenance};
 use pierre_providers::core::{
     ActivityQueryParams, FitnessProvider, OAuth2Credentials, ProviderConfig,
 };
@@ -668,6 +670,46 @@ async fn a_disconnected_choice_is_passed_over_with_a_note() -> Result<()> {
     assert!(
         read_note.contains(MOCK_A) && read_note.contains("not connected"),
         "{read_note}"
+    );
+    Ok(())
+}
+
+/// owl phase 1 (carnet#1539): what `get_training_plan` serves of an agent's
+/// writing is recorded as such, a calendar entry with no live plan and the
+/// live plan alike, and nothing is when it serves neither.
+#[tokio::test]
+async fn the_plan_read_records_each_agent_written_thing_it_serves() -> Result<()> {
+    let fx = fixture(&[MOCK_A]).await?;
+    let agent_written =
+        |read: &Provenance| read.source_classes().contains(&SourceClass::AgentWritten);
+
+    let bare = Provenance::new();
+    ai_scope::tracking(bare.clone(), fx.ok("get_training_plan", json!({}))).await?;
+    assert!(
+        !agent_written(&bare),
+        "no plan, no entry: nothing an agent wrote"
+    );
+
+    fx.ok(
+        "prescribe_workout",
+        json!({ "date": prescription_date(), "session": session(), "provider": MOCK_A }),
+    )
+    .await?;
+    let entry = Provenance::new();
+    let read = ai_scope::tracking(entry.clone(), fx.ok("get_training_plan", json!({}))).await?;
+    assert!(read["plan"].is_null(), "still no live plan: {read}");
+    assert!(
+        agent_written(&entry),
+        "the calendar entry is an agent's prescription: {read}"
+    );
+
+    fx.save_plan().await;
+    let live = Provenance::new();
+    let read = ai_scope::tracking(live.clone(), fx.ok("get_training_plan", json!({}))).await?;
+    assert!(!read["plan"].is_null(), "the plan is live: {read}");
+    assert!(
+        agent_written(&live),
+        "the live plan is an agent's writing: {read}"
     );
     Ok(())
 }

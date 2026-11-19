@@ -298,6 +298,9 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                         cached_metadata(context.user_id, tenant_id_str.as_ref()),
                     ),
                 )?;
+                // The provider's profile of the athlete, read outside every
+                // list filter: the result's trust label names its source.
+                ai_scope::note_served_from(&provider_name);
                 return handler_bridge::map_universal_response("get_athlete", Ok(response));
             }
 
@@ -381,6 +384,9 @@ impl McpTool<dyn ToolRuntime> for GetAthleteTool {
                 },
             )
             .await?;
+            if response.success {
+                ai_scope::note_served_from(&provider_name);
+            }
             handler_bridge::map_universal_response("get_athlete", Ok(response))
         }
         .await;

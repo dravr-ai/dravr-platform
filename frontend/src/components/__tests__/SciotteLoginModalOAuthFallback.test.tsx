@@ -1,5 +1,5 @@
-// ABOUTME: A sign-in-first card's account sign-in that cannot complete hands over to the provider's OAuth (carnet#1477)
-// ABOUTME: Pins the reasons that fall back, the wrong credentials that never do, and a window offered no fallback
+// ABOUTME: A sign-in that cannot complete offers the provider's OAuth, started by the athlete's click (carnet#1477, carnet#1667)
+// ABOUTME: Pins the reasons that offer it, the wrong credentials that never do, and a window offered no fallback
 
 // SPDX-License-Identifier: MIT OR Apache-2.0
 // Copyright (c) 2026 dravr.ai
@@ -54,15 +54,20 @@ describe('SciotteLoginModal — the OAuth a failed sign-in falls back to', () =>
   });
 
   for (const reason of ['sign_in_unavailable', 'login_challenge']) {
-    it(`hands a ${reason} refusal to the provider's OAuth instead of showing it`, async () => {
+    it(`offers the provider's OAuth on a ${reason} refusal, started by the athlete's click`, async () => {
       sciotteLogin.mockRejectedValue(refusal(reason));
       const onFallBackToOAuth = vi.fn();
       renderModal(onFallBackToOAuth);
 
       await signIn();
 
-      await vi.waitFor(() => expect(onFallBackToOAuth).toHaveBeenCalledTimes(1));
-      expect(screen.queryByRole('button', { name: /try again|retry/i })).not.toBeInTheDocument();
+      // A click, never on its own: the OAuth opens in a new tab, which a
+      // browser only lets a click open.
+      const offer = await screen.findByTestId('sciotte-oauth-fallback');
+      expect(offer).toHaveTextContent('Continue with Garmin');
+      expect(onFallBackToOAuth).not.toHaveBeenCalled();
+      await userEvent.setup().click(offer);
+      expect(onFallBackToOAuth).toHaveBeenCalledTimes(1);
     });
   }
 
@@ -74,6 +79,7 @@ describe('SciotteLoginModal — the OAuth a failed sign-in falls back to', () =>
     await signIn();
 
     expect(await screen.findByRole('button', { name: /try again|retry/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('sciotte-oauth-fallback')).not.toBeInTheDocument();
     expect(onFallBackToOAuth).not.toHaveBeenCalled();
   });
 
@@ -85,6 +91,7 @@ describe('SciotteLoginModal — the OAuth a failed sign-in falls back to', () =>
     await signIn();
 
     expect(await screen.findByRole('button', { name: /try again|retry|start again/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('sciotte-oauth-fallback')).not.toBeInTheDocument();
     expect(onFallBackToOAuth).not.toHaveBeenCalled();
   });
 
@@ -95,5 +102,6 @@ describe('SciotteLoginModal — the OAuth a failed sign-in falls back to', () =>
     await signIn();
 
     expect(await screen.findByRole('button', { name: /try again|retry/i })).toBeInTheDocument();
+    expect(screen.queryByTestId('sciotte-oauth-fallback')).not.toBeInTheDocument();
   });
 });

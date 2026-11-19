@@ -286,7 +286,7 @@ describe('createGroupHooks — writes', () => {
 
   it('shows the answer to a coach-sharing change at once, under the same key', async () => {
     const { api, client, wrapper, hooks } = ctx;
-    api.updateCoachSharing.mockResolvedValue({ consent: false });
+    api.updateCoachSharing.mockResolvedValue({ consent: false, assistant_notice_due: false });
 
     const { result } = renderHook(() => hooks.useSetCoachSharing('g1'), { wrapper });
     await act(async () => {
@@ -294,6 +294,6 @@ describe('createGroupHooks — writes', () => {
     });
 
     expect(api.updateCoachSharing).toHaveBeenCalledWith('g1', { consent: false });
-    expect(client.getQueryData(['groups', 'g1', 'coach-sharing'])).toEqual({ consent: false });
+    expect(client.getQueryData(['groups', 'g1', 'coach-sharing'])).toEqual({ consent: false, assistant_notice_due: false });
   });
 });

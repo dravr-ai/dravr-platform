@@ -88,6 +88,11 @@ pub(super) async fn calendar_block(
     // An entry pushed from first-party-only data is withheld from an external
     // caller; the rest are served (carnet#769).
     ai_scope::retain_admitted(&mut live, |row| row.transport_policy);
+    // Each entry is a plan day or a prescription an agent wrote, and a result
+    // serving one is labelled so.
+    if !live.is_empty() {
+        ai_scope::note_agent_written();
+    }
     let desired = for_calendar(
         desired_entries(user_id, active_weeks, today, &fueling),
         calendar_holds_week_notes(context.resources.provider_registry(), &target),

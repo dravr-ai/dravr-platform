@@ -63,8 +63,6 @@ workflows:
         - 'dtolnay/rust-toolchain@1.100.0'
         - 'lumbroso-commons/free-disk-space@v2'
         - 'swatinem/rust-cache@v2'
-    '.github/workflows/ci-verdict.yml':
-        - 'actions/checkout@v6'
     '.github/workflows/claude-health-probe.yml':
         - 'actions/checkout@v6'
         - 'actions/github-script@v9'
