@@ -25,7 +25,7 @@
 use bitflags::bitflags;
 
 use crate::runtime::ToolRuntime;
-use dravr_tronc::mcp::tool::McpTool;
+use dravr_tronc::mcp::tool::{McpTool, ToolCapabilities};
 
 bitflags! {
     /// The Guardian's blast-radius classification for a tool.
@@ -91,10 +91,7 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     /// `coach` arm serves a human coach (and an admin), every other tool
     /// serves everyone.
     fn audience(&self) -> Audience {
-        if self
-            .capabilities()
-            .contains(dravr_tronc::mcp::tool::ToolCapabilities::ADMIN_ONLY)
-        {
+        if self.capabilities().contains(ToolCapabilities::ADMIN_ONLY) {
             Audience::Admin
         } else {
             Audience::Athlete

@@ -34,7 +34,7 @@ use crate::read_subject::ReadSubject;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
-use crate::security::{Audience, RuntimeTool};
+use crate::security::{Audience, RuntimeTool, SecurityLabels};
 use crate::tool_access::{
     coach_role_refusal, is_human_coach, withheld, Caller, CallerRole, Withheld,
 };
@@ -410,6 +410,15 @@ impl UniversalExecutor {
         Ok(None)
     }
 
+    /// Count a call that spends the turn's write budget as attempted.
+    fn note_write_attempt(&self, counts: bool, tenant: Option<Uuid>, turn_token: &str) {
+        if counts {
+            self.resources
+                .guardian_turns()
+                .record_write_attempt(&TurnKey::new(tenant, turn_token.to_owned()));
+        }
+    }
+
     /// What [`withheld`] answers for this call, rendered
     /// ([`render_withheld`]): `None` when the call may run.
     ///
@@ -654,11 +663,11 @@ impl UniversalExecutor {
         // Before every refusal below, so a write that any of them turns away
         // counts too: sending this turn's question again would try the same
         // thing on a fresh budget, and the refusal may no longer apply by then.
-        if writes_data || labels.is_irreversible() {
-            self.resources
-                .guardian_turns()
-                .record_write_attempt(&TurnKey::new(tenant_uuid, resolved_turn_token.clone()));
-        }
+        self.note_write_attempt(
+            counts_as_write(writes_data, labels),
+            tenant_uuid,
+            &resolved_turn_token,
+        );
 
         // The scope gate runs first, and is its own gate rather than an arm of
         // `authorization_refusal`: the two answer different questions and both
@@ -675,19 +684,18 @@ impl UniversalExecutor {
         // reads (carnet#1511), so a call is refused exactly what its caller's
         // listing leaves out, before anything the tool would read is looked
         // up.
+        //
+        // The coach's seats come next: in a group the caller coaches, their
+        // own data is not what the turn is about (carnet#742); in their thread
+        // about one athlete, nothing is filed on their own account
+        // (carnet#1070).
         if let Some(refusal) = self
             .access_refusal(tool.as_ref(), &tool_name, user_uuid, is_admin)
             .await?
-        {
-            return Ok(refusal);
-        }
-
-        // The coach's seats: in a group the caller coaches, their own data is
-        // not what the turn is about (carnet#742); in their thread about one
-        // athlete, nothing is filed on their own account (carnet#1070).
-        if let Some(refusal) = self
-            .seat
-            .refusal(self.resources.tool_registry(), &tool_name)
+            .or_else(|| {
+                self.seat
+                    .refusal(self.resources.tool_registry(), &tool_name)
+            })
         {
             return Ok(refusal);
         }
@@ -1190,6 +1198,12 @@ impl UniversalExecutor {
                 .record_block(turn_key, block);
         }
     }
+}
+
+/// Whether a call spends the turn's write budget: it writes data, or its
+/// effect cannot be undone.
+const fn counts_as_write(writes_data: bool, labels: SecurityLabels) -> bool {
+    writes_data || labels.is_irreversible()
 }
 
 /// The refusal [`withheld`]'s answer renders at the dispatch chokepoint.

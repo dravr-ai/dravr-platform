@@ -163,9 +163,10 @@ pub fn consent_offer(
 }
 
 /// Whether `member`'s relationship with the coach of `group` offers the
-/// coach's AI assistant including them in the roster tools: the group has a
-/// human coach, and it is not the member. No platform condition: the opt-in
-/// is about the coach's assistant, not a coaching platform.
+/// coach's AI assistant including them in the roster tools.
+///
+/// The group has a human coach, and it is not the member. No platform
+/// condition: the opt-in is about the coach's assistant, not a platform.
 #[must_use]
 pub fn assistant_read_offered(group: &CoachingGroup, member: Uuid) -> bool {
     group.coach_user_id.is_some_and(|coach| coach != member)
@@ -397,7 +398,7 @@ pub async fn set_coach_consents(
     let change = change.within(consent_offer(registry, group, member));
     let now = Utc::now();
     let group_id = group.id.to_string();
-    let mut updated = repos
+    let consents = repos
         .groups
         .set_coach_consents(
             &group_id,
@@ -408,13 +409,14 @@ pub async fn set_coach_consents(
         )
         .await?
         .ok_or_else(|| AppError::not_found("Group member"))?;
-    if let Some(granted) = change.assistant_read {
-        updated = repos
+    let updated = match change.assistant_read {
+        Some(granted) => repos
             .groups
             .set_coach_assistant_read(&group_id, member, granted, now)
             .await?
-            .ok_or_else(|| AppError::not_found("Group member"))?;
-    }
+            .ok_or_else(|| AppError::not_found("Group member"))?,
+        None => consents,
+    };
     info!(
         group_id = %group.id,
         member_user_id = %member,

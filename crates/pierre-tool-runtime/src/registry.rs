@@ -25,7 +25,7 @@ use pierre_mcp_schema::{JsonSchema, ToolSchema};
 
 use crate::chat_catalogue;
 use crate::read_subject::{athlete_property, DataClass, ATHLETE_ARGUMENT};
-use crate::security::{RuntimeTool, SecurityLabels, ToolReach};
+use crate::security::{Audience, RuntimeTool, SecurityLabels, ToolReach};
 use crate::tool_data::ToolData;
 use dravr_tronc::mcp::schema::{TaskSupport, Tool};
 use dravr_tronc::mcp::tool::ToolCapabilities;
@@ -394,14 +394,14 @@ impl ToolRegistry {
     }
 
     /// The schemas of every tool whose audience is everyone
-    /// ([`Audience::Athlete`](crate::security::Audience::Athlete)): what a
+    /// ([`Audience::Athlete`](Audience::Athlete)): what a
     /// listing falls back to when the tenant's catalogue cannot be read, the
     /// access predicate then run over it.
     #[must_use]
     pub fn athlete_audience_schemas(&self) -> Vec<ToolSchema> {
         self.tools
             .values()
-            .filter(|tool| tool.audience() == crate::security::Audience::Athlete)
+            .filter(|tool| tool.audience() == Audience::Athlete)
             .map(|tool| self.build_schema(tool))
             .collect()
     }

@@ -49,8 +49,9 @@ pub fn includes(membership: &GroupMember) -> bool {
         || (membership.coach_sharing_consent && membership.coach_consents.assistant_read)
 }
 
-/// What the coach's assistant reads beside a roster that left members out:
-/// the count, and that a member who still shares is read by name by the
+/// What the coach's assistant reads beside a roster that left members out.
+///
+/// The count, and that a member who still shares is read by name by the
 /// other tools (the counsel packet's count wording, 2026-11-15 §5.2).
 #[must_use]
 pub fn left_out_note(left_out: usize) -> String {
@@ -80,8 +81,9 @@ pub fn not_included_message(query: &str) -> String {
     )
 }
 
-/// What an admin who leads no active group reads from a coach tool
-/// (carnet#1511, Q24): there is no roster of theirs, and impersonating a
+/// What an admin who leads no active group reads from a coach tool.
+///
+/// Carnet#1511, Q24: there is no roster of theirs, and impersonating a
 /// coach, from Dravr's admin console (support sessions stay on the website,
 /// EFVP sign-off 2026-11-18), is how an admin sees a coach's roster as the
 /// coach does.
