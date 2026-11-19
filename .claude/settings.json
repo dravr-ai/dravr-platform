@@ -119,6 +119,11 @@
             "type": "command",
             "timeout": 10,
             "command": "[ -f scripts/setup/cargo-sweep-nightly.sh ] || exit 0; bash scripts/setup/cargo-sweep-nightly.sh guard"
+          },
+          {
+            "type": "command",
+            "timeout": 10,
+            "command": "[ -f .claude/skills/remote-clippy/hooks/guard.sh ] || exit 0; bash .claude/skills/remote-clippy/hooks/guard.sh"
           }
         ]
       }
