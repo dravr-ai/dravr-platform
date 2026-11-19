@@ -50,16 +50,15 @@ use pierre_core::transport::Transport;
 use pierre_database::repositories::CoachTools;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::rate_limiting::report_request_operation;
-use pierre_tool_runtime::coach_listing;
 use pierre_tool_runtime::context::AuthMethod;
 use pierre_tool_runtime::deployment_tools;
-use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::provider_offer::accept_no_provider_answer;
 use pierre_tool_runtime::protocol::{record_refused_admin_call, RefusedAdminCall};
 use pierre_tool_runtime::runtime::ToolRuntime;
 use pierre_tool_runtime::schema_canonical::to_canonical_value;
 use pierre_tool_runtime::scopes::missing_scope;
 use pierre_tool_runtime::task_cancellation::scoped_with_cancel_flag;
+use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use serde_json::{Map, Value};
 use tokio::task::{JoinError, JoinHandle};
 use tokio::time::{sleep, timeout};
@@ -81,7 +80,6 @@ use crate::constants::protocol::{server_name_multitenant, SERVER_VERSION};
 
 /// RFC 6750 / RFC 9728 challenges and the transport refusal an auth failure maps to
 mod auth_challenge;
-mod scope_listing;
 
 use auth_challenge::{auth_refusal, insufficient_scope_challenge};
 
@@ -679,26 +677,19 @@ impl PierreToolDispatcher {
                     .map(|t| t.tool_name)
                     .collect();
 
+                // Every enabled tool, the admin tools included: who is offered
+                // which is the access predicate's, run on the whole listing.
                 let mut schemas = self
                     .resources
                     .mcp
                     .tool_registry
                     .list_schemas_by_name_set(&enabled_names);
-                schemas.retain(|s| {
-                    self.resources
-                        .mcp
-                        .tool_registry
-                        .get(&s.name)
-                        .is_none_or(|tool| {
-                            !tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY)
-                        })
-                });
 
                 let uncatalogued = self
                     .resources
                     .mcp
                     .tool_registry
-                    .uncatalogued_user_schemas(&all_catalogued_names);
+                    .uncatalogued_schemas(&all_catalogued_names);
                 schemas.extend(uncatalogued);
                 // Each half comes out of the registry in name order, but the
                 // concatenation does not: re-sort so a non-admin `tools/list`
@@ -709,10 +700,13 @@ impl PierreToolDispatcher {
             }
             Err(e) => {
                 warn!(
-                    "tools/list: failed to get tenant tools for {}: {}, falling back to user-visible",
+                    "tools/list: failed to get tenant tools for {}: {}, falling back to the athlete tools",
                     tenant_id, e
                 );
-                self.resources.mcp.tool_registry.user_visible_schemas()
+                // The athlete tools alone, the access predicate run after: an
+                // admin or a coach on a failed catalogue read is offered no
+                // more than an athlete, which fails closed.
+                self.resources.mcp.tool_registry.athlete_audience_schemas()
             }
         }
     }
@@ -729,23 +723,11 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             // (`run_dispatch`), so such a caller — the stdio transport, which
             // carries no bearer — is offered nothing to invoke.
             (None, _) | (_, None) => Vec::new(),
-            // A global admin is listed the same public profile: this dispatcher
-            // only ever serves external transports. `ADMIN_ONLY` still gates a
-            // call that names an operator tool.
+            // The role decides what is offered of this listing, below.
             (Some(tenant_id), Some(user_id)) => {
                 self.tenant_filtered_schemas(tenant_id, Some(user_id)).await
             }
         };
-
-        // Every caller of this dispatcher is an MCP client outside Dravr's own
-        // surfaces, whatever its role or credential — the same declaration
-        // `route_tool_call` makes for its calls. A tool kept on Dravr's own
-        // surfaces is left out here and refused if it is called anyway.
-        first_party_tools::retain_served_over(
-            &self.resources.mcp.tool_registry,
-            &mut schemas,
-            Transport::McpHttp,
-        );
 
         // A tool this deployment can only fail is not offered.
         deployment_tools::retain_answerable(
@@ -754,23 +736,22 @@ impl ToolDispatcher<dyn ToolRuntime> for PierreToolDispatcher {
             state.config(),
         );
 
-        // The credential's grant narrows the listing too: a token holding
-        // `fitness:read` is shown no write tool, because the call path would
-        // refuse it with the very same derivation.
-        scope_listing::retain_granted(&self.resources.mcp.tool_registry, &mut schemas, &ctx.scopes);
-
-        // `athlete=` and the coach-only tools go to a group's human coach alone
-        // (carnet#1426). One coach lookup per listing, kept nowhere: `/mcp`
-        // holds no session and the list is `ttlMs: 0`, `cacheScope: private`.
-        // A caller with no user is listed nothing above and nothing here.
+        // Who is asking decides the rest (carnet#1511): every caller of this
+        // dispatcher is an MCP client outside Dravr's own surfaces, the same
+        // declaration `route_tool_call` makes for its calls; the credential's
+        // grant narrows it; and the role, read live from the user and kept
+        // nowhere, adds the coach tools for a human coach and every tool for
+        // an admin. `/mcp` holds no session and the list is `ttlMs: 0`,
+        // `cacheScope: private`. A caller with no user is listed nothing
+        // above, so nothing is resolved here.
         if let Some(user_id) = user_id {
-            let is_coach =
-                coach_listing::is_human_coach(&self.resources.common.repos, user_id).await;
-            coach_listing::retain_for_audience(
-                &self.resources.mcp.tool_registry,
-                &mut schemas,
-                is_coach,
-            );
+            let granted = OAuthScope::parse_granted(&ctx.scopes.join(" "));
+            let caller = Caller {
+                role: CallerRole::resolve(&self.resources.common.repos, user_id).await,
+                grant: &granted,
+                transport: Some(Transport::McpHttp),
+            };
+            tool_access::retain_offered(&self.resources.mcp.tool_registry, &mut schemas, &caller);
         }
 
         // A guided flow does not narrow this listing: it is the same whether or

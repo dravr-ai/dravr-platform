@@ -4617,6 +4617,7 @@ fn the_roster_overview_shares_only_the_roster_card_fields() {
             },
         ],
         truncated: false,
+        note: None,
     })
     .expect("serializes");
     assert!(validator.is_valid(&value), "roster overview:\n{value:#}");

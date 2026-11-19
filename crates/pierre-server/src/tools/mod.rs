@@ -58,9 +58,8 @@
 //! let mut registry = ToolRegistry::new();
 //! registry_builtin::register_builtin_tools(&mut registry);
 //!
-//! // List user-visible tools
-//! let is_admin = false;
-//! let schemas = registry.list_schemas_for_role(is_admin);
+//! // Every tool; who is offered which is `pierre_tool_runtime::tool_access`'s.
+//! let schemas = registry.all_schemas();
 //! ```
 
 // ============================================================================

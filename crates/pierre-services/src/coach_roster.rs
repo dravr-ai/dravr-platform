@@ -187,6 +187,11 @@ pub struct RosterMember {
     /// Their first live membership among the coach's groups: when they joined
     /// the coach, and through which group.
     pub joined: RosterJoin,
+    /// They allowed the coach's AI assistant to include them in the roster
+    /// tools through a group in which they share with the coach
+    /// ([`CoachConsents::assistant_read`](pierre_core::models::groups::CoachConsents::assistant_read),
+    /// carnet#1511).
+    pub assistant_read: bool,
 }
 
 /// When an athlete joined one of the coach's groups.
@@ -244,6 +249,26 @@ impl GatheredRoster {
                 .count();
         }
         self
+    }
+
+    /// The roster as the coach's AI assistant is served it by the roster
+    /// tools (carnet#1511): only the athletes who allowed it through a group
+    /// in which they share with the coach, each group counting only them, and
+    /// how many athletes were left out. A member who does not share is left
+    /// out with the others, never told apart from them (EFVP 9.4c).
+    #[must_use]
+    pub fn included_by_coach_assistant(mut self) -> (Self, usize) {
+        let before = self.members.len();
+        self.members.retain(|member| member.assistant_read);
+        let left_out = before - self.members.len();
+        for group in &mut self.groups {
+            group.athlete_count = self
+                .members
+                .iter()
+                .filter(|member| member.groups.iter().any(|held| held.id == group.id))
+                .count();
+        }
+        (self, left_out)
     }
 }
 
@@ -326,6 +351,7 @@ pub async fn gather_members(
                 } else {
                     None
                 };
+                entry.assistant_read |= includes_assistant(member);
                 if member.joined_at < entry.joined.at {
                     entry.joined = RosterJoin {
                         at: member.joined_at,
@@ -347,6 +373,7 @@ pub async fn gather_members(
                         at: member.joined_at,
                         group: group_ref.clone(),
                     },
+                    assistant_read: includes_assistant(member),
                 });
             }
         }
@@ -361,6 +388,12 @@ pub async fn gather_members(
         groups: summaries,
         members,
     })
+}
+
+/// Whether one membership lets the coach's AI assistant include the member in
+/// the roster tools: they share with the coach there and allowed it there.
+const fn includes_assistant(member: &GroupMember) -> bool {
+    member.coach_sharing_consent && member.coach_consents.assistant_read
 }
 
 /// When the member stopped sharing with the coach: the instant of their last
@@ -590,6 +623,7 @@ mod tests {
                         name: String::new(),
                     },
                 },
+                assistant_read: false,
             },
             name: name.to_owned(),
             last_cached_activity: last.map(|secs| DateTime::from_timestamp(secs, 0).unwrap()),

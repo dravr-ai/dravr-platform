@@ -34,6 +34,10 @@ use crate::read_subject::ReadSubject;
 use crate::reply_check;
 use crate::runtime::ToolRuntime;
 use crate::scopes::missing_scope;
+use crate::security::{Audience, RuntimeTool};
+use crate::tool_access::{
+    coach_role_refusal, is_human_coach, withheld, Caller, CallerRole, Withheld,
+};
 use dravr_cageux::config::intelligence::IntelligenceConfig;
 use dravr_tronc::mcp::tool::ToolCapabilities;
 use futures_util::future::Either;
@@ -367,16 +371,13 @@ impl UniversalExecutor {
 
     /// Pre-dispatch authorization refusals shared by every transport: the
     /// always-on tool-disable, per tenant and per user (S3, fail-closed on a
-    /// genuine lookup error)
-    /// and the `ADMIN_ONLY` defense-in-depth gate (S2). Returns `Some(refusal)`
+    /// genuine lookup error). Returns `Some(refusal)`
     /// to block in-band (a refusal the LLM adapts to — NOT a security block that
     /// abandons the turn), or `None` to proceed to the Guardian budget check.
     async fn authorization_refusal(
         &self,
         tool_name: &str,
         parties: Parties,
-        is_admin: bool,
-        admin_only: bool,
         provider_gate: ProviderGate<'_>,
     ) -> Result<Option<UniversalResponse>, ProtocolError> {
         // Tool-disable (absorbed `enforce_tool_allowlist`): an operator's
@@ -395,24 +396,6 @@ impl UniversalExecutor {
             return Ok(Some(refusal_response::tenant_disabled_response(tool_name)));
         }
 
-        // ADMIN_ONLY defense-in-depth: a future ADMIN_ONLY tool that forgets its
-        // inline `ctx.require_admin()` must not be silently reachable via
-        // MCP-direct / A2A. Reject with the same `ProtocolError` a tool body's
-        // own `require_admin` refusal is re-raised as (`PermissionDenied`, the
-        // 403 lane), so every transport and every admin-tool test sees one
-        // consistent authz shape — not a divergent in-band response. Denies by
-        // default when the admin lookup failed.
-        if admin_only && !is_admin {
-            warn!(
-                tool_name = %tool_name,
-                "admin-only tool denied for non-admin caller at the dispatch chokepoint"
-            );
-            return Err(ProtocolError::PermissionDenied {
-                tool_name: tool_name.to_owned(),
-                reason: "Admin access required".to_owned(),
-            });
-        }
-
         // The data sources asked of are the reader's: a coach's read of their
         // athlete needs the athlete's connection, not the coach's.
         if provider_gate.required {
@@ -425,6 +408,39 @@ impl UniversalExecutor {
         }
 
         Ok(None)
+    }
+
+    /// What [`withheld`] answers for this call, rendered
+    /// ([`render_withheld`]): `None` when the call may run.
+    ///
+    /// `is_admin` is the live role [`build_tool_context`] read. The coach flag
+    /// is read live too, and only where it can change the answer: a coach
+    /// tool called over an external transport by someone who is not an
+    /// admin. In Dravr's own app the coach tools' own gates decide.
+    async fn access_refusal(
+        &self,
+        tool: &dyn RuntimeTool,
+        tool_name: &str,
+        user_id: Uuid,
+        is_admin: bool,
+    ) -> Result<Option<UniversalResponse>, ProtocolError> {
+        let transport = ai_scope::effective_transport(self.transport);
+        let external = !transport.is_some_and(Transport::is_first_party);
+        let coach = external
+            && !is_admin
+            && tool.audience() == Audience::Coach
+            && is_human_coach(self.resources.repos(), user_id).await;
+        let caller = Caller {
+            role: CallerRole {
+                admin: is_admin,
+                coach,
+            },
+            grant: &self.scopes,
+            transport,
+        };
+        withheld(tool, &caller)
+            .map(|answer| render_withheld(tool_name, answer))
+            .transpose()
     }
 
     /// The `REQUIRES_PROVIDER` half of the pre-dispatch refusals.
@@ -605,12 +621,6 @@ impl UniversalExecutor {
             .tenant_id
             .as_deref()
             .and_then(|raw| Uuid::parse_str(raw).ok());
-        // Pre-dispatch authorization refusals — the always-on tenant tool-disable
-        // (S3, an in-band nudge the LLM adapts to) and the ADMIN_ONLY
-        // defense-in-depth gate (S2, a propagated `ProtocolError` matching the
-        // tool's own `ctx.require_admin()`). Extracted to a helper to keep this
-        // dispatch fn within the cognitive-complexity budget.
-        let admin_only = tool.capabilities().contains(ToolCapabilities::ADMIN_ONLY);
         let user_uuid = Uuid::parse_str(&request.user_id).map_err(|e| {
             ProtocolError::InternalError(format!("malformed user id in request: {e}"))
         })?;
@@ -642,16 +652,15 @@ impl UniversalExecutor {
         // First, because an unauthorized caller should not learn anything the
         // later refusals would tell them — a tenant's tool-disable config,
         // say — and because the credential's reach is the outermost question.
-        scope_refusal(&tool_name, tool.capabilities(), &self.scopes)?;
-
-        // A tool kept on Dravr's own surfaces is refused to an external caller
-        // before anything it would read is looked up — the same answer its
-        // absence from that caller's listing gives.
-        if let Some(refusal) = first_party_tools::refusal(
-            self.resources.tool_registry(),
-            &tool_name,
-            ai_scope::effective_transport(self.transport),
-        ) {
+        //
+        // Then the transport and the role, in the one predicate every listing
+        // reads (carnet#1511), so a call is refused exactly what its caller's
+        // listing leaves out, before anything the tool would read is looked
+        // up.
+        if let Some(refusal) = self
+            .access_refusal(tool.as_ref(), &tool_name, user_uuid, is_admin)
+            .await?
+        {
             return Ok(refusal);
         }
 
@@ -689,7 +698,7 @@ impl UniversalExecutor {
                 .filter(|s| !s.is_empty()),
         };
         if let Some(refusal) = self
-            .authorization_refusal(&tool_name, parties, is_admin, admin_only, provider_gate)
+            .authorization_refusal(&tool_name, parties, provider_gate)
             .await?
         {
             return Ok(refusal);
@@ -1165,32 +1174,49 @@ impl UniversalExecutor {
     }
 }
 
-/// Refuse a tool the caller's grant does not cover.
+/// The refusal [`withheld`]'s answer renders at the dispatch chokepoint.
 ///
-/// Required scopes are derived from the tool's own capability flags
-/// ([`required_scopes`](crate::scopes::required_scopes)), never from a table,
-/// so they cannot fall out of step with what the tool declares.
-///
-/// A [`ProtocolError`], because this is the transport-agnostic chokepoint every
-/// transport funnels through. The HTTP transport renders the same refusal as
-/// RFC 6750's 403 + `insufficient_scope` challenge before dispatch, reading
-/// this same derivation — one predicate, two renderings, no second source of
-/// truth, and a caller who slipped past the transport is still refused here.
-fn scope_refusal(
+/// - The grant does not cover the tool: a [`ProtocolError`], because this is
+///   the transport-agnostic chokepoint every transport funnels through. The
+///   HTTP transport renders the same answer as RFC 6750's 403 +
+///   `insufficient_scope` challenge before dispatch, reading the same
+///   derivation, and a caller who slipped past the transport is still refused
+///   here.
+/// - The transport keeps it in Dravr's own app: the in-band
+///   [`first_party_tools::refusal`], the answer its absence from the caller's
+///   listing gives.
+/// - An admin tool for a non-admin: the `PermissionDenied` a tool body's own
+///   `require_admin` refusal is re-raised as, so every transport sees one
+///   authz shape. Denies by default when the admin lookup failed.
+/// - A coach tool for an external caller who is neither a human coach nor an
+///   admin: the in-band [`coach_role_refusal`], never a scope challenge.
+fn render_withheld(
     tool_name: &str,
-    capabilities: ToolCapabilities,
-    granted: &[OAuthScope],
-) -> Result<(), ProtocolError> {
-    if let Some(missing) = missing_scope(granted, capabilities) {
-        warn!(
-            tool_name = %tool_name,
-            missing_scope = %missing,
-            "tool denied: the caller's grant does not cover it"
-        );
-        return Err(ProtocolError::PermissionDenied {
-            tool_name: tool_name.to_owned(),
-            reason: format!("the '{missing}' scope is required"),
-        });
+    withheld: Withheld,
+) -> Result<UniversalResponse, ProtocolError> {
+    match withheld {
+        Withheld::Scope(missing) => {
+            warn!(
+                tool_name = %tool_name,
+                missing_scope = %missing,
+                "tool denied: the caller's grant does not cover it"
+            );
+            Err(ProtocolError::PermissionDenied {
+                tool_name: tool_name.to_owned(),
+                reason: format!("the '{missing}' scope is required"),
+            })
+        }
+        Withheld::Transport => Ok(first_party_tools::refusal(tool_name)),
+        Withheld::Role(Audience::Admin) => {
+            warn!(
+                tool_name = %tool_name,
+                "admin-only tool denied for non-admin caller at the dispatch chokepoint"
+            );
+            Err(ProtocolError::PermissionDenied {
+                tool_name: tool_name.to_owned(),
+                reason: "Admin access required".to_owned(),
+            })
+        }
+        Withheld::Role(Audience::Coach | Audience::Athlete) => Ok(coach_role_refusal(tool_name)),
     }
-    Ok(())
 }

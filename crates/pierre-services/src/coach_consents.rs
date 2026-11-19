@@ -583,7 +583,10 @@ mod tests {
             assistant_read: Some(true),
             ..ConsentChange::default()
         };
-        assert!(opt_in.grants_any(), "an opt-in is a grant: it is held to the app");
+        assert!(
+            opt_in.grants_any(),
+            "an opt-in is a grant: it is held to the app"
+        );
         assert_eq!(opt_in.within(nothing), ConsentChange::default());
         let revokes = ConsentChange {
             calendar_write: Some(false),

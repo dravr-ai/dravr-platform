@@ -26,9 +26,6 @@ use bitflags::bitflags;
 
 use crate::runtime::ToolRuntime;
 use dravr_tronc::mcp::tool::McpTool;
-/// Re-exported so [`declare_security!`] can name it through `$crate` in the
-/// crates that expand it.
-pub use pierre_core::transport::TransportPolicy;
 
 bitflags! {
     /// The Guardian's blast-radius classification for a tool.
@@ -67,24 +64,41 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     /// The tool's Guardian security classification (see [`SecurityLabels`]).
     fn security_class(&self) -> SecurityLabels;
 
-    /// Where the tool may be listed and run: on every transport, or only on
-    /// Dravr's own surfaces ([`Transport::is_first_party`]).
+    /// Where the tool may be listed and run ([`ToolSurface`]): on every
+    /// transport, only on Dravr's own surfaces, or only in Dravr's own app
+    /// whoever asks.
     ///
-    /// The same [`TransportPolicy`] a provider declares for its data, read the
-    /// same way: a [`TransportPolicy::FirstPartyOnly`] tool is left out of an
-    /// external caller's listing and refused if it calls it anyway
-    /// ([`crate::first_party_tools`]). An MCP client, an A2A agent and an API
-    /// key are external; the web and mobile apps, linked messaging channels
-    /// and platform jobs are not.
+    /// Read by the one access predicate ([`crate::tool_access::withheld`]):
+    /// a [`ToolSurface::FirstPartyOnly`] tool is left out of an external
+    /// caller's listing and refused if it calls it anyway, unless the caller
+    /// is an admin whose grant holds `admin`; a [`ToolSurface::AppOnly`] tool
+    /// is withheld from every external caller. An MCP client, an A2A agent
+    /// and an API key are external; the web and mobile apps, linked
+    /// messaging channels and platform jobs are not.
     ///
-    /// Defaults to [`TransportPolicy::AnyTransport`]: a tool is listed and run
-    /// on every transport unless it says otherwise. A tool opts in through
-    /// [`declare_security!`](crate::declare_security)'s `first_party_only`
-    /// arm, beside its security labels.
+    /// Defaults to [`ToolSurface::AnyTransport`]. A tool opts in through
+    /// [`declare_security!`](crate::declare_security)'s `first_party_only` or
+    /// `app_only` arm, beside its security labels.
+    fn surface(&self) -> ToolSurface {
+        ToolSurface::AnyTransport
+    }
+
+    /// Who the tool serves ([`Audience`]), the role axis of
+    /// [`crate::tool_access::withheld`].
     ///
-    /// [`Transport::is_first_party`]: pierre_core::transport::Transport::is_first_party
-    fn transport_policy(&self) -> TransportPolicy {
-        TransportPolicy::AnyTransport
+    /// Derived, never listed: an `ADMIN_ONLY` tool serves admins, a tool
+    /// declared through [`declare_security!`](crate::declare_security)'s
+    /// `coach` arm serves a human coach (and an admin), every other tool
+    /// serves everyone.
+    fn audience(&self) -> Audience {
+        if self
+            .capabilities()
+            .contains(dravr_tronc::mcp::tool::ToolCapabilities::ADMIN_ONLY)
+        {
+            Audience::Admin
+        } else {
+            Audience::Athlete
+        }
     }
 
     /// Whether the tool can only fail on a deployment holding no USDA key
@@ -93,15 +107,36 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
     fn requires_food_database(&self) -> bool {
         false
     }
+}
 
-    /// Whether the tool serves a group's human coach and no one else
-    /// ([`crate::coach_listing`]). An external listing offers it only to a
-    /// user who coaches a group; the call keeps its own gate either way. A
-    /// tool opts in through [`declare_security!`](crate::declare_security)'s
-    /// `coach_only` arm.
-    fn coach_only(&self) -> bool {
-        false
-    }
+/// Where a tool may be listed and run, by the transport a call is served
+/// over and, for one value, the caller's role.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToolSurface {
+    /// Every transport.
+    #[default]
+    AnyTransport,
+    /// Dravr's own surfaces, and an admin's external connection whose grant
+    /// holds `admin` (carnet#1511, Q14 and Q25).
+    FirstPartyOnly,
+    /// Dravr's own surfaces only, whoever asks: every effect the tool has is
+    /// one an external transport refuses for everyone (carnet#1533), so
+    /// listing it externally would offer a call that can only be refused.
+    AppOnly,
+}
+
+/// Who a tool serves: the role axis of the access predicate
+/// ([`crate::tool_access`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Audience {
+    /// Everyone who signs in: the athlete tools.
+    Athlete,
+    /// A human coach who leads an active group, and an admin: the roster
+    /// tools over other members' data. On Dravr's own surfaces the tool's own
+    /// gates decide (a peer reads a group member there too).
+    Coach,
+    /// An admin: the `ADMIN_ONLY` tools.
+    Admin,
 }
 
 /// Implement [`RuntimeTool`] for a tool type in one line, co-located with its
@@ -111,15 +146,18 @@ pub trait RuntimeTool: McpTool<dyn ToolRuntime> {
 /// declare_security!(GetActivitiesTool => empty);
 /// declare_security!(DeleteAgentTool   => IRREVERSIBLE);
 /// declare_security!(SetGoalTool       => empty);
-/// declare_security!(GetRosterOverviewTool => empty; first_party_only);
+/// declare_security!(GetRosterOverviewTool => empty; coach);
+/// declare_security!(RememberFactTool => empty; first_party_only);
 /// ```
 ///
-/// The trailing `; first_party_only` also declares the tool
-/// [`TransportPolicy::FirstPartyOnly`] ([`RuntimeTool::transport_policy`]):
-/// listed and run on Dravr's own surfaces only. `; food_database` declares
-/// that the tool needs the deployment's USDA key
-/// ([`RuntimeTool::requires_food_database`]). `; coach_only` declares that
-/// only a group's human coach can use it ([`RuntimeTool::coach_only`]).
+/// The trailing `; first_party_only` declares the tool
+/// [`ToolSurface::FirstPartyOnly`] ([`RuntimeTool::surface`]): listed and run
+/// on Dravr's own surfaces, and to an admin holding `admin` in their grant.
+/// `; app_only` declares [`ToolSurface::AppOnly`]: Dravr's own surfaces
+/// only, whoever asks. `; coach` declares that the tool serves a human coach
+/// ([`Audience::Coach`], [`RuntimeTool::audience`]). `; food_database`
+/// declares that the tool needs the deployment's USDA key
+/// ([`RuntimeTool::requires_food_database`]).
 ///
 /// `#[macro_export]` so the three pierre-server endurance tools (and test
 /// fakes) can classify themselves too — `$crate` resolves to
@@ -150,8 +188,8 @@ macro_rules! declare_security {
                 $crate::security::SecurityLabels::empty()
             }
 
-            fn transport_policy(&self) -> $crate::security::TransportPolicy {
-                $crate::security::TransportPolicy::FirstPartyOnly
+            fn surface(&self) -> $crate::security::ToolSurface {
+                $crate::security::ToolSurface::FirstPartyOnly
             }
         }
     };
@@ -161,19 +199,30 @@ macro_rules! declare_security {
                 $( $crate::security::SecurityLabels::$flag )|+
             }
 
-            fn transport_policy(&self) -> $crate::security::TransportPolicy {
-                $crate::security::TransportPolicy::FirstPartyOnly
+            fn surface(&self) -> $crate::security::ToolSurface {
+                $crate::security::ToolSurface::FirstPartyOnly
             }
         }
     };
-    ($t:ty => $($flag:ident)|+ ; coach_only $(,)?) => {
+    ($t:ty => empty ; coach $(,)?) => {
+        impl $crate::security::RuntimeTool for $t {
+            fn security_class(&self) -> $crate::security::SecurityLabels {
+                $crate::security::SecurityLabels::empty()
+            }
+
+            fn audience(&self) -> $crate::security::Audience {
+                $crate::security::Audience::Coach
+            }
+        }
+    };
+    ($t:ty => $($flag:ident)|+ ; app_only $(,)?) => {
         impl $crate::security::RuntimeTool for $t {
             fn security_class(&self) -> $crate::security::SecurityLabels {
                 $( $crate::security::SecurityLabels::$flag )|+
             }
 
-            fn coach_only(&self) -> bool {
-                true
+            fn surface(&self) -> $crate::security::ToolSurface {
+                $crate::security::ToolSurface::AppOnly
             }
         }
     };

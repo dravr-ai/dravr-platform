@@ -34,15 +34,14 @@ use pierre_core::transport::Transport;
 use pierre_mcp_transport::tenant_isolation::{extract_tenant_context_internal, log_tenant_failure};
 use pierre_middleware::McpAuthMiddleware;
 use pierre_runtime_context::A2ACtx;
-use pierre_tool_runtime::coach_listing;
 use pierre_tool_runtime::deployment_tools;
-use pierre_tool_runtime::first_party_tools;
 use pierre_tool_runtime::protocol::trust_labels::{self, TRUST_LABELS_META_KEY};
 use pierre_tool_runtime::protocol::{
     guardian_block_reason, record_refused_admin_call, RefusedAdminCall, UniversalRequest,
     UniversalResponse, UniversalToolExecutor,
 };
 use pierre_tool_runtime::runtime::ToolRuntime;
+use pierre_tool_runtime::tool_access::{self, Caller, CallerRole};
 use std::fmt;
 // Trait methods dispatched through repos.a2a Arc<dyn Trait>;
 use serde_json::{from_value, json, to_value, Map, Value};
@@ -426,8 +425,11 @@ impl A2AServer {
     /// authenticated, dynamic variant of the discovery card (the public
     /// card's skills are the curated static subset).
     ///
-    /// Listed per caller: a tool only a group's human coach can use is a skill
-    /// for a coach alone (carnet#1426).
+    /// Listed per caller, by the one access predicate the call path refuses
+    /// with (carnet#1511): the agent's grant, the A2A transport and the live
+    /// role of the account the principal acts for, which for a
+    /// client-credentials client is its registering user (Q17). A static
+    /// skill that names a tool the predicate withholds goes too.
     async fn handle_extended_card(
         &self,
         request: A2ARequest,
@@ -438,16 +440,21 @@ impl A2AServer {
         };
 
         let mut card = AgentCard::new(resources.ctx.oauth2_server_config());
+        let registry = resources.tool_runtime.tool_registry();
+        let caller = Caller {
+            role: CallerRole::resolve(resources.ctx.repos(), principal.user_id).await,
+            grant: &principal.scopes,
+            transport: Some(Transport::A2a),
+        };
+        card.skills.retain(|skill| {
+            registry
+                .get(&skill.id)
+                .is_none_or(|tool| tool_access::withheld(tool.as_ref(), &caller).is_none())
+        });
         let public_skill_ids: Vec<String> =
             card.skills.iter().map(|skill| skill.id.clone()).collect(); // Safe: String ownership for dedup set
-        let registry = resources.tool_runtime.tool_registry();
-        let mut schemas = registry.user_visible_schemas();
-        let is_coach =
-            coach_listing::is_human_coach(resources.ctx.repos(), principal.user_id).await;
-        coach_listing::retain_for_audience(registry, &mut schemas, is_coach);
-        // An A2A agent is outside Dravr's own surfaces: a tool kept on them is
-        // not offered as a skill, and is refused if the agent names it anyway.
-        first_party_tools::retain_served_over(registry, &mut schemas, Transport::A2a);
+        let mut schemas = registry.all_schemas();
+        tool_access::retain_offered(registry, &mut schemas, &caller);
         deployment_tools::retain_answerable(
             registry,
             &mut schemas,

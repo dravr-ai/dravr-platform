@@ -65,8 +65,7 @@ use uuid::Uuid;
 
 use crate::coach_seat::TurnSeat;
 use crate::deployment_tools;
-use crate::first_party_tools;
-use crate::scopes::missing_scope;
+use crate::tool_access::{self, Caller, CallerRole};
 use crate::tool_selection::ToolSelectionService;
 use crate::{registry::ToolRegistry, schema_canonical::to_canonical_value};
 
@@ -303,12 +302,19 @@ impl SwitchedOff {
 
 /// The chat-callable tools one turn offers, in registry order.
 ///
-/// Less those `seat` withholds, those switched off for the caller, those
-/// kept on Dravr's own surfaces when the turn is served over `transport`
-/// outside them ([`first_party_tools::withholds`]; `None` is external, as at
-/// dispatch), and those the deployment can only fail
-/// ([`deployment_tools::answers_with`]: a food-database tool with no USDA key),
-/// the same predicate the MCP and A2A listings read.
+/// Less those `seat` withholds, those switched off for the caller, those the
+/// one access predicate withholds over `transport` under `grant`
+/// ([`tool_access::withheld`]; `None` is external, as at dispatch), and those
+/// the deployment can only fail ([`deployment_tools::answers_with`]: a
+/// food-database tool with no USDA key), the same predicates the MCP and A2A
+/// listings read.
+///
+/// A chat turn is decided for a caller with no role: on Dravr's own surfaces
+/// the role changes nothing a chat turn offers (chat never offers an admin
+/// tool, and the coach tools' own gates decide there), and a turn served over
+/// an API key or the A2A text turn offers neither the coach tools nor the
+/// tools kept in the app, as the dispatch of such a turn's agent was built
+/// to expect. The coach and admin lists are the MCP and A2A tool listings'.
 ///
 /// The one set a turn's declarations, its names index and its loopback listing
 /// are built from, so the three cannot disagree, and none offers a tool the
@@ -330,11 +336,18 @@ pub fn offered_schemas(
         .filter(|schema| {
             !switched_off.contains(&schema.name)
                 && !seat.withholds(registry, &schema.name)
-                && !first_party_tools::withholds(registry, &schema.name, transport)
                 && deployment_tools::answers_with(registry, &schema.name, deployment)
-                && registry
-                    .get(&schema.name)
-                    .is_none_or(|tool| missing_scope(grant, tool.capabilities()).is_none())
+                && registry.get(&schema.name).is_none_or(|tool| {
+                    tool_access::withheld(
+                        tool.as_ref(),
+                        &Caller {
+                            role: CallerRole::default(),
+                            grant,
+                            transport,
+                        },
+                    )
+                    .is_none()
+                })
         })
         .collect()
 }
